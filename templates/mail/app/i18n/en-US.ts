@@ -24,6 +24,9 @@ const messages = {
       extensions: "Extensions",
       noteToSelf: "Note to Self",
     },
+    inbox: {
+      syncing: "Syncing inbox…",
+    },
     toolbar: {
       toggleMenu: "Toggle menu",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Pin sidebar",
       unpinSidebar: "Unpin sidebar",
+      closeSidebar: "Close sidebar",
       settings: "Settings",
     },
     search: {
@@ -311,6 +315,7 @@ const messages = {
       missingGoogleCredentials:
         "Could not find client_id and client_secret in JSON",
       failedToSaveCredentials: "Failed to save credentials",
+      someAccountsFailed: "Couldn't load: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Connect your Google account",

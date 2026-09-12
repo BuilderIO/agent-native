@@ -337,8 +337,8 @@ const messages = {
       database: "資料庫",
       chatAcrossApps: "跨應用程式聊天",
       chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
-      overviewPromptPlaceholder: "向 Dispatch 提問...",
-      chatPromptPlaceholder: "詢問 Dispatch...",
+      overviewPromptPlaceholder: "想讓 Dispatch 幫你做什麼？",
+      chatPromptPlaceholder: "告訴 Dispatch 你想完成什麼…",
       browserChatUnavailableTitle: "瀏覽器聊天工作階段無法使用",
       browserChatUnavailableDescription:
         "請從 Agent-Native 瀏覽器擴充功能重新連線。",

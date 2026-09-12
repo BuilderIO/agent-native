@@ -23,44 +23,43 @@ Read the relevant skill before deeper work:
 - Use actions for reads, labels, settings, drafts, queued drafts, filters,
   scheduling, refresh, and CRM context. Don't edit mail SQL directly unless a
   skill or action calls for it.
-- Use real Gmail when connected, otherwise synthetic `local-emails`; call
-  actions the same way and never claim fallback data or sends touched the real inbox.
-- Interactive sends require explicit user approval. Draft or queue for review by
-  default; automation-triggered sends remain approval-gated unless the owner
-  opts into Mail's "Allow automations to send emails automatically" setting.
-  Use `queue-email-draft` for teammate or Slack-originated send requests.
+- Use real Gmail when connected, else synthetic `local-emails`; call actions
+  the same way and never claim fallback data touched the real inbox.
+- Interactive sends require explicit approval; draft or queue by default.
+  Automation sends stay approval-gated unless the owner enables Mail's "Allow
+  automations to send emails automatically" setting. Use `queue-email-draft`
+  for teammate/Slack send requests.
 - Resolve people with `find-contact` before drafting or sending. Never guess an
   address pattern; if it returns zero matches, tell the user.
 - Read `get-mail-settings` before drafting. Use the configured `signature`
   exactly when present; never invent one from the user's name or profile.
-- Never edit the email store to change a draft the user is currently composing;
-  use `manage-draft` or the `compose-{id}` application-state key.
+- Never edit the email store to change a draft in progress; use `manage-draft`
+  or the `compose-{id}` application-state key.
 - After backend mail mutations (archive, trash, star, mark-read, move, send),
   call `refresh-list` unless the action itself writes `refresh-signal`.
-- Inventory reads report per-account success, empty result, exhaustion, or
-  error. Never describe partial account coverage as complete.
-- Provider-specific actions are shortcuts, not capability limits: escalate to
-  `provider-api-catalog` / `-docs` / `-request` when the exact endpoint, filter,
-  pagination, or API version matters.
+- Inventory reads report per-account success, empty, exhaustion, or error.
+  Never describe partial coverage as complete.
+- Provider-specific actions are shortcuts, not limits: escalate to
+  `provider-api-catalog`/`-docs`/`-request` for exact endpoints, filters, or
+  API versions.
 - `get-hubspot-contact` is the only first-class CRM action; Gong, Pylon, and
-  Apollo are UI-only in Mail — say so rather than implying
-  `provider-api-request` reaches them. The agent can't configure aliases or
-  provider API keys (Settings UI only).
-- Use `view-screen` when the active thread, message, draft, or queue item is
-  unclear, and `get-thread` for conversation context rather than screen text.
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
-  Builder/internal data, customer data, or credential-looking literals. Use
-  secrets/OAuth/runtime configuration and obvious placeholders in examples.
+  Apollo are UI-only — say so rather than implying `provider-api-request`
+  reaches them. Aliases and provider API keys are Settings-UI only.
+- Use `view-screen` when the active thread/message/draft/queue item is
+  unclear; use `get-thread` for conversation context, not screen text.
+- Store large files/blobs in configured file/blob storage, not SQL — no
+  base64 or `data:` URLs in app tables, `application_state`, `settings`, or
+  `resources`; persist URLs, ids, or handles instead.
+- Never hardcode API keys, tokens, secrets, or credential-looking literals.
+  Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Action Map
 
 | Action | Purpose |
 | --- | --- |
+| `list-inbox-threads` | Inbox tab bar, counts, and rows from one synced-store partition; other views/search use `list-emails`/`search-emails`. |
+| `resync-inbox` | Force an immediate inbox resync from Gmail, bypassing the freshness window. |
 | `search-emails` / `list-emails` | Query mail by view/query. |
 | `list-labels` | List mailbox labels. |
 | `get-email` / `get-thread` | Full body/metadata for a message or thread. |
@@ -87,9 +86,9 @@ Read the relevant skill before deeper work:
 
 - `navigation` exposes inbox/thread/draft-queue views and selected ids.
 - `compose-{id}` entries are open compose tabs and draft content.
-- `navigate` moves the UI via `view`, `threadId`, `settingsSection`,
-  `queuedDraftId`, or `composeDraftId`; the accepted values are listed in
-  `inbox-reads-and-triage`.
+- `navigate` moves the UI via `view`, `tab` (inbox tab id; `label`/`filter`
+  are aliases), `threadId`, `settingsSection`, `queuedDraftId`, or
+  `composeDraftId`; accepted values are listed in `inbox-reads-and-triage`.
 - `settingsSection: "ai-filter"` opens the AI filter controls and review ledger.
 
 ## Source Changes

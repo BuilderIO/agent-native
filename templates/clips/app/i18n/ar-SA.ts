@@ -1836,6 +1836,7 @@ const messages = {
       "{{consoleCount}} مشكلات في وحدة التحكم · {{networkCount}} طلبات فاشلة",
     noFailures: "لم يتم اكتشاف إخفاقات",
     failuresPresent: "تم اكتشاف إخفاقات في المتصفح",
+    unviewedCount: "{{count}} غير مقروءة",
     captureSuccessful: "تم التقاط التشخيصات بنجاح",
     capturedFrom: "تم الالتقاط من {{source}}",
     browserCapture: "التقاط المتصفح",

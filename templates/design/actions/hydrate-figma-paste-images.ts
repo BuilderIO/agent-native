@@ -25,6 +25,10 @@ import {
   hydrateImageRefsInHtml,
   loadHydratableFile,
 } from "../server/lib/figma-image-hydration.js";
+import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+} from "../server/lib/figma-import-errors.js";
 import { resolveImageFillRefs } from "../server/lib/figma-node-import.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 
@@ -46,8 +50,9 @@ export default defineAction({
       await loadHydratableFile(fileId);
 
     if (!figmaFileKey) {
-      throw new Error(
+      failFigmaImport(
         `No Figma file key found for file ${fileId}. This file may not have been imported via a Figma clipboard paste.`,
+        FIGMA_IMPORT_ERROR_CODES.targetInvalid,
       );
     }
 

@@ -335,7 +335,6 @@ button[title="Open agent sidebar"] {
 .slide-content [data-editing-block="true"] {
   outline: 2px solid #609ff8;
   outline-offset: 4px;
-  border-radius: 2px;
   cursor: text;
 }
 .slide-content [data-editing-block="true"]:focus {
@@ -1103,6 +1102,20 @@ button[title="Open agent sidebar"] {
   color: inherit;
 }
 
+/* The same boundary for type metrics. The fallback paragraph and list sizes
+   are for markdown decks too; a bare-text block the editor wraps in <p> has
+   to render exactly as it did before the edit, while editing and after. */
+.slide-content[data-slide-content-scope] p {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.slide-content[data-slide-content-scope] :is(ul, ol) {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 /* Prevent slide-content defaults from overriding FMD styles */
 .slide-content .fmd-slide p,
 .slide-content .fmd-slide li {
@@ -1452,67 +1465,42 @@ button[title="Open agent sidebar"] {
   background: rgba(96, 159, 248, 0.35);
 }
 
-/* The shared editor supplies the Content editing behavior. Its surface stays
-   transparent so the slide's own background, geometry, and inherited styles
-   remain the source of truth. */
-.slide-content .slide-rich-editor-host,
-.slide-content .slide-shared-rich-editor,
-.slide-content .slide-shared-rich-editor .an-rich-md-wrapper {
-  width: 100%;
-  min-width: 0;
-  min-height: 100%;
-  background: transparent;
+/* The shared editor supplies the Content editing behavior and renders
+   unstyled, so the slide element's own layout and inherited text styles are
+   the only ones that apply while editing. Nothing in edit mode may restyle
+   text; the element must look identical selected and unselected. */
+.slide-content .slide-rich-editor-host {
+  display: contents;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose {
-  min-height: 100%;
-  outline: none;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
-  text-align: inherit;
-  white-space: pre-wrap;
+/* Editing one list item renders it inside its own list, so hide the outer
+   marker and let the inner one take its place. */
+.slide-content .fmd-slide li[data-editing-block="true"] {
+  list-style: none;
 }
 
 .slide-content
-  .slide-shared-rich-editor
-  .an-rich-md-prose
-  :is(p, h1, h2, h3, h4, blockquote, ul, ol) {
-  margin: 0;
-  min-height: 0;
-  color: inherit;
-  font-family: inherit;
-  letter-spacing: inherit;
+  .fmd-slide
+  li[data-editing-block="true"]
+  .an-rich-md-unstyled
+  > :is(ul, ol) {
+  padding-left: 0;
+  padding-inline-start: 0;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose ul,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose ol {
-  padding-left: 1.5em;
-  list-style-position: outside;
-}
-
-.slide-content
-  .slide-shared-rich-editor
-  .an-rich-md-prose
-  ul[style*="--slide-legacy-list"] {
+/* Older decks style bullets as flex rows with a marker span; they are edited
+   as a semantic list that draws the same marker. */
+.slide-content .slide-shared-rich-editor ul[style*="--slide-legacy-list"] {
   padding-left: 0;
   list-style: none;
 }
 
-.slide-content
-  .slide-shared-rich-editor
-  .an-rich-md-prose
-  ul[style*="--slide-legacy-list"]
-  > li {
+.slide-content .slide-shared-rich-editor ul[style*="--slide-legacy-list"] > li {
   list-style: none;
 }
 
 .slide-content
   .slide-shared-rich-editor
-  .an-rich-md-prose
   ul[style*="--slide-legacy-list"]
   > li::before {
   content: var(--slide-legacy-marker-content, "•");
@@ -1523,65 +1511,31 @@ button[title="Open agent sidebar"] {
   flex-shrink: 0;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose li {
-  display: list-item;
-  margin: 0;
-  padding: 0;
-}
-
-.slide-content .slide-shared-rich-editor .an-rich-md-prose li p {
-  margin: 0;
-  font-size: inherit;
-}
-
-.slide-content .fmd-slide li[data-editing-block="true"] {
-  list-style: none;
-}
-
-.slide-content
-  .fmd-slide
-  li[data-editing-block="true"]
-  > .slide-rich-editor-host
-  .an-rich-md-prose
-  > :is(ul, ol) {
-  padding-left: 0;
-  padding-inline-start: 0;
-}
-
-.slide-content .fmd-slide h1,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h1 {
+.slide-content .fmd-slide h1 {
   font-size: 2em;
   font-weight: 700;
   line-height: 1.25;
 }
 
-.slide-content .fmd-slide h2,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h2 {
+.slide-content .fmd-slide h2 {
   font-size: 1.5em;
   font-weight: 600;
   line-height: 1.375;
 }
 
-.slide-content .fmd-slide h3,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h3 {
+.slide-content .fmd-slide h3 {
   font-size: 1.25em;
   font-weight: 500;
   line-height: 1.5;
 }
 
-.slide-content .fmd-slide h4,
-.slide-content .slide-shared-rich-editor .an-rich-md-prose h4 {
+.slide-content .fmd-slide h4 {
   font-size: 1em;
   font-weight: 500;
   line-height: 1.5;
 }
 
-.slide-content .slide-shared-rich-editor .an-rich-md-prose code {
-  padding: 0;
-  background: transparent;
-  color: inherit;
-}
-
+/* Slides has its own toolbar; the shared bubble toolbar stays hidden. */
 .slide-content .slide-shared-rich-editor .an-rich-md-bubble-toolbar {
   display: none;
 }

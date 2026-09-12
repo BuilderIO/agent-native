@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
+import { readContentLandingRecovery } from "@/lib/content-landing";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
 import {
   landingOptimisticTitle,
@@ -65,6 +66,8 @@ export default function HomeRoute() {
   const lastLocationHint = useLastLocationTitleHint();
   const lastLocationHintRef = useRef(lastLocationHint);
   lastLocationHintRef.current = lastLocationHint;
+  const recoveredDocumentId =
+    readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
   const resolveLanding = useActionMutation<
     ContentLandingResult,
     Record<string, never>
@@ -75,7 +78,9 @@ export default function HomeRoute() {
     startedRef.current = true;
     try {
       const result = await resolveLanding.mutateAsync({});
-      if (result.fallbackReason === "saved-document-unavailable") {
+      if (recoveredDocumentId) {
+        toast.info(t("landing.requestedPageUnavailable"));
+      } else if (result.fallbackReason === "saved-document-unavailable") {
         toast.info(t("landing.previousPageUnavailable"));
       }
       // Hand the known title to the editor skeleton only when the resolver
@@ -97,7 +102,14 @@ export default function HomeRoute() {
       // starts a fresh resolver attempt rather than pretending arrival worked.
       console.error("Failed to resolve the Content landing page", error);
     }
-  }, [location.hash, location.search, navigate, resolveLanding, t]);
+  }, [
+    location.hash,
+    location.search,
+    navigate,
+    recoveredDocumentId,
+    resolveLanding,
+    t,
+  ]);
 
   useEffect(() => {
     void openLanding();

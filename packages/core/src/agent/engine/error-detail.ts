@@ -118,6 +118,44 @@ export function isContextOverflowMessage(message: string): boolean {
 export const BUILDER_GATEWAY_INTERNAL_ERROR_CODE =
   "builder_gateway_internal_error";
 
+/**
+ * A provider refusal with no structured reason: the gateway relayed an
+ * upstream 403 whose body was empty or a bare "Forbidden". Prod shows these
+ * arriving in bursts across unrelated users, usually right after a 429 run,
+ * for credentials that worked seconds earlier — load-shedding, not a revoked
+ * key. Classifying them as a credential rejection told users to reconnect a
+ * working provider and ended the turn on the first attempt; this code keeps
+ * them on the retry-with-backoff lane next to 429/529.
+ */
+export const PROVIDER_TRANSIENT_REJECTION_ERROR_CODE =
+  "provider_transient_rejection";
+
+/**
+ * Terminal code for a turn that stayed rate limited after the engine's short
+ * retries, one cooled-down continuation, and the fallback model. The client
+ * renders it with a manual retry and never auto-continues it, so a sustained
+ * provider limit cannot become a multi-minute chain of identical requests.
+ */
+export const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
+
+/**
+ * A 403 whose "reason" is only an SDK/proxy status echo — an empty body, a
+ * bare "Forbidden", or the AI SDK's "403 status code (no body)" — carries no
+ * signal to act on, unlike a structured gateway code or a message that names
+ * a credential. Shared by `classifyProviderError` below and the Builder
+ * engine's own 403 handling so both engines classify the identical wording as
+ * transient rather than disagreeing on which "Forbidden" means what.
+ */
+export function isBareProviderRejectionMessage(message: string): boolean {
+  const trimmed = message.trim();
+  return (
+    trimmed === "" ||
+    /^forbidden$/i.test(trimmed) ||
+    /^403 status code(?: \(no body\))?$/i.test(trimmed) ||
+    /^builder gateway returned 403$/i.test(trimmed)
+  );
+}
+
 const BUILDER_GATEWAY_ERROR_ID_PATTERN = /\berror id:\s*([0-9a-f]+)\b/i;
 const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
 const BUILDER_GATEWAY_ERROR_PREFIX_PATTERN =
@@ -186,7 +224,7 @@ const MAX_RETRY_AFTER_MS = 60_000;
  * HTTP response: the raw error, the AI SDK's unwrapped `RetryError.lastError`,
  * or a plain `.cause`. Checked in that order so the most specific source wins.
  */
-function extractRetryAfterMs(err: unknown): number | undefined {
+export function extractRetryAfterMs(err: unknown): number | undefined {
   const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
   for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
     const headers = (source as { responseHeaders?: unknown } | null)
@@ -255,10 +293,27 @@ export function classifyProviderError(
           : stringifyUnknown(providerError),
       ));
 
+  // A 403 with a real status but no reason worth reading — the gateway
+  // load-shedding signature, not a revoked credential. Checked against both
+  // the cause chain and the raw provider message for the same reason
+  // `isConnectionError` is. This helper also serves the direct provider
+  // adapters, whose SDKs can say `isRetryable: false` outright; that verdict
+  // outranks the inference, so an opaque but explicitly final 403 from a
+  // direct provider keeps `http_403` and the credential-rejected lane.
+  const isBareRejection =
+    statusCode === 403 &&
+    providerError?.isRetryable !== false &&
+    (isBareProviderRejectionMessage(described) ||
+      isBareProviderRejectionMessage(
+        typeof providerError?.message === "string"
+          ? providerError.message
+          : stringifyUnknown(providerError),
+      ));
+
   const providerRetryable =
     typeof providerError?.isRetryable === "boolean"
       ? providerError.isRetryable
-      : isConnectionError || timedOut
+      : isConnectionError || isBareRejection || timedOut
         ? true
         : undefined;
 
@@ -267,9 +322,16 @@ export function classifyProviderError(
   return {
     // Tag every known status as `http_<status>` (not just 401) so a rate limit
     // surfaces as `http_429`: the structured statusCode drives turn-level
-    // retries, but run-level continuation keys off the errorCode.
+    // retries, but run-level continuation keys off the errorCode. A bare 403
+    // is the one status that gets a different code instead of `http_403`,
+    // because that code is the client's credential-rejected signal.
     ...(statusCode !== undefined
-      ? { errorCode: `http_${statusCode}`, statusCode }
+      ? isBareRejection
+        ? {
+            errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+            statusCode,
+          }
+        : { errorCode: `http_${statusCode}`, statusCode }
       : isConnectionError || timedOut
         ? { errorCode: "provider_network_error" }
         : // Nothing structured — fall back to reading the message, so a

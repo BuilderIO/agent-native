@@ -32,6 +32,8 @@ const messages = {
     newChat: "새 채팅",
     optionsFor: "옵션 대상",
     pinChat: "채팅 고정",
+    pinned: "고정됨",
+    recents: "최근",
     renameChat: "채팅 이름 바꾸기",
     renameFailed: "이름 변경 실패",
     renameThread: "스레드 이름 바꾸기",
@@ -39,6 +41,7 @@ const messages = {
     suggestionCapabilities: "이 앱은 무엇을 할 수 있나요?",
     suggestionCustomize: "이 앱을 맞춤 설정하도록 도와줘",
     unpinChat: "채팅 고정 해제",
+    untitledChat: "제목 없는 채팅",
   },
   navigation: {
     chat: "채팅",

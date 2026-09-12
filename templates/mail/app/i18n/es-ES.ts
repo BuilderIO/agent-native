@@ -24,6 +24,9 @@ const messages = {
       extensions: "Extensiones",
       noteToSelf: "Nota para mí",
     },
+    inbox: {
+      syncing: "Sincronizando bandeja...",
+    },
     toolbar: {
       toggleMenu: "Alternar menú",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Fijar barra lateral",
       unpinSidebar: "Desfijar barra lateral",
+      closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
     },
     search: {
@@ -314,6 +318,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "No se pudo cargar: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Conecta tu cuenta de Google",

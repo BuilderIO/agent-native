@@ -89,7 +89,7 @@ Sete recursos, todos localizados no mesmo banco de dados de espaço de trabalho 
 
 | Capacidade                         | O que isso oferece                                                                                  | Configure                                                                   |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **Caixa de entrada central**       | Slack, e-mail, Telegram, WhatsApp, todos alcançam um agente com memória compartilhada e ferramentas | **Configurações → Mensagens** ([Messaging](/docs/messaging))                |
+| **Caixa de entrada central**       | Slack, e-mail, Telegram, WhatsApp, todos alcançam um agente com memória compartilhada e ferramentas | **Administração → Mensagens** ([Messaging](/docs/messaging))                |
 | **Cofre secreto**                  | Armazene cada credencial uma vez; gire em um só lugar em todos os apps                              | **Vault** + modo de acesso (todos os aplicativos ou manual)                 |
 | **Delegação entre aplicativos**    | Encaminha uma solicitação para o aplicativo especializado certo via A2A e responde no tópico        | Automático ([A2A](/docs/a2a-protocol))                                      |
 | **Gateway MCP unificado**          | Um conector MCP para agentes externos alcança todos os aplicativos de espaço de trabalho concedidos | [External Agents](/docs/external-agents)                                    |
@@ -101,7 +101,7 @@ Cada um é detalhado abaixo.
 
 ### Caixa de entrada central
 
-Slack, e-mail, Telegram e WhatsApp fluem para o circuito de agente do Dispatch. Conecte cada plataforma uma vez em **Configurações → Mensagens** e cada canal chega ao mesmo agente com a mesma memória e ferramentas. Um DM Slack e um e-mail para `agent@yourcompany.com` acabam como duas superfícies em um histórico de conversa, e não como dois bots desconectados. Consulte [Messaging](/docs/messaging) para obter as credenciais e webhook URLs.
+Slack, e-mail, Telegram e WhatsApp fluem para o circuito de agente do Dispatch. Conecte cada plataforma uma vez em **Administração → Mensagens** e cada canal chega ao mesmo agente com a mesma memória e ferramentas. Um DM Slack e um e-mail para `agent@yourcompany.com` acabam como duas superfícies em um histórico de conversa, e não como dois bots desconectados. Consulte [Messaging](/docs/messaging) para obter as credenciais e webhook URLs.
 
 ### Cofre secreto
 
@@ -256,7 +256,7 @@ Todo o pipeline foi criado para sobreviver em todos os hosts sem servidor (Netli
 Três passos curtos:
 
 1. **Crie um espaço de trabalho que inclua o Dispatch.** Execute `npx @agent-native/core@latest create my-company-platform` e escolha `dispatch` junto com os modelos de domínio desejados. O Dispatch fica em `apps/dispatch` e o restante dos aplicativos fica ao lado dele. Consulte [Multi-App Workspace](/docs/multi-app-workspace).
-2. **Conectar mensagens.** Abra **Configurações → Mensagens** no Dispatch e clique em conectar para Slack, Email, Telegram ou WhatsApp. Os campos do formulário correspondem às variáveis de ambiente no documento [Messaging](/docs/messaging). Consulte-o para saber o que cada plataforma precisa.
+2. **Conectar mensagens.** Abra **Administração → Mensagens** no Dispatch e clique em conectar para Slack, Email, Telegram ou WhatsApp. Os campos do formulário correspondem às variáveis de ambiente no documento [Messaging](/docs/messaging). Consulte-o para saber o que cada plataforma precisa.
 3. **Adicione outros aplicativos.** Execute `npx @agent-native/core@latest add-app` na raiz do espaço de trabalho para cada aplicativo de domínio. Eles aparecem automaticamente como pares A2A no `list-workspace-apps` do Dispatch — sem registro manual, sem edição de cartão de agente. O Dispatch começará a delegar a eles assim que seus cartões de agente estiverem acessíveis.
 
 Em seguida, adicione credenciais ao cofre e (opcionalmente) crie recursos de espaço de trabalho global em **Recursos**. As chaves do cofre ainda podem ser sincronizadas ou concedidas dependendo do modo de acesso; Os recursos do espaço de trabalho de todos os aplicativos são herdados automaticamente. Se você precisar de isolamento secreto por aplicativo, altere a configuração de acesso ao cofre para manual antes de conceder aplicativos individuais.

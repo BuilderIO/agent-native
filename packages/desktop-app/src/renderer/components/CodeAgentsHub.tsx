@@ -1071,6 +1071,10 @@ export default function CodeAgentsHub({
     setHasChatFirstActiveChat(false);
     returnToChatFirstChats();
   }, [returnToChatFirstChats]);
+  const openChatFirstToolbarNewChat = useCallback(() => {
+    openChatFirstNewChat();
+    window.dispatchEvent(new Event("agent-native:desktop-new-chat"));
+  }, [openChatFirstNewChat]);
   const handleTerminalPromptSubmit = useCallback((prompt: string) => {
     const request: DesktopTerminalPromptRequest = {
       id: ++terminalPromptSequence.current,
@@ -2918,14 +2922,21 @@ export default function CodeAgentsHub({
             !showTerminalSurface &&
             !chatFirstAllAppsOpen &&
             !scheduledTasksOpen &&
+            hasChatFirstActiveChat &&
             !chatFirstAppSelected ? (
               <DesktopChatFirstSurfaceMenu
                 sidebarOpen={chatFirstSurfacePanel.open}
-                onToggleSidebar={chatFirstSurfacePanel.toggle}
+                onToggleSidebar={
+                  canToggleChatFirstSurfacePanel
+                    ? chatFirstSurfacePanel.toggle
+                    : undefined
+                }
                 onNewCliTab={handleNewCliTab}
-                onNewUiTab={openChatFirstNewChat}
+                onNewUiTab={openChatFirstToolbarNewChat}
                 onClose={
-                  hasChatFirstActiveChat ? openChatFirstNewChat : undefined
+                  hasChatFirstActiveChat
+                    ? openChatFirstToolbarNewChat
+                    : undefined
                 }
               />
             ) : undefined

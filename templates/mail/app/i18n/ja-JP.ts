@@ -24,6 +24,9 @@ const messages = {
       extensions: "拡張機能",
       noteToSelf: "自分へのメモ",
     },
+    inbox: {
+      syncing: "受信トレイを同期中…",
+    },
     toolbar: {
       toggleMenu: "メニューを切り替え",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "サイドバーを固定",
       unpinSidebar: "サイドバーの固定を解除",
+      closeSidebar: "サイドバーを閉じる",
       settings: "設定",
     },
     search: {
@@ -314,6 +318,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "読み込めません: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google アカウントを接続",

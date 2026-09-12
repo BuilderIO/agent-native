@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { appBasePath } from "./api-path.js";
+import { appBasePath, isWorkspaceAppPath } from "./api-path.js";
 import {
   consumeAgentChatHomeHandoff,
   isAgentChatHomeHandoffActive,
@@ -88,6 +88,7 @@ function localPathFromAnchor(anchor: HTMLAnchorElement): string | null {
   try {
     const url = new URL(anchor.href);
     if (url.origin !== window.location.origin) return null;
+    if (isWorkspaceAppPath(url.pathname)) return null;
     return stripBasePath(`${url.pathname}${url.search}${url.hash}`);
   } catch {
     return null;

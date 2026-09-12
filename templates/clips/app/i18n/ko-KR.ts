@@ -1835,6 +1835,7 @@ const messages = {
       "콘솔 문제 {{consoleCount}}개 · 실패한 요청 {{networkCount}}개",
     noFailures: "실패가 감지되지 않음",
     failuresPresent: "브라우저 문제가 감지됨",
+    unviewedCount: "읽지 않음 {{count}}개",
     captureSuccessful: "진단 정보 캡처 완료",
     capturedFrom: "{{source}}에서 캡처",
     browserCapture: "브라우저 캡처",

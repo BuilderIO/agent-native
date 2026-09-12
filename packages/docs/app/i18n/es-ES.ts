@@ -58,6 +58,10 @@ const esES = {
     draftLabel: "Borrador",
     draftDescription:
       "Esta página está en construcción. El contenido puede estar incompleto o sujeto a cambios antes de su publicación.",
+    translationLabel: "Traducción automática",
+    translationDescription:
+      "Esta página se tradujo automáticamente y puede no ser del todo precisa.",
+    translationViewOriginal: "Ver el original en inglés",
   },
   search: {
     dialogLabel: "Buscar documentación",
@@ -2275,6 +2279,7 @@ const esES = {
     dropInAgent: "Agent embebible",
     componentApi: "API de componentes",
     nativeChatUi: "UI de chat nativa",
+    agentkit: "AgentKit",
     generativeUi: "Interfaz generativa",
     realTimeCollaboration: "Colaboración en tiempo real",
     agentResourcesOverview: "Descripción general de los recursos del agente",
@@ -2377,10 +2382,11 @@ const esES = {
     designCollaborationAndFullApps: "Revisión y entrega",
     designDevelopers: "Guía para desarrolladores",
     dispatchOverview: "Visión general",
-    dispatchMessagingRouting: "Mensajería y enrutamiento",
-    dispatchOperations: "Consola del operador",
-    dispatchVaultIntegrations: "Secretos e integraciones",
+    dispatchFeatures: "Funciones",
+    dispatchAgent: "Hablar con el Agent",
+    dispatchIntegrations: "Uso entre apps",
     dispatchDevelopers: "Guía para desarrolladores",
+    dispatchReference: "Referencia de acciones y datos",
     forms: "Formularios",
     formsOverview: "Visión general",
     formsFeatures: "Funciones",

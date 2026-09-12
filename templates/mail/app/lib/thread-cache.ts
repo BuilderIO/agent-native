@@ -86,7 +86,11 @@ function retryDelayFromMessage(message: string): number {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function noteFetchError(message: string, status?: number) {
+function noteFetchError(
+  message: string,
+  status?: number,
+  retryAfterMs?: number,
+) {
   if (status !== undefined && isAuthFailureStatus(status)) {
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
@@ -94,10 +98,19 @@ function noteFetchError(message: string, status?: number) {
     );
     return;
   }
-  if (isRateLimitMessage(message)) {
+  // The server signals a Gmail quota cooldown via 429 + Retry-After; the
+  // message is deliberately jargon-free, so status/header take priority
+  // over the message regex, which stays as a fallback.
+  if (status === 429 || isRateLimitMessage(message)) {
+    const delay =
+      typeof retryAfterMs === "number" &&
+      Number.isFinite(retryAfterMs) &&
+      retryAfterMs > 0
+        ? Math.min(Math.max(retryAfterMs, 15_000), 5 * 60_000)
+        : retryDelayFromMessage(message);
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
-      Date.now() + retryDelayFromMessage(message),
+      Date.now() + delay,
     );
   }
 }
@@ -125,9 +138,19 @@ async function fetchThread(
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const message = body?.error || `Request failed (${res.status})`;
-    noteFetchError(message, res.status);
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    const retryAfterMs =
+      Number.isFinite(retryAfter) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+        ? retryAfter * 1000
+        : undefined;
+    noteFetchError(message, res.status, retryAfterMs);
     const error = new Error(message);
-    (error as Error & { status?: number }).status = res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).status =
+      res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).retryAfterMs =
+      retryAfterMs;
     throw error;
   }
   return res.json();

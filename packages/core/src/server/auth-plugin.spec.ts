@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   autoMountAuth: vi.fn(),
+  getSession: vi.fn(),
   markFrameworkRoutesReadyBeforeBootstrap: vi.fn(),
   getH3App: vi.fn(),
   markDefaultPluginProvided: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./auth.js", () => ({
   autoMountAuth: mocks.autoMountAuth,
+  getSession: mocks.getSession,
 }));
 
 vi.mock("./framework-request-handler.js", () => ({
@@ -90,6 +92,7 @@ describe("createAuthPlugin", () => {
           "/login",
           "/signup",
         ],
+        excludedPaths: ["/_agent-native/auth/session"],
       },
     );
 

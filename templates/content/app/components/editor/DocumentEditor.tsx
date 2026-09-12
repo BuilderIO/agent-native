@@ -109,7 +109,11 @@ import {
   useOptimisticDocumentTitle,
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
-import { rememberContentLandingDocument } from "@/lib/content-landing";
+import {
+  CONTENT_LANDING_PATH,
+  contentLandingRecoveryTarget,
+  rememberContentLandingDocument,
+} from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import {
@@ -458,7 +462,7 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-function DocumentUnavailable({ onOpenHome }: { onOpenHome?: () => void }) {
+function DocumentUnavailable() {
   const t = useT();
   const sidebarTrigger = useSidebarTrigger();
 
@@ -480,11 +484,6 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome?: () => void }) {
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t("empty.documentUnavailableDescription")}
           </p>
-          {onOpenHome ? (
-            <Button className="mt-6" variant="outline" onClick={onOpenHome}>
-              {t("empty.goToDocuments")}
-            </Button>
-          ) : null}
         </div>
       </div>
     </div>
@@ -624,11 +623,27 @@ export function PageEditorSurface({
     }
   }
 
+  const landingRecovery =
+    loadState.view === "unavailable"
+      ? contentLandingRecoveryTarget({ host, documentId })
+      : null;
+  const landingRecoveryDocumentId =
+    landingRecovery?.state.unavailableDocumentId ?? null;
+  useEffect(() => {
+    if (!landingRecoveryDocumentId) return;
+    void navigate(CONTENT_LANDING_PATH, {
+      replace: true,
+      state: { unavailableDocumentId: landingRecoveryDocumentId },
+    });
+  }, [landingRecoveryDocumentId, navigate]);
+
   if (loadState.view === "unavailable") {
-    return (
-      <DocumentUnavailable
-        onOpenHome={host === "page" ? () => navigate("/home") : undefined}
-      />
+    // The redirect above owns the full-page host; showing the skeleton keeps
+    // that one frame from reading as a dead end the user has to click out of.
+    return landingRecovery ? (
+      <DocumentEditorSkeleton />
+    ) : (
+      <DocumentUnavailable />
     );
   }
 

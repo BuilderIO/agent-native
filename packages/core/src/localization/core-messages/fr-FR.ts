@@ -149,6 +149,7 @@ const messages: AgentChatTranslation = {
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
+  "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
   "composer.subAgentReadOnly":
     "Envoyez des messages au chat de l’orchestrateur ; ce sous-agent s’exécute automatiquement",
@@ -225,6 +226,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Retirer de la file d’attente",
   "queue.sendNow": "Envoyer maintenant",
   "queue.sendNowHint": "Envoyer maintenant (arrête la réponse actuelle)",
+  "queue.steer": "Orienter",
+  "queue.steerHint": "Envoyer ce message ensuite",
+  "queue.moreActions": "Autres actions",
+  "queue.moveToTop": "Déplacer en haut",
   "recovery.connectingBuilder": "Connexion à Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
@@ -619,6 +624,8 @@ const messages: AgentChatTranslation = {
     "Le fournisseur du modèle est injoignable. Vérifiez votre connexion et réessayez.",
   "errorMessages.providerRateLimit":
     "Le fournisseur du modèle limite temporairement cette discussion. Patientez un instant, puis réessayez.",
+  "errorMessages.providerTransientRejection":
+    "Le fournisseur d'IA a temporairement refusé cette demande. Cela se résout généralement en moins d'une minute : réessayez.",
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
   "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
   "feedback.inaccurate": "Inexact",

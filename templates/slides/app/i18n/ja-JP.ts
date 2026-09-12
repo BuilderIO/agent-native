@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
+    labs: "Labs",
+    labsIntro: "リリース前に実験的な機能をプレビューできます。",
+    labLayoutOverflowWarningDescription:
+      "エディターでレイアウトのはみ出し警告を表示します。",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
       "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
@@ -294,6 +298,10 @@ const messages = {
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
     openInGoogleSlides: "Google Slides で開く",
+    googleSlidesUnavailable: "利用不可",
+    googleSlidesOpenImporter: "Google Slides のインポートを開く",
+    googleSlidesUnavailableHint:
+      "Google 連携が設定されていないため、Google Slides へのエクスポートは現在利用できません。代わりに PPTX として書き出し、Google Slides にインポートしてください。",
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
       "このデッキのコピーを Google ドライブに作成しました。",

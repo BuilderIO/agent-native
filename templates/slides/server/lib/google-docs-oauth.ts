@@ -109,6 +109,16 @@ export async function isGoogleDocsOAuthConfigured(
   );
 }
 
+/** The client id an authorization request would actually be sent with. */
+export async function getGoogleOAuthClientId(
+  owner?: string,
+): Promise<string | null> {
+  const credentials = (
+    await resolveGoogleDocsProviderCredentialCandidates(owner)
+  )[0];
+  return credentials?.clientId ?? null;
+}
+
 function isPermanentGoogleRefreshError(error: string | undefined): boolean {
   return (
     error === "invalid_grant" ||

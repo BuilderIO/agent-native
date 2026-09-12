@@ -33,10 +33,32 @@ describe("MCP connection resume", () => {
     expect(consumeMcpConnectionResume()).toBeNull();
   });
 
+  it("preserves an exact AgentKit continuation target across OAuth", () => {
+    const agentKit = {
+      threadId: "thread-1",
+      runId: "run-1",
+      requestId: "connection-1",
+    };
+
+    expect(saveMcpConnectionResume("Continue the run", agentKit)).toBe(true);
+    expect(consumeMcpConnectionResume()).toMatchObject({ agentKit });
+  });
+
   it("drops malformed and expired requests", () => {
     window.sessionStorage.setItem(
       "agent-native:mcp-connection-resume",
       JSON.stringify({ message: "old", returnUrl: "/chat", createdAt: 0 }),
+    );
+    expect(consumeMcpConnectionResume()).toBeNull();
+
+    window.sessionStorage.setItem(
+      "agent-native:mcp-connection-resume",
+      JSON.stringify({
+        message: "continue",
+        returnUrl: "/chat",
+        createdAt: Date.now(),
+        agentKit: { threadId: "thread-1", runId: "", requestId: "request-1" },
+      }),
     );
     expect(consumeMcpConnectionResume()).toBeNull();
 

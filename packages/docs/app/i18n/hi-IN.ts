@@ -58,6 +58,10 @@ const hiIN = {
     draftLabel: "ड्राफ़्ट",
     draftDescription:
       "यह पेज अभी तैयार किया जा रहा है। प्रकाशन से पहले सामग्री अधूरी हो सकती है या इसमें बदलाव हो सकता है।",
+    translationLabel: "मशीन-अनुवादित",
+    translationDescription:
+      "यह पेज स्वचालित रूप से अनुवादित किया गया है और पूरी तरह सटीक नहीं हो सकता।",
+    translationViewOriginal: "अंग्रेज़ी में मूल पेज देखें",
   },
   search: {
     dialogLabel: "दस्तावेज़ खोजें",
@@ -2244,6 +2248,7 @@ const hiIN = {
     dropInAgent: "Drop-in agent",
     componentApi: "Component API संदर्भ",
     nativeChatUi: "Native chat UI",
+    agentkit: "AgentKit",
     generativeUi: "जनरेटिव UI",
     realTimeCollaboration: "Real-time collaboration",
     agentResourcesOverview: "एजेंट संसाधन अवलोकन",
@@ -2346,10 +2351,11 @@ const hiIN = {
     designCollaborationAndFullApps: "समीक्षा और हैंडऑफ़",
     designDevelopers: "डेवलपर गाइड",
     dispatchOverview: "अवलोकन",
-    dispatchMessagingRouting: "मैसेजिंग और रूटिंग",
-    dispatchOperations: "ऑपरेटर कंसोल",
-    dispatchVaultIntegrations: "सीक्रेट्स और इंटीग्रेशन",
+    dispatchFeatures: "सुविधाएं",
+    dispatchAgent: "एजेंट से बात करें",
+    dispatchIntegrations: "क्रॉस-ऐप उपयोग",
     dispatchDevelopers: "डेवलपर गाइड",
+    dispatchReference: "एक्शन और डेटा संदर्भ",
     forms: "फॉर्म",
     formsOverview: "अवलोकन",
     formsFeatures: "सुविधाएं",
