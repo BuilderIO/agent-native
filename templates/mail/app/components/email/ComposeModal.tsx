@@ -68,6 +68,7 @@ import {
 } from "./RecipientInput";
 import { SendLaterButton } from "./SendLaterButton";
 
+const SEND_UNDO_WINDOW_MS = 10_000;
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
 type ComposeAccount = { email: string; displayName?: string };
@@ -304,13 +305,13 @@ export function ComposeModal({
       : undefined;
 
     let cancelled = false;
+    let dispatchStarted = false;
 
     const handleUndo = () => {
-      if (cancelled) return;
+      if (cancelled || dispatchStarted) return;
       cancelled = true;
       sendingIdsRef.current.delete(sendingId);
       clearTimeout(sendTimer);
-      clearTimeout(transitionTimer);
       toast.dismiss(toastId);
       undoOptimistic?.();
       // Reopen composer with the saved draft
@@ -318,27 +319,22 @@ export function ComposeModal({
       onReopen(reopenData);
     };
 
-    // Show "Sending..." toast with undo
-    const toastId = toast("Sending...", {
-      action: { label: "UNDO", onClick: handleUndo },
+    // Keep undo available only while the provider call is still deferred.
+    const toastId = toast(t("mail.compose.sending"), {
+      action: { label: t("mail.actions.undo"), onClick: handleUndo },
       duration: Infinity,
     });
 
-    // After 1.5s, transition to "Message sent."
-    const transitionTimer = setTimeout(() => {
-      if (cancelled) return;
-      toast("Message sent.", {
-        id: toastId,
-        action: { label: "UNDO", onClick: handleUndo },
-        duration: Infinity,
-      });
-    }, 1500);
-
-    // After 5s, actually send the email
+    // After the 10s undo window, actually send the email. Once dispatch starts, dismiss the
+    // undo toast because a client-side flag cannot cancel an in-flight send.
     const sendTimer = setTimeout(() => {
       if (cancelled) return;
+      dispatchStarted = true;
       sendingIdsRef.current.delete(sendingId);
       toast.dismiss(toastId);
+      const sendingToastId = toast(t("mail.compose.sending"), {
+        duration: Infinity,
+      });
       sendEmail.mutate(
         {
           to: expandAliasTokens(draftSnapshot.to, aliases),
@@ -353,6 +349,10 @@ export function ComposeModal({
         },
         {
           onSuccess: (result) => {
+            toast(t("mail.toasts.messageSent"), {
+              id: sendingToastId,
+              duration: 3_000,
+            });
             if (draftSnapshot.queuedDraftId) {
               updateQueuedDraft.mutate({
                 id: draftSnapshot.queuedDraftId,
@@ -362,6 +362,7 @@ export function ComposeModal({
             }
           },
           onError: () => {
+            toast.dismiss(sendingToastId);
             toast.error(t("mail.toasts.failedToSendEmail"));
             // Reopen composer on failure
             const { id: _id, ...reopenData } = draftSnapshot;
@@ -369,7 +370,7 @@ export function ComposeModal({
           },
         },
       );
-    }, 5000);
+    }, SEND_UNDO_WINDOW_MS);
   };
 
   const handleSendLater = async (runAt: number) => {
@@ -639,6 +640,7 @@ export function ComposeModal({
             ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
             : "bottom-0 h-[100dvh] sm:h-[520px] sm:w-[540px]",
       )}
+      data-mail-compose
       style={composeStyle}
       onKeyDown={handleKeyDown}
       onDragOverCapture={handleDragOver}

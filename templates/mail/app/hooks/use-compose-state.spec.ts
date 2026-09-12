@@ -73,10 +73,10 @@ describe("saveDraftToEmailsBestEffort", () => {
         to: "person@example.com",
         body: "Hello",
       }),
-    ).resolves.toBe("gmail-draft-1");
+    ).resolves.toEqual({ status: "saved", draftId: "gmail-draft-1" });
   });
 
-  it("swallows background draft save failures", async () => {
+  it("reports background draft save failures distinctly", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -93,6 +93,20 @@ describe("saveDraftToEmailsBestEffort", () => {
         ...draft("draft-1"),
         body: "Still worth saving",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("distinguishes an unavailable draft endpoint from a failed save", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+
+    await expect(
+      saveDraftToEmailsBestEffort({
+        ...draft("draft-1"),
+        body: "Local-only draft",
+      }),
+    ).resolves.toEqual({ status: "unavailable" });
   });
 });

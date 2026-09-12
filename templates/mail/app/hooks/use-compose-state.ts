@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
+export const DRAFT_SAVE_FAILED_EVENT = "mail:draft-save-failed";
 const REMOVED_DRAFT_TOMBSTONE_TTL = 60_000;
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -80,13 +81,19 @@ async function saveDraftToEmails(
   return result?.draftId;
 }
 
+export type DraftSaveResult =
+  | { status: "saved"; draftId: string }
+  | { status: "unavailable" }
+  | { status: "failed"; error: unknown };
+
 export async function saveDraftToEmailsBestEffort(
   draft: ComposeState,
-): Promise<string | undefined> {
+): Promise<DraftSaveResult> {
   try {
-    return await saveDraftToEmails(draft);
-  } catch {
-    return undefined;
+    const draftId = await saveDraftToEmails(draft);
+    return draftId ? { status: "saved", draftId } : { status: "unavailable" };
+  } catch (error) {
+    return { status: "failed", error };
   }
 }
 
@@ -101,6 +108,24 @@ export function useComposeState() {
   );
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
   const removedDraftIdsRef = useRef<Record<string, number>>({});
+  const draftSaveFailuresRef = useRef<Set<string>>(new Set());
+
+  const reportDraftSaveResult = useCallback(
+    (draft: ComposeState, result: DraftSaveResult) => {
+      if (result.status !== "saved") {
+        if (draftSaveFailuresRef.current.has(draft.id)) return;
+        draftSaveFailuresRef.current.add(draft.id);
+        window.dispatchEvent(
+          new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
+            detail: { draftId: draft.id },
+          }),
+        );
+        return;
+      }
+      draftSaveFailuresRef.current.delete(draft.id);
+    },
+    [],
+  );
 
   // Fetch all drafts — short staleTime so agent-written drafts appear quickly
   const query = useQuery<ComposeState[]>({
@@ -236,12 +261,16 @@ export function useComposeState() {
       ).find((d) => d.id === id);
       if (!current || !hasDraftContent(current)) return;
 
-      void saveDraftToEmailsBestEffort(current).then((draftId) => {
-        if (draftId && draftId !== current.savedDraftId) {
+      void saveDraftToEmailsBestEffort(current).then((result) => {
+        reportDraftSaveResult(current, result);
+        if (
+          result.status === "saved" &&
+          result.draftId !== current.savedDraftId
+        ) {
           // Store the Gmail draft ID back so subsequent saves update rather than create
           qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
             (old ?? []).map((d) =>
-              d.id === id ? { ...d, savedDraftId: draftId } : d,
+              d.id === id ? { ...d, savedDraftId: result.draftId } : d,
             ),
           );
           // Also persist the savedDraftId to application-state
@@ -249,18 +278,19 @@ export function useComposeState() {
             qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
           ).find((d) => d.id === id);
           if (updated) {
-            putMutation.mutate({ ...updated, savedDraftId: draftId });
+            putMutation.mutate({ ...updated, savedDraftId: result.draftId });
           }
         }
       });
     },
-    [qc, putMutation],
+    [qc, putMutation, reportDraftSaveResult],
   );
 
   /** Update a specific draft (debounced 300ms for app-state, 3s for Gmail). */
   const update = useCallback(
     (id: string, partial: Partial<ComposeState>) => {
       dirtyRef.current[id] = true;
+      draftSaveFailuresRef.current.delete(id);
       const version = (versionRef.current[id] ?? 0) + 1;
       versionRef.current[id] = version;
 
@@ -317,8 +347,11 @@ export function useComposeState() {
 
       // Auto-save to persistent drafts if there's any content
       if (draft && hasDraftContent(draft)) {
-        void saveDraftToEmailsBestEffort(draft).then((draftId) => {
-          if (draftId) void qc.invalidateQueries({ queryKey: ["emails"] });
+        void saveDraftToEmailsBestEffort(draft).then((result) => {
+          reportDraftSaveResult(draft, result);
+          if (result.status === "saved") {
+            void qc.invalidateQueries({ queryKey: ["emails"] });
+          }
         });
       }
 
@@ -333,7 +366,7 @@ export function useComposeState() {
       // Delete compose file
       deleteMutation.mutate(id);
     },
-    [qc, deleteMutation, resolvedActiveId],
+    [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult],
   );
 
   /** Discard a single draft — closes WITHOUT saving to Drafts.
@@ -388,8 +421,11 @@ export function useComposeState() {
     // Save all drafts with content
     for (const draft of currentDrafts) {
       if (hasDraftContent(draft)) {
-        void saveDraftToEmailsBestEffort(draft).then((draftId) => {
-          if (draftId) void qc.invalidateQueries({ queryKey: ["emails"] });
+        void saveDraftToEmailsBestEffort(draft).then((result) => {
+          reportDraftSaveResult(draft, result);
+          if (result.status === "saved") {
+            void qc.invalidateQueries({ queryKey: ["emails"] });
+          }
         });
       }
     }
@@ -405,7 +441,7 @@ export function useComposeState() {
     setActiveId(null);
     qc.setQueryData<ComposeState[]>(["compose-drafts"], []);
     deleteAllMutation.mutate();
-  }, [qc, deleteAllMutation]);
+  }, [qc, deleteAllMutation, reportDraftSaveResult]);
 
   /** Flush a specific draft immediately (for Generate button). */
   const flush = useCallback(

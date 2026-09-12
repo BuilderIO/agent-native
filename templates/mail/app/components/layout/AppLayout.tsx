@@ -65,7 +65,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  DRAFT_SAVE_FAILED_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import {
   useLabels,
@@ -326,6 +329,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
+  useEffect(() => {
+    const handleDraftSaveFailed = () => {
+      toast.error(t("mail.toasts.failedToSaveDraft"));
+    };
+    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleDraftSaveFailed);
+    return () =>
+      window.removeEventListener(
+        DRAFT_SAVE_FAILED_EVENT,
+        handleDraftSaveFailed,
+      );
+  }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -2021,20 +2035,22 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               const snapshot = draft ? { ...draft } : null;
               compose.close(id);
               if (hasContent && snapshot) {
-                toast("Draft saved.", {
+                toast(t("mail.toasts.draftClosed"), {
                   action: {
-                    label: "REOPEN",
+                    label: t("mail.compose.reopenDraft"),
                     onClick: () => {
                       const { id: _id, ...reopenData } = snapshot;
                       compose.open(reopenData);
                     },
                   },
                   cancel: {
-                    label: "DELETE DRAFT",
+                    label: t("mail.compose.deleteDraft"),
                     onClick: () => {
                       if (snapshot.savedDraftId) {
                         void fetch(
-                          appApiPath(`/api/emails/${snapshot.savedDraftId}`),
+                          appApiPath(
+                            `/api/emails/draft/${snapshot.savedDraftId}`,
+                          ),
                           {
                             method: "DELETE",
                           },
@@ -2053,32 +2069,37 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               const ids = popoutDrafts.map((d) => d.id);
               ids.forEach((id) => compose.close(id));
               if (snapshots.length > 0) {
-                toast(`${snapshots.length} draft(s) saved.`, {
-                  action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        const { id: _id, ...reopenData } = snap;
-                        compose.open(reopenData);
-                      }
-                    },
-                  },
-                  cancel: {
-                    label: "DELETE DRAFTS",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        if (snap.savedDraftId) {
-                          void fetch(
-                            appApiPath(`/api/emails/${snap.savedDraftId}`),
-                            {
-                              method: "DELETE",
-                            },
-                          );
+                toast(
+                  t("mail.toasts.draftsClosed", { count: snapshots.length }),
+                  {
+                    action: {
+                      label: t("mail.compose.reopenDraft"),
+                      onClick: () => {
+                        for (const snap of snapshots) {
+                          const { id: _id, ...reopenData } = snap;
+                          compose.open(reopenData);
                         }
-                      }
+                      },
+                    },
+                    cancel: {
+                      label: t("mail.compose.deleteDrafts"),
+                      onClick: () => {
+                        for (const snap of snapshots) {
+                          if (snap.savedDraftId) {
+                            void fetch(
+                              appApiPath(
+                                `/api/emails/draft/${snap.savedDraftId}`,
+                              ),
+                              {
+                                method: "DELETE",
+                              },
+                            );
+                          }
+                        }
+                      },
                     },
                   },
-                });
+                );
               }
             }}
             onDiscard={compose.discard}

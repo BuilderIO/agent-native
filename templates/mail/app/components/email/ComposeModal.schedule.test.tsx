@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
+const mockSendEmail = vi.hoisted(() => vi.fn());
 const mockToast = vi.hoisted(() => {
   const toast = vi.fn();
   Object.assign(toast, { error: vi.fn(), dismiss: vi.fn() });
@@ -58,7 +59,7 @@ vi.mock("@/hooks/use-draft-queue", () => ({
 }));
 vi.mock("@/hooks/use-emails", () => ({
   useAddOptimisticReply: () => vi.fn(),
-  useSendEmail: () => ({ isPending: false, mutate: vi.fn() }),
+  useSendEmail: () => ({ isPending: false, mutate: mockSendEmail }),
   useSettings: () => ({ data: undefined }),
 }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
@@ -89,11 +90,16 @@ vi.mock("./ComposeEditor", () => ({
 vi.mock("./RecipientInput", () => ({ RecipientInput: () => null }));
 vi.mock("./SendLaterButton", () => ({
   SendLaterButton: ({
+    onSend,
     onSendLater,
   }: {
+    onSend: () => void;
     onSendLater: (runAt: number) => void;
   }) => (
-    <button onClick={() => onSendLater(Date.now() + 60_000)}>Schedule</button>
+    <>
+      <button onClick={onSend}>mail.compose.send</button>
+      <button onClick={() => onSendLater(Date.now() + 60_000)}>Schedule</button>
+    </>
   ),
 }));
 
@@ -110,10 +116,12 @@ const draft: ComposeState = {
 describe("ComposeModal scheduling", () => {
   beforeEach(() => {
     mockScheduleEmail.mockReset();
+    mockSendEmail.mockReset();
     mockToast.mockClear();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -150,5 +158,102 @@ describe("ComposeModal scheduling", () => {
 
     resolveSchedule({});
     await vi.waitFor(() => expect(onDiscard).toHaveBeenCalledOnce());
+  });
+
+  it("keeps undo available until dispatch and reports success only after the provider resolves", async () => {
+    vi.useFakeTimers();
+    const onDiscard = vi.fn();
+    const onReopen = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={onDiscard}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onReopen={onReopen}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    const undoToast = mockToast.mock.calls.find(
+      ([message, options]) =>
+        message === "mail.compose.sending" && options?.action,
+    );
+    const undo = (undoToast?.[1] as { action: { onClick: () => void } }).action
+      .onClick;
+
+    expect(onDiscard).toHaveBeenCalledOnce();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(
+      mockToast.mock.calls.some(
+        ([message]) => message === "mail.toasts.messageSent",
+      ),
+    ).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(mockSendEmail).toHaveBeenCalledOnce();
+    undo();
+    expect(onReopen).not.toHaveBeenCalled();
+    expect(
+      mockToast.mock.calls.some(
+        ([message]) => message === "mail.toasts.messageSent",
+      ),
+    ).toBe(false);
+
+    const [, callbacks] = mockSendEmail.mock.calls[0] as [
+      unknown,
+      { onSuccess: (result: { id: string }) => void },
+    ];
+    callbacks.onSuccess({ id: "sent-1" });
+
+    expect(mockToast).toHaveBeenCalledWith(
+      "mail.toasts.messageSent",
+      expect.objectContaining({ duration: 3_000 }),
+    );
+  });
+
+  it("cancels a deferred send and restores its draft when Undo is selected", async () => {
+    vi.useFakeTimers();
+    const onDiscard = vi.fn();
+    const onReopen = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={onDiscard}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onReopen={onReopen}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    const undoCall = mockToast.mock.calls.find(
+      ([message]) => message === "mail.compose.sending",
+    );
+    const undo = (undoCall?.[1] as { action: { onClick: () => void } }).action
+      .onClick;
+    undo();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(onDiscard).toHaveBeenCalledOnce();
+    expect(onReopen).toHaveBeenCalledWith(
+      expect.objectContaining({ to: draft.to, subject: draft.subject }),
+    );
   });
 });

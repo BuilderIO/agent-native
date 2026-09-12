@@ -14,6 +14,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useId,
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
@@ -327,6 +328,8 @@ export function RecipientInput({
   onMoveRecipient,
 }: RecipientInputProps) {
   const t = useT();
+  const recipientInstanceId = useId().replace(/:/g, "");
+  const suggestionListId = `mail-recipient-suggestions-${recipientInstanceId}`;
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -608,6 +611,8 @@ export function RecipientInput({
       ? createPortal(
           <div
             ref={dropdownRef}
+            id={suggestionListId}
+            role="listbox"
             className="fixed z-[9999] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
             style={{
               top: dropdownPos.top,
@@ -619,6 +624,9 @@ export function RecipientInput({
               {filteredAliases.slice(0, 4).map((alias, i) => (
                 <button
                   key={`alias-${alias.id}`}
+                  id={`${suggestionListId}-option-${i}`}
+                  role="option"
+                  aria-selected={i === selectedIndex}
                   type="button"
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] transition-colors",
@@ -650,6 +658,9 @@ export function RecipientInput({
                   return (
                     <button
                       key={contact.email}
+                      id={`${suggestionListId}-option-${globalIndex}`}
+                      role="option"
+                      aria-selected={globalIndex === selectedIndex}
                       type="button"
                       className={cn(
                         "flex w-full items-center justify-between gap-4 rounded-md px-3 py-1.5 text-left text-[13px] transition-colors",
@@ -770,6 +781,18 @@ export function RecipientInput({
         })}
         <input
           ref={inputRef}
+          id={`${suggestionListId}-input`}
+          data-mail-recipient-input
+          data-recipient-field={field}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls={suggestionListId}
+          aria-expanded={showSuggestions && hasSuggestions}
+          aria-activedescendant={
+            showSuggestions && hasSuggestions
+              ? `${suggestionListId}-option-${selectedIndex}`
+              : undefined
+          }
           type="text"
           value={inputValue}
           onChange={(e) => {

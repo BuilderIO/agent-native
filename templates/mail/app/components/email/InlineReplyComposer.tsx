@@ -61,6 +61,7 @@ import {
   type RecipientField,
 } from "./RecipientInput";
 
+const SEND_UNDO_WINDOW_MS = 10_000;
 export interface InlineReplyHandle {
   focusEditor: () => void;
 }
@@ -207,36 +208,31 @@ export const InlineReplyComposer = forwardRef<
     });
 
     let cancelled = false;
+    let dispatchStarted = false;
 
     const handleUndo = () => {
-      if (cancelled) return;
+      if (cancelled || dispatchStarted) return;
       cancelled = true;
       sendingRef.current = false;
       clearTimeout(sendTimer);
-      clearTimeout(transitionTimer);
       toast.dismiss(toastId);
       undoOptimistic?.();
       const { id: _id, ...reopenData } = draftSnapshot;
       onReopen(reopenData);
     };
 
-    const toastId = toast("Sending...", {
-      action: { label: "UNDO", onClick: handleUndo },
+    const toastId = toast(t("mail.compose.sending"), {
+      action: { label: t("mail.actions.undo"), onClick: handleUndo },
       duration: Infinity,
     });
 
-    const transitionTimer = setTimeout(() => {
-      if (cancelled) return;
-      toast("Message sent.", {
-        id: toastId,
-        action: { label: "UNDO", onClick: handleUndo },
-        duration: Infinity,
-      });
-    }, 1500);
-
     const sendTimer = setTimeout(() => {
       if (cancelled) return;
+      dispatchStarted = true;
       toast.dismiss(toastId);
+      const sendingToastId = toast(t("mail.compose.sending"), {
+        duration: Infinity,
+      });
       sendEmail.mutate(
         {
           to: expandAliasTokens(draftSnapshot.to, aliases),
@@ -250,7 +246,14 @@ export const InlineReplyComposer = forwardRef<
           attachments: draftSnapshot.attachments,
         },
         {
+          onSuccess: () => {
+            toast(t("mail.toasts.messageSent"), {
+              id: sendingToastId,
+              duration: 3_000,
+            });
+          },
           onError: () => {
+            toast.dismiss(sendingToastId);
             toast.error(t("mail.toasts.failedToSendEmail"));
             const { id: _id, ...reopenData } = draftSnapshot;
             onReopen(reopenData);
@@ -260,7 +263,7 @@ export const InlineReplyComposer = forwardRef<
           },
         },
       );
-    }, 5000);
+    }, SEND_UNDO_WINDOW_MS);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
