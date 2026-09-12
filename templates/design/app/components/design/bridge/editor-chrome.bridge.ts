@@ -1902,12 +1902,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var generatedGroupMarker =
           group.getAttribute &&
           group.getAttribute("data-agent-native-group-wrapper") === "true";
-        // Only the dedicated marker identifies a generated wrapper. Other
-        // internal attributes also occur on ordinary cloned layers.
-        if (
+        var legacyNodeId =
+          group.getAttribute && group.getAttribute("data-agent-native-node-id");
+        // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
+        var legacyGeneratedGroup =
+          /^an-[a-z0-9]+$/i.test(legacyNodeId || "") &&
           /^group(?: \d+)?$/i.test(groupName.trim()) &&
-          generatedGroupMarker
-        ) {
+          group.getAttribute("data-agent-native-preserve-styles") === "true" &&
+          group.getAttribute("data-agent-native-clone-root") !== "true";
+        // The dedicated marker survives renames. The fallback recognizes
+        // pre-marker wrappers while excluding style-preserving pasted roots.
+        if (generatedGroupMarker || legacyGeneratedGroup) {
           return group;
         }
         group = group.parentElement;

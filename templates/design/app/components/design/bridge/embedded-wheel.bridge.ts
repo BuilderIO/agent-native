@@ -20,7 +20,7 @@
  *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey }
  *
  *   { type: 'embedded-canvas-pan', phase: 'start'|'move'|'end'|'cancel',
- *     pointerId, button, buttons, clientX, clientY,
+ *     pointerId, button, buttons, clientX, clientY, movementX, movementY,
  *     ctrlKey, metaKey, shiftKey, altKey }
  *
  * Protocol (parent → iframe):
@@ -167,6 +167,8 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       buttons: phase === "end" || phase === "cancel" ? 0 : e.buttons,
       clientX: lastClientX,
       clientY: lastClientY,
+      movementX: clamp(e.movementX, 100000),
+      movementY: clamp(e.movementY, 100000),
       ctrlKey: lastCtrlKey,
       metaKey: lastMetaKey,
       shiftKey: lastShiftKey,
@@ -328,6 +330,8 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       buttons: 0,
       clientX: lastClientX,
       clientY: lastClientY,
+      movementX: 0,
+      movementY: 0,
       ctrlKey: lastCtrlKey,
       metaKey: lastMetaKey,
       shiftKey: lastShiftKey,
