@@ -28,6 +28,16 @@ describe("emails handler Gmail draft listing", () => {
   });
 });
 
+describe("emails handler saved-draft metadata", () => {
+  it("returns the backend and resolved Gmail account for scoped deletion", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain('backend: "gmail" as const');
+    expect(source).toContain("accountEmail: acct");
+    expect(source).toContain('backend: "local" as const');
+  });
+});
+
 describe("emails handler Gmail label listing", () => {
   it("does not turn a full Gmail label read failure into local fallback data", () => {
     const source = emailsHandlerSource();

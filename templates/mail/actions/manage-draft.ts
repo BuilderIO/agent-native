@@ -16,6 +16,12 @@ import {
   deleteGmailDraft,
   saveGmailDraft,
 } from "../server/lib/gmail-drafts.js";
+import { isConnected } from "../server/lib/google-auth.js";
+import {
+  readLocalEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails,
+} from "../server/lib/local-email-store.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
@@ -89,9 +95,54 @@ const manageDraftSchema = z.discriminatedUnion("action", [
     id: draftId,
   }),
   z.object({
+    action: z
+      .literal("delete-saved")
+      .describe("Delete one saved mailbox draft"),
+    savedDraftId: z.string().min(1).max(512).describe("Saved mailbox draft ID"),
+    savedDraftBackend: z
+      .enum(["gmail", "local"])
+      .optional()
+      .describe("Backend that owns the saved draft, when known"),
+    accountEmail: z
+      .string()
+      .optional()
+      .describe("Exact connected account that owns a Gmail draft, when known"),
+  }),
+  z.object({
     action: z.literal("delete-all").describe("Delete all compose drafts"),
   }),
 ]);
+
+async function deletePersistedDraft(args: {
+  ownerEmail: string;
+  savedDraftId: string;
+  savedDraftBackend?: "gmail" | "local";
+  accountEmail?: string;
+}): Promise<void> {
+  const shouldDeleteFromGmail =
+    args.savedDraftBackend === "gmail" ||
+    (args.savedDraftBackend === undefined &&
+      (Boolean(args.accountEmail) || (await isConnected(args.ownerEmail))));
+
+  if (shouldDeleteFromGmail) {
+    await deleteGmailDraft({
+      ownerEmail: args.ownerEmail,
+      accountEmail: args.accountEmail,
+      draftId: args.savedDraftId,
+    });
+    return;
+  }
+
+  await withLocalEmailMutationLock(args.ownerEmail, async () => {
+    const emails = await readLocalEmails(args.ownerEmail);
+    const remaining = emails.filter(
+      (email) => !(email.id === args.savedDraftId && email.isDraft),
+    );
+    if (remaining.length !== emails.length) {
+      await writeLocalEmails(args.ownerEmail, remaining);
+    }
+  });
+}
 
 async function readConfiguredSignature(): Promise<string | undefined> {
   const ownerEmail = getRequestUserEmail();
@@ -103,7 +154,7 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 
 export default defineAction({
   description:
-    "Create, update, or delete a compose draft. Opening a draft makes it appear in the compose panel UI automatically.",
+    "Create, update, or delete a compose draft, or delete its saved Gmail/local-mailbox copy by saved ID and account when known.",
   schema: manageDraftSchema,
   mcpApp: {
     compactCatalog: true,
@@ -126,13 +177,18 @@ export default defineAction({
       for (const { value } of storedDrafts) {
         const savedDraftId = value.savedDraftId;
         if (typeof savedDraftId !== "string" || !savedDraftId) continue;
-        await deleteGmailDraft({
+        await deletePersistedDraft({
           ownerEmail,
+          savedDraftId,
+          savedDraftBackend:
+            value.savedDraftBackend === "gmail" ||
+            value.savedDraftBackend === "local"
+              ? value.savedDraftBackend
+              : undefined,
           accountEmail:
             typeof value.accountEmail === "string"
               ? value.accountEmail
               : undefined,
-          draftId: savedDraftId,
         });
       }
       const count = await deleteAppStateByPrefix("compose-");
@@ -155,13 +211,18 @@ export default defineAction({
       if (typeof savedDraftId === "string" && savedDraftId) {
         const ownerEmail = getRequestUserEmail();
         if (!ownerEmail) throw new Error("Unauthenticated");
-        await deleteGmailDraft({
+        await deletePersistedDraft({
           ownerEmail,
+          savedDraftId,
+          savedDraftBackend:
+            storedDraft.savedDraftBackend === "gmail" ||
+            storedDraft.savedDraftBackend === "local"
+              ? storedDraft.savedDraftBackend
+              : undefined,
           accountEmail:
             typeof storedDraft.accountEmail === "string"
               ? storedDraft.accountEmail
               : undefined,
-          draftId: savedDraftId,
         });
       }
       const deleted = await deleteAppState(`compose-${safeId}`);
@@ -171,6 +232,21 @@ export default defineAction({
           statusCode: 404,
         });
       return `Deleted draft ${safeId}`;
+    }
+
+    if (action === "delete-saved") {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("Unauthenticated");
+      await deletePersistedDraft({
+        ownerEmail,
+        savedDraftId: args.savedDraftId,
+        savedDraftBackend: args.savedDraftBackend,
+        accountEmail: args.accountEmail,
+      });
+      return {
+        id: args.savedDraftId,
+        message: `Deleted saved draft ${args.savedDraftId}`,
+      };
     }
 
     if (action === "create") {
@@ -202,7 +278,13 @@ export default defineAction({
         subject: args.subject || "",
         body,
         mode: args.mode || "compose",
-        ...(savedGmailDraft ? { savedDraftId: savedGmailDraft.draftId } : {}),
+        ...(savedGmailDraft
+          ? {
+              savedDraftId: savedGmailDraft.draftId,
+              savedDraftBackend: "gmail",
+              savedDraftAccountEmail: savedGmailDraft.accountEmail,
+            }
+          : {}),
       };
       if (args.cc) draft.cc = args.cc;
       if (args.bcc) draft.bcc = args.bcc;
@@ -302,6 +384,8 @@ export default defineAction({
         : null;
       if (savedGmailDraft) {
         draft.savedDraftId = savedGmailDraft.draftId;
+        draft.savedDraftBackend = "gmail";
+        draft.savedDraftAccountEmail = savedGmailDraft.accountEmail;
         draft.accountEmail = savedGmailDraft.accountEmail;
       }
       await writeAppState(`compose-${safeId}`, draft);

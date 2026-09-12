@@ -33,8 +33,13 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
   browser.
 - **Mail / COMPOSE-012 and draft close (automated, partial):** unit tests cover
   distinguishing saved/unavailable/failed draft results. Regression contract
-  tests check honest close feedback and the draft-specific delete endpoint;
-  those endpoint behaviors were not verified against a connected mailbox.
+  tests check honest close feedback, waiting for close-time persistence, and
+  account-aware deletion. The endpoints were not verified against a connected
+  mailbox.
+- **Mail / COMPOSE-013 (automated, partial):** regressions cover the close-time
+  save result, exact secondary-account deletion, local fallback deletion, and
+  retaining Cc/Bcc-only drafts in close recovery. Slow provider behavior and
+  rendered toast actions remain untested in a connected mailbox.
 - **Mail / LIST-002 and SEARCH-004 (automated contract only):** tests check
   keyboard target classification, stable row/search landmarks, and that
   keyboard scrolling includes local results as well as contact results. These
@@ -42,10 +47,16 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 
 ## Validation
 
-- Mail: 87 test files, 690 tests passed.
-- Repository: all 73 guards passed; both i18n guards passed.
+- Mail initial pass: 87 test files, 690 tests passed. The PR review follow-up
+  raised that suite to 698 passing tests across 87 files, including regression
+  coverage for provider failure after compose unmount, exact-account Gmail draft
+  deletion, local fallback deletion, close-time save ordering, and recipient-only
+  close recovery.
+- Repository: all 73 guards and both i18n guards passed after the PR review
+  follow-up.
 - `oxfmt --check`, `git diff --check`, and direct Mail TypeScript checking
-  (`tsc --noEmit -p tsconfig.json`) passed.
+  (`tsc --noEmit -p tsconfig.json`) passed, including after the PR review
+  follow-up.
 - `agent-native typecheck` reported that this checkout lacks production
   `BETTER_AUTH_SECRET` and persistent database configuration; no production
   build or connected-mail runtime check was performed.

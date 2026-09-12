@@ -1373,7 +1373,12 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
               body: JSON.stringify({ message: { raw } }),
             },
           );
-          return { draftId: updated.id, updated: true };
+          return {
+            draftId: updated.id,
+            backend: "gmail" as const,
+            accountEmail: acct,
+            updated: true,
+          };
         } catch {
           // Draft may have been deleted; create new
         }
@@ -1388,7 +1393,12 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
           body: JSON.stringify({ message: { raw } }),
         },
       );
-      return { draftId: created.id, created: true };
+      return {
+        draftId: created.id,
+        backend: "gmail" as const,
+        accountEmail: acct,
+        created: true,
+      };
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -1470,6 +1480,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
 
     return {
       draftId: draftEmail.id,
+      backend: "local" as const,
       [existingIdx >= 0 ? "updated" : "created"]: true,
     };
   });

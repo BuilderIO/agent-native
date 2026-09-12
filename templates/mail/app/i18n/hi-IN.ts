@@ -288,6 +288,7 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "संदेश भेज दिया गया।",
       failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",
+      failedToDeleteDraft: "ड्राफ़्ट हटाया नहीं जा सका।",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",

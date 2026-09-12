@@ -1,5 +1,6 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import { appendSignatureToBody } from "@shared/signature";
 import type { ComposeState, UserSettings } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,19 @@ import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
 export const DRAFT_SAVE_FAILED_EVENT = "mail:draft-save-failed";
+export const DRAFT_DELETE_FAILED_EVENT = "mail:draft-delete-failed";
 const REMOVED_DRAFT_TOMBSTONE_TTL = 60_000;
+
+export type SavedDraftMetadata = {
+  draftId: string;
+  backend: "gmail" | "local";
+  accountEmail?: string;
+};
+
+export type DeleteSavedDraftResult =
+  | { status: "deleted" }
+  | { status: "skipped" }
+  | { status: "failed"; error: unknown };
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(
@@ -62,8 +75,12 @@ export function filterRemovedDrafts<T extends { id: string }>(
  *  Returns the draftId so callers can track it for subsequent updates. */
 async function saveDraftToEmails(
   draft: ComposeState,
-): Promise<string | undefined> {
-  const result = await apiFetch<{ draftId?: string }>("/api/emails/draft", {
+): Promise<SavedDraftMetadata | undefined> {
+  const result = await apiFetch<{
+    draftId?: string;
+    backend?: "gmail" | "local";
+    accountEmail?: string;
+  }>("/api/emails/draft", {
     method: "POST",
     body: JSON.stringify({
       to: draft.to,
@@ -78,20 +95,48 @@ async function saveDraftToEmails(
       attachments: draft.attachments,
     }),
   });
-  return result?.draftId;
+  if (!result) return undefined;
+  if (
+    typeof result.draftId !== "string" ||
+    !result.draftId ||
+    (result.backend !== "gmail" && result.backend !== "local") ||
+    (result.backend === "gmail" && !result.accountEmail)
+  ) {
+    throw new Error("Draft save response is missing its mailbox metadata");
+  }
+  return {
+    draftId: result.draftId,
+    backend: result.backend,
+    ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}),
+  };
 }
 
 export type DraftSaveResult =
-  | { status: "saved"; draftId: string }
+  | ({ status: "saved" } & SavedDraftMetadata)
   | { status: "unavailable" }
   | { status: "failed"; error: unknown };
+
+export function applyDraftSaveResult(
+  draft: ComposeState,
+  result: DraftSaveResult | undefined,
+): ComposeState {
+  if (result?.status !== "saved") return draft;
+  return {
+    ...draft,
+    savedDraftId: result.draftId,
+    savedDraftBackend: result.backend,
+    savedDraftAccountEmail: result.accountEmail,
+  };
+}
 
 export async function saveDraftToEmailsBestEffort(
   draft: ComposeState,
 ): Promise<DraftSaveResult> {
   try {
-    const draftId = await saveDraftToEmails(draft);
-    return draftId ? { status: "saved", draftId } : { status: "unavailable" };
+    const savedDraft = await saveDraftToEmails(draft);
+    return savedDraft
+      ? { status: "saved", ...savedDraft }
+      : { status: "unavailable" };
   } catch (error) {
     return { status: "failed", error };
   }
@@ -223,6 +268,37 @@ export function useComposeState() {
       }),
   });
 
+  const deleteSavedDraftMutation = useActionMutation("manage-draft", {
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onError: () => window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT)),
+  });
+
+  const deleteSavedDraft = useCallback(
+    async (
+      draft: Pick<
+        ComposeState,
+        | "savedDraftId"
+        | "savedDraftBackend"
+        | "savedDraftAccountEmail"
+        | "accountEmail"
+      >,
+    ) => {
+      if (!draft.savedDraftId) return { status: "skipped" } as const;
+      try {
+        await deleteSavedDraftMutation.mutateAsync({
+          action: "delete-saved",
+          savedDraftId: draft.savedDraftId,
+          savedDraftBackend: draft.savedDraftBackend,
+          accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
+        });
+        return { status: "deleted" } as const;
+      } catch (error) {
+        return { status: "failed", error } as const;
+      }
+    },
+    [deleteSavedDraftMutation],
+  );
+
   /** Open a new draft tab. Returns the new draft's id. */
   const open = useCallback(
     (state: Omit<ComposeState, "id">) => {
@@ -265,21 +341,15 @@ export function useComposeState() {
         reportDraftSaveResult(current, result);
         if (
           result.status === "saved" &&
-          result.draftId !== current.savedDraftId
+          (result.draftId !== current.savedDraftId ||
+            result.backend !== current.savedDraftBackend ||
+            result.accountEmail !== current.savedDraftAccountEmail)
         ) {
-          // Store the Gmail draft ID back so subsequent saves update rather than create
+          const updatedDraft = applyDraftSaveResult(current, result);
           qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
-            (old ?? []).map((d) =>
-              d.id === id ? { ...d, savedDraftId: result.draftId } : d,
-            ),
+            (old ?? []).map((d) => (d.id === id ? updatedDraft : d)),
           );
-          // Also persist the savedDraftId to application-state
-          const updated = (
-            qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
-          ).find((d) => d.id === id);
-          if (updated) {
-            putMutation.mutate({ ...updated, savedDraftId: result.draftId });
-          }
+          putMutation.mutate(updatedDraft);
         }
       });
     },
@@ -345,15 +415,17 @@ export function useComposeState() {
       const idx = currentDrafts.findIndex((d) => d.id === id);
       const remaining = currentDrafts.filter((d) => d.id !== id);
 
-      // Auto-save to persistent drafts if there's any content
-      if (draft && hasDraftContent(draft)) {
-        void saveDraftToEmailsBestEffort(draft).then((result) => {
-          reportDraftSaveResult(draft, result);
-          if (result.status === "saved") {
-            void qc.invalidateQueries({ queryKey: ["emails"] });
-          }
-        });
-      }
+      // Keep the save result available to close-toast actions that reopen or delete it.
+      const savePromise =
+        draft && hasDraftContent(draft)
+          ? saveDraftToEmailsBestEffort(draft).then((result) => {
+              reportDraftSaveResult(draft, result);
+              if (result.status === "saved") {
+                void qc.invalidateQueries({ queryKey: ["emails"] });
+              }
+              return result;
+            })
+          : undefined;
 
       if (id === resolvedActiveId) {
         const nextDraft = remaining[Math.min(idx, remaining.length - 1)];
@@ -365,6 +437,7 @@ export function useComposeState() {
 
       // Delete compose file
       deleteMutation.mutate(id);
+      return savePromise;
     },
     [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult],
   );
@@ -388,12 +461,13 @@ export function useComposeState() {
       const idx = currentDrafts.findIndex((d) => d.id === id);
       const remaining = currentDrafts.filter((d) => d.id !== id);
 
-      // Delete the Gmail draft if one was auto-saved
+      // Delete the saved mailbox draft without losing its account scope.
       if (draft?.savedDraftId) {
-        void fetch(appApiPath(`/api/emails/draft/${draft.savedDraftId}`), {
-          method: "DELETE",
-        }).then(() => {
-          void qc.invalidateQueries({ queryKey: ["emails"] });
+        deleteSavedDraftMutation.mutate({
+          action: "delete-saved",
+          savedDraftId: draft.savedDraftId,
+          savedDraftBackend: draft.savedDraftBackend,
+          accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
         });
       }
 
@@ -405,7 +479,7 @@ export function useComposeState() {
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
       deleteMutation.mutate(id);
     },
-    [qc, deleteMutation, resolvedActiveId],
+    [qc, deleteMutation, deleteSavedDraftMutation, resolvedActiveId],
   );
 
   /** Close all drafts — auto-saves any with content. */
@@ -472,6 +546,7 @@ export function useComposeState() {
     close,
     closeAll,
     discard,
+    deleteSavedDraft,
     setActiveId,
     flush,
   };

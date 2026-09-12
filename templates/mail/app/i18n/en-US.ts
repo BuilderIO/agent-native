@@ -286,6 +286,7 @@ const messages = {
       failedToSendEmail: "Failed to send email",
       messageSent: "Message sent.",
       failedToSaveDraft: "Failed to save draft.",
+      failedToDeleteDraft: "Failed to delete draft.",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",
       pleaseAddRecipient: "Please add at least one recipient",

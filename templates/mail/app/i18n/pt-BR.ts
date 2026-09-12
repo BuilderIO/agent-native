@@ -288,6 +288,7 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensagem enviada.",
       failedToSaveDraft: "Não foi possível salvar o rascunho.",
+      failedToDeleteDraft: "Não foi possível excluir o rascunho.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",

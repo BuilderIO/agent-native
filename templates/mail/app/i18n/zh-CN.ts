@@ -288,6 +288,7 @@ const messages = {
       failedToSendEmail: "发送邮件失败",
       messageSent: "邮件已发送。",
       failedToSaveDraft: "无法保存草稿。",
+      failedToDeleteDraft: "无法删除草稿。",
       failedToScheduleEmailDraftKeptOpen: "定时发送失败 - 草稿仍保持打开",
       pleaseAddRecipient: "请至少添加一个收件人",
       aiEngineRequired: "使用生成前，请先连接 Builder 或其他 AI 引擎。",

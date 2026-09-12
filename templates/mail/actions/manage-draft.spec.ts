@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   listAppState: vi.fn(),
   saveGmailDraft: vi.fn(),
   deleteGmailDraft: vi.fn(),
+  isConnected: vi.fn(),
+  readLocalEmails: vi.fn(),
+  withLocalEmailMutationLock: vi.fn(),
+  writeLocalEmails: vi.fn(),
   appendSignatureToBody: vi.fn(),
 }));
 
@@ -50,6 +54,16 @@ vi.mock("../server/lib/gmail-drafts.js", () => ({
   deleteGmailDraft: mocks.deleteGmailDraft,
 }));
 
+vi.mock("../server/lib/google-auth.js", () => ({
+  isConnected: mocks.isConnected,
+}));
+
+vi.mock("../server/lib/local-email-store.js", () => ({
+  readLocalEmails: mocks.readLocalEmails,
+  withLocalEmailMutationLock: mocks.withLocalEmailMutationLock,
+  writeLocalEmails: mocks.writeLocalEmails,
+}));
+
 vi.mock("../shared/signature.js", () => ({
   appendSignatureToBody: mocks.appendSignatureToBody,
 }));
@@ -66,6 +80,11 @@ beforeEach(() => {
   mocks.appendSignatureToBody.mockImplementation((body: string) => body);
   mocks.buildDeepLink.mockReturnValue("/mail");
   mocks.saveGmailDraft.mockResolvedValue(null);
+  mocks.isConnected.mockResolvedValue(false);
+  mocks.readLocalEmails.mockResolvedValue([]);
+  mocks.withLocalEmailMutationLock.mockImplementation(
+    (_ownerEmail: string, mutate: () => Promise<unknown>) => mutate(),
+  );
   mocks.readAppState.mockImplementation((key: string) => appState.get(key));
   mocks.writeAppState.mockImplementation(
     (key: string, value: unknown) => void appState.set(key, value),
@@ -97,6 +116,7 @@ describe("manage-draft MCP App", () => {
     expect(source).toContain('z.discriminatedUnion("action"');
     expect(source).toContain('action: z.literal("update")');
     expect(source).toContain('action: z.literal("delete")');
+    expect(source).toContain('.literal("delete-saved")');
     expect(source).toContain('errorCode: "draft_not_found"');
     expect(source).toContain("deleteGmailDraft");
     expect(source).toContain('listAppState("compose-")');
@@ -111,6 +131,46 @@ describe("manage-draft MCP App", () => {
       "draft.savedDraftId ? draft.accountEmail : undefined",
     );
     expect(source).toContain("delete draft.accountEmail");
+  });
+});
+
+describe("manage-draft saved mailbox deletion", () => {
+  it("deletes Gmail drafts with the exact selected account", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+
+    await action.run({
+      action: "delete-saved",
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      accountEmail: "secondary@example.com",
+    });
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "secondary@example.com",
+      draftId: "gmail-draft-1",
+    });
+    expect(mocks.readLocalEmails).not.toHaveBeenCalled();
+  });
+
+  it("removes local fallback drafts under the local mailbox lock", async () => {
+    const otherEmail = { id: "sent-1", isDraft: false };
+    mocks.readLocalEmails.mockResolvedValue([
+      { id: "local-draft-1", isDraft: true },
+      otherEmail,
+    ]);
+
+    await action.run({
+      action: "delete-saved",
+      savedDraftId: "local-draft-1",
+      savedDraftBackend: "local",
+    });
+
+    expect(mocks.withLocalEmailMutationLock).toHaveBeenCalledOnce();
+    expect(mocks.writeLocalEmails).toHaveBeenCalledWith("owner@example.com", [
+      otherEmail,
+    ]);
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
   });
 });
 

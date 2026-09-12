@@ -1,16 +1,14 @@
 // @vitest-environment happy-dom
 
 import type { ComposeState } from "@shared/types";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
-const mockSendEmail = vi.hoisted(() => vi.fn());
-const mockToast = vi.hoisted(() => {
-  const toast = vi.fn();
-  Object.assign(toast, { error: vi.fn(), dismiss: vi.fn() });
-  return toast;
-});
+const mockSendEmailAsync = vi.hoisted(() => vi.fn());
+const mockToast = vi.hoisted(() =>
+  Object.assign(vi.fn(), { error: vi.fn(), dismiss: vi.fn() }),
+);
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   useAgentChatGenerating: () => [false, vi.fn()],
@@ -59,7 +57,10 @@ vi.mock("@/hooks/use-draft-queue", () => ({
 }));
 vi.mock("@/hooks/use-emails", () => ({
   useAddOptimisticReply: () => vi.fn(),
-  useSendEmail: () => ({ isPending: false, mutate: mockSendEmail }),
+  useSendEmail: () => ({
+    isPending: false,
+    mutateAsync: mockSendEmailAsync,
+  }),
   useSettings: () => ({ data: undefined }),
 }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
@@ -116,7 +117,7 @@ const draft: ComposeState = {
 describe("ComposeModal scheduling", () => {
   beforeEach(() => {
     mockScheduleEmail.mockReset();
-    mockSendEmail.mockReset();
+    mockSendEmailAsync.mockReset();
     mockToast.mockClear();
   });
 
@@ -162,6 +163,12 @@ describe("ComposeModal scheduling", () => {
 
   it("keeps undo available until dispatch and reports success only after the provider resolves", async () => {
     vi.useFakeTimers();
+    let resolveSend!: (result: { id: string }) => void;
+    mockSendEmailAsync.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      }),
+    );
     const onDiscard = vi.fn();
     const onReopen = vi.fn();
     const { getByRole } = render(
@@ -189,7 +196,7 @@ describe("ComposeModal scheduling", () => {
       .onClick;
 
     expect(onDiscard).toHaveBeenCalledOnce();
-    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
     expect(
       mockToast.mock.calls.some(
         ([message]) => message === "mail.toasts.messageSent",
@@ -197,10 +204,10 @@ describe("ComposeModal scheduling", () => {
     ).toBe(false);
 
     await vi.advanceTimersByTimeAsync(9_999);
-    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(mockSendEmail).toHaveBeenCalledOnce();
+    expect(mockSendEmailAsync).toHaveBeenCalledOnce();
     undo();
     expect(onReopen).not.toHaveBeenCalled();
     expect(
@@ -209,15 +216,58 @@ describe("ComposeModal scheduling", () => {
       ),
     ).toBe(false);
 
-    const [, callbacks] = mockSendEmail.mock.calls[0] as [
-      unknown,
-      { onSuccess: (result: { id: string }) => void },
-    ];
-    callbacks.onSuccess({ id: "sent-1" });
+    await act(async () => {
+      resolveSend({ id: "sent-1" });
+      await Promise.resolve();
+    });
 
     expect(mockToast).toHaveBeenCalledWith(
       "mail.toasts.messageSent",
       expect.objectContaining({ duration: 3_000 }),
+    );
+  });
+
+  it("reports provider failure and reopens the draft after the popout unmounts", async () => {
+    vi.useFakeTimers();
+    let rejectSend!: (error: Error) => void;
+    mockSendEmailAsync.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectSend = reject;
+      }),
+    );
+    const onReopen = vi.fn();
+    const { getByRole, unmount } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onReopen={onReopen}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockSendEmailAsync).toHaveBeenCalledOnce();
+
+    unmount();
+    await act(async () => {
+      rejectSend(new Error("Provider rejected send"));
+      await Promise.resolve();
+    });
+
+    expect(mockToast.dismiss).toHaveBeenCalled();
+    expect(mockToast.error).toHaveBeenCalledWith(
+      "mail.toasts.failedToSendEmail",
+    );
+    expect(onReopen).toHaveBeenCalledWith(
+      expect.objectContaining({ to: draft.to, subject: draft.subject }),
     );
   });
 
@@ -250,7 +300,7 @@ describe("ComposeModal scheduling", () => {
     undo();
     await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
     expect(onDiscard).toHaveBeenCalledOnce();
     expect(onReopen).toHaveBeenCalledWith(
       expect.objectContaining({ to: draft.to, subject: draft.subject }),

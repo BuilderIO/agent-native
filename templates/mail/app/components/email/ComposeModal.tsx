@@ -335,8 +335,8 @@ export function ComposeModal({
       const sendingToastId = toast(t("mail.compose.sending"), {
         duration: Infinity,
       });
-      sendEmail.mutate(
-        {
+      void sendEmail
+        .mutateAsync({
           to: expandAliasTokens(draftSnapshot.to, aliases),
           cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
           bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
@@ -346,30 +346,27 @@ export function ComposeModal({
           replyToThreadId: draftSnapshot.replyToThreadId,
           accountEmail: draftSnapshot.accountEmail,
           attachments: draftSnapshot.attachments,
-        },
-        {
-          onSuccess: (result) => {
-            toast(t("mail.toasts.messageSent"), {
-              id: sendingToastId,
-              duration: 3_000,
+        })
+        .then((result) => {
+          toast(t("mail.toasts.messageSent"), {
+            id: sendingToastId,
+            duration: 3_000,
+          });
+          if (draftSnapshot.queuedDraftId) {
+            updateQueuedDraft.mutate({
+              id: draftSnapshot.queuedDraftId,
+              status: "sent",
+              sentMessageId: result?.id,
             });
-            if (draftSnapshot.queuedDraftId) {
-              updateQueuedDraft.mutate({
-                id: draftSnapshot.queuedDraftId,
-                status: "sent",
-                sentMessageId: result?.id,
-              });
-            }
-          },
-          onError: () => {
-            toast.dismiss(sendingToastId);
-            toast.error(t("mail.toasts.failedToSendEmail"));
-            // Reopen composer on failure
-            const { id: _id, ...reopenData } = draftSnapshot;
-            onReopen(reopenData);
-          },
-        },
-      );
+          }
+        })
+        .catch(() => {
+          toast.dismiss(sendingToastId);
+          toast.error(t("mail.toasts.failedToSendEmail"));
+          // Reopen composer on failure
+          const { id: _id, ...reopenData } = draftSnapshot;
+          onReopen(reopenData);
+        });
     }, SEND_UNDO_WINDOW_MS);
   };
 

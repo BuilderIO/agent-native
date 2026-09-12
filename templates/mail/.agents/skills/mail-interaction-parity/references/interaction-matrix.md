@@ -169,6 +169,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - COMPOSE-012 — Type, blur, route-change, refresh, close, reopen, multi-tab, and
   concurrent-agent draft updates. Confirm app state and persistent draft stay
   distinct and failure is visible.
+- COMPOSE-013 — Close one or all popout/inline drafts while persistence is
+  pending; choose Reopen or Delete from the recovery toast. Repeat with To-only,
+  Cc-only, Bcc-only, failed save, existing Gmail draft, local fallback, and a
+  secondary account. Confirm the action targets the saved backend/account and
+  the correct mailbox list refreshes.
 
 ## Send, schedule, and failure recovery
 

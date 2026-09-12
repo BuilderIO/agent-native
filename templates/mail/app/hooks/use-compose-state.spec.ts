@@ -2,6 +2,7 @@ import type { ComposeState } from "@shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applyDraftSaveResult,
   filterRemovedDrafts,
   newestUnseenPopoutDraftId,
   saveDraftToEmailsBestEffort,
@@ -61,9 +62,16 @@ describe("saveDraftToEmailsBestEffort", () => {
   it("returns the saved draft id on success", async () => {
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify({ draftId: "gmail-draft-1" }), {
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({
+            draftId: "gmail-draft-1",
+            backend: "gmail",
+            accountEmail: "secondary@example.com",
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -73,7 +81,31 @@ describe("saveDraftToEmailsBestEffort", () => {
         to: "person@example.com",
         body: "Hello",
       }),
-    ).resolves.toEqual({ status: "saved", draftId: "gmail-draft-1" });
+    ).resolves.toEqual({
+      status: "saved",
+      draftId: "gmail-draft-1",
+      backend: "gmail",
+      accountEmail: "secondary@example.com",
+    });
+  });
+
+  it("does not accept a save response without backend/account metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ draftId: "gmail-draft-1" }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    await expect(
+      saveDraftToEmailsBestEffort({
+        ...draft("draft-1"),
+        body: "Still worth saving",
+      }),
+    ).resolves.toMatchObject({ status: "failed" });
   });
 
   it("reports background draft save failures distinctly", async () => {
@@ -108,5 +140,22 @@ describe("saveDraftToEmailsBestEffort", () => {
         body: "Local-only draft",
       }),
     ).resolves.toEqual({ status: "unavailable" });
+  });
+});
+
+describe("applyDraftSaveResult", () => {
+  it("retains the saved backend and exact connected account for later deletion", () => {
+    expect(
+      applyDraftSaveResult(draft("draft-1"), {
+        status: "saved",
+        draftId: "gmail-draft-1",
+        backend: "gmail",
+        accountEmail: "secondary@example.com",
+      }),
+    ).toMatchObject({
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "secondary@example.com",
+    });
   });
 });

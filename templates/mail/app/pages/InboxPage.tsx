@@ -993,6 +993,8 @@ export function InboxPage() {
         replyToId: (email as any).replyToId,
         replyToThreadId: (email as any).replyToThreadId,
         savedDraftId: email.id,
+        savedDraftBackend: email.accountEmail ? "gmail" : "local",
+        savedDraftAccountEmail: email.accountEmail,
       });
     },
     [compose],

@@ -14,8 +14,8 @@ describe("send feedback contract", () => {
     expect(source).toContain("if (cancelled || dispatchStarted) return;");
     expect(source).toContain("dispatchStarted = true;");
     expect(source).toContain('action: { label: t("mail.actions.undo")');
-    expect(source).toContain(
-      'toast(t("mail.toasts.messageSent"), {\n              id: sendingToastId,',
+    expect(source).toMatch(
+      /toast\(t\("mail\.toasts\.messageSent"\), \{\s+id: sendingToastId,/,
     );
     expect(source).not.toContain('toast("Message sent."');
   });

@@ -66,6 +66,8 @@ import {
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
 import {
+  applyDraftSaveResult,
+  DRAFT_DELETE_FAILED_EVENT,
   DRAFT_SAVE_FAILED_EVENT,
   useComposeState,
 } from "@/hooks/use-compose-state";
@@ -333,12 +335,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const handleDraftSaveFailed = () => {
       toast.error(t("mail.toasts.failedToSaveDraft"));
     };
+    const handleDraftDeleteFailed = () => {
+      toast.error(t("mail.toasts.failedToDeleteDraft"));
+    };
     window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleDraftSaveFailed);
-    return () =>
+    window.addEventListener(DRAFT_DELETE_FAILED_EVENT, handleDraftDeleteFailed);
+    return () => {
       window.removeEventListener(
         DRAFT_SAVE_FAILED_EVENT,
         handleDraftSaveFailed,
       );
+      window.removeEventListener(
+        DRAFT_DELETE_FAILED_EVENT,
+        handleDraftDeleteFailed,
+      );
+    };
   }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -2029,32 +2040,35 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               const draft = popoutDrafts.find((d) => d.id === id);
               const hasContent = !!(
                 draft?.to?.trim() ||
+                draft?.cc?.trim() ||
+                draft?.bcc?.trim() ||
                 draft?.subject?.trim() ||
                 draft?.body?.trim()
               );
               const snapshot = draft ? { ...draft } : null;
-              compose.close(id);
+              const savePromise = compose.close(id);
               if (hasContent && snapshot) {
                 toast(t("mail.toasts.draftClosed"), {
                   action: {
                     label: t("mail.compose.reopenDraft"),
-                    onClick: () => {
-                      const { id: _id, ...reopenData } = snapshot;
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      const { id: _id, ...reopenData } = savedSnapshot;
                       compose.open(reopenData);
                     },
                   },
                   cancel: {
                     label: t("mail.compose.deleteDraft"),
-                    onClick: () => {
-                      if (snapshot.savedDraftId) {
-                        void fetch(
-                          appApiPath(
-                            `/api/emails/draft/${snapshot.savedDraftId}`,
-                          ),
-                          {
-                            method: "DELETE",
-                          },
-                        );
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      if (savedSnapshot.savedDraftId) {
+                        await compose.deleteSavedDraft(savedSnapshot);
                       }
                     },
                   },
@@ -2063,37 +2077,57 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             }}
             onCloseAll={() => {
               const draftsWithContent = popoutDrafts.filter(
-                (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+                (d) =>
+                  !!(
+                    d.to?.trim() ||
+                    d.cc?.trim() ||
+                    d.bcc?.trim() ||
+                    d.subject?.trim() ||
+                    d.body?.trim()
+                  ),
               );
               const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const ids = popoutDrafts.map((d) => d.id);
-              ids.forEach((id) => compose.close(id));
+              const savePromises = new Map(
+                popoutDrafts.map((draft) => [
+                  draft.id,
+                  compose.close(draft.id),
+                ]),
+              );
               if (snapshots.length > 0) {
                 toast(
                   t("mail.toasts.draftsClosed", { count: snapshots.length }),
                   {
                     action: {
                       label: t("mail.compose.reopenDraft"),
-                      onClick: () => {
-                        for (const snap of snapshots) {
-                          const { id: _id, ...reopenData } = snap;
+                      onClick: async () => {
+                        const savedSnapshots = await Promise.all(
+                          snapshots.map(async (snapshot) =>
+                            applyDraftSaveResult(
+                              snapshot,
+                              await savePromises.get(snapshot.id),
+                            ),
+                          ),
+                        );
+                        for (const savedSnapshot of savedSnapshots) {
+                          const { id: _id, ...reopenData } = savedSnapshot;
                           compose.open(reopenData);
                         }
                       },
                     },
                     cancel: {
                       label: t("mail.compose.deleteDrafts"),
-                      onClick: () => {
-                        for (const snap of snapshots) {
-                          if (snap.savedDraftId) {
-                            void fetch(
-                              appApiPath(
-                                `/api/emails/draft/${snap.savedDraftId}`,
-                              ),
-                              {
-                                method: "DELETE",
-                              },
-                            );
+                      onClick: async () => {
+                        const savedSnapshots = await Promise.all(
+                          snapshots.map(async (snapshot) =>
+                            applyDraftSaveResult(
+                              snapshot,
+                              await savePromises.get(snapshot.id),
+                            ),
+                          ),
+                        );
+                        for (const savedSnapshot of savedSnapshots) {
+                          if (savedSnapshot.savedDraftId) {
+                            await compose.deleteSavedDraft(savedSnapshot);
                           }
                         }
                       },

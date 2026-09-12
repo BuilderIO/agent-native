@@ -233,8 +233,8 @@ export const InlineReplyComposer = forwardRef<
       const sendingToastId = toast(t("mail.compose.sending"), {
         duration: Infinity,
       });
-      sendEmail.mutate(
-        {
+      void sendEmail
+        .mutateAsync({
           to: expandAliasTokens(draftSnapshot.to, aliases),
           cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
           bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
@@ -244,25 +244,22 @@ export const InlineReplyComposer = forwardRef<
           replyToThreadId: draftSnapshot.replyToThreadId,
           accountEmail: draftSnapshot.accountEmail,
           attachments: draftSnapshot.attachments,
-        },
-        {
-          onSuccess: () => {
-            toast(t("mail.toasts.messageSent"), {
-              id: sendingToastId,
-              duration: 3_000,
-            });
-          },
-          onError: () => {
-            toast.dismiss(sendingToastId);
-            toast.error(t("mail.toasts.failedToSendEmail"));
-            const { id: _id, ...reopenData } = draftSnapshot;
-            onReopen(reopenData);
-          },
-          onSettled: () => {
-            sendingRef.current = false;
-          },
-        },
-      );
+        })
+        .then(() => {
+          toast(t("mail.toasts.messageSent"), {
+            id: sendingToastId,
+            duration: 3_000,
+          });
+        })
+        .catch(() => {
+          toast.dismiss(sendingToastId);
+          toast.error(t("mail.toasts.failedToSendEmail"));
+          const { id: _id, ...reopenData } = draftSnapshot;
+          onReopen(reopenData);
+        })
+        .finally(() => {
+          sendingRef.current = false;
+        });
     }, SEND_UNDO_WINDOW_MS);
   };
 
