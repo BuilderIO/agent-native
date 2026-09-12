@@ -7,7 +7,7 @@ import {
   IconFileText,
   IconFolderOpen,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useContentSpaces } from "@/hooks/use-content-spaces";
@@ -59,11 +59,13 @@ function SearchChoice({
   value,
   choices,
   onChange,
+  focusInput,
 }: {
   label: string;
   value: string;
   choices: { value: string; label: string }[];
   onChange: (value: string) => void;
+  focusInput: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -85,7 +87,7 @@ function SearchChoice({
           // toolbar, whose key handler swallows arrows and Enter before the
           // command menu sees them.
           event.preventDefault();
-          focusSearchInput();
+          focusInput();
         }}
       >
         <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
@@ -120,11 +122,22 @@ function SearchLoading() {
 
 // Radix portals DropdownMenuContent to document.body, so focus restoration
 // from a filter menu's close event cannot walk up to the picker dialog from
-// that element; query the dialog's input directly instead.
-function focusSearchInput() {
-  document
-    .querySelector<HTMLInputElement>('[role="dialog"] [role="combobox"]')
+// that element; walk up from the filter toolbar (which lives inside the
+// dialog) instead of searching the document, where another mounted dialog
+// could win document order.
+function focusSearchInput(control: HTMLElement | null) {
+  control
+    ?.closest('[role="dialog"]')
+    ?.querySelector<HTMLInputElement>('[role="combobox"]')
     ?.focus();
+}
+
+// sourceUpdatedAt is persisted as text and may hold a bare epoch number or
+// another unparseable form; normalize it or drop the freshness line rather
+// than letting formatDate throw.
+function normalizeTimestamp(value: string): string | null {
+  const date = new Date(/^\d+$/.test(value) ? Number(value) : value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function DateSearchChoice({
@@ -134,6 +147,7 @@ function DateSearchChoice({
   selectedDay,
   onSelectPreset,
   onPickDay,
+  focusInput,
 }: {
   label: string;
   triggerLabel: string;
@@ -141,6 +155,7 @@ function DateSearchChoice({
   selectedDay?: Date;
   onSelectPreset: (value: "all" | "7" | "30") => void;
   onPickDay: (day: Date) => void;
+  focusInput: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -166,7 +181,7 @@ function DateSearchChoice({
         align="start"
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          focusSearchInput();
+          focusInput();
         }}
       >
         <div className="flex gap-1 pb-2">
@@ -241,8 +256,8 @@ function SearchPage({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => {
-            focusSearchInput();
+          onClick={(event) => {
+            focusSearchInput(event.currentTarget);
             void results.refetch();
           }}
         >
@@ -266,6 +281,9 @@ function SearchPage({
               : isLocalFileSearchResult(document)
                 ? IconFolderOpen
                 : IconFileText;
+          const sourceUpdated = document.sourceUpdatedAt
+            ? normalizeTimestamp(document.sourceUpdatedAt)
+            : null;
           return (
             <CommandMenu.Item
               key={document.id}
@@ -305,10 +323,10 @@ function SearchPage({
                     {document.description}
                   </span>
                 ) : null}
-                {document.sourceUpdatedAt ? (
+                {sourceUpdated ? (
                   <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
                     {t("root.searchSourceUpdated", {
-                      date: formatDate(document.sourceUpdatedAt),
+                      date: formatDate(sourceUpdated),
                     })}
                   </span>
                 ) : null}
@@ -324,8 +342,8 @@ function SearchPage({
             if (event.key === "Enter" || event.key === " ")
               event.stopPropagation();
           }}
-          onClick={() => {
-            focusSearchInput();
+          onClick={(event) => {
+            focusSearchInput(event.currentTarget);
           }}
         >
           <Button
@@ -391,6 +409,8 @@ export function ContentCommandSearchResults({
     const parsed = parseSearchQuery(debouncedQuery);
     return parsed.empty ? [] : searchQueryNeedles(parsed);
   }, [debouncedQuery]);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const focusPickerInput = () => focusSearchInput(toolbarRef.current);
   const dateTriggerLabel = pickedDay
     ? formatDate(new Date(`${pickedDay}T00:00:00`))
     : modified === "7"
@@ -400,8 +420,8 @@ export function ContentCommandSearchResults({
         : t("root.searchAnyDate");
 
   const applyPreset = (value: "all" | "7" | "30") => {
-    setModified(value);
     setPickedDay(null);
+    setModified(value);
     setModifiedAfter(
       value === "all"
         ? undefined
@@ -412,6 +432,7 @@ export function ContentCommandSearchResults({
   return (
     <>
       <div
+        ref={toolbarRef}
         className="flex flex-wrap gap-2 border-b p-2"
         onKeyDown={(event) => {
           if (event.key !== "Tab" && event.key !== "Escape")
@@ -429,6 +450,7 @@ export function ContentCommandSearchResults({
             })),
           ]}
           onChange={setChosenScope}
+          focusInput={focusPickerInput}
         />
         <SearchChoice
           label={t("root.searchFields")}
@@ -438,6 +460,7 @@ export function ContentCommandSearchResults({
             { value: "title", label: t("root.searchTitleOnly") },
           ]}
           onChange={setSearchFields}
+          focusInput={focusPickerInput}
         />
         <SearchChoice
           label={t("root.searchType")}
@@ -448,6 +471,7 @@ export function ContentCommandSearchResults({
             { value: "database", label: t("root.commandDatabasesHeading") },
           ]}
           onChange={setDocumentType}
+          focusInput={focusPickerInput}
         />
         <DateSearchChoice
           label={t("root.searchDate")}
@@ -456,17 +480,8 @@ export function ContentCommandSearchResults({
           selectedDay={
             pickedDay ? new Date(`${pickedDay}T00:00:00`) : undefined
           }
-          onSelectPreset={(value) => {
-            setPickedDay(null);
-            setModified(value);
-            setModifiedAfter(
-              value === "all"
-                ? undefined
-                : new Date(
-                    Date.now() - Number(value) * 86_400_000,
-                  ).toISOString(),
-            );
-          }}
+          onSelectPreset={applyPreset}
+          focusInput={focusPickerInput}
           onPickDay={(day) => {
             setModified("all");
             setPickedDay(
