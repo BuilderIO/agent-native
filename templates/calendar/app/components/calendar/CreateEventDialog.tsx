@@ -103,6 +103,11 @@ import {
   eventPopoverHeaderTitle,
   eventPopoverShell,
 } from "@/lib/event-popover-style";
+import {
+  applyEndTimeChange,
+  eventDurationMinutes,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -638,6 +643,25 @@ export function CreateEventPopover({
     setEndDate((current) => (current < nextDate ? nextDate : current));
   }
 
+  function handleStartTimeChange(nextStartTime: string) {
+    const next = shiftEndForStartChange(
+      { date, startTime, endDate, endTime },
+      nextStartTime,
+    );
+    setStartTime(next.startTime);
+    setEndDate(next.endDate);
+    setEndTime(next.endTime);
+  }
+
+  function handleEndTimeChange(nextEndTime: string) {
+    const next = applyEndTimeChange(
+      { date, startTime, endDate, endTime },
+      nextEndTime,
+    );
+    setEndDate(next.endDate);
+    setEndTime(next.endTime);
+  }
+
   function handleDraftDescription() {
     setDescriptionOpen(true);
     sendToAgentChat({
@@ -989,40 +1013,26 @@ export function CreateEventPopover({
                       value={startTime}
                       label={t("eventForm.start")}
                       className="px-1.5 py-1"
-                      onChange={setStartTime}
+                      onChange={handleStartTimeChange}
                     />
                     <span className="text-muted-foreground/60">→</span>
                     <TimePickerPopover
                       value={endTime}
                       label={t("eventForm.end")}
                       className="px-1.5 py-1"
+                      after={endDate === date ? startTime : undefined}
                       getOptionMeta={(value) => {
-                        const duration = differenceInMinutes(
-                          new Date(
-                            dateTimeInTimezoneToIso(
-                              endDate,
-                              value,
-                              eventTimezone,
-                            ),
-                          ),
-                          new Date(
-                            dateTimeInTimezoneToIso(
-                              date,
-                              startTime,
-                              eventTimezone,
-                            ),
+                        const duration = eventDurationMinutes(
+                          applyEndTimeChange(
+                            { date, startTime, endDate, endTime },
+                            value,
                           ),
                         );
-                        return duration > 0
+                        return duration !== null && duration > 0
                           ? formatDurationLabel(duration, t)
                           : undefined;
                       }}
-                      onChange={(value) => {
-                        setEndTime(value);
-                        if (endDate === date && value <= startTime) {
-                          setEndDate(addDaysToDateString(date, 1));
-                        }
-                      }}
+                      onChange={handleEndTimeChange}
                     />
                     <span className="text-xs text-muted-foreground/70">
                       {formatDurationLabel(findTimeDurationMinutes, t)}

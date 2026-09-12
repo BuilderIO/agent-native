@@ -27,6 +27,7 @@ import {
   remindersInput,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
+  validateEventTimeOrder,
   validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
@@ -477,6 +478,11 @@ export default defineAction({
           : "default";
       validateStatusEventTiming({
         eventType: existingStatusEventType,
+        allDay: args.allDay ?? existingEvent.allDay,
+        start: args.start ?? existingEvent.start,
+        end: args.end ?? existingEvent.end,
+      });
+      validateEventTimeOrder({
         allDay: args.allDay ?? existingEvent.allDay,
         start: args.start ?? existingEvent.start,
         end: args.end ?? existingEvent.end,

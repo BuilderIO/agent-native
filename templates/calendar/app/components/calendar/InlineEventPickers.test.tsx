@@ -68,6 +68,60 @@ describe("TimePickerPopover", () => {
     expect(unselected?.querySelector('[aria-hidden="true"]')).toBeTruthy();
   });
 
+  it("starts the end list just after the selected start time", () => {
+    act(() => {
+      root.render(
+        <TimePickerPopover
+          value="09:30"
+          label="End"
+          after="13:30"
+          onChange={() => undefined}
+        />,
+      );
+    });
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="End"]',
+    );
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .filter((button) => button !== trigger)
+      .map((button) => button.textContent ?? "");
+
+    expect(optionLabels[0]).toContain("1:45 PM");
+    expect(optionLabels[1]).toContain("2 PM");
+    // The still-selected 9:30 AM only reappears after the midnight wrap.
+    expect(
+      optionLabels.findIndex((label) => label.includes("9:30 AM")),
+    ).toBeGreaterThan(
+      optionLabels.findIndex((label) => label.includes("12 AM")),
+    );
+  });
+
+  it("keeps the plain midnight list when no start anchor is given", () => {
+    act(() => {
+      root.render(
+        <TimePickerPopover
+          value="09:30"
+          label="End"
+          onChange={() => undefined}
+        />,
+      );
+    });
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="End"]',
+    );
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .filter((button) => button !== trigger)
+      .map((button) => button.textContent ?? "");
+
+    expect(optionLabels[0]).toContain("12 AM");
+  });
+
   it("keeps the timezone picker compact and accessible when requested", () => {
     act(() => {
       root.render(
