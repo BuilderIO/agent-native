@@ -165,7 +165,7 @@ function DateSearchChoice({
     { value: "30" as const, label: t("root.searchPastMonth") },
   ];
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -179,6 +179,12 @@ function DateSearchChoice({
       <PopoverContent
         className="w-auto p-2"
         align="start"
+        onKeyDown={(event) => {
+          // Modal keeps this popover as the top DismissableLayer so Escape
+          // here closes only the calendar; stopping propagation additionally
+          // guards the dialog should focus ever sit on the trigger instead.
+          if (event.key === "Escape") event.stopPropagation();
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           focusInput();

@@ -67,7 +67,9 @@ context is independently access-scoped. The query supports a bounded
 Google-style operator set: quoted "exact phrases", `-excludedTerm`,
 uppercase `OR` between terms, `intitle:term`, and implicit AND across bare
 words; `%`, `_`, and `*` stay literal, and an all-workspaces scope option
-omits the space filter while keeping server-side access scoping. Focused
+omits the space filter while keeping server-side access scoping. Snippet
+windows anchor at the first in-body occurrence of the first match needle,
+so deep-body matches show their own context. Focused
 tests cover later pages, private-parent suppression, hidden-result counts,
 type filters, and each operator. This is bounded lexical search substrate,
 not proof of indexed retrieval across every Source, authoritative author

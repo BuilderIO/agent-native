@@ -202,12 +202,18 @@ export default defineAction({
 
     // Project a bounded preview of `content` instead of the full column:
     // document bodies can be multi-MB, and this action only returns a short
-    // snippet (use get-document for full content). 5000 chars is generous
-    // headroom for `makeSnippet`'s 120-char radius even when the match is
-    // deep-ish into the doc, while the true length still comes from SQL
-    // `length()` rather than reading `.length` off a truncated string.
-    // Mirrors the `substr`/`length` projection style in list-documents.ts.
-    // Both `substr` and `length` work in PostgreSQL and PGlite.
+    // snippet (use get-document for full content). In free-text mode the
+    // preview window is anchored at the first in-body occurrence of the first
+    // match needle, so a hit deeper than any fixed head window still shows
+    // its own context (`makeSnippet` re-locates the needle inside the
+    // window); title-only matches and exactTitle mode keep the head
+    // projection. The true length still comes from SQL `length()` rather than
+    // reading `.length` off a truncated string. Mirrors the
+    // `substr`/`length` projection style in list-documents.ts; `position`,
+    // `substr`, and `length` all work in PostgreSQL and PGlite.
+    const matchWindow = snippetNeedle
+      ? sql<string>`case when position(lower(${snippetNeedle}) in lower(${schema.documents.content})) > 0 then substr(${schema.documents.content}, greatest(1, position(lower(${snippetNeedle}) in lower(${schema.documents.content})) - 120), 240 + length(${snippetNeedle})) else substr(${schema.documents.content}, 1, 5000) end`
+      : sql<string>`substr(${schema.documents.content}, 1, 5000)`;
     const docs = await db
       .select({
         id: schema.documents.id,
@@ -215,7 +221,7 @@ export default defineAction({
         title: schema.documents.title,
         description: schema.documents.description,
         icon: schema.documents.icon,
-        contentPreview: sql<string>`substr(${schema.documents.content}, 1, 5000)`,
+        contentPreview: matchWindow,
         contentLength: sql<number>`length(${schema.documents.content})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,

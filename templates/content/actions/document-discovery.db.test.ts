@@ -179,6 +179,38 @@ describe("bounded document discovery", () => {
     expect((await run("-")).documents).toEqual([]);
   });
 
+  it("anchors deep-match snippets at the matching context, not the head", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-deep-window",
+        ownerEmail: OWNER,
+        title: "Deep window",
+        content: `STARK-HEAD ${"filler ".repeat(1000)}abyssal-giraffe-sonata buried deep`,
+      });
+    const plain = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "abyssal-giraffe-sonata",
+        limit: 10,
+        offset: 0,
+      }),
+    );
+    const quoted = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: '"abyssal-giraffe-sonata"',
+        limit: 10,
+        offset: 0,
+      }),
+    );
+    for (const result of [plain, quoted]) {
+      expect(result.documents.map((doc) => doc.id)).toEqual([
+        "search-deep-window",
+      ]);
+      expect(result.documents[0]?.snippet).toContain("abyssal-giraffe-sonata");
+      expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
+    }
+  });
+
   it("compares modified-date bounds as timestamps rather than text", async () => {
     await getDb().insert(schema.documents).values({
       id: "search-space-timestamp",
