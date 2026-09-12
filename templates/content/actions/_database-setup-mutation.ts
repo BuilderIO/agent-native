@@ -38,7 +38,7 @@ export const setupLifecycleSchema = z
       .string()
       .min(1)
       .describe(
-        "Fresh configuration revision from database discovery or the last lifecycle receipt",
+        "Fresh configuration revision from collection discovery or the last lifecycle receipt",
       ),
     idempotencyKey: z
       .string()

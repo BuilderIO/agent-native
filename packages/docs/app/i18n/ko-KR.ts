@@ -2308,7 +2308,7 @@ const koKR = {
     content: "콘텐츠",
     contentOverview: "개요",
     contentEditing: "작성 및 정리",
-    contentDatabases: "데이터베이스 및 양식",
+    contentDatabases: "컬렉션 및 양식",
     contentSync: "로컬 파일 및 동기화",
     contentDevelopers: "개발자 가이드",
     plans: "Plans",

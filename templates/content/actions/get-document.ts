@@ -63,13 +63,13 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Exact database ID when reading membership-local properties for a database item.",
+        "Exact collection ID when reading membership-local properties for a collection item.",
       ),
     databaseDocumentId: z
       .string()
       .optional()
       .describe(
-        "Backing database document ID; only use with databaseId for the exact database context.",
+        "Backing collection document ID; only use with databaseId for the exact collection context.",
       ),
   }),
   http: { method: "GET" },

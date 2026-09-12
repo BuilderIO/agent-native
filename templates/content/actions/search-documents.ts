@@ -65,7 +65,7 @@ export default defineAction({
       documentType: z
         .enum(["page", "database"])
         .optional()
-        .describe("Only ordinary pages or database pages"),
+        .describe("Only ordinary pages or collection pages"),
       limit: z.coerce
         .number()
         .int()

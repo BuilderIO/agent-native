@@ -2334,7 +2334,7 @@ const esES = {
     content: "Contenido",
     contentOverview: "Visión general",
     contentEditing: "Escritura y organización",
-    contentDatabases: "Bases de datos y formularios",
+    contentDatabases: "Colecciones y formularios",
     contentSync: "Archivos locales y sincronización",
     contentDevelopers: "Guía para desarrolladores",
     plans: "Plans",

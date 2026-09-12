@@ -1,15 +1,15 @@
 ---
-title: "Content: Databases, Properties & Forms"
-description: "Build Notion-style databases inside Content, connect them to an external source with reviewable sync, and collect submissions through intake forms."
+title: "Content: Collections, Properties & Forms"
+description: "Build Notion-style collections inside Content, connect them to an external source with reviewable sync, and collect submissions through intake forms."
 ---
 
-# Databases, Properties & Forms
+# Collections, Properties & Forms
 
-A Content database is a Notion-style table where every row is itself a full document. This page covers building one, giving it structured columns, optionally connecting it to an outside source, and using it to collect submissions through a form. It's useful for anyone setting up a tracker, roadmap, or intake queue, with a few details near the bottom for developers connecting an external source.
+A Content collection is a Notion-style table where every row is itself a full document. This page covers building one, giving it structured columns, optionally connecting it to an outside source, and using it to collect submissions through a form. It's useful for anyone setting up a tracker, roadmap, or intake queue, with a few details near the bottom for developers connecting an external source.
 
-## Databases are pages with rows
+## Collections are pages with rows
 
-Turn any page into a database (or ask the agent to "create a database called Feature Requests") and it renders as a table where each row opens into its own document — a row page can hold its own rich content, sub-pages, comments, and version history, just like any other document. Row pages are reached from the database view rather than the ordinary sidebar tree, so a database with hundreds of rows doesn't clutter your page list.
+Turn any page into a collection (or ask the agent to "create a collection called Feature Requests") and it renders as a table where each row opens into its own document — a row page can hold its own rich content, sub-pages, comments, and version history, just like any other document. Row pages are reached from the collection view rather than the ordinary sidebar tree, so a collection with hundreds of rows doesn't clutter your page list.
 
 ## Properties
 
@@ -17,15 +17,15 @@ Add columns (properties) to describe each row. Supported types: text, number, se
 
 ## Views
 
-Save as many named views as you want per database — table, list, gallery, board, calendar, timeline, or form — each with its own sort, filters, grouping, hidden columns, and layout settings. A calendar or timeline view plots rows by a date property; a board view groups rows into columns by status or a select property, and dragging a card between columns updates that row's property.
+Save as many named views as you want per collection — table, list, gallery, board, calendar, timeline, or form — each with its own sort, filters, grouping, hidden columns, and layout settings. A calendar or timeline view plots rows by a date property; a board view groups rows into columns by status or a select property, and dragging a card between columns updates that row's property.
 
 ## Connecting an external source
 
-A database can mirror rows from an outside source instead of (or in addition to) rows you create by hand: a Notion database, a Builder CMS model, or a local table in your own app. Attaching a source reads a snapshot of its fields and rows into Content — nothing is deleted or overwritten sight unseen.
+A collection can mirror rows from an outside source instead of (or in addition to) rows you create by hand: a Notion database, a Builder CMS model, or a local table in your own app. Attaching a source reads a snapshot of its fields and rows into Content — nothing is deleted or overwritten sight unseen.
 
 Two attach modes:
 
-- **Add more rows** — the source's entries become their own new rows in your database.
+- **Add more rows** — the source's entries become their own new rows in your collection.
 - **Add details** — the source's fields join onto your _existing_ rows by a shared key (for example, matching a Notion database row to a local row by email or slug), adding read-only columns without duplicating rows.
 
 Once attached, a source can propose changes — new or updated field values it saw upstream — as a **change set** instead of silently applying them. You (or the agent, on your instruction) approve or reject each change set before it lands on the row.
@@ -92,7 +92,7 @@ Notion database sources are currently read-only "add details" sources — they e
 
 ## Structured intake forms
 
-Turn a database into a form to collect submissions from people, Slack, or another app without anyone touching the database directly. A form view has its own question order and required fields, so the same database can back two different forms for two different audiences.
+Turn a collection into a form to collect submissions from people, Slack, or another app without anyone touching the collection directly. A form view has its own question order and required fields, so the same collection can back two different forms for two different audiences.
 
 <Callout tone="warning">
 
@@ -104,21 +104,21 @@ A submission writes the title, rich-text content, and every property value in on
 
 ## Trash
 
-Deleting a database moves it (and its rows) to Trash separately from ordinary page deletion, so you can browse and restore a removed database without hunting through deleted pages one by one.
+Deleting a collection moves it (and its rows) to Trash separately from ordinary page deletion, so you can browse and restore a removed collection without hunting through deleted pages one by one.
 
 ## Data model
 
 <DataModel
   id="doc-block-content5"
-  title="Databases and external sources"
+  title="Collections and external sources"
   summary={
-    "A database is a document with property definitions and rows; an attached external source layers read snapshots, field mappings, and reviewable change sets on top without touching the row until it's approved."
+    "A collection is a document with property definitions and rows; an attached external source layers read snapshots, field mappings, and reviewable change sets on top without touching the row until it's approved."
   }
   entities={[
     {
       id: "content_databases",
       name: "content_databases",
-      note: "A database object attached to a document (the database's own page)",
+      note: "A collection object attached to a document (the collection's own page)",
       fields: [
         { name: "id", type: "id", pk: true },
         { name: "document_id", type: "id", fk: "documents.id" },
@@ -140,7 +140,7 @@ Deleting a database moves it (and its rows) to Trash separately from ordinary pa
     {
       id: "content_database_items",
       name: "content_database_items",
-      note: "One row in a database, linking it to its row document",
+      note: "One row in a collection, linking it to its row document",
       fields: [
         { name: "id", type: "id", pk: true },
         {
@@ -160,7 +160,7 @@ Deleting a database moves it (and its rows) to Trash separately from ordinary pa
     {
       id: "document_property_definitions",
       name: "document_property_definitions",
-      note: "Column definitions for a database",
+      note: "Column definitions for a collection",
       fields: [
         { name: "id", type: "id", pk: true },
         { name: "database_id", type: "id", fk: "content_databases.id" },
@@ -213,7 +213,7 @@ Deleting a database moves it (and its rows) to Trash separately from ordinary pa
     {
       id: "content_database_sources",
       name: "content_database_sources",
-      note: "One attached external source per database (per attach call)",
+      note: "One attached external source per collection (per attach call)",
       fields: [
         { name: "id", type: "id", pk: true },
         { name: "database_id", type: "id", fk: "content_databases.id" },
@@ -401,6 +401,6 @@ For the action names behind attach/refresh/review/submit, see the [Developer Gui
 ## What's next
 
 - [Content overview](/docs/template-content) — what the app is and how to get started
-- [Writing & organizing documents](/docs/template-content-editing) — the editor, page tree, and sharing model a database's row pages build on
-- [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — syncing whole documents, as opposed to database rows
+- [Writing & organizing documents](/docs/template-content-editing) — the editor, page tree, and sharing model a collection's row pages build on
+- [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — syncing whole documents, as opposed to collection rows
 - [Developer Guide](/docs/template-content-developers) — the full data model and action inventory

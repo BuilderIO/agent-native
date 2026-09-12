@@ -446,10 +446,10 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('restorePage: "Restore"');
     expect(messages).toContain('trashEmpty: "Trash is empty"');
     expect(messages).toContain(
-      'deleteDatabasePermanentlyQuestion: "Delete database permanently?"',
+      'deleteDatabasePermanentlyQuestion: "Delete collection permanently?"',
     );
     expect(messages).toContain(
-      'failedRestoreDatabase: "Failed to restore database"',
+      'failedRestoreDatabase: "Failed to restore collection"',
     );
   });
 

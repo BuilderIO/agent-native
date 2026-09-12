@@ -2327,7 +2327,7 @@ const ptBR = {
     content: "Conteúdo",
     contentOverview: "Visão geral",
     contentEditing: "Escrever e organizar",
-    contentDatabases: "Bancos de dados e formulários",
+    contentDatabases: "Coleções e formulários",
     contentSync: "Arquivos locais e sincronização",
     contentDevelopers: "Guia do desenvolvedor",
     plans: "Plans",

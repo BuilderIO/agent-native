@@ -43,7 +43,7 @@ An assistant that succeeds where the editor would fail erodes trust in both surf
 
 ## Example workflow
 
-A person asks an agent to update a Database record. The agent calls the same Action as the editor, receives the same validation failure if it is invalid, and returns the canonical result.
+A person asks an agent to update a Collection record. The agent calls the same Action as the editor, receives the same validation failure if it is invalid, and returns the canonical result.
 
 ## Product contract
 
@@ -65,13 +65,13 @@ Given an Action succeeds through an agent, when the Page is opened, then it show
 
 ## Current evidence
 
-Ordinary database setup has a bounded shared contract: create an empty database, configure supported ordinary properties, save table views, edit rows, and move a database to Trash or restore it. MCP callers use explicit target identities, revision checks, and idempotency keys. Setup receipts include canonical read-back and links; UI property and view edits use the same guarded actions. Source reads expose scoped metadata, while source writes and computed-property configuration remain outside this contract.
+Ordinary collection setup has a bounded shared contract: create an empty collection, configure supported ordinary properties, save table views, edit rows, and move a collection to Trash or restore it. MCP callers use explicit target identities, revision checks, and idempotency keys. Setup receipts include canonical read-back and links; UI property and view edits use the same guarded actions. Source reads expose scoped metadata, while source writes and computed-property configuration remain outside this contract.
 
 SDK integration tests exercise discovery, the setup lifecycle, concurrent retries, stale revisions, permission changes, source redaction, and rejection of legacy MCP payloads. Database tests cover PGlite and PostgreSQL; UI adapter tests cover canonical receipt updates and queued edits. These checks establish this bounded implementation, not deployed acceptance or complete parity across Content. Per-capability real-interface proof and broader parity evaluations remain incomplete. This Capability remains `in_progress`.
 
 ## Proof plan
 
-1. Compare Page, Database, and collaboration Action inputs, results, and failures.
+1. Compare Page, Collection, and collaboration Action inputs, results, and failures.
 2. Test permission changes, field visibility, history, conflict, and unavailable sources in both callers.
 3. Run paired human and agent workflows with accessible UI evidence.
 

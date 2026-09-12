@@ -2340,7 +2340,7 @@ const frFR = {
     content: "Contenu",
     contentOverview: "Vue d'ensemble",
     contentEditing: "Rédaction et organisation",
-    contentDatabases: "Bases de données et formulaires",
+    contentDatabases: "Collections et formulaires",
     contentSync: "Fichiers locaux et synchro",
     contentDevelopers: "Guide développeur",
     plans: "Plans",

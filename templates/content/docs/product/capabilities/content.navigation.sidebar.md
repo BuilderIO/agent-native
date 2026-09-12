@@ -49,7 +49,7 @@ parentage remain unchanged.
 ## Product contract
 
 - Pinned entries are personal References; dynamic sections are access-scoped query results.
-- Personal ordering, expansion, and collapse do not reparent Pages, change Database membership, or grant shared edit authority.
+- Personal ordering, expansion, and collapse do not reparent Pages, change Collection membership, or grant shared edit authority.
 - Intentional references may expand; the sidebar is not a general-purpose object renderer.
 - Missing, deleted, inaccessible, stale, and unavailable entries are handled honestly and recoverably.
 

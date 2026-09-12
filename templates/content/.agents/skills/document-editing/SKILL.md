@@ -100,7 +100,7 @@ Only accept or reject when the user has asked for that decision and the caller
 has editor authority; call `decide-resource-suggestion` with a fresh
 idempotency key and the suggestion's `baseRevision` as `observedBase`. A stale
 result means canonical Content was not overwritten. Suggested edits are
-unavailable for local-file, source-owned, externally linked, database-item, or
+unavailable for local-file, source-owned, externally linked, collection-item, or
 trashed Pages in this release.
 
 ```bash
@@ -113,7 +113,7 @@ pnpm action create-resource-suggestion --resourceType document --resourceId abc1
 ### delete-document
 
 Move a document and all its children to Trash. IDs, bodies, hierarchy, and
-database membership remain intact so the subtree can be restored.
+collection membership remain intact so the subtree can be restored.
 
 ```bash
 pnpm action delete-document --id abc123
@@ -194,10 +194,10 @@ can't convey:
 - `document_versions`, `document_comments`, and `document_sync_links` all
   carry `owner_email` so a workspace can upgrade from local mode to a real
   account without losing history, comments, or Notion links.
-- A database is a normal document (`content_databases` +
+- A collection is a normal document (`content_databases` +
   `document_property_definitions`) whose rows are also documents, linked
   through `content_database_items`. Row pages are omitted from the ordinary
-  sidebar tree — they're reached through the database view.
+  sidebar tree — they're reached through the collection view.
 
 Documents are **private by default**; use `share-resource` /
 `set-resource-visibility` (`resourceType document`) to change access.
@@ -241,7 +241,7 @@ Documents form a tree via `parent_id`:
 Descriptions are owned; context is inherited. `get-document` and `view-screen`
 return the focused page's own description plus a computed root-to-parent
 `contextPath`. Use that path to understand where the page lives, but never copy
-ancestor descriptions into the child. Database, property, and option
+ancestor descriptions into the child. Collection, property, and option
 descriptions narrow the guidance further when working with structured values.
 
 ## Screen Context And IDs
@@ -285,9 +285,9 @@ Always run `refresh-list` after any create, update, or delete operation.
   discoverability, the read-only public chat). Read it before touching
   descriptions, external ingest, or a document's visibility.
 - **`references/databases.md`** — full behavioral reference for Content
-  databases: property types, Blocks fields, and every view type (table,
+  collections: property types, Blocks fields, and every view type (table,
   list, gallery, board, calendar, timeline, form). Read it before building or
-  modifying database views, properties, or forms.
+  modifying collection views, properties, or forms.
 
 Also read on demand, outside this skill:
 

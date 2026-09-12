@@ -788,7 +788,7 @@ export function contentDatabaseCreationRequest(args: {
 }): CreateDatabaseRequest {
   const parentId = args.parentId ?? null;
   if (!args.spaceId) {
-    throw new Error("Choose a Content space before creating a database");
+    throw new Error("Choose a Content space before creating a collection");
   }
   return {
     newDocumentId: args.newDocumentId,

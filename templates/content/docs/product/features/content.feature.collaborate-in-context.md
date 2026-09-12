@@ -6,10 +6,10 @@ name: "Collaborate in context"
 chapter: "content.chapter.consensus"
 order: 6
 roadmap_status: "partially_implemented"
-summary: "Comments, Discussion, messages, notifications, and history stay anchored to the Page or Database being shaped."
+summary: "Comments, Discussion, messages, notifications, and history stay anchored to the Page or Collection being shaped."
 example_workflow: "A teammate comments on an unclear paragraph, discusses the larger issue in the Page's Discussion, links the conversation to Slack, and returns later to see the Comment, replies, and resulting changes together."
 works_today: "Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, and document history. These already keep precise feedback closer to the artifact than an external chat can."
-remains: "Every Page and Database needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions."
+remains: "Every Page and Collection needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions."
 required_capabilities:
   [
     "content.discussion.page",
@@ -27,12 +27,12 @@ last_reviewed: "2026-07-29"
 
 # Feature 6: Collaborate in context
 
-Comments, Discussion, messages, notifications, and history stay anchored to the Page or Database being shaped.
+Comments, Discussion, messages, notifications, and history stay anchored to the Page or Collection being shaped.
 
 ## Product contract
 
 - **Comments:** Attach precise feedback to text, Blocks, media, or other exact material and preserve the historical target if that material changes.
-- **Discussion:** Gives every Page and Database one continuing channel for collaboration about the whole artifact.
+- **Discussion:** Gives every Page and Collection one continuing channel for collaboration about the whole artifact.
 - **Rich messages:** Use Blocks fields so messages and Comments can contain the same references, embeds, Expressions, and structured content as Pages.
 - **Threads and replies:** Keep focused sub-conversations understandable without infinite nesting.
 - **Permalinks:** Make every message and Comment addressable from Content, Slack, or another Page.
@@ -45,9 +45,9 @@ Polls and explicit outcome state deepen the same Discussion rather than creating
 
 **Status:** Planned
 
-**Example workflow:** A team posts a Poll in the Database Discussion, allows each person to choose up to two priorities, closes voting on Friday, records the outcome, and links directly to that result from the resulting plan.
+**Example workflow:** A team posts a Poll in the Collection Discussion, allows each person to choose up to two priorities, closes voting on Friday, records the outcome, and links directly to that result from the resulting plan.
 
-**What works today:** Comments, reactions, rich content, Database Views, and permission-aware collaboration provide pieces of the eventual interaction.
+**What works today:** Comments, reactions, rich content, Collection Views, and permission-aware collaboration provide pieces of the eventual interaction.
 
 **What remains:** Poll messages, bounded multi-select, stable options, closing behavior, access-safe aggregates, featured Poll rendering, and superseding outcomes still need implementation.
 

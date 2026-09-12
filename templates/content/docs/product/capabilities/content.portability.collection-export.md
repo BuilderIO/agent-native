@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.portability.collection-export"
 name: "Bounded collection export"
-user_promise: "Export the authorized records in one Database or View to a readable file without changing what the View means or implying a whole-vault backup."
+user_promise: "Export the authorized records in one Collection or View to a readable file without changing what the View means or implying a whole-vault backup."
 primary_user_job: "Take the records I can see in one collection into CSV, Markdown, HTML, or a print-ready PDF representation with clear scope and field choices."
 kind: "workflow"
 state: "verified"
@@ -18,7 +18,7 @@ dependencies:
   ]
 related_features: ["content.feature.take-the-whole-vault-with-you"]
 roadmap_boundary: "feature"
-acceptance_summary: "One responsive export flow resolves an access-first, server-owned Database or View projection and encodes the same selected records, scalar values, and rich bodies as CSV, a Markdown package, standalone HTML, or print-ready HTML."
+acceptance_summary: "One responsive export flow resolves an access-first, server-owned Collection or View projection and encodes the same selected records, scalar values, and rich bodies as CSV, a Markdown package, standalone HTML, or print-ready HTML."
 proof_requirements:
   [
     "Access-first membership, public/shared/private visibility, saved-View narrowing, canonical ordering, and explicit 5,000-candidate boundary tests",
@@ -48,7 +48,7 @@ semantics.
 
 ## Example workflow
 
-An editor opens a saved List View over a Database, chooses Export, keeps the
+An editor opens a saved List View over a Collection, chooses Export, keeps the
 current View and visible fields, includes the primary body, and downloads a
 Markdown package. Content includes only records the editor may access, keeps
 the effective View order, and produces the same selected identities and values
@@ -59,11 +59,11 @@ that CSV, HTML, and PDF-print export would use.
 - One collection Export dialog owns temporary format, scope, scalar-property,
   primary-body, and additional Blocks-field choices. A fresh dialog starts
   with the documented defaults before generation begins.
-- Current View scope is the authorized intersection of Database membership,
+- Current View scope is the authorized intersection of Collection membership,
   server-owned saved predicates, the acting person's effective View state, and
   bounded transient narrowing. Caller input may narrow or order the result but
   cannot replace a saved predicate or widen access.
-- All-members scope uses authorized immediate Database membership in canonical
+- All-members scope uses authorized immediate Collection membership in canonical
   order. It is non-recursive and independent of View filtering, grouping,
   search, and layout.
 - One typed projection resolves access, identities, order, selected scalar
@@ -79,7 +79,7 @@ that CSV, HTML, and PDF-print export would use.
 
 ## Boundaries and non-goals
 
-This Capability owns one immediate Database or View export. It does not own
+This Capability owns one immediate Collection or View export. It does not own
 recursive Page hierarchy, relation traversal, attachments, comments, history,
 lossless archives, import round trips, whole-vault closure, resumable jobs, or
 a server-generated binary PDF. View layouts select and order records; exported
@@ -104,7 +104,7 @@ bodies agree while inaccessible data is absent.
 
 ### Keep scalar export bounded
 
-Given a large Database with additional bodies and computed properties, when a
+Given a large Collection with additional bodies and computed properties, when a
 person exports only ordinary scalar fields, then Content does not load
 unselected bodies or evaluate unrelated rollups and fails explicitly rather
 than truncating after 5,000 authorized candidates.

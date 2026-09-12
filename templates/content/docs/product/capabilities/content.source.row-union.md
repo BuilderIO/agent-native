@@ -2,7 +2,7 @@
 record_type: "capability"
 spec_version: 2
 id: "content.source.row-union"
-name: "Materialized multi-source Databases"
+name: "Materialized multi-source Collections"
 user_promise: "The former multi-source row-union model remains migration evidence, while active composition moves toward source Queries."
 primary_user_job: "Understand the proven source-scoped row behavior without mistaking it for the active composition contract."
 kind: "primitive"
@@ -24,7 +24,7 @@ superseded_by: "content.view.source-query"
 last_reviewed: "2026-07-29"
 ---
 
-# Materialized multi-source Databases
+# Materialized multi-source Collections
 
 ## Why this exists
 
@@ -42,7 +42,7 @@ A maintainer fixing a legacy multi-source row preserves its source-scoped identi
 
 ## Boundaries and non-goals
 
-This does not revive multi-source Database configuration, prove Query behavior, or authorize a bulk migration without its own recovery plan.
+This does not revive multi-source Collection configuration, prove Query behavior, or authorize a bulk migration without its own recovery plan.
 
 ## Acceptance stories
 

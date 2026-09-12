@@ -2270,7 +2270,7 @@ const zhCN = {
     content: "内容",
     contentOverview: "概览",
     contentEditing: "写作与整理",
-    contentDatabases: "数据库与表单",
+    contentDatabases: "集合与表单",
     contentSync: "本地文件与同步",
     contentDevelopers: "开发者指南",
     plans: "Plans",

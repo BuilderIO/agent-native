@@ -82,7 +82,7 @@ function exportBaseName(title: string | null | undefined) {
 
 export default defineAction({
   description:
-    "Export a Content page or bounded Database/View collection as CSV, a Markdown package, standalone HTML, or PDF-ready HTML for the browser print dialog.",
+    "Export a Content page or bounded Collection/View collection as CSV, a Markdown package, standalone HTML, or PDF-ready HTML for the browser print dialog.",
   schema: z.object({
     id: z.string().describe("Document ID (required)"),
     format: z
@@ -92,7 +92,7 @@ export default defineAction({
     collection: collectionSchema
       .optional()
       .describe(
-        "Database export scope, selected scalar property IDs, primary body choice, and selected additional Blocks property IDs.",
+        "Collection export scope, selected scalar property IDs, primary body choice, and selected additional Blocks property IDs.",
       ),
     title: z
       .string()

@@ -33,13 +33,13 @@ projection, not a new application hiding behind a pretty icon.
 
 ## Example workflow
 
-An editor switches the same Database from Table to Timeline, asks the agent about the
+An editor switches the same Collection from Table to Timeline, asks the agent about the
 focused result, then reloads. Both surfaces use the same authorized records and Actions;
 each preserves only its own presentation settings.
 
 ## Product contract
 
-- Every View renders its canonical Database or Query result after access evaluation.
+- Every View renders its canonical Collection or Query result after access evaluation.
 - Renderers use one typed Action and agent-context contract; UI affordances never widen authority.
 - Configuration, focused selection, empty, stale, unavailable, denied, and recovery states are explicit.
 - Keyboard and assistive-technology access, bounded loading, and persistence are conformance requirements.
@@ -63,7 +63,7 @@ then it reports the state and retry or recovery route without presenting empty s
 
 ## Current evidence
 
-Timeline and existing Database renderers provide useful donor paths, but they do not
+Timeline and existing Collection renderers provide useful donor paths, but they do not
 prove a cross-renderer suite or complete contract. This Capability remains `approved_shape`.
 
 ## Proof plan

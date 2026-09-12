@@ -337,10 +337,10 @@ async function readDetailsSourceCandidate(args: {
 
 export default defineAction({
   description:
-    "Attach or replace a safe local source binding for a content database. Builder CMS bindings store source metadata, field mappings, row identity, provenance, freshness, capabilities, and local-only diff state without calling external APIs.",
+    "Attach or replace a safe local source binding for a content collection. Builder CMS bindings store source metadata, field mappings, row identity, provenance, freshness, capabilities, and local-only diff state without calling external APIs.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceType: sourceTypeSchema.describe(
       "Source type. Defaults to mock-local. Builder CMS is local metadata only in this slice.",
     ),

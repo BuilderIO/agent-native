@@ -47,7 +47,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 ## Boundaries and non-goals
 
 - Comments are exact-material feedback, not the Page-wide Discussion timeline.
-- A comment does not create a Page, Database membership, or independent share policy.
+- A comment does not create a Page, Collection membership, or independent share policy.
 - This capability does not define named Version access, although Comments retain Version context.
 
 ## Acceptance stories
