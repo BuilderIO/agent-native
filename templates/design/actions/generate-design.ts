@@ -37,6 +37,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { isBoardFile } from "../shared/board-file.js";
 import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
@@ -87,6 +88,16 @@ function isRenderableDesignFile(file: {
   const fileType = file.fileType ?? "html";
   return (
     (fileType === "html" || fileType === "jsx") && Boolean(file.content?.trim())
+  );
+}
+
+function isScreenDesignFile(file: {
+  filename: string;
+  fileType?: string | null;
+}): boolean {
+  const fileType = file.fileType ?? "html";
+  return (
+    !isBoardFile(file.filename) && (fileType === "html" || fileType === "jsx")
   );
 }
 
@@ -1079,6 +1090,10 @@ const generateDesignAction = defineAction({
           !Array.isArray(prevData.screenMetadata)
             ? (prevData.screenMetadata as Record<string, unknown>)
             : {};
+        const responsiveScreenFileIds = new Set([
+          ...existingFiles.filter(isScreenDesignFile).map((file) => file.id),
+          ...savedFiles.filter(isScreenDesignFile).map((file) => file.id),
+        ]);
         // Frames placed by an earlier call: never moved, and counted as
         // occupied so a new screen is never dropped on top of one.
         const preExistingFrameIds = new Set(
@@ -1136,7 +1151,9 @@ const generateDesignAction = defineAction({
               ? metadata.height
               : 2560;
           const visibleWidths = visibleBreakpointWidths(
-            effectiveBreakpointWidths,
+            responsiveScreenFileIds.has(fileId ?? "")
+              ? effectiveBreakpointWidths
+              : [],
             typeof metadata.width === "number" ? metadata.width : width,
           );
           const scale = getScreenPreviewViewport(
@@ -1227,7 +1244,7 @@ const generateDesignAction = defineAction({
           // overlaps (e.g. a second screen defaulting to the same origin). The
           // candidate carries its own rotation so a rotated placement is tested
           // by its real footprint, not its unrotated rectangle.
-          const candidateRect = rectOf(
+          let candidateRect = rectOf(
             {
               x,
               y,
@@ -1240,8 +1257,42 @@ const generateDesignAction = defineAction({
           if (
             occupiedRects.some((rect) => framesOverlap(candidateRect, rect))
           ) {
-            x = nextX;
             y = 0;
+            x = Math.max(x, nextX);
+            candidateRect = rectOf(
+              {
+                x,
+                y,
+                width,
+                height,
+                rotation: current.rotation,
+              },
+              file.id,
+            );
+            while (true) {
+              const overlappingRects = occupiedRects.filter((rect) =>
+                framesOverlap(candidateRect, rect),
+              );
+              if (overlappingRects.length === 0) break;
+              const leftOffset = candidateRect.x - x;
+              x = Math.max(
+                x + GENERATED_FRAME_GAP,
+                ...overlappingRects.map(
+                  (rect) =>
+                    rect.x + rect.width + GENERATED_FRAME_GAP - leftOffset,
+                ),
+              );
+              candidateRect = rectOf(
+                {
+                  x,
+                  y,
+                  width,
+                  height,
+                  rotation: current.rotation,
+                },
+                file.id,
+              );
+            }
           }
           const frame = {
             x,

@@ -223,6 +223,7 @@ describe("nextFreeCanvasRowY", () => {
     expect(
       nextFreeCanvasRowY(existing, 96, {
         responsiveLayout: {
+          screenFileIds: ["mobile"],
           screenMetadataByFileId: {
             mobile: { width: 390, height: 844 },
           },
@@ -240,6 +241,7 @@ describe("nextFreeCanvasRowY", () => {
     expect(
       nextFreeCanvasRowY(existing, 96, {
         responsiveLayout: {
+          screenFileIds: ["mobile"],
           screenMetadataByFileId: {
             mobile: { width: 390, height: 844 },
           },
@@ -249,6 +251,52 @@ describe("nextFreeCanvasRowY", () => {
     ).toBeCloseTo(96 + 844 / 2 + responsiveWidth - 390 / 2);
   });
 
+  it("does not expand board frames as responsive screens", () => {
+    expect(
+      nextFreeCanvasRowY(
+        {
+          board: {
+            x: 0,
+            y: 1000,
+            width: 1440,
+            height: 100,
+            rotation: 90,
+          },
+        },
+        96,
+        {
+          responsiveLayout: {
+            screenFileIds: ["screen"],
+            breakpointWidths: [390, 768],
+          },
+        },
+      ),
+    ).toBe(1770 + 96);
+  });
+
+  it("uses responsive geometry for screen frames without metadata", () => {
+    expect(
+      nextFreeCanvasRowY(
+        {
+          screen: {
+            x: 0,
+            y: 1000,
+            width: 1440,
+            height: 100,
+            rotation: 90,
+          },
+        },
+        96,
+        {
+          responsiveLayout: {
+            screenFileIds: ["screen"],
+            breakpointWidths: [390],
+          },
+        },
+      ),
+    ).toBeGreaterThan(1770 + 96);
+  });
+
   it("reserves measured tall breakpoint heights when placing the next row", () => {
     const existing = {
       mobile: { x: 0, y: 0, width: 1440, height: 900 },
@@ -256,6 +304,7 @@ describe("nextFreeCanvasRowY", () => {
     expect(
       nextFreeCanvasRowY(existing, 96, {
         responsiveLayout: {
+          screenFileIds: ["mobile"],
           screenMetadataByFileId: {
             mobile: {
               width: 1440,
@@ -276,6 +325,7 @@ describe("nextFreeCanvasRowY", () => {
         96,
         {
           responsiveLayout: {
+            screenFileIds: ["tablet"],
             screenMetadataByFileId: {
               tablet: {
                 width: 1440,
@@ -297,6 +347,7 @@ describe("nextFreeCanvasRowY", () => {
         96,
         {
           responsiveLayout: {
+            screenFileIds: ["tablet"],
             screenMetadataByFileId: {
               tablet: {
                 width: 1440,

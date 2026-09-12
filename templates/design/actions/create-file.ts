@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { isBoardFile } from "../shared/board-file.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -122,6 +123,22 @@ export default defineAction({
     // placement immediately, the same way generate-design and
     // present-design-variants place screens they create.
     if (renderable) {
+      const screenFiles = await db
+        .select({
+          id: schema.designFiles.id,
+          filename: schema.designFiles.filename,
+          fileType: schema.designFiles.fileType,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId));
+      const screenFileIds = screenFiles
+        .filter(
+          (file) =>
+            !isBoardFile(file.filename) &&
+            ((file.fileType ?? "html") === "html" || file.fileType === "jsx"),
+        )
+        .map((file) => file.id);
+
       await mutateDesignData({
         designId,
         mutate: (current) => {
@@ -141,6 +158,7 @@ export default defineAction({
                   CREATED_SCREEN_GAP,
                   {
                     responsiveLayout: {
+                      screenFileIds,
                       screenMetadataByFileId: current.screenMetadata,
                       breakpointWidths: getResponsiveBreakpointWidths(
                         current.breakpointSet,

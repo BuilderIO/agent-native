@@ -15,6 +15,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { isBoardFile } from "../shared/board-file.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -995,6 +996,13 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
+    const screenFileIds = existingFiles
+      .filter(
+        (file) =>
+          !isBoardFile(file.filename) &&
+          ((file.fileType ?? "html") === "html" || file.fileType === "jsx"),
+      )
+      .map((file) => file.id);
     const variantSetId = nanoid();
     const screens: VariantScreen[] = [];
 
@@ -1091,6 +1099,7 @@ export default defineAction({
             nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
               ignoreFileIds: screens.map((screen) => screen.id),
               responsiveLayout: {
+                screenFileIds,
                 screenMetadataByFileId: current.screenMetadata,
                 breakpointWidths: effectiveBreakpointWidths(
                   current.breakpointSet,

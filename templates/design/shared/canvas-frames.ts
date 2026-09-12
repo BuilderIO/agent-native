@@ -215,6 +215,7 @@ export function nextFreeCanvasRowY(
   options: {
     ignoreFileIds?: readonly string[];
     responsiveLayout?: {
+      screenFileIds?: readonly string[];
       screenMetadataByFileId?: unknown;
       breakpointWidths?: readonly number[];
     };
@@ -232,6 +233,7 @@ export function nextFreeCanvasRowY(
     !Array.isArray(metadataByFileId)
       ? (metadataByFileId as Record<string, unknown>)
       : {};
+  const screenFileIds = new Set(responsiveLayout?.screenFileIds ?? []);
   let bottom = 0;
   let sawFrame = false;
   for (const [id, frame] of frames) {
@@ -243,6 +245,9 @@ export function nextFreeCanvasRowY(
     const width = frame.width ?? 0;
     const rotation = frame.rotation ?? 0;
     const rawMetadata = metadataMap[id];
+    const responsiveScreen = screenFileIds.has(id)
+      ? responsiveLayout
+      : undefined;
     const metadata =
       rawMetadata &&
       typeof rawMetadata === "object" &&
@@ -259,24 +264,26 @@ export function nextFreeCanvasRowY(
       height ||
         Math.max(80, Math.round((primaryWidth * sourceHeight) / sourceWidth)),
     );
-    const visibleWidths = visibleBreakpointWidths(
-      responsiveLayout?.breakpointWidths,
-      metadataWidth ?? width,
-    );
+    const visibleWidths = responsiveScreen
+      ? visibleBreakpointWidths(
+          responsiveScreen.breakpointWidths,
+          metadataWidth ?? width,
+        )
+      : [];
     const resolveBreakpointHeightPx = (widthPx: number) =>
       getResponsiveBreakpointHeightPx(metadata, widthPx);
     const scale = getScreenPreviewViewport(
       { width: sourceWidth, height: sourceHeight },
       { width: primaryWidth, height: primaryHeight },
     ).scale;
-    const paintedWidth = responsiveLayout
+    const paintedWidth = responsiveScreen
       ? getResponsiveGroupWidth({
           primaryWidth,
           scale,
           visibleWidths,
         })
       : width;
-    const paintedHeight = responsiveLayout
+    const paintedHeight = responsiveScreen
       ? getResponsiveGroupHeight({
           primaryHeight,
           scale,
@@ -293,7 +300,7 @@ export function nextFreeCanvasRowY(
     let frameBottom: number;
     if (!rotation) {
       frameBottom = y + paintedHeight;
-    } else if (responsiveLayout) {
+    } else if (responsiveScreen) {
       const bounds = getResponsiveGroupRotatedBounds({
         x,
         y,
