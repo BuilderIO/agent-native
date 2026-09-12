@@ -10699,15 +10699,25 @@ export function createProductionAgentHandler(
     // before dispatching; the background worker must NOT repeat it (it re-enters
     // with the same body, which would double-persist the user message).
     if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
-      await options.onRunPrepared({
-        runId,
-        threadId,
-        message: messageToPersist,
-        attachments: requestAttachments,
-        ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
-          ? { queuedMessageId: queuedMessageId.trim() }
-          : {}),
-      });
+      try {
+        await options.onRunPrepared({
+          runId,
+          threadId,
+          message: messageToPersist,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+        });
+      } catch (error) {
+        if (foregroundRunRowInserted) {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "run_preparation_failed");
+          }
+        }
+        throw error;
+      }
     }
 
     // ─── Durable-background dispatch decision ──────────────────────────────

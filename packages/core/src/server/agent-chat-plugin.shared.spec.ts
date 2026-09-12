@@ -8,9 +8,52 @@ import {
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
   resolveRecurringJobsBuildMarker,
+  resolveAgentCheckpointPaths,
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat-plugin.js";
+
+describe("agent checkpoint path provenance", () => {
+  it("keeps reported file-tool paths and fails closed on unreported changes", () => {
+    const events = [
+      {
+        event: {
+          type: "tool_done" as const,
+          tool: "edit",
+          input: { path: "src/agent.ts" },
+          result: "ok",
+        },
+      },
+    ];
+
+    expect(
+      resolveAgentCheckpointPaths("/workspace", ["src/agent.ts"], events),
+    ).toEqual(["src/agent.ts"]);
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["src/agent.ts", "developer.txt"],
+        events,
+      ),
+    ).toEqual([]);
+    expect(
+      resolveAgentCheckpointPaths(
+        "/workspace",
+        ["outside.txt"],
+        [
+          {
+            event: {
+              type: "tool_done",
+              tool: "write",
+              input: { path: "../outside.txt" },
+              result: "ok",
+            },
+          },
+        ],
+      ),
+    ).toEqual([]);
+  });
+});
 
 function createSharedThreadEvent(
   path: string,

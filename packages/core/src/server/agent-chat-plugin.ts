@@ -776,6 +776,36 @@ function createAgentChatPluginLifecycle() {
   };
 }
 
+export function resolveAgentCheckpointPaths(
+  cwd: string,
+  changedPaths: readonly string[],
+  events: readonly { event: AgentChatEvent }[],
+): string[] {
+  const reportedPaths = new Set(
+    events.flatMap(({ event }) => {
+      if (
+        event.type !== "tool_done" ||
+        event.isError === true ||
+        typeof event.input?.path !== "string"
+      ) {
+        return [];
+      }
+      const relative = nodePath.relative(
+        cwd,
+        nodePath.resolve(cwd, event.input.path),
+      );
+      return relative &&
+        relative !== ".." &&
+        !relative.startsWith(`..${nodePath.sep}`)
+        ? [relative]
+        : [];
+    }),
+  );
+  return changedPaths.every((file) => reportedPaths.has(file))
+    ? [...changedPaths]
+    : [];
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -3256,7 +3286,15 @@ export function createAgentChatPlugin(
               // If the tree was already dirty, a checkpoint commit would sweep
               // up the user's unrelated work when a reconnect/refresh finishes.
               const postRunStatus = getUncommittedStatus(cwd);
-              const agentModifiedPaths = getChangedPaths(cwd);
+              const changedPaths = getChangedPaths(cwd);
+              // Shell commands can mutate arbitrary files, so an unreported
+              // changed path has no safe per-run provenance. Skip the automatic
+              // checkpoint instead of claiming another process's work.
+              const agentModifiedPaths = resolveAgentCheckpointPaths(
+                cwd,
+                changedPaths,
+                run.events ?? [],
+              );
               if (
                 preRunStatus === "" &&
                 postRunStatus?.trim() &&
