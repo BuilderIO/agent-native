@@ -778,7 +778,7 @@ const editor = {
     searchNotionPages: "Notion ページを検索...",
     setUpNotion: "概念をセットアップする",
     setUpNotionFirst:
-      "まずサイドバーで Notion をセットアップします。Notion アイコンをクリックします。",
+      "まず Notion をセットアップします。設定を開き、Integrations で Notion を接続します。",
     setUpNotionToSync:
       "このドキュメントを同期するように Notion をセットアップします。",
     share: "シェアする",

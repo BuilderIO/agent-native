@@ -800,7 +800,7 @@ const editor = {
     searchNotionPages: "Notion-Seiten durchsuchen...",
     setUpNotion: "Konzept einrichten",
     setUpNotionFirst:
-      "Richten Sie Notion zunächst in der Seitenleiste ein – klicken Sie auf das Notion-Symbol.",
+      "Richten Sie Notion zunächst ein – öffnen Sie die Einstellungen, dann Integrations, und verbinden Sie Notion.",
     setUpNotionToSync:
       "Richten Sie Notion ein, um dieses Dokument zu synchronisieren.",
     share: "Teilen",

@@ -751,7 +751,8 @@ const editor = {
     revealedLocalFile: "显示本地文件",
     searchNotionPages: "搜索概念页面...",
     setUpNotion: "树立观念",
-    setUpNotionFirst: "首先在侧边栏中设置 Notion - 单击 Notion 图标。",
+    setUpNotionFirst:
+      "首先设置 Notion - 打开设置，然后打开 Integrations，连接 Notion。",
     setUpNotionToSync: "设置 Notion 来同步此文档。",
     share: "分享",
     shareableCopyReady: "可共享副本已准备就绪",

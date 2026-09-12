@@ -774,7 +774,7 @@ const editor = {
     searchNotionPages: "Notion 페이지 검색...",
     setUpNotion: "노션 설정",
     setUpNotionFirst:
-      "먼저 사이드바에서 Notion을 설정하세요. Notion 아이콘을 클릭하세요.",
+      "먼저 Notion을 설정하세요. 설정을 열고 Integrations에서 Notion을 연결하세요.",
     setUpNotionToSync: "이 문서를 동기화하려면 Notion을 설정하세요.",
     share: "공유",
     shareableCopyReady: "공유 가능한 사본 준비됨",

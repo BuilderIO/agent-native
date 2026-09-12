@@ -769,7 +769,7 @@ const editor = {
     searchNotionPages: "بحث في صفحات الفكرة...",
     setUpNotion: "إعداد الفكرة",
     setUpNotionFirst:
-      "قم بإعداد Notion في الشريط الجانبي أولاً - انقر فوق أيقونة Notion.",
+      "قم بإعداد Notion أولاً - افتح الإعدادات، ثم Integrations، وقم بالاتصال بـ Notion.",
     setUpNotionToSync: "قم بإعداد Notion لمزامنة هذا المستند.",
     share: "شارك",
     shareableCopyReady: "نسخة قابلة للمشاركة جاهزة",

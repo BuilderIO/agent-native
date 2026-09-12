@@ -765,7 +765,8 @@ const editor = {
     revealedLocalFile: "स्थानीय फ़ाइल का खुलासा",
     searchNotionPages: "धारणा पृष्ठ खोजें...",
     setUpNotion: "धारणा स्थापित करें",
-    setUpNotionFirst: "सबसे पहले साइडबार में नोशन सेट करें - नोशन आइकन पर क्लिक करें।",
+    setUpNotionFirst:
+      "सबसे पहले नोशन सेट करें - सेटिंग्स खोलें, फिर Integrations खोलें, और नोशन कनेक्ट करें।",
     setUpNotionToSync: "इस दस्तावेज़ को सिंक करने के लिए नोशन सेट करें।",
     share: "साझा करें",
     shareableCopyReady: "साझा करने योग्य प्रति तैयार",

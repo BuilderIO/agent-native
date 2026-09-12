@@ -799,7 +799,7 @@ const editor = {
     searchNotionPages: "Rechercher des pages de notions...",
     setUpNotion: "Configurer Notion",
     setUpNotionFirst:
-      "Configurez d'abord Notion dans la barre latérale - cliquez sur l'icône Notion.",
+      "Configurez d'abord Notion - ouvrez Paramètres, puis Integrations, et connectez Notion.",
     setUpNotionToSync: "Configurez Notion pour synchroniser ce document.",
     share: "Partager",
     shareableCopyReady: "Copie partageable prête",

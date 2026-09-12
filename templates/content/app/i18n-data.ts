@@ -826,7 +826,7 @@ const editorToolbarMessages = {
   searchNotionPages: "Search Notion pages...",
   setUpNotion: "Set up Notion",
   setUpNotionFirst:
-    "Set up Notion in the sidebar first - click the Notion icon.",
+    "Set up Notion first - open Settings, then Integrations, and connect Notion.",
   setUpNotionToSync: "Set up Notion to sync this document.",
   pasteNotionPageUrlOrId: "Paste a Notion page URL or page ID.",
   pasteNotionPageUrlOrIdToLink:
