@@ -9,6 +9,10 @@ import {
   insertReviewCommentWithClient,
   resolveReviewThreadWithClient,
 } from "../store.js";
+import {
+  suggestionActorKind,
+  suggestionActorKindMatchesReceipt,
+} from "./actor-kind.js";
 import { getSuggestionAdapter } from "./registry.js";
 import {
   getSuggestion,
@@ -88,10 +92,15 @@ function assertCreationReplay(
   authorEmail: string | null,
   actorKind: ResourceSuggestion["actorKind"],
 ): ResourceSuggestion {
+  const actorKindMatches = suggestionActorKindMatchesReceipt(
+    receipt.actorKind,
+    actorKind,
+    receipt.receiptVersion,
+  );
   if (
     receipt.requestHash !== requestHash ||
     receipt.authorEmail !== authorEmail ||
-    receipt.actorKind !== actorKind
+    !actorKindMatches
   ) {
     throw new Error(
       "Idempotency key was already used for a different suggestion",
@@ -129,12 +138,9 @@ export const createResourceSuggestion = defineAction({
     );
     const adapter = getSuggestionAdapter(args.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
-    const actorKind =
-      (ctx as any)?.caller === "agent" || (ctx as any)?.caller === "tool"
-        ? "agent"
-        : (ctx as any)?.userEmail
-          ? "human"
-          : "system";
+    // Connected external agents arrive as mcp/webmcp/a2a callers; classifying
+    // them as human would lose agent provenance on persisted suggestions.
+    const actorKind = suggestionActorKind(ctx);
     const authorEmail = (ctx as any)?.userEmail ?? null;
     const requestHash = await creationRequestHash(args);
     const db = getDbExec();
