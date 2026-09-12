@@ -20,12 +20,13 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
-// `content` here may be a bounded preview (see the `contentPreview`
-// projection below) rather than the full document body. If the query match
-// falls outside the preview window (a deeper match in the full doc, which the
-// SQL ILIKE filter already confirmed exists), `indexOf` simply misses and we
-// fall back to a beginning-of-document snippet — the same behavior as the
-// no-match case. The row is still returned either way.
+// `content` here is a bounded preview (see the `contentPreview` projection
+// below), not the full document body. In free-text mode the preview window is
+// anchored at the first in-body match, so `indexOf` re-locates the query
+// there; when it still misses (a title-only match, or a query whose ILIKE
+// wildcards matched text `position()` cannot find literally), we fall back to
+// a beginning-of-document snippet — the same behavior as the no-match case.
+// The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
   const compact = content.replace(/\s+/g, " ").trim();
   if (!compact) return "";
@@ -124,12 +125,18 @@ export default defineAction({
 
     // Project a bounded preview of `content` instead of the full column:
     // document bodies can be multi-MB, and this action only returns a short
-    // snippet (use get-document for full content). 5000 chars is generous
-    // headroom for `makeSnippet`'s 120-char radius even when the match is
-    // deep-ish into the doc, while the true length still comes from SQL
-    // `length()` rather than reading `.length` off a truncated string.
-    // Mirrors the `substr`/`length` projection style in list-documents.ts.
-    // Both `substr` and `length` work in PostgreSQL and PGlite.
+    // snippet (use get-document for full content). In free-text mode the
+    // preview is anchored at the first in-body match, so a hit deeper than
+    // any fixed head window still shows its own context (`makeSnippet`
+    // re-locates the query inside the window); title-only matches and the
+    // exactTitle mode keep the head projection. The true length still comes
+    // from SQL `length()` rather than reading `.length` off a truncated
+    // string. Mirrors the `substr`/`length` projection style in
+    // list-documents.ts; `position`, `substr`, and `length` all work in
+    // PostgreSQL and PGlite.
+    const matchWindow = args.query
+      ? sql<string>`case when position(lower(${args.query}) in lower(${schema.documents.content})) > 0 then substr(${schema.documents.content}, greatest(1, position(lower(${args.query}) in lower(${schema.documents.content})) - 120), 240 + length(${args.query})) else substr(${schema.documents.content}, 1, 5000) end`
+      : sql<string>`substr(${schema.documents.content}, 1, 5000)`;
     const docs = await db
       .select({
         id: schema.documents.id,
@@ -137,7 +144,7 @@ export default defineAction({
         title: schema.documents.title,
         description: schema.documents.description,
         icon: schema.documents.icon,
-        contentPreview: sql<string>`substr(${schema.documents.content}, 1, 5000)`,
+        contentPreview: matchWindow,
         contentLength: sql<number>`length(${schema.documents.content})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,

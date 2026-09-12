@@ -13,6 +13,7 @@ const OWNER = "search-documents-owner@example.com";
 const CASE_PROBE_ID = "case-probe-zeta";
 const CROWDING_VISIBLE_ID = "crowding-visible-match";
 const CROWDING_HIDDEN_ID = "crowding-hidden-match";
+const DEEP_WINDOW_ID = "deep-window-memo";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -70,6 +71,18 @@ beforeAll(async () => {
         position: 2,
         visibility: "private",
         hideFromSearch: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: DEEP_WINDOW_ID,
+        ownerEmail: OWNER,
+        orgId: null,
+        parentId: null,
+        title: "Deep Window Memo",
+        content: `STARK-HEAD ${"filler ".repeat(1000)}abyssal-giraffe-sonata buried deep`,
+        position: 3,
+        visibility: "private",
         createdAt: now,
         updatedAt: now,
       },
@@ -157,5 +170,19 @@ describe("search-documents free-text case sensitivity", () => {
 
     expect(result.documents.map((doc) => doc.id)).toEqual([CROWDING_HIDDEN_ID]);
     expect(result.documents[0]?.hideFromSearch).toBe(true);
+  });
+
+  it("anchors deep-match snippets at the query context, not the head", async () => {
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "abyssal-giraffe-sonata",
+        limit: 10,
+        offset: 0,
+      }),
+    );
+
+    expect(result.documents.map((doc) => doc.id)).toEqual([DEEP_WINDOW_ID]);
+    expect(result.documents[0]?.snippet).toContain("abyssal-giraffe-sonata");
+    expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
   });
 });
