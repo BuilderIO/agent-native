@@ -21,7 +21,5 @@ export function suggestionActorKindMatchesReceipt(
 ): boolean {
   if (receiptActorKind === actorKind) return true;
   const legacy = (receiptVersion ?? 1) < 2;
-  return (
-    legacy && receiptActorKind === "human" && actorKind === "agent"
-  );
+  return legacy && receiptActorKind === "human" && actorKind === "agent";
 }
