@@ -125,7 +125,9 @@ persistent PostgreSQL URL. Workspace deployments can use the already-required
 keys.
 
 Local development intentionally uses PGlite when no database URL is present
-and an ephemeral Better Auth secret when no local secret is configured. Those
+and generates a Better Auth secret when no local secret is configured,
+persisting it at `<app>/.agent-native/dev-auth-secret` so local sign-in
+survives dev-server restarts. Those
 fallbacks keep `pnpm dev` zero-setup, but they are not silently accepted as
 production configuration. The build and runtime diagnostics report missing or
 weak auth/A2A secrets, local databases, auth disabled in production, invalid

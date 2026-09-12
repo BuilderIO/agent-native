@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -116,25 +120,48 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);
   });
 
-  it("does not throw in dev when missing (auto-generates instead)", () => {
+  // Runs the assertion from a throwaway cwd so the dev fallback persists its
+  // secret file there instead of into the repository checkout.
+  function inTempAppRoot(run: (appRoot: string) => void): void {
+    const originalCwd = process.cwd();
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    process.chdir(appRoot);
+    try {
+      run(appRoot);
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  }
+
+  it("does not throw in dev when missing (persists a generated secret instead)", () => {
     process.env.NODE_ENV = "development";
-    expect(() => getAuthSecret()).not.toThrow();
-    expect(getAuthSecret()).toBeTruthy();
+    inTempAppRoot((appRoot) => {
+      expect(() => getAuthSecret()).not.toThrow();
+      const secret = getAuthSecret();
+      expect(secret).toBeTruthy();
+      const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
+      expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(secret);
+      // A second resolution in the same directory reuses the persisted value.
+      expect(getAuthSecret()).toBe(secret);
+    });
   });
 
   // SECURITY (audit 09 LOW-2): the dev-mode fallback used to chain to
   // GOOGLE_CLIENT_SECRET, ACCESS_TOKEN, and a hardcoded literal. All
-  // three were dropped — the fallback now mints a random in-memory
-  // secret only when the filesystem is unwritable. These tests verify
-  // that even with those legacy env vars set, the resolved secret is
+  // three were dropped — better to mint a random secret than to re-use
+  // a Google client secret or a known string. These tests verify that
+  // even with those legacy env vars set, the resolved secret is
   // not either of them or the legacy literal.
   it("never returns the legacy hardcoded fallback string", () => {
     process.env.NODE_ENV = "development";
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.GOOGLE_CLIENT_SECRET;
     delete process.env.ACCESS_TOKEN;
-    const secret = getAuthSecret();
-    expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    inTempAppRoot(() => {
+      const secret = getAuthSecret();
+      expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    });
   });
 });
 

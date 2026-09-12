@@ -1467,6 +1467,12 @@ export async function runWorkspaceDev(
       const actualPort =
         typeof address === "object" && address ? address.port : port;
       gatewayUrl = `http://${gatewayHost}:${actualPort}`;
+      stdout.write(`[workspace] Root: ${root}\n`);
+      if (requestedPort > 0 && actualPort !== requestedPort) {
+        stdout.write(
+          `[workspace] Gateway port ${requestedPort} was in use; listening on ${actualPort} instead — the URLs below are the real ones.\n`,
+        );
+      }
       stdout.write(
         `[workspace] Default: ${redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl}\n`,
       );
@@ -1479,7 +1485,7 @@ export async function runWorkspaceDev(
       );
       for (const app of apps) {
         stdout.write(
-          `[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}\n`,
+          `[workspace] ${app.id}: ${gatewayUrl}/${app.id} (upstream 127.0.0.1:${app.port})\n`,
         );
       }
       startWorkspaceProcesses();
