@@ -13,7 +13,7 @@ import {
   PngCaptureError,
   cropCanvasToRect,
   renderExportDocumentCanvas,
-  resolveExportCropRect,
+  resolveExportCropTarget,
 } from "@/pages/design-editor/png-export-render";
 
 export interface RenderPngBlobArgs {
@@ -167,14 +167,18 @@ export async function runRenderPngBlob(
       exportScale: requestedExportScale,
       render: html2canvas,
     });
-    const cropRect = resolveExportCropRect(doc, cropSelection);
-    const cropped = cropRect
-      ? cropCanvasToRect(rendered.canvas, cropRect, rendered.scale)
-      : null;
+    const cropTarget = resolveExportCropTarget(doc, cropSelection);
+    const cropped =
+      cropTarget.kind === "rect"
+        ? cropCanvasToRect(rendered.canvas, cropTarget.rect, rendered.scale)
+        : null;
     // An element capture that silently widens to the whole document is a
     // preview of something the user did not ask to export, and nothing
-    // downstream can tell it apart from a real one.
-    if (scope === "element" && !cropped) {
+    // downstream can tell it apart from a real one. Selecting the screen
+    // itself is not that case: the whole screen is what that selection
+    // exports, so failing it made the inspector's export preview permanently
+    // unavailable for every frame-level selection.
+    if (scope === "element" && cropTarget.kind !== "whole-screen" && !cropped) {
       throw new PngCaptureError("no-preview");
     }
     // Render the whole page first, then crop, so ancestor backgrounds show
