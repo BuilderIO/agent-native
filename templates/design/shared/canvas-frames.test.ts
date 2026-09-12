@@ -269,6 +269,27 @@ describe("nextFreeCanvasRowY", () => {
     ).toBe(2200 + 96);
   });
 
+  it("uses renderer scale after a primary frame changes aspect ratio", () => {
+    expect(
+      nextFreeCanvasRowY(
+        { tablet: { x: 0, y: 0, width: 768, height: 1024 } },
+        96,
+        {
+          responsiveLayout: {
+            screenMetadataByFileId: {
+              tablet: {
+                width: 1440,
+                height: 900,
+                breakpointHeights: { "390": 2200 },
+              },
+            },
+            breakpointWidths: [390],
+          },
+        },
+      ),
+    ).toBe(2200 + 96);
+  });
+
   it("ignores the frames being rewritten so a re-run stays put", () => {
     const existing = {
       keep: { x: 0, y: 0, width: 390, height: 500 },

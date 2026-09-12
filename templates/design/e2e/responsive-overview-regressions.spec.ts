@@ -254,8 +254,8 @@ test("persists tall breakpoint content before server-side row placement", async 
   try {
     await action(request, "update-file", {
       id: fileId,
-      content: RESPONSIVE_HTML.replaceAll(
-        "min-height:900px",
+      content: RESPONSIVE_HTML.replace(
+        /min-height:900px/g,
         "min-height:2200px",
       ),
     });

@@ -60,6 +60,7 @@ import {
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  getScreenPreviewViewport,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
@@ -1137,7 +1138,10 @@ const generateDesignAction = defineAction({
             effectiveBreakpointWidths,
             typeof metadata.width === "number" ? metadata.width : width,
           );
-          const scale = width > 0 ? width / sourceWidth : 1;
+          const scale = getScreenPreviewViewport(
+            { width: sourceWidth, height: sourceHeight },
+            { width, height },
+          ).scale;
           const groupWidth = getResponsiveGroupWidth({
             primaryWidth: Math.max(1, width),
             scale,

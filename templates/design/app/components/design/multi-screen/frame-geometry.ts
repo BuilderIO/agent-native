@@ -4,6 +4,7 @@ import {
   deviceViewportFloorForWidth,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  getScreenPreviewViewport,
   visibleBreakpointWidths,
 } from "@shared/responsive-frame-layout";
 
@@ -19,6 +20,7 @@ export {
   BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   deviceViewportFloorForWidth,
+  getScreenPreviewViewport,
   visibleBreakpointWidths,
 };
 
@@ -57,7 +59,10 @@ export function getResponsiveScreenGroupSize(
   );
   const sourceWidth = Math.max(1, screen.metadata?.width ?? 1280);
   const sourceHeight = Math.max(1, screen.metadata?.height ?? 2560);
-  const scale = baseWidth / sourceWidth;
+  const scale = getScreenPreviewViewport(
+    { width: sourceWidth, height: sourceHeight },
+    { width: baseWidth, height: baseHeight },
+  ).scale;
   const breakpoints = visibleBreakpointWidths(
     screen.breakpointWidths,
     // The immutable device width, not the resizable on-canvas box width — a
@@ -578,41 +583,6 @@ export function getPreviewDeviceFrameGeometry({
     ...currentGeometry,
     width: Math.max(1, Math.round(metadata?.width ?? viewport.width)),
     height: Math.max(1, Math.round(metadata?.height ?? viewport.height)),
-  };
-}
-
-export function getScreenPreviewViewport(
-  metadata: ScreenViewportSize,
-  geometry: ScreenViewportSize,
-) {
-  const metadataWidth = Math.max(1, Math.round(metadata.width));
-  const metadataHeight = Math.max(1, Math.round(metadata.height));
-  const geometryWidth = Math.max(1, Math.round(geometry.width));
-  const geometryHeight = Math.max(1, Math.round(geometry.height));
-  const metadataAspect = metadataWidth / metadataHeight;
-  const geometryAspect = geometryWidth / geometryHeight;
-  const aspectMatches = Math.abs(metadataAspect - geometryAspect) < 0.005;
-
-  if (aspectMatches) {
-    return {
-      viewportWidth: metadataWidth,
-      viewportHeight: metadataHeight,
-      displayWidth: metadataWidth,
-      displayHeight: metadataHeight,
-      scale:
-        Math.abs(metadataWidth - geometryWidth) < 0.5 &&
-        Math.abs(metadataHeight - geometryHeight) < 0.5
-          ? 1
-          : geometryWidth / metadataWidth,
-    };
-  }
-
-  return {
-    viewportWidth: geometryWidth,
-    viewportHeight: geometryHeight,
-    displayWidth: geometryWidth,
-    displayHeight: geometryHeight,
-    scale: 1,
   };
 }
 

@@ -3,6 +3,7 @@ import {
   getResponsiveBreakpointHeightPx,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  getScreenPreviewViewport,
   MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "./responsive-frame-layout.js";
@@ -263,7 +264,10 @@ export function nextFreeCanvasRowY(
     );
     const resolveBreakpointHeightPx = (widthPx: number) =>
       getResponsiveBreakpointHeightPx(metadata, widthPx);
-    const scale = primaryWidth / sourceWidth;
+    const scale = getScreenPreviewViewport(
+      { width: sourceWidth, height: sourceHeight },
+      { width: primaryWidth, height: primaryHeight },
+    ).scale;
     const paintedWidth = responsiveLayout
       ? getResponsiveGroupWidth({
           primaryWidth,

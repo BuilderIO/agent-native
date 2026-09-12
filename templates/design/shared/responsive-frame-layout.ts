@@ -40,6 +40,45 @@ export function visibleBreakpointWidths(
   return deduped.filter((width) => Math.abs(width - primaryWidthPx) > 1);
 }
 
+/**
+ * Shared because the renderer, placement, and culling must agree whether the
+ * primary frame scales its source viewport or reflows to its own aspect ratio.
+ */
+export function getScreenPreviewViewport(
+  metadata: { width: number; height: number },
+  geometry: { width: number; height: number },
+) {
+  const metadataWidth = Math.max(1, Math.round(metadata.width));
+  const metadataHeight = Math.max(1, Math.round(metadata.height));
+  const geometryWidth = Math.max(1, Math.round(geometry.width));
+  const geometryHeight = Math.max(1, Math.round(geometry.height));
+  const metadataAspect = metadataWidth / metadataHeight;
+  const geometryAspect = geometryWidth / geometryHeight;
+  const aspectMatches = Math.abs(metadataAspect - geometryAspect) < 0.005;
+
+  if (aspectMatches) {
+    return {
+      viewportWidth: metadataWidth,
+      viewportHeight: metadataHeight,
+      displayWidth: metadataWidth,
+      displayHeight: metadataHeight,
+      scale:
+        Math.abs(metadataWidth - geometryWidth) < 0.5 &&
+        Math.abs(metadataHeight - geometryHeight) < 0.5
+          ? 1
+          : geometryWidth / metadataWidth,
+    };
+  }
+
+  return {
+    viewportWidth: geometryWidth,
+    viewportHeight: geometryHeight,
+    displayWidth: geometryWidth,
+    displayHeight: geometryHeight,
+    scale: 1,
+  };
+}
+
 export function getResponsiveBreakpointWidths(value: unknown): number[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
   const breakpoints = (value as Record<string, unknown>).breakpoints;

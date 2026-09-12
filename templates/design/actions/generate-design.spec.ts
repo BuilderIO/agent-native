@@ -1136,10 +1136,9 @@ describe("generate-design: new screens never stack on existing frames", () => {
     >;
     const first = frames[result.savedFiles[0]!.id]!;
     const second = frames[result.savedFiles[1]!.id]!;
-    // The 1440px primary paints 768px and 390px previews at the same scale.
-    expect(second.x - first.x).toBeCloseTo(
-      1440 + 24 + 768 * (1440 / 1280) + 24 + 390 * (1440 / 1280) + 96,
-    );
+    // The default source aspect differs from the desktop frame, so both
+    // responsive previews use the renderer's full-scale reflow path.
+    expect(second.x - first.x).toBeCloseTo(1440 + 24 + 768 + 24 + 390 + 96);
   });
 
   it("reserves the final responsive footprint when an existing frame is resized", async () => {
@@ -1193,6 +1192,51 @@ describe("generate-design: new screens never stack on existing frames", () => {
     expect(frames[newFile!.id]?.x).toBeCloseTo(
       1440 + 24 + 390 * (1440 / 1280) + 96,
     );
+  });
+
+  it("reserves full-scale breakpoints when regeneration changes aspect ratio", async () => {
+    setExistingFile("<html><body>old</body></html>");
+    mocks.setDesignData({
+      screenMetadata: {
+        "file-1": {
+          width: 1440,
+          height: 900,
+          breakpointHeights: { "390": 2200 },
+        },
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Regenerate for tablet and mobile",
+      devices: ["tablet", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>updated</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number; height: number }
+    >;
+    const newFile = result.savedFiles.find(
+      (file) => file.filename === "details.html",
+    );
+    expect(newFile).toBeDefined();
+    expect(frames["file-1"]).toMatchObject({ width: 768, height: 1024 });
+    expect(frames[newFile!.id]?.x).toBeCloseTo(768 + 24 + 390 + 96);
   });
 });
 
