@@ -38,6 +38,7 @@ const messages = {
       accounts: "账号",
       pinSidebar: "固定侧边栏",
       unpinSidebar: "取消固定侧边栏",
+      closeSidebar: "关闭侧边栏",
       settings: "设置",
     },
     search: {

@@ -76,7 +76,9 @@ function assertActionSuccess<T>(result: T): T {
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
-async function apiFetch<T>(
+export type ApiError = Error & { status?: number; retryAfterMs?: number };
+
+export async function apiFetch<T>(
   url: string,
   options?: RequestInit & { onHeaders?: (headers: Headers) => void },
 ): Promise<T> {
@@ -90,8 +92,20 @@ async function apiFetch<T>(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    const error = new Error(body?.error || `Request failed (${res.status})`);
-    (error as Error & { status?: number }).status = res.status;
+    const error: ApiError = new Error(
+      body?.error || `Request failed (${res.status})`,
+    );
+    error.status = res.status;
+    // Gmail quota cooldowns are signaled via 429 + Retry-After (seconds);
+    // the message itself is deliberately jargon-free, so callers need this.
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    if (
+      Number.isFinite(retryAfter) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+    ) {
+      error.retryAfterMs = retryAfter * 1000;
+    }
     throw error;
   }
   onHeaders?.(res.headers);
@@ -674,14 +688,17 @@ interface EmailsPage {
   accountErrors?: AccountError[];
 }
 
-// Retryable: transient upstream trouble (rate limit / gateway) and network
-// errors with no status at all. Never an auth failure — retrying a 401/403
-// just burns time before the UI can show the real "reconnect" state.
+// Retryable: transient upstream trouble (gateway) and network errors with no
+// status at all. Never an auth failure — retrying a 401/403 just burns time
+// before the UI can show the real "reconnect" state. Never a 429 either — that
+// means the server's own Gmail quota breaker is already tripped, and it comes
+// with its own Retry-After-driven countdown in the UI; an automatic retry here
+// would only hit the still-active breaker.
 function isRetryableEmailsError(error: unknown): boolean {
   if (isAuthFailure(error)) return false;
   const status = (error as { status?: unknown } | undefined)?.status;
   if (typeof status !== "number") return true;
-  return status === 429 || status === 502 || status === 503 || status === 504;
+  return status === 502 || status === 503 || status === 504;
 }
 
 function emailQueryOptions(

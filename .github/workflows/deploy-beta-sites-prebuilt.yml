@@ -163,15 +163,26 @@ jobs:
           SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
         with:
           script: |
+            const sourceSha = process.env.SOURCE_SHA.trim();
             const mainSha = (await github.rest.git.getRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: 'heads/main',
             })).data.object.sha;
-            const current = process.env.SOURCE_SHA.toLowerCase() === mainSha.toLowerCase();
-            core.setOutput('current', current ? 'true' : 'false');
-            if (!current) {
-              core.info(`Skipping stale beta source ${process.env.SOURCE_SHA}; current main is ${mainSha}.`);
+            // Monotonic check: the source only needs to be an ancestor of (or
+            // equal to) current main, not an exact match — main moves faster
+            // than this job runs, so exact equality livelocks the whole fleet.
+            const onMain = ['ahead', 'identical'].includes(
+              (await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceSha,
+                head: mainSha,
+              })).data.status,
+            );
+            core.setOutput('current', onMain ? 'true' : 'false');
+            if (!onMain) {
+              core.info(`Skipping beta source ${sourceSha}: not on main (main is ${mainSha}).`);
             }
 
   deploy:

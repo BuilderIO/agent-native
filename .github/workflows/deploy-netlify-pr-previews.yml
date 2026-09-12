@@ -256,12 +256,23 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
+          # cleanup-netlify-pr-previews.ts calls previewEligibleSiteNames(),
+          # which (via buildableSites/withDocsSite) calls
+          # resolveNetlifyPrebuiltTarget() for every preview site, and that
+          # throws unless templates/<site>/package.json and
+          # templates/<site>/netlify.toml (or packages/docs/'s for the docs
+          # site) exist on disk — so those manifests must be checked out too,
+          # not just the scripts.
           sparse-checkout: |
             scripts/cleanup-netlify-pr-previews.ts
             scripts/netlify-api-request.ts
             scripts/netlify-pr-preview-targets.ts
             scripts/netlify-prebuilt-target.ts
             scripts/netlify-production-sites.json
+            templates/*/package.json
+            templates/*/netlify.toml
+            packages/docs/package.json
+            packages/docs/netlify.toml
           sparse-checkout-cone-mode: false
 
       - name: Delete the PR's prebuilt deploys

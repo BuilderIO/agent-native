@@ -38,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "साइडबार पिन करें",
       unpinSidebar: "साइडबार अनपिन करें",
+      closeSidebar: "साइडबार बंद करें",
       settings: "सेटिंग्स",
     },
     search: {

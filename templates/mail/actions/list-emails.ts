@@ -81,7 +81,10 @@ function toInventoryItem(
   };
 }
 
-function inventoryError(message: unknown): MailInventoryError {
+function inventoryError(
+  message: unknown,
+  opts?: { rateLimited?: boolean },
+): MailInventoryError {
   const bounded = (
     typeof message === "string" ? message : "Provider request failed"
   )
@@ -91,7 +94,12 @@ function inventoryError(message: unknown): MailInventoryError {
       "$1=[redacted]",
     )
     .slice(0, 240);
-  const rateLimited = /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
+  // A quota cooldown's message is deliberately jargon-free (no "429"/"quota"
+  // — see GmailQuotaCooldownError in google-api.ts), so the regex alone
+  // misses it; the caller passes the structured isQuotaError flag instead.
+  const rateLimited =
+    opts?.rateLimited === true ||
+    /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
   const auth = /\b(?:401|403|auth|token|credential|permission)\b/i.test(
     bounded,
   );
@@ -536,7 +544,9 @@ export default defineAction({
               errors: Object.fromEntries(
                 accountEmails.map((email) => [
                   email.toLowerCase(),
-                  inventoryError(listResult.message),
+                  inventoryError(listResult.message, {
+                    rateLimited: listResult.isQuotaError,
+                  }),
                 ]),
               ),
               nextPageTokens: {},
@@ -549,7 +559,9 @@ export default defineAction({
             errors: Object.fromEntries(
               listResult.errors.map((error) => [
                 error.email.toLowerCase(),
-                inventoryError(error.error),
+                inventoryError(error.error, {
+                  rateLimited: error.isQuotaError,
+                }),
               ]),
             ),
             nextPageTokens: Object.fromEntries(

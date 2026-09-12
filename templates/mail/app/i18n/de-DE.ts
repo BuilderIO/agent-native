@@ -38,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Seitenleiste anheften",
       unpinSidebar: "Seitenleiste lösen",
+      closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
     },
     search: {

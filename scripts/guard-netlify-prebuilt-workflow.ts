@@ -1370,6 +1370,54 @@ const firstBetaPublish =
   firstBetaPublishStart >= 0 && firstBetaPublishEnd > firstBetaPublishStart
     ? reusableBetaFreshness.slice(firstBetaPublishStart, firstBetaPublishEnd)
     : "";
+
+const betaFirstPublishFreshnessStart = reusableBetaFreshness.indexOf(
+  "name: Verify first beta deploy source immediately before publish",
+);
+const betaFirstPublishFreshnessStep =
+  betaFirstPublishFreshnessStart >= 0 &&
+  firstBetaPublishStart > betaFirstPublishFreshnessStart
+    ? reusableBetaFreshness.slice(
+        betaFirstPublishFreshnessStart,
+        firstBetaPublishStart,
+      )
+    : "";
+
+const betaPostFreshnessStart = reusableBetaFreshness.indexOf(
+  "name: Verify beta source is current after publish",
+);
+const betaPostFreshnessEnd = reusableBetaFreshness.indexOf(
+  "name: Delete staged first beta draft",
+  betaPostFreshnessStart,
+);
+const betaPostFreshnessStep =
+  betaPostFreshnessStart >= 0 && betaPostFreshnessEnd > betaPostFreshnessStart
+    ? reusableBetaFreshness.slice(betaPostFreshnessStart, betaPostFreshnessEnd)
+    : "";
+
+// Monotonic, not exact-equality: both post-publish freshness checks must use
+// the same ancestor-of-main compare as beta_pre_migration_freshness/
+// beta_freshness (check 1), not a hard SHA match — otherwise a run that
+// legitimately passed the pre-publish gate gets reverted the moment main
+// advances during migration/upload, and the livelock just moves here.
+if (
+  !betaFirstPublishFreshnessStep.includes("['ahead', 'identical'].includes") ||
+  !betaFirstPublishFreshnessStep.includes("compareCommits(") ||
+  betaFirstPublishFreshnessStep.includes("sourceRef === mainSha") ||
+  !betaFirstPublishFreshnessStep.includes(
+    "is no longer on main (main is ${mainSha}); skipping.",
+  ) ||
+  !betaPostFreshnessStep.includes("['ahead', 'identical'].includes") ||
+  !betaPostFreshnessStep.includes("compareCommits(") ||
+  betaPostFreshnessStep.includes("sourceRef === mainSha") ||
+  !betaPostFreshnessStep.includes(
+    "is no longer on main (main is ${mainSha}); reverting.",
+  )
+) {
+  issues.push(
+    `${reusablePath} beta_first_publish_freshness and beta_post_freshness must apply the same monotonic ancestor-of-main policy as the pre-publish freshness checks`,
+  );
+}
 if (
   reusableBetaFreshness.includes("allowPinnedRecovery") ||
   !reusableBetaFreshness.includes(
@@ -1402,8 +1450,10 @@ if (
   !firstBetaPublish.includes(
     "did not become ready and published within 30 minutes",
   ) ||
-  !firstBetaPublish.includes("main_sha,,}") ||
-  !firstBetaPublish.includes("SOURCE_REF,,}") ||
+  // Monotonic, not exact-equality: the immediate pre-publish recheck inside
+  // this step must use the same ancestor-of-main compare, not a hard match.
+  !firstBetaPublish.includes("compare_status") ||
+  firstBetaPublish.includes('"${main_sha,,}" != "${SOURCE_REF,,}"') ||
   !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
   !reusableBetaFreshness.includes(
     "steps.beta_first_publish.outputs.deploy_id || steps.beta_first_publish_reconcile.outputs.deploy_id",
@@ -1442,9 +1492,13 @@ if (
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
-  !reusableBetaFreshness.includes(
-    "core.setOutput('current', String(current))",
-  ) ||
+  // Monotonic, not exact-equality: the source must be an ancestor of (or
+  // equal to) main, and must not regress the already-published deploy.
+  !reusableBetaFreshness.includes("published_deploy_source_ref") ||
+  !reusableBetaFreshness.includes("not on main") ||
+  !reusableBetaFreshness.includes("is already newer") ||
+  !reusableBetaFreshness.includes("['ahead', 'identical'].includes") ||
+  reusableBetaFreshness.includes("mainSha.toLowerCase() === sourceRef") ||
   !reusableBetaFreshness.includes(
     "Verify beta source is current after publish",
   ) ||
