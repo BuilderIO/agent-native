@@ -1313,6 +1313,7 @@ export default function CodeAgentsHub({
               ? activeChatFirstSurfaceTab.appId
               : undefined
           }
+          activeTab={activeChatFirstPrimaryTab}
           collapsed={chatFirstRailCollapsed}
           layout={chatFirstAppLayout}
           createAppTrigger={
@@ -1334,6 +1335,7 @@ export default function CodeAgentsHub({
       </>
     );
   }, [
+    activeChatFirstPrimaryTab,
     activeChatFirstSurfaceTab?.appId,
     activeChatFirstSurfaceTab?.kind,
     chatFirstAppItems,
