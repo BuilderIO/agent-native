@@ -48,6 +48,7 @@ export interface ScreenFile {
    * edit scope (Tailwind prefix: base / md: / lg: / xl:).
    */
   breakpointWidths?: number[];
+  breakpointHeights?: Record<string, number>;
   /** Id of the currently active breakpoint frame for this screen. */
   activeBreakpointWidth?: number;
   /** Generated variation-set membership. Used only to preserve/reflow the
@@ -109,6 +110,7 @@ export interface ScreenMetadata {
   width?: number;
   height?: number;
   heightPinned?: boolean;
+  breakpointHeights?: Record<string, number>;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -168,6 +170,11 @@ export interface MultiScreenCanvasProps {
   onGeometryCommit?: (
     before: FrameGeometryById,
     after: FrameGeometryById,
+  ) => void;
+  onBreakpointContentHeightChange?: (
+    screenId: string,
+    widthPx: number,
+    heightPx: number,
   ) => void;
   onCreatePrimitive?: (
     screenId: string,

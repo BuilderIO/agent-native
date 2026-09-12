@@ -1,7 +1,7 @@
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function DocumentEditorSkeleton() {
+export function DocumentEditorSkeleton({ title }: { title?: string | null }) {
   const sidebarTrigger = useSidebarTrigger();
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -20,7 +20,15 @@ export function DocumentEditorSkeleton() {
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="mx-auto w-full max-w-3xl px-4 pt-14 pb-16 sm:px-8 md:px-16 md:pt-16">
           <Skeleton className="mb-4 h-12 w-12 rounded-lg" />
-          <Skeleton className="h-11 w-2/3 rounded-md" />
+          {title ? (
+            // Same typography and box as the editor's title textarea so the
+            // authoritative title replaces it without any layout shift.
+            <div className="block w-full break-words bg-transparent p-0 font-bold leading-tight text-foreground text-3xl md:text-4xl">
+              {title}
+            </div>
+          ) : (
+            <Skeleton className="h-11 w-2/3" />
+          )}
           <div className="space-y-3 pt-12">
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-11/12" />

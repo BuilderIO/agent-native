@@ -7,6 +7,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 
 const DESIGN_LIST_DEFAULT_PAGE_SIZE = 12;
 const DESIGN_LIST_MAX_PAGE_SIZE = 50;
@@ -158,7 +159,7 @@ export default defineAction({
 
       const byDesign = new Map<string, typeof fileRows>();
       for (const f of fileRows) {
-        if (f.fileType !== "html") continue;
+        if (!isOverviewScreenFile(f)) continue;
         const list = byDesign.get(f.designId);
         if (list) list.push(f);
         else byDesign.set(f.designId, [f]);

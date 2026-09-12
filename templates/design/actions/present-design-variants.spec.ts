@@ -402,6 +402,42 @@ describe("present-design-variants", () => {
     expect(result.nextRequiredAction).toContain("bounded pass");
   });
 
+  it("does not reserve responsive space for JSX support files", async () => {
+    mocks.filesSelectChain.where.mockResolvedValue([
+      {
+        id: "support",
+        designId: "design_123",
+        filename: "support.jsx",
+        fileType: "jsx",
+        content: "export default function Support() {}",
+      },
+    ]);
+    mocks.designData = {
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    };
+
+    await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      variants: [
+        { id: "a", label: "A", content: "<!doctype html><div>A</div>" },
+        { id: "b", label: "B", content: "<!doctype html><div>B</div>" },
+      ],
+    });
+
+    const frames = mocks.designData.canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(frames["file-a"]?.y).toBe(100 + 96);
+  });
+
   it("carries the linked design system into the variant-pick continuation", async () => {
     mocks.designSelectChain.where.mockImplementation(() =>
       Promise.resolve([
@@ -643,6 +679,45 @@ describe("present-design-variants", () => {
     expect(
       Object.values(mocks.designData.canvasFrames).map((f) => f.x),
     ).toEqual([0, 2742]);
+  });
+
+  it("reserves the full responsive height before starting a new row", async () => {
+    mocks.designData.breakpointSet = {
+      id: "existing",
+      breakpoints: [
+        { id: "mobile", widthPx: 390 },
+        { id: "tablet", widthPx: 768 },
+        { id: "desktop", widthPx: 1440 },
+      ],
+    };
+    mocks.nanoid.mockReset();
+    mocks.nanoid
+      .mockReturnValueOnce("responsive-set")
+      .mockReturnValueOnce("responsive-a")
+      .mockReturnValueOnce("responsive-b")
+      .mockReturnValueOnce("responsive-c")
+      .mockReturnValueOnce("responsive-d")
+      .mockReturnValueOnce("responsive-e");
+
+    await action.run({
+      designId: "design_123",
+      variants: Array.from({ length: 5 }, (_, index) => ({
+        id: `responsive-${index}`,
+        label: `Responsive ${index}`,
+        width: 390,
+        height: 844,
+        content: "<!doctype html><html><body>Variant</body></html>",
+      })),
+    });
+
+    const frames = mocks.designData.canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(frames["responsive-a"]!.y).toBe(0);
+    expect(frames["responsive-c"]!.y).toBe(0);
+    expect(frames["responsive-d"]!.y).toBeCloseTo(96 + (1440 * 844) / 390);
+    expect(frames["responsive-e"]!.y).toBe(frames["responsive-d"]!.y);
   });
 
   it("renders compact fallback variants from non-todo mobile direction data", async () => {
