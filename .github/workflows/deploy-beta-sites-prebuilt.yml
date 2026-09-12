@@ -147,11 +147,14 @@ jobs:
 
   confirm-current-source:
     name: Confirm beta source is current
+    # build is a fail-fast:false matrix; one site's failed build must not skip
+    # every other site's deploy. That site's own deploy job still fails
+    # (artifact download finds nothing), which is the isolated outcome we want.
     if: >-
       ${{ always() && !cancelled() &&
       needs.resolve-source.result == 'success' &&
       needs.discover-sites.result == 'success' &&
-      needs.build.result == 'success' }}
+      contains(fromJSON('["success","failure"]'), needs.build.result) }}
     needs: [resolve-source, discover-sites, build]
     runs-on: ubuntu-latest
     outputs:
@@ -191,7 +194,7 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.resolve-source.result == 'success' &&
       needs.discover-sites.result == 'success' &&
-      needs.build.result == 'success' &&
+      contains(fromJSON('["success","failure"]'), needs.build.result) &&
       needs.confirm-current-source.outputs.current == 'true' }}
     permissions:
       contents: read

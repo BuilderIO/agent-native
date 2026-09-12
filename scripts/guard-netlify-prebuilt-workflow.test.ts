@@ -489,6 +489,17 @@ describe("production Netlify site concurrency guard", () => {
       /github\.run_id/,
     );
     assert.equal((beta.jobs as Workflow)["schema-gate"], undefined);
+    const betaSource = readFileSync(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      "utf8",
+    );
+    // build is a fail-fast:false matrix over ~18 sites; one site's failed
+    // build must not skip confirm-current-source/deploy for every other site.
+    assert.doesNotMatch(betaSource, /needs\.build\.result == 'success'/);
+    assert.match(
+      betaSource,
+      /contains\(fromJSON\('\["success","failure"\]'\), needs\.build\.result\)/,
+    );
     const production = readWorkflow(
       ".github/workflows/deploy-production-sites-prebuilt.yml",
     );
