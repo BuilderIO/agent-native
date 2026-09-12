@@ -402,9 +402,10 @@ test("middle-mouse pan follows vertical pointer movement over screen content", a
   }
 
   const deltas = cardY.slice(1).map((y, index) => y - cardY[index]!);
+  const finalCardY = cardY[cardY.length - 1]!;
   expect(deltas.every((delta) => delta > 0 && delta < 30)).toBe(true);
-  expect(cardY.at(-1)! - cardY[0]!).toBeGreaterThan(72);
-  expect(cardY.at(-1)! - cardY[0]!).toBeLessThan(120);
+  expect(finalCardY - cardY[0]!).toBeGreaterThan(72);
+  expect(finalCardY - cardY[0]!).toBeLessThan(120);
 });
 
 test("left sidebar switches between all screens and focused screens", async ({
