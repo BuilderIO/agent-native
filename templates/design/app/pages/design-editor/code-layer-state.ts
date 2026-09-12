@@ -1148,6 +1148,9 @@ export function findCodeLayerSiblingOrder(
 }
 
 export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
+  if (node.dataAttributes["data-agent-native-clone-root"] === "true") {
+    return false;
+  }
   if (node.dataAttributes["data-agent-native-group-wrapper"] === "true") {
     return true;
   }
@@ -1160,8 +1163,7 @@ export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
   return (
     /^an-[a-z0-9]+$/i.test(nodeId) &&
     /^group(?: \d+)?$/i.test(layerName.trim()) &&
-    node.dataAttributes["data-agent-native-preserve-styles"] === "true" &&
-    node.dataAttributes["data-agent-native-clone-root"] !== "true"
+    node.dataAttributes["data-agent-native-preserve-styles"] === "true"
   );
 }
 

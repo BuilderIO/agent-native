@@ -56,6 +56,15 @@ describe("removeEmptyGeneratedGroupWrappers", () => {
     );
   });
 
+  it("keeps a cloned generated group wrapper when its children are removed", () => {
+    const content = wrap(
+      '<div data-agent-native-node-id="copy-group" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true" data-agent-native-clone-root="true"></div>',
+    );
+    expect(
+      removeEmptyGeneratedGroupWrappers(content, new Set(["copy-group"])),
+    ).toBe(content);
+  });
+
   it("leaves an older authored Group with preserved styles alone", () => {
     const content = wrap(
       '<div data-agent-native-node-id="copy-old-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"></div>',

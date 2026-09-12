@@ -357,7 +357,7 @@ export function FillProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
-          {!isTextFillElement ? (
+          {!isTextFillElement || fillIsMixed ? (
             <SectionIconButton
               label={t("editPanel.labels.addFill")}
               onClick={() => {

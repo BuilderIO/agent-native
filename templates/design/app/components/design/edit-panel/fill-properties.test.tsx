@@ -211,4 +211,24 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-position=""');
     expect(markup).not.toContain('aria-label="editPanel.labels.addFill"');
   });
+
+  it("keeps the replace action for mixed text fills", () => {
+    const el = element({
+      tagName: "span",
+      computedStyles: {
+        color: "Mixed",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('aria-label="editPanel.labels.addFill"');
+    expect(markup).toContain("Click + to replace mixed content");
+  });
 });

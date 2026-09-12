@@ -65,7 +65,7 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
     vi.restoreAllMocks();
   });
 
-  it("replays one ordered iframe gesture through the parent's existing mouse path", () => {
+  it("maps the start through iframe scale and preserves parent-pixel deltas", () => {
     const events: Array<{
       type: string;
       button: number;
@@ -134,15 +134,15 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
         type: "mousemove",
         button: 1,
         buttons: 4,
-        clientX: 170,
-        clientY: 140,
+        clientX: 155,
+        clientY: 125,
       },
       {
         type: "mouseup",
         button: 1,
         buttons: 0,
-        clientX: 180,
-        clientY: 150,
+        clientX: 160,
+        clientY: 130,
       },
     ]);
   });
@@ -237,12 +237,12 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
       session: start.session,
     });
 
-    expect(moves).toEqual([{ clientX: 170, clientY: 140 }]);
+    expect(moves).toEqual([{ clientX: 155, clientY: 125 }]);
     expect(move.session).toEqual({
       pointerId: 7,
       button: 1,
-      clientX: 170,
-      clientY: 140,
+      clientX: 155,
+      clientY: 125,
     });
   });
 });

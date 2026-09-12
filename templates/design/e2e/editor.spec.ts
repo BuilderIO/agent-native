@@ -366,6 +366,47 @@ test("screen overview lets users select elements inside the active screen", asyn
   await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
 });
 
+test("middle-mouse pan follows vertical pointer movement over screen content", async ({
+  page,
+}) => {
+  const screenCard = page
+    .locator("[data-screen-card]")
+    .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
+    .last();
+  await expect(screenCard).toBeVisible();
+
+  const heading = designFrame(page).getByText("E2E Hero Heading").first();
+  await heading.scrollIntoViewIfNeeded();
+  const headingBox = await heading.boundingBox();
+  const initialCard = await screenCard.boundingBox();
+  if (!headingBox || !initialCard) {
+    throw new Error("missing screen content or card bounds");
+  }
+
+  const startX = headingBox.x + headingBox.width / 2;
+  const startY = headingBox.y + headingBox.height / 2;
+  const cardY = [initialCard.y];
+  await page.mouse.move(startX, startY);
+  await page.mouse.down({ button: "middle" });
+  try {
+    for (let step = 1; step <= 8; step += 1) {
+      await page.mouse.move(startX, startY + step * 12, { steps: 1 });
+      await page.waitForTimeout(24);
+      const currentCard = await screenCard.boundingBox();
+      if (!currentCard)
+        throw new Error("screen card disappeared while panning");
+      cardY.push(currentCard.y);
+    }
+  } finally {
+    await page.mouse.up({ button: "middle" });
+  }
+
+  const deltas = cardY.slice(1).map((y, index) => y - cardY[index]!);
+  expect(deltas.every((delta) => delta > 0 && delta < 30)).toBe(true);
+  expect(cardY.at(-1)! - cardY[0]!).toBeGreaterThan(72);
+  expect(cardY.at(-1)! - cardY[0]!).toBeLessThan(120);
+});
+
 test("left sidebar switches between all screens and focused screens", async ({
   page,
 }) => {
