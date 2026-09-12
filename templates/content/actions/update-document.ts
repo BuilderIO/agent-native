@@ -3,7 +3,6 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -32,7 +31,6 @@ import {
 } from "./_blocks-field-identity.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
-import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
   favoriteDocumentIds,
   setFavoriteMembership,
@@ -42,6 +40,10 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import {
+  assertDocumentMutationAccess,
+  resolveDocumentAccessForMutation,
+} from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -192,8 +194,9 @@ function builderBodyWithoutImageSourceComponentMarkers(
   content: string | null | undefined,
 ) {
   return (content ?? "")
-    .replace(/(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g, (marker) =>
-      marker.includes('componentName="Image"') ? "\n" : marker,
+    .replace(
+      /(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g,
+      (marker) => (marker.includes('componentName="Image"') ? "\n" : marker),
     )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -413,9 +416,8 @@ export default defineAction({
 
     const favoriteOnly = isFavoriteOnlyUpdate(args);
     const access = favoriteOnly
-      ? await resolveContentDocumentAccess(id)
-      : await assertAccess("document", id, "editor");
-    if (!access) throw new Error(`Document "${id}" not found`);
+      ? await resolveDocumentAccessForMutation(id, "id")
+      : await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
 

@@ -102,6 +102,45 @@ describe("move-document position race", () => {
     ).rejects.toThrow("same Content space");
   });
 
+  it("reports a nonexistent moved document as not-found naming the id argument", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id: "missing_doc_id", position: 0 } as any),
+      ),
+    ).rejects.toThrow(/not found \(argument: id\)/);
+  });
+
+  it("reports a nonexistent parent as not-found naming the parentId argument", async () => {
+    const id = await createDocument({ title: "Movable" });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id, parentId: "missing_parent_id" } as any),
+      ),
+    ).rejects.toThrow(/not found \(argument: parentId\)/);
+  });
+
+  it("rejects a viewer-only actor naming the required role and argument", async () => {
+    const viewer = "viewer@example.com";
+    const id = await createDocument({ title: "Viewer-shared page" });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: viewer,
+        role: "viewer",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    const parentId = await createDocument({ title: "Parent" });
+    await expect(
+      runWithRequestContext({ userEmail: viewer }, () =>
+        moveDocumentAction.run({ id, parentId, position: 0 } as any),
+      ),
+    ).rejects.toThrow(/Requires editor role on document .*argument: id/);
+  });
+
   it("assigns distinct, gapless positions when several documents are reparented into the same parent at an explicit position concurrently", async () => {
     const parentId = await createDocument({ title: "Parent" });
     // Two pre-existing children the resequence branch must also account for.

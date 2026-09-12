@@ -238,6 +238,11 @@ Documents form a tree via `parent_id`:
 - Deleting a parent recursively deletes all children
 - Position determines ordering within the same parent
 
+To reorganize the tree, move each subtree with `move-document` using ids from
+a prior action result. When the plan calls for a target page that does not
+exist yet — a new section, a grouping page — create it first with
+`create-document` and use the returned id as `parentId`.
+
 Descriptions are owned; context is inherited. `get-document` and `view-screen`
 return the focused page's own description plus a computed root-to-parent
 `contextPath`. Use that path to understand where the page lives, but never copy
@@ -254,6 +259,12 @@ after `create-document` or `navigate`).
 
 IDs for edits always come from `<current-screen>` or a prior action result —
 never guessed.
+
+When a move or edit target does not exist yet, create it first and use the
+returned id. A rejection saying `not found` means the id is absent: create the
+missing page or list documents to find the right id. Never retry the same id
+or invent a similar-looking one — fabricated ids cannot resolve, and repeated
+failures stop the run.
 
 | User request              | What to do                                                                        |
 | ------------------------- | --------------------------------------------------------------------------------- |
