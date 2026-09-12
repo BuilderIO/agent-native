@@ -239,15 +239,6 @@ export const ORG_MIGRATIONS = [
   {
     version: 1024,
     name: "suggestion-creations-receipt-version",
-    sql: `DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1 FROM information_schema.tables
-          WHERE table_name = 'agent_review_suggestion_creations'
-        ) THEN
-          ALTER TABLE agent_review_suggestion_creations
-            ADD COLUMN IF NOT EXISTS receipt_version INTEGER NOT NULL DEFAULT 1;
-        END IF;
-      END $$;`,
+    sql: `ALTER TABLE IF EXISTS agent_review_suggestion_creations ADD COLUMN IF NOT EXISTS receipt_version INTEGER NOT NULL DEFAULT 1`,
   },
 ];
