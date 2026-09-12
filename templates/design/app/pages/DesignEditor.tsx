@@ -15183,9 +15183,23 @@ function DesignEditor() {
   ]);
 
   const handleDownloadSvg = useCallback(
-    async (settings?: Partial<ExportSettingsValue>) =>
-      runDownloadSvg(
+    async (settings?: Partial<ExportSettingsValue>) => {
+      const exportScreenId =
+        viewMode === "overview" && overviewSelectedScreenIds.length === 1
+          ? (overviewSelectedScreenIds[0] ?? activeOverviewScreenId)
+          : activeOverviewScreenId;
+      const exportScreen = overviewScreens.find(
+        (screen) => screen.id === exportScreenId,
+      );
+      const activePreviewFrameId =
+        exportScreenId &&
+        activeBreakpointWidthState !== undefined &&
+        exportScreen?.breakpointWidths?.includes(activeBreakpointWidthState)
+          ? getBreakpointIframeId(exportScreenId, activeBreakpointWidthState)
+          : exportScreenId;
+      return runDownloadSvg(
         {
+          activePreviewFrameId,
           design,
           fallbackExportName,
           selectedElement,
@@ -15194,13 +15208,19 @@ function DesignEditor() {
           triggerBlobDownload,
         },
         settings,
-      ),
+      );
+    },
     [
+      activeBreakpointWidthState,
+      activeOverviewScreenId,
       design?.title,
       fallbackExportName,
+      overviewScreens,
+      overviewSelectedScreenIds,
       selectedElement,
       t,
       triggerBlobDownload,
+      viewMode,
     ],
   );
 
