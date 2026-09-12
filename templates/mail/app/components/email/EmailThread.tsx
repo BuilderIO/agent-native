@@ -1170,48 +1170,45 @@ export function EmailThread({
     }
   }, [t, unsubscribeInfo]);
 
-  const handleCloseInlineDraft = useCallback(
-    (id: string) => {
-      const draft = compose.drafts.find((item) => item.id === id);
-      const hasContent = !!(
-        draft?.to?.trim() ||
-        draft?.cc?.trim() ||
-        draft?.bcc?.trim() ||
-        draft?.subject?.trim() ||
-        draft?.body?.trim()
-      );
-      const snapshot = draft ? { ...draft } : null;
-      const savePromise = compose.close(id);
-      if (!hasContent || !snapshot) return;
+  const handleCloseInlineDraft = (id: string) => {
+    const draft = compose.drafts.find((item) => item.id === id);
+    const hasContent = !!(
+      draft?.to?.trim() ||
+      draft?.cc?.trim() ||
+      draft?.bcc?.trim() ||
+      draft?.subject?.trim() ||
+      draft?.body?.trim()
+    );
+    const snapshot = draft ? { ...draft } : null;
+    const savePromise = compose.close(id);
+    if (!hasContent || !snapshot) return;
 
-      toast(t("mail.toasts.draftClosed"), {
-        action: {
-          label: t("mail.compose.reopenDraft"),
-          onClick: async () => {
-            const savedSnapshot = applyDraftSaveResult(
-              snapshot,
-              await savePromise,
-            );
-            const { id: _id, ...reopenData } = savedSnapshot;
-            compose.open({ ...reopenData, inline: true });
-          },
+    toast(t("mail.toasts.draftClosed"), {
+      action: {
+        label: t("mail.compose.reopenDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          const { id: _id, ...reopenData } = savedSnapshot;
+          compose.open({ ...reopenData, inline: true });
         },
-        cancel: {
-          label: t("mail.compose.deleteDraft"),
-          onClick: async () => {
-            const savedSnapshot = applyDraftSaveResult(
-              snapshot,
-              await savePromise,
-            );
-            if (savedSnapshot.savedDraftId) {
-              await compose.deleteSavedDraft(savedSnapshot);
-            }
-          },
+      },
+      cancel: {
+        label: t("mail.compose.deleteDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          if (savedSnapshot.savedDraftId) {
+            await compose.deleteSavedDraft(savedSnapshot);
+          }
         },
-      });
-    },
-    [compose.close, compose.deleteSavedDraft, compose.drafts, compose.open, t],
-  );
+      },
+    });
+  };
 
   if (!threadId) return null;
 

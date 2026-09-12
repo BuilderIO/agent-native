@@ -192,7 +192,8 @@ describe("ComposeModal scheduling", () => {
       ([message, options]) =>
         message === "mail.compose.sending" && options?.action,
     );
-    const undo = (undoToast?.[1] as { action: { onClick: () => void } }).action
+    if (!undoToast) throw new Error("Undo toast was not shown");
+    const undo = (undoToast[1] as { action: { onClick: () => void } }).action
       .onClick;
 
     expect(onDiscard).toHaveBeenCalledOnce();
@@ -295,7 +296,8 @@ describe("ComposeModal scheduling", () => {
     const undoCall = mockToast.mock.calls.find(
       ([message]) => message === "mail.compose.sending",
     );
-    const undo = (undoCall?.[1] as { action: { onClick: () => void } }).action
+    if (!undoCall) throw new Error("Undo toast was not shown");
+    const undo = (undoCall[1] as { action: { onClick: () => void } }).action
       .onClick;
     undo();
     await vi.advanceTimersByTimeAsync(10_000);

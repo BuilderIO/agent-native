@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
