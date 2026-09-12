@@ -1207,13 +1207,37 @@ export async function tryClaimRunSlot(
 
     if (replayCompletedTurn) {
       const latest = await tx.execute({
-        sql: `SELECT id, status FROM agent_runs WHERE thread_id = ? AND turn_id = ? ORDER BY started_at DESC LIMIT 1`,
-        args: [threadId, turnId],
+        sql: `SELECT id, status,
+                     EXISTS (
+                       SELECT 1 FROM agent_run_events terminal_events
+                       WHERE terminal_events.run_id = agent_runs.id
+                         AND (
+                           terminal_events.event_data LIKE ?
+                           OR terminal_events.event_data LIKE ?
+                           OR terminal_events.event_data LIKE ?
+                           OR terminal_events.event_data LIKE ?
+                         )
+                     ) AS has_terminal_event
+              FROM agent_runs
+              WHERE thread_id = ? AND turn_id = ?
+              ORDER BY started_at DESC LIMIT 1`,
+        args: [
+          '{"type":"done"%',
+          '{"type":"error"%',
+          '{"type":"missing_api_key"%',
+          '{"type":"loop_limit"%',
+          threadId,
+          turnId,
+        ],
       });
       const latestRun = latest.rows[0] as
-        | { id?: string; status?: string }
+        | { id?: string; status?: string; has_terminal_event?: boolean }
         | undefined;
-      if (latestRun?.id && latestRun.status === "completed") {
+      if (
+        latestRun?.id &&
+        (latestRun.status === "completed" ||
+          latestRun.has_terminal_event === true)
+      ) {
         return {
           claimed: false,
           activeRunId: null,

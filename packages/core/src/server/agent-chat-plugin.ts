@@ -3242,8 +3242,8 @@ export function createAgentChatPlugin(
             try {
               const {
                 createCheckpoint: gitCheckpoint,
+                getChangedPaths,
                 isGitRepo,
-                hasUncommittedChanges,
                 getUncommittedStatus,
               } = await import("../checkpoints/service.js");
               const cwd = process.cwd();
@@ -3256,27 +3256,12 @@ export function createAgentChatPlugin(
               // If the tree was already dirty, a checkpoint commit would sweep
               // up the user's unrelated work when a reconnect/refresh finishes.
               const postRunStatus = getUncommittedStatus(cwd);
-              const agentModifiedPaths = [
-                ...new Set(
-                  (run.events ?? []).flatMap(({ event }) => {
-                    if (
-                      event.type !== "tool_done" ||
-                      event.isError === true ||
-                      !["edit", "write", "write-file"].includes(event.tool) ||
-                      typeof event.input?.path !== "string"
-                    ) {
-                      return [];
-                    }
-                    return [event.input.path];
-                  }),
-                ),
-              ];
+              const agentModifiedPaths = getChangedPaths(cwd);
               if (
                 preRunStatus === "" &&
                 postRunStatus?.trim() &&
                 agentModifiedPaths.length > 0 &&
-                isGitRepo(cwd) &&
-                hasUncommittedChanges(cwd)
+                isGitRepo(cwd)
               ) {
                 let summary = "";
 

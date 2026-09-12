@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createCheckpoint,
   getChangedFileNames,
+  getChangedPaths,
   getUncommittedStatus,
   hasUncommittedChanges,
   isGitRepo,
@@ -57,6 +58,9 @@ describe("checkpoint service", () => {
 
     expect(hasUncommittedChanges(cwd)).toBe(true);
     expect(getChangedFileNames(cwd)).toEqual(
+      expect.arrayContaining(["tracked.txt", "added.txt"]),
+    );
+    expect(getChangedPaths(cwd)).toEqual(
       expect.arrayContaining(["tracked.txt", "added.txt"]),
     );
 
@@ -109,6 +113,54 @@ describe("checkpoint service", () => {
       }).trim(),
     ).toBe(literalPathspec);
     expect(getUncommittedStatus(cwd)).toContain("developer.txt");
+  });
+
+  it("commits the staged snapshot when an owned file changes after add", () => {
+    const cwd = createTempRepo();
+    const file = path.join(cwd, "agent.txt");
+    fs.writeFileSync(file, "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+    fs.writeFileSync(file, "agent change\n");
+
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "an-git-wrapper-"));
+    tmpDirs.push(bin);
+    const realGit = execFileSync("which", ["git"], {
+      encoding: "utf-8",
+    }).trim();
+    const wrapper = path.join(bin, "git");
+    fs.writeFileSync(
+      wrapper,
+      `#!/bin/sh\n"$AGENT_NATIVE_REAL_GIT" "$@"\nstatus=$?\nif [ "$1" = "add" ] && [ "$status" -eq 0 ]; then printf 'developer later\\n' > "$AGENT_NATIVE_RACE_PATH"; fi\nexit "$status"\n`,
+      { mode: 0o755 },
+    );
+    const previous = {
+      path: process.env.PATH,
+      git: process.env.AGENT_NATIVE_REAL_GIT,
+      race: process.env.AGENT_NATIVE_RACE_PATH,
+    };
+    process.env.PATH = `${bin}${path.delimiter}${previous.path ?? ""}`;
+    process.env.AGENT_NATIVE_REAL_GIT = realGit;
+    process.env.AGENT_NATIVE_RACE_PATH = file;
+    try {
+      expect(createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"])).toMatch(
+        /^[0-9a-f]{40}$/,
+      );
+    } finally {
+      process.env.PATH = previous.path;
+      if (previous.git === undefined) delete process.env.AGENT_NATIVE_REAL_GIT;
+      else process.env.AGENT_NATIVE_REAL_GIT = previous.git;
+      if (previous.race === undefined)
+        delete process.env.AGENT_NATIVE_RACE_PATH;
+      else process.env.AGENT_NATIVE_RACE_PATH = previous.race;
+    }
+    expect(
+      execFileSync("git", ["show", "HEAD:agent.txt"], {
+        cwd,
+        encoding: "utf-8",
+      }),
+    ).toBe("agent change\n");
+    expect(fs.readFileSync(file, "utf-8")).toBe("developer later\n");
+    expect(getUncommittedStatus(cwd)).toContain("agent.txt");
   });
 
   it("returns false/null outside a git repo instead of throwing", () => {
