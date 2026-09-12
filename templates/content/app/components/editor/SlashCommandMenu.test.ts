@@ -140,7 +140,7 @@ describe("generate command affordances", () => {
   it("uses slash commands and the shared composer instead of a space shortcut", () => {
     const source = readSlashCommandMenuSource();
 
-    expect(source).toContain("import { PromptComposer }");
+    expect(source).toContain('import("@agent-native/core/client/composer")');
     expect(source).toMatch(
       /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
     );

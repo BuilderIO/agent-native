@@ -17,7 +17,7 @@ import {
   isMcpConnectionSuggestionText,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
-import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
+import { McpIntegrationDialogDeferred } from "./McpIntegrationDialogDeferred.js";
 import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
   useCreateMcpServer,
@@ -332,7 +332,7 @@ export function McpConnectionSuggestion({
           {error}
         </div>
       )}
-      <McpIntegrationDialog
+      <McpIntegrationDialogDeferred
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);
