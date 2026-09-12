@@ -213,6 +213,10 @@ describe("browser analytics pageviews", () => {
       }),
     });
     await tick();
+    // The boot LLM connection read is deferred past first paint; the pageview
+    // waits for it (bounded by schedulePageview's 250ms race), so settle past
+    // the deferral before asserting the enriched properties.
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
     expect(analyticsCalls).toHaveLength(2);
     const [url, init] = analyticsCalls[0];
@@ -905,6 +909,10 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
+    // The boot LLM connection read is deferred past first paint; the pageview
+    // waits for it (bounded by schedulePageview's 250ms race), so settle past
+    // the deferral before asserting the normalized engine labels.
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
     const body = JSON.parse(String(analyticsCalls[0][1].body));
     expect(body.properties).toMatchObject({

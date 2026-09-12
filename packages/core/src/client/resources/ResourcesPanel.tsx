@@ -1288,7 +1288,9 @@ export function ResourcesPanel({
     includeAgentScratch: showAgentScratch,
   });
   const workspaceTreeQuery = useResourceTree("workspace");
-  const mcpServersQuery = useMcpServers();
+  // Agent rail resources view: the panel mode persists, so this can mount
+  // before first paint even though the tree is not visible yet.
+  const mcpServersQuery = useMcpServers({ defer: true });
   const builtinCapabilitiesQuery = useBuiltinCapabilities();
   const createMcpServer = useCreateMcpServer();
   const deleteMcpServer = useDeleteMcpServer();

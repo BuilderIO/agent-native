@@ -8,6 +8,7 @@ import {
   invalidateClientStatusRequest,
   type ClientStatusResult,
 } from "./client-status-requests.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
 
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
@@ -233,7 +234,12 @@ export function useAgentEngineConfigured(
       }
     };
 
-    void check();
+    // The composer gate is not visible during first paint; defer the initial
+    // probe so it does not compete in the startup window. Event-driven
+    // re-checks below stay immediate.
+    const cancelInitialCheck = scheduleAfterPaint(() => {
+      if (!cancelled) void check();
+    });
     window.addEventListener(
       "agent-engine:configured-changed",
       onConfiguredChanged,
@@ -244,6 +250,7 @@ export function useAgentEngineConfigured(
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
+      cancelInitialCheck();
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener(

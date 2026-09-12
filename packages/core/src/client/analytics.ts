@@ -26,6 +26,7 @@ import {
 } from "./analytics-session.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -222,6 +223,7 @@ let _pendingSentryCaptures: Array<{
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
+let _llmConnectionBootRefresh: Promise<void> | null = null;
 let _trackingIdentity: TrackingIdentity | null = null;
 let _trackingIdentityResolved = false;
 let _trackingSessionRefresh: Promise<void> | null = null;
@@ -396,7 +398,15 @@ function installLlmConnectionRefresh(): void {
   if (typeof window === "undefined" || _llmConnectionRefreshInstalled) return;
   _llmConnectionRefreshInstalled = true;
   _llmConnectionStatus = readCachedLlmConnectionStatus();
-  void refreshLlmConnectionStatus();
+  // Not visible during first paint; defer the boot refresh past the startup
+  // window. The composer gate shares this request through the client-status
+  // layer, so both stay a single post-paint call. The promise exists now so
+  // schedulePageview keeps waiting for the connection context it always has.
+  _llmConnectionBootRefresh = new Promise<void>((resolve) => {
+    scheduleAfterPaint(() => {
+      void refreshLlmConnectionStatus().finally(resolve);
+    });
+  });
   window.addEventListener("focus", () => {
     void refreshLlmConnectionStatus();
   });
@@ -2123,6 +2133,9 @@ function schedulePageview(reason: string): void {
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
     pendingStartupContext.push(_llmConnectionRefresh);
+  }
+  if (_llmConnectionBootRefresh && !_llmConnectionStatus) {
+    pendingStartupContext.push(_llmConnectionBootRefresh);
   }
   if (_trackingSessionRefresh && !_trackingIdentityResolved) {
     pendingStartupContext.push(_trackingSessionRefresh);

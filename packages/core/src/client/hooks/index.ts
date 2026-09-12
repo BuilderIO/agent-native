@@ -84,3 +84,4 @@ export {
   type UsePollLoopOptions,
   type UsePollLoopHandle,
 } from "../use-poll-loop.js";
+export { useAfterPaint, scheduleAfterPaint } from "../use-after-paint.js";

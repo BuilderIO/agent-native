@@ -81,6 +81,8 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "./theme.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
+import { useSession } from "./use-session.js";
 import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
 
 export interface AppProvidersProps {
@@ -199,16 +201,65 @@ function RoutedAppEnhancements() {
   );
 }
 
-export function AgentNativeWebMcpActionRegistration() {
+function AgentNativeWebMcpRegistration() {
   useEffect(() => {
+    // sessionBypass surfaces are token-authenticated MCP embeds; their host
+    // may call tools immediately, so registration must not wait out the
+    // paint-aligned window — only the cookie-session-gated variant defers.
+    // Ownership is local to this effect: two coexisting surfaces each stop
+    // only the registration they created.
     const registration = createAgentNativeServerActionWebMcpRegistration();
     void registration.start().catch(() => {
       // WebMCP is progressive enhancement. Session expiry or a transient
-      // manifest failure must not prevent the authenticated app from loading.
+      // manifest failure must not prevent the authenticated app from
+      // loading.
     });
-    return () => registration.stop();
+    return () => {
+      registration.stop();
+    };
   }, []);
   return null;
+}
+
+function SessionGatedAgentNativeWebMcpRegistration() {
+  const { status } = useSession();
+  const registrationRef = useRef<ReturnType<
+    typeof createAgentNativeServerActionWebMcpRegistration
+  > | null>(null);
+  useEffect(() => {
+    // The manifest route requires a session, so registration starts only on
+    // a confirmed session: a signed-out visitor (first visit, expired cookie)
+    // never logs the manifest 401, and a still-loading or unreadable session
+    // waits for the next status change (focus invalidation, session retry,
+    // auth arrival) instead of firing a request that is expected to fail.
+    // Previously an unavailable session registered anyway ("best-effort");
+    // that traded a known-bad manifest fetch for zero benefit.
+    if (status !== "authenticated") return;
+    const cancel = scheduleAfterPaint(() => {
+      const registration = createAgentNativeServerActionWebMcpRegistration();
+      void registration.start().catch(() => {
+        // WebMCP is progressive enhancement. Session expiry or a transient
+        // manifest failure must not prevent the authenticated app from
+        // loading.
+      });
+      registrationRef.current = registration;
+    });
+    return () => {
+      cancel();
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+    };
+  }, [status]);
+  return null;
+}
+
+export function AgentNativeWebMcpActionRegistration({
+  requireSession = false,
+}: {
+  requireSession?: boolean;
+} = {}) {
+  if (requireSession) return <SessionGatedAgentNativeWebMcpRegistration />;
+  return <AgentNativeWebMcpRegistration />;
 }
 
 function readDocumentTitleFallback(): string {
@@ -306,6 +357,7 @@ function ProvidersInner({
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
   disableWebMcp,
+  sessionBypass,
   i18n,
   documentTitleFallback,
   showProductionEnvironmentBadge,
@@ -319,6 +371,7 @@ function ProvidersInner({
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
   disableWebMcp: boolean;
+  sessionBypass: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
@@ -344,7 +397,11 @@ function ProvidersInner({
       >
         <EmbeddedThemeSync />
         <TooltipProvider delayDuration={tooltipDelayDuration}>
-          {!disableWebMcp && <AgentNativeWebMcpActionRegistration />}
+          {!disableWebMcp && (
+            <AgentNativeWebMcpActionRegistration
+              requireSession={!sessionBypass}
+            />
+          )}
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
@@ -387,6 +444,7 @@ export function AppProviders({
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
         disableWebMcp={disableWebMcp}
+        sessionBypass={sessionBypass}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
@@ -411,6 +469,7 @@ export function AppProviders({
           toaster={toaster}
           disableThemeTransitions={disableThemeTransitions}
           disableWebMcp={disableWebMcp}
+          sessionBypass={sessionBypass}
           i18n={i18n}
           documentTitleFallback={documentTitleFallback}
           showProductionEnvironmentBadge={!sessionBypass}

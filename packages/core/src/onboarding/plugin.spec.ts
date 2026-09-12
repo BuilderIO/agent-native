@@ -260,6 +260,73 @@ describe("onboarding plugin routes", () => {
     });
   });
 
+  it("composes steps, dismissed state, and profile in one summary read", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === "onboarding:dismissed" ? { dismissed: true } : null,
+    );
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      steps: [expect.objectContaining({ id: "llm", complete: true })],
+      dismissed: true,
+      profile: expect.objectContaining({ appId: expect.any(String) }),
+    });
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "onboarding:dismissed",
+    );
+  });
+
+  it("keeps the summary usable when the optional dismissed read throws", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockImplementation(async (_sessionId, key) => {
+      if (key === "onboarding:dismissed") {
+        throw new Error("connection timed out");
+      }
+      return null;
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      steps: [expect.objectContaining({ id: "llm", complete: true })],
+      dismissed: false,
+      profile: expect.objectContaining({ appId: expect.any(String) }),
+    });
+  });
+
+  it("still fails the summary when the credential store is unavailable", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockRejectedValue(new CredentialStoreUnavailableError());
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error:
+        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+    });
+  });
+
   it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {
     vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     const nitroApp = createNitroApp();

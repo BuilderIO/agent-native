@@ -3,9 +3,11 @@
  *
  * Routes:
  *   GET  /_agent-native/onboarding/steps              — list steps + completion
+ *   GET  /_agent-native/onboarding/summary            — composed steps + dismissed + profile
  *   POST /_agent-native/onboarding/steps/:id/complete — manual override (marks complete)
  *   POST /_agent-native/onboarding/dismiss            — dismiss the banner
  *   GET  /_agent-native/onboarding/dismissed          — dismissed flag + allComplete
+ *   GET  /_agent-native/onboarding/profile            — app profile
  *   GET  /_agent-native/onboarding/first-run/status   — post-signup flow status
  *   POST /_agent-native/onboarding/first-run/role     — save role preference
  *   POST /_agent-native/onboarding/first-run/complete — permanently complete it
@@ -157,6 +159,20 @@ function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
   return statuses.filter((s) => s.required).every((s) => s.complete);
 }
 
+async function readDismissedFlag(sessionId: string): Promise<boolean> {
+  // The dismissed flag is optional UX state; a transient DB failure reading it
+  // must not take down a read whose steps and profile are still usable (the
+  // pre-summary client already assumed "not dismissed" when this read
+  // failed). A credential-store outage is not transient, so it still throws.
+  try {
+    const value = await appStateGet(sessionId, DISMISSED_KEY);
+    return !!(value && (value as { dismissed?: boolean }).dismissed);
+  } catch (error) {
+    if (error instanceof CredentialStoreUnavailableError) throw error;
+    return false;
+  }
+}
+
 export function createOnboardingPlugin(
   options: OnboardingPluginOptions = {},
 ): NitroPluginDef {
@@ -303,6 +319,34 @@ export function createOnboardingPlugin(
           return { error: "Method not allowed" };
         }
         return appProfile;
+      }),
+    );
+
+    // GET /_agent-native/onboarding/summary — one composed read for the
+    // onboarding dialog: steps + dismissed flag + app profile. Reuses the
+    // steps serialization and the dismissed-state key instead of making the
+    // client pay for three round trips on every mount.
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/summary`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const context = await resolveOnboardingContext(event);
+        const query = getQuery(event) as Record<string, unknown>;
+        const preview = query.preview === "1" || query.preview === 1;
+        return withOnboardingRequestContext(context, async () => {
+          const [steps, dismissed] = await Promise.all([
+            serializeSteps(context, { preview }),
+            readDismissedFlag(context.sessionId),
+          ]);
+          return {
+            steps,
+            dismissed,
+            profile: appProfile,
+          };
+        });
       }),
     );
 

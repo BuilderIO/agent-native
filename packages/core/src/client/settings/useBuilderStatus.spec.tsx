@@ -21,6 +21,14 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
+// The initial Builder status read is deferred past first paint; the fallback
+// timer bounds that wait at 250ms, so settling past it is deterministic.
+async function flushAfterPaint() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+}
+
 function setUserAgent(userAgent: string) {
   Object.defineProperty(window.navigator, "userAgent", {
     value: userAgent,
@@ -192,6 +200,8 @@ describe("useBuilderStatus", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/connection-status/builder",
     );
@@ -211,6 +221,8 @@ describe("useBuilderStatus", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     expect(container.textContent).toContain("loaded configured fresh");
 
@@ -241,6 +253,8 @@ describe("useBuilderStatus", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
     expect(pendingResponses).toHaveLength(1);
 
     await act(async () => {
@@ -317,6 +331,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
       "http://localhost:3000/_agent-native/connection-status/builder",
     );
@@ -332,6 +348,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -371,6 +389,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -420,6 +440,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -444,6 +466,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -479,6 +503,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -516,6 +542,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(container.textContent).toContain("account-exists");
   });
 
@@ -546,6 +574,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -581,6 +611,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(container.textContent).toContain("not-configured idle unresolved");
 
     await act(async () => {
@@ -598,6 +630,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     expect(fetch).not.toHaveBeenCalled();
 
@@ -618,6 +652,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
     // A status we could not read must not render the same as a status we have
@@ -658,6 +694,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -687,6 +725,8 @@ describe("useBuilderConnectFlow", () => {
         </BuilderConnectPopover>,
       );
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -726,6 +766,8 @@ describe("useBuilderConnectFlow", () => {
       root.render(<BuilderConnectProbe popupUrl={staleConnectUrl} />);
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -762,6 +804,8 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe popupUrl={signedConnectUrl} />);
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -837,6 +881,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(container.textContent).toContain("not-configured");
 
     await act(async () => {
@@ -874,6 +920,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -914,6 +962,10 @@ describe("useBuilderConnectFlow", () => {
     });
 
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
       await Promise.resolve();
@@ -951,6 +1003,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     await act(async () => {
@@ -1000,6 +1056,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     await act(async () => {
@@ -1058,6 +1118,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     await act(async () => {
@@ -1217,6 +1281,8 @@ describe("useBuilderConnectFlow", () => {
       root.render(<BuilderConnectProbe />);
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
     });
@@ -1277,6 +1343,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -1328,6 +1396,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(container.textContent).toContain(
@@ -1392,6 +1464,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(container.textContent).toContain("No active connect flow found");

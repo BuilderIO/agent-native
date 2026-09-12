@@ -18,6 +18,14 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
+// The initial readiness probe is deferred past first paint; the fallback
+// timer bounds that wait at 250ms, so settling past it is deterministic.
+async function flushAfterPaint() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+}
+
 function Probe({ enabled = true }: { enabled?: boolean }) {
   const status = useAgentEngineConfigured(enabled);
   return <output>{status.state}</output>;
@@ -73,6 +81,7 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
 
@@ -85,7 +94,7 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
-  it("starts the readiness check on mount without blocking the initial state", async () => {
+  it("defers the readiness check past first paint and starts it on mount", async () => {
     const responses: Array<(response: Response) => void> = [];
     vi.stubGlobal(
       "fetch",
@@ -102,7 +111,13 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("unknown");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(fetch).toHaveBeenCalledTimes(1);
+      });
+    });
 
     await act(async () => {
       for (const resolve of responses) {
@@ -135,6 +150,7 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("missing");
 
@@ -155,6 +171,7 @@ describe("useAgentEngineConfigured", () => {
       root.render(<Probe enabled={false} />);
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
 
@@ -316,7 +333,7 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("unknown");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(300);
     });
     // Never "missing": an unanswered probe is not evidence of no provider.
     expect(container.textContent).toBe("unavailable");
@@ -391,6 +408,7 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
     initialCheck = false;

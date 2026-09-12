@@ -49,6 +49,7 @@ import {
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { setClientAppState } from "./application-state.js";
 import { callAction } from "./use-action.js";
+import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
 export {
@@ -438,14 +439,21 @@ function createI18nInstance(args: {
   return instance;
 }
 
-export function AgentNativeI18nProvider({
+/**
+ * Runtime half of the i18n provider. `sessionAuthenticated` only matters when
+ * `persistPreference` is true: the preference read and the app-state write
+ * are authenticated server calls, so a signed-out visitor skips them instead
+ * of logging 401 console errors on every load.
+ */
+function I18nRuntime({
   children,
   catalog,
   initialLocale,
   initialPreference,
   initialMessages,
   persistPreference = true,
-}: AgentNativeI18nProviderProps) {
+  sessionAuthenticated,
+}: AgentNativeI18nProviderProps & { sessionAuthenticated: boolean }) {
   const namespace = catalog?.namespace ?? "translation";
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
@@ -639,7 +647,7 @@ export function AgentNativeI18nProvider({
   }, [locale, localeMetadata]);
 
   useEffect(() => {
-    if (!persistPreference) return;
+    if (!persistPreference || !sessionAuthenticated) return;
     let cancelled = false;
     callAction<LocalizationPreference>(
       "get-localization-preference",
@@ -661,7 +669,7 @@ export function AgentNativeI18nProvider({
     return () => {
       cancelled = true;
     };
-  }, [persistPreference, supportedLocales]);
+  }, [persistPreference, sessionAuthenticated, supportedLocales]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -677,7 +685,7 @@ export function AgentNativeI18nProvider({
   }, [supportedLocales]);
 
   useEffect(() => {
-    if (!persistPreference) return;
+    if (!persistPreference || !sessionAuthenticated) return;
     void setClientAppState(
       "localization",
       {
@@ -689,7 +697,13 @@ export function AgentNativeI18nProvider({
     ).catch(() => {
       // Public/anonymous pages cannot write app-state; localization still works.
     });
-  }, [locale, localeMetadata, persistPreference, preference]);
+  }, [
+    locale,
+    localeMetadata,
+    persistPreference,
+    preference,
+    sessionAuthenticated,
+  ]);
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {
@@ -745,6 +759,29 @@ export function AgentNativeI18nProvider({
       <I18nextProvider i18n={i18n}>{children}</I18nextProvider>
     </LocaleContext.Provider>
   );
+}
+
+/**
+ * Session-aware variant: only mounts the session hook (and therefore only
+ * ever resolves the shared session) on surfaces that persist preferences.
+ * Public/anonymous providers keep their existing request profile.
+ */
+function SessionAwareI18nRuntime(
+  props: Omit<AgentNativeI18nProviderProps, "persistPreference"> & {
+    persistPreference: true;
+  },
+) {
+  const { status } = useSession();
+  return (
+    <I18nRuntime {...props} sessionAuthenticated={status === "authenticated"} />
+  );
+}
+
+export function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
+  if (props.persistPreference === false) {
+    return <I18nRuntime {...props} sessionAuthenticated />;
+  }
+  return <SessionAwareI18nRuntime {...props} persistPreference />;
 }
 
 export function useLocale(): LocaleContextValue {
