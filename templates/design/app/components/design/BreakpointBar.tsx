@@ -120,7 +120,7 @@ export interface BreakpointDeviceControlProps {
   baseWidthPx?: number | null;
   /** Gates add/remove/change affordances; selection is allowed read-only. */
   canEdit: boolean;
-  /** Disables add/remove/change while a breakpoint mutation is in flight. */
+  /** Disables breakpoint changes while a mutation is in flight. */
   mutationPending?: boolean;
   /** Linked side-by-side frames toggle (overview). Hidden when undefined. */
   showAllFrames?: boolean;
@@ -167,6 +167,7 @@ export function BreakpointDeviceControl({
   const baseActive = activeWidthPx === undefined;
 
   const submitCustomWidth = () => {
+    if (mutationPending) return;
     const widthPx = parseBreakpointWidthInput(customWidth, existingWidths);
     setAddOpen(false);
     setCustomWidth("");
@@ -333,7 +334,7 @@ export function BreakpointDeviceControl({
       </div>
 
       {/* "+" — Framer default widths or a custom width. */}
-      {canMutateBreakpoints && onAdd ? (
+      {canEdit && onAdd ? (
         <Popover open={addOpen} onOpenChange={setAddOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -341,7 +342,6 @@ export function BreakpointDeviceControl({
               size="icon"
               className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
               title={t("designEditor.breakpointBar.addBreakpoint")}
-              disabled={mutationPending}
             >
               <IconPlus className="size-3.5" />
             </Button>
@@ -353,6 +353,7 @@ export function BreakpointDeviceControl({
                   key={preset.widthPx}
                   type="button"
                   className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left !text-[12px] hover:bg-muted"
+                  disabled={mutationPending}
                   onClick={() => {
                     onAdd(
                       preset.widthPx,
@@ -381,6 +382,7 @@ export function BreakpointDeviceControl({
                         key={preset.widthPx}
                         type="button"
                         className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left !text-[12px] hover:bg-muted"
+                        disabled={mutationPending}
                         onClick={() => {
                           onAdd(
                             preset.widthPx,
@@ -425,6 +427,7 @@ export function BreakpointDeviceControl({
                   size="sm"
                   variant="outline"
                   className="h-7 cursor-pointer px-2 !text-[11px]"
+                  disabled={mutationPending}
                 >
                   {t("designEditor.breakpointBar.add")}
                 </Button>

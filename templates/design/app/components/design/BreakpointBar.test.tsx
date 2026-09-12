@@ -75,10 +75,12 @@ function renderControl(
 function InteractiveControl({
   onAdd,
   onChangeWidth,
+  mutationPending = false,
   initialBreakpoints = [{ id: "bp-810", label: "Tablet", widthPx: 810 }],
 }: {
   onAdd: (widthPx: number, label: string) => void;
   onChangeWidth: (id: string, widthPx: number) => void;
+  mutationPending?: boolean;
   initialBreakpoints?: Array<{ id: string; label: string; widthPx: number }>;
 }) {
   const [breakpoints, setBreakpoints] = useState(initialBreakpoints);
@@ -88,6 +90,7 @@ function InteractiveControl({
         breakpoints={breakpoints}
         activeWidthPx={810}
         canEdit
+        mutationPending={mutationPending}
         onSelect={() => {}}
         onAdd={(widthPx, label) => {
           onAdd(widthPx, label);
@@ -173,6 +176,38 @@ describe("BreakpointDeviceControl interactions", () => {
 
     expect(onChangeWidth).toHaveBeenCalledWith("bp-810", 768);
     expect(container.textContent).toContain("768");
+  });
+
+  it("keeps the add popover reachable while a breakpoint is saving", async () => {
+    const onAdd = vi.fn();
+    const onChangeWidth = vi.fn();
+    await act(async () =>
+      root.render(
+        <InteractiveControl
+          initialBreakpoints={[]}
+          mutationPending
+          onAdd={onAdd}
+          onChangeWidth={onChangeWidth}
+        />,
+      ),
+    );
+
+    const addBreakpoint = container.querySelector<HTMLButtonElement>(
+      'button[title="addBreakpoint"]',
+    )!;
+    expect(addBreakpoint.disabled).toBe(false);
+    await act(async () => pointerClick(addBreakpoint));
+
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[placeholder="customWidth"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(onAdd).not.toHaveBeenCalled();
   });
 
   it("reopens after adding Tablet so another custom breakpoint can be added", async () => {

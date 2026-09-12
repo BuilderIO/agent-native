@@ -169,52 +169,89 @@ test("right rail actions row keeps the Share button inside the panel", async ({
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
-  const breakpointControl = page.locator("[data-breakpoint-device-control]");
-  await expect(
-    breakpointControl.getByRole("button", { name: "Base" }),
-  ).toHaveAttribute("aria-pressed", "true");
-
-  await breakpointControl
-    .getByRole("button", { name: "Add breakpoint" })
-    .click();
-  await page.getByRole("button", { name: /Tablet\s+810/ }).click();
-
-  const tabletTarget = breakpointControl.getByRole("button", { name: "810" });
-  await expect(tabletTarget).toBeVisible();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
-  await tabletTarget.click();
-  await expect(tabletTarget).toHaveAttribute("aria-pressed", "true");
-  await breakpointControl.getByRole("button", { name: "Base" }).click();
-  await expect(
-    breakpointControl.getByRole("button", { name: "Base" }),
-  ).toHaveAttribute("aria-pressed", "true");
-
-  const addBreakpoint = breakpointControl.getByRole("button", {
-    name: "Add breakpoint",
+  let notifyFirstAdd: () => void = () => {};
+  let releaseFirstAdd: () => void = () => {};
+  const firstAddStarted = new Promise<void>((resolve) => {
+    notifyFirstAdd = resolve;
   });
-  await expect(addBreakpoint).toBeEnabled();
-  await addBreakpoint.click();
-  const customWidth = page.getByPlaceholder("Custom width");
-  await customWidth.fill("700");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
-  const customTarget = breakpointControl.getByRole("button", { name: "700" });
-  await expect(customTarget).toBeVisible();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+  const firstAddGate = new Promise<void>((resolve) => {
+    releaseFirstAdd = resolve;
+  });
+  let holdFirstAdd = true;
+  await page.route("**/_agent-native/actions/add-breakpoint", async (route) => {
+    const response = await route.fetch();
+    if (holdFirstAdd) {
+      holdFirstAdd = false;
+      notifyFirstAdd();
+      await firstAddGate;
+    }
+    await route.fulfill({ response });
+  });
 
-  // Leave the shared seed design pristine for later inspector/browser specs.
-  await customTarget.click();
-  await breakpointControl
-    .getByRole("button", { name: "Breakpoint options" })
-    .click();
-  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+  const breakpointControl = page.locator("[data-breakpoint-device-control]");
+  try {
+    await expect(
+      breakpointControl.getByRole("button", { name: "Base" }),
+    ).toHaveAttribute("aria-pressed", "true");
 
-  await tabletTarget.click();
-  await breakpointControl
-    .getByRole("button", { name: "Breakpoint options" })
-    .click();
-  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    await breakpointControl
+      .getByRole("button", { name: "Add breakpoint" })
+      .click();
+    await page.getByRole("button", { name: /Tablet\s+810/ }).click();
+
+    const tabletTarget = breakpointControl.getByRole("button", {
+      name: "810",
+    });
+    await expect(tabletTarget).toBeVisible();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+    await tabletTarget.click();
+    await expect(tabletTarget).toHaveAttribute("aria-pressed", "true");
+    await breakpointControl.getByRole("button", { name: "Base" }).click();
+    await expect(
+      breakpointControl.getByRole("button", { name: "Base" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await firstAddStarted;
+    const addBreakpoint = breakpointControl.getByRole("button", {
+      name: "Add breakpoint",
+    });
+    await expect(addBreakpoint).toBeVisible();
+    await expect(addBreakpoint).toBeEnabled();
+    await addBreakpoint.click();
+    const customWidth = page.getByPlaceholder("Custom width");
+    await customWidth.fill("700");
+    const addCustomBreakpoint = page.getByRole("button", {
+      name: "Add",
+      exact: true,
+    });
+    await expect(addCustomBreakpoint).toBeDisabled();
+    releaseFirstAdd();
+    await expect(addCustomBreakpoint).toBeEnabled();
+    await addCustomBreakpoint.click();
+    const customTarget = breakpointControl.getByRole("button", {
+      name: "700",
+    });
+    await expect(customTarget).toBeVisible();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+
+    // Leave the shared seed design pristine for later inspector/browser specs.
+    await customTarget.click();
+    await breakpointControl
+      .getByRole("button", { name: "Breakpoint options" })
+      .click();
+    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+
+    await tabletTarget.click();
+    await breakpointControl
+      .getByRole("button", { name: "Breakpoint options" })
+      .click();
+    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+  } finally {
+    releaseFirstAdd();
+    await page.unroute("**/_agent-native/actions/add-breakpoint");
+  }
 });
 
 test("screen overview keeps compact frame actions contained when header space is tight", async ({
