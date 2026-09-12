@@ -39,6 +39,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
@@ -316,6 +317,14 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // `process.env.AGENT_USER_EMAIL` because env mutation leaks across
   // boundaries — see the cautionary comment in
   // `server/request-context.ts` about exactly that pattern.
+
+  // A CLI run mounts no Nitro plugins, so nothing has claimed the file upload
+  // slot that `createCoreRoutesPlugin` and the onboarding plugin claim on a
+  // server. Without this an action calling `uploadFile()` from `pnpm action`
+  // finds no provider and fails with storage fully configured — the same action
+  // works from the dev server and in production.
+  await loadCliBootstrap();
+
   const userEmail = await resolveDevUserEmail();
   const orgId = process.env.AGENT_ORG_ID || undefined;
 
