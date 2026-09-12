@@ -7,6 +7,7 @@ const messages = {
     commandSearchDocuments: "搜尋檔案",
     commandSearchHeading: "搜尋",
     searchScope: "範圍",
+    searchAllWorkspaces: "全部工作區",
     searchFields: "搜尋欄位",
     searchAllText: "全部文字",
     searchTitleOnly: "僅標題",

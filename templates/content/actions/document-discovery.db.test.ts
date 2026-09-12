@@ -111,6 +111,96 @@ describe("bounded document discovery", () => {
     );
     expect(ordinary.pagination.totalItems).toBe(203);
   });
+
+  it("supports quoted phrases, exclusions, OR, intitle:, and implicit AND", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-bool-phrase",
+          ownerEmail: OWNER,
+          title: "Launch plan",
+          content: "The status hub report is new.",
+        },
+        {
+          id: "search-bool-scatter",
+          ownerEmail: OWNER,
+          title: "Scattered words",
+          content: "status report with hub later.",
+        },
+        {
+          id: "search-bool-draft",
+          ownerEmail: OWNER,
+          title: "Drafted",
+          content: "status hub with draft edits.",
+        },
+        {
+          id: "search-bool-memo",
+          ownerEmail: OWNER,
+          title: "Reminder",
+          content: "a memo without other words.",
+        },
+      ]);
+    const ids = (result: { documents: { id: string }[] }) =>
+      result.documents.map((doc) => doc.id).sort();
+    const run = (query: string, extra?: Record<string, unknown>) =>
+      asUser(OWNER, () =>
+        searchDocuments.run({ query, limit: 20, offset: 0, ...extra }),
+      );
+
+    expect(ids(await run('"status hub"'))).toEqual([
+      "search-bool-draft",
+      "search-bool-phrase",
+    ]);
+    expect(ids(await run("status hub"))).toEqual([
+      "search-bool-draft",
+      "search-bool-phrase",
+      "search-bool-scatter",
+    ]);
+    expect(ids(await run("status -draft"))).toEqual([
+      "search-bool-phrase",
+      "search-bool-scatter",
+    ]);
+    expect(ids(await run('status -"hub with"'))).toEqual([
+      "search-bool-phrase",
+      "search-bool-scatter",
+    ]);
+    expect(ids(await run("draft OR memo"))).toEqual([
+      "search-bool-draft",
+      "search-bool-memo",
+    ]);
+    expect(ids(await run('"status hub" OR memo'))).toEqual([
+      "search-bool-draft",
+      "search-bool-memo",
+      "search-bool-phrase",
+    ]);
+    expect(ids(await run("intitle:plan"))).toEqual(["search-bool-phrase"]);
+    expect(ids(await run('"plan launch"'))).toEqual([]);
+    expect((await run("-")).documents).toEqual([]);
+  });
+
+  it("compares modified-date bounds as timestamps rather than text", async () => {
+    await getDb().insert(schema.documents).values({
+      id: "search-space-timestamp",
+      ownerEmail: OWNER,
+      title: "Space timestamp",
+      content: "needle payload timestamp",
+      updatedAt: "2026-01-15 10:30:00+00",
+    });
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "needle payload timestamp",
+        modifiedAfter: "2026-01-01T00:00:00.000Z",
+        modifiedBefore: "2026-02-01T00:00:00.000Z",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    expect(result.documents.map((doc) => doc.id)).toContain(
+      "search-space-timestamp",
+    );
+  });
+
   it("filters title and modified date before pagination and returns authorized parent context", async () => {
     const first = await asUser(OWNER, () =>
       searchDocuments.run({

@@ -15,11 +15,16 @@ import {
   lt,
   or,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import {
+  parseSearchQuery,
+  type SearchQueryTerm,
+} from "../shared/search-query.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
@@ -56,7 +61,7 @@ function makeSnippet(content: string, query: string, radius = 120) {
 
 export default defineAction({
   description:
-    "Search one bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.",
+    'Search one bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -125,7 +130,38 @@ export default defineAction({
         ...(!userEmail && activeOrgId ? [activeOrgId] : []),
       ]),
     ];
-    const pattern = args.query ? `%${escapeLike(args.query)}%` : undefined;
+    let snippetNeedle = args.exactTitle ?? "";
+    const queryTermPredicate = (term: SearchQueryTerm): SQL => {
+      const pattern = `%${escapeLike(term.text)}%`;
+      const columns =
+        args.searchFields === "title" || term.titleOnly
+          ? [schema.documents.title]
+          : [
+              schema.documents.title,
+              schema.documents.description,
+              schema.documents.content,
+            ];
+      return or(
+        ...columns.map((column) => sql`${column} ILIKE ${pattern} ESCAPE '\\'`),
+      )!;
+    };
+    const matchPredicates: SQL[] = [];
+    if (args.query) {
+      const parsed = parseSearchQuery(args.query);
+      if (parsed.empty) {
+        // Punctuation-only input (lone `-`, empty quotes) matches nothing by
+        // design; report that as a loud empty page rather than every document.
+        matchPredicates.push(sql`false`);
+      } else {
+        for (const group of parsed.groups) {
+          matchPredicates.push(or(...group.terms.map(queryTermPredicate))!);
+        }
+        for (const negative of parsed.negatives) {
+          matchPredicates.push(sql`NOT ${queryTermPredicate(negative)}`);
+        }
+      }
+      snippetNeedle = parsed.groups[0]?.terms[0]?.text ?? args.query;
+    }
     const where = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
@@ -140,16 +176,21 @@ export default defineAction({
               isNull(schema.documents.hideFromSearch),
             )
           : undefined,
-        pattern
-          ? args.searchFields === "title"
-            ? sql`${schema.documents.title} ILIKE ${pattern} ESCAPE '\\'`
-            : sql`(${schema.documents.title} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} ILIKE ${pattern} ESCAPE '\\')`
-          : undefined,
+        ...matchPredicates,
+        // updatedAt is a text column holding both ISO "T"-separated values and
+        // PostgreSQL "space"-separated defaults, so it must be compared as a
+        // timestamp; a lexical compare drops valid rows at page boundaries.
         args.modifiedAfter
-          ? gte(schema.documents.updatedAt, args.modifiedAfter)
+          ? gte(
+              sql`${schema.documents.updatedAt}::timestamptz`,
+              args.modifiedAfter,
+            )
           : undefined,
         args.modifiedBefore
-          ? lt(schema.documents.updatedAt, args.modifiedBefore)
+          ? lt(
+              sql`${schema.documents.updatedAt}::timestamptz`,
+              args.modifiedBefore,
+            )
           : undefined,
       ),
     });
@@ -230,10 +271,7 @@ export default defineAction({
         title: doc.title,
         description: doc.description,
         icon: doc.icon,
-        snippet: makeSnippet(
-          doc.contentPreview,
-          args.query ?? args.exactTitle ?? "",
-        ),
+        snippet: makeSnippet(doc.contentPreview, snippetNeedle),
         contentLength: Number(doc.contentLength) || 0,
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         updatedAt: doc.updatedAt,

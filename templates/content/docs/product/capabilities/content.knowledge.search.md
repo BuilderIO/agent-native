@@ -63,10 +63,15 @@ Existing search paths are in progress donor substrate, but complete indexed, fre
 
 The command picker uses the shared paginated search Action, with title-only,
 document-type and modified-date predicates applied before pagination. Parent
-context is independently access-scoped. Focused tests cover later pages,
-private-parent suppression, hidden-result counts and type filters. This is
-bounded lexical search substrate, not proof of indexed retrieval across every
-Source, authoritative author filtering, or policy-governed global search.
+context is independently access-scoped. The query supports a bounded
+Google-style operator set: quoted "exact phrases", `-excludedTerm`,
+uppercase `OR` between terms, `intitle:term`, and implicit AND across bare
+words; `%`, `_`, and `*` stay literal, and an all-workspaces scope option
+omits the space filter while keeping server-side access scoping. Focused
+tests cover later pages, private-parent suppression, hidden-result counts,
+type filters, and each operator. This is bounded lexical search substrate,
+not proof of indexed retrieval across every Source, authoritative author
+filtering, ranking, or policy-governed global search.
 
 Local browser verification of the command picker covered 27 authorized matches
 across two result pages, equal-title parent context, keyboard opening, title/body

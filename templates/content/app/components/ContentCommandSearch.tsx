@@ -1,12 +1,13 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { CommandMenu } from "@agent-native/core/client/navigation";
+import { parseSearchQuery, searchQueryNeedles } from "@shared/search-query";
 import {
   IconDatabase,
   IconFileText,
   IconFolderOpen,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useContentSpaces } from "@/hooks/use-content-spaces";
@@ -23,6 +24,7 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
 } from "./sidebar/select-content-space";
 import { Button } from "./ui/button";
+import { Calendar } from "./ui/calendar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,10 +32,15 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Skeleton } from "./ui/skeleton";
 
-function Highlight({ text, query }: { text: string; query: string }) {
-  return searchHighlightParts(text, query).map((part, index) =>
+// Sentinel scope value for searching every authorized space at once; the
+// request simply omits spaceId, and the server still scopes by access.
+const ALL_SPACES = "all";
+
+function Highlight({ text, needles }: { text: string; needles: string[] }) {
+  return searchHighlightParts(text, needles).map((part, index) =>
     part.match ? (
       <mark
         key={index}
@@ -120,8 +127,81 @@ function focusSearchInput() {
     ?.focus();
 }
 
+function DateSearchChoice({
+  label,
+  triggerLabel,
+  presetValue,
+  selectedDay,
+  onSelectPreset,
+  onPickDay,
+}: {
+  label: string;
+  triggerLabel: string;
+  presetValue: "all" | "7" | "30";
+  selectedDay?: Date;
+  onSelectPreset: (value: "all" | "7" | "30") => void;
+  onPickDay: (day: Date) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const presets = [
+    { value: "all" as const, label: t("root.searchAnyDate") },
+    { value: "7" as const, label: t("root.searchPastWeek") },
+    { value: "30" as const, label: t("root.searchPastMonth") },
+  ];
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="max-w-full"
+          aria-label={label}
+        >
+          <span className="truncate">{triggerLabel}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-auto p-2"
+        align="start"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusSearchInput();
+        }}
+      >
+        <div className="flex gap-1 pb-2">
+          {presets.map((preset) => (
+            <Button
+              key={preset.value}
+              variant={presetValue === preset.value ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                onSelectPreset(preset.value);
+                setOpen(false);
+              }}
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
+        <Calendar
+          mode="single"
+          selected={selectedDay}
+          onSelect={(day) => {
+            if (day) {
+              onPickDay(day);
+              setOpen(false);
+            }
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function SearchPage({
   query,
+  needles,
   spaceId,
   searchFields,
   documentType,
@@ -129,7 +209,8 @@ function SearchPage({
   onOpenChange,
 }: {
   query: string;
-  spaceId: string;
+  needles: string[];
+  spaceId?: string;
   searchFields: "all" | "title";
   documentType?: "page" | "database";
   modifiedAfter?: string;
@@ -200,7 +281,7 @@ function SearchPage({
                 <span className="block truncate font-medium">
                   <Highlight
                     text={document.title || t("sidebar.untitled")}
-                    query={query}
+                    needles={needles}
                   />
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
@@ -216,7 +297,7 @@ function SearchPage({
                 </span>
                 {document.snippet ? (
                   <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
-                    <Highlight text={document.snippet} query={query} />
+                    <Highlight text={document.snippet} needles={needles} />
                   </span>
                 ) : null}
                 {document.description ? (
@@ -280,28 +361,53 @@ export function ContentCommandSearchResults({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const { formatDate } = useFormatters();
   const spaces = useContentSpaces();
   const [storedSpaceId] = useLocalStorage<string | null>(
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
-  const [chosenSpace, setChosenSpace] = useState<string | null>(null);
+  const [chosenScope, setChosenScope] = useState<string | null>(null);
   const selectedSpace = contentSpaceForStoredSelection({
     spaces: spaces.data?.spaces ?? [],
     storedSpaceId,
   });
-  const space = chosenSpace
-    ? spaces.data?.spaces.find((entry) => entry.id === chosenSpace)
-    : selectedSpace;
+  // null follows the sidebar's selected space; "all" searches every
+  // authorized space; a space id pins the search to that space.
+  const searchingAll = chosenScope === ALL_SPACES;
+  const scopeId =
+    chosenScope && chosenScope !== ALL_SPACES ? chosenScope : selectedSpace?.id;
   const [searchFields, setSearchFields] = useState("all");
   const [documentType, setDocumentType] = useState("all");
   const [modified, setModified] = useState("all");
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
   const [modifiedAfter, setModifiedAfter] = useState<string>();
   const [debouncedQuery, setDebouncedQuery] = useState(query.trim());
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 200);
     return () => window.clearTimeout(timer);
   }, [query]);
+  const highlightNeedles = useMemo(() => {
+    const parsed = parseSearchQuery(debouncedQuery);
+    return parsed.empty ? [] : searchQueryNeedles(parsed);
+  }, [debouncedQuery]);
+  const dateTriggerLabel = pickedDay
+    ? formatDate(new Date(`${pickedDay}T00:00:00`))
+    : modified === "7"
+      ? t("root.searchPastWeek")
+      : modified === "30"
+        ? t("root.searchPastMonth")
+        : t("root.searchAnyDate");
+
+  const applyPreset = (value: "all" | "7" | "30") => {
+    setModified(value);
+    setPickedDay(null);
+    setModifiedAfter(
+      value === "all"
+        ? undefined
+        : new Date(Date.now() - Number(value) * 86_400_000).toISOString(),
+    );
+  };
 
   return (
     <>
@@ -314,12 +420,15 @@ export function ContentCommandSearchResults({
       >
         <SearchChoice
           label={t("root.searchScope")}
-          value={space?.id ?? ""}
-          choices={(spaces.data?.spaces ?? []).map((entry) => ({
-            value: entry.id,
-            label: entry.name,
-          }))}
-          onChange={setChosenSpace}
+          value={searchingAll ? ALL_SPACES : (scopeId ?? "")}
+          choices={[
+            { value: ALL_SPACES, label: t("root.searchAllWorkspaces") },
+            ...(spaces.data?.spaces ?? []).map((entry) => ({
+              value: entry.id,
+              label: entry.name,
+            })),
+          ]}
+          onChange={setChosenScope}
         />
         <SearchChoice
           label={t("root.searchFields")}
@@ -340,15 +449,15 @@ export function ContentCommandSearchResults({
           ]}
           onChange={setDocumentType}
         />
-        <SearchChoice
+        <DateSearchChoice
           label={t("root.searchDate")}
-          value={modified}
-          choices={[
-            { value: "all", label: t("root.searchAnyDate") },
-            { value: "7", label: t("root.searchPastWeek") },
-            { value: "30", label: t("root.searchPastMonth") },
-          ]}
-          onChange={(value) => {
+          triggerLabel={dateTriggerLabel}
+          presetValue={pickedDay ? "all" : (modified as "all" | "7" | "30")}
+          selectedDay={
+            pickedDay ? new Date(`${pickedDay}T00:00:00`) : undefined
+          }
+          onSelectPreset={(value) => {
+            setPickedDay(null);
             setModified(value);
             setModifiedAfter(
               value === "all"
@@ -358,25 +467,39 @@ export function ContentCommandSearchResults({
                   ).toISOString(),
             );
           }}
+          onPickDay={(day) => {
+            setModified("all");
+            setPickedDay(
+              `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
+            );
+            setModifiedAfter(
+              new Date(
+                day.getFullYear(),
+                day.getMonth(),
+                day.getDate(),
+              ).toISOString(),
+            );
+          }}
         />
       </div>
-      {spaces.error || (!spaces.isLoading && !space) ? (
+      {!searchingAll && (spaces.error || (!spaces.isLoading && !scopeId)) ? (
         <div role="alert" className="p-3 text-sm">
           {t("root.searchScopeUnavailable")}
         </div>
-      ) : !space || query.trim() !== debouncedQuery ? (
+      ) : (!searchingAll && !scopeId) || query.trim() !== debouncedQuery ? (
         <SearchLoading />
       ) : debouncedQuery ? (
         <SearchPage
           key={JSON.stringify([
             debouncedQuery,
-            space.id,
+            searchingAll ? ALL_SPACES : scopeId,
             searchFields,
             documentType,
             modifiedAfter,
           ])}
           query={debouncedQuery}
-          spaceId={space.id}
+          needles={highlightNeedles}
+          spaceId={searchingAll ? undefined : scopeId}
           searchFields={searchFields as "all" | "title"}
           documentType={
             documentType === "all"

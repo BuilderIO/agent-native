@@ -39,19 +39,32 @@ export function contentCommandDocumentPath(documentId: string) {
   return `/page/${documentId}`;
 }
 
-export function searchHighlightParts(text: string, query: string) {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return [{ text, match: false }];
+export function searchHighlightParts(text: string, needles: string[]) {
+  const candidates = [
+    ...new Set(
+      needles.map((needle) => needle.trim().toLowerCase()).filter(Boolean),
+    ),
+  ].sort((a, b) => b.length - a.length);
+  if (!candidates.length || !text) return [{ text, match: false }];
+  const lower = text.toLowerCase();
+  const marks: { start: number; end: number }[] = [];
+  for (const needle of candidates) {
+    let index = lower.indexOf(needle);
+    while (index !== -1) {
+      marks.push({ start: index, end: index + needle.length });
+      index = lower.indexOf(needle, index + needle.length);
+    }
+  }
+  if (!marks.length) return [{ text, match: false }];
+  marks.sort((a, b) => a.start - b.start || b.end - a.end);
   const parts: { text: string; match: boolean }[] = [];
   let cursor = 0;
-  const lower = text.toLowerCase();
-  let index = lower.indexOf(needle);
-  while (index !== -1) {
-    if (index > cursor)
-      parts.push({ text: text.slice(cursor, index), match: false });
-    parts.push({ text: text.slice(index, index + needle.length), match: true });
-    cursor = index + needle.length;
-    index = lower.indexOf(needle, cursor);
+  for (const mark of marks) {
+    if (mark.end <= cursor) continue;
+    if (mark.start > cursor)
+      parts.push({ text: text.slice(cursor, mark.start), match: false });
+    parts.push({ text: text.slice(mark.start, mark.end), match: true });
+    cursor = mark.end;
   }
   if (cursor < text.length)
     parts.push({ text: text.slice(cursor), match: false });
