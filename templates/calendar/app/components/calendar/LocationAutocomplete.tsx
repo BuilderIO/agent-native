@@ -62,10 +62,9 @@ export function LocationAutocomplete({
   );
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    event.stopPropagation();
-
     if (event.key === "ArrowDown" && filteredSuggestions.length > 0) {
       event.preventDefault();
+      event.stopPropagation();
       setOpen(true);
       setActiveIndex((index) =>
         index < 0 || index === filteredSuggestions.length - 1 ? 0 : index + 1,
@@ -75,6 +74,7 @@ export function LocationAutocomplete({
 
     if (event.key === "ArrowUp" && filteredSuggestions.length > 0) {
       event.preventDefault();
+      event.stopPropagation();
       setOpen(true);
       setActiveIndex((index) =>
         index <= 0 ? filteredSuggestions.length - 1 : index - 1,
@@ -84,12 +84,14 @@ export function LocationAutocomplete({
 
     if (event.key === "Enter" && showSuggestions && activeIndex >= 0) {
       event.preventDefault();
+      event.stopPropagation();
       selectSuggestion(filteredSuggestions[activeIndex]!);
       return;
     }
 
     if (event.key === "Escape" && showSuggestions) {
       event.preventDefault();
+      event.stopPropagation();
       setOpen(false);
       setActiveIndex(-1);
     }

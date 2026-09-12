@@ -623,14 +623,26 @@ export function useDeleteEvent() {
       notificationMessage?: string;
     }
   >("delete-event", {
-    onMutate: async ({ id, scope }) => {
+    onMutate: async ({ id, accountEmail, scope }) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
+      const cachedEvents = previous.flatMap(([, events]) => events ?? []);
+      const matchingEvents = cachedEvents.filter(
+        (event) => event.id === id || event._replacedId === id,
+      );
+      const normalizedAccountEmail = accountEmail?.trim().toLowerCase();
+      const targetEvent = normalizedAccountEmail
+        ? matchingEvents.find(
+            (event) =>
+              event.accountEmail?.trim().toLowerCase() ===
+              normalizedAccountEmail,
+          )
+        : findEventByCurrentOrReplacedId(cachedEvents, id);
       const removedByQuery: Array<[QueryKey, CalendarEvent[]]> = [];
       for (const [key, old] of previous) {
-        const next = removeCalendarEventsForScope(old, id, scope);
+        const next = removeCalendarEventsForScope(old, id, scope, targetEvent);
         const retainedIds = new Set(next?.map((event) => event.id) ?? []);
         const removed =
           old?.filter((event) => !retainedIds.has(event.id)) ?? [];

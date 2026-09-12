@@ -61,8 +61,31 @@ export function removeOptimisticCalendarEventFromList(
   );
 }
 
+function sameCalendarSource(event: CalendarEvent, target: CalendarEvent) {
+  if (event.source !== target.source) return false;
+  if (
+    event.accountEmail &&
+    target.accountEmail &&
+    event.accountEmail.trim().toLowerCase() !==
+      target.accountEmail.trim().toLowerCase()
+  ) {
+    return false;
+  }
+  if (
+    event.calendarSourceKey &&
+    target.calendarSourceKey &&
+    event.calendarSourceKey !== target.calendarSourceKey
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function sameRecurringSeries(event: CalendarEvent, target: CalendarEvent) {
-  return event.recurringEventId === (target.recurringEventId ?? target.id);
+  return (
+    sameCalendarSource(event, target) &&
+    event.recurringEventId === (target.recurringEventId ?? target.id)
+  );
 }
 
 function shouldApplyToEventInScope(
@@ -70,7 +93,7 @@ function shouldApplyToEventInScope(
   target: CalendarEvent,
   scope: RsvpScope,
 ) {
-  if (event.id === target.id) return true;
+  if (event.id === target.id) return sameCalendarSource(event, target);
   if (scope === "single" || !sameRecurringSeries(event, target)) return false;
   if (scope === "all") return true;
 
@@ -86,9 +109,14 @@ export function removeCalendarEventsForScope(
   old: CalendarEvent[] | undefined,
   targetId: string,
   scope: RsvpScope = "single",
+  targetEvent?: CalendarEvent,
 ) {
   if (!old) return old;
-  const target = old.find((event) => event.id === targetId);
+  const target =
+    targetEvent ??
+    old.find(
+      (event) => event.id === targetId || event._replacedId === targetId,
+    );
   if (!target) return old;
 
   return old.filter(

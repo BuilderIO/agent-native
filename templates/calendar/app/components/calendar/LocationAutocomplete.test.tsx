@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 
-import { act, useState, type ReactNode } from "react";
+import {
+  act,
+  useState,
+  type KeyboardEventHandler,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,16 +25,22 @@ vi.mock("@/components/ui/popover", () => ({
   ),
 }));
 
-function Harness() {
+function Harness({
+  onFormKeyDown,
+}: {
+  onFormKeyDown?: KeyboardEventHandler<HTMLFormElement>;
+}) {
   const [value, setValue] = useState("");
   return (
-    <LocationAutocomplete
-      id="location"
-      value={value}
-      onChange={setValue}
-      suggestions={["Home office", "Builder HQ", "Home studio"]}
-      label="Location"
-    />
+    <form onKeyDown={onFormKeyDown}>
+      <LocationAutocomplete
+        id="location"
+        value={value}
+        onChange={setValue}
+        suggestions={["Home office", "Builder HQ", "Home studio"]}
+        label="Location"
+      />
+    </form>
   );
 }
 
@@ -113,5 +124,31 @@ describe("LocationAutocomplete", () => {
     expect(parentKeydown).not.toHaveBeenCalled();
     expect(container.querySelector('[role="listbox"]')).toBeNull();
     window.removeEventListener("keydown", parentKeydown);
+  });
+
+  it("lets an unhandled Enter reach the containing event form", () => {
+    const onFormKeyDown = vi.fn();
+    act(() => root.render(<Harness onFormKeyDown={onFormKeyDown} />));
+    const input = container.querySelector<HTMLInputElement>("input")!;
+
+    act(() => {
+      input.focus();
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(input, "nowhere");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => input.dispatchEvent(enter));
+
+    expect(enter.defaultPrevented).toBe(false);
+    expect(onFormKeyDown).toHaveBeenCalledTimes(1);
   });
 });

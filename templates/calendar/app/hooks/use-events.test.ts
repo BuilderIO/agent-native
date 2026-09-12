@@ -165,6 +165,76 @@ describe("calendar event list cache helpers", () => {
     ).toEqual(["other-series"]);
   });
 
+  it("uses the selected occurrence to filter other cached ranges without crossing accounts", () => {
+    const past = calendarEvent({
+      id: "past",
+      recurringEventId: "series-1",
+      start: "2026-05-15T16:00:00.000Z",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+    });
+    const target = calendarEvent({
+      id: "target",
+      recurringEventId: "series-1",
+      start: "2026-05-22T16:00:00.000Z",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+    });
+    const future = calendarEvent({
+      id: "future",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+    });
+    const otherAccountSeries = calendarEvent({
+      id: "other-account",
+      recurringEventId: "series-1",
+      start: future.start,
+      source: "google",
+      accountEmail: "other@example.com",
+      calendarSourceKey: "calendar-two",
+    });
+    const otherAccountSameId = calendarEvent({
+      id: target.id,
+      recurringEventId: "series-1",
+      source: "google",
+      accountEmail: "other@example.com",
+      calendarSourceKey: "calendar-two",
+    });
+    const cachedRanges = [
+      [past],
+      [target],
+      [future, otherAccountSeries, otherAccountSameId],
+    ];
+    const selected = findEventByCurrentOrReplacedId(
+      cachedRanges.flat(),
+      target.id,
+    );
+
+    expect(selected).toBe(target);
+    expect(
+      cachedRanges.map((range) =>
+        removeCalendarEventsForScope(range, target.id, "all", selected)?.map(
+          (event) => event.id,
+        ),
+      ),
+    ).toEqual([[], [], ["other-account", "target"]]);
+    expect(
+      cachedRanges.map((range) =>
+        removeCalendarEventsForScope(
+          range,
+          target.id,
+          "thisAndFollowing",
+          selected,
+        )?.map((event) => event.id),
+      ),
+    ).toEqual([["past"], [], ["other-account", "target"]]);
+  });
+
   it("rolls back only missing deleted events without overwriting newer cache data", () => {
     const removed = calendarEvent({ id: "target", title: "Original" });
     const updated = calendarEvent({ id: "target", title: "Updated" });

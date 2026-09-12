@@ -34,4 +34,11 @@ describe("isCalendarShortcutSuppressedTarget", () => {
       expect(isCalendarShortcutSuppressedTarget(target)).toBe(true);
     }
   });
+
+  it("lets custom comboboxes own calendar shortcuts", () => {
+    const combobox = document.createElement("button");
+    combobox.setAttribute("role", "combobox");
+
+    expect(isCalendarShortcutSuppressedTarget(combobox)).toBe(true);
+  });
 });

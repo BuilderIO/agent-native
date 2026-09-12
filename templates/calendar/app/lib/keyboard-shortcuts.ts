@@ -1,6 +1,7 @@
 const SHORTCUT_OWNERS = [
   '[contenteditable]:not([contenteditable="false"])',
   "[role='textbox']",
+  "[role='combobox']",
   "input",
   "textarea",
   "select",
