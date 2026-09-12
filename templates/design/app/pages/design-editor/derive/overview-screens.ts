@@ -1,7 +1,6 @@
-import { isBoardFile } from "@shared/board-file";
+import { isOverviewScreenFile } from "@shared/design-files";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
 
-import { normalizedDesignFileType } from "../canvas-primitive-insert";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
 import type { DesignFile } from "../types";
 
@@ -93,75 +92,68 @@ export function deriveOverviewScreens({
   // Exclude the board file — it is rendered by its own DesignCanvas instance
   // in MultiScreenCanvas and must not appear as a screen frame.  Support files
   // such as CSS are editable files, not visual screens.
-  return files
-    .filter(
-      (file) =>
-        normalizedDesignFileType(file.fileType) === "html" &&
-        !isBoardFile(file.filename),
-    )
-    .map((file) => {
-      const metadata = getDesignDataRecord(metadataByFileId, file.id);
-      const stringValue = (key: string) =>
-        typeof metadata[key] === "string"
-          ? (metadata[key] as string)
-          : undefined;
-      const numberValue = (key: string) =>
-        typeof metadata[key] === "number" && Number.isFinite(metadata[key])
-          ? (metadata[key] as number)
-          : undefined;
-      const rawBreakpointHeights = metadata.breakpointHeights;
-      const breakpointHeights =
-        rawBreakpointHeights &&
-        typeof rawBreakpointHeights === "object" &&
-        !Array.isArray(rawBreakpointHeights)
-          ? Object.fromEntries(
-              Object.entries(rawBreakpointHeights).filter(
-                ([width, height]) =>
-                  Number.isSafeInteger(Number(width)) &&
-                  Number(width) > 0 &&
-                  String(Number(width)) === width &&
-                  typeof height === "number" &&
-                  Number.isFinite(height) &&
-                  height > 0 &&
-                  height <= MAX_SANE_FRAME_DIMENSION_PX,
-              ),
-            )
-          : undefined;
-      return {
-        id: file.id,
-        filename: file.filename,
-        content: file.content,
-        updatedAt: file.updatedAt,
-        sourceType: stringValue("sourceType"),
-        source: stringValue("source"),
-        sourceFile: stringValue("sourceFile"),
-        connectionId: stringValue("connectionId"),
-        lod: stringValue("lod"),
-        previewState: stringValue("previewState"),
-        status: stringValue("status"),
-        title: stringValue("title"),
-        layoutGroupId: stringValue("variantSetId"),
-        width: numberValue("width"),
-        height: numberValue("height"),
-        breakpointHeights,
-        // Without this the pin never reaches the canvas and the content-fit
-        // pass grows a deliberately-sized screen straight back.
-        heightPinned:
-          metadata.heightPinned === true || locallyPinnedHeightIds.has(file.id),
-        url: stringValue("url"),
-        previewUrl: stringValue("previewUrl"),
-        bridgeUrl: stringValue("bridgeUrl"),
-        previewToken: stringValue("previewToken"),
-        // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
-        // renders one iframe per width to the right of the primary frame.
-        breakpointWidths: bpWidths,
-        // Active breakpoint width tracked in component state; shared across all
-        // screens (a design has one active breakpoint set at a time in v1).
-        activeBreakpointWidth: bpWidths?.includes(
-          activeBreakpointWidthState ?? -1,
-        )
-          ? activeBreakpointWidthState
-          : undefined,
-      };
-    });
+  const overviewFiles = files.filter(isOverviewScreenFile);
+  return overviewFiles.map((file) => {
+    const metadata = getDesignDataRecord(metadataByFileId, file.id);
+    const stringValue = (key: string) =>
+      typeof metadata[key] === "string" ? (metadata[key] as string) : undefined;
+    const numberValue = (key: string) =>
+      typeof metadata[key] === "number" && Number.isFinite(metadata[key])
+        ? (metadata[key] as number)
+        : undefined;
+    const rawBreakpointHeights = metadata.breakpointHeights;
+    const breakpointHeights =
+      rawBreakpointHeights &&
+      typeof rawBreakpointHeights === "object" &&
+      !Array.isArray(rawBreakpointHeights)
+        ? Object.fromEntries(
+            Object.entries(rawBreakpointHeights).filter(
+              ([width, height]) =>
+                Number.isSafeInteger(Number(width)) &&
+                Number(width) > 0 &&
+                String(Number(width)) === width &&
+                typeof height === "number" &&
+                Number.isFinite(height) &&
+                height > 0 &&
+                height <= MAX_SANE_FRAME_DIMENSION_PX,
+            ),
+          )
+        : undefined;
+    return {
+      id: file.id,
+      filename: file.filename,
+      content: file.content,
+      updatedAt: file.updatedAt,
+      sourceType: stringValue("sourceType"),
+      source: stringValue("source"),
+      sourceFile: stringValue("sourceFile"),
+      connectionId: stringValue("connectionId"),
+      lod: stringValue("lod"),
+      previewState: stringValue("previewState"),
+      status: stringValue("status"),
+      title: stringValue("title"),
+      layoutGroupId: stringValue("variantSetId"),
+      width: numberValue("width"),
+      height: numberValue("height"),
+      breakpointHeights,
+      // Without this the pin never reaches the canvas and the content-fit
+      // pass grows a deliberately-sized screen straight back.
+      heightPinned:
+        metadata.heightPinned === true || locallyPinnedHeightIds.has(file.id),
+      url: stringValue("url"),
+      previewUrl: stringValue("previewUrl"),
+      bridgeUrl: stringValue("bridgeUrl"),
+      previewToken: stringValue("previewToken"),
+      // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
+      // renders one iframe per width to the right of the primary frame.
+      breakpointWidths: bpWidths,
+      // Active breakpoint width tracked in component state; shared across all
+      // screens (a design has one active breakpoint set at a time in v1).
+      activeBreakpointWidth: bpWidths?.includes(
+        activeBreakpointWidthState ?? -1,
+      )
+        ? activeBreakpointWidthState
+        : undefined,
+    };
+  });
 }

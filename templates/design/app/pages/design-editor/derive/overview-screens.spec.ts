@@ -29,6 +29,7 @@ describe("deriveOverviewScreens", () => {
       files: [
         file({ id: "a" }),
         file({ id: "styles", filename: "styles.css", fileType: "css" }),
+        file({ id: "component", filename: "component.jsx", fileType: "jsx" }),
         file({ id: "board", filename: "__board__.html" }),
       ],
     });

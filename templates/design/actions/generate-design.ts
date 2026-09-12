@@ -37,12 +37,12 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
-import { isBoardFile } from "../shared/board-file.js";
 import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
@@ -88,16 +88,6 @@ function isRenderableDesignFile(file: {
   const fileType = file.fileType ?? "html";
   return (
     (fileType === "html" || fileType === "jsx") && Boolean(file.content?.trim())
-  );
-}
-
-function isScreenDesignFile(file: {
-  filename: string;
-  fileType?: string | null;
-}): boolean {
-  const fileType = file.fileType ?? "html";
-  return (
-    !isBoardFile(file.filename) && (fileType === "html" || fileType === "jsx")
   );
 }
 
@@ -1091,8 +1081,8 @@ const generateDesignAction = defineAction({
             ? (prevData.screenMetadata as Record<string, unknown>)
             : {};
         const responsiveScreenFileIds = new Set([
-          ...existingFiles.filter(isScreenDesignFile).map((file) => file.id),
-          ...savedFiles.filter(isScreenDesignFile).map((file) => file.id),
+          ...getOverviewScreenFileIds(existingFiles),
+          ...getOverviewScreenFileIds(savedFiles),
         ]);
         // Frames placed by an earlier call: never moved, and counted as
         // occupied so a new screen is never dropped on top of one.

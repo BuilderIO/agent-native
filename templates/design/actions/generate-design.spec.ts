@@ -1182,6 +1182,47 @@ describe("generate-design: new screens never stack on existing frames", () => {
     expect(frames[result.savedFiles[0]!.id]?.x).toBe(1440 + 96);
   });
 
+  it("does not count JSX support files as responsive screen occupancy", async () => {
+    mocks.setFileRows([
+      {
+        id: "support",
+        designId: "design-1",
+        filename: "support.jsx",
+        fileType: "jsx",
+        content: "export default function Support() {}",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        {
+          filename: "next.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Next</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    expect(frames[result.savedFiles[0]!.id]?.x).toBe(1440 + 96);
+  });
+
   it("uses responsive bounds for existing screens without metadata", async () => {
     setExistingFile("<html><body>existing</body></html>");
     mocks.setDesignData({

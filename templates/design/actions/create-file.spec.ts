@@ -379,6 +379,39 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(canvasFrames[result.id]?.y).toBe(1770 + 96);
   });
 
+  it("does not reserve responsive space for JSX support files", async () => {
+    mocks.setExistingRows([
+      {
+        id: "support",
+        designId: "design-1",
+        filename: "support.jsx",
+        fileType: "jsx",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "next.html",
+      content: "<main>Next screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(100 + 96);
+  });
+
   it("uses responsive bounds for existing screens without metadata", async () => {
     mocks.setExistingRows([
       {
