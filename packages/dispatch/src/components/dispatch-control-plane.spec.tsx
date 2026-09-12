@@ -44,6 +44,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
+  PromptBar: ({ children }: { children?: React.ReactNode }) => (
+    <div data-prompt-bar="inline">{children}</div>
+  ),
   PromptComposer: (props: Record<string, unknown>) => {
     clientState.promptComposerProps = props;
     const onSubmit = props.onSubmit as (value: string) => void;
@@ -187,6 +190,9 @@ describe("DispatchControlPlane", () => {
     expect(container.querySelector("nav")).toBeNull();
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-prompt-bar="inline"]'),
     ).not.toBeNull();
     expect(clientState.useChatModels).toHaveBeenCalledWith({
       storageKey: "agent-native:chat-models:selection:dispatch",

@@ -86,6 +86,7 @@ describe("McpConnectionSuggestion render", () => {
       root.render(
         <McpConnectionSuggestion
           text="Connect Notion"
+          requestedByAgent
           integrations={[integration]}
         />,
       );

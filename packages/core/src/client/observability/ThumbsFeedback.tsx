@@ -184,6 +184,7 @@ export function ThumbsFeedback({
       <button
         type="button"
         aria-label={t("agentChat.feedback.thumbsUp")}
+        title={t("agentChat.feedback.thumbsUp")}
         onClick={handleThumbsUp}
         className={cn(
           "flex h-6 w-6 items-center justify-center rounded",
@@ -204,6 +205,7 @@ export function ThumbsFeedback({
           <button
             type="button"
             aria-label={t("agentChat.feedback.thumbsDown")}
+            title={t("agentChat.feedback.thumbsDown")}
             onClick={handleThumbsDown}
             className={cn(
               "flex h-6 w-6 items-center justify-center rounded",

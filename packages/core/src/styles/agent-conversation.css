@@ -43,14 +43,8 @@
   border-radius: 999px;
   background: hsl(var(--popover));
   color: hsl(var(--foreground));
-  --agent-shadow: 0 0% 0%;
-  --agent-shadow-o: 0.14;
-  box-shadow: 0 10px 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+  box-shadow: var(--agent-kit-overlay-elevation);
   cursor: pointer;
-}
-
-.dark .agent-conversation__scroll-bottom {
-  --agent-shadow-o: 0.08;
 }
 
 .agent-conversation-message {
@@ -84,7 +78,7 @@
 }
 
 .agent-conversation-message__part + .agent-conversation-message__part {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .agent-conversation-message__part--tool,
@@ -96,7 +90,7 @@
 .agent-conversation-markdown {
   color: hsl(var(--foreground) / 0.82);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -363,7 +357,7 @@
   border: 1px solid hsl(var(--destructive) / 0.35);
   border-radius: calc(var(--radius) - 2px);
   background: hsl(var(--background) / 0.96);
-  box-shadow: 0 8px 24px hsl(var(--foreground) / 0.12);
+  box-shadow: var(--agent-kit-overlay-elevation);
   color: hsl(var(--destructive));
   text-align: center;
   pointer-events: auto;
@@ -579,22 +573,26 @@
   margin-top: 0;
 }
 
+.agent-markdown {
+  line-height: 1.5;
+}
+
 .agent-markdown > :last-child {
   margin-bottom: 0;
 }
 
 .agent-markdown p {
-  margin: 0.5em 0;
+  margin: 0.4em 0;
 }
 
 .agent-markdown ul,
 .agent-markdown ol {
-  margin: 0.5em 0;
+  margin: 0.4em 0;
   padding-inline-start: 1.5em;
 }
 
 .agent-markdown li {
-  margin: 0.2em 0;
+  margin: 0.15em 0;
 }
 
 .agent-markdown li > p {
@@ -789,7 +787,6 @@
   }
 }
 
-/* Tool-code viewer that uses shiki inside the Codex-style gray box. */
 .agent-tool-code .agent-markdown-shiki {
   margin: 0;
   border-radius: 0;
