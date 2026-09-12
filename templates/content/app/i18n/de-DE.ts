@@ -1,5 +1,5 @@
 import { commentAttributionMessagesByLocale } from "../../shared/comment-attribution-messages";
-import { buildMessagesForLocale, type PartialMessages } from "../i18n-data";
+import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
   formChecked: "Ausgewählt",
