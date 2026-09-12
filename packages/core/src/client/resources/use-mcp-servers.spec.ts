@@ -9,8 +9,12 @@ import {
   formatMcpServerError,
   formatMcpServersLoadError,
   getMcpUrlValidationError,
+  isMcpServersPending,
+  useMcpServers,
   useReconnectMcpServer,
 } from "./use-mcp-servers.js";
+
+const EMPTY_LIST = { user: [], org: [], orgId: null, role: null };
 
 describe("MCP server UI helpers", () => {
   const roots: Root[] = [];
@@ -194,5 +198,98 @@ describe("MCP server UI helpers", () => {
     await expect(
       mutation!.mutateAsync({ id: "server-3", scope: "user" }),
     ).rejects.toThrow("Reconnect failed");
+  });
+
+  it("fetches the list eagerly by default and settles as loaded", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetchMock = vi.fn(async () => Response.json(EMPTY_LIST));
+    vi.stubGlobal("fetch", fetchMock);
+
+    let latest: { pending: boolean; data: unknown } | undefined;
+    function Probe() {
+      const query = useMcpServers();
+      latest = { pending: isMcpServersPending(query), data: query.data };
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Probe),
+        ),
+      );
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(latest?.pending).toBe(false);
+      expect(latest?.data).toEqual(EMPTY_LIST);
+    });
+  });
+
+  it("holds the list read until after paint when defer is set", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    try {
+      // Route the deferral onto faked timers so the paint window only passes
+      // when the test advances it.
+      vi.stubGlobal("requestAnimationFrame", undefined);
+      vi.stubGlobal("requestIdleCallback", undefined);
+      const fetchMock = vi.fn(async () => Response.json(EMPTY_LIST));
+      vi.stubGlobal("fetch", fetchMock);
+
+      let latest: { pending: boolean; data: unknown } | undefined;
+      function Probe() {
+        const query = useMcpServers({ defer: true });
+        latest = { pending: isMcpServersPending(query), data: query.data };
+        return null;
+      }
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+
+      await act(async () => {
+        root.render(
+          React.createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            React.createElement(Probe),
+          ),
+        );
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(latest?.pending).toBe(true);
+      expect(latest?.data).toBeUndefined();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => {
+        expect(latest?.pending).toBe(false);
+        expect(latest?.data).toEqual(EMPTY_LIST);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

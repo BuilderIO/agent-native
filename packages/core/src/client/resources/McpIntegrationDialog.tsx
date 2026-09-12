@@ -154,7 +154,10 @@ export function McpIntegrationDialog({
     ((integration: DefaultMcpIntegration) => void) | null
   >(null);
   const mcpApi = useMcpServersApi();
-  const mcpServersQuery = useMcpServers();
+  // Rendered (closed) inside rail and settings surfaces that mount during
+  // startup, so it waits out the paint window like its parents; the open
+  // state already holds actions until the read succeeds.
+  const mcpServersQuery = useMcpServers({ defer: true });
   const defaultIntegrations = useMemo(
     () => integrations ?? getDefaultMcpIntegrations(),
     [integrations],

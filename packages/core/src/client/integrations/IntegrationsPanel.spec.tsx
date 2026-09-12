@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mcpMocks = vi.hoisted(() => ({
+  isMcpServersPending: vi.fn(() => false),
   useCreateMcpServer: vi.fn(),
   useDeleteMcpServer: vi.fn(),
   useMcpServers: vi.fn(),
