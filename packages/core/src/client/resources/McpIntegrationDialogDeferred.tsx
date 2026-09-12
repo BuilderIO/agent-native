@@ -26,7 +26,9 @@ export function McpIntegrationDialogDeferred(props: McpIntegrationDialogProps) {
   useEffect(() => {
     if (props.open) setOpened(true);
   }, [props.open]);
-  if (!opened) return null;
+  // A close during the first load must unmount the overlay fallback too —
+  // the blocking backdrop has no dismissal path until the real dialog mounts.
+  if (!opened || !props.open) return null;
   return (
     <Suspense
       fallback={
