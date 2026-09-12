@@ -72,7 +72,15 @@ function SearchChoice({
           </span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
+      <DropdownMenuContent
+        onCloseAutoFocus={(event) => {
+          // Without this, focus lands back on the trigger inside the filter
+          // toolbar, whose key handler swallows arrows and Enter before the
+          // command menu sees them.
+          event.preventDefault();
+          focusSearchInput();
+        }}
+      >
         <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
           {choices.map((choice) => (
             <DropdownMenuRadioItem key={choice.value} value={choice.value}>
@@ -103,10 +111,12 @@ function SearchLoading() {
   );
 }
 
-function focusSearchInput(control: HTMLElement) {
-  control
-    .closest('[role="dialog"]')
-    ?.querySelector<HTMLInputElement>('[role="combobox"]')
+// Radix portals DropdownMenuContent to document.body, so focus restoration
+// from a filter menu's close event cannot walk up to the picker dialog from
+// that element; query the dialog's input directly instead.
+function focusSearchInput() {
+  document
+    .querySelector<HTMLInputElement>('[role="dialog"] [role="combobox"]')
     ?.focus();
 }
 
@@ -150,8 +160,8 @@ function SearchPage({
         <Button
           variant="ghost"
           size="sm"
-          onClick={(event) => {
-            focusSearchInput(event.currentTarget);
+          onClick={() => {
+            focusSearchInput();
             void results.refetch();
           }}
         >
@@ -233,8 +243,8 @@ function SearchPage({
             if (event.key === "Enter" || event.key === " ")
               event.stopPropagation();
           }}
-          onClick={(event) => {
-            focusSearchInput(event.currentTarget);
+          onClick={() => {
+            focusSearchInput();
           }}
         >
           <Button
