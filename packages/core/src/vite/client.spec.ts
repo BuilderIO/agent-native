@@ -4,12 +4,14 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createServer } from "vite";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _debounceNitroFullReloadHotUpdate,
+  _devActionBridgeOrigin,
+  _devActionBridgePlugin,
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
@@ -26,6 +28,18 @@ import {
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
+
+const mockWriteDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
+const mockHashDatabaseKey = vi.hoisted(() =>
+  vi.fn((url: string) => `hash:${url}`),
+);
+
+vi.mock("../server/dev-action-bridge.js", () => ({
+  hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
+  removeDevActionDiscoveryFile: vi.fn(),
+  writeDevActionDiscoveryFile: (...args: unknown[]) =>
+    mockWriteDevActionDiscoveryFile(...args),
+}));
 
 describe("Nitro dev startup recovery", () => {
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
@@ -267,6 +281,78 @@ function findPlugin(name: string) {
 function flatPlugins(plugins: any[] | undefined): any[] {
   return (plugins ?? []).flat().filter(Boolean) as any[];
 }
+
+describe("dev action bridge origin", () => {
+  beforeEach(() => {
+    mockWriteDevActionDiscoveryFile.mockClear();
+  });
+
+  // The recorded origin must BE the URL Vite prints: the browser cookie jar
+  // keys on the exact host label, so a second derivation of the bind address
+  // is how localhost vs 127.0.0.1 split-brain bugs happen.
+  it("derives the origin from the printed Local URL, not from the bind address", () => {
+    expect(
+      _devActionBridgeOrigin({
+        local: ["http://localhost:8082/"],
+        network: [],
+      }),
+    ).toBe("http://localhost:8082");
+  });
+
+  it("preserves https and bracketed IPv6 from the printed URL", () => {
+    expect(
+      _devActionBridgeOrigin({
+        local: ["https://localhost:8083/"],
+        network: [],
+      }),
+    ).toBe("https://localhost:8083");
+    expect(
+      _devActionBridgeOrigin({ local: ["http://[::1]:8084/"], network: [] }),
+    ).toBe("http://[::1]:8084");
+  });
+
+  it("has no origin when Vite printed none", () => {
+    expect(_devActionBridgeOrigin(null)).toBeUndefined();
+    expect(_devActionBridgeOrigin({ local: [], network: [] })).toBeUndefined();
+  });
+
+  function listeningHandlerFor(server: unknown): () => void {
+    const listening: Array<() => void> = [];
+    _devActionBridgePlugin().configureServer?.({
+      httpServer: {
+        once: (event: string, handler: () => void) => {
+          if (event === "listening") listening.push(handler);
+        },
+        address: () => ({ address: "::", port: 8082 }),
+      },
+      ...server,
+    } as any);
+    expect(listening).toHaveLength(1);
+    return listening[0]!;
+  }
+
+  it("records the printed origin in the discovery file when the server listens", () => {
+    listeningHandlerFor({
+      resolvedUrls: { local: ["http://localhost:8082/"], network: [] },
+      config: { logger: { warn: vi.fn() } },
+    })();
+    expect(mockWriteDevActionDiscoveryFile).toHaveBeenCalledWith(
+      expect.any(String),
+      "http://localhost:8082",
+      "hash:pglite:./data/pglite",
+    );
+  });
+
+  it("skips the discovery file loudly instead of guessing a label when nothing was printed", () => {
+    const warn = vi.fn();
+    listeningHandlerFor({
+      resolvedUrls: null,
+      config: { logger: { warn } },
+    })();
+    expect(mockWriteDevActionDiscoveryFile).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("design system theme plugin", () => {
   it("emits normalized build-time CSS from a virtual module", async () => {
