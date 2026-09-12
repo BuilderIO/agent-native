@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -13,6 +14,15 @@ const checkpointEnv = () => ({
   GIT_COMMITTER_NAME: "agent-native",
   GIT_COMMITTER_EMAIL: "noreply@agent-native.com",
 });
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
 
 function withCheckpointLock<T>(
   cwd: string,
@@ -29,19 +39,34 @@ function withCheckpointLock<T>(
     path.dirname(resolvedIndexPath),
     "agent-native-checkpoint.lock",
   );
+  const ownerPath = path.join(lockPath, "owner");
   while (true) {
     try {
       fs.mkdirSync(lockPath);
+      fs.writeFileSync(ownerPath, String(process.pid), "utf8");
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       try {
-        if (Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
-          fs.rmdirSync(lockPath);
+        const owner = Number.parseInt(fs.readFileSync(ownerPath, "utf8"), 10);
+        if (Number.isSafeInteger(owner) && owner > 0 && isProcessAlive(owner)) {
+          return null;
+        }
+        if (
+          Number.isSafeInteger(owner) ||
+          Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS
+        ) {
+          fs.rmSync(lockPath, { recursive: true });
           continue;
         }
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          if (Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
+            fs.rmSync(lockPath, { recursive: true });
+            continue;
+          }
+          return null;
+        }
         throw error;
       }
       return null;
@@ -51,7 +76,7 @@ function withCheckpointLock<T>(
     return work(resolvedIndexPath);
   } finally {
     try {
-      fs.rmdirSync(lockPath);
+      fs.rmSync(lockPath, { recursive: true });
       // coercion-ok: stale checkpoint locks are reclaimed by the next run.
     } catch {}
   }
@@ -92,6 +117,7 @@ export function createCheckpoint(
   cwd: string,
   message: string,
   paths?: string[],
+  expectedContentHashes?: ReadonlyMap<string, string>,
 ): string | null {
   try {
     const pathspecs = paths
@@ -183,6 +209,26 @@ export function createCheckpoint(
             timeout: TIMEOUT,
             env: isolatedEnv,
           });
+          if (expectedContentHashes) {
+            for (const file of pathspecs) {
+              const expected = expectedContentHashes.get(
+                file.replaceAll("\\", "/"),
+              );
+              const stagedContent = execFileSync("git", ["show", `:${file}`], {
+                cwd,
+                stdio: "pipe",
+                timeout: TIMEOUT,
+                env: isolatedEnv,
+              });
+              if (
+                !expected ||
+                createHash("sha256").update(stagedContent).digest("hex") !==
+                  expected
+              ) {
+                return null;
+              }
+            }
+          }
           const tree = execFileSync("git", ["write-tree"], {
             cwd,
             stdio: "pipe",

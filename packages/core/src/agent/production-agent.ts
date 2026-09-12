@@ -249,6 +249,7 @@ import type {
   AgentChatAttachment,
   AgentChatRequest,
   AgentChatEvent,
+  AgentFileMutationProof,
   AgentChatReference,
   AgentChatStructuredMessage,
   RunEvent,
@@ -755,6 +756,7 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 export interface ActionEntry {
   tool: ActionTool;
   run: (args: any, context?: import("../action.js").ActionRunContext) => any;
+  fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
@@ -7035,6 +7037,7 @@ export async function runAgentLoop(opts: {
           | import("./engine/types.js").EngineToolResultImagePart[]
           | undefined;
         let toolArtifacts: ArtifactReceipt[] = [];
+        let fileMutation: AgentFileMutationProof | undefined;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -7285,6 +7288,8 @@ export async function runAgentLoop(opts: {
         }
         if (isError) {
           result = finalizeToolErrorResult(result);
+        } else {
+          fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
         }
 
         // Side-channel warnings raised anywhere inside the action's call stack
@@ -7341,6 +7346,7 @@ export async function runAgentLoop(opts: {
               : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+          ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
         recordToolResult(result, isError, toolArtifacts);

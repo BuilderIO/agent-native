@@ -780,30 +780,38 @@ export function resolveAgentCheckpointPaths(
   cwd: string,
   changedPaths: readonly string[],
   events: readonly { event: AgentChatEvent }[],
-): string[] {
-  const reportedPaths = new Set(
-    events.flatMap(({ event }) => {
-      if (
-        event.type !== "tool_done" ||
-        event.isError === true ||
-        (event.tool !== "edit" && event.tool !== "write") ||
-        typeof event.input?.path !== "string"
-      ) {
-        return [];
-      }
-      const relative = nodePath
-        .relative(cwd, nodePath.resolve(cwd, event.input.path))
-        .replaceAll("\\", "/");
-      return relative && relative !== ".." && !relative.startsWith("../")
-        ? [relative]
-        : [];
-    }),
-  );
-  return changedPaths.every((file) =>
-    reportedPaths.has(file.replaceAll("\\", "/")),
-  )
-    ? [...changedPaths]
-    : [];
+): Map<string, string> {
+  const reportedPaths = new Map<string, string>();
+  for (const { event } of events) {
+    if (
+      event.type !== "tool_done" ||
+      event.isError === true ||
+      (event.tool !== "edit" && event.tool !== "write") ||
+      typeof event.input?.path !== "string" ||
+      !event.fileMutation
+    ) {
+      continue;
+    }
+    const relative = nodePath
+      .relative(cwd, nodePath.resolve(cwd, event.input.path))
+      .replaceAll("\\", "/");
+    if (
+      relative &&
+      relative !== ".." &&
+      !relative.startsWith("../") &&
+      event.fileMutation.path.replaceAll("\\", "/") === relative &&
+      /^[0-9a-f]{64}$/.test(event.fileMutation.contentSha256)
+    ) {
+      reportedPaths.set(relative, event.fileMutation.contentSha256);
+    }
+  }
+  const resolved = new Map<string, string>();
+  for (const file of changedPaths) {
+    const contentSha256 = reportedPaths.get(file.replaceAll("\\", "/"));
+    if (!contentSha256) return new Map();
+    resolved.set(file, contentSha256);
+  }
+  return resolved;
 }
 
 export function createAgentChatPlugin(
@@ -3295,10 +3303,11 @@ export function createAgentChatPlugin(
                 changedPaths,
                 run.events ?? [],
               );
+              const agentModifiedPathList = [...agentModifiedPaths.keys()];
               if (
                 preRunStatus === "" &&
                 postRunStatus?.trim() &&
-                agentModifiedPaths.length > 0 &&
+                agentModifiedPaths.size > 0 &&
                 isGitRepo(cwd)
               ) {
                 let summary = "";
@@ -3325,7 +3334,7 @@ export function createAgentChatPlugin(
 
                 // Fall back to listing changed files
                 if (!summary) {
-                  const files = agentModifiedPaths.map((file) =>
+                  const files = agentModifiedPathList.map((file) =>
                     file.split(/[\\/]/).pop(),
                   );
                   if (files.length > 0) {
@@ -3337,7 +3346,12 @@ export function createAgentChatPlugin(
                 if (summary.length > 120)
                   summary = summary.slice(0, 117) + "...";
 
-                const sha = gitCheckpoint(cwd, summary, agentModifiedPaths);
+                const sha = gitCheckpoint(
+                  cwd,
+                  summary,
+                  agentModifiedPathList,
+                  agentModifiedPaths,
+                );
                 if (sha) {
                   const { insertCheckpoint } =
                     await import("../checkpoints/store.js");

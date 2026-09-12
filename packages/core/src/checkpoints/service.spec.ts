@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -212,12 +213,48 @@ describe("checkpoint service", () => {
     ).toBe("agent.txt");
   });
 
+  it("rejects an owned path whose content no longer matches the tool result", () => {
+    const cwd = createTempRepo();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+    const head = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf-8",
+    }).trim();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "developer edit\n");
+    const expectedContentHashes = new Map([
+      ["agent.txt", createHash("sha256").update("agent edit\n").digest("hex")],
+    ]);
+
+    expect(
+      createCheckpoint(
+        cwd,
+        "Agent checkpoint",
+        ["agent.txt"],
+        expectedContentHashes,
+      ),
+    ).toBeNull();
+    expect(
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe(head);
+    expect(fs.readFileSync(path.join(cwd, "agent.txt"), "utf-8")).toBe(
+      "developer edit\n",
+    );
+  });
+
   it("skips a checkpoint immediately when the checkout lock is held", () => {
     const cwd = createTempRepo();
     fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");
     createCheckpoint(cwd, "Initial checkpoint");
     fs.writeFileSync(path.join(cwd, "agent.txt"), "after\n");
-    fs.mkdirSync(path.join(cwd, ".git", "agent-native-checkpoint.lock"));
+    const lockPath = path.join(cwd, ".git", "agent-native-checkpoint.lock");
+    fs.mkdirSync(lockPath);
+    fs.writeFileSync(path.join(lockPath, "owner"), String(process.pid));
+    const staleTime = new Date(Date.now() - 120_000);
+    fs.utimesSync(lockPath, staleTime, staleTime);
 
     const startedAt = Date.now();
     expect(createCheckpoint(cwd, "Contended checkpoint")).toBeNull();
