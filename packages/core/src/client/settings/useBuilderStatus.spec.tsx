@@ -236,6 +236,26 @@ describe("useBuilderStatus", () => {
     expect(container.textContent).toContain("Builder status unavailable (404)");
   });
 
+  it("focus inside the deferral window consumes the scheduled initial read", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(connectedBuilderStatus));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    // The focus refresh stays immediate and the scheduled initial read is
+    // consumed, not stacked behind it.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await flushAfterPaint();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("loaded configured fresh");
+  });
+
   it("ignores an older refresh after a newer status request starts", async () => {
     const pendingResponses: Array<(response: Response) => void> = [];
     vi.stubGlobal(
@@ -286,6 +306,60 @@ describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
   let root: Root;
   let openSpy: ReturnType<typeof vi.fn>;
+
+  it("focus inside the deferral window consumes the scheduled read and supersedes overlapping refreshes", async () => {
+    const pendingResponses: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            pendingResponses.push(resolve);
+          }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    // One read lands immediately; the scheduled initial read was consumed
+    // instead of stacking a duplicate when the window elapses.
+    expect(pendingResponses).toHaveLength(1);
+
+    await flushAfterPaint();
+    expect(pendingResponses).toHaveLength(1);
+
+    // Overlapping refreshes supersede each other: the newest started wins
+    // even when the older response resolves last.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(pendingResponses).toHaveLength(2);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(pendingResponses).toHaveLength(3);
+
+    await act(async () => {
+      pendingResponses[2]?.(jsonResponse(connectedBuilderStatus));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("configured idle resolved");
+
+    await act(async () => {
+      pendingResponses[0]?.(jsonResponse({ configured: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("configured idle resolved");
+  });
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
