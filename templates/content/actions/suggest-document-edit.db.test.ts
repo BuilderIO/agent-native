@@ -269,6 +269,41 @@ describe("suggest-document-edit", () => {
     );
   });
 
+  it("rejects receipt replay with a changed summary", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Summarized body line.");
+        await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `summary-${id}`,
+            find: "Summarized body line.",
+            replace: "Edited body line.",
+            summary: "Original summary",
+          },
+          ctx,
+        );
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `summary-${id}`,
+              find: "Summarized body line.",
+              replace: "Edited body line.",
+              summary: "Different summary",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow(
+          /already created suggestion .* with a different edit/,
+        );
+      },
+    );
+  });
+
   it("records external agent attribution for mcp callers", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

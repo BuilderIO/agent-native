@@ -187,6 +187,11 @@ export default defineAction({
     // the page moved underneath it: rebuilding from current content would
     // produce a different request hash and mask the original result. Only an
     // identical find/replace edit counts as the same logical request.
+    const effectiveSummary =
+      args.summary?.trim() ||
+      (args.replace
+        ? `Replace "${args.find.slice(0, 80)}" with "${args.replace.slice(0, 80)}"`
+        : `Delete "${args.find.slice(0, 80)}"`);
     if (args.idempotencyKey) {
       await ensureSuggestionTables();
       const receipt = await getSuggestionByCreationKey(
@@ -202,6 +207,7 @@ export default defineAction({
         const sameEdit =
           receipt.suggestion.resourceType === "document" &&
           receipt.suggestion.resourceId === id &&
+          receipt.suggestion.summary === effectiveSummary &&
           first?.kind === "replace_text" &&
           before?.changedText === args.find &&
           after?.changedText === (args.replace ?? "") &&
@@ -240,11 +246,7 @@ export default defineAction({
       start: range.start,
     });
 
-    const summary =
-      args.summary?.trim() ||
-      (args.replace
-        ? `Replace "${args.find.slice(0, 80)}" with "${args.replace.slice(0, 80)}"`
-        : `Delete "${args.find.slice(0, 80)}"`);
+    const summary = effectiveSummary;
 
     const result = await createResourceSuggestion.run(
       {
