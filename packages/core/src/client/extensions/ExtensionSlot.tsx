@@ -96,6 +96,11 @@ export function ExtensionSlot({
     },
   });
   const installs = installsQuery.data ?? [];
+  // While the paint-gated query is deferred it sits idle with no data —
+  // that state must read as "not settled yet", not "zero installs", or the
+  // slot reports ready and flashes its empty affordance before the fetch
+  // could even begin.
+  const installsSettled = afterPaint && !installsQuery.isPending;
 
   useEffect(() => {
     readyInstallIds.current.clear();
@@ -103,7 +108,7 @@ export function ExtensionSlot({
   }, [id]);
 
   useEffect(() => {
-    if (readyNotified.current || installsQuery.isLoading) return;
+    if (readyNotified.current || !installsSettled) return;
     if (
       installsQuery.isError ||
       installs.length === 0 ||
@@ -112,13 +117,13 @@ export function ExtensionSlot({
       readyNotified.current = true;
       onReady?.();
     }
-  }, [installs, installsQuery.isError, installsQuery.isLoading, onReady]);
+  }, [installs, installsQuery.isError, installsSettled, onReady]);
 
   const markInstallReady = (installId: string) => {
     readyInstallIds.current.add(installId);
     if (
       !readyNotified.current &&
-      !installsQuery.isLoading &&
+      installsSettled &&
       readyInstallIds.current.size >= installs.length
     ) {
       readyNotified.current = true;
@@ -126,7 +131,7 @@ export function ExtensionSlot({
     }
   };
 
-  if (installsQuery.isLoading) {
+  if (!installsSettled) {
     return null;
   }
 
