@@ -201,27 +201,21 @@ function RoutedAppEnhancements() {
   );
 }
 
-// Only one WebMCP registration mounts per surface; keep the active one so
-// unmount stops the registration its effect actually created.
-let activeWebMcpRegistration: ReturnType<
-  typeof createAgentNativeServerActionWebMcpRegistration
-> | null = null;
-
 function AgentNativeWebMcpRegistration() {
   useEffect(() => {
     // sessionBypass surfaces are token-authenticated MCP embeds; their host
     // may call tools immediately, so registration must not wait out the
     // paint-aligned window — only the cookie-session-gated variant defers.
+    // Ownership is local to this effect: two coexisting surfaces each stop
+    // only the registration they created.
     const registration = createAgentNativeServerActionWebMcpRegistration();
     void registration.start().catch(() => {
       // WebMCP is progressive enhancement. Session expiry or a transient
       // manifest failure must not prevent the authenticated app from
       // loading.
     });
-    activeWebMcpRegistration = registration;
     return () => {
-      activeWebMcpRegistration?.stop();
-      activeWebMcpRegistration = null;
+      registration.stop();
     };
   }, []);
   return null;
@@ -229,18 +223,18 @@ function AgentNativeWebMcpRegistration() {
 
 function SessionGatedAgentNativeWebMcpRegistration() {
   const { status } = useSession();
+  const registrationRef = useRef<ReturnType<
+    typeof createAgentNativeServerActionWebMcpRegistration
+  > | null>(null);
   useEffect(() => {
-    // The manifest route requires a session, so a signed-out visitor (first
-    // visit, expired cookie) skips registration instead of logging a 401
-    // console error. An unreadable session starts anyway — WebMCP stays
-    // best-effort and never blocks the app from loading.
-    if (
-      status === "loading" ||
-      status === "unauthenticated" ||
-      status === "signing-out"
-    ) {
-      return;
-    }
+    // The manifest route requires a session, so registration starts only on
+    // a confirmed session: a signed-out visitor (first visit, expired cookie)
+    // never logs the manifest 401, and a still-loading or unreadable session
+    // waits for the next status change (focus invalidation, session retry,
+    // auth arrival) instead of firing a request that is expected to fail.
+    // Previously an unavailable session registered anyway ("best-effort");
+    // that traded a known-bad manifest fetch for zero benefit.
+    if (status !== "authenticated") return;
     const cancel = scheduleAfterPaint(() => {
       const registration = createAgentNativeServerActionWebMcpRegistration();
       void registration.start().catch(() => {
@@ -248,12 +242,12 @@ function SessionGatedAgentNativeWebMcpRegistration() {
         // manifest failure must not prevent the authenticated app from
         // loading.
       });
-      activeWebMcpRegistration = registration;
+      registrationRef.current = registration;
     });
     return () => {
       cancel();
-      activeWebMcpRegistration?.stop();
-      activeWebMcpRegistration = null;
+      registrationRef.current?.stop();
+      registrationRef.current = null;
     };
   }, [status]);
   return null;

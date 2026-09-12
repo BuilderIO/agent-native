@@ -265,6 +265,61 @@ describe("AppProviders session gate", () => {
     );
   });
 
+  it("does not start WebMCP registration while the session is unavailable", async () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "unavailable" as const,
+    });
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+
+    // Wait past the paint-aligned window: the manifest route needs a
+    // session, so an unreadable session waits instead of firing a request
+    // that can only fail.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+    expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+
+  it("starts WebMCP registration when an unavailable session becomes authenticated", async () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "unavailable" as const,
+    });
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    renderProviders({ isPublicPath: true });
+
+    await vi.waitFor(
+      () => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/_agent-native/webmcp/manifest",
+          expect.objectContaining({ credentials: "same-origin" }),
+        );
+        expect(modelContext.registerTool).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "view-screen" }),
+          expect.anything(),
+        );
+      },
+      { timeout: 4000, interval: 50 },
+    );
+  });
+
   it("allows template roots to disable automatic WebMCP registration", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
     const { fetchMock } = setupWebMcpManifest();
