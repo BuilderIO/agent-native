@@ -236,6 +236,39 @@ describe("suggest-document-edit", () => {
     );
   });
 
+  it("rejects receipt replay across caller kinds", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Shared inbox body.");
+        await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `caller-kind-${id}`,
+            find: "Shared inbox body.",
+            replace: "Edited body.",
+          },
+          ctx,
+        );
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `caller-kind-${id}`,
+              find: "Shared inbox body.",
+              replace: "Edited body.",
+            },
+            { caller: "mcp" as const, userEmail: ctx.userEmail },
+          ),
+        ).rejects.toThrow(
+          /already created suggestion .* with a different edit/,
+        );
+      },
+    );
+  });
+
   it("records external agent attribution for mcp callers", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

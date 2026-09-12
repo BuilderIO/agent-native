@@ -4,6 +4,7 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   ensureSuggestionTables,
   getSuggestionByCreationKey,
+  suggestionActorKind,
 } from "@agent-native/core/review";
 import createResourceSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -194,6 +195,7 @@ export default defineAction({
       );
       if (receipt) {
         const callerEmail = ctx?.userEmail ?? null;
+        const callerKind = suggestionActorKind(ctx);
         const [first] = receipt.suggestion.operations ?? [];
         const before = first?.before as { changedText?: unknown } | undefined;
         const after = first?.after as { changedText?: unknown } | undefined;
@@ -203,7 +205,8 @@ export default defineAction({
           first?.kind === "replace_text" &&
           before?.changedText === args.find &&
           after?.changedText === (args.replace ?? "") &&
-          (receipt.authorEmail ?? null) === callerEmail;
+          (receipt.authorEmail ?? null) === callerEmail &&
+          (receipt.actorKind ?? null) === callerKind;
         if (!sameEdit) {
           throw new ActionContractError(
             `This idempotencyKey already created suggestion ${receipt.suggestion.id} with a different edit; use a fresh key for a different change.`,

@@ -9,6 +9,7 @@ import {
   insertReviewCommentWithClient,
   resolveReviewThreadWithClient,
 } from "../store.js";
+import { suggestionActorKind } from "./actor-kind.js";
 import { getSuggestionAdapter } from "./registry.js";
 import {
   getSuggestion,
@@ -131,12 +132,7 @@ export const createResourceSuggestion = defineAction({
     if (!adapter) throw new Error("Suggestion adapter not registered");
     // Connected external agents arrive as mcp/webmcp/a2a callers; classifying
     // them as human would lose agent provenance on persisted suggestions.
-    const agentCallers = new Set(["agent", "tool", "mcp", "webmcp", "a2a"]);
-    const actorKind = agentCallers.has((ctx as any)?.caller)
-      ? "agent"
-      : (ctx as any)?.userEmail
-        ? "human"
-        : "system";
+    const actorKind = suggestionActorKind(ctx);
     const authorEmail = (ctx as any)?.userEmail ?? null;
     const requestHash = await creationRequestHash(args);
     const db = getDbExec();
