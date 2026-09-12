@@ -1141,6 +1141,59 @@ describe("generate-design: new screens never stack on existing frames", () => {
       1440 + 24 + 768 * (1440 / 1280) + 24 + 390 * (1440 / 1280) + 96,
     );
   });
+
+  it("reserves the final responsive footprint when an existing frame is resized", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        "file-1": { width: 1280, height: 800 },
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 844 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Regenerate this responsive flow",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>updated</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number; height: number }
+    >;
+    const newFile = result.savedFiles.find(
+      (file) => file.filename === "details.html",
+    );
+    expect(newFile).toBeDefined();
+    expect(frames["file-1"]).toMatchObject({ width: 1440, height: 900 });
+    expect(frames[newFile!.id]?.x).toBeCloseTo(
+      1440 + 24 + 390 * (1440 / 1280) + 96,
+    );
+  });
 });
 
 describe("generate-design: single-device regen clears stale breakpoints", () => {

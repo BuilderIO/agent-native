@@ -128,6 +128,7 @@ import {
   breakpointUpperBoundPx,
   utilityStem,
 } from "@shared/responsive-classes";
+import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import {
@@ -276,6 +277,7 @@ import {
 } from "@/components/design/MotionDock";
 import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/board-surface-html";
 import {
+  deviceViewportFloorForWidth,
   getCanonicalScreenStack,
   getInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
@@ -4240,6 +4242,65 @@ function DesignEditor() {
       updateDesignAsync,
       warnChangesWillRetry,
     ],
+  );
+
+  const handleOverviewBreakpointContentHeightChange = useCallback(
+    (screenId: string, widthPx: number, heightPx: number) => {
+      if (
+        !id ||
+        !canEditDesignRef.current ||
+        !Number.isSafeInteger(widthPx) ||
+        widthPx <= 0 ||
+        !Number.isFinite(heightPx) ||
+        heightPx <= 0
+      ) {
+        return;
+      }
+      const screen = overviewScreens.find((item) => item.id === screenId);
+      if (!screen) return;
+      const metadataById = getDesignDataRecord(
+        designDataJsonRef.current,
+        "screenMetadata",
+      );
+      const metadata = getDesignDataRecord(metadataById, screenId);
+      const existingHeight = getResponsiveBreakpointHeightPx(metadata, widthPx);
+      const measuredHeight = Math.max(
+        deviceViewportFloorForWidth(widthPx),
+        Math.round(heightPx),
+      );
+      const projectedHeight =
+        (widthPx * (screen.height ?? 2560)) / (screen.width ?? 1280);
+      // The server already reserves the source-aspect projection. Persist only
+      // the larger measured case, retaining its maximum so content shrinkage
+      // cannot make a later row overlap a screen that was placed below it.
+      if (
+        measuredHeight <=
+        Math.max(projectedHeight, existingHeight ?? 0) + 1
+      ) {
+        return;
+      }
+      const operation: DesignDataOperation = {
+        op: "set",
+        path: [
+          "screenMetadata",
+          screenId,
+          "breakpointHeights",
+          String(widthPx),
+        ],
+        value: measuredHeight,
+      };
+      const nextData = applyDesignDataOperations(designDataJsonRef.current, [
+        operation,
+      ]);
+      designDataJsonRef.current = nextData;
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
+        old && typeof old === "object"
+          ? { ...old, data: JSON.stringify(nextData) }
+          : old,
+      );
+      enqueueFrameGeometryDataSave([operation]);
+    },
+    [enqueueFrameGeometryDataSave, id, overviewScreens, queryClient],
   );
 
   const persistFrameGeometrySave = useCallback(
@@ -11917,6 +11978,11 @@ function DesignEditor() {
           breakpointWidths: breakpointWidthsOverride ?? screen.breakpointWidths,
         },
         { x, y, width, height, rotation: geometry.rotation },
+        (widthPx) =>
+          getResponsiveBreakpointHeightPx(
+            { breakpointHeights: screen.breakpointHeights },
+            widthPx,
+          ),
       );
     },
     [overviewScreens],
@@ -20934,6 +21000,9 @@ function DesignEditor() {
                         geometryById={canvasFrameGeometryById}
                         onGeometryChange={queueFrameGeometrySave}
                         onGeometryCommit={handleGeometryCommit}
+                        onBreakpointContentHeightChange={
+                          handleOverviewBreakpointContentHeightChange
+                        }
                         // Screen-frame-only partial implementation — see the
                         // gradientEditTarget derivation above for the BOARD/
                         // DRAFT primitive gap and the exact EditPanel/

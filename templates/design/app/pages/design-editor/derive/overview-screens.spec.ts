@@ -50,6 +50,26 @@ describe("deriveOverviewScreens", () => {
     expect(screen.height).toBe(844);
   });
 
+  it("reads only valid persisted breakpoint content heights", () => {
+    const [screen] = deriveOverviewScreens({
+      ...base,
+      designDataJson: {
+        screenMetadata: {
+          a: {
+            breakpointHeights: {
+              "390": 2400,
+              "768": "1800",
+              "0390": 2000,
+              "1440": 0,
+            },
+          },
+        },
+      },
+      files: [file({ id: "a" })],
+    });
+    expect(screen.breakpointHeights).toEqual({ "390": 2400 });
+  });
+
   it("treats a session-pinned height as pinned even without persisted metadata", () => {
     const [screen] = deriveOverviewScreens({
       ...base,

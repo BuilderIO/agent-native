@@ -26,6 +26,7 @@ export interface OverviewScreen {
   bridgeUrl?: string;
   previewToken?: string;
   breakpointWidths?: number[];
+  breakpointHeights?: Record<string, number>;
   activeBreakpointWidth?: number;
 }
 
@@ -107,6 +108,23 @@ export function deriveOverviewScreens({
         typeof metadata[key] === "number" && Number.isFinite(metadata[key])
           ? (metadata[key] as number)
           : undefined;
+      const rawBreakpointHeights = metadata.breakpointHeights;
+      const breakpointHeights =
+        rawBreakpointHeights &&
+        typeof rawBreakpointHeights === "object" &&
+        !Array.isArray(rawBreakpointHeights)
+          ? Object.fromEntries(
+              Object.entries(rawBreakpointHeights).filter(
+                ([width, height]) =>
+                  Number.isSafeInteger(Number(width)) &&
+                  Number(width) > 0 &&
+                  String(Number(width)) === width &&
+                  typeof height === "number" &&
+                  Number.isFinite(height) &&
+                  height > 0,
+              ),
+            )
+          : undefined;
       return {
         id: file.id,
         filename: file.filename,
@@ -123,6 +141,7 @@ export function deriveOverviewScreens({
         layoutGroupId: stringValue("variantSetId"),
         width: numberValue("width"),
         height: numberValue("height"),
+        breakpointHeights,
         // Without this the pin never reaches the canvas and the content-fit
         // pass grows a deliberately-sized screen straight back.
         heightPinned:

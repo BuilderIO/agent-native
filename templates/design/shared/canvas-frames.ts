@@ -1,5 +1,6 @@
 import { getRotatedFrameCorners } from "./canvas-math.js";
 import {
+  getResponsiveBreakpointHeightPx,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
   visibleBreakpointWidths,
@@ -101,12 +102,46 @@ function numericEntryError(
   numericKeys: ReadonlySet<string>,
 ): string | null {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  if (map === "screenMetadata") {
+    const heights = (entry as Record<string, unknown>).breakpointHeights;
+    if (heights !== undefined) {
+      if (!heights || typeof heights !== "object" || Array.isArray(heights)) {
+        return "screenMetadata.breakpointHeights must be an object keyed by breakpoint width.";
+      }
+      for (const [width, height] of Object.entries(
+        heights as Record<string, unknown>,
+      )) {
+        const error = breakpointHeightError(width, height);
+        if (error) return error;
+      }
+    }
+  }
   for (const [key, value] of Object.entries(entry)) {
     if (!numericKeys.has(key)) continue;
     const error = numericValueError(map, key, value);
     if (error) return error;
   }
   return null;
+}
+
+function breakpointHeightError(width: string, value: unknown): string | null {
+  const widthPx = Number(width);
+  if (
+    !Number.isSafeInteger(widthPx) ||
+    widthPx <= 0 ||
+    String(widthPx) !== width
+  ) {
+    return `Responsive breakpoint width "${width}" must be a positive integer.`;
+  }
+  const error = numericValueError(
+    "screenMetadata.breakpointHeights",
+    width,
+    value,
+  );
+  if (error) return error;
+  return (value as number) > 0
+    ? null
+    : `Responsive breakpoint height at width ${width} must be positive.`;
 }
 
 /**
@@ -124,6 +159,25 @@ export function numericDesignDataWriteError(
   const map = path[0];
   const numericKeys = map ? NUMERIC_DESIGN_DATA_ENTRY_KEYS[map] : undefined;
   if (!map || !numericKeys) return null;
+
+  if (map === "screenMetadata" && path[2] === "breakpointHeights") {
+    if (path.length === 3) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return "screenMetadata.breakpointHeights must be an object keyed by breakpoint width.";
+      }
+      for (const [width, height] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        const error = breakpointHeightError(width, height);
+        if (error) return error;
+      }
+      return null;
+    }
+    if (path.length === 4) {
+      return breakpointHeightError(path[3]!, value);
+    }
+    return "screenMetadata.breakpointHeights entries have no nested values.";
+  }
 
   if (path.length === 1) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -202,6 +256,8 @@ export function nextFreeCanvasRowY(
       responsiveLayout?.breakpointWidths,
       metadataWidth ?? width,
     );
+    const resolveBreakpointHeightPx = (widthPx: number) =>
+      getResponsiveBreakpointHeightPx(metadata, widthPx);
     const scale = primaryWidth / sourceWidth;
     const paintedWidth = responsiveLayout
       ? getResponsiveGroupWidth({
@@ -217,6 +273,7 @@ export function nextFreeCanvasRowY(
           sourceWidth,
           sourceHeight,
           visibleWidths,
+          resolveBreakpointHeightPx,
         })
       : height;
     // A rotated frame's visual box extends below y + height; place under its

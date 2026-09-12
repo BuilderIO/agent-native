@@ -59,6 +59,23 @@ export function getResponsiveBreakpointWidths(value: unknown): number[] {
   });
 }
 
+export function getResponsiveBreakpointHeightPx(
+  metadata: unknown,
+  widthPx: number,
+): number | undefined {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return undefined;
+  }
+  const heights = (metadata as Record<string, unknown>).breakpointHeights;
+  if (!heights || typeof heights !== "object" || Array.isArray(heights)) {
+    return undefined;
+  }
+  const height = (heights as Record<string, unknown>)[String(widthPx)];
+  return typeof height === "number" && Number.isFinite(height) && height > 0
+    ? height
+    : undefined;
+}
+
 /** The renderer's fallback height for an unmeasured responsive preview. */
 export function deviceViewportFloorForWidth(widthPx: number): number {
   if (!Number.isFinite(widthPx) || widthPx <= 640) return 844;

@@ -54,6 +54,7 @@ import {
   type PenNode,
   type PenPath,
 } from "@shared/pen-path";
+import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   IconCopy,
@@ -512,6 +513,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   geometryById,
   onGeometryChange,
   onGeometryCommit,
+  onBreakpointContentHeightChange,
   onCreatePrimitive,
   onPrimitiveCreated,
   onPrimitiveReparent,
@@ -604,6 +606,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   } | null>(null);
   const onGeometryChangeRef = useRef(onGeometryChange);
   const onGeometryCommitRef = useRef(onGeometryCommit);
+  const onBreakpointContentHeightChangeRef = useRef(
+    onBreakpointContentHeightChange,
+  );
   const onNudgeSelectionRef = useRef(onNudgeSelection);
   const nudgeAmountsRef = useRef(nudgeAmounts);
   const layoutGridsRef = useRef(layoutGrids);
@@ -1275,6 +1280,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     onGeometryCommitRef.current = onGeometryCommit;
   }, [onGeometryCommit]);
+
+  useEffect(() => {
+    onBreakpointContentHeightChangeRef.current =
+      onBreakpointContentHeightChange;
+  }, [onBreakpointContentHeightChange]);
 
   useEffect(() => {
     onNudgeSelectionRef.current = onNudgeSelection;
@@ -8015,6 +8025,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
       contentSizeSamplesRef.current[key] = sample;
       const acceptedHeight = sample.acceptedHeight;
+      const breakpointMarker = "::bp-";
+      const markerIndex = key.lastIndexOf(breakpointMarker);
+      if (markerIndex >= 0) {
+        const screenId = key.slice(0, markerIndex);
+        const widthPx = Number(
+          key.slice(markerIndex + breakpointMarker.length),
+        );
+        if (
+          Number.isSafeInteger(widthPx) &&
+          widthPx > 0 &&
+          screensRef.current.some((screen) => screen.id === screenId)
+        ) {
+          onBreakpointContentHeightChangeRef.current?.(
+            screenId,
+            widthPx,
+            acceptedHeight,
+          );
+        }
+      }
       setMeasuredIframeHeights((prev) => {
         const current = prev[key];
         // Ignore sub-pixel churn so a report can't trigger a re-render that
@@ -8172,7 +8201,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         screen,
         geometry,
         (widthPx) =>
-          measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)],
+          measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)] ??
+          getResponsiveBreakpointHeightPx(
+            { breakpointHeights: screen.breakpointHeights },
+            widthPx,
+          ),
       ),
       // Count only the breakpoint frames actually mounted (the row filters
       // duplicates of the device width) so the iframe budget isn't
@@ -10812,7 +10845,13 @@ function BreakpointPreviewRow({
             naturalAspect,
             primaryScale,
             contentHeightPx:
-              measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)],
+              measuredIframeHeights[
+                getBreakpointIframeId(screen.id, widthPx)
+              ] ??
+              getResponsiveBreakpointHeightPx(
+                { breakpointHeights: screen.breakpointHeights },
+                widthPx,
+              ),
           });
         const isActive = activeBreakpointWidth === widthPx;
         const editableContent = renderBreakpointContent?.(screen, metadata, {

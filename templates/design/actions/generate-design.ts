@@ -56,6 +56,7 @@ import {
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
+  getResponsiveBreakpointHeightPx,
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
@@ -1083,6 +1084,26 @@ const generateDesignAction = defineAction({
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
+        // Resize targets before measuring occupancy so later generated frames
+        // clear the geometry the explicit device request will actually leave.
+        if (devices && devices.length > 0) {
+          for (const file of savedFiles) {
+            const current = merged.canvasFrames[file.id];
+            if (
+              preExistingFrameIds.has(file.id) &&
+              current?.x !== undefined &&
+              current.y !== undefined &&
+              current.width !== undefined &&
+              current.height !== undefined
+            ) {
+              merged.canvasFrames[file.id] = {
+                ...current,
+                width: viewport.width,
+                height: viewport.height,
+              };
+            }
+          }
+        }
         const rectOf = (
           frame: {
             x?: number;
@@ -1128,6 +1149,8 @@ const generateDesignAction = defineAction({
             sourceWidth,
             sourceHeight,
             visibleWidths,
+            resolveBreakpointHeightPx: (widthPx) =>
+              getResponsiveBreakpointHeightPx(metadata, widthPx),
           });
           const rotation = frame.rotation ?? 0;
           if (!rotation || width <= 0 || height <= 0) {
@@ -1194,16 +1217,6 @@ const generateDesignAction = defineAction({
             current.width !== undefined &&
             current.height !== undefined
           ) {
-            // An explicit device request resizes the primary frame to the
-            // requested viewport (preserving position/rotation); otherwise a
-            // regenerated screen keeps its exact stored geometry.
-            if (devices && devices.length > 0) {
-              merged.canvasFrames[file.id] = {
-                ...current,
-                width: viewport.width,
-                height: viewport.height,
-              };
-            }
             continue;
           }
           const width = current.width ?? viewport.width;

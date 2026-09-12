@@ -245,6 +245,46 @@ test("responsive frames select and edit directly with explicit scope persistence
   }
 });
 
+test("persists tall breakpoint content before server-side row placement", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(request);
+  const [fileId] = fileIds;
+  try {
+    await action(request, "update-file", {
+      id: fileId,
+      content: RESPONSIVE_HTML.replaceAll(
+        "min-height:900px",
+        "min-height:2200px",
+      ),
+    });
+    await configureResponsiveDesign(request, designId, fileIds);
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+
+    await expect
+      .poll(async () => {
+        const data = await designData(request, designId);
+        return data.screenMetadata?.[fileId!]?.breakpointHeights?.["390"];
+      })
+      .toBe(2200);
+
+    const created = await action(request, "create-file", {
+      designId,
+      filename: "after-tall-screen.html",
+      content: "<main>After tall screen</main>",
+      fileType: "html",
+    });
+    const newFileId = created.id ?? created.data?.id;
+    expect(newFileId).toBeTruthy();
+    const data = await designData(request, designId);
+    expect(data.canvasFrames[newFileId].y).toBeGreaterThanOrEqual(2200 + 96);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
 test("screen deletion explicitly includes and removes responsive variants", async ({
   page,
   request,

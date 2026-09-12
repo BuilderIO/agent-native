@@ -28,6 +28,29 @@ describe("numericDesignDataWriteError", () => {
       ),
     ).toContain("must be a finite JSON number");
     expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        2400,
+      ),
+    ).toBeNull();
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        "2400",
+      ),
+    ).toContain("must be a finite JSON number");
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        0,
+      ),
+    ).toContain("must be positive");
+    expect(
+      numericDesignDataWriteError(["screenMetadata", "screen_a"], {
+        breakpointHeights: { "390": "2400" },
+      }),
+    ).toContain("must be a finite JSON number");
+    expect(
       numericDesignDataWriteError(["canvasFrames"], {
         screen_a: { width: 800 },
         screen_b: { width: "800" },
@@ -180,6 +203,26 @@ describe("nextFreeCanvasRowY", () => {
         },
       }),
     ).toBeCloseTo(96 + 844 / 2 + responsiveWidth / 2);
+  });
+
+  it("reserves measured tall breakpoint heights when placing the next row", () => {
+    const existing = {
+      mobile: { x: 0, y: 0, width: 1440, height: 900 },
+    };
+    expect(
+      nextFreeCanvasRowY(existing, 96, {
+        responsiveLayout: {
+          screenMetadataByFileId: {
+            mobile: {
+              width: 1440,
+              height: 900,
+              breakpointHeights: { "390": 2200 },
+            },
+          },
+          breakpointWidths: [390],
+        },
+      }),
+    ).toBe(2200 + 96);
   });
 
   it("ignores the frames being rewritten so a re-run stays put", () => {

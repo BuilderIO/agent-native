@@ -269,6 +269,38 @@ describe("create-file: canvas placement and landing URL", () => {
     });
   });
 
+  it("clears the measured height of an existing responsive preview", async () => {
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      screenMetadata: {
+        existing: {
+          width: 1440,
+          height: 900,
+          breakpointHeights: { "390": 2200 },
+        },
+      },
+      canvasFrames: {
+        existing: { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "second.html",
+      content: "<main>Second screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(2200 + 96);
+  });
+
   it("does not place or focus a non-renderable file", async () => {
     const result = await action.run({
       designId: "design-1",
