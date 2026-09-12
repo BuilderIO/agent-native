@@ -57,6 +57,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { EditorMode } from "@/pages/design-editor/types";
 
+import { DesignContextUsageBadge } from "./DesignContextUsageBadge";
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
 import {
   alpineDataValueLiteral,
@@ -2488,7 +2489,12 @@ export const EditPanel = memo(function EditPanel({
           activeTab={resolvedActiveTab}
           readOnly={readOnly}
           onActiveTabChange={handleActiveTabChange}
-          trailing={headerTrailing}
+          trailing={
+            <div className="flex shrink-0 items-center gap-1.5">
+              <DesignContextUsageBadge designId={designId} fileId={fileId} />
+              {headerTrailing}
+            </div>
+          }
           commentsCount={reviewCommentsCount}
           inspectorGridDebug={inspectorGridDebug}
           onInspectorGridDebugChange={onInspectorGridDebugChange}

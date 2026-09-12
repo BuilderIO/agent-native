@@ -945,7 +945,7 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     expect(data.breakpointSet).toBeUndefined();
   });
 
-  it("pins session evidence to the saved frame and preserves exact versions", async () => {
+  it("pins session evidence to the saved file id and preserves exact versions", async () => {
     const evidence = {
       itemId: "item-1",
       itemVersionId: "version-1",
@@ -979,7 +979,7 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       startedAt: "2026-07-16T00:00:00.000Z",
     });
 
-    await action.run({
+    const result = (await action.run({
       designId: "design-1",
       prompt: "Pricing",
       files: [
@@ -989,7 +989,11 @@ describe("generate-design: new-file creation path (unchanged)", () => {
           content: "<html><body>Pricing</body></html>",
         },
       ],
-    });
+    })) as { savedFiles: Array<{ id: string; filename: string }> };
+
+    const savedFileId = result.savedFiles.find(
+      (file) => file.filename === "index.html",
+    )?.id;
 
     expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
       contextPackId: "pack-1",
@@ -1005,7 +1009,12 @@ describe("generate-design: new-file creation path (unchanged)", () => {
         contextPackId: "pack-1",
         elementProvenance: [
           expect.objectContaining({
-            elementId: "frame-1",
+            // Durable design_files id, not the sessions ephemeral frame-1: a
+            // frame id only lives as long as the in-flight generation
+            // sessions application-state record, so keying provenance by it
+            // would make this entry unrecoverable once that session is
+            // replaced by the next generation.
+            elementId: savedFileId,
             influence: "reference-conditioned",
             itemId: "item-1",
             itemVersionId: "version-1",
