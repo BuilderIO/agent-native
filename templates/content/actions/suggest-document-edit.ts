@@ -199,6 +199,8 @@ export default defineAction({
         const before = first?.before as { changedText?: unknown } | undefined;
         const after = first?.after as { changedText?: unknown } | undefined;
         const sameEdit =
+          receipt.suggestion.resourceType === "document" &&
+          receipt.suggestion.resourceId === id &&
           first?.kind === "replace_text" &&
           before?.changedText === args.find &&
           after?.changedText === (args.replace ?? "") &&

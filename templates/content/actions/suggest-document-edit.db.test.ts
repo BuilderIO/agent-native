@@ -202,6 +202,67 @@ describe("suggest-document-edit", () => {
     );
   });
 
+  it("rejects key reuse across documents", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const first = await createPage("Identical body text.");
+        const second = await createPage("Identical body text.");
+        await suggestDocumentEdit.run(
+          {
+            id: first.id,
+            baseRevision: first.revision,
+            idempotencyKey: `cross-doc-${first.id}`,
+            find: "Identical body text.",
+            replace: "Edited body text.",
+          },
+          ctx,
+        );
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id: second.id,
+              baseRevision: second.revision,
+              idempotencyKey: `cross-doc-${first.id}`,
+              find: "Identical body text.",
+              replace: "Edited body text.",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow(
+          /already created suggestion .* with a different edit/,
+        );
+      },
+    );
+  });
+
+  it("records external agent attribution for mcp callers", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Attribution body text.");
+        const result = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `attr-${id}`,
+            find: "Attribution body text.",
+            replace: "Edited body text.",
+          },
+          { caller: "mcp" as const, userEmail: ctx.userEmail },
+        )) as { suggestionId: string };
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as { suggestions: Array<{ id: string; actorKind: string }> };
+        const recorded = listed.suggestions.find(
+          (item) => item.id === result.suggestionId,
+        );
+        expect(recorded?.actorKind).toBe("agent");
+      },
+    );
+  });
+
   it("reports a missing find with the fix in the message", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

@@ -129,12 +129,14 @@ export const createResourceSuggestion = defineAction({
     );
     const adapter = getSuggestionAdapter(args.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
-    const actorKind =
-      (ctx as any)?.caller === "agent" || (ctx as any)?.caller === "tool"
-        ? "agent"
-        : (ctx as any)?.userEmail
-          ? "human"
-          : "system";
+    // Connected external agents arrive as mcp/webmcp/a2a callers; classifying
+    // them as human would lose agent provenance on persisted suggestions.
+    const agentCallers = new Set(["agent", "tool", "mcp", "webmcp", "a2a"]);
+    const actorKind = agentCallers.has((ctx as any)?.caller)
+      ? "agent"
+      : (ctx as any)?.userEmail
+        ? "human"
+        : "system";
     const authorEmail = (ctx as any)?.userEmail ?? null;
     const requestHash = await creationRequestHash(args);
     const db = getDbExec();
