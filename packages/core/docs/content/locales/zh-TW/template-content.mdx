@@ -7,6 +7,14 @@ description: "MDX 的開放原始碼 Obsidian：編輯本機 Markdown/MDX 檔案
 
 內容是 MDX 的開放原始碼 Obsidian：這是一個對本機檔案友善的文件工作空間，代理可以在其中為你讀取、寫入、重新組織並發布頁面。開啟一份文件，說「把這段文字改寫得更簡潔」，或是「建立一個名為第四季規劃的頁面，並在其下新增目標、指標和風險三個子頁面」，無論你自己動手或是請代理代勞，結果都一樣。
 
+<Cards columns={1}>
+
+### [立即試用 →](https://content.agent-native.com)
+
+實際體驗內容：開啟一個真實的工作空間、編輯一個頁面，並請代理重新組織它。
+
+</Cards>
+
 <WireframeBlock id="doc-block-content1">
   <Screen
     surface="desktop"
@@ -73,37 +81,43 @@ description: "MDX 的開放原始碼 Obsidian：編輯本機 Markdown/MDX 檔案
 
 </Diagram>
 
-## 你可以用它做什麼
+## 它取代了什麼
 
-- **編寫並組織文件。**富文字編輯、可無限嵌套的頁面樹、收藏、評論、版本歷史紀錄與共用功能一應俱全。詳見[編寫與組織文件](/docs/template-content-editing)。
-- **建立 Notion 風格的資料庫。**資料表中的每一列本身就是一份文件，並具備型別化的屬性，以及表格、清單、圖庫、看板、日曆、時間軸與表單等多種檢視。詳見[資料庫、屬性與表單](/docs/template-content-databases)。
-- **收集結構化的提交內容。**把資料庫轉換成一份接收表單，讓代理、Slack 或其他應用程式都能安全地把資料提交進來。詳見[資料庫、屬性與表單](/docs/template-content-databases)。
-- **像 Obsidian 一樣編輯磁碟上的檔案**，並讓文件與 Notion 或 Builder CMS 保持同步。詳見[本機檔案、Notion 與 Builder CMS 同步](/docs/template-content-sync)。
-- **即時協作。**多人（以及代理）可以同時編輯同一份文件，彼此不會互相覆蓋。
-- **與團隊成員共用文件**，或將其設為公開。文件預設為私人，並提供檢視者、編輯者與管理員三種角色。
-- **向代理提出任何需求**：「重寫這段文字。」「在頂部新增一則 TL;DR。」「找出我上週所有的會議記錄。」「建立一個測試版註冊資料庫，並附上可供 Slack 提交的表單。」
+<Comparison>
 
-## 開始使用
+### Before
 
-線上示範：[content.agent-native.com](https://content.agent-native.com)。
+- Obsidian，或是一個本機 Markdown 檔案的資料夾，用來記錄私人筆記
+- 一個獨立的 Notion 工作空間，讓團隊可以共同瀏覽文件
+- 一個無頭 CMS，用來處理會發布到正式網站的所有內容
+- 每當其中一方落後時，就得手動在這三者之間複製內容
 
-開啟應用程式後，點選側邊欄中的 **+ 新增頁面**，輸入標題後就能開始寫作。若要使用代理，請在側邊欄輸入：
+### After
 
-- 「建立一個名為新人導覽的頁面，並在其下新增三個子頁面。」
-- 「把這段文字改寫得更簡潔。」（頁面開啟時）
-- 「新增一個關於定價的段落，包含三個重點。」
-- 「把這份文件摘要成頂部的 TL;DR。」
-- 「從 Notion 拉取最新內容。」（連結 Notion 頁面之後）
+- 一個工作空間就能容納私人頁面、團隊文件與已發布的內容
+- 同一份文件可以同步到本機檔案、Notion 或 Builder CMS，不必在每一處重新輸入
+- 代理透過與你相同的 actions 和相同的頁面進行讀寫
+- 來自外部來源的變更會形成一組可供審查的變更集，絕不會悄悄覆寫
 
-選取文字後按下 Cmd+I，就能讓代理聚焦在這段已預先載入的選取內容上。這時候說「讓這段文字更有力道」，代理就會針對你反白的內容進行操作。
+</Comparison>
 
-若要建立你自己的 Content 副本：
+文件預設為私人，提供檢視者、編輯者與管理員的共用權限，並可視需要開啟公開的唯讀模式。多人（以及代理）可以同時編輯同一份頁面，彼此不會互相覆蓋。如需深入了解，請參閱[編寫與組織文件](/docs/template-content-editing)、[資料庫、屬性與表單](/docs/template-content-databases)與[本機檔案、Notion 與 Builder CMS 同步](/docs/template-content-sync)。
+
+## 開始使用 {#get-started}
 
 ```bash
 npx @agent-native/core@latest create my-content --standalone --template content
 ```
 
-其餘的設定步驟（`cd`、`pnpm install`、`pnpm dev`）以及框架的基礎概念，請見[開始使用](/docs/getting-started)。
+如需安裝、首次執行和連線 LLM 的說明，請參閱 [內容：開發者指南](/docs/template-content-developers#quick-start)。
+
+開啟應用程式後，點選側邊欄中的 **+ 新增頁面**，輸入標題後就能開始寫作，或是直接向代理提出需求：
+
+- 「建立一個名為新人導覽的頁面，並在其下新增三個子頁面。」
+- 「把這段文字改寫得更簡潔。」（頁面開啟時）
+- 「從 Notion 拉取最新內容。」（連結 Notion 頁面之後）
+
+選取文字後按下 Cmd+I，就能讓代理聚焦在這段已預先載入的選取內容上。這時候說「讓這段文字更有力道」，代理就會針對你反白的內容進行操作。
 
 ## 下一步是什麼
 

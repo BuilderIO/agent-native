@@ -12,6 +12,14 @@ escribir, reorganizar y publicar páginas por ti. Abre un documento y pide
 Planificación del T4 con subpáginas para Objetivos, Métricas y Riesgos". El
 resultado es el mismo, ya sea que lo hagas tú mismo o se lo pidas al agente.
 
+<Cards columns={1}>
+
+### [Pruébalo ahora →](https://content.agent-native.com)
+
+Mira Contenido en acción: abre un espacio de trabajo real, edita una página y pídele al agente que la reorganice.
+
+</Cards>
+
 <WireframeBlock id="doc-block-content1">
   <Screen
     surface="desktop"
@@ -84,37 +92,43 @@ Cuando abres la aplicación, verás un árbol de páginas junto al editor. El ag
 
 </Diagram>
 
-## Qué puedes hacer con él
+## Qué reemplaza
 
-- **Escribe y organiza documentos.** Edición de texto enriquecido, un árbol de páginas anidado de forma infinita, favoritos, comentarios, historial de versiones y uso compartido. Consulta [Escribir y organizar documentos](/docs/template-content-editing).
-- **Crea bases de datos estilo Notion.** Tablas donde cada fila es un documento propio, con propiedades tipadas y vistas de tabla, lista, galería, tablero, calendario, línea de tiempo y formulario. Consulta [Bases de datos, propiedades y formularios](/docs/template-content-databases).
-- **Recopila envíos estructurados.** Convierte una base de datos en un formulario de admisión en el que el agente, Slack u otra aplicación pueden enviar datos de forma segura. Consulta [Bases de datos, propiedades y formularios](/docs/template-content-databases).
-- **Edita archivos en disco como en Obsidian** y mantén los documentos sincronizados con Notion o Builder CMS. Consulta [Sincronización con archivos locales, Notion y Builder CMS](/docs/template-content-sync).
-- **Colabora en tiempo real.** Varias personas (y el agente) pueden editar el mismo documento al mismo tiempo sin pisarse el trabajo entre sí.
-- **Comparte documentos** con tu equipo o hazlos públicos. Son privados de forma predeterminada, con roles de espectador, editor y administrador.
-- **Pídele al agente lo que necesites**: "Reescribe este párrafo". "Agrega un TL;DR al principio". "Encuentra todas mis notas de reuniones de la semana pasada". "Crea una base de datos de registro para la beta con un formulario para envíos desde Slack".
+<Comparison>
 
-## Para empezar
+### Before
 
-Demostración en vivo: [content.agent-native.com](https://content.agent-native.com).
+- Obsidian, o una carpeta de archivos Markdown locales, para notas privadas
+- Un espacio de trabajo de Notion separado para documentos que un equipo pueda consultar en conjunto
+- Un CMS headless para todo lo que se publique en un sitio en vivo
+- Copiar contenido manualmente entre los tres cada vez que uno se queda atrás
 
-Cuando abras la aplicación, haz clic en **+ Nueva página** en la barra lateral, dale un título y empieza a escribir. Para usar el agente, escribe en la barra lateral:
+### After
 
-- "Crea una página llamada Incorporación y agrégale tres subpáginas."
-- "Reescribe este párrafo para que sea más conciso." (con una página abierta)
-- "Agrega una sección sobre precios con tres viñetas."
-- "Resume este documento en un TL;DR al principio."
-- "Trae lo último desde Notion." (después de vincular una página de Notion)
+- Un solo espacio de trabajo para páginas privadas, documentos de equipo y contenido publicado
+- El mismo documento puede sincronizarse con archivos locales, Notion o Builder CMS en lugar de volver a escribirse en cada uno
+- El agente lee y escribe a través de las mismas actions y las mismas páginas que tú
+- Un cambio proveniente de una fuente externa llega como un conjunto de cambios revisable, nunca como una sobrescritura silenciosa
 
-Selecciona texto y presiona Cmd+I para enfocar al agente con esa selección precargada. Así, "hazlo más contundente" actúa exactamente sobre lo que resaltaste.
+</Comparison>
 
-Para crear tu propia copia de Contenido:
+Los documentos son privados de forma predeterminada, con permisos de espectador, editor y administrador, y un modo de solo lectura público para cuando quieras que uno esté disponible para todo el mundo. Varias personas (y el agente) pueden editar la misma página al mismo tiempo sin pisarse el trabajo entre sí. Consulta [Escribir y organizar documentos](/docs/template-content-editing), [Bases de datos, propiedades y formularios](/docs/template-content-databases) y [Sincronización con archivos locales, Notion y Builder CMS](/docs/template-content-sync) para profundizar en cada uno de ellos.
+
+## Primeros pasos {#get-started}
 
 ```bash
 npx @agent-native/core@latest create my-content --standalone --template content
 ```
 
-Consulta [Primeros pasos](/docs/getting-started) para el resto de la configuración (`cd`, `pnpm install`, `pnpm dev`) y los fundamentos del framework.
+Consulta [Contenido: Guía para desarrolladores](/docs/template-content-developers#quick-start) para conocer la instalación, la primera ejecución y cómo conectar un LLM.
+
+Cuando abras la aplicación, haz clic en **+ Nueva página** en la barra lateral, dale un título y empieza a escribir, o pídeselo directamente al agente:
+
+- "Crea una página llamada Incorporación y agrégale tres subpáginas."
+- "Reescribe este párrafo para que sea más conciso." (con una página abierta)
+- "Trae lo último desde Notion." (después de vincular una página de Notion)
+
+Selecciona texto y presiona Cmd+I para enfocar al agente con esa selección precargada. Así, "hazlo más contundente" actúa exactamente sobre lo que resaltaste.
 
 ## ¿Qué sigue?
 

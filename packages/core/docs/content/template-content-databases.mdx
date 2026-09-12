@@ -1,9 +1,9 @@
 ---
-title: "Content: Databases, Properties & Forms"
+title: "Content: Databases, Properties, and Forms"
 description: "Build Notion-style databases inside Content, connect them to an external source with reviewable sync, and collect submissions through intake forms."
 ---
 
-# Databases, Properties & Forms
+# Databases, Properties, and Forms
 
 A Content database is a Notion-style table where every row is itself a full document. This page covers building one, giving it structured columns, optionally connecting it to an outside source, and using it to collect submissions through a form. It's useful for anyone setting up a tracker, roadmap, or intake queue, with a few details near the bottom for developers connecting an external source.
 
@@ -21,14 +21,23 @@ Save as many named views as you want per database — table, list, gallery, boar
 
 ## Connecting an external source
 
-A database can mirror rows from an outside source instead of (or in addition to) rows you create by hand: a Notion database, a Builder CMS model, or a local table in your own app. Attaching a source reads a snapshot of its fields and rows into Content — nothing is deleted or overwritten sight unseen.
+A database can mirror rows from an outside source instead of (or in addition to) rows you create by hand: a Notion database, a Builder CMS model, or a local table in your own app. Attaching a source reads a snapshot of its fields and rows into Content. Nothing is deleted or overwritten sight unseen.
 
-Two attach modes:
+<Steps>
 
-- **Add more rows** — the source's entries become their own new rows in your database.
-- **Add details** — the source's fields join onto your _existing_ rows by a shared key (for example, matching a Notion database row to a local row by email or slug), adding read-only columns without duplicating rows.
+### Attach a source
 
-Once attached, a source can propose changes — new or updated field values it saw upstream — as a **change set** instead of silently applying them. You (or the agent, on your instruction) approve or reject each change set before it lands on the row.
+Point the database at a Notion database, a Builder CMS model, or a local table.
+
+### Choose an attach mode
+
+**Add more rows** turns the source's entries into new rows in your database. **Add details** joins the source's fields onto your _existing_ rows by a shared key, for example matching a Notion database row to a local row by email or slug, adding read-only columns without duplicating rows.
+
+### Review proposed changes
+
+Once attached, a source can propose changes, new or updated field values it saw upstream, as a **change set** instead of silently applying them. You (or the agent, on your instruction) approve or reject each change set before it lands on the row.
+
+</Steps>
 
 <Diagram id="doc-block-content4" title="Attach, propose, review, apply" summary={"Every external source reads into Content as a proposed change set first. Nothing from an outside source overwrites a row until someone approves it."}>
 
@@ -401,6 +410,6 @@ For the action names behind attach/refresh/review/submit, see the [Developer Gui
 ## What's next
 
 - [Content overview](/docs/template-content) — what the app is and how to get started
-- [Writing & organizing documents](/docs/template-content-editing) — the editor, page tree, and sharing model a database's row pages build on
-- [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — syncing whole documents, as opposed to database rows
+- [Writing and organizing documents](/docs/template-content-editing) — the editor, page tree, and sharing model a database's row pages build on
+- [Local files, Notion, and Builder CMS sync](/docs/template-content-sync) — syncing whole documents, as opposed to database rows
 - [Developer Guide](/docs/template-content-developers) — the full data model and action inventory

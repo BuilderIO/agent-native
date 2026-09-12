@@ -1,9 +1,9 @@
 ---
-title: "Content: Local Files, Notion & Builder CMS Sync"
+title: "Content: Local Files, Notion, and Builder CMS Sync"
 description: "Edit Content documents from outside the app: a local Markdown/MDX folder, a linked Notion page, or a Builder CMS entry, each with reviewable two-way sync."
 ---
 
-# Local Files, Notion & Builder CMS Sync
+# Local Files, Notion, and Builder CMS Sync
 
 A Content document doesn't have to be edited only inside the app. This page covers the three ways to keep a document in sync with something outside Content: a folder of Markdown/MDX files on disk, a linked Notion page, or a Builder CMS entry. Each is optional, and a document can use more than one.
 
@@ -105,7 +105,7 @@ Ask the agent: "Is Notion connected?", "Link this doc to Notion," "Pull the late
 
 If your workspace has Builder.io configured, Content can pull a Builder docs or blog entry in as an editable document, complete with its `.builder.mdx` source file and any raw sidecar files Builder needs to reconstruct the entry. Edit it like any other Content document, then push it back through a guarded autosave — pushes currently target Builder's designated safe test model rather than every model, so a push can't accidentally overwrite production content you didn't intend to touch.
 
-Builder CMS models can also be attached as read-only inline-database sources — see [Databases, properties & forms](/docs/template-content-databases#connecting-an-external-source) for that workflow, which is a separate path from pulling/pushing a single document.
+Builder CMS models can also be attached as read-only inline-database sources — see [Databases, properties, and forms](/docs/template-content-databases#connecting-an-external-source) for that workflow, which is a separate path from pulling/pushing a single document.
 
 <Callout tone="warning">
 
@@ -143,7 +143,7 @@ Every document belongs to a **space** — your personal space, or one shared wit
 ## What's next
 
 - [Content overview](/docs/template-content) — what the app is and how to get started
-- [Writing & organizing documents](/docs/template-content-editing) — the editor and sharing model these synced documents use
-- [Databases, properties & forms](/docs/template-content-databases) — syncing rows inside a database, rather than whole documents
+- [Writing and organizing documents](/docs/template-content-editing) — the editor and sharing model these synced documents use
+- [Databases, properties, and forms](/docs/template-content-databases) — syncing rows inside a database, rather than whole documents
 - [Local folder sources](/docs/template-content-local-files) — full configuration, truth policies, and conflict handling reference
 - [Developer Guide](/docs/template-content-developers) — the full sync action inventory and data model
