@@ -1573,7 +1573,7 @@ function AgentPanelInner({
           <DropdownMenuContent
             align="end"
             sideOffset={6}
-            className="w-48"
+            className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-48 overflow-y-auto"
             onCloseAutoFocus={(event) => {
               // A sibling overlay owns focus next; restoring it to the menu
               // trigger would dismiss that overlay as an outside interaction.

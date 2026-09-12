@@ -10992,7 +10992,7 @@ function BreakpointPreviewRow({
                             value={widthDraft}
                             autoFocus
                             onChange={(e) => setWidthDraft(e.target.value)}
-                            onKeyDown={(e) => {
+                            onKeyDownCapture={(e) => {
                               e.stopPropagation();
                               if (e.key !== "Enter") return;
                               e.preventDefault();

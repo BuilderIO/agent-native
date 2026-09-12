@@ -285,7 +285,7 @@ export function BreakpointDeviceControl({
                           onChange={(event) =>
                             setWidthDraft(event.target.value)
                           }
-                          onKeyDown={(event) => {
+                          onKeyDownCapture={(event) => {
                             event.stopPropagation();
                             if (event.key !== "Enter") return;
                             event.preventDefault();

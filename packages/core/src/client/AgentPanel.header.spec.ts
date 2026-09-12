@@ -637,6 +637,21 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
   });
 
+  it("keeps the overflow menu scrollable within the viewport", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(overflowMenu).toContain(
+      "max-h-[var(--radix-dropdown-menu-content-available-height)]",
+    );
+    expect(overflowMenu).toContain("overflow-y-auto");
+  });
+
   it("offers sharing from the sidebar overflow for an active chat", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",

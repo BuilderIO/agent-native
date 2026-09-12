@@ -101,6 +101,17 @@ const CREDENTIAL_REGEX_CASES = [
   [false, "Mismatched pairs can be intentional on a host."],
 ];
 
+const DESIGN_FEEDBACK_SCOPE_RE =
+  /\b(?:design|visual|ui|ux)\b[^.!?\n]{0,80}\b(?:out of scope|not in scope|skip\w*|ignor\w*|rule|gate|blocked)\b|\b(?:out of scope|not in scope|skip\w*|ignor\w*|rule|gate|blocked)\b[^.!?\n]{0,80}\b(?:design|visual|ui|ux)\b/i;
+
+const DESIGN_FEEDBACK_REGEX_CASES = [
+  [true, "Remove that design rule. I want you fixing design things."],
+  [true, "Why are these visual issues out of scope?"],
+  [true, "Don't ignore the UI polish feedback."],
+  [false, "Fix the Design gradient fill bug."],
+  [false, "The design needs a little more contrast."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -143,12 +154,18 @@ if (process.argv.includes("--self-test")) {
         CREDENTIAL_NAMESPACE_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...DESIGN_FEEDBACK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -178,6 +195,15 @@ const PATTERNS = [
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
+  },
+  {
+    // Added 2026-09-11 after a user correction made clear the feedback scope
+    // rule was treating concrete Design/UX feedback as out of scope.
+    key: "design-feedback-scope",
+    label: "Had to ask to act on design feedback",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (design/UX scope, 2026-09-11)",
+    re: DESIGN_FEEDBACK_SCOPE_RE,
   },
   {
     key: "false-done",

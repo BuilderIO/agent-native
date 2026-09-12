@@ -1858,24 +1858,29 @@ export function promoteQueuedMessage<T extends { id: string }>(
 export function queuedMessageImageSources(
   message: Pick<QueuedMessage, "attachments" | "images">,
 ): string[] {
-  const sources = (message.attachments ?? []).flatMap((attachment) =>
-    attachment.content.flatMap((part) =>
-      part.type === "image" &&
-      "image" in part &&
-      typeof part.image === "string" &&
-      part.image.trim().length > 0
-        ? [part.image]
-        : [],
-    ),
-  );
+  const sources = new Set<string>();
 
-  for (const image of message.images ?? []) {
-    if (image.trim().length > 0 && !sources.includes(image)) {
-      sources.push(image);
+  // ponytail: cap queue previews at four; all references remain queued and are sent on dequeue.
+  for (const attachment of message.attachments ?? []) {
+    for (const part of attachment.content) {
+      if (
+        part.type === "image" &&
+        "image" in part &&
+        typeof part.image === "string" &&
+        part.image.trim().length > 0
+      ) {
+        sources.add(part.image);
+      }
+      if (sources.size === 4) return [...sources];
     }
   }
+  for (const image of message.images ?? []) {
+    if (image.trim().length === 0) continue;
+    sources.add(image);
+    if (sources.size === 4) break;
+  }
 
-  return sources;
+  return [...sources];
 }
 
 function AssistantChatUserMessageItem() {

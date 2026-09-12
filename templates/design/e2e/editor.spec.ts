@@ -177,21 +177,39 @@ test("screen overview adds and targets frames from the unified breakpoint contro
   await breakpointControl
     .getByRole("button", { name: "Add breakpoint" })
     .click();
-  // The device menu lists every iPhone preset alongside the generic row.
-  await page.getByRole("button", { name: /^Phone \d+$/ }).click();
+  await page.getByRole("button", { name: /Tablet\s+810/ }).click();
 
-  const mobileTarget = breakpointControl.getByRole("button", { name: "390" });
-  await expect(mobileTarget).toBeVisible();
+  const tabletTarget = breakpointControl.getByRole("button", { name: "810" });
+  await expect(tabletTarget).toBeVisible();
   await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
-  await mobileTarget.click();
-  await expect(mobileTarget).toHaveAttribute("aria-pressed", "true");
+  await tabletTarget.click();
+  await expect(tabletTarget).toHaveAttribute("aria-pressed", "true");
   await breakpointControl.getByRole("button", { name: "Base" }).click();
   await expect(
     breakpointControl.getByRole("button", { name: "Base" }),
   ).toHaveAttribute("aria-pressed", "true");
 
+  const addBreakpoint = breakpointControl.getByRole("button", {
+    name: "Add breakpoint",
+  });
+  await expect(addBreakpoint).toBeEnabled();
+  await addBreakpoint.click();
+  const customWidth = page.getByPlaceholder("Custom width");
+  await customWidth.fill("700");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  const customTarget = breakpointControl.getByRole("button", { name: "700" });
+  await expect(customTarget).toBeVisible();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+
   // Leave the shared seed design pristine for later inspector/browser specs.
-  await mobileTarget.click();
+  await customTarget.click();
+  await breakpointControl
+    .getByRole("button", { name: "Breakpoint options" })
+    .click();
+  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+
+  await tabletTarget.click();
   await breakpointControl
     .getByRole("button", { name: "Breakpoint options" })
     .click();

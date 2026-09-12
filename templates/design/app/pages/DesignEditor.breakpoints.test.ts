@@ -495,6 +495,17 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(retargetIndex).toBeLessThan(removeIndex);
   });
 
+  it("keeps Enter handling local in the overview breakpoint width input", () => {
+    const menuStart = canvasSource.indexOf("onChangeBreakpointWidth ? (");
+    const widthInput = canvasSource.slice(
+      menuStart,
+      canvasSource.indexOf("</DropdownMenuContent>", menuStart),
+    );
+
+    expect(menuStart).toBeGreaterThanOrEqual(0);
+    expect(widthInput).toContain("onKeyDownCapture");
+  });
+
   it("BP-DEEP v2 item 6: an add failure aborts before touching the old breakpoint (failure path — old breakpoint stays intact and targeted)", () => {
     const handler = source.slice(
       source.indexOf("const handleBreakpointChangeWidth"),

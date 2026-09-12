@@ -19981,6 +19981,10 @@ function DesignEditor() {
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 220);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
+  // These focused surfaces need a clear viewport beside the absolute rail.
+  const leftChromeOverlayInset = leftSidebarVisible
+    ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`
+    : undefined;
   const minimalInspectorHasSelection = hasMinimalInspectorSelection({
     selectedElement,
     selectedLayerIds,
@@ -20481,7 +20485,10 @@ function DesignEditor() {
           /* Panel background, not canvas: these are the agent's own follow-up
              questions, and on the canvas grey they read as an unrelated object
              parked beside the chat rather than a continuation of it. */
-          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]">
+          <div
+            className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
+            style={{ paddingLeft: leftChromeOverlayInset }}
+          >
             <QuestionFlow
               questions={pendingQuestions ?? []}
               onSubmit={handleQuestionsSubmit}
@@ -20740,7 +20747,14 @@ function DesignEditor() {
                 onRetry={handleRetryGeneration}
               />
             ) : viewMode === "overview" || activeFile ? (
-              <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div
+                className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
+                style={
+                  responsiveInteractActive && leftChromeOverlayInset
+                    ? { paddingLeft: leftChromeOverlayInset }
+                    : undefined
+                }
+              >
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
                     of the same editor, not a chrome-free takeover. */}

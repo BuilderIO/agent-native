@@ -1,7 +1,16 @@
+// @vitest-environment happy-dom
+
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { createElement, type ComponentType } from "react";
+import {
+  act,
+  createElement,
+  type ComponentType,
+  type ReactNode,
+  useState,
+} from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   availableBreakpointPresets,
@@ -12,6 +21,11 @@ import {
   FRAMER_BREAKPOINT_PRESETS,
   parseBreakpointWidthInput,
 } from "./BreakpointBar";
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  AgentNativeI18nProvider: ({ children }: { children: ReactNode }) => children,
+  useT: () => (key: string) => key.replace("designEditor.breakpointBar.", ""),
+}));
 
 // Minimal catalog covering only the keys BreakpointDeviceControl reads — see
 // the same convention/rationale note in
@@ -57,6 +71,160 @@ function renderControl(
     ...props,
   } as BreakpointDeviceControlProps);
 }
+
+function InteractiveControl({
+  onAdd,
+  onChangeWidth,
+  initialBreakpoints = [{ id: "bp-810", label: "Tablet", widthPx: 810 }],
+}: {
+  onAdd: (widthPx: number, label: string) => void;
+  onChangeWidth: (id: string, widthPx: number) => void;
+  initialBreakpoints?: Array<{ id: string; label: string; widthPx: number }>;
+}) {
+  const [breakpoints, setBreakpoints] = useState(initialBreakpoints);
+  return (
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <BreakpointDeviceControl
+        breakpoints={breakpoints}
+        activeWidthPx={810}
+        canEdit
+        onSelect={() => {}}
+        onAdd={(widthPx, label) => {
+          onAdd(widthPx, label);
+          setBreakpoints((current) => [
+            ...current,
+            { id: `bp-${widthPx}`, label, widthPx },
+          ]);
+        }}
+        onChangeWidth={(id, widthPx) => {
+          onChangeWidth(id, widthPx);
+          setBreakpoints((current) =>
+            current.map((breakpoint) =>
+              breakpoint.id === id ? { ...breakpoint, widthPx } : breakpoint,
+            ),
+          );
+        }}
+      />
+    </AgentNativeI18nProvider>
+  );
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  input.value = value;
+  Object.getOwnPropertyDescriptor(input, "_valueTracker")?.value?.setValue("");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function pointerClick(target: HTMLElement) {
+  target.dispatchEvent(
+    new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+  );
+  target.dispatchEvent(
+    new PointerEvent("pointerup", { bubbles: true, button: 0 }),
+  );
+  target.click();
+}
+
+describe("BreakpointDeviceControl interactions", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (
+      globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("applies a changed width when Enter is pressed in the options menu", async () => {
+    const onAdd = vi.fn();
+    const onChangeWidth = vi.fn();
+    await act(async () =>
+      root.render(
+        <InteractiveControl onAdd={onAdd} onChangeWidth={onChangeWidth} />,
+      ),
+    );
+    await act(async () => {
+      pointerClick(
+        container.querySelector<HTMLButtonElement>('[aria-label="options"]')!,
+      );
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="changeWidth"]',
+    )!;
+    await act(async () => {
+      setInputValue(input, "768");
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onChangeWidth).toHaveBeenCalledWith("bp-810", 768);
+    expect(container.textContent).toContain("768");
+  });
+
+  it("reopens after adding Tablet so another custom breakpoint can be added", async () => {
+    const onAdd = vi.fn();
+    const onChangeWidth = vi.fn();
+    await act(async () =>
+      root.render(
+        <InteractiveControl
+          initialBreakpoints={[]}
+          onAdd={onAdd}
+          onChangeWidth={onChangeWidth}
+        />,
+      ),
+    );
+
+    await act(async () => {
+      pointerClick(
+        container.querySelector<HTMLButtonElement>(
+          'button[title="addBreakpoint"]',
+        )!,
+      );
+    });
+    const tabletPreset = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("tablet"));
+    expect(tabletPreset).toBeDefined();
+    await act(async () => tabletPreset!.click());
+
+    await act(async () => {
+      pointerClick(
+        container.querySelector<HTMLButtonElement>(
+          'button[title="addBreakpoint"]',
+        )!,
+      );
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      'input[placeholder="customWidth"]',
+    )!;
+    await act(async () => {
+      setInputValue(input, "700");
+      document
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+        .click();
+    });
+
+    expect(onAdd.mock.calls).toEqual([
+      [810, "tablet"],
+      [700, "Tablet"],
+    ]);
+    expect(container.textContent).toContain("700");
+  });
+});
 
 describe("BreakpointDeviceControl — item 8a device icons", () => {
   it("renders a phone icon + width number for a narrow breakpoint segment", () => {

@@ -403,6 +403,26 @@ describe("queuedMessageImageSources", () => {
       }),
     ).toEqual([image]);
   });
+
+  it("bounds queued image previews when a message has many references", () => {
+    const images = Array.from(
+      { length: 20 },
+      (_, index) => `data:image/png;base64,reference-${index}`,
+    );
+
+    expect(
+      queuedMessageImageSources({
+        images: undefined,
+        attachments: images.map((image, index) => ({
+          id: `attachment-${index}`,
+          type: "image",
+          name: `reference-${index}.png`,
+          content: [{ type: "image", image }],
+          status: { type: "complete" },
+        })),
+      }),
+    ).toEqual(images.slice(0, 4));
+  });
 });
 
 describe("installAssistantUiMessageRepositoryRecovery", () => {
