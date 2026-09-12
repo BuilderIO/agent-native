@@ -1,11 +1,11 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
-import createResourceSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
 import {
   ensureSuggestionTables,
   getSuggestionByCreationKey,
 } from "@agent-native/core/review";
+import createResourceSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
