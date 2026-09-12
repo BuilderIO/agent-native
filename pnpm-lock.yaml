@@ -3772,6 +3772,9 @@ importers:
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
+      playwright:
+        specifier: ^1.63.0
+        version: 1.63.0
       prettier:
         specifier: ^3.9.4
         version: 3.9.4
@@ -18791,9 +18794,19 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  playwright-core@1.63.0:
+    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   playwright@1.61.1:
     resolution: {integrity: sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==}
     engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.63.0:
+    resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
+    engines: {node: '>=20'}
     hasBin: true
 
   plimit-lit@1.6.1:
@@ -35793,11 +35806,17 @@ snapshots:
 
   playwright-core@1.61.1: {}
 
+  playwright-core@1.63.0: {}
+
   playwright@1.61.1:
     dependencies:
       playwright-core: 1.61.1
     optionalDependencies:
       fsevents: 2.3.2
+
+  playwright@1.63.0:
+    dependencies:
+      playwright-core: 1.63.0
 
   plimit-lit@1.6.1:
     dependencies:

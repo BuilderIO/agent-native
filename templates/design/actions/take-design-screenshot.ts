@@ -33,10 +33,10 @@
  * shell (`playwright install --only-shell chromium`); plain
  * `install chromium` also downloads the full headed browser — several hundred
  * MB more disk, needed only by `pnpm e2e:headed`/`e2e:ui`, never by this
- * action. Hosted/serverless deploys (Netlify Functions) do not bundle a Chromium
- * binary, so this action detects that failure and returns a structured,
- * model-actionable `{ ok: false, reason }` telling the agent to fall back to
- * `run-design-audit` instead of surfacing a raw stack trace.
+ * action. Hosted/serverless deploys do not bundle a Chromium binary, so the
+ * shared runtime connects to Builder Browser before trying local/system
+ * Chromium. When neither is available, this action returns a structured,
+ * model-actionable `{ ok: false, reason }` rather than a raw stack trace.
  */
 
 import { defineAction } from "@agent-native/core/action";
