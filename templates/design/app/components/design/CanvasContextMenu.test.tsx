@@ -265,6 +265,26 @@ describe("CanvasContextMenu edit with AI", () => {
     );
     await view.cleanup();
   });
+
+  it("reprompts the exact candidate when the hit stack has one layer", async () => {
+    const onReprompt = vi.fn();
+    const onRepromptLayer = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onReprompt,
+      onRepromptLayer,
+    });
+
+    await act(async () => view.findButton("Edit with AI")?.click());
+    expect(onRepromptLayer).toHaveBeenCalledWith(
+      candidate,
+      expect.objectContaining({ action: "reprompt" }),
+    );
+    expect(onReprompt).not.toHaveBeenCalled();
+    await view.cleanup();
+  });
 });
 
 describe("CanvasContextMenu rotation", () => {

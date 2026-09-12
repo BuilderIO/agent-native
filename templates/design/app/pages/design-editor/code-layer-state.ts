@@ -499,6 +499,7 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     // layers panel, post-draw overview) fall back to tag heuristics, so a
     // drawn vector was styled as a plain box.
     primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
+    vectorStrokeCanAlign: node.style["--an-vector-stroke-can-align"] === "true",
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
     hasOwnText: node.paintsOwnText,
@@ -832,6 +833,9 @@ export function canonicalElementInfoForCodeLayerNode(
 ): ElementInfo {
   return {
     ...info,
+    vectorStrokeCanAlign:
+      info.vectorStrokeCanAlign ||
+      node.style["--an-vector-stroke-can-align"] === "true",
     // Keep the bridge's own identity before overwriting it — it is the only
     // one that resolves in a live document. Idempotent: re-canonicalizing an
     // already-canonicalized info must not overwrite it with the source id.
@@ -930,7 +934,7 @@ export function codeLayerPatchMessage(
   fallback: string,
 ): string {
   if (!message) return fallback;
-  return message.includes("did not match a code layer node")
+  return /code layer node|data-agent-native-node-id/i.test(message)
     ? fallback
     : message;
 }
@@ -1147,16 +1151,23 @@ export function findCodeLayerSiblingOrder(
   return null;
 }
 
-// L25: matches the auto-generated wrapper name pattern from
-// nextSequentialGroupName in shared/code-layer.ts ("Group", "Group 2", ...).
-// Used to identify wrappers that were CREATED by the group action (as opposed
-// to a user's own named container) so we only auto-clean up ones we made.
-export const GENERATED_GROUP_NAME_PATTERN = /^Group(?: \d+)?$/;
-
 export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
-  const layerNameAttr = node.dataAttributes["data-agent-native-layer-name"];
-  return Boolean(
-    layerNameAttr && GENERATED_GROUP_NAME_PATTERN.test(layerNameAttr.trim()),
+  if (node.dataAttributes["data-agent-native-clone-root"] === "true") {
+    return false;
+  }
+  if (node.dataAttributes["data-agent-native-group-wrapper"] === "true") {
+    return true;
+  }
+  const layerName =
+    node.dataAttributes["data-agent-native-layer-name"] ??
+    node.dataAttributes["data-layer-name"] ??
+    "";
+  const nodeId = node.dataAttributes["data-agent-native-node-id"] ?? "";
+  // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
+  return (
+    /^an-[a-z0-9]+$/i.test(nodeId) &&
+    /^group(?: \d+)?$/i.test(layerName.trim()) &&
+    node.dataAttributes["data-agent-native-preserve-styles"] === "true"
   );
 }
 
@@ -1175,13 +1186,12 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
-  // Both are necessary conditions for isGeneratedGroupWrapperNode to ever
-  // match. Checking them on the raw string first keeps a document with no
-  // generated groups — the common case — from paying for a full projection of
-  // post-edit content on every structural edit.
+  // Checking for either current or legacy markers keeps a document with no
+  // generated groups — the common case — from paying for a full projection
+  // of post-edit content on every structural edit.
   if (
-    !content.includes("data-agent-native-layer-name") ||
-    !content.includes("Group")
+    !content.includes("data-agent-native-group-wrapper") &&
+    !content.includes("data-agent-native-preserve-styles")
   ) {
     return content;
   }

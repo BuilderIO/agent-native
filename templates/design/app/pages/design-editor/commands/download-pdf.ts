@@ -8,7 +8,10 @@ import {
   createSinglePageRasterPdf,
 } from "@/pages/design-editor/export-capture";
 import type { PngCaptureScope } from "@/pages/design-editor/png-export-render";
-import { resolveExportCropRect } from "@/pages/design-editor/png-export-render";
+import {
+  resolveBoardExportCropRect,
+  resolveExportCropRect,
+} from "@/pages/design-editor/png-export-render";
 
 export interface DownloadPdfArgs {
   fallbackExportName: (extension: string, suffix?: string) => string;
@@ -48,9 +51,10 @@ export async function runDownloadPdf(
   try {
     const { cropSelection, doc, iframe } = resolvePngCaptureTarget("document");
     const crop = resolveExportCropRect(doc, cropSelection);
+    const pageCrop = crop ?? resolveBoardExportCropRect(doc, iframe);
     const pageWidth = Math.max(
       1,
-      crop?.width ??
+      pageCrop?.width ??
         Math.max(
           doc.documentElement.scrollWidth,
           doc.body?.scrollWidth ?? 0,
@@ -59,7 +63,7 @@ export async function runDownloadPdf(
     );
     const pageHeight = Math.max(
       1,
-      crop?.height ??
+      pageCrop?.height ??
         Math.max(
           doc.documentElement.scrollHeight,
           doc.body?.scrollHeight ?? 0,

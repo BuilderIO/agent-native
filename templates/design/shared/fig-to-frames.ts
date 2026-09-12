@@ -120,7 +120,6 @@ async function uploadEmbeddedImages(
     if (size && size.width > 0 && size.height > 0)
       imageSizes.set(image.hash, size);
   }
-  const warnings: string[] = [];
   let omitted = 0;
   let storageUnavailable = false;
 
@@ -151,11 +150,13 @@ async function uploadEmbeddedImages(
             return;
           }
           if (uploaded.url.length > MAX_DURABLE_IMAGE_URL_CHARS) {
+            storageUnavailable = true;
             omitted += 1;
             return;
           }
           imageMap.set(image.hash, uploaded.url);
         } catch {
+          storageUnavailable = true;
           omitted += 1;
         }
       }),
@@ -163,7 +164,7 @@ async function uploadEmbeddedImages(
   }
 
   if (omitted > 0) {
-    warnings.push(
+    throw new Error(
       `${omitted} embedded image${omitted === 1 ? " was" : "s were"} omitted because file storage was unavailable or rejected the upload. No image bytes were stored in SQL.`,
     );
   }
@@ -173,7 +174,7 @@ async function uploadEmbeddedImages(
     imageSizes,
     uploaded: imageMap.size,
     omitted,
-    warnings,
+    warnings: [],
   };
 }
 

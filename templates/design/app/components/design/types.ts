@@ -130,6 +130,8 @@ export interface ElementInfo {
    * because older payloads and non-primitive/source-backed elements omit it.
    */
   primitiveKind?: string;
+  /** Closed SVG vectors can render their stroke inside or outside the path. */
+  vectorStrokeCanAlign?: boolean;
   portableStyleSnapshot?: PortableStyleSnapshot;
   boundingRect: { x: number; y: number; width: number; height: number };
   /** Exact bounds of the selected element's direct parent in the same

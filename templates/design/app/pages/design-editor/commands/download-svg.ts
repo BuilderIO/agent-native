@@ -17,6 +17,7 @@ import type { DesignData } from "@/pages/design-editor/types";
 
 export interface DownloadSvgArgs {
   design: DesignData | null;
+  activePreviewFrameId?: string | null;
   fallbackExportName: (extension: string, suffix?: string) => string;
   selectedElement: ElementInfo | null;
   setSvgExporting: Dispatch<SetStateAction<boolean>>;
@@ -24,8 +25,23 @@ export interface DownloadSvgArgs {
   triggerBlobDownload: (blob: Blob, filename: string) => void;
 }
 
+export function resolveSvgExportIframe<
+  T extends { getAttribute(name: string): string | null },
+>(iframes: Iterable<T>, activePreviewFrameId?: string | null): T | null {
+  const candidates = Array.from(iframes);
+  if (activePreviewFrameId) {
+    const active = candidates.find(
+      (iframe) =>
+        iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+    );
+    if (active) return active;
+  }
+  return candidates.length === 1 ? (candidates[0] ?? null) : null;
+}
+
 export async function runDownloadSvg(
   {
+    activePreviewFrameId,
     design,
     fallbackExportName,
     selectedElement,
@@ -35,8 +51,11 @@ export async function runDownloadSvg(
   }: DownloadSvgArgs,
   settings?: Partial<ExportSettingsValue>,
 ) {
-  const iframe = document.querySelector<HTMLIFrameElement>(
-    "iframe[data-design-preview-iframe]",
+  const iframe = resolveSvgExportIframe(
+    document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    ),
+    activePreviewFrameId,
   );
   const doc = iframe?.contentDocument;
   if (!doc?.documentElement) {

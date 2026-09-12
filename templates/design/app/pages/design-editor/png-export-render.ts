@@ -8,7 +8,11 @@ import {
   unionExportCropRects,
   waitForExportReady,
 } from "./export-capture";
-import { mirrorPreviewWebFonts } from "./export-font-mirror";
+import type { ExportCropRect } from "./export-capture";
+import {
+  getHtml2CanvasPlaceholderStyle,
+  mirrorPreviewWebFonts,
+} from "./export-font-mirror";
 import { isScreenRootElementInfo } from "./selection-state";
 
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
@@ -30,6 +34,20 @@ const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
   "background-image",
   "border-image-source",
   "list-style-image",
+] as const;
+const HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-variant",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-indent",
+  "text-transform",
+  "word-spacing",
 ] as const;
 
 export function blurActiveDesignEditableTarget() {
@@ -148,6 +166,24 @@ function sanitizeHtml2CanvasClone(
       if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
       clonedStyle.setProperty(property, "none", "important");
     }
+
+    // html2canvas paints a placeholder as the input value, using the input's
+    // styles instead of the styles attached to ::placeholder.
+    const placeholderStyle = getHtml2CanvasPlaceholderStyle(
+      sourceElement,
+      sourceView,
+    );
+    if (placeholderStyle) {
+      for (const property of HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES) {
+        const value = placeholderStyle.getPropertyValue(property);
+        if (!value) continue;
+        clonedStyle.setProperty(
+          property,
+          property === "color" ? normalizeHtml2CanvasColor(value) : value,
+          "important",
+        );
+      }
+    }
   });
 }
 
@@ -234,6 +270,66 @@ export function resolveExportCropRect(
 }
 
 /**
+ * Board preview iframes are finite windows around the infinite canvas. Export
+ * their placed nodes, not the mostly-empty render window; keep a small bleed
+ * so strokes and shadows at the outer edge are not clipped. DesignCanvas marks
+ * ordinary screen frames with data-screen-iframe-id; board previews omit it.
+ */
+export function resolveBoardExportCropRect(
+  doc: Document,
+  iframe: HTMLIFrameElement,
+): ExportCropRect | null {
+  if (iframe.hasAttribute("data-screen-iframe-id")) return null;
+  const view = doc.defaultView;
+  if (!view || !doc.body) return null;
+
+  const contentBounds = unionExportCropRects(
+    Array.from(
+      doc.body.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
+    ).flatMap((element) => {
+      if (element.closest(EDITOR_CHROME_OVERLAY_SELECTOR)) return [];
+      const style = view.getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") return [];
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return [];
+      return [
+        {
+          x: rect.left + (view.scrollX ?? 0),
+          y: rect.top + (view.scrollY ?? 0),
+          width: rect.width,
+          height: rect.height,
+        },
+      ];
+    }),
+  );
+  if (!contentBounds) return null;
+
+  const documentWidth = Math.max(
+    doc.documentElement.scrollWidth,
+    doc.body.scrollWidth,
+    iframe.clientWidth,
+  );
+  const documentHeight = Math.max(
+    doc.documentElement.scrollHeight,
+    doc.body.scrollHeight,
+    iframe.clientHeight,
+  );
+  const padding = 16;
+  const x = Math.max(0, contentBounds.x - padding);
+  const y = Math.max(0, contentBounds.y - padding);
+  const right = Math.min(
+    documentWidth,
+    contentBounds.x + contentBounds.width + padding,
+  );
+  const bottom = Math.min(
+    documentHeight,
+    contentBounds.y + contentBounds.height + padding,
+  );
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+/**
  * Crop a rendered html2canvas canvas down to a document-space rect so image
  * exports capture just the selected frame. Returns null when the crop is empty,
  * so callers can fall back to the full render.
@@ -268,11 +364,13 @@ export async function renderExportDocumentCanvas({
   doc,
   iframe,
   exportScale,
+  cropRect,
   render,
 }: {
   doc: Document;
   iframe: HTMLIFrameElement;
   exportScale: number;
+  cropRect?: ExportCropRect | null;
   render: (typeof import("html2canvas"))["default"];
 }): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
   // A freshly loaded preview iframe (new generation, screen switch, or just a
@@ -302,14 +400,17 @@ export async function renderExportDocumentCanvas({
     doc.body?.scrollHeight ?? 0,
     iframe.clientHeight,
   );
+  const renderWidth = cropRect?.width ?? width;
+  const renderHeight = cropRect?.height ?? height;
   const effectiveScale = resolveRasterExportScale({
-    width,
-    height,
+    width: renderWidth,
+    height: renderHeight,
     requestedScale: exportScale,
   });
   const options = {
-    width,
-    height,
+    ...(cropRect ? { x: cropRect.x, y: cropRect.y } : {}),
+    width: renderWidth,
+    height: renderHeight,
     windowWidth: width,
     windowHeight: height,
     scale: effectiveScale,

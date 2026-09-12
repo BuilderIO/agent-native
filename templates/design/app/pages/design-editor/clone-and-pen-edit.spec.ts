@@ -4,11 +4,49 @@ import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
 import {
+  extractLayerPosition,
   prepareClonedHtmlLayersForLiveInsert,
   preserveClipboardLayerName,
 } from "./clone-and-pen-edit";
 
 const LIVE_URL = "http://localhost:5173/products?preview=1";
+
+describe("extractLayerPosition", () => {
+  it("returns authored layout coordinates without applying the transform", () => {
+    expect(
+      extractLayerPosition(
+        '<div style="position:absolute;left:40px;top:120px;transform:translate(16px, 24px) rotate(2deg)"></div>',
+      ),
+    ).toEqual({ x: 40, y: 120 });
+  });
+
+  it("does not treat an in-flow transform as absolute placement", () => {
+    expect(
+      extractLayerPosition(
+        '<div style="transform:translate3d(12px, 18px, 0)"></div>',
+      ),
+    ).toBeNull();
+  });
+
+  it("preserves transform and sizing when positioning a clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="source" style="position:absolute;left:40px;top:120px;width:180px;height:64px;transform:translate(16px, 24px) rotate(2deg)">Source</div>',
+      ],
+      { positions: [{ x: 50, y: 130 }] },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect((clone as HTMLElement).style.left).toBe("50px");
+    expect((clone as HTMLElement).style.top).toBe("130px");
+    expect((clone as HTMLElement).style.width).toBe("180px");
+    expect((clone as HTMLElement).style.height).toBe("64px");
+    expect((clone as HTMLElement).style.transform).toBe(
+      "translate(16px, 24px) rotate(2deg)",
+    );
+  });
+});
 
 function parseFragment(html: string): Element {
   const doc = new DOMParser().parseFromString(
@@ -164,11 +202,105 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     expect(clone.getAttribute("data-source-line")).toBe("42");
     expect(clone.getAttribute("data-source-column")).toBe("7");
     expect(clone.getAttribute("data-component-name")).toBe("Card");
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
     expect((clone as HTMLElement).style.display).toBe("grid");
     expect((clone as HTMLElement).style.backgroundColor).toBe("rgb(4, 5, 6)");
     expect((clone.querySelector("span") as HTMLElement).style.fontWeight).toBe(
       "700",
     );
+  });
+
+  it("preserves group identity when cloning a legacy generated wrapper", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="an-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"><span data-agent-native-node-id="child">Text</span></div>',
+      ],
+      {
+        styleSnapshots: [
+          {
+            version: 1,
+            rootSourceId: "group",
+            nodes: [
+              {
+                sourceId: "group",
+                path: [],
+                styles: { display: "block" },
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBe("true");
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
+  });
+
+  it("preserves legacy generated group identity without a style snapshot", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+      '<div data-agent-native-node-id="an-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"><span data-agent-native-node-id="child">Text</span></div>',
+    ]);
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBe("true");
+  });
+
+  it("marks a copied authored Group as a clone, not a legacy generated wrapper", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="group" data-agent-native-layer-name="Group"><span data-agent-native-node-id="child">Text</span></div>',
+      ],
+      {
+        styleSnapshots: [
+          {
+            version: 1,
+            rootSourceId: "group",
+            nodes: [
+              {
+                sourceId: "group",
+                path: [],
+                styles: { display: "block" },
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBeNull();
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
+  });
+
+  it("does not promote an older copied Group with preserved styles", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="copy-old-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"><span data-agent-native-node-id="child">Text</span></div>',
+      ],
+      {
+        styleSnapshots: [
+          {
+            version: 1,
+            rootSourceId: "copy-old-group",
+            nodes: [
+              {
+                sourceId: "copy-old-group",
+                path: [],
+                styles: { display: "block" },
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBeNull();
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
   });
 
   it("returns the destination URL byte-for-byte instead of turning it into HTML", () => {

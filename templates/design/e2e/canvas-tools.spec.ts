@@ -1971,6 +1971,12 @@ test("rectangle insertion keeps the new primitive selected", async ({
       y: cardBox.y + cardBox.height * 0.78,
     },
   });
+  await expect(
+    screenShell(page)
+      .frameLocator("iframe[data-screen-iframe-id]")
+      .locator('[data-an-primitive="rectangle"]')
+      .last(),
+  ).toHaveCSS("border-radius", "0px");
   await restoreHome(page);
 });
 

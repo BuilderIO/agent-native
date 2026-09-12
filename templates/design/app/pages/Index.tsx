@@ -1001,10 +1001,14 @@ export default function Index() {
             retrying={isFetching}
           />
         ) : designs.length === 0 ? (
-          <EmptyState
-            onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
-          />
+          normalizedSearch ? (
+            <SearchEmptyState />
+          ) : (
+            <EmptyState
+              onCreateDesign={openNewDesign}
+              onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
+            />
+          )
         ) : (
           <>
             {isSelectingDesigns ? (
@@ -1568,6 +1572,23 @@ function EmptyState({
         <IconPlus className="w-4 h-4" />
         {t("home.newDesign")}
       </Button>
+    </div>
+  );
+}
+
+function SearchEmptyState() {
+  const t = useT();
+  return (
+    <div
+      aria-live="polite"
+      className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+    >
+      <h2 className="text-xl font-semibold text-foreground mb-2">
+        {t("home.searchNoResultsTitle")}
+      </h2>
+      <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
+        {t("home.searchNoResultsDescription")}
+      </p>
     </div>
   );
 }

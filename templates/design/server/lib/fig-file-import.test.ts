@@ -440,32 +440,60 @@ describe("editable .fig conversion", () => {
     expect(result.stats.uploadedImageCount).toBe(1);
   });
 
-  it("omits image bytes safely and reports the degradation when storage is unavailable", async () => {
-    const result = await convertDecodedFigToEditableHtml(
-      {
-        format: "kiwi",
-        document: editableDocument("abc123"),
-        images: [
-          {
-            hash: "abc123",
-            ext: "png",
-            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
-          },
-        ],
-        thumbnail: null,
-      },
-      {
-        originalName: "no-storage.fig",
-        ownerEmail: "example@example.com",
-        uploader: vi.fn().mockResolvedValue(null),
-      },
-    );
+  it("rejects the whole import when storage is unavailable instead of omitting images", async () => {
+    const uploader = vi.fn().mockResolvedValue(null);
 
-    expect(result.files[0]!.content).toContain("about:blank");
-    expect(result.files[0]!.content).not.toMatch(/data:[^;]+;base64/i);
-    expect(result.warnings).toContainEqual(expect.stringMatching(/omitted/i));
-    expect(result.warnings.join(" ")).not.toMatch(/proprietary/i);
-    expect(result.stats.omittedImageCount).toBe(1);
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: [
+            {
+              hash: "abc123",
+              ext: "png",
+              bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            },
+          ],
+          thumbnail: null,
+        },
+        {
+          originalName: "no-storage.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(uploader).toHaveBeenCalledOnce();
+  });
+
+  it("stops later image batches and rejects when an upload is rejected", async () => {
+    const uploader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("provider unavailable"))
+      .mockResolvedValue({ url: "https://assets.example.com/image.png" });
+    const images = Array.from({ length: 5 }, (_, index) => ({
+      hash: index === 0 ? "abc123" : `extra${index}`,
+      ext: "png",
+      bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, index]),
+    }));
+
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images,
+          thumbnail: null,
+        },
+        {
+          originalName: "rejected-image.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(uploader).toHaveBeenCalledTimes(4);
   });
 
   it("validates renderable frames before uploading any extracted blobs", async () => {

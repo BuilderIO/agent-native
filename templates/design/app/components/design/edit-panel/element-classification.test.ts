@@ -85,6 +85,17 @@ describe("isTextElement — B5-12 nested board text regression", () => {
     expect(isTextElement(element)).toBe(true);
   });
 
+  it("classifies owned text in a mixed-content headline without hiding its layout controls", () => {
+    const element = makeElement({
+      classes: ["headline"],
+      childElementCount: 2,
+      textContent: "Your prompt. Production UI.",
+      hasOwnText: true,
+    });
+    expect(isTextElement(element)).toBe(true);
+    expect(isContainerElement(element)).toBe(true);
+  });
+
   it("still rejects empty shapes (no text content)", () => {
     const element = makeElement({
       isFlexContainer: true,
@@ -608,6 +619,15 @@ describe("isVectorShapeElement", () => {
     ).toBe(true);
   });
 
+  it.each(["rect", "rectangle", "ellipse", "circle"])(
+    "accepts an SVG %s wrapper for vector paint controls",
+    (primitiveKind) => {
+      expect(
+        isVectorShapeElement(makeElement({ tagName: "svg", primitiveKind })),
+      ).toBe(true);
+    },
+  );
+
   it("rejects a board-migrated polygon, which is a div painted with background", () => {
     // board-file.ts serializes polygon/star as plain divs carrying the same
     // data-an-primitive, so keying on the kind alone would send fill/stroke
@@ -618,6 +638,15 @@ describe("isVectorShapeElement", () => {
       ),
     ).toBe(false);
   });
+
+  it.each(["rectangle", "ellipse"])(
+    "keeps the canvas %s div out of SVG vector controls",
+    (primitiveKind) => {
+      expect(
+        isVectorShapeElement(makeElement({ tagName: "div", primitiveKind })),
+      ).toBe(false);
+    },
+  );
 
   it("rejects frames, text and unmarked svgs", () => {
     expect(

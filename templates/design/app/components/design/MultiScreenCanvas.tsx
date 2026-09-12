@@ -9980,9 +9980,15 @@ function breakpointLabel(widthPx: number): string {
   return "Desktop";
 }
 
-/** Suggest the next standard breakpoint not yet in the set. */
-function nextBreakpointWidth(existing: number[]): number | undefined {
-  return STANDARD_BREAKPOINT_WIDTHS.find((w) => !existing.includes(w));
+/** Suggest the next standard breakpoint not shown or duplicated by the base. */
+function nextBreakpointWidth(
+  existing: number[],
+  primaryWidthPx: number,
+): number | undefined {
+  return STANDARD_BREAKPOINT_WIDTHS.find(
+    (width) =>
+      !existing.includes(width) && Math.abs(width - primaryWidthPx) > 1,
+  );
 }
 
 /**
@@ -10820,15 +10826,16 @@ function BreakpointPreviewRow({
 }) {
   const t = useT();
   const frameActionLabel = t("designEditor.modes.interact");
+  const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
     screen.breakpointWidths,
     // Immutable device width, not the resizable box width (see frame-geometry).
-    metadata.width ?? primaryGeometry.width,
+    primaryWidthPx,
   );
   // Place additional frames to the right of the primary, starting after the gap
   let offsetX = primaryGeometry.width + BREAKPOINT_FRAME_GAP;
 
-  const nextWidth = nextBreakpointWidth(breakpointWidths);
+  const nextWidth = nextBreakpointWidth(breakpointWidths, primaryWidthPx);
   // Item 8b — "…" menu (Change width / Remove), same one-open-at-a-time
   // pattern as BreakpointDeviceControl's own per-segment menu: which
   // breakpoint's menu is open (by widthPx, the only stable identifier this
@@ -11034,7 +11041,7 @@ function BreakpointPreviewRow({
                             value={widthDraft}
                             autoFocus
                             onChange={(e) => setWidthDraft(e.target.value)}
-                            onKeyDown={(e) => {
+                            onKeyDownCapture={(e) => {
                               e.stopPropagation();
                               if (e.key !== "Enter") return;
                               e.preventDefault();

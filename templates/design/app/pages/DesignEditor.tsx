@@ -4548,12 +4548,13 @@ function DesignEditor() {
     if (!pending || pending.templateId) return;
     if (!hasPendingGenerationOutput(pending, files)) return;
     clearGenerationCompleteTimer();
+    resetAgentGenerating();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
     setGenerationIssue(null);
     setRetryablePrompt(null);
     staleToastShownRef.current = false;
-  }, [clearGenerationCompleteTimer, files, id]);
+  }, [clearGenerationCompleteTimer, files, id, resetAgentGenerating]);
 
   useEffect(
     () =>
@@ -15251,9 +15252,23 @@ function DesignEditor() {
   ]);
 
   const handleDownloadSvg = useCallback(
-    async (settings?: Partial<ExportSettingsValue>) =>
-      runDownloadSvg(
+    async (settings?: Partial<ExportSettingsValue>) => {
+      const exportScreenId =
+        viewMode === "overview" && overviewSelectedScreenIds.length === 1
+          ? (overviewSelectedScreenIds[0] ?? activeOverviewScreenId)
+          : activeOverviewScreenId;
+      const exportScreen = overviewScreens.find(
+        (screen) => screen.id === exportScreenId,
+      );
+      const activePreviewFrameId =
+        exportScreenId &&
+        activeBreakpointWidthState !== undefined &&
+        exportScreen?.breakpointWidths?.includes(activeBreakpointWidthState)
+          ? getBreakpointIframeId(exportScreenId, activeBreakpointWidthState)
+          : exportScreenId;
+      return runDownloadSvg(
         {
+          activePreviewFrameId,
           design,
           fallbackExportName,
           selectedElement,
@@ -15262,13 +15277,19 @@ function DesignEditor() {
           triggerBlobDownload,
         },
         settings,
-      ),
+      );
+    },
     [
+      activeBreakpointWidthState,
+      activeOverviewScreenId,
       design?.title,
       fallbackExportName,
+      overviewScreens,
+      overviewSelectedScreenIds,
       selectedElement,
       t,
       triggerBlobDownload,
+      viewMode,
     ],
   );
 
@@ -20263,6 +20284,10 @@ function DesignEditor() {
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 220);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
+  // These focused surfaces need a clear viewport beside the absolute rail.
+  const leftChromeOverlayInset = leftSidebarVisible
+    ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`
+    : undefined;
   const minimalInspectorHasSelection = hasMinimalInspectorSelection({
     selectedElement,
     selectedLayerIds,
@@ -20272,6 +20297,7 @@ function DesignEditor() {
     !hostOwnsChrome &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
+    !responsiveInteractActive &&
     (!minimalUi || minimalInspectorHasSelection);
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
@@ -20775,7 +20801,10 @@ function DesignEditor() {
           /* Panel background, not canvas: these are the agent's own follow-up
              questions, and on the canvas grey they read as an unrelated object
              parked beside the chat rather than a continuation of it. */
-          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]">
+          <div
+            className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
+            style={{ paddingLeft: leftChromeOverlayInset }}
+          >
             <QuestionFlow
               questions={pendingQuestions ?? []}
               onSubmit={handleQuestionsSubmit}
@@ -21034,7 +21063,14 @@ function DesignEditor() {
                 onRetry={handleRetryGeneration}
               />
             ) : viewMode === "overview" || activeFile ? (
-              <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div
+                className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
+                style={
+                  responsiveInteractActive && leftChromeOverlayInset
+                    ? { paddingLeft: leftChromeOverlayInset }
+                    : undefined
+                }
+              >
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
                     of the same editor, not a chrome-free takeover. */}
@@ -22055,16 +22091,12 @@ function DesignEditor() {
         saving={saveDesignAsTemplateMutation.isPending}
         onSave={async (values) => {
           try {
-            const result = (await saveDesignAsTemplateMutation.mutateAsync({
+            await saveDesignAsTemplateMutation.mutateAsync({
               designId: id,
               ...values,
-            })) as { lockedLayerCount?: number };
+            });
             setSaveTemplateOpen(false);
-            toast.success(
-              t("designEditor.templateSaved", {
-                count: result.lockedLayerCount ?? durableLockedLayerCount,
-              }),
-            );
+            toast.success(t("designEditor.templateSaved"));
             await queryClient.invalidateQueries({
               queryKey: ["action", "list-design-templates"],
             });

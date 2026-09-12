@@ -324,9 +324,9 @@ describe("FillProperties — existing layer fill popover", () => {
     const removeButtons = document.querySelectorAll(
       '[aria-label="editPanel.labels.removeLayer"]',
     );
-    expect(removeButtons.length).toBe(2);
+    expect(removeButtons.length).toBe(3);
     act(() => {
-      (removeButtons[0] as HTMLButtonElement).click();
+      (removeButtons[1] as HTMLButtonElement).click();
     });
 
     act(() => {

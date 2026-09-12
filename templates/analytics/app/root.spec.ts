@@ -28,6 +28,14 @@ describe("Analytics action invalidation", () => {
     ).toBe(true);
   });
 
+  it("leaves an open SQL dashboard to its dashboard change events", () => {
+    expect(
+      shouldInvalidateAnalyticsQueryForAction({
+        queryKey: ["data", "sql-dashboard", "dashboard-1", "org-1", 0],
+      }),
+    ).toBe(false);
+  });
+
   it("forwards corpus job changes through the existing DB sync bridge", () => {
     const source = readFileSync(new URL("./root.tsx", import.meta.url), "utf8");
     expect(source).toContain("onEvent: notifyProviderCorpusJobSyncEvent");

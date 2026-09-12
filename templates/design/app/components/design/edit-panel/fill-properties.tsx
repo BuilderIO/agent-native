@@ -357,53 +357,48 @@ export function FillProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
-          <SectionIconButton
-            label={t("editPanel.labels.addFill")}
-            onClick={() => {
-              if (fillIsMixed) {
-                commitStylePatch(
-                  {
-                    color: "#000000",
-                    backgroundColor: "#ffffff",
-                    backgroundImage: "none",
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              if (isTextFillElement) {
-                onStyleChange(
-                  "color",
-                  cssColorOrFallback(styles.color, "#000000"),
-                );
-                return;
-              }
-              if (isVectorFillElement) {
-                onStyleChange(
-                  "fill",
-                  cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
-                );
-                return;
-              }
-              const addFillPatch = addFillLayerPatch({
-                backgroundColor: styles.backgroundColor,
-                backgroundLayers,
-                backgroundSizeLayers,
-                backgroundRepeatLayers,
-                backgroundPositionLayers,
-              });
-              if (addFillPatch.backgroundImage !== undefined) {
-                layerKeysRef.current.keys = [
-                  nextLayerKey(),
-                  ...layerKeysRef.current.keys,
-                ];
-              }
-              commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
-            }}
-          >
-            <IconPlus className="size-3.5" />
-          </SectionIconButton>
+          {!isTextFillElement || fillIsMixed ? (
+            <SectionIconButton
+              label={t("editPanel.labels.addFill")}
+              onClick={() => {
+                if (fillIsMixed) {
+                  commitStylePatch(
+                    {
+                      color: "#000000", // guard:allow-raw-color - CSS paint fallback for mixed selections.
+                      backgroundColor: "#ffffff", // guard:allow-raw-color - CSS paint fallback for mixed selections.
+                      backgroundImage: "none",
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                  );
+                  return;
+                }
+                if (isVectorFillElement) {
+                  onStyleChange(
+                    "fill",
+                    cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
+                  );
+                  return;
+                }
+                const addFillPatch = addFillLayerPatch({
+                  backgroundColor: styles.backgroundColor,
+                  backgroundLayers,
+                  backgroundSizeLayers,
+                  backgroundRepeatLayers,
+                  backgroundPositionLayers,
+                });
+                if (addFillPatch.backgroundImage !== undefined) {
+                  layerKeysRef.current.keys = [
+                    nextLayerKey(),
+                    ...layerKeysRef.current.keys,
+                  ];
+                }
+                commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
+              }}
+            >
+              <IconPlus className="size-3.5" />
+            </SectionIconButton>
+          ) : null}
         </>
       }
     >
@@ -415,7 +410,9 @@ export function FillProperties({
         </p>
       ) : hasVisibleFill ? (
         <div className="space-y-2">
-          {isTextFillElement || colorHasVisibleAlpha(fillValue) ? (
+          {isTextFillElement ||
+          colorHasVisibleAlpha(fillValue) ||
+          hasBackgroundLayer ? (
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
             <InspectorPaintRow>
               <InspectorGridCell span={20}>

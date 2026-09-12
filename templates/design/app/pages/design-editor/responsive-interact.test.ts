@@ -126,6 +126,16 @@ describe("responsive Interact wiring", () => {
     );
   });
 
+  it("keeps guided questions and Interact content clear of the absolute left rail", () => {
+    expect(source).toContain("const leftChromeOverlayInset =");
+    expect(source.match(/paddingLeft: leftChromeOverlayInset/g)).toHaveLength(
+      2,
+    );
+    expect(source).toContain(
+      "responsiveInteractActive && leftChromeOverlayInset",
+    );
+  });
+
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
     expect(source).toContain(
       "embedded && !hostOwnsChrome && !embedChromeRequested",

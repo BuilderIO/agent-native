@@ -25,7 +25,7 @@ const REPO_ROOT = path.resolve(
 );
 
 /** The only routine exclusions `.agents/skills/ship` allows. */
-const EXCLUDED = /(^|\/)(learnings\.md$|bridge\/|data\/)/;
+const EXCLUDED = /(^|\/)learnings\.md$|^(bridge|data)\//;
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
@@ -67,6 +67,10 @@ export function selectStageablePaths(paths, { exists, isTracked }) {
   return paths.filter((file) => exists(file) || isTracked(file));
 }
 
+export function isExcludedPath(file) {
+  return EXCLUDED.test(file);
+}
+
 function main() {
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === "HEAD" || branch === "main" || branch === "master") {
@@ -90,8 +94,8 @@ function main() {
     return;
   }
 
-  const excluded = dirtyPaths.filter((file) => EXCLUDED.test(file));
-  const publishable = dirtyPaths.filter((file) => !EXCLUDED.test(file));
+  const excluded = dirtyPaths.filter(isExcludedPath);
+  const publishable = dirtyPaths.filter((file) => !isExcludedPath(file));
 
   if (dryRun) {
     console.log(
@@ -126,7 +130,9 @@ function main() {
       isTracked: (file) => tracked.has(file),
     });
     if (stageable.length > 0) {
-      git(["add", "--all", "--", ...stageable]);
+      // Tracked generated files may still match a parent ignore rule. These
+      // exact pathspecs came from Git's dirty-path list, so force-add is scoped.
+      git(["add", "--all", "-f", "--", ...stageable]);
     }
     const staged = git(["diff", "--cached", "--name-only"])
       .split("\n")
@@ -154,7 +160,7 @@ function main() {
     git(["status", "--porcelain", "-z", "--untracked-files=all"], {
       raw: true,
     }),
-  ).filter((file) => EXCLUDED.test(file));
+  ).filter(isExcludedPath);
   if (remainingExcluded.length > 0) {
     console.log(
       `  left behind (say so explicitly):\n    ${remainingExcluded.join("\n    ")}`,

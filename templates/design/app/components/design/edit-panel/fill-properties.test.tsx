@@ -141,6 +141,25 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("keeps the base picker mounted after converting a box fill to a gradient", () => {
+    const el = element({
+      computedStyles: {
+        backgroundColor: "rgba(255, 0, 0, 0)",
+        backgroundImage: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-testid="base-fill-color-input"');
+  });
+
   it("wires backgroundSize/backgroundRepeat/backgroundPosition onto the base row's ColorInput, not just backgroundImage", () => {
     const el = element({
       computedStyles: {
@@ -190,5 +209,26 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-size=""');
     expect(markup).toContain('data-background-repeat=""');
     expect(markup).toContain('data-background-position=""');
+    expect(markup).not.toContain('aria-label="editPanel.labels.addFill"');
+  });
+
+  it("keeps the replace action for mixed text fills", () => {
+    const el = element({
+      tagName: "span",
+      computedStyles: {
+        color: "Mixed",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('aria-label="editPanel.labels.addFill"');
+    expect(markup).toContain("Click + to replace mixed content");
   });
 });

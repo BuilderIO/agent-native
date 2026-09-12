@@ -169,7 +169,7 @@ async function seedDesign(
   return designId;
 }
 
-test("each alignment button moves the object to the edge it names", async ({
+test("Left and Right alignment controls move to their named edges", async ({
   page,
   request,
   baseURL,
@@ -187,15 +187,26 @@ test("each alignment button moves the object to the edge it names", async ({
 
   await alignButton(page, "Align left").click();
   await expectOffset(page, "Chip", { left: 0, top: 250 });
+});
+
+test("Top and Bottom alignment controls move to their named edges", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Chip");
+  await expectOffset(page, "Chip", { left: 300, top: 250 });
 
   await alignButton(page, "Align bottom").click();
   await expectOffset(page, "Chip", {
-    left: 0,
+    left: 300,
     top: BOUNDS_HEIGHT - CHIP_HEIGHT,
   });
 
   await alignButton(page, "Align top").click();
-  await expectOffset(page, "Chip", { left: 0, top: 0 });
+  await expectOffset(page, "Chip", { left: 300, top: 0 });
 });
 
 test("aligning one axis leaves a percentage offset on the other axis put", async ({

@@ -76,7 +76,7 @@ export interface ImportResultNotification {
 export function readFigmaImportFailure(
   error: unknown,
   fallbackMessage: string,
-): { result: ImportResult; isRateLimited: boolean } {
+): { result: ImportResult & { error: string }; isRateLimited: boolean } {
   const source = error as
     | { errorCode?: unknown; details?: Record<string, unknown> }
     | undefined;
@@ -107,6 +107,29 @@ export function readFigmaImportFailure(
       source?.errorCode === FIGMA_RATE_LIMITED_ERROR_CODE ||
       source?.errorCode === FIGMA_PROVIDER_QUOTA_ERROR_CODE,
   };
+}
+
+export function figmaHydrationErrorMessage(
+  error: unknown,
+  fallbackMessage: string,
+  forbiddenMessage: string,
+): string {
+  const { result } = readFigmaImportFailure(error, fallbackMessage);
+  const source = error as
+    | {
+        errorCode?: unknown;
+        statusCode?: unknown;
+        details?: Record<string, unknown>;
+      }
+    | undefined;
+  const isFigmaForbidden =
+    source?.errorCode === "figma_request_failed" &&
+    (source.statusCode === 403 || source.details?.figmaStatus === 403);
+
+  if (isFigmaForbidden) return forbiddenMessage;
+  return /internal server error/i.test(result.error)
+    ? fallbackMessage
+    : result.error;
 }
 
 export const VISUAL_EDIT_CONNECT_COMMAND =

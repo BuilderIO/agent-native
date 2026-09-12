@@ -6,6 +6,8 @@ export type EmbeddedCanvasPanPhase = "start" | "move" | "end" | "cancel";
 export interface EmbeddedCanvasPanSession {
   pointerId: number;
   button: 0 | 1;
+  clientX: number;
+  clientY: number;
 }
 
 interface EmbeddedCanvasPanMessage {
@@ -16,6 +18,8 @@ interface EmbeddedCanvasPanMessage {
   buttons: number;
   clientX: number;
   clientY: number;
+  movementX: number;
+  movementY: number;
   ctrlKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
@@ -56,6 +60,8 @@ function parseEmbeddedCanvasPanMessage(
   const buttons = finiteNumber(candidate.buttons);
   const clientX = finiteNumber(candidate.clientX);
   const clientY = finiteNumber(candidate.clientY);
+  const movementX = finiteNumber(candidate.movementX);
+  const movementY = finiteNumber(candidate.movementY);
   if (
     pointerId === null ||
     !Number.isInteger(pointerId) ||
@@ -64,7 +70,9 @@ function parseEmbeddedCanvasPanMessage(
     (rawButton !== 0 && rawButton !== 1) ||
     buttons === null ||
     clientX === null ||
-    clientY === null
+    clientY === null ||
+    movementX === null ||
+    movementY === null
   ) {
     return null;
   }
@@ -84,6 +92,16 @@ function parseEmbeddedCanvasPanMessage(
       -MAX_IFRAME_PAN_COORDINATE,
       MAX_IFRAME_PAN_COORDINATE,
     ),
+    movementX: clamp(
+      movementX,
+      -MAX_IFRAME_PAN_COORDINATE,
+      MAX_IFRAME_PAN_COORDINATE,
+    ),
+    movementY: clamp(
+      movementY,
+      -MAX_IFRAME_PAN_COORDINATE,
+      MAX_IFRAME_PAN_COORDINATE,
+    ),
     ctrlKey: Boolean(candidate.ctrlKey),
     metaKey: Boolean(candidate.metaKey),
     shiftKey: Boolean(candidate.shiftKey),
@@ -93,10 +111,14 @@ function parseEmbeddedCanvasPanMessage(
 
 /**
  * Replays a trusted iframe bridge pan message through the parent document's
- * existing mouse-drag path. The synthetic mousedown bubbles from the iframe
- * element, so single-screen DesignCanvas and overview MultiScreenCanvas keep
- * one authoritative pan implementation; move/end events go to `window`, where
- * both implementations already install their lifetime drag listeners.
+ * existing mouse-drag path. The start point maps through the scaled iframe rect;
+ * pointer movement deltas already use parent-viewport pixels, so they are
+ * accumulated without scaling again. This also keeps queued messages stable if
+ * parent panning moves the iframe before they are handled. The synthetic
+ * mousedown bubbles from the iframe element, so single-screen DesignCanvas and
+ * overview MultiScreenCanvas keep one authoritative pan implementation;
+ * move/end events go to `window`, where both implementations already install
+ * their listeners.
  *
  * The caller owns `session` and must only call this after validating the
  * MessageEvent's source window + origin. Session matching rejects injected or
@@ -135,8 +157,20 @@ export function forwardEmbeddedCanvasPanMessage({
     iframe.clientHeight > 0 && Number.isFinite(frameRect.height)
       ? frameRect.height / iframe.clientHeight
       : 1;
-  const clientX = frameRect.left + message.clientX * scaleX;
-  const clientY = frameRect.top + message.clientY * scaleY;
+  const clientX = clamp(
+    message.phase === "start"
+      ? frameRect.left + message.clientX * scaleX
+      : session!.clientX + (message.phase === "cancel" ? 0 : message.movementX),
+    -MAX_IFRAME_PAN_COORDINATE,
+    MAX_IFRAME_PAN_COORDINATE,
+  );
+  const clientY = clamp(
+    message.phase === "start"
+      ? frameRect.top + message.clientY * scaleY
+      : session!.clientY + (message.phase === "cancel" ? 0 : message.movementY),
+    -MAX_IFRAME_PAN_COORDINATE,
+    MAX_IFRAME_PAN_COORDINATE,
+  );
   const eventType =
     message.phase === "start"
       ? "mousedown"
@@ -165,13 +199,19 @@ export function forwardEmbeddedCanvasPanMessage({
     iframe.dispatchEvent(forwarded);
     return {
       handled: true,
-      session: { pointerId: message.pointerId, button: message.button },
+      session: {
+        pointerId: message.pointerId,
+        button: message.button,
+        clientX,
+        clientY,
+      },
     };
   }
 
   hostWindow.dispatchEvent(forwarded);
   return {
     handled: true,
-    session: message.phase === "move" ? session : null,
+    session:
+      message.phase === "move" ? { ...session!, clientX, clientY } : null,
   };
 }

@@ -4,6 +4,7 @@ import {
   canvasZoom,
   readSeedDesignId,
   gotoEditor,
+  createFixtureDesign,
   designFrame,
   enterDirectMode,
   selectByText,
@@ -13,6 +14,7 @@ import {
   installBridge,
   waitForBridge,
   bridgeMessages,
+  appPath,
 } from "./helpers";
 
 let designId: string;
@@ -169,34 +171,126 @@ test("right rail actions row keeps the Share button inside the panel", async ({
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
+  let notifyFirstAdd: () => void = () => {};
+  let releaseFirstAdd: () => void = () => {};
+  const firstAddStarted = new Promise<void>((resolve) => {
+    notifyFirstAdd = resolve;
+  });
+  const firstAddGate = new Promise<void>((resolve) => {
+    releaseFirstAdd = resolve;
+  });
+  let holdFirstAdd = true;
+  await page.route("**/_agent-native/actions/add-breakpoint", async (route) => {
+    const response = await route.fetch();
+    if (holdFirstAdd) {
+      holdFirstAdd = false;
+      notifyFirstAdd();
+      await firstAddGate;
+    }
+    await route.fulfill({ response });
+  });
+
   const breakpointControl = page.locator("[data-breakpoint-device-control]");
-  await expect(
-    breakpointControl.getByRole("button", { name: "Base" }),
-  ).toHaveAttribute("aria-pressed", "true");
+  try {
+    await expect(
+      breakpointControl.getByRole("button", { name: "Base" }),
+    ).toHaveAttribute("aria-pressed", "true");
 
-  await breakpointControl
-    .getByRole("button", { name: "Add breakpoint" })
+    await breakpointControl
+      .getByRole("button", { name: "Add breakpoint" })
+      .click();
+    await page.getByRole("button", { name: /Tablet\s+810/ }).click();
+
+    const tabletTarget = breakpointControl.getByRole("button", {
+      name: "810",
+    });
+    await expect(tabletTarget).toBeVisible();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+    await tabletTarget.click();
+    await expect(tabletTarget).toHaveAttribute("aria-pressed", "true");
+    await breakpointControl.getByRole("button", { name: "Base" }).click();
+    await expect(
+      breakpointControl.getByRole("button", { name: "Base" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await firstAddStarted;
+    const addBreakpoint = breakpointControl.getByRole("button", {
+      name: "Add breakpoint",
+    });
+    await expect(addBreakpoint).toBeVisible();
+    await expect(addBreakpoint).toBeEnabled();
+    await addBreakpoint.click();
+    const customWidth = page.getByPlaceholder("Custom width");
+    await customWidth.fill("700");
+    const addCustomBreakpoint = page.getByRole("button", {
+      name: "Add",
+      exact: true,
+    });
+    await expect(addCustomBreakpoint).toBeDisabled();
+    releaseFirstAdd();
+    await expect(addCustomBreakpoint).toBeEnabled();
+    await addCustomBreakpoint.click();
+    const customTarget = breakpointControl.getByRole("button", {
+      name: "700",
+    });
+    await expect(customTarget).toBeVisible();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+
+    // Leave the shared seed design pristine for later inspector/browser specs.
+    await customTarget.click();
+    await breakpointControl
+      .getByRole("button", { name: "Breakpoint options" })
+      .click();
+    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+
+    await tabletTarget.click();
+    await breakpointControl
+      .getByRole("button", { name: "Breakpoint options" })
+      .click();
+    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+  } finally {
+    releaseFirstAdd();
+    await page.unroute("**/_agent-native/actions/add-breakpoint");
+  }
+});
+
+test("frame plus skips the breakpoint matching the base screen width", async ({
+  page,
+}) => {
+  const fixtureDesignId = await createFixtureDesign(
+    page,
+    "E2E Frame Breakpoint Plus",
+  );
+  const actionUrl = `${new URL(page.url()).origin}/_agent-native/actions/add-breakpoint`;
+  for (const breakpoint of [
+    { label: "Mobile", widthPx: 390 },
+    { label: "Tablet", widthPx: 768 },
+  ]) {
+    const response = await page.request.post(actionUrl, {
+      data: { designId: fixtureDesignId, ...breakpoint },
+    });
+    expect(response.ok()).toBe(true);
+  }
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto(appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+  await page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: "All screens", exact: true })
     .click();
-  // The device menu lists every iPhone preset alongside the generic row.
-  await page.getByRole("button", { name: /^Phone \d+$/ }).click();
+  await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
 
-  const mobileTarget = breakpointControl.getByRole("button", { name: "390" });
-  await expect(mobileTarget).toBeVisible();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
-  await mobileTarget.click();
-  await expect(mobileTarget).toHaveAttribute("aria-pressed", "true");
-  await breakpointControl.getByRole("button", { name: "Base" }).click();
   await expect(
-    breakpointControl.getByRole("button", { name: "Base" }),
-  ).toHaveAttribute("aria-pressed", "true");
-
-  // Leave the shared seed design pristine for later inspector/browser specs.
-  await mobileTarget.click();
-  await breakpointControl
-    .getByRole("button", { name: "Breakpoint options" })
-    .click();
-  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    page.locator(
+      'button[title="Add Desktop breakpoint (1280px) to all screens"]',
+    ),
+  ).toHaveCount(0);
 });
 
 test("screen overview keeps compact frame actions contained when header space is tight", async ({
@@ -309,6 +403,48 @@ test("screen overview lets users select elements inside the active screen", asyn
     )
     .not.toBe("none");
   await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
+});
+
+test("middle-mouse pan follows vertical pointer movement over screen content", async ({
+  page,
+}) => {
+  const screenCard = page
+    .locator("[data-screen-card]")
+    .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
+    .last();
+  await expect(screenCard).toBeVisible();
+
+  const heading = designFrame(page).getByText("E2E Hero Heading").first();
+  await heading.scrollIntoViewIfNeeded();
+  const headingBox = await heading.boundingBox();
+  const initialCard = await screenCard.boundingBox();
+  if (!headingBox || !initialCard) {
+    throw new Error("missing screen content or card bounds");
+  }
+
+  const startX = headingBox.x + headingBox.width / 2;
+  const startY = headingBox.y + headingBox.height / 2;
+  const cardY = [initialCard.y];
+  await page.mouse.move(startX, startY);
+  await page.mouse.down({ button: "middle" });
+  try {
+    for (let step = 1; step <= 8; step += 1) {
+      await page.mouse.move(startX, startY + step * 12, { steps: 1 });
+      await page.waitForTimeout(24);
+      const currentCard = await screenCard.boundingBox();
+      if (!currentCard)
+        throw new Error("screen card disappeared while panning");
+      cardY.push(currentCard.y);
+    }
+  } finally {
+    await page.mouse.up({ button: "middle" });
+  }
+
+  const deltas = cardY.slice(1).map((y, index) => y - cardY[index]!);
+  const finalCardY = cardY[cardY.length - 1]!;
+  expect(deltas.every((delta) => delta > 0 && delta < 30)).toBe(true);
+  expect(finalCardY - cardY[0]!).toBeGreaterThan(72);
+  expect(finalCardY - cardY[0]!).toBeLessThan(120);
 });
 
 test("left sidebar switches between all screens and focused screens", async ({

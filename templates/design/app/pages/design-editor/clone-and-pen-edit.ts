@@ -1,4 +1,4 @@
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import {
   getPenPathGeometry,
   serializePenNodes,
@@ -98,6 +98,16 @@ export function writeBackVectorEditedPenPath(
     const d = serializePenPath(penPath);
     const geometry = getPenPathGeometry(penPath);
     const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
+    const strokeOverlay = svg.querySelector<SVGUseElement>(
+      ":scope > use[data-an-vector-stroke-overlay]",
+    );
+    const originalOverflow = svg.getAttribute(
+      "data-an-vector-stroke-original-overflow",
+    );
+    const originalOverflowPriority =
+      svg.getAttribute("data-an-vector-stroke-original-overflow-priority") ??
+      "";
+    const strokePosition = svg.getAttribute("data-an-vector-stroke-position");
 
     path.setAttribute("d", d);
     if (isClosed) {
@@ -112,6 +122,34 @@ export function writeBackVectorEditedPenPath(
       }
     } else {
       path.setAttribute("fill", "none");
+      if (strokeOverlay) {
+        const overlayStyle = strokeOverlay.style;
+        for (const property of [
+          "stroke",
+          "stroke-width",
+          "stroke-opacity",
+          "stroke-dasharray",
+          "stroke-dashoffset",
+          "stroke-linecap",
+          "stroke-linejoin",
+          "stroke-miterlimit",
+        ]) {
+          const value =
+            property === "stroke-width"
+              ? strokeOverlay.getAttribute("data-an-vector-logical-width")
+              : overlayStyle.getPropertyValue(property);
+          if (value) path.style.setProperty(property, value);
+        }
+        svg
+          .querySelectorAll(":scope > defs[data-an-vector-stroke-defs]")
+          .forEach((defs) => defs.remove());
+        svg
+          .querySelectorAll(":scope > use[data-an-vector-stroke-overlay]")
+          .forEach((overlay) => overlay.remove());
+        svg.removeAttribute("data-an-vector-stroke-position");
+        svg.removeAttribute("data-an-vector-stroke-original-overflow");
+        svg.removeAttribute("data-an-vector-stroke-original-overflow-priority");
+      }
       // An open path is only its stroke, and a path drawn closed commits
       // with stroke:none — reopening it without this paints nothing at all.
       if (path.getAttribute("stroke") === "none") {
@@ -141,8 +179,30 @@ export function writeBackVectorEditedPenPath(
         .filter(Boolean)
         .join(";"),
     );
+    if (!isClosed && strokeOverlay && originalOverflow !== null) {
+      const svgStyle = (svg as SVGElement).style;
+      if (originalOverflow) {
+        svgStyle.setProperty(
+          "overflow",
+          originalOverflow,
+          originalOverflowPriority,
+        );
+      } else {
+        svgStyle.removeProperty("overflow");
+      }
+    }
 
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    const updatedHtml = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    if (isClosed && strokeOverlay && strokePosition) {
+      const rebuilt = applyVisualEdit(updatedHtml, {
+        kind: "style",
+        target: { nodeId },
+        property: "--an-vector-stroke-position",
+        value: strokePosition,
+      });
+      if (rebuilt.result.status === "applied") return rebuilt.content;
+    }
+    return updatedHtml;
   } catch {
     return content;
   }
@@ -248,8 +308,25 @@ function prepareClonedHtmlLayer(
     layerDoc.body.firstElementChild;
   if (!source) return null;
   const clone = doc.importNode(source, true) as Element;
+  const sourceLayerName =
+    source.getAttribute("data-agent-native-layer-name") ||
+    source.getAttribute("data-layer-name") ||
+    "";
+  const sourceNodeId = source.getAttribute("data-agent-native-node-id") || "";
+  const sourceIsLegacyGroup =
+    /^an-[a-z0-9]+$/i.test(sourceNodeId) &&
+    /^group(?: \d+)?$/i.test(sourceLayerName.trim()) &&
+    source.getAttribute("data-agent-native-preserve-styles") === "true" &&
+    source.getAttribute("data-agent-native-clone-root") !== "true";
+  if (
+    sourceIsLegacyGroup &&
+    source.getAttribute("data-agent-native-group-wrapper") !== "true"
+  ) {
+    clone.setAttribute("data-agent-native-group-wrapper", "true");
+  }
   if (styleSnapshot) {
     clone.setAttribute("data-agent-native-preserve-styles", "true");
+    clone.setAttribute("data-agent-native-clone-root", "true");
     styleSnapshot.nodes.forEach((node) => {
       const target = elementAtPortableStylePath(clone, node);
       if (target) applyPortableStyles(target, node.styles);
