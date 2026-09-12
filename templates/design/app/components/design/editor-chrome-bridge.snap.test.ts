@@ -436,7 +436,11 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     const group = {
       parentElement: null,
       getAttribute: (name: string) =>
-        name === "data-agent-native-layer-name" ? "Group" : null,
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-group-wrapper"
+            ? "true"
+            : null,
     } as unknown as Element;
     const child = {
       parentElement: group,

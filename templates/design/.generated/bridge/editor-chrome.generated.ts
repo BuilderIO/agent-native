@@ -1622,8 +1622,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         while (group && !isDocumentRootElement(group)) {
           var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
           var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true";
-          var legacyGeneratedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-preserve-styles") === "true";
-          if (/^group(?: \\d+)?$/i.test(groupName.trim()) && (generatedGroupMarker || legacyGeneratedGroupMarker)) {
+          if (/^group(?: \\d+)?$/i.test(groupName.trim()) && generatedGroupMarker) {
             return group;
           }
           group = group.parentElement;

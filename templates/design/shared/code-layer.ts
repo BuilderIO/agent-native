@@ -474,7 +474,8 @@ export interface MoveNodeEditIntent {
  * GROUP: wrap sibling nodes sharing a parent inside a new <div> wrapper.
  * The wrapper is inserted at the position of the first target; targets are
  * reparented into it in source order. The new wrapper gets a fresh
- * data-agent-native-node-id and data-agent-native-layer-name="Group".
+ * data-agent-native-node-id, data-agent-native-layer-name="Group", and
+ * data-agent-native-group-wrapper="true" marker.
  *
  * When autoLayout is true the wrapper also receives
  * `display:flex; flex-direction:column; gap:8px` and

@@ -8,7 +8,7 @@ const wrap = (inner: string) =>
 describe("removeEmptyGeneratedGroupWrappers", () => {
   it("removes a generated wrapper the edit emptied", () => {
     const content = wrap(
-      '<div data-agent-native-node-id="g1" data-agent-native-layer-name="Group"></div><p data-agent-native-node-id="keep">keep</p>',
+      '<div data-agent-native-node-id="g1" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true"></div><p data-agent-native-node-id="keep">keep</p>',
     );
     const next = removeEmptyGeneratedGroupWrappers(content, new Set(["g1"]));
     expect(next).not.toContain('data-agent-native-node-id="g1"');
@@ -17,7 +17,7 @@ describe("removeEmptyGeneratedGroupWrappers", () => {
 
   it("removes a chain of nested generated wrappers", () => {
     const content = wrap(
-      '<div data-agent-native-node-id="g1" data-agent-native-layer-name="Group"><div data-agent-native-node-id="g2" data-agent-native-layer-name="Group 2"></div></div>',
+      '<div data-agent-native-node-id="g1" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true"><div data-agent-native-node-id="g2" data-agent-native-layer-name="Group 2" data-agent-native-group-wrapper="true"></div></div>',
     );
     const next = removeEmptyGeneratedGroupWrappers(
       content,
@@ -29,7 +29,7 @@ describe("removeEmptyGeneratedGroupWrappers", () => {
 
   it("leaves a user-named empty container alone", () => {
     const content = wrap(
-      '<div data-agent-native-node-id="c1" data-agent-native-layer-name="Sidebar"></div>',
+      '<div data-agent-native-node-id="c1" data-agent-native-layer-name="Group"></div>',
     );
     expect(removeEmptyGeneratedGroupWrappers(content, new Set(["c1"]))).toBe(
       content,
@@ -38,7 +38,7 @@ describe("removeEmptyGeneratedGroupWrappers", () => {
 
   it("leaves a generated wrapper that still has children alone", () => {
     const content = wrap(
-      '<div data-agent-native-node-id="g1" data-agent-native-layer-name="Group"><p data-agent-native-node-id="child">x</p></div>',
+      '<div data-agent-native-node-id="g1" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true"><p data-agent-native-node-id="child">x</p></div>',
     );
     expect(removeEmptyGeneratedGroupWrappers(content, new Set(["g1"]))).toBe(
       content,

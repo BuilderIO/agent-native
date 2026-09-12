@@ -1902,15 +1902,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var generatedGroupMarker =
           group.getAttribute &&
           group.getAttribute("data-agent-native-group-wrapper") === "true";
-        var legacyGeneratedGroupMarker =
-          group.getAttribute &&
-          group.getAttribute("data-agent-native-preserve-styles") === "true";
-        // New wrappers carry a dedicated marker. The preserve-styles fallback
-        // keeps wrappers created before that marker selectable without making
-        // an authored layer named "Group" capture its descendants.
+        // Only the dedicated marker identifies a generated wrapper. Other
+        // internal attributes also occur on ordinary cloned layers.
         if (
           /^group(?: \d+)?$/i.test(groupName.trim()) &&
-          (generatedGroupMarker || legacyGeneratedGroupMarker)
+          generatedGroupMarker
         ) {
           return group;
         }

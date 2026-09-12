@@ -1147,17 +1147,8 @@ export function findCodeLayerSiblingOrder(
   return null;
 }
 
-// L25: matches the auto-generated wrapper name pattern from
-// nextSequentialGroupName in shared/code-layer.ts ("Group", "Group 2", ...).
-// Used to identify wrappers that were CREATED by the group action (as opposed
-// to a user's own named container) so we only auto-clean up ones we made.
-export const GENERATED_GROUP_NAME_PATTERN = /^Group(?: \d+)?$/;
-
 export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
-  const layerNameAttr = node.dataAttributes["data-agent-native-layer-name"];
-  return Boolean(
-    layerNameAttr && GENERATED_GROUP_NAME_PATTERN.test(layerNameAttr.trim()),
-  );
+  return node.dataAttributes["data-agent-native-group-wrapper"] === "true";
 }
 
 /**
@@ -1175,14 +1166,10 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
-  // Both are necessary conditions for isGeneratedGroupWrapperNode to ever
-  // match. Checking them on the raw string first keeps a document with no
-  // generated groups — the common case — from paying for a full projection of
-  // post-edit content on every structural edit.
-  if (
-    !content.includes("data-agent-native-layer-name") ||
-    !content.includes("Group")
-  ) {
+  // Checking the marker on the raw string first keeps a document with no
+  // generated groups — the common case — from paying for a full projection
+  // of post-edit content on every structural edit.
+  if (!content.includes("data-agent-native-group-wrapper")) {
     return content;
   }
   let next = content;
