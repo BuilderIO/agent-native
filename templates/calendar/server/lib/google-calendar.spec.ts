@@ -1003,6 +1003,8 @@ describe("calendar event listing", () => {
       id: "overlay-host@example.com-overlay-1",
       accountEmail: "steve@example.com",
       overlayEmail: "host@example.com",
+      calendarPrimary: false,
+      calendarReadOnly: true,
       attendees: [
         {
           email: "host@example.com",

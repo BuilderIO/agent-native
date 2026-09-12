@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -41,6 +42,7 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
@@ -54,6 +56,15 @@ import {
 } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
+import {
+  getResponsiveBreakpointHeightPx,
+  getResponsiveBreakpointWidths,
+  getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
+  getResponsiveGroupWidth,
+  getScreenPreviewViewport,
+  visibleBreakpointWidths,
+} from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 /**
@@ -719,6 +730,18 @@ const generateDesignAction = defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
+    track(
+      "generation_started",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        prompt_type: "ui",
+        has_reference_design_system: Boolean(designSystemId),
+      },
+      context,
+    );
     await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
@@ -1043,6 +1066,24 @@ const generateDesignAction = defineAction({
           },
         });
         const viewport = GENERATION_VIEWPORT_SIZES[resolvedPrimaryViewport];
+        const effectiveBreakpointWidths =
+          devices && devices.length > 0
+            ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+            : classifyBreakpointSet(prevData.breakpointSet) === "present"
+              ? getResponsiveBreakpointWidths(prevData.breakpointSet)
+              : classifyBreakpointSet(prevData.breakpointSet) === "absent"
+                ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+                : [];
+        const metadataByFileId =
+          prevData.screenMetadata &&
+          typeof prevData.screenMetadata === "object" &&
+          !Array.isArray(prevData.screenMetadata)
+            ? (prevData.screenMetadata as Record<string, unknown>)
+            : {};
+        const responsiveScreenFileIds = new Set([
+          ...getOverviewScreenFileIds(existingFiles),
+          ...getOverviewScreenFileIds(savedFiles),
+        ]);
         // Frames placed by an earlier call: never moved, and counted as
         // occupied so a new screen is never dropped on top of one.
         const preExistingFrameIds = new Set(
@@ -1050,35 +1091,92 @@ const generateDesignAction = defineAction({
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
-        const rectOf = (frame: {
-          x?: number;
-          y?: number;
-          width?: number;
-          height?: number;
-          rotation?: number;
-        }) => {
+        // Resize targets before measuring occupancy so later generated frames
+        // clear the geometry the explicit device request will actually leave.
+        if (devices && devices.length > 0) {
+          for (const file of savedFiles) {
+            const current = merged.canvasFrames[file.id];
+            if (
+              preExistingFrameIds.has(file.id) &&
+              current?.x !== undefined &&
+              current.y !== undefined &&
+              current.width !== undefined &&
+              current.height !== undefined
+            ) {
+              merged.canvasFrames[file.id] = {
+                ...current,
+                width: viewport.width,
+                height: viewport.height,
+              };
+            }
+          }
+        }
+        const rectOf = (
+          frame: {
+            x?: number;
+            y?: number;
+            width?: number;
+            height?: number;
+            rotation?: number;
+          },
+          fileId?: string,
+        ) => {
           const x = frame.x ?? 0;
           const y = frame.y ?? 0;
           const width = frame.width ?? 0;
           const height = frame.height ?? 0;
+          const rawMetadata = fileId ? metadataByFileId[fileId] : undefined;
+          const metadata =
+            rawMetadata &&
+            typeof rawMetadata === "object" &&
+            !Array.isArray(rawMetadata)
+              ? (rawMetadata as Record<string, unknown>)
+              : {};
+          const sourceWidth =
+            typeof metadata.width === "number" && metadata.width > 0
+              ? metadata.width
+              : 1280;
+          const sourceHeight =
+            typeof metadata.height === "number" && metadata.height > 0
+              ? metadata.height
+              : 2560;
+          const visibleWidths = visibleBreakpointWidths(
+            responsiveScreenFileIds.has(fileId ?? "")
+              ? effectiveBreakpointWidths
+              : [],
+            typeof metadata.width === "number" ? metadata.width : width,
+          );
+          const scale = getScreenPreviewViewport(
+            { width: sourceWidth, height: sourceHeight },
+            { width, height },
+          ).scale;
+          const groupWidth = getResponsiveGroupWidth({
+            primaryWidth: Math.max(1, width),
+            scale,
+            visibleWidths,
+          });
+          const groupHeight = getResponsiveGroupHeight({
+            primaryHeight: Math.max(1, height),
+            scale,
+            sourceWidth,
+            sourceHeight,
+            visibleWidths,
+            resolveBreakpointHeightPx: (widthPx) =>
+              getResponsiveBreakpointHeightPx(metadata, widthPx),
+          });
           const rotation = frame.rotation ?? 0;
           if (!rotation || width <= 0 || height <= 0) {
-            return { x, y, width, height };
+            return { x, y, width: groupWidth, height: groupHeight };
           }
-          // Existing frames render rotated about their center; use the rotated
-          // rect's axis-aligned bounding box so a new screen isn't dropped over
-          // a rotated frame's real footprint.
-          const radians = (rotation * Math.PI) / 180;
-          const cos = Math.abs(Math.cos(radians));
-          const sin = Math.abs(Math.sin(radians));
-          const aabbWidth = width * cos + height * sin;
-          const aabbHeight = width * sin + height * cos;
-          return {
-            x: x + width / 2 - aabbWidth / 2,
-            y: y + height / 2 - aabbHeight / 2,
-            width: aabbWidth,
-            height: aabbHeight,
-          };
+          return getResponsiveGroupRotatedBounds({
+            x,
+            y,
+            primaryWidth: width,
+            primaryHeight: height,
+            groupWidth,
+            groupHeight,
+            rotation,
+          });
         };
         const framesOverlap = (
           a: ReturnType<typeof rectOf>,
@@ -1095,7 +1193,7 @@ const generateDesignAction = defineAction({
         const occupiedRects: Array<ReturnType<typeof rectOf>> = [];
         for (const id of preExistingFrameIds) {
           const frame = merged.canvasFrames[id];
-          if (frame) occupiedRects.push(rectOf(frame));
+          if (frame) occupiedRects.push(rectOf(frame, id));
         }
         // Keep arg placements for files we're not regenerating; the regenerated
         // ones are (re)placed below, so rebuild their entries here rather than
@@ -1105,7 +1203,7 @@ const generateDesignAction = defineAction({
           (placed) => !regeneratedFileIds.has(placed.fileId),
         );
         for (const placed of generationFrames) {
-          occupiedRects.push(rectOf(placed.frame));
+          occupiedRects.push(rectOf(placed.frame, placed.fileId));
         }
         // Relocate target: right of every occupied (rotation-aware) rect.
         let nextX = occupiedRects.reduce(
@@ -1126,16 +1224,6 @@ const generateDesignAction = defineAction({
             current.width !== undefined &&
             current.height !== undefined
           ) {
-            // An explicit device request resizes the primary frame to the
-            // requested viewport (preserving position/rotation); otherwise a
-            // regenerated screen keeps its exact stored geometry.
-            if (devices && devices.length > 0) {
-              merged.canvasFrames[file.id] = {
-                ...current,
-                width: viewport.width,
-                height: viewport.height,
-              };
-            }
             continue;
           }
           const width = current.width ?? viewport.width;
@@ -1146,18 +1234,55 @@ const generateDesignAction = defineAction({
           // overlaps (e.g. a second screen defaulting to the same origin). The
           // candidate carries its own rotation so a rotated placement is tested
           // by its real footprint, not its unrotated rectangle.
-          const candidateRect = rectOf({
-            x,
-            y,
-            width,
-            height,
-            rotation: current.rotation,
-          });
+          let candidateRect = rectOf(
+            {
+              x,
+              y,
+              width,
+              height,
+              rotation: current.rotation,
+            },
+            file.id,
+          );
           if (
             occupiedRects.some((rect) => framesOverlap(candidateRect, rect))
           ) {
-            x = nextX;
             y = 0;
+            x = Math.max(x, nextX);
+            candidateRect = rectOf(
+              {
+                x,
+                y,
+                width,
+                height,
+                rotation: current.rotation,
+              },
+              file.id,
+            );
+            while (true) {
+              const overlappingRects = occupiedRects.filter((rect) =>
+                framesOverlap(candidateRect, rect),
+              );
+              if (overlappingRects.length === 0) break;
+              const leftOffset = candidateRect.x - x;
+              x = Math.max(
+                x + GENERATED_FRAME_GAP,
+                ...overlappingRects.map(
+                  (rect) =>
+                    rect.x + rect.width + GENERATED_FRAME_GAP - leftOffset,
+                ),
+              );
+              candidateRect = rectOf(
+                {
+                  x,
+                  y,
+                  width,
+                  height,
+                  rotation: current.rotation,
+                },
+                file.id,
+              );
+            }
           }
           const frame = {
             x,
@@ -1175,8 +1300,12 @@ const generateDesignAction = defineAction({
             filename: file.filename,
             frame,
           });
-          occupiedRects.push(rectOf(frame));
-          nextX = Math.max(nextX, frame.x + frame.width + GENERATED_FRAME_GAP);
+          const frameRect = rectOf(frame, file.id);
+          occupiedRects.push(frameRect);
+          nextX = Math.max(
+            nextX,
+            frameRect.x + frameRect.width + GENERATED_FRAME_GAP,
+          );
         }
         mergedData.canvasFrames = merged.canvasFrames;
         placedFrames = generationFrames;
@@ -1288,6 +1417,19 @@ const generateDesignAction = defineAction({
       savedFiles,
       generationSession,
       creativeContextProvenance,
+    );
+
+    track(
+      "design_edited",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        edit_type: "generation",
+        file_count: savedFiles.length,
+      },
+      context,
     );
 
     // Land on the overview canvas focused on the first renderable screen

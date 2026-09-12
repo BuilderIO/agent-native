@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
+    labs: "实验室",
+    labsIntro: "在正式发布前预览实验性功能。",
+    labLayoutOverflowWarningDescription: "在编辑器中显示布局溢出警告。",
     emailNotifications: "邮件通知",
     emailNotificationsDescription:
       "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
@@ -288,6 +291,10 @@ const messages = {
     exportPptx: "导出为 PPTX",
     connectGoogle: "连接 Google",
     openInGoogleSlides: "在 Google Slides 中打开",
+    googleSlidesUnavailable: "不可用",
+    googleSlidesOpenImporter: "打开 Google Slides 导入",
+    googleSlidesUnavailableHint:
+      "由于尚未配置 Google 连接，目前无法导出到 Google Slides。请改为导出 PPTX，然后将其导入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中打开",
     googleSlidesCreatedHint: "已在你的 Google 云端硬盘中创建此演示文稿的副本。",
     duplicateDeck: "复制幻灯片",

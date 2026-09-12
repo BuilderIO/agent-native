@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getReviewableResource: vi.fn(),
   resolveReviewableResourceAccess: vi.fn(),
   filterRecipientsByResourceAccess: vi.fn(),
+  filterUnmutedReviewThreadRecipients: vi.fn(),
 }));
 
 vi.mock("../server/activity-notifications.js", async () => {
@@ -48,6 +49,8 @@ vi.mock("./registry.js", () => ({
 }));
 
 vi.mock("./store.js", () => ({
+  filterUnmutedReviewThreadRecipients: (...args: unknown[]) =>
+    mocks.filterUnmutedReviewThreadRecipients(...args),
   queryReviewComments: (...args: unknown[]) =>
     mocks.queryReviewComments(...args),
 }));
@@ -99,6 +102,9 @@ beforeEach(() => {
     failed: [],
   });
   mocks.queryReviewComments.mockResolvedValue([]);
+  mocks.filterUnmutedReviewThreadRecipients.mockImplementation(
+    async (_threadId: string, recipients: string[]) => recipients,
+  );
   mocks.getReviewableResource.mockReturnValue(undefined);
   // Default: everyone offered still has access. Access filtering has its own
   // tests; these assert who is *offered*.
@@ -109,6 +115,38 @@ beforeEach(() => {
 });
 
 describe("notifyReviewComment", () => {
+  it("honors thread mute for reply emails, including explicit mentions", async () => {
+    mocks.filterUnmutedReviewThreadRecipients.mockResolvedValue([
+      "participant@example.com",
+    ]);
+    mocks.queryReviewComments.mockResolvedValue([
+      { threadId: "t1", authorEmail: "participant@example.com" },
+    ]);
+    await notifyReviewComment(
+      comment({
+        parentCommentId: "root",
+        mentions: [{ label: "Owner", email: "owner@example.com" }],
+      }),
+    );
+    expect(mocks.filterUnmutedReviewThreadRecipients).toHaveBeenCalledWith(
+      "t1",
+      expect.arrayContaining(["owner@example.com", "participant@example.com"]),
+    );
+    expect(notifyArgs().candidates).toEqual(["participant@example.com"]);
+  });
+
+  it("reports unreadable mute preferences without sending reply emails", async () => {
+    mocks.filterUnmutedReviewThreadRecipients.mockRejectedValue(
+      new Error("preference store unavailable"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await notifyReviewComment(
+      comment({ parentCommentId: "root" }),
+    );
+    expect(result.status).toBe("notification-error");
+    expect(mocks.notifyActivity).not.toHaveBeenCalled();
+  });
+
   it("notifies the owner and mentions against the shared preference key", async () => {
     await notifyReviewComment(
       comment({

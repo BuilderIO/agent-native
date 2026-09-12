@@ -14,6 +14,7 @@ import {
 } from "./active-run-state.js";
 import {
   activeRunLooksAlive,
+  assistantUiMessagesToStructuredHistory,
   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
@@ -25,6 +26,114 @@ const analyticsMock = vi.hoisted(() => ({
 }));
 
 vi.mock("./analytics.js", () => analyticsMock);
+
+describe("approval history", () => {
+  it("preserves exact pending approval arguments", () => {
+    const body = "x".repeat(9_000);
+    const history = assistantUiMessagesToStructuredHistory([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            toolName: "send-email",
+            args: { body },
+            result: "Awaiting human approval. This action did NOT execute.",
+            approval: { approvalKey: "send-email:pending" },
+          },
+        ],
+      },
+    ]);
+
+    expect(history[0]?.content[0]).toMatchObject({
+      type: "tool-call",
+      args: { body },
+    });
+  });
+
+  it("truncates completed approved-call arguments", () => {
+    const body = "x".repeat(9_000);
+    const history = assistantUiMessagesToStructuredHistory([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            toolName: "send-email",
+            args: { body },
+            result: "Email sent.",
+            approval: { approvalKey: "send-email:completed" },
+          },
+        ],
+      },
+    ]);
+
+    expect((history[0]?.content[0] as any).args.body).not.toBe(body);
+  });
+
+  it("prices preserved approval arguments at their serialized size", async () => {
+    const pendingBody = "p".repeat(70_000);
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-approval-budget",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "prepare it" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-old",
+                toolName: "query-rows",
+                args: { sql: "x".repeat(8_000) },
+                result: "y".repeat(12_000),
+              },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "send it" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-pending",
+                toolName: "send-email",
+                args: { body: pendingBody },
+                result: "Awaiting human approval. This action did NOT execute.",
+                approval: { approvalKey: "send-email:pending" },
+              },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "approve" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const request = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const toolCalls = request.structuredHistory.flatMap((message: any) =>
+      message.content.filter((part: any) => part.type === "tool-call"),
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolName: "send-email",
+      args: { body: pendingBody },
+    });
+    const toolResults = request.structuredHistory.flatMap((message: any) =>
+      message.content.filter((part: any) => part.type === "tool-result"),
+    );
+    expect(toolResults[0].toolInput).toBeUndefined();
+  });
+});
 
 function sseResponse(events: unknown[], runId = "run-qa"): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
@@ -1539,7 +1648,11 @@ describe("createAgentChatAdapter", () => {
     return fetchSpy;
   }
 
-  async function postOutboundAttachment(fetchSpy: any, text: string) {
+  async function postOutboundAttachment(
+    fetchSpy: any,
+    text: string,
+    options: { name?: string; contentType?: string } = {},
+  ) {
     const adapter = createAgentChatAdapter({
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-large-attachment",
@@ -1552,8 +1665,8 @@ describe("createAgentChatAdapter", () => {
             content: [{ type: "text", text: "Host this as an extension" }],
             attachments: [
               {
-                name: "pasted-text-1.txt",
-                contentType: "text/plain",
+                name: options.name ?? "pasted-text-1.txt",
+                contentType: options.contentType ?? "text/plain",
                 content: [{ type: "text", text }],
               },
             ],
@@ -1580,17 +1693,14 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
-  it("caps a pathological multi-hundred-KB outbound attachment at 200K with a visible notice", async () => {
+  it("preserves a current EML attachment beyond the legacy outbound cap", async () => {
     const fetchSpy = stubLargeAttachmentEnv();
-    const body = await postOutboundAttachment(fetchSpy, "a".repeat(200_010));
-    expect(body.attachments[0].text).toHaveLength(
-      200_000 +
-        "\n\n[Attachment truncated after 200,000 characters; 10 characters omitted from the submitted attachment.]"
-          .length,
-    );
-    expect(body.attachments[0].text).toContain(
-      "10 characters omitted from the submitted attachment",
-    );
+    const eml = "a".repeat(200_010);
+    const body = await postOutboundAttachment(fetchSpy, eml, {
+      name: "message.eml",
+      contentType: "message/rfc822",
+    });
+    expect(body.attachments[0].text).toBe(eml);
   });
 
   it("routes missing-credential HTTP responses through the run-error card", async () => {
@@ -7601,6 +7711,114 @@ describe("createAgentChatAdapter", () => {
     // boundary until the successor became visible.
     expect(activePollCount).toBeGreaterThanOrEqual(5);
     // No yielded result carries a terminal status before the true end.
+    results.slice(0, -1).forEach((r: any) => {
+      expect(r.status?.type).not.toBe("complete");
+      expect(r.status?.type).not.toBe("incomplete");
+    });
+    const combinedText = (results.at(-1) as any).content
+      .filter((c: any) => c.type === "text")
+      .map((c: any) => c.text)
+      .join(" ");
+    expect(combinedText).toContain("Chunk one");
+    expect(combinedText).toContain("and chunk two done");
+  });
+
+  it("keeps following a re-observed chunk-boundary run whose terminal_reason is rate_limited", async () => {
+    // Same re-observed-old-chunk race as above, but for the "rate_limited"
+    // continuation reason: it must be treated as a non-terminal chunk
+    // boundary like the others, not dropped as if the turn were done.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    let activePollCount = 0;
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Chunk one " },
+            { type: "auto_continue", reason: "rate_limited" },
+          ],
+          "run-bg-ratelimit-1",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        const isOld = activePollCount < 4;
+        activePollCount += 1;
+        return jsonResponse(
+          isOld
+            ? {
+                active: true,
+                runId: "run-bg-ratelimit-1",
+                threadId: "thread-bg-ratelimit",
+                turnId: requestTurnId,
+                status: "completed",
+                terminalReason: "rate_limited",
+                dispatchMode: "background-processing",
+                heartbeatAt: Date.now(),
+                lastProgressAt: Date.now(),
+              }
+            : {
+                active: true,
+                runId: "run-bg-ratelimit-2",
+                threadId: "thread-bg-ratelimit",
+                turnId: requestTurnId,
+                status: "running",
+                dispatchMode: "background-processing",
+                heartbeatAt: Date.now(),
+                lastProgressAt: Date.now(),
+              },
+        );
+      }
+      if (url.includes("/runs/run-bg-ratelimit-1/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      if (url.includes("/runs/run-bg-ratelimit-2/events")) {
+        return sseResponse(
+          [{ type: "text", text: "and chunk two done" }, { type: "done" }],
+          "run-bg-ratelimit-2",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-ratelimit",
+      threadId: "thread-bg-ratelimit",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a long background job" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(1);
+    expect(activePollCount).toBeGreaterThanOrEqual(5);
     results.slice(0, -1).forEach((r: any) => {
       expect(r.status?.type).not.toBe("complete");
       expect(r.status?.type).not.toBe("incomplete");

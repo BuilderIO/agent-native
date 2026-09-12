@@ -99,16 +99,21 @@ const OWNER = "owner@example.com";
 function googleEvent(
   overrides: Partial<Record<string, unknown>> & { id: string; start: string },
 ) {
+  const { id: googleEventId, ...rest } = overrides;
+  const eventId = rest.overlayEmail
+    ? `overlay-${rest.overlayEmail}-${googleEventId}`
+    : `google-${googleEventId}`;
   return {
+    id: eventId,
     title: "Weekend sync",
     description: "",
-    end: overrides.start,
+    end: rest.start,
     location: "",
     allDay: false,
     source: "google" as const,
-    googleEventId: overrides.id,
+    googleEventId,
     accountEmail: OWNER,
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -179,6 +184,36 @@ describe("delete-events", () => {
       expect.objectContaining({
         outcome: "skipped",
         reason: "Comes from a read-only Google calendar source",
+      }),
+    );
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("skips overlaid events discovered by a filtered bulk delete", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({
+          id: "overlay-event",
+          start: "2026-04-11T18:00:00.000Z",
+          overlayEmail: "person@example.com",
+        }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-11",
+      to: "2026-04-12",
+      scope: "single",
+      dryRun: true,
+    });
+
+    expect(result.skipped).toBe(1);
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        id: "overlay-person@example.com-overlay-event",
+        outcome: "skipped",
+        reason: "Comes from an overlaid Google calendar, which is read-only",
       }),
     );
     expect(deleteEventMock).not.toHaveBeenCalled();

@@ -21,6 +21,7 @@
 
 import * as Y from "yjs";
 
+import type { DbExec } from "../db/client.js";
 import { emitCollabUpdate } from "./emitter.js";
 import {
   applyJsonDiff,
@@ -35,6 +36,7 @@ import {
   loadYDocVersion,
   saveYDocState,
   trySaveYDocState,
+  trySaveYDocStateWithClient,
 } from "./storage.js";
 import { uint8ArrayToBase64 } from "./storage.js";
 import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
@@ -138,6 +140,13 @@ const _refreshLocks = new Map<string, Promise<void>>();
 // doc (a memory leak that grows with concurrent read traffic).
 const _loadLocks = new Map<string, Promise<Y.Doc>>();
 
+export interface PreparedYDocMutationLease {
+  /** Isolated clone. Mutations stay invisible until the outer transaction commits. */
+  doc: Y.Doc;
+  baseVersion: number | null;
+  persist(transaction: DbExec, textSnapshot: string): Promise<void>;
+}
+
 function evictIfNeeded(): void {
   if (_cache.size <= MAX_CACHE) return;
   // Evict least-recently-accessed entry
@@ -177,6 +186,75 @@ async function withDocWriteLock<T>(
       _writeLocks.delete(docId);
     }
   }
+}
+
+/**
+ * Serialize a caller-owned SQL transaction with Yjs writes. The callback
+ * mutates an isolated clone and persists it through its transaction. Only a
+ * successfully resolved callback replaces the shared cache and broadcasts.
+ */
+export async function withPreparedYDocMutation<T>(
+  docId: string,
+  requestSource: string | undefined,
+  run: (lease: PreparedYDocMutationLease) => Promise<T>,
+): Promise<T> {
+  return withDocWriteLock(docId, async () => {
+    const current = await getDocForWrite(docId);
+    const latest = await loadYDocRecord(docId);
+    if (latest?.state.length) Y.applyUpdate(current, latest.state);
+
+    const candidate = new Y.Doc();
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
+    const baseVector = Y.encodeStateVector(candidate);
+    const baseVersion = latest?.version ?? null;
+    let persisted = false;
+    const lease: PreparedYDocMutationLease = {
+      doc: candidate,
+      baseVersion,
+      persist: async (transaction, textSnapshot) => {
+        if (persisted) {
+          throw new Error("Prepared Yjs mutation was already persisted");
+        }
+        const saved = await trySaveYDocStateWithClient(
+          transaction,
+          docId,
+          Y.encodeStateAsUpdate(candidate),
+          textSnapshot,
+          baseVersion,
+        );
+        if (!saved) {
+          throw new CollabBaseVersionConflictError(
+            `Document ${docId} changed while the prepared mutation was committing.`,
+          );
+        }
+        persisted = true;
+      },
+    };
+
+    try {
+      const result = await run(lease);
+      if (!persisted) {
+        candidate.destroy();
+        return result;
+      }
+      const update = Y.encodeStateAsUpdate(candidate, baseVector);
+      const previous = _cache.get(docId);
+      previous?.doc.destroy();
+      _cache.set(docId, {
+        doc: candidate,
+        lastAccess: Date.now(),
+        syncedVersion: baseVersion === null ? 0 : baseVersion + 1,
+      });
+      evictIfNeeded();
+      if (update.length > 0) {
+        emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      }
+      return result;
+    } catch (error) {
+      candidate.destroy();
+      throw error;
+    }
+  });
 }
 
 /**

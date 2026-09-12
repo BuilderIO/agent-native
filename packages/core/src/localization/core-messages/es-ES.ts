@@ -150,6 +150,7 @@ const messages: AgentChatTranslation = {
     "Abre la aplicación de escritorio para usar este chat.",
   "composer.removeAttachment": "Quitar {{name}}",
   "composer.scrollToBottom": "Desplazarse hasta el final",
+  "composer.suggestedPrompts": "Indicaciones sugeridas",
   "composer.stopResponse": "Detener respuesta",
   "composer.subAgentReadOnly":
     "Envía mensajes al chat del orquestador; este subagente se ejecuta automáticamente",
@@ -169,6 +170,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "Buscando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ayer",
+  "integrations.availableSection": "Integraciones disponibles",
+  "integrations.connectedSection": "Conectado",
+  "integrations.goToApiKeys": "Ir a claves de API",
+  "integrations.goToIntegrations": "Ir a integraciones",
+  "integrations.lookingForApiKeys": "¿Buscas una clave de API en su lugar?",
+  "integrations.lookingForProviders": "¿Buscas proveedores de OAuth o MCP?",
+  "integrations.manage": "Administrar",
+  "integrations.recommended": "Recomendado",
+  "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
   "limit.account": "tu cuenta",
   "limit.descriptionAll":
     "El agente ha utilizado todos los pasos disponibles. Continúa en una interacción nueva o aumenta primero el límite de {{scope}}.",
@@ -216,6 +226,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
   "queue.sendNowHint": "Enviar ahora (detiene la respuesta actual)",
+  "queue.steer": "Dirigir",
+  "queue.steerHint": "Enviar este mensaje a continuación",
+  "queue.moreActions": "Más acciones",
+  "queue.moveToTop": "Mover arriba",
   "recovery.connectingBuilder": "Conectando con Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
@@ -238,6 +252,33 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "El flujo anterior del agente terminó durante la recuperación. Continúa o reintenta para volver a conectar con la ejecución.",
   "recovery.reconnectBuilder": "Volver a conectar Builder.io",
+  "secrets.addCustomKeyNamed": 'Agregar "{{name}}" como clave personalizada',
+  "secrets.chooseKey": "Elige una clave",
+  "secrets.customKey": "Clave personalizada",
+  "secrets.customKeyHint": "Agrega cualquier clave por nombre",
+  "secrets.emptyHint": "Agrega una clave para usar tus propias cuentas.",
+  "secrets.emptyMore":
+    "y {{count}} más en Nuevo, o agrega cualquier clave personalizada",
+  "secrets.emptyTitle": "Aún no hay claves.",
+  "secrets.fromEnvironment": "Proporcionado por el entorno de implementación.",
+  "secrets.managedInVault":
+    "Se administra en el Vault del espacio de trabajo. Todas las apps de este espacio de trabajo usan este valor.",
+  "secrets.openVault": "Abrir Vault",
+  "secrets.newKey": "Nuevo",
+  "secrets.noKeysFound": "No se encontraron claves.",
+  "secrets.overridesVault":
+    "Esta clave personal reemplaza el valor del Vault del espacio de trabajo. Elimínala para usar la clave del Vault.",
+  "secrets.overridesWorkspace":
+    "Esta clave personal reemplaza el valor del espacio de trabajo. Elimínala para usar la clave compartida.",
+  "secrets.setForWorkspace":
+    "Configurado para todos en este espacio de trabajo.",
+  "secrets.sourceEnvironment": "Entorno",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Espacio de trabajo",
+  "secrets.statusUnavailable": "No disponible",
+  "secrets.required": "Obligatorio",
+  "secrets.searchKeys": "Buscar claves...",
+  "secrets.usePersonalKey": "Usar una clave personal en su lugar",
   "selection.attached":
     "{{formattedCount}} caracteres de la selección adjuntados",
   "selection.clear": "Borrar el contexto de la selección",
@@ -581,6 +622,8 @@ const messages: AgentChatTranslation = {
     "No se pudo contactar con el proveedor del modelo. Comprueba tu conexión y vuelve a intentarlo.",
   "errorMessages.providerRateLimit":
     "El proveedor del modelo está limitando temporalmente este chat. Espera un momento y vuelve a intentarlo.",
+  "errorMessages.providerTransientRejection":
+    "El proveedor de IA rechazó temporalmente esta solicitud. Esto suele resolverse en menos de un minuto: vuelve a intentarlo.",
   "errorMessages.startNewChat": "Iniciar un chat nuevo",
   "errorMessages.upgradeAtBuilder": "Mejorar el plan en Builder.io",
   "feedback.inaccurate": "Impreciso",

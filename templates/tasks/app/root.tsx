@@ -5,7 +5,7 @@ import {
   AppProviders,
   createAgentNativeQueryClient,
 } from "@agent-native/core/client/hooks";
-import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
   useCommandMenuShortcut,
@@ -22,6 +22,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
@@ -141,6 +142,9 @@ function ThemeToggleItem() {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
@@ -150,8 +154,32 @@ function AppContent() {
         changelog={changelog}
         changelogKey="tasks"
       >
-        <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        <CommandMenu.Group heading={t("sidebar.navigationTitle")}>
+          {location.pathname === "/inbox" ? (
+            <CommandMenu.Item onSelect={() => navigate("/tasks")}>
+              {t("sidebar.navTasks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/tasks" ? (
+            <CommandMenu.Item onSelect={() => navigate("/inbox")}>
+              {t("sidebar.navInbox")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/fields" ? (
+            <CommandMenu.Item onSelect={() => navigate("/tasks")}>
+              {t("sidebar.navTasks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/settings") ? (
+            <CommandMenu.Item onSelect={() => navigate("/inbox")}>
+              {t("sidebar.navInbox")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/inbox")}>
+              {t("sidebar.navInbox")}
+            </CommandMenu.Item>
+          ) : null}
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">
           <ThemeToggleItem />

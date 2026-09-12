@@ -7,10 +7,8 @@ description: >-
   make a workflow into an app, including from
   Claude or ChatGPT on the web, including when the source is a spreadsheet
   link or upload.
-user-invocable: true
-scope: both
 metadata:
-  internal: true
+  visibility: exported
 ---
 
 # Turn Into App

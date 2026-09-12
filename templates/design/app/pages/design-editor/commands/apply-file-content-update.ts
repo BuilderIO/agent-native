@@ -36,6 +36,7 @@ export interface ApplyFileContentUpdateArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -116,6 +117,7 @@ export function runApplyFileContentUpdate(
     forcePreviewFullDocument?: boolean;
     persist?: boolean;
     recordHistory?: boolean;
+    historyBeforeContent?: string;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
   } = {},
@@ -142,7 +144,10 @@ export function runApplyFileContentUpdate(
   }
   const previousFile = files.find((file) => file.id === fileId);
   const previousContent =
-    getScreenContent(fileId) ?? previousFile?.content ?? "";
+    options.historyBeforeContent ??
+    getScreenContent(fileId) ??
+    previousFile?.content ??
+    "";
   try {
     assertDesignHtmlEditIntegrity({
       previousContent,

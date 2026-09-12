@@ -15,13 +15,18 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+import {
+  ensureNodePtyBuildDependency,
+  parseWorkspaceScope,
+  workspacifyApp,
+} from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
@@ -568,6 +573,7 @@ async function createWorkspaceInteractive(
         coreDependencyVersion: getCoreDependencyVersion(),
         dispatchDependencyVersion: getDispatchDependencyVersion(),
         toolkitDependencyVersion: getToolkitDependencyVersion(),
+        agentKitDependencyVersion: getAgentKitDependencyVersion(),
       });
       fixPackageJsonName(appDir, appName, templateName, {
         ...resolution,
@@ -913,6 +919,7 @@ async function scaffoldOneAppIntoWorkspace(
       coreDependencyVersion: getCoreDependencyVersion(),
       dispatchDependencyVersion: getDispatchDependencyVersion(),
       toolkitDependencyVersion: getToolkitDependencyVersion(),
+      agentKitDependencyVersion: getAgentKitDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName, {
       ...resolution,
@@ -1595,9 +1602,12 @@ function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
 
+  ensureLocalPackageBuildOutputs(packageDir);
+
   const packDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
+  const npmCacheDir = path.join(packDir, "npm-cache");
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   execFileSync(
     npm,
@@ -1605,7 +1615,11 @@ function localPackageTarball(packageDir: string): string {
     {
       cwd: packageDir,
       encoding: "utf-8",
-      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      env: {
+        ...process.env,
+        npm_config_cache: npmCacheDir,
+        npm_config_ignore_scripts: "true",
+      },
       stdio: "pipe",
     },
   );
@@ -1633,13 +1647,18 @@ function localPackageTarball(packageDir: string): string {
   const repackDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-repack-"),
   );
+  const repackNpmCacheDir = path.join(repackDir, "npm-cache");
   execFileSync(
     npm,
     ["pack", "--ignore-scripts", "--pack-destination", repackDir],
     {
       cwd: path.join(unpackDir, "package"),
       encoding: "utf-8",
-      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      env: {
+        ...process.env,
+        npm_config_cache: repackNpmCacheDir,
+        npm_config_ignore_scripts: "true",
+      },
       stdio: "pipe",
     },
   );
@@ -1657,6 +1676,91 @@ function localPackageTarball(packageDir: string): string {
   ).href;
   localPackageTarballs.set(packageDir, tarball);
   return tarball;
+}
+
+interface LocalPackageManifest {
+  name?: unknown;
+  main?: unknown;
+  types?: unknown;
+  exports?: unknown;
+  scripts?: { build?: unknown };
+}
+
+function collectLocalPackageBuildOutputs(
+  value: unknown,
+  outputs: Set<string>,
+): void {
+  if (typeof value === "string") {
+    if (value.startsWith("./dist/") && !value.includes("*")) {
+      outputs.add(value.slice(2));
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectLocalPackageBuildOutputs(item, outputs);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const item of Object.values(value)) {
+    collectLocalPackageBuildOutputs(item, outputs);
+  }
+}
+
+/**
+ * Local framework packages publish compiled entrypoints only. Build a clean
+ * checkout before packing it so generated apps never receive a tarball whose
+ * package.json points at absent dist files.
+ */
+function ensureLocalPackageBuildOutputs(packageDir: string): void {
+  const packageJsonPath = path.join(packageDir, "package.json");
+  const packageJson = JSON.parse(
+    fs.readFileSync(packageJsonPath, "utf-8"),
+  ) as LocalPackageManifest;
+  const outputs = new Set<string>();
+  collectLocalPackageBuildOutputs(packageJson.main, outputs);
+  collectLocalPackageBuildOutputs(packageJson.types, outputs);
+  collectLocalPackageBuildOutputs(packageJson.exports, outputs);
+  const missing = [...outputs].filter(
+    (output) => !fs.existsSync(path.join(packageDir, output)),
+  );
+  if (missing.length === 0) return;
+
+  if (typeof packageJson.scripts?.build !== "string") {
+    throw new Error(
+      `Cannot pack local package ${String(packageJson.name ?? packageDir)} because ${missing.join(
+        ", ",
+      )} is missing and package.json has no build script.`,
+    );
+  }
+
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const npmCacheDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-build-cache-"),
+  );
+  try {
+    execFileSync(npm, ["run", "build"], {
+      cwd: packageDir,
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_cache: npmCacheDir },
+      stdio: "pipe",
+    });
+  } catch (cause) {
+    throw new Error(
+      `Could not build local package ${String(packageJson.name ?? packageDir)} before packing it.`,
+      { cause },
+    );
+  }
+
+  const stillMissing = missing.filter(
+    (output) => !fs.existsSync(path.join(packageDir, output)),
+  );
+  if (stillMissing.length > 0) {
+    throw new Error(
+      `Local package ${String(packageJson.name ?? packageDir)} built without producing ${stillMissing.join(
+        ", ",
+      )}.`,
+    );
+  }
 }
 
 function rewritePublishedPackageManifest(manifestPath: string): void {
@@ -1984,6 +2088,7 @@ function postProcessStandalone(
   // catalog: references only resolve inside a pnpm workspace with a catalog
   // defined in pnpm-workspace.yaml — standalone scaffolds don't have one.
   const catalog = loadCatalog();
+  let hasNodePty = false;
   const pkgPath = path.join(targetDir, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -2003,6 +2108,8 @@ function postProcessStandalone(
             deps[key] = getCoreDependencyVersion();
           } else if (key === "@agent-native/toolkit") {
             deps[key] = getToolkitDependencyVersion();
+          } else if (key === "@agent-native/agentkit") {
+            deps[key] = getAgentKitDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -2011,8 +2118,15 @@ function postProcessStandalone(
         }
       }
       pkg.dependencies = pkg.dependencies ?? {};
+      pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
+      hasNodePty = [
+        pkg.dependencies,
+        pkg.devDependencies,
+        pkg.peerDependencies,
+        pkg.optionalDependencies,
+      ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
@@ -2046,11 +2160,10 @@ function postProcessStandalone(
         ...TIPTAP_WORKSPACE_OVERRIDES,
       };
     }
-    const localToolkit = localToolkitOverride();
-    if (localToolkit) {
+    const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
+    if (Object.keys(localFrameworkOverrides).length > 0) {
       sections.overrides ??= {};
-      sections.overrides['"@agent-native/toolkit"'] =
-        JSON.stringify(localToolkit);
+      Object.assign(sections.overrides, localFrameworkOverrides);
     }
     const localRecapCli = localRecapCliOverride();
     if (localRecapCli) {
@@ -2068,6 +2181,7 @@ function postProcessStandalone(
       fs.writeFileSync(wsPath, updated);
     }
   } catch {}
+  if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
 
   fixStandaloneTsconfig(targetDir, templateName);
 
@@ -2295,6 +2409,8 @@ export {
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
+  getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
+  ensureLocalPackageBuildOutputs as _ensureLocalPackageBuildOutputs,
   getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
@@ -3496,6 +3612,31 @@ function getToolkitDependencyVersion(): string {
   return getOwnPackageDependencyVersion("@agent-native/toolkit");
 }
 
+function getAgentKitDependencyVersion(): string {
+  const localAgentKit = findLocalPackage("agentkit");
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" && localAgentKit) {
+    return localPackageTarball(localAgentKit);
+  }
+
+  const publishedRange = getOwnPackageDependencyVersion(
+    "@agent-native/agentkit",
+  );
+  if (publishedRange !== "latest") return publishedRange;
+
+  if (localAgentKit) {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(localAgentKit, "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    if (typeof manifest.version === "string" && manifest.version.length > 0) {
+      return `^${manifest.version}`;
+    }
+  }
+
+  throw new Error(
+    "Cannot determine a compatible @agent-native/agentkit version from @agent-native/core. Reinstall Core before scaffolding Chat.",
+  );
+}
+
 /**
  * Toolkit is versioned and published independently of core, so its npm
  * `latest` dist-tag can briefly point to an incompatible release relative to
@@ -3526,6 +3667,25 @@ function localToolkitOverride(): string | null {
   return localToolkit ? localPackageTarball(localToolkit) : null;
 }
 
+function getLocalFrameworkPackageOverrides(): Record<string, string> {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return {};
+
+  const overrides: Record<string, string> = {};
+  const localToolkit = localToolkitOverride();
+  if (localToolkit) {
+    overrides['"@agent-native/toolkit"'] = JSON.stringify(localToolkit);
+  }
+
+  const localAgentKit = findLocalPackage("agentkit");
+  if (localAgentKit) {
+    overrides['"@agent-native/agentkit"'] = JSON.stringify(
+      localPackageTarball(localAgentKit),
+    );
+  }
+
+  return overrides;
+}
+
 function localRecapCliOverride(): string | null {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
   const localRecapCli = findLocalPackage("recap-cli");
@@ -3533,9 +3693,10 @@ function localRecapCliOverride(): string | null {
 }
 
 function applyLocalWorkspaceOverrides(targetDir: string): void {
-  const localToolkit = localToolkitOverride();
+  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
   const localRecapCli = localRecapCliOverride();
-  if (!localToolkit && !localRecapCli) return;
+  if (Object.keys(localFrameworkOverrides).length === 0 && !localRecapCli)
+    return;
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
   const existing = fs.existsSync(wsPath)
@@ -3543,9 +3704,7 @@ function applyLocalWorkspaceOverrides(targetDir: string): void {
     : "";
   const updated = mergeWorkspaceYamlSections(existing, {
     overrides: {
-      ...(localToolkit
-        ? { '"@agent-native/toolkit"': JSON.stringify(localToolkit) }
-        : {}),
+      ...localFrameworkOverrides,
       ...(localRecapCli
         ? { '"@agent-native/recap-cli"': JSON.stringify(localRecapCli) }
         : {}),

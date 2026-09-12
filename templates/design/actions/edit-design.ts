@@ -5,6 +5,7 @@ import {
   agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -514,6 +515,19 @@ export default defineAction({
       }
       break;
     }
+
+    track(
+      "design_edited",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        edit_type: resolvedMode,
+        edits_count: applied,
+      },
+      context,
+    );
 
     return {
       designId,

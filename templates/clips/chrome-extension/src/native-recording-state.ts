@@ -10,6 +10,7 @@ export type RestartUploadMode = "streaming" | "buffered";
 
 export type OffscreenRecordingState = {
   activeSessionId?: string;
+  activeRecordingId?: string;
   preparedSessionId?: string;
 };
 

@@ -73,6 +73,102 @@ SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
 
+export const LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL = `WITH base AS (SELECT NULLIF(user_key, '') AS user_key, event_date, user_id
+FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`
+WHERE event_name = 'session status'
+  AND signed_in = 'true'
+  AND NULLIF(user_key, '') IS NOT NULL
+  AND org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
+  AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)
+  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) LIKE '%@builder.io'))
+  AND LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), 'unknown'))
+    IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')),
+first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key),
+range_days AS (SELECT CASE '{{timeRange}}' WHEN '7d' THEN 7 WHEN '30d' THEN 30 WHEN '90d' THEN 90 WHEN '180d' THEN 180 WHEN '365d' THEN 365 ELSE 365 END AS n),
+anchor_dates AS (
+ SELECT date FROM range_days,
+ UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY), CURRENT_DATE())) AS date
+),
+cohort_windows AS (
+ SELECT a.date, f.user_key, f.cohort_date
+ FROM anchor_dates a JOIN first_seen f
+ ON f.cohort_date >= DATE_SUB(a.date, INTERVAL 6 DAY)
+ AND f.cohort_date <= a.date
+),
+cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date),
+r1 AS (
+ SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained
+ FROM cohort_windows cw JOIN base b
+ ON b.user_key = cw.user_key
+ AND b.event_date > cw.cohort_date
+ AND b.event_date <= DATE_ADD(cw.cohort_date, INTERVAL 7 DAY)
+ GROUP BY cw.date
+),
+r2 AS (
+ SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained
+ FROM cohort_windows cw JOIN base b
+ ON b.user_key = cw.user_key
+ AND b.event_date >= DATE_ADD(cw.cohort_date, INTERVAL 7 DAY)
+ AND b.event_date <= DATE_ADD(cw.cohort_date, INTERVAL 14 DAY)
+ GROUP BY cw.date
+),
+all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),
+periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14)
+SELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,
+ p.period,
+ CASE WHEN a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL p.maturity_days DAY)
+           AND COALESCE(cs.users, 0) >= 5
+      THEN COALESCE(ar.retained, 0)
+      ELSE NULL END AS retained_users,
+ COALESCE(cs.users, 0) AS cohort_users,
+ CASE WHEN a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL p.maturity_days DAY)
+           AND COALESCE(cs.users, 0) >= 5
+      THEN COALESCE(CAST(ar.retained AS FLOAT64) / NULLIF(cs.users, 0), 0)
+      ELSE NULL END AS rate
+FROM anchor_dates a CROSS JOIN periods p
+LEFT JOIN cohort_sizes cs ON cs.date = a.date
+LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period
+ORDER BY date, p.period`;
+
+export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+  LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
+    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND event_name = 'session status'\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS",
+  )
+    .replace(
+      "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14)\nSELECT FORMAT_DATE",
+      "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14),\ncoverage AS (\n SELECT a.date, p.period, COUNTIF(c.event_date IS NOT NULL) AS observed_days, COUNT(*) AS expected_days\n FROM anchor_dates a\n CROSS JOIN periods p\n CROSS JOIN UNNEST(GENERATE_DATE_ARRAY(\n   CASE WHEN p.period = '1-7d return' THEN DATE_SUB(a.date, INTERVAL 5 DAY) ELSE DATE_ADD(a.date, INTERVAL 1 DAY) END,\n   CASE WHEN p.period = '1-7d return' THEN DATE_ADD(a.date, INTERVAL 7 DAY) ELSE DATE_ADD(a.date, INTERVAL 14 DAY) END\n )) AS coverage_day\n LEFT JOIN coverage_dates c ON c.event_date = coverage_day\n GROUP BY a.date, p.period\n)\nSELECT FORMAT_DATE",
+    )
+    .replace(
+      "           AND COALESCE(cs.users, 0) >= 5\n      THEN",
+      "           AND COALESCE(cs.users, 0) >= 5\n           AND coverage.observed_days = coverage.expected_days\n      THEN",
+    )
+    .replace(
+      "           AND COALESCE(cs.users, 0) >= 5\n      THEN",
+      "           AND COALESCE(cs.users, 0) >= 5\n           AND coverage.observed_days = coverage.expected_days\n      THEN",
+    )
+    .replace(
+      "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nORDER BY",
+      "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nLEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nORDER BY",
+    );
+
+const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
+  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    "WHEN '{{timeRange}}' = '7d'",
+    "WHEN '{{timeRange}}' = '{{timeRange}}'",
+  );
+
+function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
+  return sql.trim() === MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL.trim();
+}
+
+function isLegacyFirstPartyBigQueryRetentionSql(sql: string): boolean {
+  return (
+    sql.replace(/\s+/g, " ").trim() ===
+    LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(/\s+/g, " ").trim()
+  );
+}
+
 export function repairFirstPartyBigQueryDashboardQueries(
   config: Record<string, unknown>,
 ): { config: Record<string, unknown>; changed: boolean } {
@@ -83,10 +179,21 @@ export function repairFirstPartyBigQueryDashboardQueries(
     if (!rawPanel || typeof rawPanel !== "object") return rawPanel;
     const panel = rawPanel as Record<string, unknown>;
     if (
+      panel.id === "retention-over-time" &&
+      panel.source === "bigquery" &&
+      typeof panel.sql === "string" &&
+      (panel.sql.trim() === "" ||
+        isLegacyFirstPartyBigQueryRetentionSql(panel.sql))
+    ) {
+      changed = true;
+      return { ...panel, sql: FIRST_PARTY_BIGQUERY_RETENTION_SQL };
+    }
+    if (
       panel.id !== "wau-over-time" ||
       panel.source !== "bigquery" ||
       typeof panel.sql !== "string" ||
-      panel.sql.trim() !== ""
+      (panel.sql.trim() !== "" &&
+        !isMalformedFirstPartyBigQueryWauSql(panel.sql))
     ) {
       return rawPanel;
     }

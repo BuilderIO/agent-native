@@ -1,4 +1,5 @@
 import { isBoardFile } from "@shared/board-file";
+import { normalizedDesignFileType } from "@shared/design-files";
 import { isClosedPathData } from "@shared/pen-path";
 
 import {
@@ -21,6 +22,8 @@ import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
 
+export { normalizedDesignFileType };
+
 export function nextDuplicatedFilename(
   files: DesignFile[],
   filename: string,
@@ -36,17 +39,6 @@ export function nextDuplicatedFilename(
     index += 1;
   }
   return candidate;
-}
-
-export function normalizedDesignFileType(
-  fileType: string,
-): "html" | "css" | "jsx" | "asset" {
-  return fileType === "css" ||
-    fileType === "jsx" ||
-    fileType === "asset" ||
-    fileType === "html"
-    ? fileType
-    : "html";
 }
 
 export function nextBlankScreenFilename(files: DesignFile[]): string {

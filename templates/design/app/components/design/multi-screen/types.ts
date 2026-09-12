@@ -48,6 +48,7 @@ export interface ScreenFile {
    * edit scope (Tailwind prefix: base / md: / lg: / xl:).
    */
   breakpointWidths?: number[];
+  breakpointHeights?: Record<string, number>;
   /** Id of the currently active breakpoint frame for this screen. */
   activeBreakpointWidth?: number;
   /** Generated variation-set membership. Used only to preserve/reflow the
@@ -109,6 +110,7 @@ export interface ScreenMetadata {
   width?: number;
   height?: number;
   heightPinned?: boolean;
+  breakpointHeights?: Record<string, number>;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -168,6 +170,11 @@ export interface MultiScreenCanvasProps {
   onGeometryCommit?: (
     before: FrameGeometryById,
     after: FrameGeometryById,
+  ) => void;
+  onBreakpointContentHeightChange?: (
+    screenId: string,
+    widthPx: number,
+    heightPx: number,
   ) => void;
   onCreatePrimitive?: (
     screenId: string,
@@ -247,6 +254,9 @@ export interface MultiScreenCanvasProps {
    *  the same widths, and a per-screen parameter here only ever promised
    *  scoping the action cannot deliver. */
   onAddBreakpoint?: (widthPx: number) => void;
+  /** True while an add/remove breakpoint mutation is in flight — disables the
+   *  "+" affordance and shows a brief spinner so the click is acknowledged. */
+  breakpointMutationPending?: boolean;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -324,6 +334,10 @@ export interface MultiScreenCanvasProps {
     sourcePointerOffset?: Point;
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
+    /** True when the source bridge is carrying an Alt-drag copy. */
+    duplicate?: boolean;
+    /** Runtime HTML for an Alt-drag copy whose source must remain in place. */
+    sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
   }) => void;

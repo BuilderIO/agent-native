@@ -140,6 +140,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "이 채팅을 사용하려면 데스크톱 앱을 여세요.",
   "composer.removeAttachment": "{{name}} 제거",
   "composer.scrollToBottom": "맨 아래로 스크롤",
+  "composer.suggestedPrompts": "추천 프롬프트",
   "composer.stopResponse": "응답 중지",
   "composer.subAgentReadOnly":
     "오케스트레이터 채팅에 메시지를 보내세요. 이 하위 에이전트는 자동으로 실행됩니다",
@@ -378,6 +379,8 @@ const messages: AgentChatTranslation = {
     "모델 제공업체에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
   "errorMessages.providerRateLimit":
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
+  "errorMessages.providerTransientRejection":
+    "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
   "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
   "feedback.inaccurate": "부정확함",
@@ -401,6 +404,16 @@ const messages: AgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "integrations.availableSection": "사용 가능한 연동",
+  "integrations.connectedSection": "연결됨",
+  "integrations.goToApiKeys": "API 키로 이동",
+  "integrations.goToIntegrations": "연동으로 이동",
+  "integrations.lookingForApiKeys": "대신 API 키를 찾고 계신가요?",
+  "integrations.lookingForProviders":
+    "OAuth 또는 MCP 제공업체를 찾고 계신가요?",
+  "integrations.manage": "관리",
+  "integrations.recommended": "추천",
+  "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -506,6 +519,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "대기열에서 제거",
   "queue.sendNow": "지금 보내기",
   "queue.sendNowHint": "지금 보내기(현재 응답 중지)",
+  "queue.steer": "조정",
+  "queue.steerHint": "이 메시지를 다음에 보내기",
+  "queue.moreActions": "추가 작업",
+  "queue.moveToTop": "맨 위로 이동",
   "recovery.connectingBuilder": "Builder.io에 연결 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
@@ -527,6 +544,33 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "이전 에이전트 스트림이 실행 복구 중 종료되었습니다. 계속하거나 다시 시도하여 실행에 다시 연결하세요.",
   "recovery.reconnectBuilder": "Builder.io 다시 연결",
+  "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
+  "secrets.chooseKey": "키 선택",
+  "secrets.customKey": "사용자 지정 키",
+  "secrets.customKeyHint": "이름으로 아무 키나 추가",
+  "secrets.emptyHint": "본인 계정을 사용하려면 키를 추가하세요.",
+  "secrets.emptyMore":
+    "그 외 {{count}}개는 '새로 만들기' 아래에 있거나 사용자 지정 키를 추가하세요",
+  "secrets.emptyTitle": "아직 키가 없습니다.",
+  "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
+  "secrets.managedInVault":
+    "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
+  "secrets.openVault": "Vault 열기",
+  "secrets.newKey": "새로 만들기",
+  "secrets.noKeysFound": "키를 찾을 수 없습니다.",
+  "secrets.overridesVault":
+    "이 개인 키는 워크스페이스 Vault 값을 재정의합니다. Vault 키를 사용하려면 제거하세요.",
+  "secrets.overridesWorkspace":
+    "이 개인 키는 워크스페이스 값을 재정의합니다. 공유 키를 사용하려면 제거하세요.",
+  "secrets.setForWorkspace":
+    "이 워크스페이스의 모든 사용자에게 설정되어 있습니다.",
+  "secrets.sourceEnvironment": "환경",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "워크스페이스",
+  "secrets.statusUnavailable": "사용할 수 없음",
+  "secrets.required": "필수",
+  "secrets.searchKeys": "키 검색...",
+  "secrets.usePersonalKey": "대신 개인 키 사용",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",

@@ -439,15 +439,6 @@ The diagram traces that same sequence end to end:
 
 This works in all deployment environments, including serverless and edge, because it uses the database instead of in-memory state or file system watchers.
 
-## Frames {#frames}
-
-A _frame_ is the environment that hosts the agent next to your app. Locally that's the embedded panel; in the cloud it's Builder.io's managed surface. See [Frames](/docs/frames).
-
-Agent-Native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work.
-
-- **Embedded Agent Panel:** Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally, free and open source.
-- **Cloud:** Deploy to any cloud with real-time collaboration, visual editing, roles, and permissions. Best for teams.
-
 ## Context awareness {#context-awareness}
 
 The agent always knows what the user is looking at. The UI writes a `navigation` key to application-state on every route change. The agent reads it via the `view-screen` action before acting.

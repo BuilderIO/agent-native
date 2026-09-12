@@ -1,6 +1,16 @@
+import { useQueryClient } from "@tanstack/react-query";
+
+import type {
+  ResourceSuggestion,
+  SuggestionDecision,
+  SuggestionOperation,
+  SuggestionStatus,
+} from "../../review/suggestions/types.js";
 import type {
   ReviewComment,
   ReviewCommentKind,
+  ReviewDiscussionState,
+  ReviewThreadPreference,
   ReviewMention,
   ReviewResolutionTarget,
   ReviewStatus,
@@ -19,6 +29,7 @@ export interface ListReviewCommentsParams {
 
 export interface ListReviewCommentsResult {
   comments: ReviewComment[];
+  discussion: ReviewDiscussionState;
   reviewStatus: ReviewStatusEntry | null;
   summary: {
     openCount: number;
@@ -61,6 +72,75 @@ export interface ReplyReviewCommentInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface ReactToReviewCommentInput {
+  resourceType: string;
+  resourceId: string;
+  commentId: string;
+  reaction: string;
+  active: boolean;
+}
+
+export interface SetReviewThreadUnreadInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+  unread: boolean;
+}
+
+export interface SetReviewThreadMutedInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+  muted: boolean;
+}
+
+export function useReactToReviewComment() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    {
+      commentId: string;
+      actorEmail: string;
+      reaction: string;
+      active: boolean;
+    },
+    ReactToReviewCommentInput
+  >("react-to-review-comment", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export function useSetReviewThreadUnread() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ReviewThreadPreference & { threadId: string },
+    SetReviewThreadUnreadInput
+  >("set-review-thread-unread", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
+export function useSetReviewThreadMuted() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ReviewThreadPreference & { threadId: string },
+    SetReviewThreadMutedInput
+  >("set-review-thread-muted", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-review-comments"],
+      }),
+  });
+}
+
 export interface ResolveReviewThreadInput {
   resourceType: string;
   resourceId: string;
@@ -93,6 +173,39 @@ export interface SetReviewStatusInput {
   status: ReviewStatus;
   note?: string | null;
   metadata?: Record<string, unknown>;
+}
+
+export interface ListResourceSuggestionsParams {
+  resourceType: string;
+  resourceId: string;
+  statuses?: SuggestionStatus[];
+}
+
+export interface CreateResourceSuggestionInput {
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  baseRevision: string;
+  summary: string;
+  idempotencyKey: string;
+  operations: SuggestionOperation[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface DecideResourceSuggestionInput {
+  id: string;
+  decision: SuggestionDecision;
+  idempotencyKey: string;
+  observedBase: string;
+  observedRevision?: number;
+}
+
+export interface UpdateResourceSuggestionInput {
+  id: string;
+  observedRevision: number;
+  idempotencyKey: string;
+  operations: SuggestionOperation[];
+  summary?: string;
 }
 
 export function useReviewComments(
@@ -182,5 +295,38 @@ export function useSendReviewThreadToAgent() {
 export function useSetReviewStatus() {
   return useActionMutation<ReviewStatusEntry, SetReviewStatusInput>(
     "set-review-status",
+  );
+}
+
+export function useResourceSuggestions(
+  params: ListResourceSuggestionsParams,
+  options?: { enabled?: boolean },
+) {
+  return useActionQuery<{ suggestions: ResourceSuggestion[] }>(
+    "list-resource-suggestions",
+    params,
+    {
+      enabled:
+        options?.enabled ?? Boolean(params.resourceType && params.resourceId),
+    },
+  );
+}
+
+export function useCreateResourceSuggestion() {
+  return useActionMutation<ResourceSuggestion, CreateResourceSuggestionInput>(
+    "create-resource-suggestion",
+  );
+}
+
+export function useDecideResourceSuggestion() {
+  return useActionMutation<
+    { suggestion: ResourceSuggestion; decision: unknown },
+    DecideResourceSuggestionInput
+  >("decide-resource-suggestion");
+}
+
+export function useUpdateResourceSuggestion() {
+  return useActionMutation<ResourceSuggestion, UpdateResourceSuggestionInput>(
+    "update-resource-suggestion",
   );
 }

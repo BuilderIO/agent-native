@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Faster analytics dashboard loading
 - Collaborator avatars use a slimmer border.
 
 ## 2026-09-08

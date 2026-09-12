@@ -77,6 +77,12 @@ export async function ensureTable(): Promise<void> {
  * Return the last 4 characters of a secret, with any leading characters
  * masked. Used to show a preview without leaking the value.
  */
+/**
+ * Description Dispatch stamps on `app_secrets` rows it syncs from the
+ * workspace Vault. Settings UIs use it to label a value as Vault-managed.
+ */
+export const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
+
 export function last4(value: string): string {
   if (!value) return "";
   if (value.length <= 4) return "••••";

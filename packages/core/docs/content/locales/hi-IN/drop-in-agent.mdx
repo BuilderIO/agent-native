@@ -205,7 +205,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`background`** - `newTab` के साथ, नए थ्रेड पर ध्यान केंद्रित किए बिना चलाएं। छिपे हुए रन को `RunsTray` में ट्रैक किया जाता है।
 - **`openSidebar`** - पृष्ठभूमि/मूक प्रेषण के लिए `false` पर सेट करें। डिफ़ॉल्ट रूप से साइडबार खुलता है ताकि उपयोगकर्ता प्रतिक्रिया देख सके।
 - **उपयोगकर्ता द्वारा शुरू किए गए दिखाई देने वाले AI कार्य** के लिए `openSidebar: true` का उपयोग करें। `false` का उपयोग केवल स्पष्ट रूप से शांत बैकग्राउंड या सिस्टम-आरंभित कार्य के लिए करें, और follow-up को उसी AgentSidebar thread में रखें।
-- **`type`** — `"content"` (डिफ़ॉल्ट) कार्य को embedded app agent में रखता है, जो app tools का उपयोग करता है। `"code"` repository source changes के लिए अलग code-capable frame तक route करता है; write access केवल तभी उपलब्ध है जब host जानबूझकर repository/workspace tooling दे। [Frames](/docs/frames) देखें।
+- **`type`** — `"content"` (डिफ़ॉल्ट) कार्य को embedded app agent में रखता है, जो app tools का उपयोग करता है। `"code"` repository source changes के लिए अलग code-capable host तक route करता है; write access केवल तभी उपलब्ध है जब host जानबूझकर repository/workspace tooling दे। [Agent-Native कोड UI](/docs/code-agents-ui) देखें।
 
 `sendToAgentChat` एक स्थिर `tabId` लौटाता है जिसका उपयोग आप चैट रन को ट्रैक करने के लिए कर सकते हैं।
 

@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
@@ -74,6 +75,19 @@ export function TemplatePickerControl({
   const builtInTemplates = options.filter((option) => option.isBuiltIn);
 
   const choose = (id: string | null) => {
+    const selectedTemplate = id
+      ? options.find((option) => option.id === id)
+      : null;
+    trackEvent("design_template_selected", {
+      app_name: "design",
+      template_name: "design",
+      template_source:
+        id === null
+          ? "blank"
+          : selectedTemplate?.isBuiltIn
+            ? "built_in"
+            : "user",
+    });
     onChange(id);
     onOpenChange(false);
   };
@@ -216,7 +230,14 @@ export function DesignSystemPickerControl({
   ) : designSystems.length > 0 ? (
     <Select
       value={selectedId ?? "none"}
-      onValueChange={(value) => onChange(value === "none" ? null : value)}
+      onValueChange={(value) => {
+        trackEvent("design_system_selected", {
+          app_name: "design",
+          template_name: "design",
+          has_design_system: value !== "none",
+        });
+        onChange(value === "none" ? null : value);
+      }}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) onSelectClosed?.();
       }}

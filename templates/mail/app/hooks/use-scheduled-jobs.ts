@@ -8,8 +8,10 @@ import {
   unsuppressThread,
   mapInfiniteEmails,
   flattenInfiniteEmails,
+  LABELS_QUERY_KEY,
   type InfiniteEmails,
 } from "./use-emails";
+import { invalidateInboxThreads } from "./use-inbox-threads";
 
 export interface ScheduledJob {
   id: string;
@@ -115,7 +117,8 @@ export function useSnoozeEmail() {
       // Delay email/label refetch — Gmail eventual consistency
       setTimeout(() => {
         void qc.invalidateQueries({ queryKey: ["emails"] });
-        void qc.invalidateQueries({ queryKey: ["labels"] });
+        void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        void invalidateInboxThreads(qc);
       }, 3000);
     },
   });

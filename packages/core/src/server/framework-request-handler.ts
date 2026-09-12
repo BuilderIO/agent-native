@@ -213,17 +213,25 @@ export function getH3App(nitroApp: any): H3AppShim {
     // server plugin has called `defineAppConfig()`, and this early read only
     // sees the environment layer.
     getDisabledDefaultPlugins();
-    const bootstrap = bootstrapDefaultPlugins(nitroApp).catch((err) => {
-      console.warn(
-        "[agent-native] Failed to auto-mount default plugins:",
-        (err as Error).message,
-      );
-      captureError(err, {
-        route: "default-plugin-bootstrap",
-        tags: { phase: "default-plugin-bootstrap" },
+    // Nitro invokes plugin factories in one registration turn, but an async
+    // plugin can reach this function after an import/await. Starting discovery
+    // immediately lets the first plugin auto-mount a default before a later
+    // custom plugin has marked its slot as provided. Defer only the discovery
+    // start; keep the promise published synchronously so request gates and
+    // plugin init can still await the same bootstrap operation.
+    const bootstrap = Promise.resolve()
+      .then(() => bootstrapDefaultPlugins(nitroApp))
+      .catch((err) => {
+        console.warn(
+          "[agent-native] Failed to auto-mount default plugins:",
+          (err as Error).message,
+        );
+        captureError(err, {
+          route: "default-plugin-bootstrap",
+          tags: { phase: "default-plugin-bootstrap" },
+        });
+        if (err instanceof AppConfigurationError) throw err;
       });
-      if (err instanceof AppConfigurationError) throw err;
-    });
     // The readiness gate is what observes this rejection, and it only runs on
     // a request. Without a handler attached now, Node exits on the unhandled
     // rejection before anything can report the configuration error.

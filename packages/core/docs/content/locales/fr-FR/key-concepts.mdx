@@ -431,15 +431,6 @@ Le diagramme retrace cette même séquence de bout en bout :
 
 Cela fonctionne dans tous les environnements de déploiement, y compris serverless et edge, car cela utilise la base de données plutôt que l'état en mémoire ou les observateurs de système de fichiers.
 
-## Cadres {#frames}
-
-Un _cadre_ est l'environnement qui héberge l'agent à côté de votre application. En local, c'est le panneau intégré ; dans le cloud, c'est la surface gérée de Builder.io. Voir [Frames](/docs/frames).
-
-Les applications Agent-Native incluent un panneau d'agent intégré qui fournit l'agent IA aux côtés de l'UI de l'application. C'est ce qui fait fonctionner l'architecture : l'agent a besoin d'un ordinateur (base de données, navigateur, exécution de code), et l'application a besoin de l'agent pour le travail d'IA.
-
-- **Panneau d'agent intégré :** chat et terminal CLI optionnel intégrés à chaque application. Prend en charge Claude Code, Codex, Gemini, OpenCode et Builder.io. S'exécute en local, gratuit et open source.
-- **Cloud :** déployez sur n'importe quel cloud avec collaboration en temps réel, édition visuelle, rôles et permissions. Idéal pour les équipes.
-
 ## Conscience du contexte {#context-awareness}
 
 L'agent sait toujours ce que l'utilisateur regarde. L'UI écrit une clé `navigation` dans l'application-state à chaque changement de route. L'agent la lit via l'action `view-screen` avant d'agir.

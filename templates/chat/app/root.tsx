@@ -10,7 +10,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/theme";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -118,14 +118,27 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
   const t = useT();
+  const location = useLocation();
+  const isChatThread = location.pathname.startsWith("/chat/");
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {isChatThread ? (
+            <CommandMenu.Item
+              onSelect={() =>
+                window.dispatchEvent(new Event("agent-chat:new-chat"))
+              }
+            >
+              {t("chat.newChat")}
+            </CommandMenu.Item>
+          ) : null}
+          {!isChatThread && location.pathname !== "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.chat")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -176,4 +189,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/core/client/error-boundary";

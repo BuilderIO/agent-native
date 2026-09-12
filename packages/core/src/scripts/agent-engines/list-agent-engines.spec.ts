@@ -112,6 +112,17 @@ describe("list-agent-engines", () => {
     expect(result.current.model).toMatch(/^claude-/);
   });
 
+  it("reports that OpenRouter preserves custom model IDs", async () => {
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(await run());
+    const openRouter = result.engines.find(
+      (engine: any) => engine.name === "ai-sdk:openrouter",
+    );
+
+    expect(openRouter?.preserveCustomModels).toBe(true);
+  });
+
   it("does not report AGENT_ENGINE as current when only blocked hosted deploy credentials exist", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("AGENT_ENGINE", "test:blocked-provider");

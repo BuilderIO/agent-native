@@ -117,6 +117,49 @@ function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
 
+function hasViteDevRecovery(win: Window): boolean | undefined {
+  if (
+    (win as unknown as Record<string, unknown>)[
+      "__agentNativeViteDevRecoveryInstalled"
+    ] === true
+  ) {
+    return true;
+  }
+
+  // The inline script is normally the earliest signal, but React Router can
+  // mount through a dev entry before transformIndexHtml has run. The module
+  // environment is the same ownership boundary and prevents the route
+  // recovery layer from replaying an in-flight handoff in that window.
+  try {
+    const hostname = win.location.hostname;
+    const isLocalDevOrigin =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]" ||
+      hostname === "::1";
+    if (!isLocalDevOrigin) return false;
+
+    // The recovery module can be loaded from a prebuilt package artifact, so
+    // Vite may not preserve import.meta.env.DEV even though the consuming app
+    // is running through Vite. Local origins are the host boundary for that
+    // dev-only script; never let the shared route hook replay a handoff there.
+    return true;
+  } catch (error) {
+    void error;
+    return undefined;
+  }
+}
+
+function isViteOptimizerFailureMessage(message: string): boolean {
+  return (
+    message.includes("Outdated Optimize Dep") ||
+    message.includes("Optimize Deps Processing Error") ||
+    message.includes("/node_modules/.vite/deps/") ||
+    message.includes("/@id/") ||
+    message.includes("/@fs/")
+  );
+}
+
 function readStaleChunkReloadAt(win: Window): number {
   try {
     const raw = (
@@ -191,6 +234,7 @@ function recoverToIntendedNavigation(
 ): boolean {
   const target = getFreshIntendedNavigation(state, win.location.href);
   const sameCurrentTarget =
+    isAgentNativeDesktop(win) &&
     !target &&
     state.intendedHref === win.location.href &&
     Date.now() - state.intendedAt <= INTENDED_NAV_MAX_AGE_MS
@@ -220,6 +264,15 @@ function recoverFromDynamicImportFailure(
   message: string,
 ): boolean {
   if (!isDynamicImportFailureMessage(message)) return false;
+  // The Vite dev recovery script owns optimizer races in development. Let its
+  // bounded overlay/reload policy handle those failures instead of starting a
+  // second reload loop from the route recovery layer.
+  if (
+    hasViteDevRecovery(win) === true &&
+    isViteOptimizerFailureMessage(message)
+  ) {
+    return false;
+  }
   state.routeModuleFailureAt = Date.now();
   if (recoverToIntendedNavigation(win, state)) return true;
   return reloadForStaleChunk(win);
@@ -243,23 +296,26 @@ function patchHistoryMethod(
 function patchReload(win: Window, state: RouteChunkRecoveryState): void {
   const originalReload = win.location.reload.bind(win.location);
   const patchedReload = function patchedReload() {
-    if (
-      isAgentNativeDesktop(win) &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
-      return;
-    }
-    if (
-      state.recoveryHref &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
-      hardNavigate(win, state.recoveryHref);
-      return;
-    }
-    if (
-      Date.now() - state.routeModuleFailureAt <= 1_000 &&
-      recoverToIntendedNavigation(win, state)
-    ) {
+    if (Date.now() - state.routeModuleFailureAt <= 1_000) {
+      // The console hook may already have started the recovery navigation.
+      // React Router calls reload immediately after logging, so navigating a
+      // second time here can turn one stale route into a reload loop.
+      if (state.recovering) return;
+      // A route-module error is distinct from a Vite optimizer failure. The
+      // Vite dev handler and this hook share the same document, so replaying
+      // a remembered handoff target here can bounce between the old route and
+      // the durable target while React Router is still unwinding the error.
+      // Let the guarded current-page reload repair the module graph in dev;
+      // keep cross-route recovery for production and desktop shells.
+      if (hasViteDevRecovery(win) !== true) {
+        if (recoverToIntendedNavigation(win, state)) {
+          return;
+        }
+      }
+      if (isAgentNativeDesktop(win)) return;
+      // A current-route failure has no alternate target. Refresh once using
+      // the session-scoped cooldown, then leave persistent failures visible.
+      reloadForStaleChunk(win);
       return;
     }
     originalReload();
@@ -334,9 +390,17 @@ export function installRouteChunkRecovery(
   const originalError = consoleRef.error.bind(consoleRef);
   try {
     consoleRef.error = (...args: unknown[]) => {
+      // React Router logs before calling location.reload(). In Vite dev the
+      // recovery layer owns the bounded refresh; recovering here as well can
+      // turn a same-route failure into a document replacement loop.
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        recoverToIntendedNavigation(win, state);
+        // React Router calls location.reload() immediately after this log.
+        // In Vite dev, leave the route at its durable URL and let the patched
+        // reload perform one bounded refresh instead of replaying stale intent.
+        if (hasViteDevRecovery(win) !== true) {
+          recoverToIntendedNavigation(win, state);
+        }
       }
       originalError(...args);
     };

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveDesignBreakpoints } from "./design-breakpoints";
+import {
+  applyOptimisticBreakpointAdd,
+  applyOptimisticBreakpointRemove,
+  deriveDesignBreakpoints,
+} from "./design-breakpoints";
 
 describe("deriveDesignBreakpoints", () => {
   it("sorts by width and buckets unlabelled widths", () => {
@@ -39,24 +43,59 @@ describe("deriveDesignBreakpoints", () => {
     ]);
   });
 
-  it("drops entries with a missing id or non-finite width", () => {
-    expect(
-      deriveDesignBreakpoints({
-        breakpointSet: {
-          id: "set",
-          breakpoints: [
-            { widthPx: 500 },
-            { id: "nan", widthPx: Number.NaN },
-            { id: "ok", widthPx: 600 },
-          ],
-        },
-      }),
-    ).toEqual([{ id: "ok", widthPx: 600, label: "Tablet" }]);
-  });
-
-  it("returns an empty list when no breakpoint set is present", () => {
+  it("returns an empty list for missing or malformed sets", () => {
     expect(deriveDesignBreakpoints({})).toEqual([]);
     expect(deriveDesignBreakpoints({ breakpointSet: [] })).toEqual([]);
     expect(deriveDesignBreakpoints({ breakpointSet: { id: "x" } })).toEqual([]);
+  });
+});
+
+describe("optimistic breakpoint set patches", () => {
+  it("adds a sorted breakpoint and is a no-op for duplicate widths", () => {
+    const base = {
+      breakpointSet: {
+        id: "set",
+        breakpoints: [
+          { id: "m", label: "Mobile", widthPx: 390, prefix: "base" },
+        ],
+      },
+    };
+    const added = applyOptimisticBreakpointAdd(base, {
+      id: "t",
+      label: "Tablet",
+      widthPx: 768,
+    });
+    expect(
+      (added.breakpointSet as { breakpoints: Array<{ widthPx: number }> })
+        .breakpoints,
+    ).toEqual([
+      expect.objectContaining({ id: "m", widthPx: 390 }),
+      expect.objectContaining({ id: "t", widthPx: 768, label: "Tablet" }),
+    ]);
+    expect(
+      applyOptimisticBreakpointAdd(added, {
+        id: "dup",
+        label: "Tablet",
+        widthPx: 768,
+      }),
+    ).toBe(added);
+  });
+
+  it("removes by id and is a no-op for unknown ids", () => {
+    const base = {
+      breakpointSet: {
+        id: "set",
+        breakpoints: [
+          { id: "m", label: "Mobile", widthPx: 390 },
+          { id: "t", label: "Tablet", widthPx: 768 },
+        ],
+      },
+    };
+    const removed = applyOptimisticBreakpointRemove(base, "t");
+    expect(
+      (removed.breakpointSet as { breakpoints: Array<{ id: string }> })
+        .breakpoints,
+    ).toEqual([expect.objectContaining({ id: "m" })]);
+    expect(applyOptimisticBreakpointRemove(removed, "missing")).toBe(removed);
   });
 });

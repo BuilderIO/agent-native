@@ -675,4 +675,111 @@ describe("Design final response guard", () => {
       ),
     ).toBeNull();
   });
+
+  it("does not read a bare mention of a design as a request to change one", () => {
+    // `design` is the only token in both the verb and the object pattern, so
+    // testing them independently let one word stand in for both halves.
+    expect(looksLikeDesignMutationRequest("nice design")).toBe(false);
+    expect(looksLikeDesignMutationRequest("I love design")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("thanks, the design looks good"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("the design system is linked")).toBe(
+      false,
+    );
+    expect(
+      looksLikeDesignMutationRequest(
+        "Design is an agent-native prototyping app.",
+      ),
+    ).toBe(false);
+
+    expect(designFinalResponseGuard(guardContext("nice design"))).toBeNull();
+  });
+
+  it("lets `design` supply the verb only where a verb can stand", () => {
+    // The noun is the common use in this app, so a mention must not supply
+    // the verb even when some other word supplies the object.
+    expect(looksLikeDesignMutationRequest("I love this design")).toBe(false);
+    expect(looksLikeDesignMutationRequest("this design looks good")).toBe(
+      false,
+    );
+    expect(looksLikeDesignMutationRequest("that design is great")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("I love this design, but it needs work"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("Design is the design system")).toBe(
+      false,
+    );
+
+    expect(looksLikeDesignMutationRequest("design it")).toBe(true);
+    expect(looksLikeDesignMutationRequest("design a login screen")).toBe(true);
+    expect(looksLikeDesignMutationRequest("can you design a hero")).toBe(true);
+    expect(looksLikeDesignMutationRequest("and then design a footer")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("I need you to design a hero")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("make this design darker")).toBe(
+      true,
+    );
+  });
+
+  it("keeps a pronoun subject with a trailing verb a mutation request", () => {
+    expect(looksLikeDesignMutationRequest("this needs updating")).toBe(true);
+    expect(looksLikeDesignMutationRequest("it needs fixing")).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("the color palette needs updating"),
+    ).toBe(true);
+
+    expect(looksLikeDesignMutationRequest("make it darker")).toBe(true);
+    expect(looksLikeDesignMutationRequest("update this")).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("this is the design, make it darker"),
+    ).toBe(true);
+  });
+
+  it("still requires proof for a real design change", () => {
+    expect(looksLikeDesignMutationRequest("update the design")).toBe(true);
+    expect(looksLikeDesignMutationRequest("design a login screen")).toBe(true);
+    expect(looksLikeDesignMutationRequest("make the hero darker")).toBe(true);
+    expect(
+      designFinalResponseGuard(guardContext("update the design")),
+    ).not.toBeNull();
+  });
+
+  it("accepts a mutation saved in the same turn it is confirmed", () => {
+    expect(
+      designFinalResponseGuard(
+        guardContext("update the design", {
+          toolResults: [
+            toolResult("generate-design", {
+              renderable: true,
+              savedFiles: ["file-1"],
+            }),
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("labels an unproven draft instead of replacing it with a save failure", () => {
+    // Intent is read from prose, so it misfires on text that only describes
+    // design work — the app's own action guide says "create a new design".
+    // No pattern separates that from a request, so a miss must stay
+    // recoverable: the user keeps the answer and is told nothing was saved.
+    const selfReferential = [
+      "# Design — Agent Guide",
+      "",
+      "| Action | Purpose |",
+      "| --- | --- |",
+      "| `create-design` | Start a new design (empty shell) |",
+    ].join("\n");
+
+    const guard = designFinalResponseGuard(guardContext(selfReferential));
+    expect(guard).not.toBeNull();
+    expect(guard).toMatchObject({
+      exhaustedDraftPrefix: expect.stringContaining("Unverified"),
+    });
+  });
 });

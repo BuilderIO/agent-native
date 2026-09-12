@@ -48,6 +48,13 @@ function getVersion(threadId: string): number {
   return versions.get(threadId) ?? 0;
 }
 
+function clearOwnedInflight(
+  threadId: string,
+  request: Promise<EmailMessage[]>,
+) {
+  if (inflight.get(threadId) === request) inflight.delete(threadId);
+}
+
 function notify(threadId: string) {
   const set = subscribers.get(threadId);
   if (!set) return;
@@ -79,7 +86,11 @@ function retryDelayFromMessage(message: string): number {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function noteFetchError(message: string, status?: number) {
+function noteFetchError(
+  message: string,
+  status?: number,
+  retryAfterMs?: number,
+) {
   if (status !== undefined && isAuthFailureStatus(status)) {
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
@@ -87,10 +98,19 @@ function noteFetchError(message: string, status?: number) {
     );
     return;
   }
-  if (isRateLimitMessage(message)) {
+  // The server signals a Gmail quota cooldown via 429 + Retry-After; the
+  // message is deliberately jargon-free, so status/header take priority
+  // over the message regex, which stays as a fallback.
+  if (status === 429 || isRateLimitMessage(message)) {
+    const delay =
+      typeof retryAfterMs === "number" &&
+      Number.isFinite(retryAfterMs) &&
+      retryAfterMs > 0
+        ? Math.min(Math.max(retryAfterMs, 15_000), 5 * 60_000)
+        : retryDelayFromMessage(message);
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
-      Date.now() + retryDelayFromMessage(message),
+      Date.now() + delay,
     );
   }
 }
@@ -118,9 +138,19 @@ async function fetchThread(
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const message = body?.error || `Request failed (${res.status})`;
-    noteFetchError(message, res.status);
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    const retryAfterMs =
+      Number.isFinite(retryAfter) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+        ? retryAfter * 1000
+        : undefined;
+    noteFetchError(message, res.status, retryAfterMs);
     const error = new Error(message);
-    (error as Error & { status?: number }).status = res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).status =
+      res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).retryAfterMs =
+      retryAfterMs;
     throw error;
   }
   return res.json();
@@ -197,6 +227,12 @@ export function setCachedThread(threadId: string, messages: EmailMessage[]) {
   scheduleFlush();
 }
 
+export function supersedeCachedThreadFetch(threadId: string) {
+  const superseded = inflight.delete(threadId);
+  versions.set(threadId, getVersion(threadId) + 1);
+  return superseded;
+}
+
 export function invalidateCachedThread(threadId: string) {
   cache.delete(threadId);
   inflight.delete(threadId);
@@ -235,17 +271,17 @@ export function ensureThread(
       // If invalidateCachedThread ran while we were in flight, the version
       // bumped — discard the stale response rather than repopulating.
       if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
+        clearOwnedInflight(threadId, p);
         return messages;
       }
       cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       notify(threadId);
       scheduleFlush();
       return messages;
     })
     .catch((err) => {
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       throw err;
     });
   inflight.set(threadId, p);
@@ -260,12 +296,12 @@ function backgroundRefresh(threadId: string, accountEmail?: string) {
   const p = fetchThread(threadId, accountEmail)
     .then((messages) => {
       if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
+        clearOwnedInflight(threadId, p);
         return messages;
       }
       const prev = cache.get(threadId);
       cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       scheduleFlush();
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
       const nextJson = JSON.stringify(messages);
@@ -273,11 +309,15 @@ function backgroundRefresh(threadId: string, accountEmail?: string) {
       return messages;
     })
     .catch(() => {
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       return [];
     });
   inflight.set(threadId, p);
   return p;
+}
+
+export function refreshCachedThread(threadId: string, accountEmail?: string) {
+  return backgroundRefresh(threadId, accountEmail);
 }
 
 // Bulk warm a tiny window of likely-next threads. Direct clicks still fetch

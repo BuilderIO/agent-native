@@ -169,12 +169,6 @@ function appendParamsToPath(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function viewToAppPath(view: string): string | null {
-  const value = view.trim();
-  if (!value) return null;
-  return safeAppPath(value.startsWith("/") ? value : `/${value}`);
-}
-
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
   if (!base || path === base || path.startsWith(`${base}/`)) return path;
@@ -922,14 +916,17 @@ function openAppTool(
       }
       if (params && Object.keys(params).length === 0) params = undefined;
 
-      const directViewPath = embed && view ? viewToAppPath(view) : null;
+      // A bare `view` is a name, not a route. Only `/_agent-native/open` knows
+      // the mapping — each app supplies it through `resolveOpenPath` (design
+      // routes `view: "editor"` at `/design/:id`, slides at `/deck/:id`,
+      // content at `/page/:id`). Synthesizing `/<view>` here produced a 404
+      // both inside the embed iframe and in the "Open in new tab" fallback the
+      // host offers when that iframe fails. Deep-link instead; embed tickets
+      // already accept an open-route target (see `requestMatchesEmbedTarget`).
       const relUrl = path
         ? appendParamsToPath(path, params)
-        : directViewPath
-          ? appendParamsToPath(directViewPath, params)
-          : buildDeepLink({ app, view, params });
-      const sameAppUrl =
-        path || directViewPath ? withConfiguredBasePath(relUrl) : relUrl;
+        : buildDeepLink({ app, view, params });
+      const sameAppUrl = path ? withConfiguredBasePath(relUrl) : relUrl;
 
       // Cross-app target in a workspace: resolve the TARGET app's origin and
       // return an absolute URL. Otherwise the MCP layer would prefix the

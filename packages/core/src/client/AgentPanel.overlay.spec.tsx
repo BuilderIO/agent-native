@@ -23,6 +23,7 @@ function OverlayHandoffHarness({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const pendingOverlayRef = useRef(false);
 
   const closeMenuForOverlay = () => {
@@ -45,6 +46,19 @@ function OverlayHandoffHarness({
           }}
         >
           <DropdownMenuItem
+            data-testid="all-chats-item"
+            onSelect={(event) =>
+              deferAgentPanelOverlayOpen(
+                event,
+                closeMenuForOverlay,
+                () => setHistoryOpen(true),
+                "timeout",
+              )
+            }
+          >
+            All chats
+          </DropdownMenuItem>
+          <DropdownMenuItem
             data-testid="feedback-item"
             onSelect={(event) =>
               deferAgentPanelOverlayOpen(event, closeMenuForOverlay, () =>
@@ -66,6 +80,19 @@ function OverlayHandoffHarness({
         <PopoverPrimitive.Portal>
           <PopoverPrimitive.Content data-testid="feedback-content">
             Feedback form
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Root>
+
+      <PopoverPrimitive.Root open={historyOpen} onOpenChange={setHistoryOpen}>
+        <PopoverPrimitive.Trigger asChild>
+          <button type="button" tabIndex={-1} aria-hidden="true">
+            All chats trigger
+          </button>
+        </PopoverPrimitive.Trigger>
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content data-testid="history-content">
+            Chat history
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>
@@ -148,6 +175,51 @@ describe("AgentPanel sibling overlay handoff", () => {
 
     expect(
       document.body.querySelector('[data-testid="feedback-content"]'),
+    ).toBeTruthy();
+  });
+
+  it("keeps All chats open after the menu restores focus", async () => {
+    const focusRestorePrevented = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <OverlayHandoffHarness onFocusRestore={focusRestorePrevented} />,
+      );
+    });
+
+    await act(async () => {
+      const trigger = container.querySelector<HTMLButtonElement>(
+        '[data-testid="menu-trigger"]',
+      );
+      trigger?.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          cancelable: true,
+        }),
+      );
+      trigger?.click();
+    });
+
+    expect(
+      document.querySelector('[data-testid="all-chats-item"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>('[data-testid="all-chats-item"]')
+        ?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(focusRestorePrevented).toHaveBeenCalledWith(true);
+    expect(
+      document.body.querySelector('[data-testid="history-content"]'),
     ).toBeTruthy();
   });
 });

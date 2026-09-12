@@ -5,6 +5,8 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppCspBuilder,
 } from "@agent-native/core";
+import { normalizeTrackingDimension } from "@agent-native/core/shared";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
@@ -131,7 +133,24 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
-  run: async (args) => openGrantedDispatchMcpApp(normalizeOpenAppArgs(args)),
+  run: async (args, ctx) => {
+    const result = await openGrantedDispatchMcpApp(normalizeOpenAppArgs(args));
+    const targetApp = normalizeTrackingDimension(result.app) ?? result.app;
+    if (targetApp !== "dispatch") {
+      track(
+        "cross_app_used",
+        {
+          app_name: "dispatch",
+          template_name: "dispatch",
+          source_app: "dispatch",
+          target_app: targetApp,
+          output_type: "app_route",
+        },
+        ctx,
+      );
+    }
+    return result;
+  },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const r = result as { url?: string; app?: string; view?: string };

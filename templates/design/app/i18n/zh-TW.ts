@@ -36,11 +36,10 @@ const messages = {
     languageTitle: "語言",
     languageDescription: "選取 Design 的介面語言。",
     languageLabel: "介面語言",
-    experiments: "實驗功能",
-    experimentsIntro:
-      "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
-    experimentTweaks: "設計微調",
-    experimentTweaksDescription: "試用 AI 設計微調功能。",
+    labs: "Labs",
+    labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
+    labTweaks: "設計微調",
+    labTweaksDescription: "試用 AI 設計微調功能。",
   },
   pages: {
     presentEmpty: "沒有可展示的內容",
@@ -135,6 +134,7 @@ const messages = {
     genericError: "出了點問題",
   },
   editPanel: {
+    repeatAffectsAll: "影響全部 {{count}} 個副本",
     colorInputLabel: "顏色",
     properties: "特性",
     pageHelpTitle: "點選畫布上的任意元素",
@@ -423,6 +423,15 @@ const messages = {
       absolute: "絕對",
       fixed: "固定",
       sticky: "黏著",
+    },
+    screenSource: {
+      title: "來源",
+      url: "URL",
+      urlLabel: "畫面 URL",
+      urlPlaceholder: "/plans 或 http://localhost:5173/plans",
+      update: "更新",
+      chooseLocalApp: "選擇本機應用程式",
+      remove: "移除畫面",
     },
     borderStyleOptions: {
       none: "無",
@@ -726,6 +735,9 @@ const messages = {
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
         "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
+      quotaCooldownTitle: "Design 已暫停此匯入",
+      quotaCooldownBody:
+        "達到配額上限後，Design 正在限制自身的 Figma 請求速率。配額將自動重設。",
       rateLimitTitle: "Figma 已暫停此匯入",
       rateLimitLowSeat:
         "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
@@ -964,6 +976,8 @@ const messages = {
     },
     toasts: {
       annotationSendError: "無法傳送註解。你的繪圖仍保留在這裡，請再試一次。",
+      screenSourceUpdated: "畫面來源已更新",
+      screenSourceUpdateFailed: "無法更新畫面來源",
       componentCreated: "元件已建立",
       componentCreateFailed: "無法建立元件",
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
@@ -1012,6 +1026,8 @@ const messages = {
       layerMoveFailed: "無法移動該圖層",
       layerMoveRedirected: "已移至原位置附近——精確的放置目標無法編輯",
       duplicateElementFailed: "無法複製該元素",
+      repeatListNotEditable: "無法更新此重複清單",
+      repeatRowPickOnCanvas: "在畫布上雙擊某一列以編輯其文字",
       eyedropperUnsupported: "此瀏覽器不支援取色器",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",

@@ -6,7 +6,6 @@ import {
   smoothStreamingPunctuationDelayMs,
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
-  SMOOTH_STREAMING_LONG_TEXT_TAIL_GRAPHEMES,
   SMOOTH_STREAMING_LONG_TEXT_THRESHOLD_GRAPHEMES,
 } from "./streaming-text-smoothing.js";
 
@@ -31,13 +30,11 @@ describe("streaming text smoothing helpers", () => {
     expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(0);
   });
 
-  it("keeps only a tail buffered for long restored streams", () => {
+  it("starts long responses from the beginning instead of dumping a tail", () => {
     const text = "x".repeat(SMOOTH_STREAMING_LONG_TEXT_THRESHOLD_GRAPHEMES + 1);
     const graphemes = splitStreamingTextGraphemes(text);
 
-    expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(
-      graphemes.length - SMOOTH_STREAMING_LONG_TEXT_TAIL_GRAPHEMES,
-    );
+    expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(0);
   });
 
   it("reveals at least one grapheme while respecting backlog and burst limits", () => {

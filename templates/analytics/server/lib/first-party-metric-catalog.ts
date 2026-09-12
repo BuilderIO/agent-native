@@ -184,6 +184,15 @@ const RETENTION_ROLLING_DAYS = 7;
 const RETENTION_MIN_COHORT_SIZE = 5;
 const PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE = 20;
 const OBSERVED_ACTIVITY_LOOKBACK_DAYS = 365;
+/**
+ * Day count for the `retention-over-time` anchor-date spine, keyed off the
+ * same `{{timeRange}}` values as `dashboardTimeRangeFilter`. Unlike that
+ * filter (which bounds a WHERE clause), this sizes a full calendar spine, so
+ * an unrecognized/empty value must still resolve to a count ("all" -> 365)
+ * rather than leaving the spine unbounded.
+ */
+const RETENTION_SPINE_DAYS_SQL =
+  "(CASE '{{timeRange}}' WHEN '7d' THEN 7 WHEN '30d' THEN 30 WHEN '90d' THEN 90 WHEN '180d' THEN 180 WHEN '365d' THEN 365 ELSE 365 END)";
 
 function daysAgoSql(days: number): string {
   const unit = days === 1 ? "day" : "days";
@@ -298,7 +307,7 @@ export function usesFirstPartyDashboardFilters(sql: string): boolean {
   );
 }
 
-function scopeFirstPartyPanelSql(sql: string): string {
+export function scopeFirstPartyPanelSql(sql: string): string {
   if (sql.includes("{{appFilter}}")) return sql;
   return sql
     .replace(
@@ -353,6 +362,9 @@ const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${TEMPLATE_EXPR} AS template, COUNT(*) A
 export const LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
 export const LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
 const OBSERVED_ACTIVITY_LOOKBACK_FILTER = `${EVENT_DATE_SQL} >= ${daysAgoSql(OBSERVED_ACTIVITY_LOOKBACK_DAYS)}`;
+// The spine's oldest anchor (365 days ago) still needs the six days of
+// first-seen events before it for its trailing cohort window.
+const RETENTION_OVER_TIME_LOOKBACK_FILTER = `${EVENT_DATE_SQL} >= ${daysAgoSql(OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1)}`;
 export const INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL =
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL.replace(
     `${DASHBOARD_EMAIL_FILTER}), first_seen`,
@@ -378,11 +390,25 @@ export const PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL =
     `${DASHBOARD_EMAIL_FILTER}), first_seen`,
     `${DASHBOARD_EMAIL_FILTER} AND ${OBSERVED_ACTIVITY_LOOKBACK_FILTER}), first_seen`,
   );
-const RETENTION_OVER_TIME_SQL =
+export const PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL =
   PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL.replace(
     PRODUCT_ACTIVITY_TEMPLATE_FILTER,
     `${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
   );
+/**
+ * Anchor dates used to be derived from cohorts' own first-seen dates, filtered
+ * to ones whose 7-14d window had already matured (`cohort_date <= now - 14d`)
+ * AND fell inside the selected `{{timeRange}}` — two constraints that
+ * contradict for 7d/30d ranges (an empty chart) and, once satisfied, only ever
+ * emit mature rows. The chart renderer then pads the x-axis out to today and
+ * zero-fills every day with no emitted row, so the last 14 days rendered as a
+ * flat 0% line instead of "not yet known" (see `fillMissingDailyRows` in
+ * `pivot.ts`). `anchor_dates` is now a full calendar spine over the selected
+ * window (independent of cohort maturity), and each period's maturity is
+ * checked per row so immature/undersized cells return NULL — which the pivot
+ * preserves — instead of a fabricated 0.
+ */
+const RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${RETENTION_OVER_TIME_LOOKBACK_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), digits AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9), offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds WHERE hundreds.n < 8), anchor_dates AS (SELECT to_char(CURRENT_DATE - o.n, 'YYYY-MM-DD') AS date FROM offsets o WHERE o.n <= ${RETENTION_SPINE_DAYS_SQL}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1-7d return' AS period, ${daysAgoSql(7)} AS mature_through UNION ALL SELECT '7-14d return' AS period, ${daysAgoSql(14)} AS mature_through), retained AS (SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT a.date, p.period, CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0) ELSE NULL END AS retained_users, COALESCE(cs.users, 0) AS cohort_users, CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0)::float / NULLIF(cs.users, 0) ELSE NULL END AS rate FROM anchor_dates a CROSS JOIN periods p LEFT JOIN cohort_sizes cs ON cs.date = a.date LEFT JOIN retained r ON r.date = a.date AND r.period = p.period ORDER BY a.date, p.period`;
 export const PRE_MARKETING_SITE_ONE_DAY_RETENTION_BY_TEMPLATE_SQL =
   LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_SQL.replace(
     `${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen`,
@@ -422,8 +448,6 @@ const LEGACY_RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.";
 const LEGACY_RECURRING_USERS_WEEKLY_DESCRIPTION =
   "Weekly distinct signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.";
-const LEGACY_RETENTION_OVER_TIME_DESCRIPTION =
-  "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
 const LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
   "Selected-range signed-in cohorts by the browser identity's first non-docs app/template. Counts returns to any non-docs app within 1-7 days. Templates with fewer than 20 mature cohort identities are hidden.";
 const LEGACY_SEVEN_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
@@ -432,8 +456,12 @@ const RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.";
 const RECURRING_USERS_WEEKLY_DESCRIPTION =
   "Weekly distinct signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.";
-const RETENTION_OVER_TIME_DESCRIPTION =
+export const LEGACY_RETENTION_OVER_TIME_DESCRIPTION =
+  "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
+export const PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION =
   "Trailing 7-day cohorts whose first signed-in app session was observed in the previous 365 days, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.";
+const RETENTION_OVER_TIME_DESCRIPTION =
+  "Trailing 7-day cohort return rates. A point appears once its return window has fully elapsed (7 days for 1-7d, 14 days for 7-14d), so the newest days are blank rather than zero.";
 const ONE_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
   "Selected-range signed-in cohorts by the browser identity's first non-docs app/template observed in the previous 365 days. Counts returns to any non-docs app within 1-7 days. Templates with fewer than 20 mature cohort identities are hidden.";
 const SEVEN_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION =
@@ -443,7 +471,7 @@ export type ExactFirstPartyPanelReplacement = {
   id: string;
   legacySql: readonly string[];
   sql: string;
-  legacyDescription?: string;
+  legacyDescription?: string | readonly string[];
   description?: string;
 };
 type FirstPartyPanelReplacement = Omit<ExactFirstPartyPanelReplacement, "id">;
@@ -462,9 +490,13 @@ export function repairFirstPartyObservedRetentionPanels(
           LEGACY_RETENTION_OVER_TIME_SQL,
           LEGACY_V0_RETENTION_OVER_TIME_SQL,
           PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL,
+          PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
         ],
         sql: RETENTION_OVER_TIME_SQL,
-        legacyDescription: LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+        legacyDescription: [
+          LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
+          PRE_FULL_SPINE_RETENTION_OVER_TIME_DESCRIPTION,
+        ],
         description: RETENTION_OVER_TIME_DESCRIPTION,
       },
     ],
@@ -568,6 +600,23 @@ export function repairFirstPartyObservedRetentionPanels(
         : replacement,
     );
   }
+  // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
+  // {{appFilter}} predicate, but every legacySql entry above is the unscoped
+  // form. Match both so already-deployed (scoped) panels are still recognized
+  // as legacy, for every replacement above, not just retention.
+  for (const [id, replacement] of replacements) {
+    replacements.set(id, {
+      ...replacement,
+      legacySql: Array.from(
+        new Set(
+          replacement.legacySql.flatMap((sql) => [
+            sql,
+            scopeFirstPartyPanelSql(sql),
+          ]),
+        ),
+      ),
+    });
+  }
   let changed = false;
   const panels = config.panels.map((rawPanel) => {
     if (!rawPanel || typeof rawPanel !== "object") return rawPanel;
@@ -596,7 +645,11 @@ export function repairFirstPartyObservedRetentionPanels(
               ...panelConfig,
               ...(replacement.legacyDescription !== undefined &&
               replacement.description !== undefined &&
-              panelConfig.description === replacement.legacyDescription
+              typeof panelConfig.description === "string" &&
+              (typeof replacement.legacyDescription === "string"
+                ? [replacement.legacyDescription]
+                : replacement.legacyDescription
+              ).includes(panelConfig.description)
                 ? { description: replacement.description }
                 : {}),
             },

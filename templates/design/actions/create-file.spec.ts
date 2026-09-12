@@ -13,11 +13,40 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   let existingRows: Array<Record<string, unknown>> = [];
+  let whereCondition:
+    | {
+        and?: Array<{ left?: unknown; right?: unknown }>;
+        left?: unknown;
+        right?: unknown;
+      }
+    | undefined;
 
-  const selectChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
+  const matchingRows = () => {
+    const conditions =
+      whereCondition?.and ?? (whereCondition ? [whereCondition] : []);
+    return existingRows.filter((row) =>
+      conditions.every((condition) => {
+        const column = String(condition.left).split(".").pop();
+        return column ? row[column] === condition.right : true;
+      }),
+    );
+  };
+
+  const selectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+    then: vi.fn(),
+  };
   selectChain.from.mockReturnValue(selectChain);
-  selectChain.where.mockReturnValue(selectChain);
-  selectChain.limit.mockImplementation(() => Promise.resolve(existingRows));
+  selectChain.where.mockImplementation((condition) => {
+    whereCondition = condition;
+    return selectChain;
+  });
+  selectChain.limit.mockImplementation(() => Promise.resolve(matchingRows()));
+  selectChain.then.mockImplementation((resolve, reject) =>
+    Promise.resolve(matchingRows()).then(resolve, reject),
+  );
 
   const insertValues = vi.fn().mockResolvedValue(undefined);
   const insert = vi.fn(() => ({ values: insertValues }));
@@ -27,7 +56,14 @@ const mocks = vi.hoisted(() => {
   updateChain.where.mockResolvedValue(undefined);
   const update = vi.fn(() => updateChain);
 
-  const db = { select: vi.fn(() => selectChain), insert, update };
+  const db = {
+    select: vi.fn(() => {
+      whereCondition = undefined;
+      return selectChain;
+    }),
+    insert,
+    update,
+  };
 
   let designData: Record<string, unknown> = {};
 
@@ -72,6 +108,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "designFiles.id",
       designId: "designFiles.designId",
       filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
     },
     designs: { id: "designs.id" },
   },
@@ -267,6 +304,145 @@ describe("create-file: canvas placement and landing URL", () => {
       width: 1440,
       height: 1024,
     });
+  });
+
+  it("clears the measured height of an existing responsive preview", async () => {
+    mocks.setExistingRows([
+      {
+        id: "existing",
+        designId: "design-1",
+        filename: "existing.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      screenMetadata: {
+        existing: {
+          width: 1440,
+          height: 900,
+          breakpointHeights: { "390": 2200 },
+        },
+      },
+      canvasFrames: {
+        existing: { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "second.html",
+      content: "<main>Second screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(2200 + 96);
+  });
+
+  it("does not expand the board file into responsive previews", async () => {
+    mocks.setExistingRows([
+      {
+        id: "board",
+        designId: "design-1",
+        filename: "__board__.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        board: { x: 0, y: 1000, width: 1440, height: 100, rotation: 90 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "next.html",
+      content: "<main>Next screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(1770 + 96);
+  });
+
+  it("does not reserve responsive space for JSX support files", async () => {
+    mocks.setExistingRows([
+      {
+        id: "support",
+        designId: "design-1",
+        filename: "support.jsx",
+        fileType: "jsx",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "next.html",
+      content: "<main>Next screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBe(100 + 96);
+  });
+
+  it("uses responsive bounds for existing screens without metadata", async () => {
+    mocks.setExistingRows([
+      {
+        id: "screen",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        screen: { x: 0, y: 1000, width: 1440, height: 100, rotation: 90 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "next.html",
+      content: "<main>Next screen</main>",
+      fileType: "html",
+    });
+
+    const canvasFrames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(canvasFrames[result.id]?.y).toBeGreaterThan(1770 + 96);
   });
 
   it("does not place or focus a non-renderable file", async () => {

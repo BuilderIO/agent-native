@@ -51,6 +51,39 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.178.1
+
+### Patch Changes
+
+- 35eb1e6: Preserve the Design "Make this a real app" waitlist use case for Forms routing.
+- 1f6d412: Propagate request continuations to actions so background cache writes can finish reliably.
+- 2a2f929: Make the Builder.io free credits card header in first-run setup start the
+  activation flow. The header arrow looked like the card's affordance but was
+  decorative, so clicking it did nothing while the neighboring "Use my own keys"
+  card was clickable end to end.
+- 2b9e4aa: Keep the All chats history popover open when launched from the agent panel menu.
+- e5364ac: Keep request-independent login pages on the local auth surface for PR preview hosts.
+- 4676e71: Show popular OpenRouter models in the chat picker and preserve custom selections.
+- b7c56a1: Settings → Integrations → Keys now reports the value each app actually uses and where it comes from (personal, workspace, Vault, or environment) instead of only the row it wrote itself, so keys synced from the Dispatch Vault no longer look unset. The "+ New" menu keeps a custom-key row visible and turns typed text into a custom key. The Dispatch Vault add/edit dialogs are key-first, and its access card explains how apps see Vault keys.
+- Release all public npm packages with a patch version bump.
+- 7eebc21: Open MCP OAuth setup in a new tab so the current app stays available.
+- 6a0f973: Preserve exact pending action inputs when resuming an approved tool call.
+- facb1ed: Preserve the prerendered Netlify root shell for explicitly public apps.
+- 63f77f0: Prevent Cmd/Ctrl+K from reaching an outer host while a command menu input is focused.
+- 0fcdb36: Keep the command picker above navigation drawers by using the shared dialog stacking order.
+- 63bc52e: Keep the Builder connect OAuth callback on the preview origin the popup was opened on. In a workspace deploy behind a Builder-hosted preview, the callback origin resolved to the loopback workspace gateway, so Builder returned the authorization code to the visitor's own machine instead of the preview server holding the pending flow, and the connect popup failed with "No active Builder connect flow found. Restart the connection from Settings."
+- b3262c3: Remove Sentry source maps from production build artifacts without blocking deploys when their upload fails.
+- b7c56a1: Harden security across CLI action runners and scheduling actions: safely tokenize and quote CLI arguments in fallback action routes to prevent shell command injection, require viewer access on routing form responses, and enforce access checks on event type ID queries.
+- 0dc7290: Simplify device authorization screen by removing the redundant accordion heading and toggle, and using Tabler terminal icon.
+- d986fe3: Add Turn Into App as a built-in exported skill, installable through `agent-native skills add turn-into-app` and shown in the interactive skill picker, alongside `an`, `visual-plan`, and the other framework skills.
+- facb1ed: Warm the grouped and per-client-loader `.data` URLs React Router requests during navigation.
+- 35eb1e6: Shine the running "Working" chat status label so long turns still look active.
+- Updated dependencies [35eb1e6]
+- Updated dependencies [4676e71]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.7
+  - @agent-native/recap-cli@0.5.29
+
 ## 0.178.0
 
 ### Minor Changes
@@ -2339,67 +2372,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Minor Changes
 
 - a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
-
-## 0.162.0
-
-### Minor Changes
-
-- 0b57293: Add an internal beta/production environment badge and typed deployment-lane metadata to hosted Agent-Native app shells.
-
-### Patch Changes
-
-- 0b57293: Fix `useActionQuery`/`useActionMutation`/`callAction` surfacing an opaque `405` when a caller's HTTP verb doesn't match an action's declared `http.method` (e.g. a `defineAction({ http: { method: "DELETE" } })` called without `{ method: "DELETE" }`). The transport now throws a typed `action_method_mismatch` error naming the action, the method that was sent, and the method it declares, instead of a bare "Method not allowed" the caller had to reverse-engineer — and marks it non-retryable, since resending the same wrong verb never succeeds.
-- 0b57293: Show Approve/Deny again when a tool approval has to be re-asked. `approval_required` now carries an `askId` identifying that specific gate hit, and the chat retains a user's resolution per ask instead of per approval key. Previously, if a resume never consumed the grant (expired TTL, turn-id mismatch), the server re-asked for the same call and the client still showed the quiet "Approved" note — the buttons never came back, so the action silently never ran and there was no way to retry.
-- 0b57293: Fix a bug where closing one chat tab could close several tabs at once (or make a tab reappear right after closing it). A duplicated thread id made two tab-bar entries share one underlying thread, so closing either removed both. Open-tab ids are now de-duplicated in the tab state itself, which covers both a corrupted list restored from localStorage and duplicates introduced at runtime by a synchronous burst of open requests.
-- f97dad9: Keep mounted framework endpoints reachable in dev and strip React Router HMR imports from transplanted app modules.
-- 0b57293: Keep semantic settings URLs under the app's mounted workspace path.
-- 0b57293: Fix Connect Builder (and other `agentNativePath`/`appPath` calls) building the wrong URL in a multi-app workspace dev gateway when the current page's client-side route (e.g. `/settings`) isn't itself a workspace app id. Previously `appBasePath()` would blindly trust the URL's first path segment as the workspace mount, producing URLs like `/settings/_agent-native/builder/connect` that the gateway 404s into its app-picker page instead of Builder's real sign-in screen. The guessed segment is now validated against the deployed workspace app manifest when one is available.
-- 0b57293: Extend the human-in-the-loop tool approval grant window from 15 minutes to 1 hour. A user who stepped away between seeing an "Approve to run..." prompt and clicking it (e.g. to update their client) could return to a silently expired grant — clicking Approve did nothing because the durable row no longer matched `expires_at > now`, with no error shown.
-- bcd4c14: Time out session-replay uploads so a hung request releases the flush lock instead of growing the replay queue for the rest of the session, and bound the extension-marker scan by its watermark instead of reading every marker row ever written.
-- 0b57293: Add regression coverage proving the magic-link `callbackURL`/`newUserCallbackURL` construction survives Better Auth's own `originCheck` validator end-to-end (not just a shape assertion) — this is the exact flow behind the `{"message":"Invalid callbackURL","code":"INVALID_CALLBACK_URL"}` reports from a UTM-tagged signup link and a retried sign-up after a stale `?error=` redirect. The existing absolute-URL promotion in `betterAuthCallbackURL` already fixed the underlying behavior; this closes the test gap so a future regression is caught even if the constructed URL still "looks" valid.
-
-  Also stop silently swallowing a failure in the best-effort `email_verified` repair that runs after a successful verify-email redirect. A DB error there was previously indistinguishable from "nothing needed repairing," which is exactly the symptom in the "clicked the verify link, login still says not verified" reports — it's now reported via `captureAuthError` (still non-blocking) so a genuine failure is visible instead of silent.
-
-- 0b57293: Fix two bugs where a failure looked like success:
-  - First-run onboarding's Skip/Continue no longer silently do nothing when the completion save fails. `completeFirstRun()` now rejects instead of swallowing a failed fetch or non-ok response, and `FirstRunOnboarding` surfaces the failure with a "Try again" affordance instead of bouncing to an unrelated full-screen error.
-  - A workspace file (including binary exports) now renders a download card the moment it's created — `show-workspace-file`'s binary content-type gate is gone, and any tool result shaped like a workspace-file card (e.g. `web-request`/`provider-api-request`'s `saveToFile`) renders one automatically, without a second discretionary `show-workspace-file` call.
-
-- 0b57293: Keep replayed conversations faithful to what the agent actually did.
-  - Resuming a run (chained background continuation, agent-teams `continue`) now
-    replays the tool calls and results stored in `thread_data` instead of
-    flattening each turn to its prose, so a resumed chunk can see the output of
-    work already committed rather than re-running it. Integration turns keep their
-    existing delivered-text-only replay policy, and each replayed result is bounded
-    with an in-band truncation notice.
-  - The outbound history window no longer slides by one message per turn. Every
-    prompt cache matches a byte-identical prefix, so a window that moved every turn
-    meant no cached prefix ever matched once a thread passed the message cap, and
-    the whole conversation was re-billed at write price on every turn. The window
-    start is now quantized to a stride.
-  - Anthropic `redacted_thinking` blocks survive normalization and replay verbatim.
-    They were silently dropped as an unknown block type, which left the next
-    iteration of a tool-use turn sending an assistant turn the API rejects.
-    Unrecognized content block types now warn instead of vanishing.
-  - Reducing a long thread is Observational Memory's job, but its Observer only
-    engages past 30k unobserved tokens while a 24-message count cap bit long
-    before that, so turns left the request while compaction still had nothing to
-    say about them. The count cap is now a backstop well above that threshold; the
-    two char budgets remain the real bound on what a request carries.
-  - A thinking block with no signature is dropped with a warning instead of being
-    sent with an empty one, which the native API rejects outright — failing the
-    whole turn on a provider error that points nowhere near the cause. The Builder
-    gateway path is unchanged, since its tolerance here is unverified.
-
-- 16cbc53: Stop PR Visual Recap gate skips from creating visible pull request comments.
-- 0b57293: Fix `provider-api-request` reporting a failed Slack send as a success. Slack's Web API always answers HTTP 200, even on failure, and encodes the real outcome as `ok: false` in the JSON body — `chat.postMessage` calls that failed (e.g. `not_in_channel`, `channel_not_found`, `msg_too_long`) looked identical to a delivered message to any caller checking `response.ok`, including the agent, which could then tell a user a Slack message was sent when it never was. Provider configs can now declare `bodyOkField` for this always-200-with-body-encoded-outcome convention; the Slack provider sets it, and a body-level `false` now flips the response's `ok` to `false` so a failed or unconfirmed send can no longer be reported as delivered.
-- 0b57293: Record a rejected Builder credential on the transcription path so it is not
-  retried forever. The chat engine already marks a 401/403 and stops reusing that
-  credential for the auth-failure TTL; transcription threw the raw upstream text
-  and marked nothing, so one unusable credential re-sent the same doomed request
-  on every attempt — 24 identical "Missing Authentication header" 401s in a day.
-- Updated dependencies [16cbc53]
-- Updated dependencies [0b57293]
-  - @agent-native/recap-cli@0.5.5
-  - @agent-native/toolkit@0.16.5
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

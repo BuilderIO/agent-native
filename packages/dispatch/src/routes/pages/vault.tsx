@@ -1,8 +1,13 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useOrgRole } from "@agent-native/core/client/org";
+import {
+  NewKeyMenu,
+  type NewKeyOption,
+} from "@agent-native/core/client/settings";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -13,7 +18,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -79,53 +84,52 @@ export function meta() {
   return [{ title: "Vault — Dispatch" }];
 }
 
-function AddSecretDialog() {
-  const [open, setOpen] = useState(false);
+function AddSecretDialog({
+  open,
+  onOpenChange,
+  initial,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initial?: { credentialKey: string; name?: string };
+}) {
   const [credentialKey, setCredentialKey] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [provider, setProvider] = useState("");
   const [description, setDescription] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setCredentialKey(initial?.credentialKey ?? "");
+    setName(initial?.name ?? "");
+    setValue("");
+    setProvider("");
+    setDescription("");
+    setMoreOpen(false);
+  }, [open, initial]);
 
   const create = useActionMutation("create-vault-secret", {
     onSuccess: () => {
-      toast.success("Secret created");
-      setOpen(false);
-      setCredentialKey("");
-      setName("");
-      setValue("");
-      setProvider("");
-      setDescription("");
+      toast.success("Key added");
+      onOpenChange(false);
     },
     onError: (err) => toast.error(String(err)),
   });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <IconPlus size={16} className="mr-1.5" />
-          Add secret
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add vault secret</DialogTitle>
+          <DialogTitle>Add key</DialogTitle>
           <DialogDescription>
-            Store a credential that can be granted to workspace apps.
+            Saved once here, then available to every app in this workspace.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label>Name</Label>
-            <Input
-              placeholder="Google OAuth Client ID"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Credential key (env var name)</Label>
+            <Label>Key</Label>
             <Input
               placeholder="GOOGLE_CLIENT_ID"
               value={credentialKey}
@@ -137,50 +141,76 @@ function AddSecretDialog() {
             <Label>Value</Label>
             <Input
               type="password"
-              placeholder="The secret value"
+              placeholder="The key value"
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
           </div>
-          <div className="space-y-2">
-            <Label>Provider</Label>
-            <Select value={provider} onValueChange={setProvider}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a provider..." />
-              </SelectTrigger>
-              <SelectContent>
-                {PROVIDERS.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p.charAt(0).toUpperCase() + p.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Description (optional)</Label>
-            <Textarea
-              placeholder="What is this secret used for?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-            />
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-ml-2 h-auto px-2 py-1 text-xs text-muted-foreground"
+            onClick={() => setMoreOpen(!moreOpen)}
+          >
+            {moreOpen ? (
+              <IconChevronDown size={14} className="mr-1" />
+            ) : (
+              <IconChevronRight size={14} className="mr-1" />
+            )}
+            More options
+          </Button>
+          {moreOpen && (
+            <>
+              <div className="space-y-2">
+                <Label>Label (optional)</Label>
+                <Input
+                  placeholder="Google OAuth Client ID"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Provider</Label>
+                <Select value={provider} onValueChange={setProvider}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a provider..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PROVIDERS.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Description (optional)</Label>
+                <Textarea
+                  placeholder="What is this key used for?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                />
+              </div>
+            </>
+          )}
         </div>
         <DialogFooter>
           <Button
             onClick={() =>
               create.mutate({
                 credentialKey,
-                name,
+                name: name.trim() || credentialKey.trim(),
                 value,
                 provider: provider || undefined,
                 description: description || undefined,
               })
             }
-            disabled={!credentialKey || !name || !value || create.isPending}
+            disabled={!credentialKey || !value || create.isPending}
           >
-            {create.isPending ? "Creating..." : "Create secret"}
+            {create.isPending ? "Adding..." : "Add key"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -197,10 +227,14 @@ function EditSecretDialog({ secret }: { secret: any }) {
   const [value, setValue] = useState("");
   const [provider, setProvider] = useState(secret.provider || "");
   const [description, setDescription] = useState(secret.description || "");
+  const [moreOpen, setMoreOpen] = useState(
+    !!(secret.provider || secret.description) ||
+      (secret.name && secret.name !== secret.credentialKey),
+  );
 
   const update = useActionMutation("update-vault-secret", {
     onSuccess: () => {
-      toast.success("Secret updated");
+      toast.success("Key updated");
       setOpen(false);
     },
     onError: (err) => toast.error(String(err)),
@@ -212,6 +246,10 @@ function EditSecretDialog({ secret }: { secret: any }) {
     setValue("");
     setProvider(secret.provider || "");
     setDescription(secret.description || "");
+    setMoreOpen(
+      !!(secret.provider || secret.description) ||
+        (secret.name && secret.name !== secret.credentialKey),
+    );
   };
 
   return (
@@ -225,15 +263,15 @@ function EditSecretDialog({ secret }: { secret: any }) {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <IconEdit size={14} className="mr-1" />
-          Edit secret
+          Edit
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit vault secret</DialogTitle>
+          <DialogTitle>Edit key</DialogTitle>
           <DialogDescription>
             Update the stored key and metadata. Changes sync to the shared
-            credential store. Leave the value blank to keep the existing secret.
+            credential store. Leave the value blank to keep the existing key.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -243,7 +281,7 @@ function EditSecretDialog({ secret }: { secret: any }) {
             update.mutate({
               id: secret.id,
               credentialKey,
-              name,
+              name: name.trim() || credentialKey.trim(),
               ...(value ? { value } : {}),
               provider: provider || null,
               description: description || null,
@@ -251,17 +289,7 @@ function EditSecretDialog({ secret }: { secret: any }) {
           }}
         >
           <div className="space-y-2">
-            <Label htmlFor={`vault-secret-name-${secret.id}`}>Name</Label>
-            <Input
-              id={`vault-secret-name-${secret.id}`}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`vault-secret-key-${secret.id}`}>
-              Credential key (env var name)
-            </Label>
+            <Label htmlFor={`vault-secret-key-${secret.id}`}>Key</Label>
             <Input
               id={`vault-secret-key-${secret.id}`}
               value={credentialKey}
@@ -282,41 +310,72 @@ function EditSecretDialog({ secret }: { secret: any }) {
               className="font-mono text-sm"
             />
           </div>
-          <div className="space-y-2">
-            <Label>Provider</Label>
-            <Select
-              value={provider || PROVIDER_NONE_VALUE}
-              onValueChange={(nextProvider) =>
-                setProvider(
-                  nextProvider === PROVIDER_NONE_VALUE ? "" : nextProvider,
-                )
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a provider..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={PROVIDER_NONE_VALUE}>No provider</SelectItem>
-                {PROVIDERS.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p.charAt(0).toUpperCase() + p.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`vault-secret-description-${secret.id}`}>
-              Description
-            </Label>
-            <Textarea
-              id={`vault-secret-description-${secret.id}`}
-              placeholder="What is this secret used for?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-            />
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-ml-2 h-auto px-2 py-1 text-xs text-muted-foreground"
+            onClick={() => setMoreOpen(!moreOpen)}
+          >
+            {moreOpen ? (
+              <IconChevronDown size={14} className="mr-1" />
+            ) : (
+              <IconChevronRight size={14} className="mr-1" />
+            )}
+            More options
+          </Button>
+          {moreOpen && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor={`vault-secret-name-${secret.id}`}>
+                  Label (optional)
+                </Label>
+                <Input
+                  id={`vault-secret-name-${secret.id}`}
+                  placeholder="Google OAuth Client ID"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Provider</Label>
+                <Select
+                  value={provider || PROVIDER_NONE_VALUE}
+                  onValueChange={(nextProvider) =>
+                    setProvider(
+                      nextProvider === PROVIDER_NONE_VALUE ? "" : nextProvider,
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a provider..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={PROVIDER_NONE_VALUE}>
+                      No provider
+                    </SelectItem>
+                    {PROVIDERS.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`vault-secret-description-${secret.id}`}>
+                  Description
+                </Label>
+                <Textarea
+                  id={`vault-secret-description-${secret.id}`}
+                  placeholder="What is this key used for?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                />
+              </div>
+            </>
+          )}
           <DialogFooter>
             <Button
               type="button"
@@ -327,9 +386,7 @@ function EditSecretDialog({ secret }: { secret: any }) {
             </Button>
             <Button
               type="submit"
-              disabled={
-                !credentialKey.trim() || !name.trim() || update.isPending
-              }
+              disabled={!credentialKey.trim() || update.isPending}
             >
               {update.isPending ? "Saving..." : "Save changes"}
             </Button>
@@ -377,7 +434,7 @@ function GrantDialog({
         <DialogHeader>
           <DialogTitle>Grant "{secretName}" to an app</DialogTitle>
           <DialogDescription>
-            Choose which app should receive this secret.
+            Choose which app should receive this key.
           </DialogDescription>
         </DialogHeader>
         <div className="py-2">
@@ -431,6 +488,10 @@ function VaultAccessSettingsCard({ mode }: { mode: VaultAccessMode }) {
               ? "Every workspace app can receive every saved key."
               : "Only apps with explicit grants can receive saved keys."}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Apps list Vault keys under Settings → API keys. A personal key saved
+            there overrides the Vault for that person only.
+          </p>
         </div>
         <Switch
           checked={allApps}
@@ -457,7 +518,7 @@ function SecretRow({
   const [expanded, setExpanded] = useState(false);
 
   const deleteSecret = useActionMutation("delete-vault-secret", {
-    onSuccess: () => toast.success("Secret deleted"),
+    onSuccess: () => toast.success("Key deleted"),
     onError: (err) => toast.error(String(err)),
   });
   const revokeGrant = useActionMutation("revoke-vault-grant", {
@@ -496,9 +557,11 @@ function SecretRow({
               </Badge>
             )}
           </div>
-          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
-            {secret.credentialKey}
-          </div>
+          {secret.credentialKey !== secret.name && (
+            <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+              {secret.credentialKey}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs">
@@ -594,12 +657,12 @@ function SecretRow({
                   disabled={deleteSecret.isPending}
                 >
                   <IconTrash size={14} className="mr-1" />
-                  Delete secret
+                  Delete key
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this secret?</AlertDialogTitle>
+                  <AlertDialogTitle>Delete this key?</AlertDialogTitle>
                   <AlertDialogDescription>
                     Removing “{secret.name}” revokes all of its grants. Apps
                     that depended on this credential can lose access on the next
@@ -611,7 +674,7 @@ function SecretRow({
                   <AlertDialogAction
                     onClick={() => deleteSecret.mutate({ id: secret.id })}
                   >
-                    Delete secret
+                    Delete key
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -690,10 +753,10 @@ function RequestRow({
       {request.status === "pending" && canManage ? (
         <div className="mt-3 flex items-end gap-2 border-t pt-3">
           <div className="flex-1 space-y-1">
-            <Label className="text-xs">Secret value to provision</Label>
+            <Label className="text-xs">Key value to provision</Label>
             <Input
               type="password"
-              placeholder="Enter the secret value"
+              placeholder="Enter the key value"
               value={secretValue}
               onChange={(e) => setSecretValue(e.target.value)}
               className="h-8 text-sm"
@@ -721,6 +784,64 @@ function RequestRow({
         </p>
       ) : null}
     </div>
+  );
+}
+
+interface RegisteredSecretOption {
+  key: string;
+  label: string;
+  kind: string;
+  required?: boolean;
+}
+
+interface CatalogIntegration {
+  key: string;
+  label: string;
+  required: boolean;
+  secret?: boolean;
+}
+
+interface CatalogApp {
+  appName: string;
+  integrations?: CatalogIntegration[];
+}
+
+/**
+ * Options offered in the Vault "+ New" picker: Dispatch's own registered
+ * API-key secrets plus each workspace app's declared credentials — minus
+ * anything already in the vault and minus catalog entries explicitly marked
+ * non-credential (`secret === false`), e.g. feature flags or a sender
+ * address, which must not be offered as a shared secret to store.
+ */
+export function buildNewKeyOptions(
+  registeredSecrets: RegisteredSecretOption[],
+  catalog: CatalogApp[] | undefined,
+  vaultKeys: Set<string>,
+): NewKeyOption[] {
+  const byKey = new Map<string, NewKeyOption>();
+  for (const s of registeredSecrets) {
+    if (s.kind !== "api-key" || vaultKeys.has(s.key)) continue;
+    byKey.set(s.key, { key: s.key, label: s.label, required: s.required });
+  }
+  for (const app of catalog || []) {
+    for (const integration of app.integrations || []) {
+      if (
+        integration.secret === false ||
+        vaultKeys.has(integration.key) ||
+        byKey.has(integration.key)
+      ) {
+        continue;
+      }
+      byKey.set(integration.key, {
+        key: integration.key,
+        label: integration.label,
+        required: integration.required,
+        hint: app.appName,
+      });
+    }
+  }
+  return Array.from(byKey.values()).sort((a, b) =>
+    a.label.localeCompare(b.label),
   );
 }
 
@@ -754,13 +875,52 @@ export default function VaultRoute() {
     {},
     { enabled: accessReady },
   );
+  const catalogQuery = useActionQuery(
+    "list-integrations-catalog",
+    {},
+    { enabled: canManageVault },
+  );
   const { data: secrets, isLoading: secretsLoading } = secretsQuery;
   const { data: grants } = grantsQuery;
   const { data: requests } = requestsQuery;
   const { data: audit } = auditQuery;
   const { data: accessSettings } = accessQuery;
+  const { data: catalog } = catalogQuery;
   const accessMode: VaultAccessMode =
     (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
+
+  // Dispatch's own registered API-key secrets, offered in the "+ New" menu
+  // alongside keys the workspace apps declare.
+  const [registeredSecrets, setRegisteredSecrets] = useState<
+    Array<{ key: string; label: string; kind: string; required?: boolean }>
+  >([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(agentNativePath("/_agent-native/secrets"))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (!cancelled) setRegisteredSecrets(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const [addDialogState, setAddDialogState] = useState<{
+    open: boolean;
+    initial?: { credentialKey: string; name?: string };
+  }>({ open: false });
+
+  const vaultKeys = useMemo(
+    () => new Set<string>((secrets || []).map((s: any) => s.credentialKey)),
+    [secrets],
+  );
+
+  const newKeyOptions = useMemo(
+    () => buildNewKeyOptions(registeredSecrets, catalog as any[], vaultKeys),
+    [registeredSecrets, catalog, vaultKeys],
+  );
 
   const grantsBySecret = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {
@@ -778,12 +938,12 @@ export default function VaultRoute() {
   return (
     <DispatchShell
       title="Vault"
-      description="Centralized secret management for your workspace. Store credentials once and sync them to apps."
+      description="API keys and credentials saved once for every app in this workspace."
     >
       <Tabs defaultValue="secrets">
         <TabsList>
           <TabsTrigger value="secrets">
-            Secrets {(secrets?.length || 0) > 0 && `(${secrets?.length})`}
+            Keys {(secrets?.length || 0) > 0 && `(${secrets?.length})`}
           </TabsTrigger>
           <TabsTrigger value="requests">
             Requests{" "}
@@ -818,7 +978,7 @@ export default function VaultRoute() {
                 Vault management is restricted
               </h3>
               <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                Workspace owners and admins manage shared secret values. Use a
+                Workspace owners and admins manage shared key values. Use a
                 request from the app that needs a key, and an admin can review
                 it from the Requests tab.
               </p>
@@ -848,11 +1008,37 @@ export default function VaultRoute() {
                     <Skeleton className="h-4 w-20" />
                   ) : (
                     <span>
-                      {`${secrets?.length || 0} secret${(secrets?.length || 0) !== 1 ? "s" : ""}`}
+                      {`${secrets?.length || 0} key${(secrets?.length || 0) !== 1 ? "s" : ""}`}
                     </span>
                   )}
                 </div>
-                <AddSecretDialog />
+                <NewKeyMenu
+                  label="New"
+                  options={newKeyOptions}
+                  onPick={(option) =>
+                    setAddDialogState({
+                      open: true,
+                      initial: {
+                        credentialKey: option.key,
+                        name: option.label,
+                      },
+                    })
+                  }
+                  onCustom={(name) =>
+                    setAddDialogState({
+                      open: true,
+                      initial: { credentialKey: name ?? "" },
+                    })
+                  }
+                  triggerClassName="h-9 px-3 text-sm"
+                />
+                <AddSecretDialog
+                  open={addDialogState.open}
+                  onOpenChange={(open) =>
+                    setAddDialogState((s) => ({ ...s, open }))
+                  }
+                  initial={addDialogState.initial}
+                />
               </div>
 
               {!secretsQuery.isError &&
@@ -885,11 +1071,11 @@ export default function VaultRoute() {
                       className="mx-auto text-muted-foreground/50"
                     />
                     <h3 className="mt-3 text-sm font-medium text-foreground">
-                      No secrets yet
+                      No keys yet
                     </h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Add your first secret to start sharing credentials across
-                      workspace apps.
+                      Use New to add your first key and start sharing
+                      credentials across workspace apps.
                     </p>
                   </div>
                 )}
@@ -913,7 +1099,7 @@ export default function VaultRoute() {
           ))}
           {!requestsQuery.isError && (requests?.length || 0) === 0 && (
             <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-              No secret requests yet.
+              No key requests yet.
             </div>
           )}
         </TabsContent>

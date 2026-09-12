@@ -180,6 +180,8 @@ describe("list-emails action — Gmail-connected inbox", () => {
         {
           email: OWNER,
           error: "429: rateLimitExceeded — retry in 90s",
+          isQuotaError: true,
+          retryAfterMs: 90_000,
         },
       ],
     } as any);
@@ -390,6 +392,38 @@ describe("list-emails action — coverage-aware inventory", () => {
     expect(vi.mocked(listGmailMessages).mock.calls[0]?.[4]).toEqual(
       expect.objectContaining({ accountEmails: [QUIET] }),
     );
+  });
+
+  it("classifies a whole-account quota cooldown as rate_limited in the inventory path", async () => {
+    // The `!listResult.ok` branch (single account, total failure) must carry
+    // isQuotaError through to inventoryError instead of relying on the
+    // message text, which is deliberately jargon-free for a real cooldown.
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [],
+      errors: [
+        {
+          email: QUIET,
+          error: "Email service is briefly busy and will be ready again.",
+          isQuotaError: true,
+          retryAfterMs: 90_000,
+        },
+      ],
+    } as any);
+
+    const result = (await action.run({ format: "inventory", account: QUIET }, {
+      caller: "mcp",
+    } as any)) as any;
+
+    expect(result.accounts).toEqual([
+      expect.objectContaining({
+        accountEmail: QUIET,
+        status: "error",
+        error: expect.objectContaining({
+          code: "rate_limited",
+          retryable: true,
+        }),
+      }),
+    ]);
   });
 
   it("rejects ambiguous singular and plural account filters", async () => {
