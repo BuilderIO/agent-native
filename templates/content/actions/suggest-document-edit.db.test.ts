@@ -263,6 +263,36 @@ describe("suggest-document-edit", () => {
     );
   });
 
+  it("attaches the open-suggestion deep link", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Link contract body.");
+        const action = (await import("./suggest-document-edit.js")).default;
+        const result = (await action.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `link-${id}`,
+            find: "Link contract body.",
+            replace: "Edited body text.",
+          },
+          ctx,
+        )) as { suggestionId: string };
+        const link = (
+          action as unknown as { link: (input: unknown) => unknown }
+        ).link({
+          args: { id },
+          result,
+        });
+        expect(link).toEqual({
+          url: `/page/${id}?suggestion=${result.suggestionId}`,
+          label: "Open suggestion",
+        });
+      },
+    );
+  });
+
   it("reports a missing find with the fix in the message", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

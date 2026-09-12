@@ -152,13 +152,12 @@ export default defineAction({
   schema: suggestDocumentEditSchema,
   http: false,
   link: ({ args, result }) => {
-    const suggestion = result as { id?: string };
-    if (!suggestion.id) return null;
+    const suggestion = result as { suggestionId?: string };
+    const resourceId =
+      args.id ?? (result as { resourceId?: string }).resourceId;
+    if (!suggestion.suggestionId || !resourceId) return null;
     return {
-      url: contentSuggestionPath(
-        args.id ?? (result as { resourceId?: string }).resourceId ?? "",
-        suggestion.id,
-      ),
+      url: contentSuggestionPath(resourceId, suggestion.suggestionId),
       label: "Open suggestion",
     };
   },
