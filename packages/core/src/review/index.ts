@@ -58,6 +58,7 @@ export {
   ensureSuggestionTables,
   getDecision,
   getSuggestion,
+  getSuggestionByCreationKey,
   listSuggestions,
   __resetSuggestionTablesForTests,
 } from "./suggestions/store.js";

@@ -16,6 +16,7 @@ type CreateDocumentAction = typeof import("./create-document.js").default;
 type GetDocumentAction = typeof import("./get-document.js").default;
 type ListSuggestionsAction =
   typeof import("@agent-native/core/review/suggestions/actions/list-resource-suggestions").default;
+type UpdateDocumentAction = typeof import("./update-document.js").default;
 
 let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
@@ -23,6 +24,7 @@ let suggestDocumentEdit: SuggestAction;
 let createDocument: CreateDocumentAction;
 let getDocument: GetDocumentAction;
 let listResourceSuggestions: ListSuggestionsAction;
+let updateDocument: UpdateDocumentAction;
 
 const ctx = {
   caller: "cli" as const,
@@ -45,6 +47,7 @@ beforeAll(async () => {
   listResourceSuggestions = (
     await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions")
   ).default;
+  updateDocument = (await import("./update-document.js")).default;
 }, 60_000);
 
 afterAll(() => {
@@ -130,6 +133,69 @@ describe("suggest-document-edit", () => {
           suggestionId: string;
         };
         expect(second.suggestionId).toBe(first.suggestionId);
+      },
+    );
+  });
+
+  it("replays the same logical edit after the document changed", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Original body line.");
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `moved-${id}`,
+          find: "Original body line.",
+          replace: "Edited body line.",
+        };
+        const first = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionId: string;
+        };
+        await updateDocument.run(
+          { id, content: "The page changed underneath the proposal." },
+          ctx,
+        );
+        const retry = (await suggestDocumentEdit.run(
+          {
+            ...args,
+            baseRevision:
+              "body:0:sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          },
+          ctx,
+        )) as { suggestionId: string };
+        expect(retry.suggestionId).toBe(first.suggestionId);
+      },
+    );
+  });
+
+  it("rejects key reuse for a different edit", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Two possible edits here.");
+        await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `reuse-${id}`,
+            find: "Two possible edits",
+            replace: "One settled edit",
+          },
+          ctx,
+        );
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `reuse-${id}`,
+              find: "possible edits here",
+              replace: "different edit there",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow(/already created suggestion .* with a different edit/);
       },
     );
   });

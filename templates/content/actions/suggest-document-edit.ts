@@ -1,6 +1,11 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
 import createResourceSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
+import {
+  ensureSuggestionTables,
+  getSuggestionByCreationKey,
+} from "@agent-native/core/review";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
@@ -177,6 +182,47 @@ export default defineAction({
     const access = await assertAccess("document", id, "commenter");
     const existing = access.resource;
     const content = existing.content ?? "";
+
+    // A retried call with the same key must return the first receipt even when
+    // the page moved underneath it: rebuilding from current content would
+    // produce a different request hash and mask the original result. Only an
+    // identical find/replace edit counts as the same logical request.
+    if (args.idempotencyKey) {
+      await ensureSuggestionTables();
+      const receipt = await getSuggestionByCreationKey(
+        getDbExec(),
+        args.idempotencyKey,
+      );
+      if (receipt) {
+        const callerEmail = ctx?.userEmail ?? null;
+        const [first] = receipt.suggestion.operations ?? [];
+        const before = first?.before as { changedText?: unknown } | undefined;
+        const after = first?.after as { changedText?: unknown } | undefined;
+        const sameEdit =
+          first?.kind === "replace_text" &&
+          before?.changedText === args.find &&
+          after?.changedText === (args.replace ?? "") &&
+          (receipt.authorEmail ?? null) === callerEmail;
+        if (!sameEdit) {
+          throw new ActionContractError(
+            `This idempotencyKey already created suggestion ${receipt.suggestion.id} with a different edit; use a fresh key for a different change.`,
+            {
+              errorCode: "SUGGESTION_EDIT_PROTOCOL_KEY_MISMATCH",
+              statusCode: 409,
+              details: { suggestionId: receipt.suggestion.id },
+            },
+          );
+        }
+        return {
+          suggestionId: receipt.suggestion.id,
+          status: receipt.suggestion.status,
+          revision: receipt.suggestion.revision,
+          threadId: receipt.suggestion.threadId,
+          url: contentSuggestionPath(id, receipt.suggestion.id),
+        };
+      }
+    }
+
     const resolved = resolveDocumentTextEdits(content, [
       { find: args.find, replace: args.replace ?? "" },
     ]);
