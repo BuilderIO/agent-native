@@ -62,7 +62,10 @@ export {
   listSuggestions,
   __resetSuggestionTablesForTests,
 } from "./suggestions/store.js";
-export { suggestionActorKind } from "./suggestions/actor-kind.js";
+export {
+  suggestionActorKind,
+  suggestionActorKindMatchesReceipt,
+} from "./suggestions/actor-kind.js";
 export type {
   GetReviewThreadSummaryInput,
   ReviewThreadSummary,

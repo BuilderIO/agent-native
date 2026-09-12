@@ -249,11 +249,40 @@ describe("suggest-document-edit", () => {
         const first = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
+        await (await import("@agent-native/core/db")).getDbExec().execute({
+          sql: "UPDATE agent_review_suggestions SET created_at = ? WHERE id = ?",
+          args: ["2026-09-11T00:00:00.000Z", first.suggestionId],
+        });
         const retry = (await suggestDocumentEdit.run(args, {
           caller: "mcp" as const,
           userEmail: ctx.userEmail,
         })) as { suggestionId: string };
         expect(retry.suggestionId).toBe(first.suggestionId);
+      },
+    );
+  });
+
+  it("rejects a current human receipt replayed by an external agent", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Current human body.");
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `current-human-${id}`,
+          find: "Current human body.",
+          replace: "Edited body.",
+        };
+        await suggestDocumentEdit.run(args, ctx);
+        await expect(
+          suggestDocumentEdit.run(args, {
+            caller: "mcp" as const,
+            userEmail: ctx.userEmail,
+          }),
+        ).rejects.toThrow(
+          /already created suggestion .* with a different edit/,
+        );
       },
     );
   });

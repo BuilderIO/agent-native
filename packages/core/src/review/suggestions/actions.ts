@@ -9,7 +9,10 @@ import {
   insertReviewCommentWithClient,
   resolveReviewThreadWithClient,
 } from "../store.js";
-import { suggestionActorKind } from "./actor-kind.js";
+import {
+  suggestionActorKind,
+  suggestionActorKindMatchesReceipt,
+} from "./actor-kind.js";
 import { getSuggestionAdapter } from "./registry.js";
 import {
   getSuggestion,
@@ -89,11 +92,11 @@ function assertCreationReplay(
   authorEmail: string | null,
   actorKind: ResourceSuggestion["actorKind"],
 ): ResourceSuggestion {
-  // External callers persisted as "human" before suggestionActorKind existed;
-  // their same-author retries must stay replayable across that rollout.
-  const actorKindMatches =
-    receipt.actorKind === actorKind ||
-    (receipt.actorKind === "human" && actorKind === "agent");
+  const actorKindMatches = suggestionActorKindMatchesReceipt(
+    receipt.actorKind,
+    actorKind,
+    receipt.suggestion.createdAt,
+  );
   if (
     receipt.requestHash !== requestHash ||
     receipt.authorEmail !== authorEmail ||
