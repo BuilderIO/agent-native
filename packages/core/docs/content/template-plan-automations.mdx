@@ -5,71 +5,72 @@ description: "The plan.* events Agent-Native Plan emits on the framework event b
 
 # Events and Automations
 
-Plan emits lifecycle events on the framework event bus so you can react to plan
-activity — a new plan, a new comment, a publish, a status change — without
-writing integration code. Any automation can subscribe; this page covers the
-event payloads and two ready-to-use recipes.
+Plan emits lifecycle events on the framework event bus so you can react to
+plan activity — a new plan, a new comment, a publish, a status change —
+without writing any integration code. This page covers those event payloads
+and two ready-to-use automation recipes. See [Automations](/docs/automations)
+for the general trigger-and-condition system these events plug into.
 
 ## Event reference {#event-reference}
 
-The Plan template emits four events. Any automation can subscribe to them —
-no custom integration code needed.
+The Plan template emits four events. Any automation can subscribe to them.
 
 #### `plan.created`
 
 Fires when a new visual plan or recap is created.
 
 | Field       | Type                  | Description                              |
-| ----------- | --------------------- | ---------------------------------------- |
-| `planId`    | string                | Unique plan identifier                   |
-| `title`     | string                | Plan title                               |
-| `kind`      | `"plan"` \| `"recap"` | Whether this is a plan or a recap        |
-| `status`    | string                | Initial status (e.g. `"review"`)         |
+| ----------- | --------------------- | ----------------------------------------- |
+| `planId`    | string                | Unique plan identifier                    |
+| `title`     | string                | Plan title                                |
+| `kind`      | `"plan"` \| `"recap"` | Whether this is a plan or a recap         |
+| `status`    | string                | Initial status (e.g. `"review"`)          |
 | `path`      | string                | App-relative path (e.g. `/plans/plan-…`) |
-| `createdBy` | string                | Always `"agent"` for plan creation       |
+| `createdBy` | string                | Always `"agent"` for plan creation        |
 
 #### `plan.commented`
 
 Fires when one or more comments are added to a plan.
 
 | Field              | Type                             | Description                                                 |
-| ------------------ | -------------------------------- | ----------------------------------------------------------- |
-| `planId`           | string                           | Plan identifier                                             |
-| `title`            | string                           | Plan title                                                  |
-| `kind`             | `"plan"` \| `"recap"`            | Plan or recap                                               |
-| `commentIds`       | string[]                         | IDs of the new comments                                     |
-| `commentCount`     | number                           | Number of new comments in this batch                        |
+| ------------------ | -------------------------------- | ------------------------------------------------------------- |
+| `planId`           | string                           | Plan identifier                                              |
+| `title`            | string                           | Plan title                                                    |
+| `kind`             | `"plan"` \| `"recap"`            | Plan or recap                                                 |
+| `commentIds`       | string[]                         | IDs of the new comments                                      |
+| `commentCount`     | number                           | Number of new comments in this batch                          |
 | `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Dominant target — `"agent"` if any comment targets an agent |
-| `excerpt`          | string                           | First 200 characters of the first comment                   |
-| `author`           | string \| null                   | Email of the commenter, if known                            |
-| `path`             | string                           | App-relative path                                           |
+| `excerpt`          | string                           | First 200 characters of the first comment                    |
+| `author`           | string \| null                   | Email of the commenter, if known                              |
+| `path`             | string                           | App-relative path                                             |
 
 #### `plan.published`
 
-Fires when a local plan is published (or re-published) to a hosted shareable URL.
+Fires when a local plan is published (or re-published) to a hosted shareable
+URL.
 
 | Field                 | Type                  | Description                        |
-| --------------------- | --------------------- | ---------------------------------- |
-| `planId`              | string                | Local plan identifier              |
-| `title`               | string                | Plan title                         |
-| `kind`                | `"plan"` \| `"recap"` | Plan or recap                      |
-| `hostedPlanId`        | string                | Hosted plan identifier             |
-| `url`                 | string                | Full public URL of the hosted plan |
-| `requestedVisibility` | string                | `"public"`, `"private"`, etc.      |
+| --------------------- | --------------------- | ------------------------------------ |
+| `planId`              | string                | Local plan identifier                |
+| `title`               | string                | Plan title                           |
+| `kind`                | `"plan"` \| `"recap"` | Plan or recap                        |
+| `hostedPlanId`        | string                | Hosted plan identifier               |
+| `url`                 | string                | Full public URL of the hosted plan   |
+| `requestedVisibility` | string                | `"public"`, `"private"`, etc.        |
 
 #### `plan.status.changed`
 
 Fires when a plan's status changes (e.g. `review` → `approved`).
 
 | Field       | Type                  | Description                        |
-| ----------- | --------------------- | ---------------------------------- |
-| `planId`    | string                | Plan identifier                    |
-| `title`     | string                | Plan title                         |
-| `kind`      | `"plan"` \| `"recap"` | Plan or recap                      |
-| `oldStatus` | string \| null        | Previous status                    |
-| `newStatus` | string                | New status                         |
-| `changedBy` | string \| null        | Email of the person who changed it |
-| `path`      | string                | App-relative path                  |
+| ----------- | --------------------- | ------------------------------------ |
+| `planId`    | string                | Plan identifier                      |
+| `title`     | string                | Plan title                           |
+| `kind`      | `"plan"` \| `"recap"` | Plan or recap                        |
+| `oldStatus` | string \| null        | Previous status                      |
+| `newStatus` | string                | New status                           |
+| `changedBy` | string \| null        | Email of the person who changed it   |
+| `path`      | string                | App-relative path                    |
 
 <Diagram id="doc-block-plan5" title="Event to notification" summary="Plan events fire on the shared event bus; an automation subscribes with a trigger and an optional condition, then acts.">
 
@@ -121,15 +122,17 @@ Fires when a plan's status changes (e.g. `review` → `approved`).
 
 ## Automation recipes {#automation-recipes}
 
-These automations are created by asking the plan agent — no code changes needed.
-The agent calls `manage-automations` with `action=define`, writes a
-`jobs/<name>.md` resource, and the event subscription starts immediately.
+You don't write any of this by hand — ask the plan agent in plain English,
+and it defines the automation for you. It calls `manage-automations` with
+`action=define`, writes a `jobs/<name>.md` resource, and the event
+subscription starts immediately.
 
 #### Notify via webhook when someone comments on a plan
 
 Ask the plan agent:
 
-> "When someone adds a human comment on a plan, POST a message to my webhook."
+> "When someone adds a human comment on a plan, POST a message to my
+> webhook."
 
 The agent creates an automation like this:
 
@@ -149,27 +152,27 @@ Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
   - "author": the author field from the event payload (may be null)
 ```
 
-Before the automation can fire you need to add the webhook URL as an ad-hoc key:
+Before the automation can fire, add the webhook URL as an ad-hoc key:
 
 1. Go to **Settings → Keys** and add a key named `NOTIFY_WEBHOOK` with your
-   webhook URL (e.g. a Slack incoming webhook, a generic HTTP endpoint, or any
-   notification service URL).
+   webhook URL (for example, a Slack incoming webhook, a generic HTTP
+   endpoint, or any notification service URL).
 2. Optionally set a URL allowlist on the key to restrict which origins it can
    POST to.
 
 The `web-request` tool resolves `${keys.NOTIFY_WEBHOOK}` server-side before
-sending — the raw URL never appears in the agent's context.
+sending, so the raw URL never appears in the agent's context.
 
-**To target Slack specifically:** set `NOTIFY_WEBHOOK` to your Slack incoming
-webhook URL
-(`https://hooks.slack.com/services/…`). The automation body above already
-produces a payload Slack's incoming webhook accepts via the `text` or `blocks`
-fields — ask the agent to format the body as a Slack message if you want richer
-formatting.
+**To target Slack specifically:** set `NOTIFY_WEBHOOK` to your Slack
+incoming webhook URL (`https://hooks.slack.com/services/…`). The automation
+body above already produces a payload Slack's incoming webhook accepts via
+the `text` or `blocks` fields — ask the agent to format the body as a Slack
+message if you want richer formatting.
 
 #### Wake the coding agent when feedback targets it
 
-For feedback directed at the coding agent (`resolutionTarget === "agent"`), ask:
+For feedback directed at the coding agent (`resolutionTarget === "agent"`),
+ask:
 
 > "When a plan comment targets the agent, run my coding agent with the plan
 > excerpt as context."
@@ -190,20 +193,20 @@ Include the plan path so the agent can navigate directly to it.
 ```
 
 Because the automation runs a full agent loop (`mode: agentic`), it can call
-`web-request`, send notifications, or invoke any action the agent has access to.
-The exact delivery mechanism depends on what notification channels you have
-configured — the agent picks the best available one.
+`web-request`, send notifications, or invoke any action the agent has access
+to. The exact delivery mechanism depends on what notification channels you
+have configured — the agent picks the best available one.
 
 ## Auto-recap every pull request {#pr-visual-recap}
 
 The `plan.created` event above covers plans and recaps made from inside the
-app. For a fully automatic recap on every PR — no one has to remember to run
-`/visual-recap` — install the PR Visual Recap GitHub Action instead, via
+app. For a fully automatic recap on every PR — so no one has to remember to
+run `/visual-recap` — install the PR Visual Recap GitHub Action instead, via
 `npx @agent-native/core@latest skills add visual-plan --with-github-action`
-(see [Visual Plans → Install the skill](/docs/template-plan#install)). It runs
-in CI, not through this event bus, and posts an interactive recap as a sticky
-PR comment — see [PR Visual Recap](/docs/pr-visual-recap) for the full setup
-and required tokens.
+(see [Visual Plans → Get started](/docs/template-plan#install)). It runs in
+CI, not through this event bus, and posts an interactive recap as a sticky PR
+comment — see [PR Visual Recap](/docs/pr-visual-recap) for the full setup and
+required tokens.
 
 ## What's next
 
