@@ -821,7 +821,6 @@ const rawLiterals = {
     documentUnavailable: "文档不可用",
     documentUnavailableDescription:
       "此页面可能已被删除，或尚未共享给你的账户。",
-    goToDocuments: "前往文档",
   },
   editor: {
     suggestionCreateFailed: "无法创建建议",
@@ -945,6 +944,7 @@ const rawLiterals = {
 
 const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
+  requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
 };
 

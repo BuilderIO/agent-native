@@ -134,6 +134,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "請開啟桌面版以使用這個聊天。",
   "composer.removeAttachment": "移除 {{name}}",
   "composer.scrollToBottom": "捲動到底部",
+  "composer.suggestedPrompts": "建議提示",
   "composer.stopResponse": "停止回應",
   "composer.subAgentReadOnly":
     "請將訊息傳送到協調代理聊天——這個子代理會自動執行",
@@ -362,6 +363,8 @@ const messages: AgentChatTranslation = {
     "無法連線至模型供應商。請檢查網路連線後重試。",
   "errorMessages.providerRateLimit":
     "模型供應商目前正在限制這個聊天的要求頻率。請稍候再試。",
+  "errorMessages.providerTransientRejection":
+    "AI 供應商暫時拒絕了這個請求。這種情況通常會在一分鐘內恢復,請重試。",
   "errorMessages.startNewChat": "開始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升級",
   "feedback.inaccurate": "不準確",
@@ -498,6 +501,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "從佇列中移除",
   "queue.sendNow": "立即傳送",
   "queue.sendNowHint": "立即傳送（停止目前的回應）",
+  "queue.steer": "引導",
+  "queue.steerHint": "下一則傳送此訊息",
+  "queue.moreActions": "更多操作",
+  "queue.moveToTop": "移至頂端",
   "recovery.connectingBuilder": "正在連線至 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",

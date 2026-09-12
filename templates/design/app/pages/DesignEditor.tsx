@@ -10,6 +10,7 @@ import {
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAgentChatContext,
+  useExternalAgentHost,
 } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
@@ -33,6 +34,7 @@ import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
   useActionMutation,
+  actionErrorMessage,
   callAction,
   tryCallActionKeepalive,
   useSession,
@@ -99,6 +101,7 @@ import {
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import { isComponentInstance } from "@shared/component-model";
+import { getOverviewScreenFileIds } from "@shared/design-files";
 import { DESIGN_REVIEW_PANEL } from "@shared/design-flags";
 import type { A11yFinding } from "@shared/design-review";
 import {
@@ -128,6 +131,10 @@ import {
   breakpointUpperBoundPx,
   utilityStem,
 } from "@shared/responsive-classes";
+import {
+  getResponsiveBreakpointHeightPx,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "@shared/responsive-frame-layout";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import {
@@ -245,6 +252,7 @@ import {
   type InspectorTab,
   type SelectionColorScope,
   type ScreenGeometrySelection,
+  type ScreenSourceSelection,
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
 import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
@@ -276,6 +284,7 @@ import {
 } from "@/components/design/MotionDock";
 import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/board-surface-html";
 import {
+  deviceViewportFloorForWidth,
   getCanonicalScreenStack,
   getInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
@@ -779,6 +788,7 @@ import {
   buildPendingVisualStyleRevertPatches,
   deriveStatePreviewTarget,
   formatPendingVisualStylePrompt,
+  formatVisualEditClipboardPrompt,
   getPendingVisualEditCount,
   type PendingLiveLayerStateEdit,
   type PendingLiveNonStyleEdit,
@@ -856,11 +866,41 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
+import {
+  VisualEditWebMcp,
+  type VisualEditPromptResult,
+} from "./design-editor/VisualEditWebMcp";
+
+type UpdateScreenSourceActionResult = {
+  fileId: string;
+  sourceType: "static" | "url";
+  url: string | null;
+  path: string | null;
+  connectionId: string | null;
+  content: string;
+  metadata: Record<string, unknown>;
+  updatedAt: string | null;
+};
 
 /* i18n-ignore */
 /* i18n-ignore */
 /* i18n-ignore */
 /* i18n-ignore */
+
+function pageHasWebMcpHost(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const navigatorWithModelContext = navigator as Navigator & {
+    modelContext?: unknown;
+  };
+  // The app installs the WebMCP polyfill on both document and navigator so
+  // ordinary browser copy still receives the detailed prompt. A native host
+  // owns the Navigator property through its prototype; an app-installed
+  // polyfill creates an own property.
+  return Boolean(
+    navigatorWithModelContext.modelContext &&
+    !Object.prototype.hasOwnProperty.call(navigator, "modelContext"),
+  );
+}
 
 // ── Route wrapper — remounts editor state per design id ──────────────────────
 /**
@@ -877,6 +917,7 @@ export default function DesignEditorRoute() {
 function DesignEditor() {
   // ── Session, route params, design identity ─────────────────────────────────
   const t = useT();
+  const externalAgentHost = useExternalAgentHost();
   const applePlatform = useApplePlatform();
   const shortcut = (binding: string) =>
     formatShortcutLabel(binding, applePlatform);
@@ -3070,6 +3111,7 @@ function DesignEditor() {
   // ── Action mutations ───────────────────────────────────────────────────────
   const updateFileMutation = useActionMutation("update-file");
   const renameScreenMutation = useActionMutation("rename-screen");
+  const updateScreenSourceMutation = useActionMutation("update-screen-source");
   const createFileMutation = useActionMutation("create-file");
   const createFileAsync = createFileMutation.mutateAsync;
   const deleteFileMutation = useActionMutation("delete-file");
@@ -4240,6 +4282,66 @@ function DesignEditor() {
       updateDesignAsync,
       warnChangesWillRetry,
     ],
+  );
+
+  const handleOverviewBreakpointContentHeightChange = useCallback(
+    (screenId: string, widthPx: number, heightPx: number) => {
+      if (
+        !id ||
+        !canEditDesignRef.current ||
+        !Number.isSafeInteger(widthPx) ||
+        widthPx <= 0 ||
+        !Number.isFinite(heightPx) ||
+        heightPx <= 0 ||
+        heightPx > MAX_SANE_FRAME_DIMENSION_PX
+      ) {
+        return;
+      }
+      const screen = overviewScreens.find((item) => item.id === screenId);
+      if (!screen) return;
+      const metadataById = getDesignDataRecord(
+        designDataJsonRef.current,
+        "screenMetadata",
+      );
+      const metadata = getDesignDataRecord(metadataById, screenId);
+      const existingHeight = getResponsiveBreakpointHeightPx(metadata, widthPx);
+      const measuredHeight = Math.max(
+        deviceViewportFloorForWidth(widthPx),
+        Math.round(heightPx),
+      );
+      const projectedHeight =
+        (widthPx * (screen.height ?? 2560)) / (screen.width ?? 1280);
+      // The server already reserves the source-aspect projection. Persist only
+      // the larger measured case, retaining its maximum so content shrinkage
+      // cannot make a later row overlap a screen that was placed below it.
+      if (
+        measuredHeight <=
+        Math.max(projectedHeight, existingHeight ?? 0) + 1
+      ) {
+        return;
+      }
+      const operation: DesignDataOperation = {
+        op: "set",
+        path: [
+          "screenMetadata",
+          screenId,
+          "breakpointHeights",
+          String(widthPx),
+        ],
+        value: measuredHeight,
+      };
+      const nextData = applyDesignDataOperations(designDataJsonRef.current, [
+        operation,
+      ]);
+      designDataJsonRef.current = nextData;
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
+        old && typeof old === "object"
+          ? { ...old, data: JSON.stringify(nextData) }
+          : old,
+      );
+      enqueueFrameGeometryDataSave([operation]);
+    },
+    [enqueueFrameGeometryDataSave, id, overviewScreens, queryClient],
   );
 
   const persistFrameGeometrySave = useCallback(
@@ -6780,6 +6882,30 @@ function DesignEditor() {
     overviewScreens,
     runtimeLayerSnapshotsById,
   ]);
+  const activeRuntimeSourceLocationUnavailable = useMemo(() => {
+    const fileId = activeFile?.id;
+    const snapshot = fileId ? runtimeLayerSnapshotsById[fileId] : undefined;
+    if (!fileId || !snapshot) return false;
+    const eligible = shouldUseRuntimeLayerProjection({
+      screen: overviewScreens.find((screen) => screen.id === fileId),
+      fallbackSourceType:
+        normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
+        normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
+        "inline",
+      content: files.find((file) => file.id === fileId)?.content ?? "",
+    });
+    if (!eligible) return false;
+    const projection = buildCodeLayerProjection(snapshot.html);
+    return !projection.nodes.some((node) =>
+      node.dataAttributes["data-source-file"]?.trim(),
+    );
+  }, [
+    activeFile?.id,
+    designDataJson,
+    files,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
+  ]);
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
     ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
@@ -8416,9 +8542,7 @@ function DesignEditor() {
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[]) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
-      const fileIds = new Set(
-        files.filter((file) => file.id !== boardFileId).map((file) => file.id),
-      );
+      const fileIds = new Set(getOverviewScreenFileIds(files));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
       if (pendingId && ids.length === 0) return;
       if (pendingId && ids.includes(pendingId)) {
@@ -11917,6 +12041,11 @@ function DesignEditor() {
           breakpointWidths: breakpointWidthsOverride ?? screen.breakpointWidths,
         },
         { x, y, width, height, rotation: geometry.rotation },
+        (widthPx) =>
+          getResponsiveBreakpointHeightPx(
+            { breakpointHeights: screen.breakpointHeights },
+            widthPx,
+          ),
       );
     },
     [overviewScreens],
@@ -12338,6 +12467,8 @@ function DesignEditor() {
       targetLocalPoint?: { x: number; y: number };
       sourcePointerOffset?: { x: number; y: number };
       sourceHtmlSnapshot?: string;
+      duplicate?: boolean;
+      sourceCloneHtml?: string;
       styleSnapshot?: PortableStyleSnapshot;
     }) =>
       runCrossScreenElementDrop(
@@ -14515,7 +14646,7 @@ function DesignEditor() {
         localhostConnectionId: activeOverviewScreen?.connectionId,
         edits: pendingVisualStyleEdits,
         liveEdits: pendingLiveNonStyleEdits,
-        audience: hostEmbeddedEditor ? "coding-agent" : "design-agent",
+        audience: "coding-agent",
         screenRoutes: screenRoutesById,
       }),
     [
@@ -14523,12 +14654,20 @@ function DesignEditor() {
       activeFile?.id,
       activeOverviewScreen?.connectionId,
       design?.title,
-      hostEmbeddedEditor,
       id,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
       screenRoutesById,
     ],
+  );
+  const visualEditPromptResult = useCallback<() => VisualEditPromptResult>(
+    () => ({
+      designId: id ?? null,
+      pendingEditCount: pendingVisualEditCount,
+      status: pendingVisualEditCount > 0 ? "ready" : "empty",
+      prompt: pendingVisualStylePrompt,
+    }),
+    [id, pendingVisualEditCount, pendingVisualStylePrompt],
   );
   const handleApplyPendingVisualStylesWithAgent = useCallback(
     async () =>
@@ -14600,7 +14739,18 @@ function DesignEditor() {
       return;
     }
     try {
-      if (!(await writeClipboardText(pendingVisualStylePrompt))) {
+      const host =
+        externalAgentHost?.id === "chatgpt" ||
+        externalAgentHost?.id === "claude"
+          ? externalAgentHost.id
+          : pageHasWebMcpHost()
+            ? "webmcp"
+            : null;
+      const clipboardPrompt = formatVisualEditClipboardPrompt(
+        pendingVisualStylePrompt,
+        host,
+      );
+      if (!(await writeClipboardText(clipboardPrompt))) {
         toast.error(t("designEditor.toasts.clipboardBlocked"));
         return;
       }
@@ -14612,6 +14762,7 @@ function DesignEditor() {
     pendingLiveNonStyleEdits.length,
     pendingVisualStyleEdits.length,
     pendingVisualStylePrompt,
+    externalAgentHost,
     t,
   ]);
 
@@ -16305,6 +16456,126 @@ function DesignEditor() {
     selectedInspectorElements.length,
     viewMode,
   ]);
+  const selectedScreenSource = useMemo<ScreenSourceSelection | null>(() => {
+    if (!selectedScreenGeometry) return null;
+    const screen = overviewScreens.find(
+      (candidate) => candidate.id === selectedScreenGeometry.id,
+    );
+    if (!screen) return null;
+    const sourceType = resolveOverviewScreenSourceType(
+      screen,
+      designSourceType,
+    );
+    return sourceType === "localhost"
+      ? {
+          sourceType: "url",
+          url: screen.url ?? screen.previewUrl ?? screen.content,
+          connectionId: screen.connectionId,
+        }
+      : { sourceType: "static" };
+  }, [designSourceType, overviewScreens, selectedScreenGeometry]);
+  const handleRemoveSelectedScreen = useCallback(() => {
+    const screenId = selectedScreenGeometry?.id;
+    if (!screenId) return;
+    handleDeleteOverviewSelection([screenId]);
+  }, [handleDeleteOverviewSelection, selectedScreenGeometry?.id]);
+
+  const handleScreenSourceChange = useCallback(
+    (
+      screenId: string,
+      next: {
+        sourceType: "static" | "url";
+        url?: string;
+        connectionId?: string;
+      },
+    ) => {
+      if (!id || !canEditDesign) return;
+      const snapshotHtml =
+        next.sourceType === "static"
+          ? (runtimeLayerSnapshotsById[screenId]?.html ??
+            liveScreenSnapshotsById[screenId]?.html)
+          : undefined;
+      updateScreenSourceMutation.mutate(
+        {
+          designId: id,
+          fileId: screenId,
+          sourceType: next.sourceType,
+          ...(next.url ? { url: next.url } : {}),
+          ...(next.connectionId ? { connectionId: next.connectionId } : {}),
+          ...(snapshotHtml ? { snapshotHtml } : {}),
+        } as never,
+        {
+          onSuccess: (rawResult) => {
+            const result = rawResult as UpdateScreenSourceActionResult;
+            queryClient.setQueryData(
+              ["action", "get-design", { id }],
+              (old: any) => {
+                if (!old || typeof old !== "object") return old;
+                const currentData = parseDesignDataJson(old.data);
+                const nextData = {
+                  ...currentData,
+                  screenMetadata: {
+                    ...getDesignDataRecord(currentData, "screenMetadata"),
+                    [screenId]: result.metadata,
+                  },
+                  localhostScreens: {
+                    ...getDesignDataRecord(currentData, "localhostScreens"),
+                    [screenId]: result.metadata,
+                  },
+                };
+                return {
+                  ...old,
+                  data: JSON.stringify(nextData),
+                  files: Array.isArray(old.files)
+                    ? old.files.map((file: DesignFile) =>
+                        file.id === screenId
+                          ? {
+                              ...file,
+                              content: result.content,
+                              ...(result.updatedAt
+                                ? { updatedAt: result.updatedAt }
+                                : {}),
+                            }
+                          : file,
+                      )
+                    : old.files,
+                };
+              },
+            );
+            if (viewMode === "single" && activeFile?.id === screenId) {
+              setCollabContent(result.content);
+              setCollabContentFileId(screenId);
+            }
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+            toast.success(t("designEditor.toasts.screenSourceUpdated"));
+          },
+          onError: (error) => {
+            toast.error(
+              actionErrorMessage(error) ??
+                (error instanceof Error && error.message
+                  ? error.message
+                  : t("designEditor.toasts.screenSourceUpdateFailed")),
+            );
+          },
+        },
+      );
+    },
+    [
+      canEditDesign,
+      id,
+      activeFile?.id,
+      liveScreenSnapshotsById,
+      queryClient,
+      runtimeLayerSnapshotsById,
+      setCollabContent,
+      setCollabContentFileId,
+      t,
+      updateScreenSourceMutation,
+      viewMode,
+    ],
+  );
 
   /** Applies a typed or preset frame size/position from the inspector. Routed
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
@@ -17203,14 +17474,17 @@ function DesignEditor() {
   // semantic coding-agent handoff. The ref is read by gesture callbacks above
   // without making root-path hydration part of their render identity.
   const { data: activeLocalhostConnectionResult } = useActionQuery<{
-    connections?: Array<{ id: string; rootPath?: string | null }>;
+    connections?: Array<{
+      id: string;
+      name?: string | null;
+      devServerUrl?: string | null;
+      rootPath?: string | null;
+    }>;
   }>(
     "list-localhost-connections",
-    {},
+    { designId: id },
     {
-      enabled: overviewScreens.some(
-        (screen) => screen.sourceType === "localhost" && screen.connectionId,
-      ),
+      enabled: Boolean(id && canEditDesign),
     },
   );
   localhostConnectionRootPathByIdRef.current = new Map(
@@ -17319,9 +17593,15 @@ function DesignEditor() {
   // "Add screen" for a localhost-sourced design offers a route picker instead
   // of a blank artboard — see AddLocalhostScreenDialog.
   const [addLocalhostScreenOpen, setAddLocalhostScreenOpen] = useState(false);
+  const handleOpenAddLocalhostScreen = useCallback(
+    () => setAddLocalhostScreenOpen(true),
+    [],
+  );
   const addLocalhostScreenConnectionId =
-    activeLocalhostConnectionId ||
-    workbenchLocalhostConnections[0]?.connectionId;
+    designSourceType === "localhost"
+      ? activeLocalhostConnectionId ||
+        workbenchLocalhostConnections[0]?.connectionId
+      : undefined;
   const addLocalhostScreenFallbackPaths = useMemo(() => {
     const paths = new Set<string>();
     for (const screen of overviewScreens) {
@@ -18266,6 +18546,11 @@ function DesignEditor() {
               : null
           }
           screenId={screen.id}
+          previewUrlOverride={
+            screenSourceType === "localhost"
+              ? (screen.url ?? screen.previewUrl)
+              : undefined
+          }
           previewFrameId={
             breakpointWidthPx === undefined
               ? undefined
@@ -20010,6 +20295,18 @@ function DesignEditor() {
     onScreenGeometryChange: canEditDesign
       ? handleScreenGeometryChange
       : undefined,
+    selectedScreenSource,
+    sourceLocationUnavailable: activeRuntimeSourceLocationUnavailable,
+    localhostConnections: activeLocalhostConnectionResult?.connections,
+    onScreenSourceChange: canEditDesign ? handleScreenSourceChange : undefined,
+    onAddLocalhostScreen: canEditDesign
+      ? handleOpenAddLocalhostScreen
+      : undefined,
+    onRemoveScreen:
+      canEditDesign && files.length > 1
+        ? handleRemoveSelectedScreen
+        : undefined,
+    screenSourcePending: updateScreenSourceMutation.isPending,
     pageStyles,
     selectedScreenElement,
     onSelectedScreenStyleChange: canEditDesign
@@ -20097,6 +20394,7 @@ function DesignEditor() {
       data-design-editor
       className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
     >
+      {id ? <VisualEditWebMcp getPrompt={visualEditPromptResult} /> : null}
       {/* ── Render: Builder embed preview ── */}
       {isBuilderDesignEmbed && builderPreviewUrl && (
         <div className="absolute inset-0 z-50 flex flex-col bg-[var(--design-editor-canvas-bg)]">
@@ -20932,6 +21230,9 @@ function DesignEditor() {
                         geometryById={canvasFrameGeometryById}
                         onGeometryChange={queueFrameGeometrySave}
                         onGeometryCommit={handleGeometryCommit}
+                        onBreakpointContentHeightChange={
+                          handleOverviewBreakpointContentHeightChange
+                        }
                         // Screen-frame-only partial implementation — see the
                         // gradientEditTarget derivation above for the BOARD/
                         // DRAFT primitive gap and the exact EditPanel/
@@ -21222,6 +21523,7 @@ function DesignEditor() {
                         statePreviewTarget={statePreviewTarget}
                         editMode={mode === "edit"}
                         interactMode={mode === "interact"}
+                        centerInteractPreview={responsiveInteractActive}
                         readOnly={!canEditDesign}
                         scaleMode={activeTool === "scale"}
                         handToolActive={activeTool === "hand"}
@@ -21453,7 +21755,7 @@ function DesignEditor() {
                   {rightSidebarActions}
                 </div>
               ) : (
-                <div aria-hidden="true" />
+                <div aria-hidden="true" style={{ width: rightSidebarWidth }} />
               )}
             </div>
           </div>
@@ -21748,9 +22050,7 @@ function DesignEditor() {
         onOpenChange={setSaveTemplateOpen}
         defaultTitle={design.title}
         defaultDescription={design.description ?? ""}
-        screenCount={
-          files.filter((file) => file.filename !== "__board__.html").length
-        }
+        screenCount={getOverviewScreenFileIds(files).length}
         lockedLayerCount={durableLockedLayerCount}
         saving={saveDesignAsTemplateMutation.isPending}
         onSave={async (values) => {

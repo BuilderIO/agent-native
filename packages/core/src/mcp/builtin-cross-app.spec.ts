@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import * as a2aClient from "../a2a/client.js";
+import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import * as embedSession from "../server/embed-session.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { verifyAuth } from "./build-server.js";
@@ -171,7 +172,7 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
-  it("uses a direct app route for embedded view links", async () => {
+  it("deep-links embedded view links instead of guessing /<view>", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
     const result: any = await tools.open_app.run({
       app: "mail",
@@ -179,11 +180,36 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       params: { threadId: "abc" },
       embed: true,
     });
-    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embedStartUrl).toBeUndefined();
     expect(result.deepLinkUrl).toBeUndefined();
     expect(result.embed).toBe(true);
   });
+
+  // An app whose `view` name is not also a route (design routes `editor` at
+  // `/design/:id`) used to get `/editor` here: the embed iframe rendered a 404
+  // and so did the host's "Open in new tab" fallback, leaving the user with no
+  // way to reach their work.
+  it.each([
+    ["design", "editor"],
+    ["slides", "editor"],
+    ["content", "editor"],
+    ["brain", "capture"],
+    ["analytics", "adhoc"],
+  ])(
+    "never fabricates an origin-relative route for %s view %s",
+    async (app, view) => {
+      const tools = getBuiltinCrossAppTools(baseConfig({ appId: app }));
+      for (const embed of [true, false]) {
+        const result: any = await tools.open_app.run({ app, view, embed });
+        expect(result.url).not.toBe(`/${view}`);
+        expect(result.url.split("?")[0]).toBe("/_agent-native/open");
+        expect(result.url).toContain(`view=${view}`);
+      }
+    },
+  );
 
   it("mints a same-app embed start URL for authenticated MCP app callers", async () => {
     const createTicket = vi
@@ -209,18 +235,20 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
         }),
     );
 
-    expect(result.url).toBe("/inbox?threadId=abc");
+    const targetPath =
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed&__an_mcp_chat_bridge=1";
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embedStartUrl).toBe(
       "https://mail.example.com/_agent-native/embed/start?ticket=ticket-123",
     );
-    expect(result.embedTargetPath).toBe(
-      "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
-    );
+    expect(result.embedTargetPath).toBe(targetPath);
     expect(result.embedExpiresAt).toBe(123456);
     expect(createTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org-123",
-      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      targetPath,
       scope: "minimal",
     });
   });
@@ -245,7 +273,9 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       params: { threadId: "abc" },
       embed: "true",
     });
-    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embed).toBe(true);
   });
 
@@ -275,7 +305,9 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
         }),
     );
 
-    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embed).toBe(true);
     expect(result.embedStartUrl).toBe(
       "https://mail.example.com/_agent-native/embed/start?ticket=ticket-params",
@@ -283,7 +315,8 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(createTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org-123",
-      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      targetPath:
+        "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed&__an_mcp_chat_bridge=1",
       scope: "minimal",
     });
   });
@@ -299,6 +332,37 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
     expect(result.url).toBe("/mail/extensions/ext_123?tab=settings");
     expect(result.embed).toBe(true);
+  });
+
+  // Deep links stay base-relative on purpose: `toAbsoluteOpenUrl` owns the
+  // base prefix for the browser-facing `openLink.webUrl` the host uses as its
+  // out-of-frame escape hatch, and `normalizeEmbedTargetPath` stores embed
+  // targets base-relative (it strips the base when one is present). Prefixing
+  // here too would be redundant, but a *missing* prefix downstream would 404
+  // the escape hatch again, so pin both ends.
+  it("keeps bare-view deep links base-relative while the open link carries the base path", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    const deepLink =
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed";
+    const tools = getBuiltinCrossAppTools(baseConfig());
+
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: true,
+    });
+
+    expect(result.url).toBe(deepLink);
+    expect(toAbsoluteOpenUrl(result.url, "https://mail.example.com")).toBe(
+      `https://mail.example.com/mail${deepLink}`,
+    );
+    expect(
+      embedSession.normalizeEmbedTargetPath(
+        result.url,
+        "https://mail.example.com",
+      ),
+    ).toBe(deepLink);
   });
 
   it("defaults to the app's home page when neither view nor path is given", async () => {

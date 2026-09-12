@@ -141,6 +141,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "افتح تطبيق سطح المكتب لاستخدام هذه المحادثة.",
   "composer.removeAttachment": "إزالة {{name}}",
   "composer.scrollToBottom": "التمرير إلى الأسفل",
+  "composer.suggestedPrompts": "اقتراحات المطالبات",
   "composer.stopResponse": "إيقاف الرد",
   "composer.subAgentReadOnly":
     "أرسل الرسائل إلى محادثة المنسّق — يعمل هذا الوكيل الفرعي تلقائيًا",
@@ -386,6 +387,8 @@ const messages: AgentChatTranslation = {
     "تعذّر الوصول إلى مزوّد النموذج. تحقّق من اتصالك وأعد المحاولة.",
   "errorMessages.providerRateLimit":
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
+  "errorMessages.providerTransientRejection":
+    "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
   "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
   "feedback.inaccurate": "غير دقيق",
@@ -533,6 +536,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "إزالة من قائمة الانتظار",
   "queue.sendNow": "إرسال الآن",
   "queue.sendNowHint": "الإرسال الآن (يوقف الرد الحالي)",
+  "queue.steer": "توجيه",
+  "queue.steerHint": "إرسال هذه الرسالة التالية",
+  "queue.moreActions": "إجراءات إضافية",
+  "queue.moveToTop": "نقل إلى الأعلى",
   "recovery.connectingBuilder": "جارٍ الاتصال بـ Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",

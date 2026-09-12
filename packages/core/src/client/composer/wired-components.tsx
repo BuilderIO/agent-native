@@ -15,7 +15,7 @@ import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 
 export function PromptComposer(props: PromptComposerProps) {
   return (
-    <div className="relative">
+    <div className="relative w-full min-w-0">
       <CoreComposerRuntimeProvider>
         <ToolkitPromptComposer {...props} />
       </CoreComposerRuntimeProvider>

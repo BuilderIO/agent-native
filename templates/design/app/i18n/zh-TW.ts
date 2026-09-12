@@ -424,6 +424,15 @@ const messages = {
       fixed: "固定",
       sticky: "黏著",
     },
+    screenSource: {
+      title: "來源",
+      url: "URL",
+      urlLabel: "畫面 URL",
+      urlPlaceholder: "/plans 或 http://localhost:5173/plans",
+      update: "更新",
+      chooseLocalApp: "選擇本機應用程式",
+      remove: "移除畫面",
+    },
     borderStyleOptions: {
       none: "無",
       solid: "實線",
@@ -726,6 +735,9 @@ const messages = {
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
         "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
+      quotaCooldownTitle: "Design 已暫停此匯入",
+      quotaCooldownBody:
+        "達到配額上限後，Design 正在限制自身的 Figma 請求速率。配額將自動重設。",
       rateLimitTitle: "Figma 已暫停此匯入",
       rateLimitLowSeat:
         "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
@@ -964,6 +976,8 @@ const messages = {
     },
     toasts: {
       annotationSendError: "無法傳送註解。你的繪圖仍保留在這裡，請再試一次。",
+      screenSourceUpdated: "畫面來源已更新",
+      screenSourceUpdateFailed: "無法更新畫面來源",
       componentCreated: "元件已建立",
       componentCreateFailed: "無法建立元件",
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",

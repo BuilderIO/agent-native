@@ -29,6 +29,7 @@ import {
   getComposerSendTooltipKey,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
+  getComposerPopoverAnchorPosition,
   getComposerReasoningEffortOptions,
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
@@ -432,6 +433,220 @@ describe("createTiptapComposerExtensions", () => {
 
     expect(runs).toHaveLength(2);
     expect(runs[1]?.at(-1)?.content).toEqual([{ type: "text", text: "hello" }]);
+  });
+
+  it("clears the persisted draft even when the host unmounts the composer before onSubmit resolves", async () => {
+    // Mirrors standalone prompt popovers (e.g. Design's "New Design" dialog)
+    // that close/unmount themselves as soon as submit starts, without
+    // waiting for the submit round trip to finish.
+    const scope = "unmount-before-resolve";
+    let resolveSubmit: (() => void) | undefined;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSubmit = resolve;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      localRoot.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("abandoned prompt"));
+
+    const editorEl = localContainer.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editorEl.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "abandoned prompt",
+    );
+
+    // The host closes/unmounts the popover immediately after kicking off
+    // submit, destroying this editor instance while onSubmit is still
+    // pending. tiptap-react defers the actual `editor.destroy()` by one
+    // tick (see EditorInstanceManager.scheduleDestroy) so the wait below is
+    // required for the destruction to have actually happened.
+    act(() => localRoot.unmount());
+    localContainer.remove();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    await act(async () => {
+      resolveSubmit?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toBeNull();
+  });
+
+  it("does not clear a newer draft when a stale submit from an unmounted, same-scope composer instance finally resolves", async () => {
+    // Two independent mounts can share the exact same draftScope (e.g. the
+    // host reopens the same "New design" popover before the first submit's
+    // round trip settles). The stale instance's late-resolving submit must
+    // not wipe out whatever the fresh instance has since persisted under
+    // that shared key.
+    const scope = "reused-scope-after-unmount";
+    let resolveFirstSubmit: (() => void) | undefined;
+    const firstSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirstSubmit = resolve;
+        }),
+    );
+    const firstFocusRef = React.createRef<TiptapComposerHandle>();
+
+    const firstContainer = document.createElement("div");
+    document.body.appendChild(firstContainer);
+    const firstRoot = createRoot(firstContainer);
+
+    function FirstHarness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef: firstFocusRef,
+            draftScope: scope,
+            onSubmit: firstSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      firstRoot.render(React.createElement(FirstHarness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => firstFocusRef.current?.setText("stale prompt"));
+
+    const firstEditorEl = firstContainer.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      firstEditorEl.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(firstSubmit).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "stale prompt",
+    );
+
+    // The host closes/unmounts the first popover instance while its submit
+    // is still pending.
+    act(() => firstRoot.unmount());
+    firstContainer.remove();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    // The host reopens the same popover (same draftScope) and the visitor
+    // types a brand-new draft, which persists to the exact same key.
+    const secondFocusRef = React.createRef<TiptapComposerHandle>();
+    const secondContainer = document.createElement("div");
+    document.body.appendChild(secondContainer);
+    const secondRoot = createRoot(secondContainer);
+
+    function SecondHarness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef: secondFocusRef,
+            draftScope: scope,
+            onSubmit: vi.fn(() => new Promise<void>(() => {})),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      secondRoot.render(React.createElement(SecondHarness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => secondFocusRef.current?.setText("fresh prompt"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "fresh prompt",
+    );
+
+    // The stale first submit finally resolves. It must not blow away the
+    // second instance's freshly persisted draft under the shared key.
+    await act(async () => {
+      resolveFirstSubmit?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "fresh prompt",
+    );
+
+    act(() => secondRoot.unmount());
+    secondContainer.remove();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
   });
 
   it("waits for old attachment cleanup before accepting a new-scope upload", async () => {
@@ -876,6 +1091,42 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("anchors the composer popover to the composer root", () => {
+    const root = document.createElement("div");
+    root.setAttribute("data-agent-composer-slot", "root");
+    const editor = document.createElement("div");
+    root.appendChild(editor);
+    document.body.appendChild(root);
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue({
+      top: 180,
+      left: 24,
+      width: 640,
+      right: 664,
+      bottom: 260,
+      height: 80,
+      x: 24,
+      y: 180,
+      toJSON: () => {},
+    });
+
+    expect(
+      getComposerPopoverAnchorPosition(
+        {
+          coordsAtPos: () => ({
+            top: 224,
+            bottom: 244,
+            left: 96,
+            right: 96,
+          }),
+          dom: editor,
+        },
+        1,
+      ),
+    ).toEqual({ top: 180, left: 24, width: 640 });
+
+    root.remove();
+  });
+
   it("consumes composer file drops so parent drop targets do not attach duplicates", () => {
     const file = new File(["fake"], "image.png", { type: "image/png" });
     const added: File[] = [];
@@ -963,8 +1214,9 @@ describe("createTiptapComposerExtensions", () => {
       },
     ];
     expect(shouldRenderModelSelector(unconfigured, () => {})).toBe(true);
-    // Genuinely nothing to show: no engines, or no way to change the model.
-    expect(shouldRenderModelSelector([], () => {})).toBe(false);
+    // An empty list is the initial discovery/setup state. Keep the button so
+    // the picker can show loading or provider setup rather than disappearing.
+    expect(shouldRenderModelSelector([], () => {})).toBe(true);
     expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
   });
@@ -1016,6 +1268,105 @@ describe("createTiptapComposerExtensions", () => {
 });
 
 describe("TiptapComposer slash commands", () => {
+  it("locks submission without blurring the editable surface", () => {
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness({ submitting }: { submitting: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            submitting,
+            onSubmit: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness, { submitting: false })));
+    act(() => focusRef.current?.setText("Queue the next instruction"));
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    editor.focus();
+
+    act(() => root.render(React.createElement(Harness, { submitting: true })));
+
+    expect(editor.getAttribute("contenteditable")).toBe("true");
+    expect(document.activeElement).toBe(editor);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )?.disabled,
+    ).toBe(true);
+  });
+
+  it("keeps the editor focused after a successful submission", async () => {
+    const onSubmit = vi.fn(async () => undefined);
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            placeholder: "Ask the agent...",
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("Continue the review"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(onSubmit).toHaveBeenCalled();
+    expect(editor.textContent).toBe("");
+    expect(document.activeElement).toBe(editor);
+    const emptyParagraph = editor.querySelector(
+      "p.is-empty:first-child:last-child",
+    );
+    expect(emptyParagraph?.getAttribute("data-placeholder")).toBe(
+      "Ask the agent...",
+    );
+    expect(
+      Array.from(container.querySelectorAll("style")).some((style) =>
+        style.textContent?.includes(
+          "p.is-empty:first-child:last-child::before",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("submits a slash-prefixed prompt when no command handler is provided", async () => {
     const onSubmit = vi.fn();
     const focusRef = React.createRef<TiptapComposerHandle>();
@@ -1030,6 +1381,7 @@ describe("TiptapComposer slash commands", () => {
           null,
           React.createElement(TiptapComposer, {
             focusRef,
+            ariaLabel: "Message release agent",
             onSubmit,
             clearOnSubmit: false,
             includeDefaultSlashSkills: false,
@@ -1046,6 +1398,9 @@ describe("TiptapComposer slash commands", () => {
     const editor = container.querySelector(
       ".agent-composer-prosemirror",
     ) as HTMLElement;
+    expect(editor.getAttribute("role")).toBe("textbox");
+    expect(editor.getAttribute("aria-label")).toBe("Message release agent");
+    expect(editor.getAttribute("aria-multiline")).toBe("true");
     await act(async () => {
       editor.dispatchEvent(
         new KeyboardEvent("keydown", {

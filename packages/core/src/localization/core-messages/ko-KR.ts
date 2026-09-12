@@ -140,6 +140,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "이 채팅을 사용하려면 데스크톱 앱을 여세요.",
   "composer.removeAttachment": "{{name}} 제거",
   "composer.scrollToBottom": "맨 아래로 스크롤",
+  "composer.suggestedPrompts": "추천 프롬프트",
   "composer.stopResponse": "응답 중지",
   "composer.subAgentReadOnly":
     "오케스트레이터 채팅에 메시지를 보내세요. 이 하위 에이전트는 자동으로 실행됩니다",
@@ -378,6 +379,8 @@ const messages: AgentChatTranslation = {
     "모델 제공업체에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
   "errorMessages.providerRateLimit":
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
+  "errorMessages.providerTransientRejection":
+    "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
   "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
   "feedback.inaccurate": "부정확함",
@@ -516,6 +519,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "대기열에서 제거",
   "queue.sendNow": "지금 보내기",
   "queue.sendNowHint": "지금 보내기(현재 응답 중지)",
+  "queue.steer": "조정",
+  "queue.steerHint": "이 메시지를 다음에 보내기",
+  "queue.moreActions": "추가 작업",
+  "queue.moveToTop": "맨 위로 이동",
   "recovery.connectingBuilder": "Builder.io에 연결 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",

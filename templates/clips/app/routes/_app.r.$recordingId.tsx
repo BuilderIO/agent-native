@@ -109,6 +109,7 @@ import {
   ViewerTabsTrigger,
 } from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -142,6 +143,7 @@ import { useCompletionAudioCue } from "@/hooks/use-completion-audio-cue";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
+import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
@@ -561,7 +563,7 @@ export default function RecordingPage() {
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
-  const [panel, setPanel] = useState<SidePanel | null>("transcript");
+  const [panel, setPanel] = useState<SidePanel | null>("comments");
   const globalAgentSidebarOpen = useGlobalAgentSidebarOpen();
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -978,11 +980,10 @@ export default function RecordingPage() {
     recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS
       : (recording?.durationMs ?? 0);
-  const hasBrowserDiagnosticFailures = Boolean(
-    browserDiagnostics &&
-    (browserDiagnostics.summary.consoleErrorCount > 0 ||
-      browserDiagnostics.summary.consoleWarnCount > 0 ||
-      browserDiagnostics.summary.networkFailureCount > 0),
+  const unviewedDebugEventCount = useUnviewedDebugEventCount(
+    recordingId,
+    browserDiagnostics?.summary ?? null,
+    panel === "debug",
   );
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
@@ -991,11 +992,12 @@ export default function RecordingPage() {
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
-      (!browserDiagnostics && panel === "debug")
+      (!browserDiagnostics && panel === "debug") ||
+      (recording && !recording.enableComments && panel === "comments")
     ) {
       setPanel("transcript");
     }
-  }, [browserDiagnostics, canEdit, panel]);
+  }, [browserDiagnostics, canEdit, panel, recording]);
 
   useEffect(() => {
     if (panelParam === "agent") {
@@ -1004,7 +1006,9 @@ export default function RecordingPage() {
       return;
     }
     if (panelParam === "comments") {
-      setPanel(recording?.enableComments ? "comments" : "transcript");
+      setPanel(
+        recording && !recording.enableComments ? "transcript" : "comments",
+      );
       if (isCompactLayout) {
         requestAnimationFrame(() => {
           commentsSectionRef.current?.scrollIntoView({ block: "start" });
@@ -1982,7 +1986,10 @@ export default function RecordingPage() {
   const renderPanelTabs = () => (
     <ViewerTabsList className="min-w-0 shrink-0 bg-sidebar">
       {recording.enableComments ? (
-        <ViewerTabsTrigger value="comments">
+        <ViewerTabsTrigger
+          value="comments"
+          className="px-0 data-[state=active]:after:inset-x-0"
+        >
           {t("playerSettings.comments")}
         </ViewerTabsTrigger>
       ) : null}
@@ -1993,11 +2000,16 @@ export default function RecordingPage() {
         <ViewerTabsTrigger value="debug">
           <span className="flex items-center justify-center gap-1.5">
             {t("browserDiagnostics.debug")}
-            {hasBrowserDiagnosticFailures ? (
-              <span
-                className="size-1.5 rounded-full bg-destructive"
-                aria-label={t("browserDiagnostics.failuresPresent")}
-              />
+            {unviewedDebugEventCount > 0 ? (
+              <Badge
+                variant="secondary"
+                className="h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
+                aria-label={t("browserDiagnostics.unviewedCount", {
+                  count: unviewedDebugEventCount,
+                })}
+              >
+                {unviewedDebugEventCount}
+              </Badge>
             ) : null}
           </span>
         </ViewerTabsTrigger>
@@ -2016,15 +2028,10 @@ export default function RecordingPage() {
       className={cn(
         "scroll-mt-14",
         compact
-          ? "flex min-h-0 flex-1 flex-col px-4 pb-5 pt-4"
+          ? "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"
           : "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3",
       )}
     >
-      {!compact ? (
-        <h2 className="mb-3 shrink-0 text-sm font-semibold">
-          {t("playerSettings.comments")}
-        </h2>
-      ) : null}
       <CommentsPanel
         recordingId={recording.id}
         comments={comments}

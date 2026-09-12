@@ -1819,6 +1819,7 @@ const messages = {
       "{{consoleCount}} console issues · {{networkCount}} failed requests",
     noFailures: "No failures detected",
     failuresPresent: "Browser failures detected",
+    unviewedCount: "{{count}} unviewed",
     captureSuccessful: "Diagnostics captured successfully",
     capturedFrom: "Captured from {{source}}",
     browserCapture: "Browser capture",

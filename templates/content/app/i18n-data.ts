@@ -1021,6 +1021,8 @@ const enUS = {
   landing: {
     previousPageUnavailable:
       "Your previous page is no longer available, so we opened Welcome.",
+    requestedPageUnavailable:
+      "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
   },
   team: {
@@ -1076,7 +1078,6 @@ const enUS = {
     documentUnavailableDescription:
       "This page may have been deleted, or it has not been shared with your account.",
     documentNotFound: "Document not found",
-    goToDocuments: "Go to documents",
     newPage: "New page",
     createFailed: "Failed to create page",
     genericError: "Something went wrong",
@@ -1755,7 +1756,6 @@ const esESRawLiteralOverrides: PartialMessages = {
     documentUnavailableDescription:
       "Es posible que esta página se haya eliminado o no se haya compartido con tu cuenta.",
     documentNotFound: "Documento no encontrado",
-    goToDocuments: "Ir a documentos",
   },
   editor: {
     suggestionCreateFailed: "No se pudo crear la sugerencia",

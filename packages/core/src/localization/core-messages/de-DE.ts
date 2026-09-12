@@ -148,6 +148,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "Öffne Desktop, um diesen Chat zu verwenden.",
   "composer.removeAttachment": "{{name}} entfernen",
   "composer.scrollToBottom": "Nach unten scrollen",
+  "composer.suggestedPrompts": "Vorgeschlagene Prompts",
   "composer.stopResponse": "Antwort stoppen",
   "composer.subAgentReadOnly":
     "Sende Nachrichten an den Orchestrator-Chat – dieser Unteragent läuft automatisch",
@@ -224,6 +225,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Aus Warteschlange entfernen",
   "queue.sendNow": "Jetzt senden",
   "queue.sendNowHint": "Jetzt senden (stoppt die aktuelle Antwort)",
+  "queue.steer": "Steuern",
+  "queue.steerHint": "Diese Nachricht als Nächstes senden",
+  "queue.moreActions": "Weitere Aktionen",
+  "queue.moveToTop": "Nach oben verschieben",
   "recovery.connectingBuilder": "Verbindung zu Builder.io wird hergestellt",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
@@ -611,6 +616,8 @@ const messages: AgentChatTranslation = {
     "Der Modellanbieter konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut.",
   "errorMessages.providerRateLimit":
     "Der Modellanbieter begrenzt diesen Chat derzeit. Warte einen Moment und versuche es dann erneut.",
+  "errorMessages.providerTransientRejection":
+    "Der KI-Anbieter hat diese Anfrage vorübergehend abgelehnt. Das behebt sich meist innerhalb einer Minute – versuche es erneut.",
   "errorMessages.startNewChat": "Neuen Chat starten",
   "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
   "feedback.inaccurate": "Ungenau",

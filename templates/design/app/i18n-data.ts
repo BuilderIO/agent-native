@@ -380,6 +380,15 @@ const enUS = {
       fixed: "Fixed",
       sticky: "Sticky",
     },
+    screenSource: {
+      title: "Source",
+      url: "URL",
+      urlLabel: "Screen URL",
+      urlPlaceholder: "/plans or http://localhost:5173/plans",
+      update: "Update",
+      chooseLocalApp: "Choose local app",
+      remove: "Remove screen",
+    },
     borderStyleOptions: {
       none: "None",
       solid: "Solid",
@@ -667,6 +676,9 @@ const enUS = {
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
         "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
+      quotaCooldownTitle: "Design paused this import",
+      quotaCooldownBody:
+        "Design is pacing its own Figma requests after hitting a quota limit. This resets automatically.",
       rateLimitTitle: "Figma paused this import",
       rateLimitLowSeat:
         "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
@@ -1161,6 +1173,8 @@ const enUS = {
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
+      screenSourceUpdated: "Screen source updated",
+      screenSourceUpdateFailed: "Could not update screen source",
     },
   },
   layersPanel: {
@@ -12782,6 +12796,9 @@ const designImportOverrides = {
   "zh-CN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design 已暂停此导入",
+        quotaCooldownBody:
+          "达到配额上限后，Design 正在限制自身的 Figma 请求速率。配额将自动重置。",
         title: "导入",
         description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
@@ -12849,6 +12866,9 @@ const designImportOverrides = {
   "es-ES": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ha pausado esta importación",
+        quotaCooldownBody:
+          "Design está regulando sus propias solicitudes a Figma tras alcanzar un límite de cuota. Se restablece automáticamente.",
         title: "Importar",
         description:
           "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
@@ -12921,6 +12941,9 @@ const designImportOverrides = {
   "fr-FR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design a mis cet import en pause",
+        quotaCooldownBody:
+          "Design limite ses propres requêtes Figma après avoir atteint un quota. La réinitialisation est automatique.",
         title: "Importer",
         description:
           "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
@@ -12993,6 +13016,9 @@ const designImportOverrides = {
   "de-DE": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design hat diesen Import angehalten",
+        quotaCooldownBody:
+          "Design drosselt seine eigenen Figma-Anfragen, nachdem ein Kontingentlimit erreicht wurde. Das wird automatisch zurückgesetzt.",
         title: "Import",
         description:
           "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
@@ -13064,6 +13090,9 @@ const designImportOverrides = {
   "ja-JP": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design がこのインポートを一時停止しました",
+        quotaCooldownBody:
+          "クォータの上限に達したため、Design が Figma へのリクエストを調整しています。自動的にリセットされます。",
         title: "インポート",
         description:
           "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
@@ -13136,6 +13165,9 @@ const designImportOverrides = {
   "ko-KR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design이 이 가져오기를 일시 중지했습니다",
+        quotaCooldownBody:
+          "할당량 한도에 도달해 Design이 자체 Figma 요청 속도를 조절하고 있습니다. 자동으로 초기화됩니다.",
         title: "가져오기",
         description:
           "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
@@ -13207,6 +13239,9 @@ const designImportOverrides = {
   "pt-BR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "O Design pausou esta importação",
+        quotaCooldownBody:
+          "O Design está limitando suas próprias solicitações ao Figma após atingir um limite de cota. A redefinição é automática.",
         title: "Importar",
         description:
           "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
@@ -13280,6 +13315,9 @@ const designImportOverrides = {
   "hi-IN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ने यह आयात रोक दिया",
+        quotaCooldownBody:
+          "कोटा सीमा तक पहुँचने के बाद Design अपने Figma अनुरोधों को नियंत्रित कर रहा है। यह स्वतः रीसेट हो जाता है।",
         title: "आयात",
         description:
           "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
@@ -13352,6 +13390,9 @@ const designImportOverrides = {
   "ar-SA": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "أوقف Design هذا الاستيراد مؤقتًا",
+        quotaCooldownBody:
+          "يقوم Design بتنظيم طلبات Figma الخاصة به بعد الوصول إلى حد الحصة. تُعاد التهيئة تلقائيًا.",
         title: "استيراد",
         description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",
@@ -15197,6 +15238,182 @@ const designMotionAndBreakpointOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
+const designScreenSourceOverrides = {
+  "zh-CN": {
+    editPanel: {
+      screenSource: {
+        title: "来源",
+        url: "URL",
+        urlLabel: "屏幕 URL",
+        urlPlaceholder: "/plans 或 http://localhost:5173/plans",
+        update: "更新",
+        chooseLocalApp: "选择本地应用",
+        remove: "移除屏幕",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "屏幕来源已更新",
+        screenSourceUpdateFailed: "无法更新屏幕来源",
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      screenSource: {
+        title: "Origen",
+        url: "URL",
+        urlLabel: "URL de pantalla",
+        urlPlaceholder: "/plans o http://localhost:5173/plans",
+        update: "Actualizar",
+        chooseLocalApp: "Elegir app local",
+        remove: "Eliminar pantalla",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Fuente de pantalla actualizada",
+        screenSourceUpdateFailed: "No se pudo actualizar la fuente de pantalla",
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      screenSource: {
+        title: "Source",
+        url: "URL",
+        urlLabel: "URL de l’écran",
+        urlPlaceholder: "/plans ou http://localhost:5173/plans",
+        update: "Mettre à jour",
+        chooseLocalApp: "Choisir une app locale",
+        remove: "Supprimer l’écran",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Source de l’écran mise à jour",
+        screenSourceUpdateFailed:
+          "Impossible de mettre à jour la source de l’écran",
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      screenSource: {
+        title: "Quelle",
+        url: "URL",
+        urlLabel: "Screen-URL",
+        urlPlaceholder: "/plans oder http://localhost:5173/plans",
+        update: "Aktualisieren",
+        chooseLocalApp: "Lokale App auswählen",
+        remove: "Screen entfernen",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Screen-Quelle aktualisiert",
+        screenSourceUpdateFailed:
+          "Screen-Quelle konnte nicht aktualisiert werden",
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      screenSource: {
+        title: "ソース",
+        url: "URL",
+        urlLabel: "画面 URL",
+        urlPlaceholder: "/plans または http://localhost:5173/plans",
+        update: "更新",
+        chooseLocalApp: "ローカルアプリを選択",
+        remove: "画面を削除",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "画面ソースを更新しました",
+        screenSourceUpdateFailed: "画面ソースを更新できませんでした",
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      screenSource: {
+        title: "소스",
+        url: "URL",
+        urlLabel: "화면 URL",
+        urlPlaceholder: "/plans 또는 http://localhost:5173/plans",
+        update: "업데이트",
+        chooseLocalApp: "로컬 앱 선택",
+        remove: "화면 삭제",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "화면 소스가 업데이트됨",
+        screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      screenSource: {
+        title: "Fonte",
+        url: "URL",
+        urlLabel: "URL da tela",
+        urlPlaceholder: "/plans ou http://localhost:5173/plans",
+        update: "Atualizar",
+        chooseLocalApp: "Escolher app local",
+        remove: "Remover tela",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Fonte da tela atualizada",
+        screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      screenSource: {
+        title: "स्रोत",
+        url: "URL",
+        urlLabel: "स्क्रीन URL",
+        urlPlaceholder: "/plans या http://localhost:5173/plans",
+        update: "अपडेट करें",
+        chooseLocalApp: "लोकल ऐप चुनें",
+        remove: "स्क्रीन हटाएं",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
+        screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      screenSource: {
+        title: "المصدر",
+        url: "URL",
+        urlLabel: "عنوان URL للشاشة",
+        urlPlaceholder: "/plans أو http://localhost:5173/plans",
+        update: "تحديث",
+        chooseLocalApp: "اختر تطبيقًا محليًا",
+        remove: "إزالة الشاشة",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "تم تحديث مصدر الشاشة",
+        screenSourceUpdateFailed: "تعذر تحديث مصدر الشاشة",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
 // Runtime-layer identity, prompt/comment feedback, and localhost bridge copy.
 // zh-TW lives in app/i18n/zh-TW.ts with the rest of that locale's catalog.
 const designRuntimeIdentityAndBridgeOverrides = {
@@ -16118,6 +16335,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["zh-CN"],
       responsiveInteractOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
+      designScreenSourceOverrides["zh-CN"],
       designRuntimeIdentityAndBridgeOverrides["zh-CN"],
       designComponentInstanceOverrides["zh-CN"],
       designComponentSourceOverrides["zh-CN"],
@@ -16202,6 +16420,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["es-ES"],
       responsiveInteractOverrides["es-ES"],
       motionDockOverrides["es-ES"],
+      designScreenSourceOverrides["es-ES"],
       designRuntimeIdentityAndBridgeOverrides["es-ES"],
       designComponentInstanceOverrides["es-ES"],
       designComponentSourceOverrides["es-ES"],
@@ -16289,6 +16508,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["fr-FR"],
       responsiveInteractOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
+      designScreenSourceOverrides["fr-FR"],
       designRuntimeIdentityAndBridgeOverrides["fr-FR"],
       designComponentInstanceOverrides["fr-FR"],
       designComponentSourceOverrides["fr-FR"],
@@ -16376,6 +16596,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["de-DE"],
       responsiveInteractOverrides["de-DE"],
       motionDockOverrides["de-DE"],
+      designScreenSourceOverrides["de-DE"],
       designRuntimeIdentityAndBridgeOverrides["de-DE"],
       designComponentInstanceOverrides["de-DE"],
       designComponentSourceOverrides["de-DE"],
@@ -16463,6 +16684,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ja-JP"],
       responsiveInteractOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
+      designScreenSourceOverrides["ja-JP"],
       designRuntimeIdentityAndBridgeOverrides["ja-JP"],
       designComponentInstanceOverrides["ja-JP"],
       designComponentSourceOverrides["ja-JP"],
@@ -16551,6 +16773,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ko-KR"],
       responsiveInteractOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
+      designScreenSourceOverrides["ko-KR"],
       designRuntimeIdentityAndBridgeOverrides["ko-KR"],
       designComponentInstanceOverrides["ko-KR"],
       designComponentSourceOverrides["ko-KR"],
@@ -16637,6 +16860,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["pt-BR"],
       responsiveInteractOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
+      designScreenSourceOverrides["pt-BR"],
       designRuntimeIdentityAndBridgeOverrides["pt-BR"],
       designComponentInstanceOverrides["pt-BR"],
       designComponentSourceOverrides["pt-BR"],
@@ -16724,6 +16948,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["hi-IN"],
       responsiveInteractOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
+      designScreenSourceOverrides["hi-IN"],
       designRuntimeIdentityAndBridgeOverrides["hi-IN"],
       designComponentInstanceOverrides["hi-IN"],
       designComponentSourceOverrides["hi-IN"],
@@ -16811,6 +17036,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ar-SA"],
       responsiveInteractOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
+      designScreenSourceOverrides["ar-SA"],
       designRuntimeIdentityAndBridgeOverrides["ar-SA"],
       designComponentInstanceOverrides["ar-SA"],
       designComponentSourceOverrides["ar-SA"],

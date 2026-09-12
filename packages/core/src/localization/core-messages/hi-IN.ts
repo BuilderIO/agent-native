@@ -138,6 +138,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "इस चैट का उपयोग करने के लिए Desktop खोलें।",
   "composer.removeAttachment": "{{name}} हटाएँ",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
+  "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",
   "composer.subAgentReadOnly":
     "ऑर्केस्ट्रेटर चैट को संदेश भेजें — यह सब-एजेंट अपने-आप चलता है",
@@ -377,6 +378,8 @@ const messages: AgentChatTranslation = {
     "मॉडल प्रदाता तक पहुँचा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
   "errorMessages.providerRateLimit":
     "मॉडल प्रदाता अभी इस चैट की अनुरोध दर सीमित कर रहा है। कुछ देर रुकें, फिर से प्रयास करें।",
+  "errorMessages.providerTransientRejection":
+    "AI प्रदाता ने इस अनुरोध को अस्थायी रूप से अस्वीकार कर दिया। यह आमतौर पर एक मिनट के भीतर ठीक हो जाता है — फिर से प्रयास करें।",
   "errorMessages.startNewChat": "नई चैट शुरू करें",
   "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
   "feedback.inaccurate": "गलत जानकारी",
@@ -516,6 +519,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "कतार से हटाएँ",
   "queue.sendNow": "अभी भेजें",
   "queue.sendNowHint": "अभी भेजें (मौजूदा जवाब रुक जाएगा)",
+  "queue.steer": "दिशा दें",
+  "queue.steerHint": "यह संदेश अगला भेजें",
+  "queue.moreActions": "अन्य कार्रवाइयाँ",
+  "queue.moveToTop": "सबसे ऊपर ले जाएँ",
   "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",

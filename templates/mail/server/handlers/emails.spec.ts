@@ -51,3 +51,14 @@ describe("emails handler Gmail label listing", () => {
     );
   });
 });
+
+describe("emails handler Gmail quota cooldown classification", () => {
+  it("classifies typed Gmail cooldowns as 429 with Retry-After on thread and message fetches", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain("error instanceof GmailQuotaCooldownError");
+    expect(source.split("gmailErrorStatus(").length - 1).toBeGreaterThanOrEqual(
+      3,
+    );
+  });
+});

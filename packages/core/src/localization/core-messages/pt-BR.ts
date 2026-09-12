@@ -146,6 +146,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "Abra o aplicativo para desktop para usar este chat.",
   "composer.removeAttachment": "Remover {{name}}",
   "composer.scrollToBottom": "Rolar até o final",
+  "composer.suggestedPrompts": "Prompts sugeridos",
   "composer.stopResponse": "Parar resposta",
   "composer.subAgentReadOnly":
     "Envie mensagens ao chat do orquestrador — este subagente é executado automaticamente",
@@ -221,6 +222,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Remover da fila",
   "queue.sendNow": "Enviar agora",
   "queue.sendNowHint": "Enviar agora (interrompe a resposta atual)",
+  "queue.steer": "Orientar",
+  "queue.steerHint": "Enviar esta mensagem em seguida",
+  "queue.moreActions": "Mais ações",
+  "queue.moveToTop": "Mover para o topo",
   "recovery.connectingBuilder": "Conectando ao Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
@@ -607,6 +612,8 @@ const messages: AgentChatTranslation = {
     "Não foi possível acessar o provedor do modelo. Verifique sua conexão e tente novamente.",
   "errorMessages.providerRateLimit":
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
+  "errorMessages.providerTransientRejection":
+    "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
   "errorMessages.startNewChat": "Iniciar novo chat",
   "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
   "feedback.inaccurate": "Impreciso",

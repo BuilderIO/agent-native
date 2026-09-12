@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "設定",
     description: "此應用的語言和工作區偏好設定。",
+    labs: "實驗室",
+    labsIntro: "在正式發布前預覽實驗性功能。",
+    labLayoutOverflowWarningDescription: "在編輯器中顯示版面溢位警告。",
     emailNotifications: "郵件通知",
     emailNotificationsDescription:
       "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
@@ -283,6 +286,10 @@ const messages = {
     exportPptx: "匯出為 PPTX",
     connectGoogle: "連接 Google",
     openInGoogleSlides: "在 Google Slides 中開啟",
+    googleSlidesUnavailable: "無法使用",
+    googleSlidesOpenImporter: "開啟 Google Slides 匯入",
+    googleSlidesUnavailableHint:
+      "由於尚未設定 Google 連線，目前無法匯出至 Google Slides。請改為匯出 PPTX，再將檔案匯入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中開啟",
     googleSlidesCreatedHint: "已在你的 Google 雲端硬碟中建立此簡報的副本。",
     duplicateDeck: "複製幻燈片",

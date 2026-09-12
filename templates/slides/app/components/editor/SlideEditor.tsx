@@ -11,8 +11,10 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
@@ -1371,6 +1373,9 @@ export default function SlideEditor({
   recentEdits = [],
 }: SlideEditorProps) {
   const t = useT();
+  const layoutOverflowWarningEnabled = useLabState(
+    SLIDES_LAYOUT_OVERFLOW_WARNING.key,
+  ).enabled;
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
     content.includes('class="fmd-slide"') ||
@@ -1865,7 +1870,14 @@ export default function SlideEditor({
       // `<div class="mermaid">` markup from the untouched source before saving.
       const clone = slideContent.cloneNode(true) as HTMLElement;
       if (activeHtml !== null && activePath) {
-        const activeClone = resolveElementPath(clone, activePath);
+        // The live DOM can be restructured under an active edit (autofit
+        // wraps the slide's children when the canvas resizes), so the path
+        // captured at edit start is only trustworthy for the static snapshot.
+        // The editing block itself is marked; find it by that mark first, or
+        // the editor's own markup would be serialized as slide content.
+        const activeClone =
+          clone.querySelector<HTMLElement>('[data-editing-block="true"]') ??
+          resolveElementPath(clone, activePath);
         if (activeClone) {
           restoreSlideTextContainerContent(
             activeClone,
@@ -6254,6 +6266,18 @@ export default function SlideEditor({
         editingEl?.contains(e.target as Node) ?? false;
       if (editingEl) {
         if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
+          // The editor is only as tall as its text, so a press in the block's
+          // remaining area lands on the block; keep the caret instead of
+          // letting the browser blur it.
+          const editor = richTextEditorRef.current?.getEditor();
+          if (
+            editor &&
+            !editor.isDestroyed &&
+            !editor.view.dom.contains(target)
+          ) {
+            e.preventDefault();
+            editor.commands.focus("end");
+          }
           return;
         }
         exitInlineEdit();
@@ -7474,7 +7498,8 @@ export default function SlideEditor({
                               />
                             </div>
                           )}
-                          {overflowInfo &&
+                          {layoutOverflowWarningEnabled &&
+                            overflowInfo &&
                             !readOnly &&
                             !agentActive &&
                             warningVisible && (

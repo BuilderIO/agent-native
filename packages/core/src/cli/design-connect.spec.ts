@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -1054,6 +1055,440 @@ describe("design connect bridge endpoints", () => {
       );
       expect(viaQuery.status).toBe(200);
       expect(viaQuery.body).toBe(tinyModule);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("survives a client resetting a proxied WebSocket upgrade", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    // A dev server that accepts the upgrade and then holds the socket open,
+    // so the reset comes from the bridge's client side while both proxied
+    // sockets are live.
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(404);
+      res.end();
+    });
+    const devSockets: net.Socket[] = [];
+    devServer.on("upgrade", (_req, socket) => {
+      devSockets.push(socket);
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+      );
+      socket.on("error", () => socket.destroy());
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const client = net.connect(port, "127.0.0.1");
+      await new Promise<void>((resolve, reject) => {
+        client.once("connect", resolve);
+        client.once("error", reject);
+      });
+      client.on("error", () => {});
+      client.write(
+        [
+          `GET /ws?previewToken=${bridge.previewToken} HTTP/1.1`,
+          `Host: 127.0.0.1:${port}`,
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version: 13",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+      await new Promise<void>((resolve) =>
+        client.once("data", () => resolve()),
+      );
+      // RST instead of FIN: this is what an abruptly closed tab produces and
+      // what surfaced as `read ECONNRESET` in the bridge.
+      client.resetAndDestroy();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const health = await getJson(`http://127.0.0.1:${port}/health`);
+      expect(health.status).toBe(200);
+      expect(health.body["ok"]).toBe(true);
+    } finally {
+      // The dev server still holds the proxied upstream socket open; drop
+      // every connection so close() does not wait on it.
+      for (const socket of devSockets) socket.destroy();
+      bridge.server.closeAllConnections();
+      devServer.closeAllConnections();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("sends a keyed frame's navigation back through /live-edit with its own bridgeKey", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const seenByDevServer: string[] = [];
+    const devServer = http.createServer((req, res) => {
+      seenByDevServer.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(
+        `<!doctype html><title>${req.url}</title><h1>page ${req.url}</h1>`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const auth = { "x-design-preview-token": bridge.previewToken };
+      await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-a",
+        },
+        auth,
+      );
+      // Registered last: this is what the unkeyed slot would hand out.
+      await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-b",
+        },
+        auth,
+      );
+      // Frame A follows a link to /home. The browser tags it as an iframe
+      // navigation and its referer is the keyed /live-edit URL it came from.
+      const navigated = await fetch(`${base}/home`, {
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          referer: `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+        },
+      });
+      expect(navigated.status).toBe(302);
+      const location = new URL(navigated.headers.get("location") ?? "");
+      expect(location.pathname).toBe("/live-edit");
+      expect(location.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/home`,
+      );
+      expect(location.searchParams.get("bridgeKey")).toBe("screen-a");
+      const landed = await getText(location.toString());
+      expect(landed.status).toBe(200);
+      expect(landed.body).toContain("page /home");
+      expect(landed.body).toContain('window.__screenBridge="A"');
+      expect(landed.body).not.toContain('window.__screenBridge="B"');
+      // The pre-boot shim rewrites the frame URL to the app route; the key
+      // rides along so the NEXT navigation's referer still carries it.
+      expect(landed.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+
+      // Second hop: the frame now sits on the rewritten app route, not on
+      // /live-edit, and follows another link.
+      const secondHop = await fetch(`${base}/settings`, {
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          referer: `${base}/home?agentNativeBridgeKey=screen-a`,
+        },
+      });
+      expect(secondHop.status).toBe(302);
+      const secondLocation = new URL(secondHop.headers.get("location") ?? "");
+      expect(secondLocation.searchParams.get("bridgeKey")).toBe("screen-a");
+      expect(secondLocation.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/settings`,
+      );
+
+      // A keyed target with a valueless Vite-style flag keeps it byte-identical.
+      const flagged = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/page?url`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(flagged.status).toBe(200);
+      expect(flagged.body).toContain(
+        JSON.stringify("/page?url&agentNativeBridgeKey=screen-a"),
+      );
+      expect(flagged.body).not.toContain("?url=&");
+
+      // A form POST navigation cannot be redirected without dropping its
+      // body, so it is proxied with the frame's own keyed script instead.
+      const posted = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+          referer: `${base}/home?agentNativeBridgeKey=screen-a`,
+        },
+        body: "q=1",
+      });
+      expect(posted.status).toBe(200);
+      const postedHtml = await posted.text();
+      expect(postedHtml).toContain('window.__screenBridge="A"');
+      expect(postedHtml).not.toContain('window.__screenBridge="B"');
+      expect(postedHtml).toContain(
+        JSON.stringify("/submit?agentNativeBridgeKey=screen-a"),
+      );
+
+      // The bridge-only identity param never reaches the dev server, even on
+      // a POST whose form action kept the rewritten route's query.
+      const postedWithKey = await fetch(
+        `${base}/submit?agentNativeBridgeKey=screen-a`,
+        {
+          method: "POST",
+          redirect: "manual",
+          headers: {
+            ...auth,
+            "sec-fetch-dest": "iframe",
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: "q=1",
+        },
+      );
+      expect(postedWithKey.status).toBe(200);
+      expect(seenByDevServer).toContain("POST /submit");
+      expect(
+        seenByDevServer.some((entry) => entry.includes("agentNativeBridgeKey")),
+      ).toBe(false);
+
+      // A keyed POST whose key this bridge no longer knows is refused rather
+      // than booted with the last registered screen's script.
+      const stale = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+          referer: `${base}/home?agentNativeBridgeKey=screen-gone`,
+        },
+        body: "q=1",
+      });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({
+        code: "unknown-bridge-key",
+        bridgeKey: "screen-gone",
+      });
+
+      // A target that already carries a stale key gets exactly one, the
+      // requested one.
+      const restamped = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?agentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(restamped.status).toBe(200);
+      expect(restamped.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+      expect(restamped.body).not.toContain("agentNativeBridgeKey=screen-b");
+
+      // A stale keyed POST is refused with its body drained, so the same
+      // keep-alive connection serves the next request normally.
+      const keepAlive = new http.Agent({ keepAlive: true, maxSockets: 1 });
+      const onSameConnection = (
+        options: http.RequestOptions,
+        body?: string,
+      ): Promise<{ status: number; body: string }> =>
+        new Promise((resolve, reject) => {
+          const request = http.request(
+            { ...options, agent: keepAlive, host: "127.0.0.1", port },
+            (response) => {
+              const chunks: Buffer[] = [];
+              response.on("data", (chunk) => chunks.push(chunk));
+              response.on("end", () =>
+                resolve({
+                  status: response.statusCode ?? 0,
+                  body: Buffer.concat(chunks).toString("utf8"),
+                }),
+              );
+            },
+          );
+          request.on("error", reject);
+          request.end(body);
+        });
+      try {
+        const staleOnKeepAlive = await onSameConnection(
+          {
+            method: "POST",
+            path: "/submit",
+            headers: {
+              ...auth,
+              "sec-fetch-dest": "iframe",
+              "content-type": "application/x-www-form-urlencoded",
+              referer: `${base}/home?agentNativeBridgeKey=screen-gone`,
+            },
+          },
+          "q=".padEnd(64 * 1024, "x"),
+        );
+        expect(staleOnKeepAlive.status).toBe(409);
+        const next = await onSameConnection({
+          method: "GET",
+          path: "/health",
+        });
+        expect(next.status).toBe(200);
+      } finally {
+        keepAlive.destroy();
+      }
+
+      // A percent-encoded spelling of the identity param is still a duplicate.
+      const encodedStale = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?%61gentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(encodedStale.status).toBe(200);
+      expect(encodedStale.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+      expect(encodedStale.body).not.toContain("screen-b");
+
+      // The keyed page remembers its screen in window.name, and an unkeyed
+      // frame navigation (no referer: Referrer-Policy no-referrer) carries a
+      // recovery snippet that goes back through /live-edit with that key.
+      expect(landed.body).toContain(
+        'window.name="agent-native-bridge:"+"screen-a"',
+      );
+      const noReferer = await fetch(`${base}/settings`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(noReferer.status).toBe(200);
+      const noRefererHtml = await noReferer.text();
+      expect(noRefererHtml).toContain(
+        'window.name.indexOf("agent-native-bridge:")===0',
+      );
+      expect(noRefererHtml).toContain(
+        `location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(`http://127.0.0.1:${devPort}/settings`)})`,
+      );
+
+      // A no-referer POST that already reached the app keeps its response:
+      // recovery would re-issue it as a GET, so it is never injected there.
+      const noRefererPost = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "q=1",
+      });
+      expect(noRefererPost.status).toBe(200);
+      const noRefererPostHtml = await noRefererPost.text();
+      expect(noRefererPostHtml).toContain("page /submit");
+      expect(noRefererPostHtml).not.toContain("location.replace(");
+      // …and, with keyed screens registered, it boots with no bridge rather
+      // than with whichever screen registered last.
+      expect(noRefererPostHtml).not.toContain("__screenBridge");
+
+      // A reload of the rewritten URL itself carries the key in the request.
+      const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(reload.status).toBe(302);
+      const reloadLocation = new URL(reload.headers.get("location") ?? "");
+      expect(reloadLocation.searchParams.get("bridgeKey")).toBe("screen-a");
+      expect(reloadLocation.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/home`,
+      );
+
+      // A navigation with no keyed referer still gets the proxied page with
+      // the unkeyed bridge, as before.
+      const unkeyed = await fetch(`${base}/home`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(unkeyed.status).toBe(200);
+      expect(await unkeyed.text()).toContain("page /home");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("proxies a frame navigation to the bare root instead of serving the control-plane manifest", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<!doctype html><title>app root</title><h1>app root</h1>");
+        return;
+      }
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+
+      // Control-plane callers never send Sec-Fetch-Dest: the bare root keeps
+      // returning the bridge manifest for them.
+      const controlPlane = await getJson(`${base}/`, {
+        "x-design-preview-token": bridge.previewToken,
+      });
+      expect(controlPlane.status).toBe(200);
+      expect(controlPlane.body["source"]).toBe("agent-native-design-connect");
+
+      // A live frame that navigates to "/" (router redirect, home link) is a
+      // document/iframe navigation and must get the app's own root.
+      const framed = await fetch(`${base}/`, {
+        headers: {
+          "x-design-preview-token": bridge.previewToken,
+          "sec-fetch-dest": "iframe",
+        },
+      });
+      expect(framed.status).toBe(200);
+      expect(framed.headers.get("content-type") ?? "").toContain("text/html");
+      const framedHtml = await framed.text();
+      expect(framedHtml).toContain("app root");
+      // The frame keeps live editing after navigating: the proxy must inject
+      // the bridge into iframe navigations, not only top-level documents.
+      expect(framedHtml).toContain("data-agent-native-live-edit-location");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

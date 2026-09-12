@@ -1860,6 +1860,7 @@ const messages = {
       "コンソールの問題 {{consoleCount}} 件 · 失敗したリクエスト {{networkCount}} 件",
     noFailures: "失敗は検出されませんでした",
     failuresPresent: "ブラウザの問題が検出されました",
+    unviewedCount: "未確認 {{count}} 件",
     captureSuccessful: "診断情報を取得しました",
     capturedFrom: "{{source}} から取得",
     browserCapture: "ブラウザキャプチャ",
