@@ -250,8 +250,8 @@ describe("suggest-document-edit", () => {
           suggestionId: string;
         };
         await (await import("@agent-native/core/db")).getDbExec().execute({
-          sql: "UPDATE agent_review_suggestions SET created_at = ? WHERE id = ?",
-          args: ["2026-09-11T00:00:00.000Z", first.suggestionId],
+          sql: "UPDATE agent_review_suggestion_creations SET receipt_version = 1 WHERE idempotency_key = ?",
+          args: [args.idempotencyKey],
         });
         const retry = (await suggestDocumentEdit.run(args, {
           caller: "mcp" as const,

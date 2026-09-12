@@ -95,7 +95,7 @@ function assertCreationReplay(
   const actorKindMatches = suggestionActorKindMatchesReceipt(
     receipt.actorKind,
     actorKind,
-    receipt.suggestion.createdAt,
+    receipt.receiptVersion,
   );
   if (
     receipt.requestHash !== requestHash ||

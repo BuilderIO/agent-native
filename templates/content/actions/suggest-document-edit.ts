@@ -220,6 +220,10 @@ export default defineAction({
           );
         }
         const sameEdit =
+          receipt.suggestion.adapterKind === "content.document-markdown" &&
+          (receipt.suggestion.operations?.length ?? 0) === 1 &&
+          first?.targetId === "body" &&
+          first?.schemaVersion === 1 &&
           receipt.suggestion.summary === effectiveSummary &&
           first?.kind === "replace_text" &&
           before?.changedText === args.find &&
@@ -228,7 +232,7 @@ export default defineAction({
           suggestionActorKindMatchesReceipt(
             receipt.actorKind ?? null,
             callerKind,
-            receipt.suggestion.createdAt ?? null,
+            receipt.receiptVersion ?? 1,
           );
         if (!sameEdit) {
           throw new ActionContractError(

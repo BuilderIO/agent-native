@@ -9,24 +9,19 @@ export function suggestionActorKind(
   return (ctx as { userEmail?: unknown })?.userEmail ? "human" : "system";
 }
 
-// Receipts created before the classifier rollout persisted external calls as
-// "human"; their same-author retries must stay replayable until they age out.
-// Receipts created after this cutoff with actorKind "human" are current
-// human/CLI creations and stay strict.
-export const SUGGESTION_ACTOR_KIND_LEGACY_CUTOFF = "2026-09-12T12:00:00.000Z";
+// Receipts written before this version persisted external calls as "human";
+// their same-author retries must stay replayable. Receipts at or above the
+// current version require an exact actor-kind match.
+export const LEGACY_SUGGESTION_RECEIPT_VERSION = 1;
 
 export function suggestionActorKindMatchesReceipt(
   receiptActorKind: string | null | undefined,
   actorKind: string,
-  suggestionCreatedAt: string | null | undefined,
+  receiptVersion: number | null | undefined,
 ): boolean {
   if (receiptActorKind === actorKind) return true;
-  if (receiptActorKind !== "human" || actorKind !== "agent") return false;
-  const created = suggestionCreatedAt
-    ? Date.parse(suggestionCreatedAt)
-    : Number.NaN;
+  const legacy = (receiptVersion ?? 1) < 2;
   return (
-    Number.isFinite(created) &&
-    created < Date.parse(SUGGESTION_ACTOR_KIND_LEGACY_CUTOFF)
+    legacy && receiptActorKind === "human" && actorKind === "agent"
   );
 }
