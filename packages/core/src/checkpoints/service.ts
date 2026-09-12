@@ -253,6 +253,10 @@ export function createCheckpoint(
             timeout: TIMEOUT,
             env: lockedIndexEnv,
           });
+          // Publish the index first so an interruption leaves recoverable staged
+          // changes against the old HEAD, never a new HEAD with the old index.
+          fs.renameSync(indexLockPath, indexPath);
+          indexLocked = false;
           execFileSync(
             "git",
             ["update-ref", "HEAD", sha, head ?? "0".repeat(40)],
@@ -263,27 +267,6 @@ export function createCheckpoint(
               env,
             },
           );
-          try {
-            fs.renameSync(indexLockPath, indexPath);
-            indexLocked = false;
-          } catch (error) {
-            if (head) {
-              execFileSync("git", ["update-ref", "HEAD", head, sha], {
-                cwd,
-                stdio: "pipe",
-                timeout: TIMEOUT,
-                env,
-              });
-            } else {
-              execFileSync("git", ["update-ref", "-d", "HEAD", sha], {
-                cwd,
-                stdio: "pipe",
-                timeout: TIMEOUT,
-                env,
-              });
-            }
-            throw error;
-          }
           return sha || null;
         } finally {
           if (indexLocked) fs.rmSync(indexLockPath, { force: true });

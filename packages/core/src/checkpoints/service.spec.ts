@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createCheckpoint,
@@ -211,6 +211,45 @@ describe("checkpoint service", () => {
         encoding: "utf-8",
       }).trim(),
     ).toBe("agent.txt");
+  });
+
+  it("publishes the prepared index before advancing HEAD", () => {
+    const cwd = createTempRepo();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+    const head = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf-8",
+    }).trim();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "after\n");
+    const renameSync = fs.renameSync;
+    let headAtIndexPublication: string | undefined;
+    const rename = vi
+      .spyOn(fs, "renameSync")
+      .mockImplementation((source, destination) => {
+        if (String(destination) === path.join(cwd, ".git", "index")) {
+          headAtIndexPublication = execFileSync("git", ["rev-parse", "HEAD"], {
+            cwd,
+            encoding: "utf-8",
+          }).trim();
+        }
+        renameSync(source, destination);
+      });
+
+    try {
+      expect(createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"])).toMatch(
+        /^[0-9a-f]{40}$/,
+      );
+    } finally {
+      rename.mockRestore();
+    }
+    expect(headAtIndexPublication).toBe(head);
+    expect(
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).not.toBe(head);
   });
 
   it("rejects an owned path whose content no longer matches the tool result", () => {
