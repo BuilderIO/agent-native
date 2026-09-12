@@ -670,6 +670,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "数据洞察",
   "widget.dataTable": "数据表",
   "widget.downloadCsv": "下载 CSV",
+  "widget.connectProvider": "连接 {{provider}}",
   "widget.loadingToolResult": "正在加载工具结果",
   "widget.noRows": "没有数据行",
   "widget.points": "{{formattedCount}} 个数据点",

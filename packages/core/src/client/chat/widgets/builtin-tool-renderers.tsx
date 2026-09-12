@@ -8,6 +8,7 @@ import {
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
 } from "../../../action-ui.js";
+import { normalizeConnectRequiredResult } from "../../../shared/connect-required.js";
 import { useT } from "../../i18n.js";
 import {
   registerReservedActionChatRenderer,
@@ -39,6 +40,11 @@ const LazyDataInsightsWidget = lazy(() =>
 const LazyDataTableWidget = lazy(() =>
   import("./DataTableWidget.js").then((module) => ({
     default: module.DataTableWidget,
+  })),
+);
+const LazyConnectRequiredWidget = lazy(() =>
+  import("./ConnectRequiredWidget.js").then((module) => ({
+    default: module.ConnectRequiredWidget,
   })),
 );
 const LazyInlineExtensionWidget = lazy(() =>
@@ -158,6 +164,15 @@ const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
     </Suspense>
   ) : null;
 
+const BuiltinConnectRequiredRenderer: ToolRendererComponent = ({ context }) => {
+  const card = normalizeConnectRequiredResult(context.resultJson);
+  return card ? (
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyConnectRequiredWidget card={card} />
+    </Suspense>
+  ) : null;
+};
+
 const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
   const result = normalizeWorkspaceFileResult(context.resultJson);
   return result ? (
@@ -223,6 +238,9 @@ export function resolveBuiltinFallbackToolRenderer(
   ) {
     return BuiltinInlineExtensionRenderer;
   }
+  if (normalizeConnectRequiredResult(context.resultJson)) {
+    return BuiltinConnectRequiredRenderer;
+  }
   return normalizeActionDataWidgetResult(context) !== null
     ? BuiltinDataWidgetRenderer
     : null;
@@ -257,6 +275,17 @@ registerReservedFallbackToolRenderer({
 // call to show-workspace-file. Matching by shape (instead of statically
 // tagging every such action with `chatUI`) also keeps read/list-style calls
 // on the same multi-purpose action collapsible when they don't produce a file.
+// Shape-based for the same reason: a tool that stops because an integration is
+// not connected returns `connectRequiredResult(...)` and gets a Connect control
+// without chat having to know the tool. Prose naming the blocker leaves the
+// user hunting for Settings.
+registerReservedFallbackToolRenderer({
+  id: "core.connect-required",
+  match: (context) =>
+    normalizeConnectRequiredResult(context.resultJson) !== null,
+  Component: BuiltinConnectRequiredRenderer,
+});
+
 registerReservedFallbackToolRenderer({
   id: "core.workspace-file",
   match: (context) => normalizeWorkspaceFileResult(context.resultJson) !== null,

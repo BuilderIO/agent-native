@@ -709,6 +709,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "データインサイト",
   "widget.dataTable": "データテーブル",
   "widget.downloadCsv": "CSV をダウンロード",
+  "widget.connectProvider": "{{provider}} を接続",
   "widget.loadingToolResult": "ツールの結果を読み込み中",
   "widget.noRows": "行がありません",
   "widget.points": "{{formattedCount}} ポイント",

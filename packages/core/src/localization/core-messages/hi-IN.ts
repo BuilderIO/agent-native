@@ -694,6 +694,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "डेटा इनसाइट्स",
   "widget.dataTable": "डेटा तालिका",
   "widget.downloadCsv": "CSV डाउनलोड करें",
+  "widget.connectProvider": "{{provider}} कनेक्ट करें",
   "widget.loadingToolResult": "टूल का परिणाम लोड हो रहा है",
   "widget.noRows": "कोई पंक्ति नहीं",
   "widget.points": "{{formattedCount}} बिंदु",

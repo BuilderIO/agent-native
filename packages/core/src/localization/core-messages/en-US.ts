@@ -702,6 +702,7 @@ const messages = {
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
   "widget.downloadCsv": "Download CSV",
+  "widget.connectProvider": "Connect {{provider}}",
   "widget.loadingToolResult": "Loading tool result",
   "widget.noRows": "No rows",
   "widget.points": "{{formattedCount}} points",

@@ -697,6 +697,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
   "widget.downloadCsv": "CSV 다운로드",
+  "widget.connectProvider": "{{provider}} 연결",
   "widget.loadingToolResult": "도구 결과를 불러오는 중",
   "widget.noRows": "행 없음",
   "widget.points": "포인트 {{formattedCount}}개",

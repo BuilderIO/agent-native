@@ -114,6 +114,14 @@ export {
   type AgentNativeLifecycleEventName,
 } from "./analytics-events.js";
 export {
+  BUILDER_CONNECT_PROVIDER,
+  BUILDER_CONNECT_PROVIDER_LABEL,
+  connectRequiredResult,
+  normalizeConnectRequiredResult,
+  type ConnectRequiredCard,
+  type ConnectRequiredResult,
+} from "./connect-required.js";
+export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
   assertValidWorkspaceAppId,

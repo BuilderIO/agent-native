@@ -348,6 +348,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Información sobre los datos",
   "widget.dataTable": "Tabla de datos",
   "widget.downloadCsv": "Descargar CSV",
+  "widget.connectProvider": "Conectar {{provider}}",
   "widget.loadingToolResult": "Cargando el resultado de la herramienta",
   "widget.noRows": "No hay filas",
   "widget.points": "{{formattedCount}} puntos",
