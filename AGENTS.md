@@ -280,7 +280,8 @@ instructions, and application state.
 ## Data And Security
 
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
-  alter tables or columns in migrations or startup code.
+  alter tables or columns in migrations or startup code. New columns must
+  default or allow null.
 - SQL stores structured app state, metadata, references, and searchable text. Do
   not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
   screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file
