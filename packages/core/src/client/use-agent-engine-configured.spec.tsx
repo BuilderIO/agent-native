@@ -130,6 +130,114 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
+  it("an event inside the deferral window consumes the scheduled probe instead of duplicating it", async () => {
+    // A failed probe is the case the shared client-status cache cannot
+    // dedupe (only successful results are cached), so it is the case where
+    // the stacked scheduled probe would hit the endpoint again.
+    let engineFetchCount = 0;
+    let resolvers: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (input: RequestInfo | URL) =>
+          new Promise<Response>((resolve) => {
+            if (String(input).includes("/_agent-native/agent-engine/status")) {
+              engineFetchCount += 1;
+            }
+            resolvers.push(resolve);
+          }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // The event-driven probe stays immediate and the scheduled initial probe
+    // is consumed, not stacked behind it.
+    expect(engineFetchCount).toBe(1);
+    // Fail the canonical probe; the legacy fallback probes it spawns fail
+    // too, so the check settles on "unavailable" (and schedules a retry the
+    // unmount below cancels).
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Settling past the paint window (fallback timer bounds it at 250ms)
+    // must not start the duplicate scheduled probe.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(engineFetchCount).toBe(1);
+    expect(container.textContent).toBe("unavailable");
+  });
+
+  it("a missing-key event inside the deferral window behaves the same", async () => {
+    let engineFetchCount = 0;
+    let resolvers: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (input: RequestInfo | URL) =>
+          new Promise<Response>((resolve) => {
+            if (String(input).includes("/_agent-native/agent-engine/status")) {
+              engineFetchCount += 1;
+            }
+            resolvers.push(resolve);
+          }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(engineFetchCount).toBe(1);
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(engineFetchCount).toBe(1);
+    expect(container.textContent).toBe("unavailable");
+  });
+
   it("uses missing-key events when no current engine is configured", async () => {
     vi.stubGlobal(
       "fetch",
