@@ -382,6 +382,92 @@ describe("CommandMenu docs group", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("keeps the Ask AI fallback selected while the search changes", () => {
+    act(() => {
+      root.render(
+        <CommandMenu open onOpenChange={() => undefined}>
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Create a project
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const fallback = () =>
+      [...document.querySelectorAll<HTMLElement>("[cmdk-item]")].find((item) =>
+        item.textContent?.includes("Ask AI"),
+      );
+
+    expect(fallback()?.getAttribute("data-value")).toBe("ask-ai");
+
+    for (const query of ["zzz", "zzzz", "zzzzz"]) {
+      search(query);
+      const selected = document.querySelector<HTMLElement>(
+        "[cmdk-item][aria-selected=true]",
+      );
+      expect(selected).toBe(fallback());
+      expect(selected?.getAttribute("data-value")).toBe("ask-ai");
+    }
+  });
+
+  it("lands arrow navigation on the first dynamic result when results arrive after typing", () => {
+    let resultsAvailable = false;
+    const renderMenu = () => {
+      act(() => {
+        root.render(
+          <CommandMenu
+            open
+            onOpenChange={() => undefined}
+            renderResults={(query) =>
+              resultsAvailable && query.trim() ? (
+                <CommandMenu.Group heading="Dynamic">
+                  <CommandMenu.Item onSelect={() => undefined}>
+                    Result for {query}
+                  </CommandMenu.Item>
+                </CommandMenu.Group>
+              ) : null
+            }
+          >
+            <CommandMenu.Group heading="Actions">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Static action
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          </CommandMenu>,
+        );
+      });
+    };
+
+    renderMenu();
+    search("lau");
+    search("laun");
+    search("launch");
+
+    const fallback = () =>
+      [...document.querySelectorAll<HTMLElement>("[cmdk-item]")].find((item) =>
+        item.textContent?.includes("Ask AI"),
+      );
+    expect(fallback()?.getAttribute("aria-selected")).toBe("true");
+
+    resultsAvailable = true;
+    renderMenu();
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+
+    const selected = document.querySelector<HTMLElement>(
+      "[cmdk-item][aria-selected=true]",
+    );
+    expect(selected?.textContent).toContain("Result for launch");
+  });
+
   it("can opt into opening from a contenteditable target", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);

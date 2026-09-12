@@ -582,6 +582,11 @@ export function CommandMenu({
                       <CommandItemPrimitive
                         className="cursor-pointer gap-2 py-2"
                         onSelect={handleSubmitToAgent}
+                        // cmdk derives an item's selection identity from its
+                        // value, and this row's visible text changes with every
+                        // keystroke — pin the value so the selection survives
+                        // search changes instead of going stale mid-typing.
+                        value="ask-ai"
                       >
                         <IconMessage className="h-4 w-4 text-muted-foreground" />
                         <span>
