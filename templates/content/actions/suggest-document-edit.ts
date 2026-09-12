@@ -8,12 +8,13 @@ import {
   suggestionActorKindMatchesReceipt,
 } from "@agent-native/core/review";
 import createResourceSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
-import { assertAccess } from "@agent-native/core/sharing";
+import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import { contentSuggestionPath } from "../shared/suggestion-link.js";
+import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
 // The editor's suggestion anchors carry 32 characters of context on each side
@@ -180,7 +181,26 @@ export default defineAction({
       );
     }
 
-    const access = await assertAccess("document", id, "commenter");
+    const access = await resolveDocumentAccess(id);
+    // Mirror get-document's multi-organization resolver so the documented
+    // get-document → suggest-document-edit flow works for pages visible
+    // through a Content space in another organization.
+    if (!access) {
+      throw Object.assign(new Error(`Document "${id}" not found`), {
+        statusCode: 404,
+      });
+    }
+    if (
+      !roleSatisfies(
+        access.role as Parameters<typeof roleSatisfies>[0],
+        "commenter",
+      )
+    ) {
+      throw new ActionContractError(
+        "Commenter access is required to suggest edits on this page.",
+        { errorCode: "SUGGESTION_EDIT_ACCESS_REQUIRED", statusCode: 403 },
+      );
+    }
     const existing = access.resource;
     const content = existing.content ?? "";
 
