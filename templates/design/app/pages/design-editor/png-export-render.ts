@@ -171,21 +171,35 @@ export function sanitizeSerializedXmlForSvg(value: string): string {
   );
 }
 
+export type ExportCropTarget =
+  /** Crop the render to this document-space rect. */
+  | {
+      kind: "rect";
+      rect: { x: number; y: number; width: number; height: number };
+    }
+  /** Nothing narrows the render: no selection, or the selection *is* the
+   *  screen. The whole screen is the honest capture of that selection. */
+  | { kind: "whole-screen" }
+  /** A selection was made, but none of it resolves in the live document, so
+   *  what would be captured is not what the caller asked for. */
+  | { kind: "unresolved" };
+
 /**
- * Resolve the document-space rect of the currently selected element inside the
- * preview iframe so image exports (PNG/SVG) can crop to just that frame instead
- * of the whole screen. Returns null — meaning "export the whole screen" — when
- * there is no element selection, when the selection is the screen root
- * (BODY/HTML, which is the whole screen anyway), or when the element can no
- * longer be resolved in the live document.
+ * Resolve the document-space rect of one selected element inside the preview
+ * iframe so image exports (PNG/SVG) can crop to just that frame instead of the
+ * whole screen.
+ *
+ * `whole-screen` and `unresolved` are deliberately different results. Callers
+ * that widen to the full render on `whole-screen` would be exporting something
+ * the user never selected if they also widened on `unresolved`.
  */
-function resolveElementExportCropRect(
+function resolveElementExportCropTarget(
   doc: Document,
   selected: ElementInfo,
-): { x: number; y: number; width: number; height: number } | null {
-  if (isScreenRootElementInfo(selected)) return null;
+): ExportCropTarget {
+  if (isScreenRootElementInfo(selected)) return { kind: "whole-screen" };
   const view = doc.defaultView;
-  if (!view) return null;
+  if (!view) return { kind: "unresolved" };
   let element: Element | null = null;
   if (selected.sourceId) {
     try {
@@ -203,34 +217,55 @@ function resolveElementExportCropRect(
       element = null;
     }
   }
-  if (!element) return null;
+  if (!element) return { kind: "unresolved" };
   const rect = element.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
+  if (rect.width <= 0 || rect.height <= 0) return { kind: "unresolved" };
   // getBoundingClientRect is viewport-relative; add the iframe scroll offset so
   // coordinates match the full-document render (which starts at the page top).
   return {
-    x: rect.left + (view.scrollX ?? 0),
-    y: rect.top + (view.scrollY ?? 0),
-    width: rect.width,
-    height: rect.height,
+    kind: "rect",
+    rect: {
+      x: rect.left + (view.scrollX ?? 0),
+      y: rect.top + (view.scrollY ?? 0),
+      width: rect.width,
+      height: rect.height,
+    },
   };
 }
 
-export function resolveExportCropRect(
+export function resolveExportCropTarget(
   doc: Document,
   selected: ElementInfo | readonly ElementInfo[] | null | undefined,
-): { x: number; y: number; width: number; height: number } | null {
+): ExportCropTarget {
   const selections = Array.isArray(selected)
     ? selected
     : selected
       ? [selected]
       : [];
-  return unionExportCropRects(
-    selections.flatMap((selection) => {
-      const rect = resolveElementExportCropRect(doc, selection);
-      return rect ? [rect] : [];
-    }),
+  if (selections.length === 0) return { kind: "whole-screen" };
+  const targets = selections.map((selection) =>
+    resolveElementExportCropTarget(doc, selection),
   );
+  const rect = unionExportCropRects(
+    targets.flatMap((target) => (target.kind === "rect" ? [target.rect] : [])),
+  );
+  if (rect) return { kind: "rect", rect };
+  return targets.every((target) => target.kind === "whole-screen")
+    ? { kind: "whole-screen" }
+    : { kind: "unresolved" };
+}
+
+/**
+ * Rect-or-null view of {@link resolveExportCropTarget} for the whole-screen
+ * export paths (PDF page sizing, SVG), where an unresolvable selection and a
+ * screen-level selection both correctly mean "size to the whole screen".
+ */
+export function resolveExportCropRect(
+  doc: Document,
+  selected: ElementInfo | readonly ElementInfo[] | null | undefined,
+): { x: number; y: number; width: number; height: number } | null {
+  const target = resolveExportCropTarget(doc, selected);
+  return target.kind === "rect" ? target.rect : null;
 }
 
 /**
