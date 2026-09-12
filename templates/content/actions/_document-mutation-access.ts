@@ -1,10 +1,8 @@
 import { ActionContractError } from "@agent-native/core/action";
 import {
-  assertAccess,
   resolveAccess,
   ROLE_RANK,
   type ResolvedAccess,
-  type ShareRole,
 } from "@agent-native/core/sharing";
 
 /**
@@ -31,15 +29,14 @@ export async function resolveDocumentAccessForMutation(
 
 export async function assertDocumentMutationAccess(
   documentId: string,
-  minRole: ShareRole | "owner" = "editor",
+  minRole: keyof typeof ROLE_RANK = "editor",
   argumentName: "id" | "parentId" = "id",
 ): Promise<ResolvedAccess> {
   const resolved = await resolveDocumentAccessForMutation(
     documentId,
     argumentName,
   );
-  const rank: Record<ShareRole | "owner", number> = ROLE_RANK;
-  if (rank[resolved.role] < rank[minRole]) {
+  if (ROLE_RANK[resolved.role] < ROLE_RANK[minRole]) {
     throw new Error(
       `Requires ${minRole} role on document ${documentId} (argument: ${argumentName}; have ${resolved.role})`,
     );
