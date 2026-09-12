@@ -1,4 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
@@ -303,7 +304,13 @@ export default defineAction({
         idempotencyKey: args.idempotencyKey ?? crypto.randomUUID(),
         operations: [operation],
       },
-      ctx,
+      // The document's own organization wins when it differs from the caller's
+      // active org, so the generic path's review access check resolves the same
+      // way the read above did.
+      {
+        ...(ctx as ActionRunContext),
+        orgId: existing.orgId ?? ctx?.orgId ?? undefined,
+      },
     );
 
     if (isExternalCaller) {
