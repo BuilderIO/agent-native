@@ -3230,6 +3230,10 @@ function PageEditorSessionBody({
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
       // Renames must not leave a stale optimistic title for the next landing.
       refreshLandingTitleHintCache(queryClient, documentId, newTitle);
+      // The in-memory refresh dies with a reload; the persisted last-location
+      // hint must carry the rename too or the next cold landing shows the old
+      // title until the editor load corrects it.
+      void rememberContentLandingDocument(documentId, newTitle).catch(() => {});
       debouncedSave(newTitle, localContentRef.current);
     },
     [debouncedSave, documentId, editorCanEdit, isSuggesting, queryClient],
