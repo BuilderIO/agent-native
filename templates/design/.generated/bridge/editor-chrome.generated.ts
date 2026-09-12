@@ -2254,6 +2254,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return hit;
     }
+    function containerScopeAncestor(el, scope) {
+      var node = el;
+      while (node !== scope && node.parentElement && node.parentElement !== scope && node.parentElement !== document.body && node.parentElement !== document.documentElement) {
+        node = node.parentElement;
+      }
+      return node;
+    }
+    function containerFirstSelectionTarget(hit) {
+      var resolved = selectionTargetForHit(hit);
+      if (!resolved || isDocumentRootElement(resolved)) return resolved;
+      var scope = selectionContainerScope;
+      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
+        selectionContainerScope = null;
+        scope = document.body;
+      }
+      return containerScopeAncestor(resolved, scope);
+    }
     function freshRuntimeNodeId(prefix) {
       var random = "";
       try {
@@ -3213,6 +3230,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       removeRepeatInstanceOverlays();
     }
     var selectedEl = null;
+    var selectionContainerScope = null;
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
@@ -3291,6 +3309,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastEditorPointWasBlocked = false;
     function clearRuntimeSelection() {
       selectedEl = null;
+      selectionContainerScope = null;
       clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
@@ -3326,6 +3345,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       activeDragCancel = null;
       postEditorDragState(false);
       return cancel();
+    }
+    var MOVE_CANCEL_RACE_GRACE_MS = 200;
+    var dragGestureSequence = 0;
+    var pendingMoveCommitRevert = null;
+    function armPostCommitCancelGrace(gestureId, revert) {
+      pendingMoveCommitRevert = { gestureId, revert };
+      window.setTimeout(function() {
+        if (pendingMoveCommitRevert && pendingMoveCommitRevert.gestureId === gestureId) {
+          pendingMoveCommitRevert = null;
+        }
+      }, MOVE_CANCEL_RACE_GRACE_MS);
+    }
+    function cancelActiveBridgeDragOrPendingCommit() {
+      if (cancelActiveBridgeDrag()) return true;
+      if (pendingMoveCommitRevert) {
+        var pending = pendingMoveCommitRevert;
+        pendingMoveCommitRevert = null;
+        pending.revert();
+        return true;
+      }
+      return false;
     }
     function removePassiveSelectionOverlays() {
       passiveSelectionOverlays.forEach(function(overlay) {
@@ -3434,6 +3474,37 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       setPassiveSelectionElements([previous].concat(passiveSelectionEls));
+    }
+    function resolveShiftClickToggleOff(target, e) {
+      if (!e?.shiftKey || !target) return void 0;
+      if (target === selectedEl) {
+        var promoted = passiveSelectionEls[0] || null;
+        setPassiveSelectionElements(passiveSelectionEls.slice(1));
+        selectedEl = promoted;
+        return promoted;
+      }
+      if (passiveSelectionEls.indexOf(target) !== -1) {
+        setPassiveSelectionElements(
+          passiveSelectionEls.filter(function(el) {
+            return el !== target;
+          })
+        );
+        return selectedEl;
+      }
+      return void 0;
+    }
+    function postToggledSelection(toggledPrimary) {
+      var survivors = (toggledPrimary ? [toggledPrimary] : []).concat(passiveSelectionEls);
+      if (toggledPrimary) {
+        positionOverlay(selectionOverlay, toggledPrimary);
+      } else {
+        hideSelectionOverlay();
+      }
+      if (survivors.length > 0) {
+        postElementMarqueeSelect(survivors, false, void 0);
+      } else {
+        window.parent.postMessage({ type: "clear-selection" }, "*");
+      }
     }
     function matchesSelectorList(el, selectors) {
       if (!el || !selectors || selectors.length === 0) return false;
@@ -4982,6 +5053,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     function selectFrameFromLabel(frame, e) {
       if (isLayerInteractionBlocked(frame)) return;
       blurActiveTextEditor();
+      var toggled = resolveShiftClickToggleOff(frame, e);
+      if (toggled !== void 0) {
+        postToggledSelection(toggled);
+        return;
+      }
       var previousSelectedEl = selectedEl;
       selectedEl = frame;
       positionOverlay(selectionOverlay, selectedEl);
@@ -5743,8 +5819,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
+      var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
+      if (toggled !== void 0) {
+        postToggledSelection(toggled);
+        return;
+      }
       var previousSelectedEl = selectedEl;
-      selectedEl = selectionTargetForHit(target);
+      selectedEl = resolvedClickTarget;
       if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
         hideSelectionOverlay();
@@ -5915,6 +5997,91 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
     }
+    var LAYER_LABEL_SEMANTIC_ATTRIBUTES = [
+      "aria-label",
+      "title",
+      "data-code-layer-id",
+      "data-layer-id",
+      "data-name",
+      "data-component",
+      "data-screen",
+      "data-testid",
+      "data-test-id"
+    ];
+    function fallbackTagLayerLabel(tag) {
+      switch (tag) {
+        case "article":
+          return "Article";
+        case "aside":
+          return "Aside";
+        case "body":
+          return "Body";
+        case "button":
+          return "Button";
+        case "div":
+          return "Frame";
+        case "footer":
+          return "Footer";
+        case "form":
+          return "Form";
+        case "header":
+          return "Header";
+        case "a":
+          return "Link";
+        case "img":
+        case "picture":
+          return "Image";
+        case "input":
+          return "Input";
+        case "label":
+          return "Label";
+        case "main":
+          return "Main";
+        case "select":
+          return "Select";
+        case "textarea":
+          return "Text area";
+        case "nav":
+          return "Navigation";
+        case "section":
+          return "Section";
+        case "svg":
+          return "Vector";
+        case "ul":
+        case "ol":
+          return "List";
+        case "li":
+          return "List item";
+        case "em":
+        case "h1":
+        case "h2":
+        case "h3":
+        case "h4":
+        case "h5":
+        case "h6":
+        case "p":
+        case "span":
+        case "strong":
+          return "Text";
+        default:
+          return tag.toUpperCase();
+      }
+    }
+    function layerCandidateLabelFor(candidate, candidateInfo) {
+      var explicitLabel = candidate.getAttribute && candidate.getAttribute("data-agent-native-layer-name") || "";
+      if (explicitLabel) return explicitLabel;
+      if (candidateInfo.componentName) return candidateInfo.componentName;
+      for (var i = 0; i < LAYER_LABEL_SEMANTIC_ATTRIBUTES.length; i += 1) {
+        var semanticValue = candidate.getAttribute && candidate.getAttribute(LAYER_LABEL_SEMANTIC_ATTRIBUTES[i]);
+        if (semanticValue) return semanticValue;
+      }
+      if (candidate.id) return candidate.id;
+      if (candidate.children.length === 0) {
+        var textLabel = (candidate.textContent || "").trim().replace(/\\s+/g, " ");
+        if (textLabel && textLabel.length <= 48) return textLabel;
+      }
+      return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
+    }
     function collectLayerHitCandidates(clientX, clientY) {
       var shieldPointerEvents = shieldOverlay.style.pointerEvents;
       var selectionPointerEvents = selectionOverlay.style.pointerEvents;
@@ -5937,9 +6104,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         elements.push(candidate);
         var candidateInfo = getElementInfo(candidate);
-        var explicitLabel = candidate.getAttribute && candidate.getAttribute("data-agent-native-layer-name") || "";
-        var textLabel = (candidate.textContent || "").trim().replace(/\\s+/g, " ");
-        var label = explicitLabel || candidateInfo.componentName || candidate.id || (textLabel && textLabel.length <= 48 ? textLabel : "") || candidate.tagName.toLowerCase();
+        var label = layerCandidateLabelFor(candidate, candidateInfo);
         var identity = candidateInfo.sourceId || candidateInfo.selector || String(layerCandidates.length);
         layerCandidates.push({
           key: String(identity) + ":" + String(layerCandidates.length),
@@ -8739,6 +8904,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      var moveGestureId = ++dragGestureSequence;
       var events = dragEventNames(e);
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
@@ -9691,6 +9857,34 @@ export const editorChromeBridgeScript: string = `"use strict";
               "*"
             );
           });
+          armPostCommitCancelGrace(moveGestureId, function() {
+            memberStates.forEach(function(state) {
+              state.el.style.position = state.originalPosition;
+              state.el.style.left = state.originalLeft;
+              state.el.style.top = state.originalTop;
+              var revertStyles = {
+                position: state.originalPosition,
+                left: state.originalLeft,
+                top: state.originalTop
+              };
+              window.parent.postMessage(
+                {
+                  type: "visual-style-change",
+                  selector: getSelector(state.el),
+                  styles: revertStyles,
+                  originalStyles: originalInlineStylesForPatch(
+                    state.el,
+                    revertStyles
+                  ),
+                  payload: getElementInfo(state.el)
+                },
+                "*"
+              );
+            });
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            refreshOverlays();
+          });
           if (!isGroupDrag) postCrossScreenDrag("cancel");
         }
       }
@@ -10458,6 +10652,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var crossScreenClaimedByHost = false;
     function beginPotentialShieldDrag(e) {
       stopNativeInteraction(e);
+      pendingMoveCommitRevert = null;
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       var events = dragEventNames(e);
@@ -10478,7 +10673,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         point: { x: e.clientX, y: e.clientY },
         preferSelected: selectedLayerDragPriorityEnabled
       });
-      var clickTarget = hitTarget;
       if (window.__DND_DEBUG)
         dndLog("shield:down", {
           hit: getSelector(hit),
@@ -10504,7 +10698,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var didStartDrag = false;
-      function selectTarget(target, ev) {
+      function selectTarget(target, ev, isClick) {
+        if (isClick) {
+          var toggled = resolveShiftClickToggleOff(target, ev);
+          if (toggled !== void 0) {
+            postToggledSelection(toggled);
+            return;
+          }
+        }
         var previousSelectedEl = selectedEl;
         selectedEl = target;
         positionOverlay(selectionOverlay, selectedEl);
@@ -10546,10 +10747,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : containerFirstSelectionTarget(hit);
         if (cycledEl) {
-          selectTarget(cycledEl);
+          selectTarget(cycledEl, void 0, true);
         } else {
-          selectTarget(clickTarget || dragTarget, ev);
+          selectTarget(primaryClickTarget || dragTarget, ev, true);
         }
         suppressNextShieldClickBriefly();
       }
@@ -10943,7 +11145,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
           if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
             var previousSelectedElForDescend = selectedEl;
-            var descendTarget = selectionTargetForHit(descendHit);
+            if (previousSelectedElForDescend && document.documentElement.contains(previousSelectedElForDescend) && previousSelectedElForDescend.contains(descendHit)) {
+              selectionContainerScope = previousSelectedElForDescend;
+            }
+            var descendTarget = containerFirstSelectionTarget(descendHit);
             if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
               selectedEl = descendTarget;
               positionOverlay(selectionOverlay, selectedEl);
@@ -11535,7 +11740,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {
-        cancelActiveBridgeDrag();
+        cancelActiveBridgeDragOrPendingCommit();
         return;
       }
       if (e.data.type === "agent-native:reset-live-visual-edit-baselines") {

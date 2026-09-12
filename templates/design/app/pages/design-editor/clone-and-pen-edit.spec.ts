@@ -83,8 +83,15 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
       result!.htmlFragments.map(
         (html) => buildCodeLayerProjection(html).nodes[0]?.layerName,
       ),
-    ).toEqual(["Runtime Panel", "Copy"]);
+      // "Runtime Panel" is an explicit runtime name; the unnamed plain <div>
+      // has no id/class/aria-label so layerNameFor() falls back to the tag
+      // ("Frame") — the clone must derive the SAME tag fallback, never the
+      // literal "Copy" (Figma parity: a duplicate keeps the identical name).
+    ).toEqual(["Runtime Panel", "Frame"]);
     expect(result!.htmlFragments[0]).not.toContain('id="runtime-panel"');
+    expect(result!.htmlFragments[1]).not.toContain(
+      'data-agent-native-layer-name="Copy"',
+    );
   });
 
   it("drops the Figma/Fusion source identity so deleting a copy cannot resolve to the original", () => {

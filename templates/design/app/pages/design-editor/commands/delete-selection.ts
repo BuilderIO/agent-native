@@ -28,6 +28,10 @@ import type {
   SelectedCanvasLayerSnapshot,
 } from "@/pages/design-editor/command-types";
 import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
+import {
+  captureYjsUndoStackTop,
+  stampYjsUndoSelection,
+} from "@/pages/design-editor/history";
 import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits";
 import { removeElementFromHtml } from "@/pages/design-editor/text-edit-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -162,6 +166,20 @@ export function runDeleteSelection({
   // U19: delete is a discrete one-shot action — see the matching note in
   // handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
+  // Figma-parity undo selection restore: snapshot what's selected BEFORE
+  // this delete clears it, so a later Cmd+Z can restore selection to the
+  // undeleted element instead of landing on whatever Delete left selected
+  // (nothing) — see stampYjsUndoSelection's doc comment. undoStackTopBeforeDelete
+  // is captured in the same breath so the stamp below can tell an edit that
+  // actually pushed a new stack item from one Yjs coalesced into the
+  // existing top (or that wrote nothing at all).
+  const selectionBeforeDelete = {
+    selectedElement,
+    selectedLayerIds: selectedLayerIdsState,
+  };
+  const undoStackTopBeforeDelete = captureYjsUndoStackTop(
+    undoManagerRef.current,
+  );
   // A repeat's rows are data. Removing the markup deletes the one authored row
   // every rendered row is stamped from, and leaves the collection saying the
   // rows are still there.
@@ -439,6 +457,17 @@ export function runDeleteSelection({
           refreshPreview: false,
           forcePreviewFullDocument: useBreakpointScopedDelete,
         });
+        // applyFileContentUpdate routes the active file straight into
+        // applyLocalContentUpdate, so its Yjs write (when tracked) just
+        // landed synchronously above — stamp it now, before any other
+        // tracked edit can become the new stack top.
+        if (file.id === activeFile?.id) {
+          stampYjsUndoSelection(
+            undoManagerRef.current,
+            undoStackTopBeforeDelete,
+            selectionBeforeDelete,
+          );
+        }
       }
     }
     // A live screen's snapshot rewrite can come up empty (different id
@@ -551,6 +580,11 @@ export function runDeleteSelection({
     updateLiveScreenSnapshotContent(activeFile!.id, nextContent);
   } else {
     applyLocalContentUpdate(nextContent, { refreshPreview: false });
+    stampYjsUndoSelection(
+      undoManagerRef.current,
+      undoStackTopBeforeDelete,
+      selectionBeforeDelete,
+    );
   }
   setSelectedElement(null);
   setSelectedLayerIdsState([]);

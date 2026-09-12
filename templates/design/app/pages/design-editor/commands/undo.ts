@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -13,6 +14,7 @@ import type {
   ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
 import {
+  elementInfoFromCodeLayerNode,
   refreshElementInfoFromContent,
   refreshSelectedLayerIdsFromContent,
 } from "@/pages/design-editor/code-layer-state";
@@ -41,6 +43,7 @@ import {
   findLastContentHistoryChangeIndex,
   partitionContentHistoryEntry,
   contentHistoryEntryFromChanges,
+  readYjsUndoSelection,
   remapFileDeletionHistoryEntryIds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
@@ -493,7 +496,15 @@ export function runUndo({
   let prunedUndoHistory = 0;
   const undoContent = (scope: "any" | "local" | "global" = "any") => {
     if (scope !== "global" && um?.canUndo()) {
-      um.undo();
+      const poppedItem = um.undo();
+      // Figma-parity undo selection restore: a gesture (see
+      // stampYjsUndoSelection) stamps the selection it started with onto
+      // this exact stack item. When present it overrides the
+      // refresh-from-content heuristic below, which can only ever keep or
+      // drop whatever is CURRENTLY selected — for a delete or an alt-drag
+      // duplicate, that's the very node undo just removed, so the heuristic
+      // alone always lands on empty, never back on the original selection.
+      const restoredSelection = readYjsUndoSelection(poppedItem);
       if (ydoc && activeFile) {
         const next = ydoc.getText("content").toJSON();
         markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
@@ -519,6 +530,7 @@ export function runUndo({
         }
         // Clear stale selection if the undo removed the selected element.
         setSelectedElement((prev) => {
+          if (restoredSelection) return restoredSelection.selectedElement;
           if (!prev) return prev;
           return refreshElementInfoFromContent(next, prev);
         });
@@ -528,7 +540,9 @@ export function runUndo({
         });
         // U18: keep the layers-panel highlight in sync too.
         setSelectedLayerIdsState((prev) =>
-          refreshSelectedLayerIdsFromContent(next, prev),
+          restoredSelection
+            ? restoredSelection.selectedLayerIds
+            : refreshSelectedLayerIdsFromContent(next, prev),
         );
       }
       // Drop the matching local fallback mirror (see U3) so it can't be
@@ -580,7 +594,15 @@ export function runUndo({
               recordHistory: false,
             });
           }
+          // Figma-parity undo selection restore: same need as the Yjs
+          // branch above — a gesture recorded on THIS (non-Yjs) stack can
+          // stamp its pre-gesture selection via ContentHistoryChange.
+          // selectionBefore, which overrides the refresh-from-content
+          // heuristic below for the same reason (delete/duplicate leave the
+          // heuristic nothing to recover the ORIGINAL selection from).
           setSelectedElement((prev) => {
+            if (entry.selectionBefore)
+              return entry.selectionBefore.selectedElement;
             if (!prev) return prev;
             return refreshElementInfoFromContent(entry.before, prev);
           });
@@ -590,7 +612,9 @@ export function runUndo({
           });
           // U18: keep the layers-panel highlight in sync too.
           setSelectedLayerIdsState((prev) =>
-            refreshSelectedLayerIdsFromContent(entry.before, prev),
+            entry.selectionBefore
+              ? entry.selectionBefore.selectedLayerIds
+              : refreshSelectedLayerIdsFromContent(entry.before, prev),
           );
           return true;
         }
@@ -689,6 +713,33 @@ export function runUndo({
     // Figma-parity undo/redo selection restore: overrides the
     // refreshSelectedLayerIdsFromContent heuristic just above with the
     // actual captured selection, when one was recorded for this entry.
+    // restoreSelectionSnapshot only knows GeometryHistorySelection's own
+    // fields (layer ids, screen ids, active file) — it has no ElementInfo to
+    // give the canvas selection overlay, which reads selectedElement, not
+    // selectedLayerIdsState. Derive one from the restored layer id against
+    // the content this same undo just wrote back, the same way a
+    // layers-panel/URL-restored selection already does elsewhere
+    // (elementInfoFromCodeLayerNode). Scoped to exactly one restored layer —
+    // a multi-select has no single ElementInfo to give the overlay, so it's
+    // left to whatever the heuristic above already produced.
+    if (
+      entrySelection?.activeFileId === activeFile?.id &&
+      activeChange &&
+      entrySelection.selectedLayerIds.length <= 1
+    ) {
+      const restoredLayerId = entrySelection.selectedLayerIds[0];
+      const restoredNode = restoredLayerId
+        ? buildCodeLayerProjection(activeChange.before).nodes.find(
+            (node) =>
+              node.id === restoredLayerId ||
+              node.dataAttributes["data-agent-native-node-id"] ===
+                restoredLayerId,
+          )
+        : undefined;
+      setSelectedElement(
+        restoredNode ? elementInfoFromCodeLayerNode(restoredNode) : null,
+      );
+    }
     restoreSelectionSnapshot(entrySelection);
     return true;
   };

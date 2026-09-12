@@ -2,8 +2,76 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import type * as Y from "yjs";
+
+import type { ElementInfo } from "@/components/design/types";
 
 export const MAX_DESIGN_UNDO_STACK = 50;
+
+/**
+ * Figma-parity undo selection restore for Yjs-tracked single-screen content
+ * edits. The overview canvas's own undo stacks pair each entry with a
+ * `GeometryHistorySelection` (`contentUndoSelectionStackRef`,
+ * `GeometryHistoryEntry.selectionBefore`); single-screen content edits are
+ * tracked by `Y.UndoManager` instead, which has no such parallel array — but
+ * Yjs documents `StackItem.meta` for exactly this ("save and restore
+ * metadata like selection range"). A discrete gesture stamps the selection it
+ * started with onto the undo-stack item its own content edit just created;
+ * undo reads it back off the popped `StackItem` instead of guessing from
+ * whatever the gesture left selected (which, for a delete or an alt-drag
+ * duplicate, is either null or the very node undo is about to remove).
+ */
+export const YJS_UNDO_SELECTION_META_KEY = "design-editor-selection-before";
+
+export interface YjsUndoSelectionSnapshot {
+  selectedElement: ElementInfo | null;
+  selectedLayerIds: string[];
+}
+
+/** Opaque handle on "whichever stack item was on top before a gesture's
+ * write" — capture with `captureYjsUndoStackTop` immediately before the
+ * write, then pass the result to `stampYjsUndoSelection` after it. Yjs's own
+ * `captureTimeout` coalescing (or a write that turned out to be a no-op) can
+ * leave the SAME item on top rather than pushing a new one; identity here is
+ * what tells the two apart. */
+export type YjsUndoStackTop = object | undefined;
+
+export function captureYjsUndoStackTop(
+  undoManager: Y.UndoManager | null | undefined,
+): YjsUndoStackTop {
+  const stack = undoManager?.undoStack;
+  return stack?.[stack.length - 1];
+}
+
+/** Call right after a gesture's own Yjs-tracked content write, passing the
+ * `captureYjsUndoStackTop` result from immediately BEFORE that write. Stamps
+ * only when the top item is a new object — a different reference from
+ * `previousTop` — never touching an existing item's own stamp when the write
+ * coalesced into it or created nothing. Also a no-op when Yjs isn't tracking
+ * (overview mode, unsynced doc). */
+export function stampYjsUndoSelection(
+  undoManager: Y.UndoManager | null | undefined,
+  previousTop: YjsUndoStackTop,
+  snapshot: YjsUndoSelectionSnapshot,
+): void {
+  const stack = undoManager?.undoStack;
+  const top = stack?.[stack.length - 1];
+  if (!top || top === previousTop) return;
+  top.meta.set(YJS_UNDO_SELECTION_META_KEY, snapshot);
+}
+
+/** Read back a snapshot stamped by `stampYjsUndoSelection`, from the
+ * `StackItem` `Y.UndoManager#undo()`/`#redo()` returns (yjs's own
+ * `StackItem` class isn't part of its public type exports, hence the
+ * structural type here instead of naming it). `undefined` for a stack item
+ * no gesture stamped (e.g. a style/text edit, or an edit predating this). */
+export function readYjsUndoSelection(
+  stackItem: { meta: Map<unknown, unknown> } | null | undefined,
+): YjsUndoSelectionSnapshot | undefined {
+  return stackItem?.meta.get(YJS_UNDO_SELECTION_META_KEY) as
+    | YjsUndoSelectionSnapshot
+    | undefined;
+}
 
 export interface GeometryHistorySelection {
   overviewSelectedScreenIds: string[];
@@ -178,6 +246,14 @@ export interface ContentHistoryChange {
    * collapse the agent state out of the undo stack and make a single Cmd+Z
    * jump past all AI-generated content to the pre-agent baseline. */
   isCheckpoint?: boolean;
+  /** Figma-parity undo selection restore for this stack's non-Yjs fallback
+   * path (see YjsUndoSelectionSnapshot's doc comment above — same need, same
+   * shape, different stack: this one backs single-screen edits made before
+   * the Yjs UndoManager for the file is ready, e.g. `!isSynced` yet). Carried
+   * through `mergeLocalContentHistoryFallback` coalescing untouched (kept
+   * from the earlier of the two merged changes), exactly like a Yjs
+   * StackItem's meta survives a coalesced transaction. */
+  selectionBefore?: YjsUndoSelectionSnapshot;
 }
 
 export interface ContentHistoryGroup {

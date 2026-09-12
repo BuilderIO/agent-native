@@ -1904,9 +1904,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const getSelectableFrameEntries = useCallback(
     () =>
-      getCurrentFrameEntries().filter(
-        (entry) => !lockedScreenIdSet.has(entry.id),
-      ),
+      getCurrentFrameEntries()
+        .filter((entry) => !lockedScreenIdSet.has(entry.id))
+        // Hit-testing (drop targets, marquee) must agree with what's on
+        // screen, not the persisted geometry: content-fit auto-height (see
+        // canvasFrames) renders a screen's card taller than its saved
+        // geometry until the user resizes it, so a pointer visually over the
+        // card would otherwise miss every frame here. Mirrors the same
+        // rendered-geometry override beginResize applies to its origin rects.
+        .map((entry) => ({
+          ...entry,
+          geometry:
+            renderedFrameGeometryRef.current[entry.id] ?? entry.geometry,
+        })),
     [getCurrentFrameEntries, lockedScreenIdSet],
   );
 
@@ -2433,7 +2443,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const sourceScreen = screensRef.current.find(
         (s) => s.id === sourceScreenId,
       );
-      const sourceGeometry = frameGeometryRef.current[sourceScreenId];
+      // Rendered (content-fit) geometry, not persisted: a source screen
+      // taller than its saved geometry otherwise scales the bridge's real
+      // iframeY down through the smaller persisted height, so the resulting
+      // board point tops out well short of the cursor's true position the
+      // moment iframeY exceeds the persisted (but not the real) height.
+      const sourceGeometry =
+        renderedFrameGeometryRef.current[sourceScreenId] ??
+        frameGeometryRef.current[sourceScreenId];
       if (!sourceScreen || !sourceGeometry) return null;
       return screenLocalPointToBoardPoint(
         { x: iframeX, y: iframeY },
@@ -3594,13 +3611,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               },
             ]
           : screensRef.current;
+      // Same rendered-geometry override as getSelectableFrameEntries: a
+      // primitive dropped over a screen taller than its saved geometry must
+      // hit-test against what's actually on screen.
+      const renderedFrameGeometryById = {
+        ...frameGeometryRef.current,
+        ...renderedFrameGeometryRef.current,
+      };
       const frameGeometryForPrimitiveHitTest =
         boardFileId && boardFrameGeometry
           ? {
-              ...frameGeometryRef.current,
+              ...renderedFrameGeometryById,
               [boardFileId]: boardFrameGeometry,
             }
-          : frameGeometryRef.current;
+          : renderedFrameGeometryById;
       return getPrimitiveDropTargetForPoint(
         point,
         draggedNodeId,

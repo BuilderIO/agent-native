@@ -4445,14 +4445,16 @@ function applyWrapNodes(
   targetElements.sort((a, b) => a.start - b.start);
 
   // L6: targets no longer need to be sibling-index-CONTIGUOUS. The removal +
-  // single-reinsertion-point algorithm below already extracts every target
+  // single-reinsertion-point algorithm below extracts every target
   // (regardless of gaps) and re-inserts them together at the topmost
-  // target's position — i.e. it already "moves members adjacent to the
-  // topmost member, then wraps." A non-adjacent same-parent selection (e.g.
-  // sibling indexes 0, 2, 4) closes its own gaps naturally: the un-selected
-  // siblings that were between them (1, 3) end up adjacent to each other
-  // once the targets are pulled out, and the targets end up adjacent to each
-  // other inside the new wrapper. This matches Figma's group behavior.
+  // target's stacking position — the LAST one in source order, since later
+  // source position paints on top for plain siblings with no z-index. A
+  // non-adjacent same-parent selection (e.g. sibling indexes 0, 2, 4) closes
+  // its own gaps naturally: the un-selected siblings that were between them
+  // (1, 3) end up adjacent to each other once the targets are pulled out,
+  // and the targets end up adjacent to each other inside the new wrapper.
+  // This matches Figma's group behavior: the group lands at the z-position
+  // of its topmost selected child, not its bottommost.
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
@@ -4531,32 +4533,30 @@ function applyWrapNodes(
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
   // Build the replacement: remove all targets from html (back to front) then
-  // insert the wrapper at the first target's position.
-  // Sort by position descending to remove safely.
+  // insert the wrapper at the LAST target's position — targetElements is
+  // sorted ascending by source position, so the last entry is the topmost in
+  // stacking order. Inserting there (rather than at the first/bottommost
+  // target) is what leaves an un-selected sibling that sat between the
+  // targets (e.g. Green between Red and Blue) BELOW the new group, matching
+  // Figma. Sort by position descending to remove safely.
   const sorted = [...targetElements].sort((a, b) => b.start - a.start);
+  const lastTargetStart = targetElements[targetElements.length - 1]!.start;
 
   // Remove all targets from the html (back to front).
   let result = html;
-  let firstTargetStart = targetElements[0]!.start;
-
   for (const el of sorted) {
-    const start = el.start;
-    const end = el.end;
-    if (start < firstTargetStart) {
-      firstTargetStart = start;
-    }
-    result = `${result.slice(0, start)}${result.slice(end)}`;
+    result = `${result.slice(0, el.start)}${result.slice(el.end)}`;
   }
 
-  // Re-compute firstTargetStart relative to the modified string: all removals
-  // before it shift it. Count how many bytes were removed before firstTargetStart.
+  // Re-compute lastTargetStart relative to the modified string: every other
+  // target removed before it shifts it left by its own length.
   let bytesRemovedBefore = 0;
   for (const el of targetElements) {
-    if (el.start < targetElements[0]!.start) {
+    if (el.start < lastTargetStart) {
       bytesRemovedBefore += el.end - el.start;
     }
   }
-  const insertAt = firstTargetStart - bytesRemovedBefore;
+  const insertAt = lastTargetStart - bytesRemovedBefore;
 
   result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
 

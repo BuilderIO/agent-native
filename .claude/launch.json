@@ -760,6 +760,36 @@
         "8085"
       ],
       "port": 8085
+    },
+    {
+      "name": "design-parity",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-parity",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "AUTH_DISABLED=true",
+        "--env",
+        "APP_NAME=design",
+        "--env",
+        "DESIGN_DATABASE_URL=pglite:.tmp/design-parity-pglite",
+        "--env",
+        "DATABASE_URL=pglite:.tmp/design-parity-pglite",
+        "--env",
+        "APP_URL=http://localhost:9341",
+        "--",
+        "dev",
+        "--port",
+        "9341"
+      ],
+      "port": 9341
     }
   ]
 }

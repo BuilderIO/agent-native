@@ -2271,7 +2271,18 @@ function DesignEditor() {
     syncUndoRedoState();
   }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
-    (entry: ContentHistoryEntry) => {
+    (
+      entry: ContentHistoryEntry,
+      // Figma-parity undo selection restore: a gesture whose own content
+      // write ALSO moves live selection onto something new before this runs
+      // (alt-drag duplicate reselects the clone the instant the bridge
+      // creates it, at gesture start — well before this persist at gesture
+      // end) cannot rely on captureCurrentSelection() below, which only
+      // ever sees whatever is selected RIGHT NOW. Overrides just the layer
+      // ids captured for this entry with the gesture's own pre-write
+      // snapshot; overviewSelectedScreenIds/activeFileId still come live.
+      selectedLayerIdsOverride?: string[],
+    ) => {
       const changes = getContentHistoryChanges(entry).filter(
         (change) => change.before !== change.after,
       );
@@ -2309,7 +2320,12 @@ function DesignEditor() {
         ...contentUndoSelectionStackRef.current.slice(
           -(MAX_DESIGN_UNDO_STACK - 1),
         ),
-        captureCurrentSelection(),
+        selectedLayerIdsOverride
+          ? {
+              ...captureCurrentSelection(),
+              selectedLayerIds: selectedLayerIdsOverride,
+            }
+          : captureCurrentSelection(),
       ];
       clearRedoStacks();
       historyOrderRef.current = [
@@ -10393,9 +10409,12 @@ function DesignEditor() {
           applyLocalContentUpdate,
           canEditDesign,
           getFreshActiveContent,
+          selectedElement,
+          selectedLayerIdsState,
           setSelectedElement,
           setSelectedLayerIdsState,
           t,
+          undoManagerRef,
         },
         selector,
         cloneHtml,
@@ -10407,6 +10426,8 @@ function DesignEditor() {
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
+      selectedElement,
+      selectedLayerIdsState,
       t,
     ],
   );

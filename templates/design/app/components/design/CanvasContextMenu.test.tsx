@@ -418,3 +418,50 @@ describe("CanvasContextMenu shortcut hints", () => {
     await view.cleanup();
   });
 });
+
+describe("CanvasContextMenu focus/hover token", () => {
+  it("uses the solid accent color, not the translucent selection tint, for item focus/hover background", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const source = fs.readFileSync(
+      path.join(import.meta.dirname, "CanvasContextMenu.tsx"),
+      "utf-8",
+    );
+    const itemClassMatch = source.match(
+      /const MENU_ITEM_CLASS =\s*\n\s*"([^"]+)"/,
+    );
+    const subTriggerClassMatch = source.match(
+      /const MENU_SUB_TRIGGER_CLASS =\s*\n\s*"([^"]+)"/,
+    );
+    expect(itemClassMatch).not.toBeNull();
+    expect(subTriggerClassMatch).not.toBeNull();
+    const itemClass = itemClassMatch![1];
+    const subTriggerClass = subTriggerClassMatch![1];
+
+    // --design-editor-selection-color is a translucent tint meant for canvas
+    // selection overlays over arbitrary content. Composited over the menu's
+    // opaque white/dark panel it is nearly invisible in light mode, making
+    // the `focus:text-white` item label unreadable. Hover/focus rows need
+    // the solid --design-editor-accent-hover-color instead (plain
+    // accent-color's ~2.93:1 contrast against white text misses WCAG's 3:1
+    // floor for large/UI text).
+    expect(itemClass).not.toContain(
+      "focus:bg-[var(--design-editor-selection-color)]",
+    );
+    expect(itemClass).toContain(
+      "focus:bg-[var(--design-editor-accent-hover-color)]",
+    );
+    expect(subTriggerClass).not.toContain(
+      "focus:bg-[var(--design-editor-selection-color)]",
+    );
+    expect(subTriggerClass).not.toContain(
+      "data-[state=open]:bg-[var(--design-editor-selection-color)]",
+    );
+    expect(subTriggerClass).toContain(
+      "focus:bg-[var(--design-editor-accent-hover-color)]",
+    );
+    expect(subTriggerClass).toContain(
+      "data-[state=open]:bg-[var(--design-editor-accent-hover-color)]",
+    );
+  });
+});

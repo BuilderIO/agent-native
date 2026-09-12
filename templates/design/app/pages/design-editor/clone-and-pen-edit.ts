@@ -261,12 +261,16 @@ function prepareClonedHtmlLayer(
     )
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
-    clone.setAttribute(
-      "data-agent-native-layer-name",
-      sourceNode?.layerNameSource === "tag"
-        ? "Copy"
-        : (sourceNode?.layerName ?? "Copy"),
-    );
+    // A "tag" source means the name was never authored — it's derived from
+    // the element's tag/paint (layerNameFor's fallback). The clone carries
+    // the same tag and styles, so leaving it unstamped re-derives the
+    // IDENTICAL name (Figma parity: a duplicate/paste never gets a literal
+    // "Copy" suffix). Only names sourced from an attribute that clone id
+    // reassignment below is about to change (id/class -> "selector") need
+    // stamping so the derivation survives that rewrite.
+    if (sourceNode && sourceNode.layerNameSource !== "tag") {
+      clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
+    }
   }
   const nodeIdMap = new Map<string, string>();
   const previousRootNodeId = clone.getAttribute("data-agent-native-node-id");

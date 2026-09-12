@@ -1202,6 +1202,8 @@ function LayersPanelImpl(
 
   const startRename = useCallback(
     (node: LayersPanelNode) => {
+      // TEMP DEBUG
+      console.log("[DEBUG] startRename called", node.id, "onRename?", Boolean(onRename), "renamable", node.renamable);
       if (!onRename || node.renamable === false) return;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
@@ -2291,7 +2293,7 @@ const LayerRow = memo(function LayerRow({
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}
-              onDoubleClick={() => onStartRename(node)}
+              onDoubleClick={() => { console.log("[DEBUG] onDoubleClick fired", node.id); onStartRename(node); }}
               onKeyDown={handleKeyDown}
             >
               <span
@@ -2304,6 +2306,7 @@ const LayerRow = memo(function LayerRow({
               >
                 {node.icon ?? <LayerGlyph node={node} />}
               </span>
+              {(() => { console.log("[DEBUG] render name cell", node.id, "isRenaming", isRenaming); return null; })()}
               {isRenaming ? (
                 <input
                   autoFocus

@@ -70,15 +70,27 @@ async function withPage<T>(
  * Waits on the posted selection, not on the overlay: the overlay is already
  * displayed from the previous row, so a display check returns before this
  * click's selection exists.
+ *
+ * Selects the row directly via the bridge's `select-element` postMessage
+ * instead of a plain click. The row sits two levels below the screen root
+ * (an-list > an-row), and every clone shares an-row's stamped node id, so a
+ * plain click now resolves container-first (Figma parity) onto the shared
+ * <ul> for every row alike, and a `[data-agent-native-node-id="an-row"]`
+ * selector would always match the first clone. An nth-of-type selector picks
+ * the exact row this call means to address; what's under test here is the
+ * per-row selector/repeat metadata a selection reports, not click resolution.
  */
 async function clickRow(
   page: import("@playwright/test").Page,
   position: number,
 ) {
-  const row = page.locator(`ul > li:nth-of-type(${position})`);
+  const selector = `ul > li:nth-of-type(${position})`;
+  const row = page.locator(selector);
   const box = (await row.boundingBox())!;
   const before = await picks(page);
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
   await page.waitForFunction(
     (count) =>
       (window as never as { __picks: unknown[] }).__picks.length > count,
@@ -343,7 +355,17 @@ it(
       const label = page.locator("ul > li:nth-of-type(2) span");
       const box = (await label.boundingBox())!;
       const before = await picks(page);
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      // The span sits three levels below the screen root, so a plain click
+      // now resolves container-first (Figma parity) onto the shared <ul>
+      // instead of descending into it. Select the span directly — what this
+      // test proves is the repeat metadata a selected descendant reports,
+      // not click resolution.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "ul > li:nth-of-type(2) span" },
+          "*",
+        );
+      });
       await page.waitForFunction(
         (count) =>
           (window as never as { __picks: unknown[] }).__picks.length > count,
@@ -365,10 +387,20 @@ it(
       async (page) => {
         const label = page.locator("ul > li:nth-of-type(2) span");
         const box = (await label.boundingBox())!;
+        // The span is nested two levels below the list (an-list > an-row >
+        // an-label): a plain double-click's own first click resolves
+        // container-first onto <ul>, so findTextEditTarget's climb lands on
+        // the <li> row (no x-text of its own) instead of the bound span, and
+        // the row gets refused. Cmd/Ctrl held through the gesture keeps both
+        // constituent clicks on the deep-select path (mirrors plain-click's
+        // metaKey/ctrlKey bypass), landing selectedEl on the span itself so
+        // the dblclick handler's fast path resolves it directly.
+        await page.keyboard.down("Meta");
         await page.mouse.dblclick(
           box.x + box.width / 2,
           box.y + box.height / 2,
         );
+        await page.keyboard.up("Meta");
         await page.waitForTimeout(200);
 
         const state = await page.evaluate(() => {
@@ -430,9 +462,16 @@ it(
         });
       });
 
-      const row = page.locator("ul > li:nth-of-type(2)");
-      const box = (await row.boundingBox())!;
-      await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+      // The row is nested two levels below the screen root (ul > li), so a
+      // plain click now resolves container-first (Figma parity) onto the
+      // shared <ul>. Select the row directly — what this test proves is the
+      // repeat metadata an id-less row reports, not click resolution.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "ul > li:nth-of-type(2)" },
+          "*",
+        );
+      });
       await page.waitForFunction(
         () => (window as never as { __picked: unknown }).__picked !== null,
       );
@@ -490,9 +529,14 @@ it(
         });
       });
 
-      const row = page.locator("ul > li:nth-of-type(2)");
-      const box = (await row.boundingBox())!;
-      await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+      // Same container-first rationale as the sibling "no stamped ids" test
+      // above: select the row directly instead of relying on a plain click.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "ul > li:nth-of-type(2)" },
+          "*",
+        );
+      });
       await page.waitForFunction(
         () => (window as never as { __picked: unknown }).__picked !== null,
       );
