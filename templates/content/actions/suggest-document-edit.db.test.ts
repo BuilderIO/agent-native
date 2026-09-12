@@ -236,33 +236,47 @@ describe("suggest-document-edit", () => {
     );
   });
 
-  it("rejects receipt replay across caller kinds", async () => {
+  it("replays a legacy human receipt for an external agent retry", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
       async () => {
         const { id, revision } = await createPage("Shared inbox body.");
-        await suggestDocumentEdit.run(
-          {
-            id,
-            baseRevision: revision,
-            idempotencyKey: `caller-kind-${id}`,
-            find: "Shared inbox body.",
-            replace: "Edited body.",
-          },
-          ctx,
-        );
-        await expect(
-          suggestDocumentEdit.run(
-            {
-              id,
-              baseRevision: revision,
-              idempotencyKey: `caller-kind-${id}`,
-              find: "Shared inbox body.",
-              replace: "Edited body.",
-            },
-            { caller: "mcp" as const, userEmail: ctx.userEmail },
-          ),
-        ).rejects.toThrow(
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `caller-kind-${id}`,
+          find: "Shared inbox body.",
+          replace: "Edited body.",
+        };
+        const first = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionId: string;
+        };
+        const retry = (await suggestDocumentEdit.run(args, {
+          caller: "mcp" as const,
+          userEmail: ctx.userEmail,
+        })) as { suggestionId: string };
+        expect(retry.suggestionId).toBe(first.suggestionId);
+      },
+    );
+  });
+
+  it("rejects an agent receipt replayed by a human caller", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("Agent receipt body.");
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `agent-receipt-${id}`,
+          find: "Agent receipt body.",
+          replace: "Edited body.",
+        };
+        await suggestDocumentEdit.run(args, {
+          caller: "mcp" as const,
+          userEmail: ctx.userEmail,
+        });
+        await expect(suggestDocumentEdit.run(args, ctx)).rejects.toThrow(
           /already created suggestion .* with a different edit/,
         );
       },

@@ -89,10 +89,15 @@ function assertCreationReplay(
   authorEmail: string | null,
   actorKind: ResourceSuggestion["actorKind"],
 ): ResourceSuggestion {
+  // External callers persisted as "human" before suggestionActorKind existed;
+  // their same-author retries must stay replayable across that rollout.
+  const actorKindMatches =
+    receipt.actorKind === actorKind ||
+    (receipt.actorKind === "human" && actorKind === "agent");
   if (
     receipt.requestHash !== requestHash ||
     receipt.authorEmail !== authorEmail ||
-    receipt.actorKind !== actorKind
+    !actorKindMatches
   ) {
     throw new Error(
       "Idempotency key was already used for a different suggestion",

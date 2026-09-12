@@ -212,7 +212,11 @@ export default defineAction({
           before?.changedText === args.find &&
           after?.changedText === (args.replace ?? "") &&
           (receipt.authorEmail ?? null) === callerEmail &&
-          (receipt.actorKind ?? null) === callerKind;
+          ((receipt.actorKind ?? null) === callerKind ||
+            // External callers persisted as "human" before the classifier
+            // change; their same-author retries must stay replayable.
+            ((receipt.actorKind ?? null) === "human" &&
+              callerKind === "agent"));
         if (!sameEdit) {
           throw new ActionContractError(
             `This idempotencyKey already created suggestion ${receipt.suggestion.id} with a different edit; use a fresh key for a different change.`,
