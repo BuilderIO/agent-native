@@ -194,9 +194,8 @@ function builderBodyWithoutImageSourceComponentMarkers(
   content: string | null | undefined,
 ) {
   return (content ?? "")
-    .replace(
-      /(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g,
-      (marker) => (marker.includes('componentName="Image"') ? "\n" : marker),
+    .replace(/(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g, (marker) =>
+      marker.includes('componentName="Image"') ? "\n" : marker,
     )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
