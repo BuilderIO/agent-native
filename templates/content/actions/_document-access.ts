@@ -1,4 +1,7 @@
-import { getRequestOrgId, getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
@@ -35,11 +38,13 @@ export async function resolveDocumentAccess(id: string) {
     }
     throw error;
   }
+  const granted = await resolveAccess("document", id, {
+    userEmail: spaceAccess.authority.userEmail,
+    orgId: spaceAccess.authority.orgId ?? undefined,
+  });
+  if (!granted) return null;
   return {
-    ...(await resolveAccess("document", id, {
-      userEmail: spaceAccess.authority.userEmail,
-      orgId: spaceAccess.authority.orgId ?? undefined,
-    })),
+    ...granted,
     authority: {
       userEmail: spaceAccess.authority.userEmail,
       orgId: spaceAccess.authority.orgId ?? null,
