@@ -28,7 +28,7 @@ jobs:
       matrix: ${{ steps.targets.outputs.matrix }}
       has_targets: ${{ steps.targets.outputs.has_targets }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # pull_request_target may run for a branch that predates this helper.
           # Load the discovery code from the trusted workflow base instead.
@@ -252,7 +252,7 @@ jobs:
       contents: read
       deployments: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 1

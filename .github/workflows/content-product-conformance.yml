@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out immutable conformance controller
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: 03caa13fd5bf6176ee01ab223452db9932b7ca8c
           path: controller
@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out candidate as inert data
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
