@@ -270,6 +270,7 @@ import {
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+import { createSecurityHeadersMiddleware } from "./security-headers.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
@@ -2052,22 +2053,25 @@ export function createCoreRoutesPlugin(
         // can't be spoofed via a Host header, and matches what the callback
         // route itself builds (resolveOAuthRedirectUri / getAppUrl) for the
         // default sign-in callback path.
-        const googleHealthOrigin = await (async () => {
-          try {
-            const { getAppProductionUrl } = await import("./app-url.js");
-            return getAppProductionUrl();
-          } catch (err) {
-            console.warn(
-              "[health] could not resolve configured origin for Google redirect URI probe:",
-              err,
-            );
-            return undefined;
-          }
-        })();
+        let googleHealthOriginOnce: Promise<string | undefined> | undefined;
+        const resolveGoogleHealthOrigin = () =>
+          (googleHealthOriginOnce ??= (async () => {
+            try {
+              const { getAppProductionUrl } = await import("./app-url.js");
+              return getAppProductionUrl();
+            } catch (err) {
+              console.warn(
+                "[health] could not resolve configured origin for Google redirect URI probe:",
+                err,
+              );
+              return undefined;
+            }
+          })());
         getH3App(nitroApp).use(
           `${P}/health/google`,
           defineEventHandler(async (event) => {
             setResponseHeader(event, "cache-control", "no-store");
+            const googleHealthOrigin = await resolveGoogleHealthOrigin();
             const googleRedirectUri = googleHealthOrigin
               ? `${googleHealthOrigin}${googleOAuthCallbackPaths[0]}`
               : undefined;
@@ -2135,24 +2139,28 @@ export function createCoreRoutesPlugin(
         // deployment's own CONFIGURED canonical host (env var / first-party
         // template prodUrl / platform-injected URL), never the current
         // request's origin, or a mismatch could never be observed.
-        const healthBaseUrlHost = await (async () => {
-          try {
-            const { getAppProductionUrl } = await import("./app-url.js");
-            return (
-              new URL(getAppProductionUrl()).hostname.toLowerCase() || undefined
-            );
-          } catch (err) {
-            console.warn(
-              "[health] could not resolve configured base URL host:",
-              err,
-            );
-            return undefined;
-          }
-        })();
+        let healthBaseUrlHostOnce: Promise<string | undefined> | undefined;
+        const resolveHealthBaseUrlHost = () =>
+          (healthBaseUrlHostOnce ??= (async () => {
+            try {
+              const { getAppProductionUrl } = await import("./app-url.js");
+              return (
+                new URL(getAppProductionUrl()).hostname.toLowerCase() ||
+                undefined
+              );
+            } catch (err) {
+              console.warn(
+                "[health] could not resolve configured base URL host:",
+                err,
+              );
+              return undefined;
+            }
+          })());
         getH3App(nitroApp).use(
           `${P}/health`,
           defineEventHandler(async (event) => {
             setResponseHeader(event, "cache-control", "no-store");
+            const healthBaseUrlHost = await resolveHealthBaseUrlHost();
             const schema =
               event.url?.searchParams.get("schema") === "1" ||
               event.url?.searchParams.get("schema") === "true";
@@ -2202,13 +2210,16 @@ export function createCoreRoutesPlugin(
       // that initialize on first use. h3 dispatches middleware in
       // registration order, so security headers and CORS must be mounted
       // before these routes, not after.
+      //
+      // Nothing from here up to the plugin's first statement may `await`.
+      // These paths are in `excludedPaths`, so the readiness gate releases
+      // their requests instead of holding them; an await before the mount
+      // turns every cold-start request in that window into a bare 404.
 
       // Security response headers — emitted on every framework response.
       // Mounted before route handlers so 4xx/5xx error pages also carry the
       // headers. Routes that need to tighten a specific header override via
       // setResponseHeader.
-      const { createSecurityHeadersMiddleware } =
-        await import("./security-headers.js");
       getH3App(nitroApp).use(createSecurityHeadersMiddleware());
 
       // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on

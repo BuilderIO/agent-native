@@ -14,7 +14,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 function pluginSource(): string {
   return readFileSync(
@@ -132,4 +132,91 @@ describe("/_agent-native/health alerts block", () => {
     expect(statusIndex).toBeGreaterThan(-1);
     expect(statusIndex).toBeLessThan(alertsIndex);
   });
+});
+
+/**
+ * "Mounted before `awaitBootstrap`" is not the contract the readiness gate
+ * relies on — "mounted before the plugin's FIRST await" is.
+ *
+ * `trackPluginInit`'s `excludedPaths` releases a request to these paths
+ * without waiting for plugin init, on the promise that their handlers are
+ * already registered. Any `await` between the plugin's first statement and
+ * those registrations opens a window on every cold serverless start where the
+ * gate lets the request through and nothing is mounted yet, so the server
+ * answers a bare 404. Two `await import("./app-url.js")` calls and one
+ * `await import("./security-headers.js")` sat in that window and made
+ * `/_agent-native/identity/callback` 404 for the cross-app SSO return trip.
+ */
+describe("core-routes-plugin cold-start route availability", () => {
+  it(
+    "mounts every gate-excluded framework path before the plugin's first await",
+    { timeout: 60_000 },
+    async () => {
+      const mounted: string[] = [];
+      const declaredEarly: string[] = [];
+      let excludedPaths: string[] = [];
+
+      vi.resetModules();
+      vi.doMock("./framework-request-handler.js", async () => {
+        const actual = await vi.importActual<
+          typeof import("./framework-request-handler.js")
+        >("./framework-request-handler.js");
+        return {
+          ...actual,
+          getH3App: () => ({
+            use: (arg1: unknown, arg2?: unknown) => {
+              if (typeof arg1 === "string") mounted.push(arg1);
+              void arg2;
+            },
+          }),
+          markDefaultPluginProvided: () => {},
+          markFrameworkRoutesReadyBeforeBootstrap: (
+            _nitroApp: unknown,
+            paths: readonly string[],
+          ) => {
+            declaredEarly.push(...paths);
+          },
+          trackPluginInit: (
+            _nitroApp: unknown,
+            promise: Promise<void>,
+            options: { excludedPaths?: string[] } = {},
+          ) => {
+            promise.catch(() => {});
+            excludedPaths = options.excludedPaths ?? [];
+          },
+          // Never resolves: everything after it is bootstrap-dependent and is
+          // explicitly allowed to mount late.
+          awaitBootstrap: () => new Promise<void>(() => {}),
+        };
+      });
+
+      const { createCoreRoutesPlugin } =
+        await import("./core-routes-plugin.js");
+      const { FRAMEWORK_AUTH_EARLY_PATHS } =
+        await import("./framework-request-handler.js");
+
+      // Deliberately NOT awaited: the assertion is about what exists at the
+      // instant the plugin first yields, which is when a cold-start request can
+      // be dispatched.
+      void (createCoreRoutesPlugin()({
+        h3: { "~middleware": [] },
+      }) as Promise<void> | void);
+
+      const authOwned = new Set<string>(FRAMEWORK_AUTH_EARLY_PATHS);
+      const mustBeMounted = [
+        ...new Set([...declaredEarly, ...excludedPaths]),
+      ].filter((path) => !authOwned.has(path));
+
+      expect(mustBeMounted.length).toBeGreaterThan(0);
+      for (const path of mustBeMounted) {
+        expect(
+          mounted,
+          `${path} is excluded from the plugin-init readiness gate, so it must be mounted before the plugin's first await`,
+        ).toContain(path);
+      }
+
+      vi.doUnmock("./framework-request-handler.js");
+      vi.resetModules();
+    },
+  );
 });
