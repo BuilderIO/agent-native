@@ -29,8 +29,9 @@
   },
   "brain": {
     "agent-native-recurring-jobs": 1758,
-    "brain-queue-sweep-background": 24956109,
-    "server": 24956109,
+    "brain-queue-cron": 800,
+    "brain-queue-sweep-background": 30408704,
+    "server": 30408704,
     "server-agent-background": 17511219
   },
   "calendar": {

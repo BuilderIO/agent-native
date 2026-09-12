@@ -390,6 +390,20 @@ export function getComposerPopoverPosition(
   }
 }
 
+export function getComposerPopoverAnchorPosition(
+  view: Pick<EditorView, "coordsAtPos" | "dom">,
+  pos: number,
+): { top: number; left: number; width?: number } | null {
+  const position = getComposerPopoverPosition(view, pos);
+  if (!position) return null;
+  const root = view.dom.closest<HTMLElement>(
+    '[data-agent-composer-slot="root"]',
+  );
+  const rect = root?.getBoundingClientRect();
+  if (!rect || rect.width <= 0) return position;
+  return { top: rect.top, left: rect.left, width: rect.width };
+}
+
 export function displayableComposerModeMessage(options: {
   messagePrefix: string;
   trimmedText: string;
@@ -456,9 +470,24 @@ function persistComposerDraft(
   }
 }
 
-function clearComposerDraft(draftKey: string | null): void {
+function clearComposerDraft(
+  draftKey: string | null,
+  expectedValue?: string | null,
+): void {
   if (!draftKey) return;
   try {
+    if (
+      expectedValue !== undefined &&
+      localStorage.getItem(draftKey) !== expectedValue
+    ) {
+      // A submit that started against this key may resolve long after its
+      // composer instance unmounted. If a freshly mounted composer reused
+      // the exact same scope (e.g. the host reopens the same popover before
+      // the earlier submit settles) and the visitor typed something new,
+      // localStorage now holds that newer draft — leave it alone instead of
+      // wiping out a draft this stale submit never wrote.
+      return;
+    }
     localStorage.removeItem(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
@@ -729,7 +758,11 @@ export interface ComposerAgentOption {
 
 export interface TiptapComposerProps {
   placeholder?: string;
+  /** Accessible name for the editable prompt surface. */
+  ariaLabel?: string;
   disabled?: boolean;
+  /** Prevent submission without making the editable surface lose focus. */
+  submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -1147,16 +1180,16 @@ export function shouldShowOnlyConnectPath(
  * When nothing is routable yet, the model hook resolves `selectedModel` to
  * `""` rather than pre-selecting something unusable — that reflects "nothing
  * chosen," not "nothing to show." The picker itself still has a job to do in
- * that state (its connect-provider CTAs), so gate on there being engines to
- * list and a way to change the selection, not on a model already being set.
+ * that state (its connect-provider CTAs). During the initial discovery window
+ * the list is empty too, but the button still needs to exist so the picker can
+ * reveal its loading or setup state instead of making the composer look
+ * incomplete.
  */
 export function shouldRenderModelSelector(
   availableModels: ReadonlyArray<unknown> | undefined,
   onModelChange: unknown,
 ): boolean {
-  return Boolean(
-    availableModels && availableModels.length > 0 && onModelChange,
-  );
+  return Boolean(availableModels && onModelChange);
 }
 
 function friendlyModelName(model: string, t?: ComposerTranslate): string {
@@ -1631,7 +1664,7 @@ function ModelSelector({
               ? `. Agent: ${selectedAgentLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-0 max-w-none shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
             {selectedAgentOption?.icon ? (
@@ -1644,7 +1677,7 @@ function ModelSelector({
               : compactComposerModelName(model, t)}
           </span>
           {effortOptions.length > 0 && (
-            <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
+            <span className="agent-composer-model-effort min-w-0 shrink-0 truncate text-muted-foreground/70">
               · {compactComposerReasoningEffortLabel(selectedEffort, t)}
             </span>
           )}
@@ -2329,14 +2362,16 @@ function ModelSelectorSkeleton() {
 
 type PopoverState = {
   type: "@" | "/";
-  position: { top: number; left: number };
+  position: { top: number; left: number; width?: number };
   startPos: number;
   query: string;
 } | null;
 
 export function TiptapComposer({
   placeholder,
+  ariaLabel,
   disabled = false,
+  submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
   focusRef,
@@ -2417,7 +2452,7 @@ export function TiptapComposer({
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
-    disabled,
+    disabled: disabled || submitting,
   });
   const primaryAction = resolveComposerPrimaryAction({
     canSubmit: canSend,
@@ -2628,6 +2663,9 @@ export function TiptapComposer({
     },
     editorProps: {
       attributes: {
+        "aria-label": ariaLabel ?? resolvedPlaceholder,
+        "aria-multiline": "true",
+        role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
         class:
@@ -2846,7 +2884,7 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const position = getComposerPopoverPosition(view, from);
+            const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
@@ -2870,7 +2908,7 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const position = getComposerPopoverPosition(view, from);
+            const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
@@ -3423,23 +3461,38 @@ export function TiptapComposer({
     return { text, references };
   }, [extractComposerPayload, syncComposerRuntimeState]);
 
-  const clearEditorAfterSubmit = useCallback(() => {
-    const ed = editor;
-    if (!isComposerEditorUsable(ed)) return;
-    ed.commands.clearContent();
-    cancelScheduledDraftPersist();
-    setEditorHasText(false);
-    setSlotReferences([]);
-    resetComposerRuntimeState();
-    clearComposerDraft(draftKey);
-    closePopover();
-  }, [
-    cancelScheduledDraftPersist,
-    closePopover,
-    draftKey,
-    editor,
-    resetComposerRuntimeState,
-  ]);
+  const clearEditorAfterSubmit = useCallback(
+    (expectedDraftSnapshot?: string | null) => {
+      // A caller may close/unmount the host popover as soon as submit starts
+      // (before awaiting the round trip), which destroys this editor instance
+      // while the submit promise is still in flight. The persisted draft has
+      // no dependency on the live editor, so it must be cleared unconditionally
+      // here — gating it behind `isComposerEditorUsable` left the old prompt
+      // stuck in localStorage forever, ready to resurface on the next mount.
+      // `expectedDraftSnapshot` guards a narrower race: a fresh composer
+      // instance may reuse this exact scope and persist its own draft before
+      // this stale submit settles, so only clear when localStorage still
+      // holds what this submit actually wrote.
+      cancelScheduledDraftPersist();
+      clearComposerDraft(draftKey, expectedDraftSnapshot);
+      const ed = editor;
+      if (isComposerEditorUsable(ed)) {
+        ed.commands.clearContent();
+        ed.commands.focus("end");
+        setEditorHasText(false);
+        setSlotReferences([]);
+        resetComposerRuntimeState();
+      }
+      closePopover();
+    },
+    [
+      cancelScheduledDraftPersist,
+      closePopover,
+      draftKey,
+      editor,
+      resetComposerRuntimeState,
+    ],
+  );
 
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
@@ -3451,6 +3504,19 @@ export function TiptapComposer({
       flushComposerDraft();
       const submittingDraftKey = draftKeyRef.current;
       const submittingDraftGeneration = draftScopeGenerationRef.current;
+      // Snapshot exactly what flushComposerDraft just persisted so a
+      // same-scope draft written by a later, unrelated composer instance
+      // (see clearComposerDraft) is never mistaken for this submission's.
+      const submittingDraftSnapshot = submittingDraftKey
+        ? (() => {
+            try {
+              return localStorage.getItem(submittingDraftKey);
+            } catch {
+              // coercion-ok: browser storage is optional and can be unavailable or full; treat as "nothing to compare against" like the rest of this file's draft helpers.
+              return null;
+            }
+          })()
+        : null;
       const isCurrentDraftScope = () =>
         draftKeyRef.current === submittingDraftKey &&
         draftScopeGenerationRef.current === submittingDraftGeneration;
@@ -3589,7 +3655,7 @@ export function TiptapComposer({
           return;
         }
         cancelActiveVoice();
-        clearEditorAfterSubmit();
+        clearEditorAfterSubmit(submittingDraftSnapshot);
         return;
       } else {
         composerRuntime.send();
@@ -3868,7 +3934,8 @@ export function TiptapComposer({
   return (
     <RealtimeVoiceModeBoundary>
       <style>{`
-        .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
+        .aui-composer .ProseMirror p.is-editor-empty:first-child::before,
+        .aui-composer .ProseMirror p.is-empty:first-child:last-child::before {
           content: attr(data-placeholder);
           color: var(--color-muted-foreground);
           opacity: 0.5;

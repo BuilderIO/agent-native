@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
+    labs: "Labs",
+    labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
+    labLayoutOverflowWarningDescription:
+      "편집기에서 레이아웃 오버플로 경고를 표시합니다.",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
@@ -292,6 +296,10 @@ const messages = {
     exportPptx: "PPTX로 내보내기",
     connectGoogle: "Google 연결",
     openInGoogleSlides: "Google Slides에서 열기",
+    googleSlidesUnavailable: "사용 불가",
+    googleSlidesOpenImporter: "Google Slides 가져오기 열기",
+    googleSlidesUnavailableHint:
+      "Google 연결이 설정되지 않아 지금은 Google Slides로 내보낼 수 없습니다. 대신 PPTX로 내보낸 뒤 Google Slides에서 가져오세요.",
     googleSlidesCreated: "Google Slides에서 열었습니다",
     googleSlidesCreatedHint: "이 덱의 사본이 Google 드라이브에 생성되었습니다.",
     duplicateDeck: "덱 복제",

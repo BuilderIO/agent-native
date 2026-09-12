@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { gmailBatchGetMessages, googleFetch } from "./google-api.js";
+import {
+  GmailQuotaCooldownError,
+  gmailBatchGetMessages,
+  googleFetch,
+} from "./google-api.js";
 
 function jsonResponse(status: number, body: unknown, headers?: HeadersInit) {
   return new Response(JSON.stringify(body), {
@@ -99,6 +103,16 @@ describe("googleFetch quota handling", () => {
     ).rejects.toThrow(/about 120s/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // Regression guard: callers (list-inbox-emails.ts) must classify this
+    // by type, not by grepping the message for "quota"/"429" — the message
+    // is deliberately jargon-free and contains neither.
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-a",
+      ),
+    ).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+
     await expect(
       googleFetch(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
@@ -106,6 +120,97 @@ describe("googleFetch quota handling", () => {
       ),
     ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("floors a short provider Retry-After to the circuit breaker's own cooldown", async () => {
+    // Google's Retry-After (30s here) can be shorter than the 90s window
+    // tripCooldown actually enforces. The thrown error's retryAfterMs must
+    // reflect what the breaker will really do, not the raw header value —
+    // otherwise callers advertise a wait that's already stale by the time
+    // it elapses.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "30" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-floor",
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
+    expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(90_000);
+    expect((caught as Error).message).toMatch(/about 90s/);
+  });
+
+  it("caps a long provider Retry-After to the breaker's advertised maximum", async () => {
+    // Must match the 300s Retry-After clamp callers use (list-inbox-emails.ts,
+    // server/handlers/emails.ts) — otherwise a client could retry into a
+    // cooldown window that's still active.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "600" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-cap",
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
+    expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(300_000);
+    expect((caught as Error).message).toMatch(/about 300s/);
+  });
+
+  it("classifies a whole-batch HTTP 429 as a typed cooldown error, not raw batch-failure text", async () => {
+    // Distinct from the "quota failures inside Gmail batch parts" case below:
+    // this is the *transport-level* response for the whole multipart batch
+    // call returning 429, not a 200 with one 429 part inside it. Before the
+    // fix this threw a plain `Error("... Gmail batch failed: ...")` that
+    // leaked Google's raw error text and could never be recognized as a
+    // cooldown by callers checking `instanceof GmailQuotaCooldownError`.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "30" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const rejection = gmailBatchGetMessages(
+      "quota-token-whole-batch",
+      ["msg-1"],
+      "metadata",
+    );
+    await expect(rejection).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+    // The breaker floors any cooldown to 90s (QUOTA_COOLDOWN_MS) regardless
+    // of Google's shorter Retry-After, so the message must say 90s too.
+    await expect(rejection).rejects.toThrow(/about 90s/);
   });
 
   it("treats quota failures inside Gmail batch parts as a whole-call cooldown", async () => {

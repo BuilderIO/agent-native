@@ -10,6 +10,7 @@ import {
   IconShare2,
   IconBrandGoogle,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,11 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
+import {
+  fetchGoogleSlidesExportAvailability,
+  invalidateGoogleSlidesExportAvailability,
+  useGoogleSlidesExportAvailability,
+} from "@/lib/google-slides-export-availability-client";
 
 /** Google Slides' File → Import dialog, primed to ask for a file. */
 const GOOGLE_SLIDES_IMPORT_URL =
@@ -112,6 +118,11 @@ export type ExportStatus =
       title: string;
       description?: string;
       openUrl: string;
+      /**
+       * Defaults to "open the exported deck". The download fallback overrides
+       * it: that link opens an empty importer, not the user's deck.
+       */
+      openLabel?: string;
     }
   | { state: "error"; message: string };
 
@@ -172,7 +183,7 @@ export function ExportStatusDialog({
                   window.open(status.openUrl, "_blank", "noopener,noreferrer")
                 }
               >
-                {t("editorExport.openInGoogleSlides")}
+                {status.openLabel ?? t("editorExport.openInGoogleSlides")}
               </Button>
               <Button
                 type="button"
@@ -226,6 +237,13 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
   ) {
     const t = useT();
     const { getDeck, flushDeckSave } = useDecks();
+    // Inline content is only mounted while the parent menu is open, so mounting
+    // is itself the signal there; the standalone menu tracks its own open state.
+    const [menuOpen, setMenuOpen] = useState(false);
+    const queryClient = useQueryClient();
+    const googleSlidesExport = useGoogleSlidesExportAvailability(
+      inline || menuOpen,
+    );
     const [exportStatus, setExportStatus] = useState<ExportStatus>({
       state: "idle",
     });
@@ -373,6 +391,23 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       if (!onExportGoogleSlides) return;
       if (!beginExport("google-slides")) return;
       try {
+        // The connect step is a top-level navigation to Google. When Google
+        // refuses the request itself the user leaves the editor and never
+        // comes back, so a known-broken integration must not start the flow.
+        //
+        // Enforced on the probe rather than on `googleSlidesExport`: that
+        // value is still the optimistic default until the first status
+        // response lands, so a click right after opening the menu would
+        // otherwise sail past a verdict the badge has not received yet.
+        const availability =
+          await fetchGoogleSlidesExportAvailability(queryClient);
+        if (!availability.available) {
+          updateExportStatus({
+            state: "error",
+            message: t("editorExport.googleSlidesUnavailableHint"),
+          });
+          return;
+        }
         const result = await onExportGoogleSlides();
         if ("requiresConnection" in result && result.requiresConnection) {
           updateExportStatus({ state: "idle" });
@@ -388,11 +423,19 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           });
           return;
         }
+        // Nothing reached Drive. The deck was downloaded instead, and this
+        // link opens an empty importer - labelling its button "Export to
+        // Google Slides" is what made this read as a silent failure. Re-ask
+        // the server whether the integration is usable at all so a repeat
+        // attempt is badged up front rather than dead-ending the same way; a
+        // transient Drive blip re-checks clean and stays enabled.
+        invalidateGoogleSlidesExportAvailability(queryClient);
         updateExportStatus({
           state: "ready",
           title: t("editorExport.googleSlidesDownloaded"),
-          description: `${result.reason} ${t("editorExport.googleSlidesImportHint")}`,
+          description: `${t("editorExport.googleSlidesImportHint")} ${result.reason}`,
           openUrl: GOOGLE_SLIDES_IMPORT_URL,
+          openLabel: t("editorExport.googleSlidesOpenImporter"),
         });
       } catch (err) {
         console.error("Export failed:", err);
@@ -450,10 +493,16 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         {onExportGoogleSlides && (
           <DropdownMenuItem
             onClick={() => void handleExportGoogleSlides()}
+            disabled={!googleSlidesExport.available}
             className="cursor-pointer"
           >
             <IconBrandGoogle className="size-4" />
             {t("editorExport.openInGoogleSlides")}
+            {googleSlidesExport.available ? null : (
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                {t("editorExport.googleSlidesUnavailable")}
+              </span>
+            )}
           </DropdownMenuItem>
         )}
       </>
@@ -523,7 +572,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         {inline ? (
           inlineMenuContent
         ) : (
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
                 <IconUpload className="w-3.5 h-3.5" />

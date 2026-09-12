@@ -24,6 +24,9 @@ const messages = {
       extensions: "擴充功能",
       noteToSelf: "給自己的備註",
     },
+    inbox: {
+      syncing: "收件箱同步中…",
+    },
     toolbar: {
       toggleMenu: "切換選單",
       menu: "選單",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "帳號",
       pinSidebar: "固定側邊欄",
       unpinSidebar: "取消固定側邊欄",
+      closeSidebar: "關閉側邊欄",
       settings: "設定",
     },
     search: {
@@ -306,6 +310,7 @@ const messages = {
       failedToParseJson: "解析 JSON 失敗",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",
       failedToSaveCredentials: "儲存憑證失敗",
+      someAccountsFailed: "無法載入：{{accounts}}",
     },
     googleConnect: {
       connectTitle: "連線你的 Google 帳號",

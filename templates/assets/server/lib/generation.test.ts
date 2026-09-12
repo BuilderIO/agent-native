@@ -675,6 +675,52 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
+  it("keeps the nested provider payload out of the failure message", async () => {
+    // Real shape returned while the managed catalog routed Gemini 3.x to a
+    // retired Vertex alias: the provider failure is a JSON string inside a
+    // JSON string inside the body, and it used to reach the candidate tray
+    // verbatim, escapes and all.
+    mockBuilderFailure(502, {
+      code: "provider_error",
+      message: JSON.stringify({
+        error: {
+          message: JSON.stringify({
+            error: {
+              code: 404,
+              message:
+                "Publisher model `projects/example-project/locations/global/publishers/google/models/gemini-3.1-flash-image-preview` was not found or your project does not have access to it.",
+              status: "NOT_FOUND",
+            },
+          }),
+        },
+      }),
+    });
+
+    const failure = await generateWithManagedImageProvider(baseInput).catch(
+      (err: Error) => err,
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain(
+      "the gemini-3.1-flash-image model is unavailable right now",
+    );
+    expect(message).not.toContain("provider_error");
+    expect(message).not.toContain("publishers/google");
+    expect(message).not.toContain('\\"');
+  });
+
+  it("omits the detail entirely when the provider sends no prose", async () => {
+    mockBuilderFailure(502, { code: "provider_error", error: { code: 502 } });
+
+    await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
+      expect.objectContaining({
+        name: "BuilderImageGenerationError",
+        message: "Builder-managed image generation failed (502).",
+      }),
+    );
+  });
+
   it("reports transient Builder outages as retryable provider failures", async () => {
     const fetchMock = mockBuilderFailure(503, {
       error: { message: "Provider warming up" },

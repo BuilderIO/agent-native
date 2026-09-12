@@ -151,6 +151,7 @@ describe("RealtimeVoiceMode", () => {
     const microphone = document.querySelector<HTMLButtonElement>(
       'button[aria-label="Use microphone"]',
     );
+    expect(microphone?.dataset.agentComposerSlot).toBe("voice-button");
     expect(microphone?.getAttribute("aria-expanded")).toBe("false");
 
     act(() => microphone?.click());

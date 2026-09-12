@@ -59,6 +59,7 @@ import {
   calendarGetEvent,
   calendarPatchEvent,
   gmailGetAttachment,
+  GmailQuotaCooldownError,
 } from "../lib/google-api.js";
 import {
   isConnected,
@@ -69,6 +70,7 @@ import {
   getOAuth2Credentials,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
+import { syncInboxLabelDelta } from "../lib/inbox-store-sync.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 import { listInboxEmails } from "../lib/list-inbox-emails.js";
 import {
@@ -383,6 +385,26 @@ function parseEmailPageLimit(value: string | undefined): number {
   return Math.min(Math.max(Math.floor(n), 10), 50);
 }
 
+// Gmail errors carry their HTTP status in the message text ("(404)"),
+// except quota cooldowns, whose message is deliberately jargon-free — those
+// must be classified by type so the client sees 429 + Retry-After.
+function gmailErrorStatus(error: unknown): {
+  status: number;
+  retryAfterSeconds?: number;
+} {
+  if (error instanceof GmailQuotaCooldownError) {
+    return {
+      status: 429,
+      retryAfterSeconds: Math.min(
+        Math.max(1, Math.ceil(error.retryAfterMs / 1000)),
+        300,
+      ),
+    };
+  }
+  const parsed = (error as any)?.message?.match(/\((\d+)\)/)?.[1];
+  return { status: parsed ? Number(parsed) : 502 };
+}
+
 // ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
@@ -661,10 +683,13 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           });
           return messages;
         } catch (error: any) {
-          const status = error?.message?.match(/\((\d+)\)/)?.[1];
-          if (status === "404") continue;
+          const { status, retryAfterSeconds } = gmailErrorStatus(error);
+          if (status === 404) continue;
           console.error("[getThreadMessages] Gmail error:", error.message);
-          setResponseStatus(event, parseInt(status) || 502);
+          setResponseStatus(event, status);
+          if (retryAfterSeconds !== undefined) {
+            setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+          }
           return { error: error.message };
         }
       }
@@ -709,10 +734,13 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
         );
         return gmailToEmailMessage(msg, acctEmail, labelMap);
       } catch (error: any) {
-        const status = error?.message?.match(/\((\d+)\)/)?.[1];
-        if (status === "404") continue;
+        const { status, retryAfterSeconds } = gmailErrorStatus(error);
+        if (status === 404) continue;
         console.error("[getEmail] Gmail error:", error.message);
-        setResponseStatus(event, parseInt(status) || 502);
+        setResponseStatus(event, status);
+        if (retryAfterSeconds !== undefined) {
+          setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+        }
         return { error: error.message };
       }
     }
@@ -759,6 +787,10 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       // Report spam on entire thread
       await gmailModifyThread(accessToken, threadId!, ["SPAM"], ["INBOX"]);
       invalidateThreadCache(email, threadId!);
+      await syncInboxLabelDelta(email, acct, [threadId!], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+      });
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -842,6 +874,10 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
       invalidateThreadCache(email, msg.threadId);
+      await syncInboxLabelDelta(email, acct, [msg.threadId], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+      });
 
       // Create a filter to auto-delete future emails from this sender
       try {
@@ -947,6 +983,9 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
       // Gmail "mute" = remove from inbox; future replies also skip inbox
       await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
       invalidateThreadCache(email, threadId);
+      await syncInboxLabelDelta(email, acct, [threadId], {
+        remove: ["INBOX"],
+      });
       return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);

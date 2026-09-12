@@ -11,12 +11,14 @@ import {
 import type { EventHandler as H3EventHandler } from "h3";
 
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
-import type { Task } from "../a2a/types.js";
+import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
+  AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
+  isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
@@ -814,6 +816,12 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Capability scopes allowed on the page-local WebMCP route. */
+  capabilityScopes?: readonly string[];
+  /** Set on the bash-wrapper fallback entries the agent-chat plugin builds for
+   *  CLI-style scripts: their `run` shells out to `pnpm action <name>`, so
+   *  surfaces that already run inside the server must not invoke them. */
+  cliWrapper?: boolean;
   /** Optional deep-link builder. When set, MCP/A2A surfaces append an
    *  "Open in <app> →" link built from the call's args + result. Pure, sync,
    *  best-effort. See `defineAction` and the `external-agents` skill. */
@@ -2372,7 +2380,7 @@ export function createConnectedAgentReferenceEventRelay(input: {
     observeActivity,
     observePollUpdate,
     emitResponseText,
-    finish(status: "done" | "error") {
+    finish(status: "done" | "pending" | "error") {
       input.send({
         type: "agent_call",
         agent: input.agent,
@@ -2435,9 +2443,59 @@ export async function callConnectedAgentReference(input: {
     relay.finish("done");
     return responseText;
   } catch (error) {
+    const connectionRequest = parseA2AConnectionRequest(error);
+    if (connectionRequest) {
+      relay.finish("pending");
+      throw new AgentConnectionRequiredError(
+        connectionRequest.detail ??
+          `Connect ${connectionRequest.provider} to continue.`,
+        {
+          provider: connectionRequest.provider,
+          reason: connectionRequest.reason,
+          ...(connectionRequest.appId
+            ? { appId: connectionRequest.appId }
+            : {}),
+          source: { id: input.agent, kind: "agent", label: input.agent },
+        },
+      );
+    }
     relay.finish("error");
     throw error;
   }
+}
+
+function parseA2AConnectionRequest(
+  error: unknown,
+): A2AConnectionRequestMetadata | null {
+  if (!error || typeof error !== "object" || !("task" in error)) return null;
+  const task = (error as { task?: Task }).task;
+  const value = task?.status.message?.metadata?.agentNativeConnectionRequest;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  const provider =
+    typeof request.provider === "string" ? request.provider.trim() : "";
+  const reason = request.reason;
+  if (
+    request.version !== 1 ||
+    !provider ||
+    provider.length > 120 ||
+    (reason !== "connect" &&
+      reason !== "grant" &&
+      reason !== "reauthorize" &&
+      reason !== "admin_required")
+  ) {
+    return null;
+  }
+  const appId = typeof request.appId === "string" ? request.appId.trim() : "";
+  const detail =
+    typeof request.detail === "string" ? request.detail.trim() : "";
+  return {
+    version: 1,
+    provider,
+    reason,
+    ...(appId && appId.length <= 120 ? { appId } : {}),
+    ...(detail && detail.length <= 1_000 ? { detail } : {}),
+  };
 }
 
 const MAX_CONNECTED_AGENT_PROGRESS_DETAIL_CHARS = 200;
@@ -4083,6 +4141,48 @@ const PERMANENT_PRECONDITION_LINE_PATTERNS: readonly RegExp[] = [
   /^code:\s*permanent_precondition\s*$/m,
   /^(?!\s)[^\n]*\(errorCode:\s*permanent_precondition\)\s*$/m,
 ];
+
+const PERMANENT_PRECONDITION_REASON_MAX_CHARS = 240;
+
+/**
+ * The concrete "what's actually missing" for a permanent-precondition stop,
+ * pulled out of the tool error so the headline can lead with it instead of
+ * the generic "needs a setup step" sentence. `runToolCall` always wraps a
+ * thrown error as `Error running <tool>: <message>`; a nested
+ * `AgentActionStopError` (see the catch above) skips that wrapper and starts
+ * with the message itself. Both prefixes are stripped so the reason starts
+ * at the actual sentence ("Requires editor role on …"), not the tool name.
+ */
+export function permanentPreconditionReason(
+  toolName: string,
+  message: string,
+): string | null {
+  const escapedName = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const reason = message
+    .replace(new RegExp(`^Error running ${escapedName}:\\s*`), "")
+    .replace(new RegExp(`^${escapedName}:\\s*`), "")
+    // `runToolCall` suffixes a contract error's own code; it is the marker
+    // that classified this stop, not part of the reason.
+    .replace(/\s*\(errorCode: permanent_precondition\)\s*$/i, "")
+    .trim()
+    // The headline appends its own sentence punctuation.
+    .replace(/[.。]+$/, "");
+  if (!reason) return null;
+  // A nested A2A/ask_app delegation's error text can itself be a terminal
+  // stop narrative (its own "I stopped because …" headline plus the
+  // `permanent_precondition` marker). Embedding that whole payload as "the
+  // concrete reason" doubles the narrative instead of naming what's missing,
+  // so fall back to the generic headline instead.
+  if (
+    /\bI stopped because\b/i.test(reason) ||
+    /permanent_precondition/i.test(reason)
+  ) {
+    return null;
+  }
+  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
+    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
+    : reason;
+}
 
 const SOURCE_SWEEP_TOOL_NAME =
   /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
@@ -6088,6 +6188,16 @@ export async function runAgentLoop(opts: {
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
+    let requestedConnection:
+      | {
+          requestId: string;
+          provider: string;
+          reason: "connect" | "grant" | "reauthorize" | "admin_required";
+          appId?: string;
+          detail: string;
+          source?: { id: string; kind?: string; label?: string };
+        }
+      | undefined;
     // An `endsTurn` action ran and handed control to the user. Distinct from
     // `requestedActionStop`, which also covers failure stops that must not
     // suppress the remaining tool calls.
@@ -6212,25 +6322,39 @@ export async function runAgentLoop(opts: {
           ...(artifacts?.length ? { artifacts } : {}),
         });
       };
+      // An action that stops itself (AgentActionStopError) is classified on
+      // its user-facing `message`, not on the model-facing `toolResult` that
+      // becomes the tool result; an explicit `permanent_precondition` code is
+      // the classification and need not match the text heuristics.
+      let directStop: { message: string; explicit: boolean } | null = null;
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
         // Counting is the wrong instrument for a precondition the turn cannot
         // satisfy: six identical round-trips through a missing API key cost the
         // user minutes and end where the first one did. Classified first so the
         // remedy reaches them on attempt one.
-        const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
+        const permanentRemedy = directStop?.explicit
+          ? directStop.message
+          : permanentPreconditionRemedy(directStop?.message ?? sanitizedResult);
         if (permanentRemedy) {
+          const reason = permanentPreconditionReason(
+            toolCall.name,
+            permanentRemedy,
+          );
           requestedActionStop ??= {
-            message:
-              `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
-              "Retrying would not have changed it, and anything completed before this is saved.",
+            message: reason
+              ? `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
+              : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
+                "Retrying would not have changed it, and anything completed before this is saved.",
             errorCode: "permanent_precondition",
             details: sanitizedResult,
           };
-          return (
-            `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
-            `Do not retry it with different arguments. ${sanitizedResult}`
-          );
+          return reason
+            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`
+            : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`;
         }
         const errorKey = `${toolCallCacheKey(
           toolCall.name,
@@ -7106,15 +7230,42 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          if (isAgentActionStopError(err)) {
+          if (isAgentConnectionRequiredError(err)) {
+            const message =
+              sanitizeToolErrorValue(err.message) ||
+              `Connect ${err.provider} to continue.`;
+            result = sanitizeToolErrorValue(err.toolResult || message);
+            requestedConnection ??= {
+              requestId: randomUUID(),
+              provider: err.provider,
+              reason: err.reason,
+              appId: err.appId,
+              detail: message,
+              source: err.source,
+            };
+            turnYieldedToUser = true;
+            requestedActionStop ??= {
+              message,
+              errorCode: "connection-required",
+            };
+          } else if (isAgentActionStopError(err)) {
             const message =
               sanitizeToolErrorValue(err.message) ||
               `Stopped after ${toolCall.name} failed.`;
             result = sanitizeToolErrorValue(err.toolResult || message);
-            requestedActionStop ??= {
+            // A stop that is itself a permanent precondition gets its
+            // reason-led headline from `finalizeToolErrorResult`; seeding the
+            // raw message here would win its `??=` and hide that headline.
+            directStop = {
               message,
-              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+              explicit: err.errorCode === "permanent_precondition",
             };
+            if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
+              requestedActionStop ??= {
+                message,
+                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+              };
+            }
           } else {
             const message = sanitizeToolErrorValue(err);
             // A code the action chose is worth more to the model than the
@@ -7341,7 +7492,11 @@ export async function runAgentLoop(opts: {
       // TypeScript can't track ??= through async closures; cast to known type.
       const stop = requestedActionStop as TerminalActionStop;
       terminalActionStop = stop;
-      sendTerminalActionStop(stop);
+      if (requestedConnection) {
+        send({ type: "connection_required", ...requestedConnection });
+      } else {
+        sendTerminalActionStop(stop);
+      }
       break;
     }
   }
@@ -7457,6 +7612,12 @@ export async function runAgentLoop(opts: {
     reportOutcome({
       state: "input_required",
       code: "awaiting_user_input",
+      message: finalTerminalActionStop.message,
+    });
+  } else if (finalTerminalActionStop?.errorCode === "connection-required") {
+    reportOutcome({
+      state: "input_required",
+      code: "connection_required",
       message: finalTerminalActionStop.message,
     });
   } else if (finalTerminalActionStop) {

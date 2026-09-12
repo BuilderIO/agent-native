@@ -277,6 +277,54 @@ export function isAgentActionStopError(
   );
 }
 
+export interface AgentConnectionRequiredOptions {
+  provider: string;
+  reason?: "connect" | "grant" | "reauthorize" | "admin_required";
+  appId?: string;
+  source?: { id: string; kind?: string; label?: string };
+  toolResult?: string;
+}
+
+/**
+ * Pauses an agent turn until the host resolves a provider through its trusted
+ * connection catalog. Connection URLs, credentials, and OAuth scopes are not
+ * accepted here by design.
+ */
+export class AgentConnectionRequiredError extends AgentActionStopError {
+  readonly agentConnectionRequired = true;
+  readonly provider: string;
+  readonly reason: NonNullable<AgentConnectionRequiredOptions["reason"]>;
+  readonly appId?: string;
+  readonly source?: AgentConnectionRequiredOptions["source"];
+
+  constructor(message: string, options: AgentConnectionRequiredOptions) {
+    super(message, {
+      errorCode: "connection_required",
+      toolResult: options.toolResult,
+    });
+    this.name = "AgentConnectionRequiredError";
+    this.provider = options.provider;
+    this.reason = options.reason ?? "connect";
+    this.appId = options.appId;
+    this.source = options.source;
+  }
+}
+
+export function isAgentConnectionRequiredError(
+  error: unknown,
+): error is AgentConnectionRequiredError {
+  return (
+    error instanceof AgentConnectionRequiredError ||
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      "agentConnectionRequired" in error &&
+      (error as { agentConnectionRequired?: unknown })
+        .agentConnectionRequired === true,
+    )
+  );
+}
+
 /** HTTP exposure config for an action. */
 export interface ActionHttpConfig {
   /**
@@ -654,6 +702,13 @@ interface DefineActionWithSchema<
    *  `packages/core/src/server/action-routes.ts`. Audit reference: H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /**
+   * Capability scopes that may invoke this action through the page-local
+   * WebMCP route without an account session. The route still supplies the
+   * verified capability to request context, so the action's own access checks
+   * remain authoritative.
+   */
+  capabilityScopes?: readonly string[];
   /** Explicit public-agent exposure metadata. Public web routes never imply
    *  public MCP/A2A/OpenAPI tool exposure. Actions must opt in here and public
    *  protocol mounts must still filter for safe, route-appropriate tools. */
@@ -815,6 +870,8 @@ interface DefineActionWithParams<
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
   toolCallable?: boolean;
+  /** Capability scopes allowed on the page-local WebMCP route. */
+  capabilityScopes?: readonly string[];
   /** Explicit public-agent exposure metadata. See schema overload above. */
   publicAgent?: PublicAgentActionConfig;
   /** Optional deep-link builder. See schema overload above. */
@@ -887,6 +944,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
+  readonly capabilityScopes?: readonly string[];
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
@@ -1188,6 +1246,10 @@ export function defineAction(options: any) {
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
+    ...(Array.isArray(options.capabilityScopes) &&
+    options.capabilityScopes.length > 0
+      ? { capabilityScopes: options.capabilityScopes }
+      : {}),
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),

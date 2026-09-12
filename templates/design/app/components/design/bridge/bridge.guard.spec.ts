@@ -52,7 +52,10 @@ const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
-  "editor-chrome.bridge.ts": ["@agent-native/toolkit/canvas-interactions"],
+  "editor-chrome.bridge.ts": [
+    "@agent-native/toolkit/canvas-interactions",
+    "@jridgewell/trace-mapping",
+  ],
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────

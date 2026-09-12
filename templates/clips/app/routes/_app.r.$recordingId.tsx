@@ -563,7 +563,7 @@ export default function RecordingPage() {
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
 
-  const [panel, setPanel] = useState<SidePanel | null>("transcript");
+  const [panel, setPanel] = useState<SidePanel | null>("comments");
   const globalAgentSidebarOpen = useGlobalAgentSidebarOpen();
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -992,11 +992,12 @@ export default function RecordingPage() {
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
-      (!browserDiagnostics && panel === "debug")
+      (!browserDiagnostics && panel === "debug") ||
+      (recording && !recording.enableComments && panel === "comments")
     ) {
       setPanel("transcript");
     }
-  }, [browserDiagnostics, canEdit, panel]);
+  }, [browserDiagnostics, canEdit, panel, recording]);
 
   useEffect(() => {
     if (panelParam === "agent") {
@@ -1005,7 +1006,9 @@ export default function RecordingPage() {
       return;
     }
     if (panelParam === "comments") {
-      setPanel(recording?.enableComments ? "comments" : "transcript");
+      setPanel(
+        recording && !recording.enableComments ? "transcript" : "comments",
+      );
       if (isCompactLayout) {
         requestAnimationFrame(() => {
           commentsSectionRef.current?.scrollIntoView({ block: "start" });
@@ -1983,7 +1986,10 @@ export default function RecordingPage() {
   const renderPanelTabs = () => (
     <ViewerTabsList className="min-w-0 shrink-0 bg-sidebar">
       {recording.enableComments ? (
-        <ViewerTabsTrigger value="comments">
+        <ViewerTabsTrigger
+          value="comments"
+          className="px-0 data-[state=active]:after:inset-x-0"
+        >
           {t("playerSettings.comments")}
         </ViewerTabsTrigger>
       ) : null}
@@ -2022,15 +2028,10 @@ export default function RecordingPage() {
       className={cn(
         "scroll-mt-14",
         compact
-          ? "flex min-h-0 flex-1 flex-col px-4 pb-5 pt-4"
+          ? "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"
           : "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3",
       )}
     >
-      {!compact ? (
-        <h2 className="mb-3 shrink-0 text-sm font-semibold">
-          {t("playerSettings.comments")}
-        </h2>
-      ) : null}
       <CommentsPanel
         recordingId={recording.id}
         comments={comments}

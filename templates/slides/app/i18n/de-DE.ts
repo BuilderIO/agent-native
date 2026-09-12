@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Einstellungen",
     description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
+    labs: "Labs",
+    labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",
+    labLayoutOverflowWarningDescription:
+      "Die Layout-Überlaufwarnung im Editor anzeigen.",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:
       "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
@@ -298,6 +302,10 @@ const messages = {
     exportPptx: "Als PPTX exportieren",
     connectGoogle: "Google verbinden",
     openInGoogleSlides: "In Google Slides öffnen",
+    googleSlidesUnavailable: "Nicht verfügbar",
+    googleSlidesOpenImporter: "Google Slides-Import öffnen",
+    googleSlidesUnavailableHint:
+      "Der Export nach Google Slides ist derzeit nicht verfügbar, da die Google-Verbindung nicht eingerichtet ist. Exportiere stattdessen als PPTX und importiere die Datei in Google Slides.",
     googleSlidesCreated: "In Google Slides geöffnet",
     googleSlidesCreatedHint:
       "Eine Kopie dieser Präsentation wurde in deinem Google Drive erstellt.",

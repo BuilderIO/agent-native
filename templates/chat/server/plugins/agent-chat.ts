@@ -6,7 +6,12 @@ import {
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 
-const INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"];
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "navigate",
+  "hello",
+  "provider-api-request",
+];
 
 export default createAgentChatPlugin({
   appId: "chat",

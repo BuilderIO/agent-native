@@ -6,6 +6,8 @@ import {
   gmailListLabels,
   gmailCreateLabel,
 } from "./google-api.js";
+import { syncInboxLabelDelta } from "./inbox-store-sync.js";
+import { findThreadIdsByMessageIds } from "./inbox-store.js";
 
 export interface ActionContext {
   accessToken: string;
@@ -67,6 +69,30 @@ export async function ensureGmailLabel(
 }
 
 /**
+ * Mirror an automation's Gmail mutation into the synced inbox store,
+ * best-effort: resolves the message's threadId from the store's own
+ * `message_ids_json` (no extra Gmail round-trip) and skips silently when the
+ * message hasn't synced yet — the next history sync reconciles it, same as
+ * every other optimistic store patch.
+ */
+async function mirrorStoreDelta(
+  ctx: ActionContext,
+  delta: { add?: string[]; remove?: string[] },
+): Promise<void> {
+  const threadId = (
+    await findThreadIdsByMessageIds(ctx.ownerEmail, ctx.accountEmail, [
+      ctx.messageId,
+    ])
+  ).get(ctx.messageId);
+  if (!threadId) return;
+  await syncInboxLabelDelta(ctx.ownerEmail, ctx.accountEmail, [threadId], {
+    ...delta,
+    scope: "message",
+    messageIds: [ctx.messageId],
+  });
+}
+
+/**
  * Execute a single automation action against a Gmail message.
  */
 export async function executeAction(
@@ -82,23 +108,29 @@ export async function executeAction(
           ctx.labelCache,
         );
         await gmailModifyMessage(ctx.accessToken, ctx.messageId, [labelId]);
+        await mirrorStoreDelta(ctx, { add: [labelId] });
         return { success: true };
       }
       case "archive":
         await gmailModifyMessage(ctx.accessToken, ctx.messageId, undefined, [
           "INBOX",
         ]);
+        await mirrorStoreDelta(ctx, { remove: ["INBOX"] });
         return { success: true };
       case "mark_read":
         await gmailModifyMessage(ctx.accessToken, ctx.messageId, undefined, [
           "UNREAD",
         ]);
+        await mirrorStoreDelta(ctx, { remove: ["UNREAD"] });
         return { success: true };
       case "star":
         await gmailModifyMessage(ctx.accessToken, ctx.messageId, ["STARRED"]);
+        await mirrorStoreDelta(ctx, { add: ["STARRED"] });
         return { success: true };
       case "trash":
         await gmailTrashMessage(ctx.accessToken, ctx.messageId);
+        // Gmail's messages.trash contract: adds TRASH, removes INBOX.
+        await mirrorStoreDelta(ctx, { add: ["TRASH"], remove: ["INBOX"] });
         return { success: true };
       default:
         return {

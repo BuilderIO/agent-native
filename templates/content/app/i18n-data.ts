@@ -3173,6 +3173,8 @@ const enUS = {
   landing: {
     previousPageUnavailable:
       "Your previous page is no longer available, so we opened Welcome.",
+    requestedPageUnavailable:
+      "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
   },
   team: {
@@ -3228,7 +3230,6 @@ const enUS = {
     documentUnavailableDescription:
       "This page may have been deleted, or it has not been shared with your account.",
     documentNotFound: "Document not found",
-    goToDocuments: "Go to documents",
     newPage: "New page",
     createFailed: "Failed to create page",
     genericError: "Something went wrong",
@@ -3716,7 +3717,6 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       documentUnavailable: "文档不可用",
       documentUnavailableDescription:
         "此页面可能已被删除，或尚未共享给你的账户。",
-      goToDocuments: "前往文档",
     },
     editor: {
       suggestionCreateFailed: "无法创建建议",
@@ -3965,7 +3965,6 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       documentUnavailableDescription:
         "Es posible que esta página se haya eliminado o no se haya compartido con tu cuenta.",
       documentNotFound: "Documento no encontrado",
-      goToDocuments: "Ir a documentos",
     },
     editor: {
       suggestionCreateFailed: "No se pudo crear la sugerencia",
@@ -10255,50 +10254,70 @@ const commentMessagesByLocale = {
 const landingMessagesByLocale = {
   "zh-CN": {
     previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
+    requestedPageUnavailable:
+      "该页面对你的账户不可用，因此我们打开了欢迎页面。",
     saveFailed: "无法保存您的位置",
   },
   "zh-TW": {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    requestedPageUnavailable:
+      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
   },
   "es-ES": {
     previousPageUnavailable:
       "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
+    requestedPageUnavailable:
+      "Esa página no está disponible para tu cuenta, así que abrimos la página de bienvenida.",
     saveFailed: "No se pudo guardar tu ubicación",
   },
   "fr-FR": {
     previousPageUnavailable:
       "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
+    requestedPageUnavailable:
+      "Cette page n’est pas accessible à votre compte. Nous avons donc ouvert la page de bienvenue.",
     saveFailed: "Votre emplacement n’a pas pu être enregistré",
   },
   "de-DE": {
     previousPageUnavailable:
       "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
+    requestedPageUnavailable:
+      "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
     saveFailed: "Deine Position konnte nicht gespeichert werden",
   },
   "ja-JP": {
     previousPageUnavailable:
       "前回のページを利用できないため、ようこそページを開きました。",
+    requestedPageUnavailable:
+      "そのページはお使いのアカウントでは利用できないため、ようこそページを開きました。",
     saveFailed: "現在位置を保存できませんでした",
   },
   "ko-KR": {
     previousPageUnavailable:
       "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
+    requestedPageUnavailable:
+      "해당 페이지는 이 계정에서 사용할 수 없어 시작 페이지를 열었습니다.",
     saveFailed: "현재 위치를 저장하지 못했습니다",
   },
   "pt-BR": {
     previousPageUnavailable:
       "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
+    requestedPageUnavailable:
+      "Essa página não está disponível para sua conta, então abrimos a página de boas-vindas.",
     saveFailed: "Não foi possível salvar sua localização",
   },
   "hi-IN": {
     previousPageUnavailable:
       "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
+    requestedPageUnavailable:
+      "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
     saveFailed: "आपकी जगह सेव नहीं की जा सकी",
   },
   "ar-SA": {
     previousPageUnavailable:
       "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
+    requestedPageUnavailable:
+      "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
     saveFailed: "تعذر حفظ موضعك",
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, typeof enUS.landing>;

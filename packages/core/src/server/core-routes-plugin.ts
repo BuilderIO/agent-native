@@ -168,6 +168,7 @@ import {
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
   normalizeBuilderAgentContext,
+  parseBuilderConnectStateCookie,
   provisionBuilderAccount,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
@@ -227,6 +228,7 @@ import { shouldReportError } from "./error-noise-filter.js";
 import {
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
+  type H3AppShim,
   awaitBootstrap,
   markDefaultPluginProvided,
   markFrameworkRoutesReadyBeforeBootstrap,
@@ -1269,6 +1271,36 @@ export async function readBuilderConnectPendingState(
   }
 }
 
+/**
+ * Narrows cookie-recovered states to the flows that could still complete.
+ * Returns null when the pending store cannot be read: unreadable is not the
+ * same as dead, and treating it as dead would discard live flows.
+ */
+export async function selectLiveBuilderConnectStates(
+  states: string[],
+  now = Date.now(),
+  read: typeof getSetting = getSetting,
+): Promise<string[] | null> {
+  const live: string[] = [];
+  for (const state of states) {
+    let pending: Record<string, unknown> | null;
+    try {
+      pending = await read(`builder-connect-pending:${state}`);
+    } catch (err) {
+      console.error(
+        "[builder] Could not read pending-connect state:",
+        (err as Error)?.message ?? err,
+      );
+      return null;
+    }
+    if (!pending || pending.consumed === true) continue;
+    const expiresAt = pending.expiresAt;
+    if (typeof expiresAt !== "number" || now >= expiresAt) continue;
+    live.push(state);
+  }
+  return live;
+}
+
 const BUILDER_CONNECT_PENDING_PREFIX = "builder-connect-pending:";
 
 export async function purgeExpiredBuilderConnectPendingStates(
@@ -1847,6 +1879,57 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
   }
 }
 
+export function mountApplicationStateRoutes(
+  nitroApp: any,
+  routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
+  app: H3AppShim = getH3App(nitroApp),
+): void {
+  app.use(
+    `${routePrefix}/application-state/compose`,
+    defineEventHandler(async (event: H3Event) => {
+      const id =
+        (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+      if (event.context) {
+        event.context.params = { ...event.context.params, id };
+      }
+      const method = getMethod(event);
+      if (!id) {
+        if (method === "GET") return listComposeDrafts(event);
+        if (method === "DELETE") return deleteAllComposeDrafts(event);
+      } else {
+        if (method === "GET") return getComposeDraft(event);
+        if (method === "PUT") return putComposeDraft(event);
+        if (method === "DELETE") return deleteComposeDraft(event);
+      }
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }),
+  );
+
+  app.use(
+    `${routePrefix}/application-state`,
+    defineEventHandler(async (event: H3Event) => {
+      const key =
+        (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+      if (key === "compose") return;
+      if (key === "") {
+        if (getMethod(event) === "GET") return getStateMany(event);
+        return;
+      }
+      if (event.context) {
+        event.context.params = { ...event.context.params, key };
+      }
+      const method = getMethod(event);
+      if (method === "GET") return getState(event);
+      if (method === "PUT") return putState(event);
+      if (method === "PATCH") return compareAndSetState(event);
+      if (method === "DELETE") return deleteState(event);
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }),
+  );
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1877,6 +1960,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
         `${FRAMEWORK_ROUTE_PREFIX}/identity`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
+        `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -1887,6 +1971,7 @@ export function createCoreRoutesPlugin(
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
+        ...(!options.disableAppState ? [`${P}/application-state`] : []),
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
@@ -1895,6 +1980,13 @@ export function createCoreRoutesPlugin(
       // provider under the conventional `s3` id, so preserve that explicit
       // registration instead of replacing it during core bootstrap.
       ensureS3FileUploadProvider();
+
+      if (!options.disableAppState) {
+        // Application state is part of the client bootstrap contract. Register
+        // it before optional plugin/bootstrap work so the first localization
+        // write cannot fall through to the template router on a cold start.
+        mountApplicationStateRoutes(nitroApp, P);
+      }
 
       // This response is a side-effect-free static contract used by the SSR
       // shell. Mount it before optional default-plugin/bootstrap work so a
@@ -3865,12 +3957,50 @@ export function createCoreRoutesPlugin(
           // from the host-only cookie set by /builder/connect; the pending row
           // and authenticated session still bind it to this account.
           const queryState = requestUrl.searchParams.get("state");
-          const state = resolveBuilderConnectCallbackState(
-            queryState,
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-          );
+          const rawStateCookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+          const cookieStates = parseBuilderConnectStateCookie(rawStateCookie);
+          // A consumed, expired, or already-failed state must not make a
+          // recoverable callback look ambiguous. A null selection means the
+          // pending store could not be read, so keep the cookie as-is and let
+          // the resolver fail closed on it.
+          const liveStates = cookieStates?.length
+            ? await selectLiveBuilderConnectStates(cookieStates)
+            : cookieStates;
+          const { state, resetStateCookie } =
+            resolveBuilderConnectCallbackState(
+              queryState,
+              liveStates ? liveStates.join(",") : rawStateCookie,
+            );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           let callbackAttemptId = requestConnectAttemptId;
+          // A finished attempt — succeeded or failed — must not leave its
+          // state in the cookie, or the next restart resolves against two
+          // states and fails for a reason the user cannot clear.
+          const dropConnectStateCookie = (finishedState: string) => {
+            const cookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+            if (!cookie) return;
+            const remaining = removeBuilderConnectStateCookie(
+              cookie,
+              finishedState,
+            );
+            // Rewriting a cookie this attempt does not own would resurrect
+            // states a concurrent callback just finished with.
+            if (remaining === cookie) return;
+            if (!remaining) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+              return;
+            }
+            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remaining, {
+              httpOnly: true,
+              secure: (
+                resolveBuilderConnectCallbackUrl(event, finishedState) ??
+                parentOrigin
+              ).startsWith("https://"),
+              sameSite: "lax",
+              path: "/",
+              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+            });
+          };
           const fail = async (
             status: number,
             message: string,
@@ -3878,6 +4008,7 @@ export function createCoreRoutesPlugin(
             reason?: string,
             tracking: BuilderConnectTrackingParams = {},
           ) => {
+            if (state) dropConnectStateCookie(state);
             if (ownerEmail) {
               await putSetting(
                 getBuilderConnectErrorKey(ownerEmail, callbackAttemptId),
@@ -3913,6 +4044,16 @@ export function createCoreRoutesPlugin(
           };
 
           if (!state || !isSignedBuilderConnectState(state)) {
+            // This route is a SameSite=Lax GET, so a prefetch, a history
+            // revisit, or a cross-site link reaches it without a payload.
+            // Only a request carrying a real OAuth result may discard the
+            // recovery states of flows still running in other tabs.
+            const carriesOAuthResult =
+              requestUrl.searchParams.has("code") ||
+              requestUrl.searchParams.has("error");
+            if (resetStateCookie && carriesOAuthResult) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+            }
             return fail(
               403,
               "No active Builder connect flow found. Restart the connection from Settings.",
@@ -4063,21 +4204,7 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const remainingStates = removeBuilderConnectStateCookie(
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-            state,
-          );
-          if (remainingStates) {
-            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remainingStates, {
-              httpOnly: true,
-              secure: expectedRedirectUri.startsWith("https://"),
-              sameSite: "lax",
-              path: "/",
-              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
-            });
-          } else {
-            deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
-          }
+          dropConnectStateCookie(state);
 
           try {
             await Promise.all([
@@ -5257,64 +5384,6 @@ export function createCoreRoutesPlugin(
         );
       }
 
-      if (!options.disableAppState) {
-        // Compose draft routes (more specific path, mounted first so the
-        // generic app-state matcher below doesn't shadow them). The framework
-        // strips the mount prefix from event.url.pathname before calling us,
-        // so we just see e.g. `/abc-123` (id) or `/` (collection root).
-        getH3App(nitroApp).use(
-          `${P}/application-state/compose`,
-          defineEventHandler(async (event: H3Event) => {
-            const id =
-              (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
-              "";
-            if (event.context) {
-              event.context.params = { ...event.context.params, id };
-            }
-            const method = getMethod(event);
-            if (!id) {
-              if (method === "GET") return listComposeDrafts(event);
-              if (method === "DELETE") return deleteAllComposeDrafts(event);
-            } else {
-              if (method === "GET") return getComposeDraft(event);
-              if (method === "PUT") return putComposeDraft(event);
-              if (method === "DELETE") return deleteComposeDraft(event);
-            }
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }),
-        );
-
-        // Generic application state — match `/application-state/:key` only
-        // (NOT `/application-state/compose/...` which the handler above owns).
-        getH3App(nitroApp).use(
-          `${P}/application-state`,
-          defineEventHandler(async (event: H3Event) => {
-            const key =
-              (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
-              "";
-            // Skip — compose handler above already handled it
-            if (key === "compose") return;
-            // Collection root: `GET ?keys=a,b,c` batches many single-key reads
-            // into one request (and one identity resolution) — the chat rail
-            // alone reads ~6 keys on every mount.
-            if (key === "") {
-              if (getMethod(event) === "GET") return getStateMany(event);
-              return;
-            }
-            if (event.context) {
-              event.context.params = { ...event.context.params, key };
-            }
-            const method = getMethod(event);
-            if (method === "GET") return getState(event);
-            if (method === "PUT") return putState(event);
-            if (method === "PATCH") return compareAndSetState(event);
-            if (method === "DELETE") return deleteState(event);
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }),
-        );
-      }
       resolveInit();
     } catch (error) {
       // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,

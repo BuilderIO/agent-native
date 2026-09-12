@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    labs: "المختبرات",
+    labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+    labLayoutOverflowWarningDescription: "إظهار تحذير تجاوز التخطيط في المحرر.",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
@@ -295,6 +298,10 @@ const messages = {
     exportPptx: "تصدير بصيغة PPTX",
     connectGoogle: "توصيل Google",
     openInGoogleSlides: "فتح في Google Slides",
+    googleSlidesUnavailable: "غير متاح",
+    googleSlidesOpenImporter: "فتح استيراد Google Slides",
+    googleSlidesUnavailableHint:
+      "تصدير Google Slides غير متاح حاليًا لأن اتصال Google غير مُهيأ. صدّر الملف بصيغة PPTX واستورده إلى Google Slides بدلاً من ذلك.",
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",

@@ -36,6 +36,7 @@ const guards = [
   "guard:toolkit-must-not-import-core",
   "guard:template-ui-imports",
   "guard:controller-boundaries",
+  "guard:agentkit-stream-ownership",
   "guard:migration-manifest",
   "guard:eject-manifests",
   "guard:no-generated-artifacts",
