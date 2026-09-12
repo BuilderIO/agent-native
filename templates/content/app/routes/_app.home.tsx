@@ -7,8 +7,8 @@ import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
-import { readContentLandingRecovery } from "@/lib/content-landing";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
+import { readContentLandingRecovery } from "@/lib/content-landing";
 import {
   landingOptimisticTitle,
   stashLandingTitleHint,
