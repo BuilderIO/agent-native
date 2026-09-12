@@ -12,7 +12,7 @@ import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
   onClick?: React.MouseEventHandler<HTMLElement>;
-  "aria-disabled"?: boolean;
+  "aria-busy"?: boolean;
 }>;
 
 export interface BuilderConnectPopoverProps {
@@ -22,6 +22,8 @@ export interface BuilderConnectPopoverProps {
     /** Retry the status request without bypassing provisioning consent. */
     retry?: () => void;
     statusResolved?: boolean;
+    /** Set when the status read itself failed, so a queued click can stop. */
+    error?: string | null;
   };
   children: BuilderConnectTrigger;
   /** Preserve a surface-specific tracking source or callback when choosing a path. */
@@ -53,6 +55,13 @@ export function BuilderConnectPopover({
     (capabilityResolved && flow.agentNativeProvisioningEnabled === true);
   const accountExists = capabilityResolved && flow.accountExists;
   const initiatedByThisTriggerRef = useRef(false);
+  // A click landing before the first status read cannot be answered yet:
+  // whether it connects directly or asks for provisioning consent is exactly
+  // what that read decides. The trigger renders as an ordinary enabled button
+  // for that whole window, which is seconds long on a cold serverless start,
+  // so the intent is held rather than discarded.
+  const [clickPendingCapability, setClickPendingCapability] = useState(false);
+  const statusUnreadable = Boolean(flow.error);
 
   useEffect(() => {
     if (accountExists && initiatedByThisTriggerRef.current) {
@@ -71,9 +80,33 @@ export function BuilderConnectPopover({
     flow.start({ provisionAccount });
   };
 
+  const releaseQueuedClick = () => {
+    setClickPendingCapability(false);
+    if (showPopover) {
+      setOpen(true);
+      return;
+    }
+    start(false);
+  };
+  const releaseQueuedClickRef = useRef(releaseQueuedClick);
+  releaseQueuedClickRef.current = releaseQueuedClick;
+
+  useEffect(() => {
+    if (!clickPendingCapability) return;
+    if (capabilityResolved) {
+      releaseQueuedClickRef.current();
+      return;
+    }
+    // An unresolved capability plus a surfaced read error is a settled
+    // failure, not a slow read. Surfaces that render this popover also render
+    // `flow.error`, so the user already has the reason; dropping the intent
+    // here is what keeps the trigger from sitting busy forever against an
+    // unreachable status route.
+    if (statusUnreadable) setClickPendingCapability(false);
+  }, [clickPendingCapability, capabilityResolved, statusUnreadable]);
+
   const trigger = React.cloneElement(children, {
-    "aria-disabled":
-      capabilityResolved || defaultProvisionAccount ? undefined : true,
+    "aria-busy": clickPendingCapability ? true : undefined,
     onClick: (event) => {
       if (flow.connecting) {
         event.preventDefault();
@@ -85,9 +118,10 @@ export function BuilderConnectPopover({
         event.stopPropagation();
         if (defaultProvisionAccount) {
           setOpen(true);
-        } else {
-          flow.retry?.();
+          return;
         }
+        setClickPendingCapability(true);
+        flow.retry?.();
         return;
       }
       children.props.onClick?.(event);
