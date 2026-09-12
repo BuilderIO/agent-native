@@ -97,6 +97,7 @@ const messages = {
       pr_observed: "PR observé",
       auto_approved: "Approuvé automatiquement",
       merged: "Fusionné",
+      resolved: "Résolu",
     },
     refresh: "Actualiser",
     queueError: "Impossible de charger la file d’observation.",
@@ -234,6 +235,11 @@ const messages = {
     inboxTitle: "Boîte de réception des observations",
     inboxTab: "Boîte de réception",
     inboxBackToList: "Retour à la boîte de réception",
+    inboxRowActions: "Actions pour {{title}}",
+    inboxMarkResolved: "Marquer comme résolu",
+    inboxSendBackToAutomation: "Renvoyer à l'automatisation",
+    inboxOutcomeUpdated: "Statut mis à jour",
+    inboxOutcomeFailed: "Impossible de mettre à jour le statut",
     inboxDescription:
       "Les éléments observés entrent dans la factory avant le travail autonome.",
     selectObservation:
