@@ -154,37 +154,79 @@ describe("content db.ts migration entries follow the naming convention", () => {
  * guard above, a future column could still ship without a migration if
  * someone forgets to update this file. `ensureAdditiveColumns` (from
  * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after both
- * `runContentMigrations(...)` and `runContentSourceMigrations(...)` so
- * hand-written migrations stay authoritative — not just that the regex guard
- * above passes.
+ * gap — but since the startup-speedup change it no longer runs inline at
+ * boot: the db plugin only awaits the hand-written migrations and then
+ * schedules server/lib/startup-maintenance.ts, which runs the net and the
+ * one-time data repairs once per isolate, after boot, retrying loudly on
+ * failure. These assertions pin that wiring: the net still exists, still
+ * runs after both migration runners, and boot no longer blocks on it.
  */
-describe("content db.ts wires ensureAdditiveColumns after runMigrations", () => {
+describe("content db.ts schedules post-boot maintenance after runMigrations", () => {
+  const maintenanceSource = readFileSync(
+    new URL("../lib/startup-maintenance.ts", import.meta.url),
+    "utf8",
+  );
+
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
-    expect(dbTsSource).toMatch(
+    expect(maintenanceSource).toMatch(
       /import\s*\{[^}]*\bensureAdditiveColumns\b[^}]*\}\s*from\s*["']@agent-native\/core\/db["']/,
     );
+    expect(maintenanceSource).toContain("ensureAdditiveColumns({");
   });
 
-  it("calls ensureAdditiveColumns after both migration runners complete", () => {
+  it("schedules maintenance only after both migration runners are awaited", () => {
     const contentMigrationsCallIdx = dbTsSource.indexOf(
       "runContentMigrations(",
     );
     const sourceMigrationsCallIdx = dbTsSource.indexOf(
       "runContentSourceMigrations(",
     );
-    const ensureCallIdx = dbTsSource.indexOf("ensureAdditiveColumns({");
+    const scheduleCallIdx = dbTsSource.indexOf(
+      "void scheduleStartupMaintenance();",
+    );
     expect(contentMigrationsCallIdx).toBeGreaterThan(-1);
     expect(sourceMigrationsCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(contentMigrationsCallIdx);
-    expect(ensureCallIdx).toBeGreaterThan(sourceMigrationsCallIdx);
+    expect(scheduleCallIdx).toBeGreaterThan(-1);
+    expect(scheduleCallIdx).toBeGreaterThan(contentMigrationsCallIdx);
+    expect(scheduleCallIdx).toBeGreaterThan(sourceMigrationsCallIdx);
 
-    // Both migration plugin functions must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
+    // Both migration plugin functions must be awaited before the scheduler
+    // is called, not just textually after it — and the scheduler itself must
+    // NOT be awaited (boot no longer pays for the net or the repairs).
     expect(dbTsSource).toMatch(
-      /await\s+runContentMigrations\([^)]*\)[\s\S]*?await\s+runContentSourceMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
+      /await\s+runContentMigrations\([^)]*\)[\s\S]*?await\s+runContentSourceMigrations\([^)]*\)[\s\S]*?void\s+scheduleStartupMaintenance\(\);/,
     );
+  });
+
+  it("boot no longer awaits the net or either repair", () => {
+    expect(dbTsSource).not.toMatch(/await\s+ensureAdditiveColumns/);
+    expect(dbTsSource).not.toMatch(/await\s+repairUnseededBlocksFields/);
+    expect(dbTsSource).not.toMatch(
+      /await\s+repairFilesSystemPropertyDefinitions/,
+    );
+    // The old in-plugin retry helper is gone; retries live in the module.
+    expect(dbTsSource).not.toContain("scheduleBlocksRepairRetry");
+  });
+
+  it("the lazy module runs both repairs after the net and logs failures loudly", () => {
+    // Ordering constraint: the net may add a column a repair's query touches.
+    const netIdx = maintenanceSource.indexOf("additive-columns");
+    const blocksIdx = maintenanceSource.indexOf("blocks-repair");
+    const filesIdx = maintenanceSource.indexOf(
+      "files-system-properties-repair",
+    );
+    expect(netIdx).toBeGreaterThan(-1);
+    expect(blocksIdx).toBeGreaterThan(netIdx);
+    expect(filesIdx).toBeGreaterThan(blocksIdx);
+
+    expect(maintenanceSource).toContain("repairUnseededBlocksFields");
+    expect(maintenanceSource).toContain("repairFilesSystemPropertyDefinitions");
+    // A swallowed repair failure would leave legacy data unrepaired while
+    // looking healthy — the module must log every failed attempt loudly.
+    expect(maintenanceSource).toMatch(
+      /console\.error\(\s*`\[db\] startup maintenance "\$\{label\}"/,
+    );
+    expect(maintenanceSource).toMatch(/\bscheduleRetry\b/);
   });
 
   it("does not remove the body-hydration queue index migration (v60)", () => {

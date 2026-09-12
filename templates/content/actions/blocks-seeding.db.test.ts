@@ -82,6 +82,11 @@ beforeAll(async () => {
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  // The db plugin schedules post-boot maintenance fire-and-forget; joining the
+  // memoized run here keeps its repairs from racing this file's unseeded fixtures.
+  const { scheduleStartupMaintenance } =
+    await import("../server/lib/startup-maintenance.js");
+  await scheduleStartupMaintenance();
 }, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
 
 afterAll(() => {
