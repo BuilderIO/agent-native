@@ -1,6 +1,185 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
-const messages = {
+import { commentAttributionMessagesByLocale } from "../../shared/comment-attribution-messages";
+import { buildMessagesForLocale, type PartialMessages } from "../i18n-data";
+
+const rawLiterals = {
+  sidebar: {
+    addChild: "新增子項目",
+    addChildTo: "新增子項目至 {{title}}",
+    database: "資料庫",
+    databasePermanentlyDeleted: "資料庫已永久刪除",
+    databaseRestored: "資料庫已還原",
+    deleteDatabaseNamedPermanently: "永久刪除 {{title}}",
+    deleteDatabasePermanentlyDescription:
+      "這會永久刪除「{{title}}」及其頁面。此操作無法復原。",
+    deleteDatabasePermanentlyQuestion: "永久刪除資料庫？",
+    deletePermanently: "永久刪除",
+    failedCreateDatabase: "建立資料庫失敗",
+    failedRemoveLocalFiles: "移除本機檔案失敗",
+    failedPermanentDeleteDatabase: "永久刪除資料庫失敗",
+    failedRestoreDatabase: "還原資料庫失敗",
+    failedSaveSidebarState: "儲存側邊欄狀態失敗",
+    localFilesActions: "本機檔案操作",
+    localFilesRemoved: "已移除本機檔案",
+    localFilesRemovedDescription: "已移除 {{count}} 個項目",
+    manageLocalFolders: "管理資料夾",
+    new: "新增",
+    page: "頁面",
+    removeLocalFilesDescription:
+      "這會從 Content 和側邊欄移除本機檔案項目。不會刪除磁碟上的檔案。",
+    removeLocalFilesFromSidebar: "從側邊欄移除",
+    removeLocalFilesQuestion: "從側邊欄移除本機檔案？",
+    restoreDatabase: "還原",
+    restoreDatabaseNamed: "還原 {{title}}",
+    trash: "垃圾桶",
+  },
+};
+
+const landing = {
+  previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+  saveFailed: "無法儲存您的位置",
+};
+
+const comments = {
+  ...commentAttributionMessagesByLocale["zh-TW"],
+  selectTextToComment: "選取文字以新增留言",
+  replyCount_other: "{{count}} 則回覆",
+  commentActions: "留言操作",
+  checkSaved: "檢查已儲存的留言",
+  edit: "編輯",
+  save: "儲存",
+  saving: "正在儲存…",
+  saveUnconfirmed: "無法確認是否已儲存。請先檢查此留言串，再重試。",
+  backToList: "返回留言列表",
+  filter: "篩選",
+  hideIndicators: "隱藏留言和醒目提示",
+  showIndicators: "顯示留言和醒目提示",
+  unanchored: "無法使用醒目提示",
+  suggestions: "建議",
+  suggestionAdd: "新增",
+  suggestionDelete: "刪除",
+  suggestionWith: "替換為",
+  suggestionReplace: "替換",
+  suggestionDetails: "建議詳細資料",
+  typeFilter: "類型",
+  statusFilter: "狀態",
+  authorFilter: "人員",
+  allStatuses: "全部",
+  allAuthors: "所有人",
+  open: "未解決",
+  resolvedStatus: "已解決",
+  pending: "待處理",
+  accepted: "已接受",
+  rejected: "已拒絕",
+  noFilteredComments: "沒有相符的留言。",
+};
+
+const reviewDiscussions = {
+  moreActions: "更多操作",
+  addReaction: "新增回應",
+  markUnread: "標為未讀",
+  markRead: "標為已讀",
+  mute: "靜音此討論",
+  unmute: "取消靜音",
+  unread: "未讀",
+  copyLink: "複製連結",
+  linkCopied: "已複製連結",
+  copyLinkFailed: "無法複製連結",
+  toolFailed: "無法更新討論",
+  reactionCount: "{{reaction}}：{{count}}",
+  linkUnavailable: "此建議無法使用",
+};
+
+const reference = {
+  defaultTitle: "引用",
+  empty: "引用的文件是空的。",
+  loadError: "無法載入引用的文件。",
+  loading: "正在載入引用...",
+  missingPath: "引用路徑缺失或不受支援。",
+  nestedSkipped: "已略過巢狀引用預覽。",
+  notFound: "找不到引用的文件。",
+  open: "開啟",
+  pathMissing: "引用路徑缺失",
+  selfReference: "此引用指向目前文件。",
+};
+
+const sidebarPinned = {
+  pinned: "已釘選",
+  loadingPinned: "正在載入已釘選項目…",
+  dragToReorder: "拖曳以重新排序 {{label}}",
+  moveUp: "上移",
+  moveDown: "下移",
+  moveToPosition: "移至位置",
+  positionNumber: "第 {{position}} 個位置",
+  failedSaveOrder: "無法儲存排序",
+  moreActionsFor: "{{label}} 的更多操作",
+  orderButton: "排序：{{order}}",
+  orderMode: {
+    custom: "自訂",
+    last_edited: "最近編輯",
+    name: "名稱",
+    created: "建立時間",
+  },
+  pinToSidebar: "釘選到側邊欄",
+  unpinFromSidebar: "從側邊欄取消釘選",
+  failedUpdateFavorite: "無法更新已釘選項目",
+  removeFromFavorites: "從側邊欄取消釘選",
+  favorites: "已釘選",
+};
+
+const exactEnglish = {
+  editor: {
+    suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+    suggestionAmendmentFailed: "無法儲存建議",
+    suggestionAmendmentResolved:
+      "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
+    discardSuggestionDraft: "捨棄草稿",
+    toolbar: {
+      info: "資訊",
+      closeUtilityPanel: "關閉面板",
+      exportCsv: "匯出 CSV",
+      exportDatabase: "匯出資料庫",
+      exportFormat: "匯出格式",
+      exportFormatCsv: "CSV",
+      exportFormatMarkdown: "Markdown",
+      exportFormatHtml: "HTML",
+      exportFormatPdf: "PDF",
+      exportScope: "匯出範圍",
+      currentView: "目前檢視",
+      allDatabaseMembers: "所有資料庫項目",
+      allDatabaseMembersDetail: "此資料庫中的每個頁面",
+      exportColumns: "匯出欄位",
+      exportProperties: "屬性",
+      exportPageContent: "頁面內容",
+      primaryPageBody: "主要頁面內容",
+      titleColumn: "標題",
+      blocksColumn: "區塊",
+      exporting: "正在匯出...",
+      preparingExport: "正在準備 {{format}}…",
+      exportedCsv: "已匯出 CSV",
+    },
+  },
+  comments: {
+    title: "評論",
+    empty: "尚無評論。",
+  },
+  sidebar: {
+    addWorkspace: "新增工作區",
+    failedCreateWorkspace: "無法建立工作區",
+    failedUpdateFavorite: "無法更新收藏",
+    removeFromFavorites: "從收藏中移除",
+    localFolder: "本機資料夾",
+    newWorkspace: "新增工作區",
+    newWorkspaceDescription: "建立一個擁有專屬 Files 資料庫的私人工作區。",
+    workspaceName: "工作區名稱",
+    createWorkspace: "建立工作區",
+  },
+};
+
+const history = {};
+
+const overrides = {
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",
@@ -1423,5 +1602,16 @@ const messages = {
     workspaces: "工作區",
   },
 };
+
+const messages = buildMessagesForLocale("zh-TW", overrides, {
+  rawLiterals,
+  landing,
+  comments,
+  reviewDiscussions,
+  reference,
+  sidebarPinned,
+  exactEnglish,
+  history,
+});
 
 export default messages;

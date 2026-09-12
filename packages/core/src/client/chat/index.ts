@@ -42,10 +42,9 @@ export {
   type AssistantChatHandle,
   type AssistantChatAdapterContext,
 } from "../AssistantChat.js";
-export {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatProps,
-  type MultiTabAssistantChatHeaderProps,
+export type {
+  MultiTabAssistantChatProps,
+  MultiTabAssistantChatHeaderProps,
 } from "../MultiTabAssistantChat.js";
 export {
   createAgentChatAdapter,

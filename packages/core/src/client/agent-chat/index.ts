@@ -179,12 +179,11 @@ export {
   type AssistantChatHistoryScope,
   type AssistantChatHistoryVersion,
 } from "../chat/message-components.js";
-export {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatProps,
-  type MultiTabAssistantChatHeaderProps,
+export type {
+  MultiTabAssistantChatProps,
+  MultiTabAssistantChatHeaderProps,
 } from "../MultiTabAssistantChat.js";
-export { RunStuckBanner, type RunStuckBannerProps } from "../RunStuckBanner.js";
+export type { RunStuckBannerProps } from "../RunStuckBanner.js";
 export {
   KeepTabOpenNotice,
   type KeepTabOpenNoticeProps,

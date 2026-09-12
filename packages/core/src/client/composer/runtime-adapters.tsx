@@ -32,7 +32,7 @@ import { isTrustedFrameMessage } from "../frame.js";
 import { useFormatters, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
-import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationDialogDeferred } from "../resources/McpIntegrationDialogDeferred.js";
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
 import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
@@ -92,7 +92,7 @@ const coreComposerAdapters: Omit<ComposerRuntimeAdapters, "translate"> = {
     useOrg,
     isMcpIntegrationAvailable: isMcpIntegrationCatalogAvailable,
     useCreateMcpServer,
-    McpIntegrationDialog,
+    McpIntegrationDialog: McpIntegrationDialogDeferred,
   },
   voice: {
     useProviderStatus: useVoiceProviderStatus,
