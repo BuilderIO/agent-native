@@ -328,7 +328,10 @@ export function runCommitVisualStyles(
   // up — so skip the runtime shortcut entirely for breakpoint-scoped writes
   // and fall through to the full content patch path below, which reflects
   // the actual persisted class/`@media` result.
+  // This property rebuilds SVG defs/use markup, so preview it through the
+  // committed document replacement below instead of layering a runtime copy.
   const runtimeStyleApplied =
+    !entries.some(([property]) => property === "--an-vector-stroke-position") &&
     !options.runtimeApplied &&
     activeBreakpointUpperBoundPx == null &&
     typeof sendStyleChange === "function";

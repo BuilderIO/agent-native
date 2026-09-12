@@ -28,7 +28,7 @@ ${RECT_HTML}
 </div>
 </body></html>`;
 
-const BOARD_NOTE_HTML = `<div data-agent-native-node-id="board-note" data-agent-native-layer-name="Note" style="position:absolute;left:20px;top:30px;width:120px;height:60px"></div>`;
+const BOARD_NOTE_HTML = `<div data-agent-native-node-id="board-note" data-agent-native-layer-name="Note" style="position:absolute;left:20px;top:30px;width:120px;height:60px;transform:rotate(12deg);transform-origin:top left"></div>`;
 
 const BOARD_HTML = `<!DOCTYPE html>
 <html lang="en"><head><style>body { margin: 0; position: relative; overflow: visible; }</style></head><body>
@@ -301,6 +301,10 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(writes.map((write) => write.fileId)).toEqual(["board"]);
     const copies = pastedCopies(writes[0]!.content);
     expect(copies).toHaveLength(1);
+    expect(copies[0]!.style.width).toBe("120px");
+    expect(copies[0]!.style.height).toBe("60px");
+    expect(copies[0]!.style.transform).toBe("rotate(12deg)");
+    expect(copies[0]!.style.transformOrigin).toBe("top left");
     expect(
       copies[0]!.parentElement?.getAttribute("data-agent-native-node-id"),
     ).toBe("board-group");

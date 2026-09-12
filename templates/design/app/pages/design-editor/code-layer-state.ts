@@ -499,6 +499,7 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     // layers panel, post-draw overview) fall back to tag heuristics, so a
     // drawn vector was styled as a plain box.
     primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
+    vectorStrokeCanAlign: node.style["--an-vector-stroke-can-align"] === "true",
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
     hasOwnText: node.paintsOwnText,
@@ -832,6 +833,9 @@ export function canonicalElementInfoForCodeLayerNode(
 ): ElementInfo {
   return {
     ...info,
+    vectorStrokeCanAlign:
+      info.vectorStrokeCanAlign ||
+      node.style["--an-vector-stroke-can-align"] === "true",
     // Keep the bridge's own identity before overwriting it — it is the only
     // one that resolves in a live document. Idempotent: re-canonicalizing an
     // already-canonicalized info must not overwrite it with the source id.

@@ -115,8 +115,11 @@ export type VisualStyleProperty =
   | "stroke-width"
   | "stroke-opacity"
   | "stroke-dasharray"
+  | "stroke-dashoffset"
   | "stroke-linecap"
   | "stroke-linejoin"
+  | "stroke-miterlimit"
+  | "--an-vector-stroke-position"
   | "outline"
   | "outline-width"
   | "outline-style"
@@ -130,6 +133,7 @@ export type VisualStyleProperty =
   | "backdrop-filter"
   | "transform"
   | "transform-origin"
+  | "transform-box"
   | "rotate"
   | "scale"
   | "translate"
@@ -421,6 +425,17 @@ export interface StyleEditIntent {
   target: EditIntentTarget;
   property: VisualStyleProperty | (string & {});
   value: string;
+  stroke?: string;
+  strokeWidth?: string;
+  strokeOpacity?: string;
+  strokeDasharray?: string;
+  strokeDashoffset?: string;
+  strokeLinecap?: string;
+  strokeLinejoin?: string;
+  strokeMiterlimit?: string;
+  transform?: string;
+  transformOrigin?: string;
+  transformBox?: string;
 }
 
 export interface ClassEditIntent {
@@ -762,8 +777,11 @@ const STYLE_PROPERTIES = [
   "stroke-width",
   "stroke-opacity",
   "stroke-dasharray",
+  "stroke-dashoffset",
   "stroke-linecap",
   "stroke-linejoin",
+  "stroke-miterlimit",
+  "--an-vector-stroke-position",
   "outline",
   "outline-width",
   "outline-style",
@@ -777,6 +795,7 @@ const STYLE_PROPERTIES = [
   "backdrop-filter",
   "transform",
   "transform-origin",
+  "transform-box",
   "rotate",
   "scale",
   "translate",
@@ -1690,6 +1709,9 @@ function isSafeStyleValue(
 ): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
+  if (property === "--an-vector-stroke-position") {
+    return ["inside", "center", "outside"].includes(trimmed);
+  }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
   if (/url\s*\(/i.test(trimmed)) {
@@ -3509,6 +3531,17 @@ function replaceOrInsertAttribute(
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
 }
 
+function removeAttributeFromHtml(
+  html: string,
+  element: ParsedElement,
+  name: string,
+): string {
+  const attribute = getAttribute(element, name);
+  return attribute
+    ? `${html.slice(0, attribute.start)}${html.slice(attribute.end)}`
+    : html;
+}
+
 function setStyleValue(
   currentStyle: string | null,
   property: VisualStyleProperty,
@@ -3530,12 +3563,17 @@ const VECTOR_PAINT_PRIMITIVES = new Set([
   "arrow",
   "polygon",
   "star",
+  "rect",
+  "rectangle",
+  "ellipse",
+  "circle",
 ]);
 
 const VECTOR_SHAPE_TAGS = new Set([
   "path",
   "polygon",
   "ellipse",
+  "circle",
   "rect",
   "line",
   "polyline",
@@ -3548,6 +3586,419 @@ const VECTOR_PAINT_PROPERTIES = [
   "stroke-width",
   "stroke-opacity",
 ] as const;
+
+const VECTOR_STROKE_POSITION = "data-an-vector-stroke-position";
+const VECTOR_STROKE_OVERLAY = "data-an-vector-stroke-overlay";
+const VECTOR_STROKE_LOGICAL_WIDTH = "data-an-vector-logical-width";
+const VECTOR_STROKE_GENERATED_DEFS = "data-an-vector-stroke-defs";
+const VECTOR_STROKE_GEOMETRY = "data-an-vector-stroke-geometry";
+const VECTOR_STROKE_ORIGINAL_OVERFLOW =
+  "data-an-vector-stroke-original-overflow";
+const VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY =
+  "data-an-vector-stroke-original-overflow-priority";
+
+function vectorStrokeOverlay(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  if (element.tag !== "svg") return null;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (child?.tag === "use" && getAttribute(child, VECTOR_STROKE_OVERLAY)) {
+      return child;
+    }
+  }
+  return null;
+}
+
+function vectorStyleValue(
+  element: ParsedElement,
+  property: string,
+): string | null {
+  return (
+    parseStyle(attributeValue(element, "style"))[property] ??
+    attributeValue(element, property)
+  );
+}
+
+function scaledSvgLength(value: string, scale: number): string | null {
+  const match = value
+    .trim()
+    .match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
+  if (!match) return scale === 1 ? value : null;
+  const number = Number(match[1]);
+  if (!Number.isFinite(number)) return null;
+  return `${number * scale}${match[2]}`;
+}
+
+function vectorStrokeGeometryMarkup(
+  shape: ParsedElement,
+  id: string,
+  transform?: Pick<
+    StyleEditIntent,
+    "transform" | "transformOrigin" | "transformBox"
+  >,
+): string {
+  const attributes = [
+    `id="${escapeHtmlAttribute(id)}"`,
+    `${VECTOR_STROKE_GEOMETRY}=""`,
+  ];
+  const hasComputedTransform = Boolean(
+    transform?.transform ||
+    transform?.transformOrigin ||
+    transform?.transformBox,
+  );
+  for (const attribute of shape.attributes) {
+    if (
+      ![
+        "d",
+        "points",
+        "x",
+        "y",
+        "width",
+        "height",
+        "rx",
+        "ry",
+        "cx",
+        "cy",
+        "r",
+        "transform",
+        "fill-rule",
+        "clip-rule",
+      ].includes(attribute.lowerName)
+    ) {
+      continue;
+    }
+    if (hasComputedTransform && attribute.lowerName === "transform") continue;
+    const value = attribute.value === true ? "" : attribute.value;
+    attributes.push(`${attribute.name}="${escapeHtmlAttribute(value)}"`);
+  }
+  const transformStyle = [
+    ["transform", transform?.transform],
+    ["transform-origin", transform?.transformOrigin],
+    ["transform-box", transform?.transformBox],
+  ]
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([property, value]) => `${property}: ${value}`)
+    .join("; ");
+  return `<${shape.tag} ${attributes.join(" ")}${
+    transformStyle ? ` style="${escapeHtmlAttribute(transformStyle)}"` : ""
+  }/>`;
+}
+
+function uniqueVectorStrokeId(elements: ParsedElement[], base: string): string {
+  const used = new Set(
+    elements
+      .map((element) => attributeValue(element, "id"))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const safeBase = base.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
+  let candidate = `an-vector-stroke-${safeBase}`;
+  let suffix = 2;
+  while (
+    used.has(candidate) ||
+    used.has(`${candidate}-inside`) ||
+    used.has(`${candidate}-outside`)
+  ) {
+    candidate = `an-vector-stroke-${safeBase}-${suffix++}`;
+  }
+  return candidate;
+}
+
+function removeVectorStrokeGeneratedMarkup(
+  html: string,
+  wrapper: ParsedElement,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (!currentWrapper || currentWrapper.start !== wrapper.start) return html;
+  const spans = currentWrapper.childIndexes
+    .map((index) => elements[index])
+    .filter((child): child is ParsedElement =>
+      Boolean(
+        child &&
+        ((child.tag === "defs" &&
+          getAttribute(child, VECTOR_STROKE_GENERATED_DEFS)) ||
+          (child.tag === "use" && getAttribute(child, VECTOR_STROKE_OVERLAY))),
+      ),
+    )
+    .map(({ start, end }) => ({ start, end }))
+    .sort((a, b) => b.start - a.start);
+  let result = html;
+  for (const { start, end } of spans) {
+    result = `${result.slice(0, start)}${result.slice(end)}`;
+  }
+  return result;
+}
+
+function applyVectorStrokePositionEdit(
+  html: string,
+  wrapper: ParsedElement,
+  position: string,
+  intent: StyleEditIntent,
+): string | PatchResultStatus {
+  if (!["inside", "center", "outside"].includes(position)) {
+    return "unsupported";
+  }
+  const computedStyles = [
+    ["stroke", intent.stroke],
+    ["stroke-width", intent.strokeWidth],
+    ["stroke-opacity", intent.strokeOpacity],
+    ["stroke-dasharray", intent.strokeDasharray],
+    ["stroke-dashoffset", intent.strokeDashoffset],
+    ["stroke-linecap", intent.strokeLinecap],
+    ["stroke-linejoin", intent.strokeLinejoin],
+    ["stroke-miterlimit", intent.strokeMiterlimit],
+    ["transform", intent.transform],
+    ["transform-origin", intent.transformOrigin],
+    ["transform-box", intent.transformBox],
+  ] as const;
+  if (
+    computedStyles.some(([property, value]) => {
+      const normalized = normalizeStyleProperty(property);
+      return Boolean(
+        value && (!normalized || !isSafeStyleValue(normalized, value)),
+      );
+    })
+  ) {
+    return "unsupported";
+  }
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (
+    !currentWrapper ||
+    currentWrapper.start !== wrapper.start ||
+    currentWrapper.tag !== "svg"
+  ) {
+    return "unsupported";
+  }
+  const shape = vectorShapeChild(currentWrapper, elements);
+  const kind = attributeValue(currentWrapper, "data-an-primitive");
+  if (!shape || !vectorStrokeCanAlign(kind, shape)) return "unsupported";
+
+  const previousOverlay = vectorStrokeOverlay(currentWrapper, elements);
+  const previousDefs = currentWrapper.childIndexes
+    .map((childIndex) => elements[childIndex])
+    .find(
+      (child) =>
+        child?.tag === "defs" &&
+        getAttribute(child, VECTOR_STROKE_GENERATED_DEFS) !== undefined,
+    );
+  const previousGeometry = previousDefs?.childIndexes
+    .map((childIndex) => elements[childIndex])
+    .find((child) => getAttribute(child, VECTOR_STROKE_GEOMETRY) !== undefined);
+  const previousGeometryStyle = previousGeometry
+    ? parseStyle(attributeValue(previousGeometry, "style"))
+    : {};
+  const paint = previousOverlay ?? shape;
+  const stroke = intent.stroke ?? vectorStyleValue(paint, "stroke") ?? "none";
+  const logicalWidth =
+    intent.strokeWidth ??
+    (previousOverlay
+      ? attributeValue(previousOverlay, VECTOR_STROKE_LOGICAL_WIDTH)
+      : null) ??
+    vectorStyleValue(paint, "stroke-width") ??
+    "1px";
+  const strokeExtras = Object.fromEntries(
+    (
+      [
+        ["stroke-opacity", intent.strokeOpacity],
+        ["stroke-dasharray", intent.strokeDasharray],
+        ["stroke-dashoffset", intent.strokeDashoffset],
+        ["stroke-linecap", intent.strokeLinecap],
+        ["stroke-linejoin", intent.strokeLinejoin],
+        ["stroke-miterlimit", intent.strokeMiterlimit],
+      ] as const
+    )
+      .map(([property, value]) => [
+        property,
+        value ?? vectorStyleValue(paint, property),
+      ])
+      .filter((entry): entry is [string, string] => Boolean(entry[1])),
+  );
+  const actualWidth = scaledSvgLength(
+    logicalWidth,
+    position === "center" ? 1 : 2,
+  );
+  if (!actualWidth) return "unsupported";
+
+  let result = removeVectorStrokeGeneratedMarkup(html, currentWrapper);
+  let freshElements = parseHtmlElements(result);
+  let freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  result = replaceOrInsertAttribute(
+    result,
+    freshWrapper,
+    VECTOR_STROKE_POSITION,
+    position,
+  );
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  const savedOverflow = getAttribute(
+    freshWrapper,
+    VECTOR_STROKE_ORIGINAL_OVERFLOW,
+  );
+  if (position === "outside") {
+    if (!savedOverflow) {
+      const overflow = parseStyleDeclarations(
+        attributeValue(freshWrapper, "style"),
+      ).find((declaration) => declaration.property === "overflow");
+      const important = overflow?.value.match(/\s*!important\s*$/i);
+      const value = important
+        ? overflow!.value.replace(/\s*!important\s*$/i, "")
+        : (overflow?.value ?? "");
+      result = replaceOrInsertAttribute(
+        result,
+        freshWrapper,
+        VECTOR_STROKE_ORIGINAL_OVERFLOW,
+        value,
+      );
+      freshElements = parseHtmlElements(result);
+      freshWrapper = freshElements[wrapper.index];
+      if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+      result = replaceOrInsertAttribute(
+        result,
+        freshWrapper,
+        VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+        important ? "important" : "",
+      );
+      freshElements = parseHtmlElements(result);
+      freshWrapper = freshElements[wrapper.index];
+      if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    }
+    result = replaceOrInsertAttribute(
+      result,
+      freshWrapper,
+      "style",
+      setStyleValue(
+        attributeValue(freshWrapper, "style"),
+        "overflow",
+        "visible",
+      ),
+    );
+  } else if (savedOverflow) {
+    const value = attributeValue(freshWrapper, VECTOR_STROKE_ORIGINAL_OVERFLOW);
+    const priority = attributeValue(
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+    );
+    const declarations = parseStyleDeclarations(
+      attributeValue(freshWrapper, "style"),
+    ).filter((declaration) => declaration.property !== "overflow");
+    if (value) {
+      declarations.push({
+        property: "overflow",
+        value: priority === "important" ? `${value} !important` : value,
+      });
+    }
+    result = replaceOrInsertAttribute(
+      result,
+      freshWrapper,
+      "style",
+      serializeStyleDeclarations(declarations),
+    );
+    freshElements = parseHtmlElements(result);
+    freshWrapper = freshElements[wrapper.index];
+    if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    result = removeAttributeFromHtml(
+      result,
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW,
+    );
+    freshElements = parseHtmlElements(result);
+    freshWrapper = freshElements[wrapper.index];
+    if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    result = removeAttributeFromHtml(
+      result,
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+    );
+  }
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  const freshShape = freshWrapper
+    ? vectorShapeChild(freshWrapper, freshElements)
+    : null;
+  if (!freshWrapper || !freshShape) return "unsupported";
+  const shapeStyle = setStyleValue(
+    attributeValue(freshShape, "style"),
+    "stroke",
+    "none",
+  );
+  result = replaceOrInsertAttribute(result, freshShape, "style", shapeStyle);
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  const geometry = freshWrapper
+    ? vectorShapeChild(freshWrapper, freshElements)
+    : null;
+  if (!freshWrapper || !geometry) return "unsupported";
+
+  const nodeId =
+    attributeValue(freshWrapper, "data-agent-native-node-id") ??
+    attributeValue(freshWrapper, "id") ??
+    String(freshWrapper.siblingIndex);
+  const geometryId = uniqueVectorStrokeId(freshElements, nodeId);
+  const clipId = `${geometryId}-inside`;
+  const maskId = `${geometryId}-outside`;
+  const geometryMarkup = vectorStrokeGeometryMarkup(geometry, geometryId, {
+    transform: intent.transform ?? previousGeometryStyle.transform,
+    transformOrigin:
+      intent.transformOrigin ?? previousGeometryStyle["transform-origin"],
+    transformBox: intent.transformBox ?? previousGeometryStyle["transform-box"],
+  });
+  const viewBoxValues = (
+    attributeValue(freshWrapper, "viewBox") ?? "0 0 300 150"
+  )
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const [viewX, viewY, viewWidth, viewHeight] = viewBoxValues;
+  if (
+    viewBoxValues.length !== 4 ||
+    ![viewX, viewY, viewWidth, viewHeight].every(Number.isFinite) ||
+    viewWidth! <= 0 ||
+    viewHeight! <= 0
+  ) {
+    return "unsupported";
+  }
+  const miterLimit = Number.parseFloat(
+    strokeExtras["stroke-miterlimit"] ?? "4",
+  );
+  const maskPad = Math.max(
+    ((Number.parseFloat(actualWidth) || 0) *
+      Math.max(Number.isFinite(miterLimit) ? miterLimit : 4, 1)) /
+      2,
+    1,
+  );
+  const defs =
+    `<defs ${VECTOR_STROKE_GENERATED_DEFS}="">${geometryMarkup}` +
+    `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><use href="#${geometryId}"/></clipPath>` +
+    `<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="luminance" x="${viewX! - maskPad}" y="${viewY! - maskPad}" width="${viewWidth! + maskPad * 2}" height="${viewHeight! + maskPad * 2}">` +
+    `<rect x="${viewX! - maskPad}" y="${viewY! - maskPad}" width="${viewWidth! + maskPad * 2}" height="${viewHeight! + maskPad * 2}" fill="white"/>` +
+    `<use href="#${geometryId}" fill="black"/></mask></defs>`;
+  const overlayStyle = serializeStyleDeclarations([
+    { property: "fill", value: "none" },
+    { property: "stroke", value: stroke },
+    { property: "stroke-width", value: actualWidth },
+    ...Object.entries(strokeExtras).map(([property, value]) => ({
+      property,
+      value,
+    })),
+    ...(position === "inside"
+      ? [{ property: "clip-path", value: `url(#${clipId})` }]
+      : position === "outside"
+        ? [{ property: "mask", value: `url(#${maskId})` }]
+        : []),
+  ]);
+  const overlay =
+    `<use href="#${geometryId}" ${VECTOR_STROKE_OVERLAY}="" ` +
+    `${VECTOR_STROKE_LOGICAL_WIDTH}="${escapeHtmlAttribute(logicalWidth)}" ` +
+    `pointer-events="none" aria-hidden="true" style="${escapeHtmlAttribute(overlayStyle)}"/>`;
+  const insertAt = geometry.end;
+  return `${result.slice(0, insertAt)}${defs}${overlay}${result.slice(insertAt)}`;
+}
 
 /**
  * A drawn vector primitive's `<svg>` carries the geometry and its shape child
@@ -3568,6 +4019,25 @@ function vectorShapeChild(
   return null;
 }
 
+function vectorStrokeCanAlign(
+  kind: string | null,
+  shape: ParsedElement,
+): boolean {
+  if (kind === "polygon" || kind === "star") {
+    return shape.tag === "polygon" || shape.tag === "path";
+  }
+  if (kind === "rect" || kind === "rectangle") return shape.tag === "rect";
+  if (kind === "ellipse") {
+    return shape.tag === "ellipse" || shape.tag === "circle";
+  }
+  if (kind === "circle") return shape.tag === "circle";
+  return (
+    kind === "path" &&
+    shape.tag === "path" &&
+    /z/i.test(attributeValue(shape, "d") ?? "")
+  );
+}
+
 /**
  * Folds the shape child's paint onto the wrapper node. The child is skipped by
  * `hasSvgAncestor`, so the wrapper is the only layer a reader can address —
@@ -3580,13 +4050,33 @@ function withVectorPaintStyle(
 ): Record<string, string> {
   const child = vectorShapeChild(element, elements);
   if (!child) return style;
+  const overlay = vectorStrokeOverlay(element, elements);
   const childStyle = parseStyle(attributeValue(child, "style"));
+  const overlayStyle = overlay
+    ? parseStyle(attributeValue(overlay, "style"))
+    : null;
   const merged = { ...style };
   for (const property of VECTOR_PAINT_PROPERTIES) {
     // An inline declaration on the child outranks its presentation
     // attribute, the same order the cascade resolves them when painting.
-    const value = childStyle[property] ?? attributeValue(child, property);
+    const value =
+      property.startsWith("stroke") && overlayStyle
+        ? (overlayStyle[property] ?? attributeValue(overlay!, property))
+        : (childStyle[property] ?? attributeValue(child, property));
     if (value) merged[property] = value;
+  }
+  if (overlay) {
+    merged["stroke-width"] =
+      attributeValue(overlay, VECTOR_STROKE_LOGICAL_WIDTH) ??
+      merged["stroke-width"] ??
+      "1px";
+  }
+  const position = attributeValue(element, VECTOR_STROKE_POSITION);
+  if (position) merged["--an-vector-stroke-position"] = position;
+  if (
+    vectorStrokeCanAlign(attributeValue(element, "data-an-primitive"), child)
+  ) {
+    merged["--an-vector-stroke-can-align"] = "true";
   }
   return merged;
 }
@@ -3632,6 +4122,12 @@ function vectorPaintChild(
   // element came from; a shifted index would repaint an unrelated element.
   const parsed = elements[element.index];
   if (!parsed || parsed.start !== element.start) return null;
+  if (property.startsWith("stroke")) {
+    return (
+      vectorStrokeOverlay(parsed, elements) ??
+      vectorShapeChild(parsed, elements)
+    );
+  }
   return vectorShapeChild(parsed, elements);
 }
 
@@ -3643,13 +4139,84 @@ function applyStyleEdit(
   const property = normalizeStyleProperty(intent.property);
   if (!property || !isSafeStyleValue(property, intent.value))
     return "unsupported";
+  if (property === "--an-vector-stroke-position") {
+    const content = applyVectorStrokePositionEdit(
+      html,
+      element,
+      intent.value.trim(),
+      intent,
+    );
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+  const alignedOverlay =
+    getAttribute(element, VECTOR_STROKE_OVERLAY) !== undefined;
+  const parent =
+    element.parentIndex === undefined
+      ? undefined
+      : parseHtmlElements(html)[element.parentIndex];
+  const position = parent
+    ? (attributeValue(parent, VECTOR_STROKE_POSITION) ?? "center")
+    : "center";
+  const logicalWidth = intent.value.trim();
+  const storedValue =
+    alignedOverlay && property === "stroke-width"
+      ? scaledSvgLength(logicalWidth, position === "center" ? 1 : 2)
+      : logicalWidth;
+  if (storedValue === null) return "unsupported";
   const nextStyle = setStyleValue(
     attributeValue(element, "style"),
     property,
-    intent.value.trim(),
+    storedValue,
   );
+  let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (alignedOverlay && property === "stroke-width") {
+    const current = parseHtmlElements(content)[element.index];
+    if (!current) return "unsupported";
+    content = replaceOrInsertAttribute(
+      content,
+      current,
+      VECTOR_STROKE_LOGICAL_WIDTH,
+      logicalWidth,
+    );
+  }
+  if (
+    alignedOverlay &&
+    (property === "stroke-width" || property === "stroke-miterlimit")
+  ) {
+    const updatedElements = parseHtmlElements(content);
+    const updatedOverlay = updatedElements[element.index];
+    const wrapper =
+      updatedOverlay?.parentIndex === undefined
+        ? undefined
+        : updatedElements[updatedOverlay.parentIndex];
+    const updatedPosition = wrapper
+      ? attributeValue(wrapper, VECTOR_STROKE_POSITION)
+      : null;
+    if (!wrapper || !updatedPosition) return "unsupported";
+    const rebuilt = applyVectorStrokePositionEdit(
+      content,
+      wrapper,
+      updatedPosition,
+      {
+        kind: "style",
+        target: intent.target,
+        property: "--an-vector-stroke-position",
+        value: updatedPosition,
+      },
+    );
+    if (rebuilt === "unsupported") return rebuilt;
+    content = rebuilt;
+  }
   return {
-    content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+    content,
     capability: {
       kind: "style",
       properties: [property],

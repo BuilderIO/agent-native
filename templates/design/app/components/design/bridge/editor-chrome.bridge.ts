@@ -2573,7 +2573,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function getElementInfo(el: Element): unknown {
     var cs = window.getComputedStyle(el);
-    var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
+    var paintTarget = vectorPaintTarget(el) || el;
+    var strokeTarget = vectorStrokeTarget(el) || paintTarget;
+    var paintCs = window.getComputedStyle(paintTarget);
+    var strokeCs = window.getComputedStyle(strokeTarget);
+    var strokeOverlay = strokeTarget.hasAttribute(
+      "data-an-vector-stroke-overlay",
+    );
     var rect = el.getBoundingClientRect();
     // A clone inherits nothing editable from its stamped ancestor: source
     // holds one template body, not this row. Claiming source-backed handed
@@ -2754,9 +2760,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // the `<svg>` wrapper itself is never painted.
         fill: paintCs.fill,
         fillOpacity: paintCs.fillOpacity,
-        stroke: paintCs.stroke,
-        strokeWidth: paintCs.strokeWidth,
-        strokeOpacity: paintCs.strokeOpacity,
+        stroke: strokeCs.stroke,
+        strokeWidth: strokeOverlay
+          ? strokeTarget.getAttribute("data-an-vector-logical-width") ||
+            strokeCs.strokeWidth
+          : strokeCs.strokeWidth,
+        strokeOpacity: strokeCs.strokeOpacity,
+        strokeDasharray: strokeCs.strokeDasharray,
+        strokeDashoffset: strokeCs.strokeDashoffset,
+        strokeLinecap: strokeCs.strokeLinecap,
+        strokeLinejoin: strokeCs.strokeLinejoin,
+        strokeMiterlimit: strokeCs.strokeMiterlimit,
+        vectorTransform: paintCs.transform,
+        vectorTransformOrigin: paintCs.transformOrigin,
+        vectorTransformBox: paintCs.transformBox,
+        "--an-vector-stroke-position":
+          el.getAttribute("data-an-vector-stroke-position") || "",
         // Text glyph outline (Figma-parity text "Stroke") — CSS has no
         // unprefixed alias, so this is read via the vendor-prefixed
         // longhands directly. See applyStyleEdit/normalizeStyleProperty in
@@ -2786,6 +2805,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       },
       inlineStyles: collectInlineStyles(el),
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
+      vectorStrokeCanAlign: vectorStrokeCanAlign(el),
       portableStyleSnapshot: collectPortableStyleSnapshot(el),
       boundingRect: {
         x: rect.x + (window.scrollX || window.pageXOffset || 0),
@@ -8954,7 +8974,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       kind !== "line" &&
       kind !== "arrow" &&
       kind !== "polygon" &&
-      kind !== "star"
+      kind !== "star" &&
+      kind !== "rect" &&
+      kind !== "rectangle" &&
+      kind !== "ellipse" &&
+      kind !== "circle"
     ) {
       return null;
     }
@@ -8962,8 +8986,247 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
     // this in step with code-layer's childIndexes walk.
     return el.querySelector(
-      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
     );
+  }
+
+  function vectorStrokeTarget(el: Element | null): Element | null {
+    if (!el || el.tagName.toLowerCase() !== "svg") return null;
+    return (
+      el.querySelector(":scope > use[data-an-vector-stroke-overlay]") ||
+      vectorPaintTarget(el)
+    );
+  }
+
+  function vectorStrokeCanAlign(el: Element | null): boolean {
+    if (!el || el.tagName.toLowerCase() !== "svg") return false;
+    var kind = el.getAttribute("data-an-primitive") || "";
+    var shape = vectorPaintTarget(el);
+    if (!shape) return false;
+    var shapeTag = shape.tagName.toLowerCase();
+    if ((kind === "rect" || kind === "rectangle") && shapeTag === "rect") {
+      return true;
+    }
+    if (
+      (kind === "ellipse" || kind === "circle") &&
+      (shapeTag === "ellipse" || shapeTag === "circle")
+    ) {
+      return true;
+    }
+    if ((kind === "polygon" || kind === "star") && shapeTag === "polygon") {
+      return true;
+    }
+    if (kind !== "path") return false;
+    return !!(
+      shape &&
+      shapeTag === "path" &&
+      /z/i.test(shape.getAttribute("d") || "")
+    );
+  }
+
+  function scaledVectorStrokeWidth(value: string, scale: number): string {
+    var match = value
+      .trim()
+      .match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
+    if (!match) return scale === 1 ? value : "";
+    return String(Number(match[1]) * scale) + match[2];
+  }
+
+  function applyVectorStrokePosition(el: Element, position: string): boolean {
+    if (
+      !["inside", "center", "outside"].includes(position) ||
+      !vectorStrokeCanAlign(el)
+    ) {
+      return false;
+    }
+    var shape = vectorPaintTarget(el);
+    if (!shape) return false;
+    var oldOverlay = vectorStrokeTarget(el);
+    var oldIsOverlay =
+      oldOverlay && oldOverlay.hasAttribute("data-an-vector-stroke-overlay");
+    var shapeStyle = window.getComputedStyle(shape);
+    var paintStyle = oldIsOverlay
+      ? window.getComputedStyle(oldOverlay!)
+      : shapeStyle;
+    var logicalWidth = oldIsOverlay
+      ? oldOverlay!.getAttribute("data-an-vector-logical-width") ||
+        paintStyle.strokeWidth
+      : paintStyle.strokeWidth;
+    var paint = {
+      stroke: paintStyle.stroke,
+      strokeOpacity: paintStyle.strokeOpacity,
+      strokeDasharray: paintStyle.strokeDasharray,
+      strokeDashoffset: paintStyle.strokeDashoffset,
+      strokeLinecap: paintStyle.strokeLinecap,
+      strokeLinejoin: paintStyle.strokeLinejoin,
+      strokeMiterlimit: paintStyle.strokeMiterlimit,
+    };
+    var actualWidth = scaledVectorStrokeWidth(
+      logicalWidth,
+      position === "center" ? 1 : 2,
+    );
+    if (!actualWidth) return false;
+
+    var viewBox = (el.getAttribute("viewBox") || "0 0 300 150")
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (
+      viewBox.length !== 4 ||
+      !viewBox.every(Number.isFinite) ||
+      viewBox[2]! <= 0 ||
+      viewBox[3]! <= 0
+    ) {
+      return false;
+    }
+    var wrapperStyle = (el as HTMLElement).style;
+    var savedOverflow = el.getAttribute(
+      "data-an-vector-stroke-original-overflow",
+    );
+    if (position === "outside") {
+      if (savedOverflow === null) {
+        el.setAttribute(
+          "data-an-vector-stroke-original-overflow",
+          wrapperStyle.getPropertyValue("overflow"),
+        );
+        el.setAttribute(
+          "data-an-vector-stroke-original-overflow-priority",
+          wrapperStyle.getPropertyPriority("overflow"),
+        );
+      }
+      wrapperStyle.setProperty("overflow", "visible");
+    } else if (savedOverflow !== null) {
+      var overflowPriority =
+        el.getAttribute("data-an-vector-stroke-original-overflow-priority") ||
+        "";
+      if (savedOverflow) {
+        wrapperStyle.setProperty("overflow", savedOverflow, overflowPriority);
+      } else {
+        wrapperStyle.removeProperty("overflow");
+      }
+      el.removeAttribute("data-an-vector-stroke-original-overflow");
+      el.removeAttribute("data-an-vector-stroke-original-overflow-priority");
+    }
+    var miterlimit = Math.max(parseFloat(paint.strokeMiterlimit) || 4, 1);
+    var pad = Math.max(((parseFloat(actualWidth) || 0) * miterlimit) / 2, 1);
+    var x = viewBox[0]! - pad;
+    var y = viewBox[1]! - pad;
+    var width = viewBox[2]! + pad * 2;
+    var height = viewBox[3]! + pad * 2;
+
+    var svgNs = "http://www.w3.org/2000/svg";
+    Array.from(
+      el.querySelectorAll(":scope > defs[data-an-vector-stroke-defs]"),
+    ).forEach(function (generatedDefs) {
+      generatedDefs.remove();
+    });
+    Array.from(
+      el.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]"),
+    ).forEach(function (generatedOverlay) {
+      generatedOverlay.remove();
+    });
+
+    var id = freshRuntimeNodeId("vector-stroke");
+    while (document.getElementById(id + "-geometry")) {
+      id = freshRuntimeNodeId("vector-stroke");
+    }
+    var geometryId = id + "-geometry";
+    var clipId = id + "-inside";
+    var maskId = id + "-outside";
+    var geometry = shape.cloneNode(false) as SVGElement;
+    Array.from(geometry.attributes).forEach(function (attribute) {
+      if (
+        ![
+          "d",
+          "points",
+          "x",
+          "y",
+          "width",
+          "height",
+          "rx",
+          "ry",
+          "cx",
+          "cy",
+          "r",
+          "fill-rule",
+          "clip-rule",
+        ].includes(attribute.name.toLowerCase())
+      ) {
+        geometry.removeAttribute(attribute.name);
+      }
+    });
+    var geometryStyle = window.getComputedStyle(shape);
+    if (geometryStyle.transform !== "none") {
+      geometry.style.setProperty("transform", geometryStyle.transform);
+    }
+    geometry.style.setProperty(
+      "transform-origin",
+      geometryStyle.transformOrigin,
+    );
+    geometry.style.setProperty("transform-box", geometryStyle.transformBox);
+    geometry.setAttribute("id", geometryId);
+    geometry.setAttribute("data-an-vector-stroke-geometry", "");
+
+    var defs = document.createElementNS(svgNs, "defs");
+    defs.setAttribute("data-an-vector-stroke-defs", "");
+    defs.appendChild(geometry);
+    var clip = document.createElementNS(svgNs, "clipPath");
+    clip.setAttribute("id", clipId);
+    clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+    var clipUse = document.createElementNS(svgNs, "use");
+    clipUse.setAttribute("href", "#" + geometryId);
+    clip.appendChild(clipUse);
+    defs.appendChild(clip);
+    var mask = document.createElementNS(svgNs, "mask");
+    mask.setAttribute("id", maskId);
+    mask.setAttribute("maskUnits", "userSpaceOnUse");
+    mask.setAttribute("maskContentUnits", "userSpaceOnUse");
+    mask.setAttribute("mask-type", "luminance");
+    mask.setAttribute("x", String(x));
+    mask.setAttribute("y", String(y));
+    mask.setAttribute("width", String(width));
+    mask.setAttribute("height", String(height));
+    var maskRect = document.createElementNS(svgNs, "rect");
+    maskRect.setAttribute("x", String(x));
+    maskRect.setAttribute("y", String(y));
+    maskRect.setAttribute("width", String(width));
+    maskRect.setAttribute("height", String(height));
+    maskRect.setAttribute("fill", "white");
+    var maskUse = document.createElementNS(svgNs, "use");
+    maskUse.setAttribute("href", "#" + geometryId);
+    maskUse.setAttribute("fill", "black");
+    mask.appendChild(maskRect);
+    mask.appendChild(maskUse);
+    defs.appendChild(mask);
+
+    var overlay = document.createElementNS(svgNs, "use");
+    overlay.setAttribute("href", "#" + geometryId);
+    overlay.setAttribute("data-an-vector-stroke-overlay", "");
+    overlay.setAttribute("data-an-vector-logical-width", logicalWidth);
+    overlay.setAttribute("pointer-events", "none");
+    overlay.setAttribute("aria-hidden", "true");
+    var overlayStyle = (overlay as unknown as HTMLElement).style;
+    overlayStyle.setProperty("fill", "none");
+    overlayStyle.setProperty("stroke", paint.stroke);
+    overlayStyle.setProperty("stroke-width", actualWidth);
+    overlayStyle.setProperty("stroke-opacity", paint.strokeOpacity);
+    overlayStyle.setProperty("stroke-dasharray", paint.strokeDasharray);
+    overlayStyle.setProperty("stroke-dashoffset", paint.strokeDashoffset);
+    overlayStyle.setProperty("stroke-linecap", paint.strokeLinecap);
+    overlayStyle.setProperty("stroke-linejoin", paint.strokeLinejoin);
+    overlayStyle.setProperty("stroke-miterlimit", paint.strokeMiterlimit);
+    if (position === "inside") {
+      overlayStyle.setProperty("clip-path", "url(#" + clipId + ")");
+    } else if (position === "outside") {
+      overlayStyle.setProperty("mask", "url(#" + maskId + ")");
+    }
+
+    var nextSibling = shape.nextSibling;
+    el.insertBefore(defs, nextSibling);
+    el.insertBefore(overlay, defs.nextSibling);
+    (shape as unknown as HTMLElement).style.setProperty("stroke", "none");
+    el.setAttribute("data-an-vector-stroke-position", position);
+    return true;
   }
 
   function isVectorPaintProperty(cssProperty: string): boolean {
@@ -9001,15 +9264,48 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !property) return false;
     var cssProperty = normalizeCssPropertyName(property);
     if (!cssProperty) return false;
+    if (cssProperty === "--an-vector-stroke-position") {
+      return applyVectorStrokePosition(el, String(value));
+    }
     var target: Element = el;
+    var strokeOverlay: Element | null = null;
+    var useOverlay = false;
     if (isVectorPaintProperty(cssProperty)) {
       var shape = vectorPaintTarget(el);
       if (shape) {
-        target = shape;
+        strokeOverlay = vectorStrokeTarget(el);
+        useOverlay =
+          cssProperty.indexOf("stroke") === 0 &&
+          !!strokeOverlay &&
+          strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
+        target = useOverlay ? strokeOverlay! : shape;
         clearVectorWrapperPaint(el);
+        if (useOverlay && cssProperty === "stroke-width") {
+          var logicalWidth = String(value);
+          var position =
+            el.getAttribute("data-an-vector-stroke-position") || "center";
+          var actualWidth = scaledVectorStrokeWidth(
+            logicalWidth,
+            position === "center" ? 1 : 2,
+          );
+          if (!actualWidth) return false;
+          strokeOverlay!.setAttribute(
+            "data-an-vector-logical-width",
+            logicalWidth,
+          );
+          value = actualWidth;
+        }
       }
     }
     (target as HTMLElement).style.setProperty(cssProperty, String(value));
+    var strokePosition = el.getAttribute("data-an-vector-stroke-position");
+    if (
+      useOverlay &&
+      (cssProperty === "stroke-width" ||
+        (cssProperty === "stroke-miterlimit" && strokePosition === "outside"))
+    ) {
+      return applyVectorStrokePosition(el, strokePosition || "center");
+    }
     return true;
   }
 

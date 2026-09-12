@@ -532,6 +532,246 @@ describe("applyVisualEdit vector paint", () => {
     expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
   });
 
+  it("persists inside and outside vector strokes with logical weight", () => {
+    const overflowHidden = html.replace(
+      'style="position:absolute;',
+      'style="overflow:hidden !important;position:absolute;',
+    );
+    const color = applyVisualEdit(overflowHidden, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#0000ff",
+    });
+    const width = applyVisualEdit(color.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-width",
+      value: "3px",
+    });
+    const inside = applyVisualEdit(width.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "inside",
+    });
+
+    expect(inside.result.status).toBe("applied");
+    expect(inside.content).toContain('data-an-vector-stroke-position="inside"');
+    expect(inside.content).toContain('data-an-vector-stroke-overlay=""');
+    expect(inside.content).toContain(
+      "clip-path: url(#an-vector-stroke-pen-1-inside)",
+    );
+    expect(inside.content).toContain("stroke-width: 6px");
+    const projected = buildCodeLayerProjection(inside.content).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+    expect(projected?.style).toMatchObject({
+      stroke: "#0000ff",
+      "stroke-width": "3px",
+      "--an-vector-stroke-position": "inside",
+      "--an-vector-stroke-can-align": "true",
+    });
+
+    const outside = applyVisualEdit(inside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    expect(outside.result.status).toBe("applied");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-position="outside"',
+    );
+    expect(outside.content).toContain(
+      "mask: url(#an-vector-stroke-pen-1-outside)",
+    );
+    expect(outside.content).toContain('mask-type="luminance"');
+    expect(outside.content).toContain("overflow: visible");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow="hidden"',
+    );
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow-priority="important"',
+    );
+    expect(
+      outside.content.match(/data-an-vector-stroke-overlay=""/g),
+    ).toHaveLength(1);
+
+    const center = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    expect(center.result.status).toBe("applied");
+    expect(center.content).toContain("overflow: hidden !important");
+    expect(center.content).not.toContain(
+      "data-an-vector-stroke-original-overflow=",
+    );
+
+    const resized = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-width",
+      value: "4px",
+    });
+    expect(resized.result.status).toBe("applied");
+    expect(resized.content).toContain('data-an-vector-logical-width="4px"');
+    expect(resized.content).toContain("stroke-width: 8px");
+    expect(resized.content).toContain(
+      'x="-16" y="-16" width="332" height="182"',
+    );
+
+    const mitered = applyVisualEdit(resized.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-miterlimit",
+      value: "10",
+    });
+    expect(mitered.result.status).toBe("applied");
+    expect(mitered.content).toContain("stroke-miterlimit: 10");
+    expect(mitered.content).toContain(
+      'x="-40" y="-40" width="380" height="230"',
+    );
+  });
+
+  it("rejects alignment for an open vector path", () => {
+    const openPath = html.replace("L 80 60 Z", "L 80 60");
+    const patch = applyVisualEdit(openPath, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "inside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(openPath);
+  });
+
+  it("preserves dash offset and miter limit on the aligned stroke", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      stroke: "#123456",
+      strokeWidth: "3px",
+      strokeDasharray: "8 2",
+      strokeDashoffset: "-3px",
+      strokeMiterlimit: "9",
+    });
+    const overlay = patch.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+
+    expect(patch.result.status).toBe("applied");
+    expect(overlay).toContain("stroke-dasharray: 8 2");
+    expect(overlay).toContain("stroke-dashoffset: -3px");
+    expect(overlay).toContain("stroke-miterlimit: 9");
+  });
+
+  it("pads outside masks for the doubled stroke and acute miter joins", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      strokeWidth: "3px",
+      strokeMiterlimit: "9",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('x="-27" y="-27" width="354" height="204"');
+  });
+
+  it("uses computed transform on the geometry proxy without duplicating its transform attribute", () => {
+    const transformed = html.replace(
+      '<path d="M 0 0 L 80 60 Z"',
+      '<path transform="translate(4 5)" d="M 0 0 L 80 60 Z"',
+    );
+    const patch = applyVisualEdit(transformed, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      transform: "matrix(1, 0, 0, 1, 4, 5)",
+      transformOrigin: "0px 0px",
+      transformBox: "view-box",
+    });
+    const geometry = patch.content.match(
+      /<path[^>]*data-an-vector-stroke-geometry=""[^>]*\/>/,
+    )?.[0];
+
+    expect(patch.result.status).toBe("applied");
+    expect(geometry).not.toContain("transform=");
+    expect(geometry).toContain(
+      'style="transform: matrix(1, 0, 0, 1, 4, 5); transform-origin: 0px 0px; transform-box: view-box"',
+    );
+  });
+
+  it.each([
+    {
+      kind: "rect",
+      tag: "rect",
+      geometry: 'x="4" y="6" width="80" height="30" rx="5" ry="7"',
+    },
+    {
+      kind: "ellipse",
+      tag: "ellipse",
+      geometry: 'cx="40" cy="25" rx="32" ry="18"',
+    },
+    {
+      kind: "circle",
+      tag: "circle",
+      geometry: 'cx="40" cy="25" r="18"',
+    },
+  ])(
+    "aligns SVG $kind geometry and preserves its attributes",
+    ({ kind, tag, geometry }) => {
+      const content =
+        `<svg data-agent-native-node-id="${kind}-1" data-an-primitive="${kind}" ` +
+        `viewBox="0 0 100 80"><${tag} ${geometry} fill="none" ` +
+        `stroke="#123456" stroke-width="2"/></svg>`;
+      const patch = applyVisualEdit(content, {
+        kind: "style",
+        target: { nodeId: `${kind}-1` },
+        property: "--an-vector-stroke-position",
+        value: "outside",
+      });
+      const proxy = patch.content.match(
+        new RegExp(`<${tag}[^>]*data-an-vector-stroke-geometry=""[^>]*/>`),
+      )?.[0];
+
+      expect(patch.result.status).toBe("applied");
+      expect(proxy).toContain(geometry);
+      expect(patch.content).toContain(
+        'data-an-vector-stroke-position="outside"',
+      );
+      expect(
+        buildCodeLayerProjection(patch.content).nodes.find(
+          (node) =>
+            node.dataAttributes["data-agent-native-node-id"] === `${kind}-1`,
+        )?.style["--an-vector-stroke-can-align"],
+      ).toBe("true");
+    },
+  );
+
+  it("does not enable stroke alignment for canvas div primitives", () => {
+    const content =
+      '<div data-agent-native-node-id="rect-1" data-an-primitive="rectangle" ' +
+      'style="width:80px;height:30px;border:1px solid #123456"></div>';
+    const patch = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "rect-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+  });
+
   it("clears box paint the wrapper should never have carried", () => {
     const corrupted = html.replace(
       'style="position:absolute',
