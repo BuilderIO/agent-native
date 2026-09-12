@@ -130,7 +130,10 @@ function layersTree(page: Page) {
 }
 
 function layerRow(page: Page, name: string) {
-  return layersTree(page).getByRole("treeitem").filter({ hasText: name }).first();
+  return layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: name })
+    .first();
 }
 
 /** Mirrors app/lib/screen-names.ts prettyScreenName -- the default display
@@ -240,14 +243,18 @@ async function drawFrameTool(
  * order (a newly drawn screen can render left of an existing one). */
 function screenFrameById(page: Page, fileId: string) {
   return page
-    .locator(`iframe[data-design-preview-iframe][data-screen-iframe-id="${fileId}"]`)
+    .locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${fileId}"]`,
+    )
     .first()
     .contentFrame();
 }
 
 async function screenBoxById(page: Page, fileId: string) {
   const box = (await page
-    .locator(`iframe[data-design-preview-iframe][data-screen-iframe-id="${fileId}"]`)
+    .locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${fileId}"]`,
+    )
     .first()
     .boundingBox())!;
   const contentWidth = await screenFrameById(page, fileId)
@@ -306,14 +313,17 @@ function textPrimitiveNodeIds(html: string, text: string): string[] {
 
 function styleOf(html: string, id: string): string {
   return (
-    new RegExp(`data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`, "i").exec(
-      html,
-    )?.[1] ?? ""
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? ""
   );
 }
 
 function styleNum(style: string, prop: string): number {
-  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(style);
+  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
+    style,
+  );
   return m ? Number(m[1]) : NaN;
 }
 
@@ -366,7 +376,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         "in Design, drawing a Screen on the empty board must create a new screen file.",
     ).toBe(before.length + 1);
     navFilename = after.find((f) => !before.includes(f))!;
-    expect(navFilename, "the new screen file must be identifiable").toBeTruthy();
+    expect(
+      navFilename,
+      "the new screen file must be identifiable",
+    ).toBeTruthy();
 
     // Figma default for a freshly drawn top-level frame: white fill, clips
     // content. Assert the new screen's own root paints white (per
@@ -426,7 +439,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     // Overview screen label (the frame-title chrome above the card) should
     // now display "Navigation".
     await expect(
-      page.locator('[data-frame-title]').filter({ hasText: "Navigation" }),
+      page.locator("[data-frame-title]").filter({ hasText: "Navigation" }),
       'the overview screen label must read "Navigation" after the rename',
     ).toHaveCount(1);
   });
@@ -471,9 +484,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     // Select it first (a separate click), THEN drag -- a single
     // mousedown-move-up on an unselected element only selects it, per the
     // helpers.ts `dragCanvasByText` pattern.
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
-      force: true,
-    });
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(200);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
@@ -508,7 +519,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
 
     let html = await fileContentByName(page, designId, navFilename);
     let ids = textPrimitiveNodeIds(html, "Link");
-    expect(ids, "the Text tool must commit the original Link text").toHaveLength(1);
+    expect(
+      ids,
+      "the Text tool must commit the original Link text",
+    ).toHaveLength(1);
     const originalId = ids[0]!;
 
     async function selectNode(id: string) {
@@ -517,9 +531,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         .first()
         .boundingBox();
       if (!box) throw new Error(`no bounding box for ${id}`);
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
-        force: true,
-      });
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
       await page.waitForTimeout(300);
       return box;
     }
@@ -602,7 +614,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     const navFileId = await fileIdByName(page, designId, navFilename);
     const html = await fileContentByName(page, designId, navFilename);
     const linkIds = textPrimitiveNodeIds(html, "Link");
-    expect(linkIds.length, "precondition: 4 Link texts from the prior step").toBe(4);
+    expect(
+      linkIds.length,
+      "precondition: 4 Link texts from the prior step",
+    ).toBe(4);
 
     // Shift-select 3 of the 4 (matches the tutorial's later group size) via
     // the canvas, then Cmd+G -- the closest Design equivalent to
@@ -613,17 +628,18 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         .first()
         .boundingBox();
       if (!box) throw new Error(`no box for ${id}`);
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
-        force: true,
-        modifiers: ["Shift"],
-      });
+      await page.keyboard.down("Shift");
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await page.keyboard.up("Shift");
       await page.waitForTimeout(200);
     }
     await page.keyboard.press(`${MOD}+g`);
     await page.waitForTimeout(600);
 
     const afterGroup = await fileContentByName(page, designId, navFilename);
-    const groupExists = /data-agent-native-layer-name="Group"/i.test(afterGroup);
+    const groupExists = /data-agent-native-layer-name="Group"/i.test(
+      afterGroup,
+    );
     expect(
       groupExists,
       `Cmd+G must wrap the 3 selected Link texts in a group as the closest ` +
@@ -674,9 +690,16 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         "new sibling frame -- Design must create one new screen file",
     ).toBe(before.length + 1);
     const footerFilename = afterDup.find((f) => !before.includes(f))!;
-    expect(footerFilename, "the duplicated screen file must be identifiable").toBeTruthy();
+    expect(
+      footerFilename,
+      "the duplicated screen file must be identifiable",
+    ).toBeTruthy();
 
-    const footerHtmlBefore = await fileContentByName(page, designId, footerFilename);
+    const footerHtmlBefore = await fileContentByName(
+      page,
+      designId,
+      footerFilename,
+    );
     const navHtmlBefore = await fileContentByName(page, designId, navFilename);
     const linkIdsInFooterCopy = textPrimitiveNodeIds(footerHtmlBefore, "Link");
     expect(
@@ -723,7 +746,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         break;
       }
     }
-    expect(footerIframeIndex, "must find the Footer screen's iframe").toBeGreaterThanOrEqual(0);
+    expect(
+      footerIframeIndex,
+      "must find the Footer screen's iframe",
+    ).toBeGreaterThanOrEqual(0);
 
     const footerIframeLoc = iframes.nth(footerIframeIndex);
     const elBox = await footerIframeLoc
@@ -753,7 +779,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         break;
       }
     }
-    expect(homeIframeIndex, "must find the Home screen's iframe as the drop target").toBeGreaterThanOrEqual(0);
+    expect(
+      homeIframeIndex,
+      "must find the Home screen's iframe as the drop target",
+    ).toBeGreaterThanOrEqual(0);
     const targetScreenBox = await iframes.nth(homeIframeIndex).boundingBox();
     if (!elBox || !targetScreenBox) {
       throw new Error("missing geometry for cross-screen drag");
@@ -775,7 +804,11 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
 
     const otherFilename = "index.html";
     const targetHtml = await fileContentByName(page, designId, otherFilename);
-    const sourceHtmlAfter = await fileContentByName(page, designId, footerFilename);
+    const sourceHtmlAfter = await fileContentByName(
+      page,
+      designId,
+      footerFilename,
+    );
     expect(
       targetHtml.includes(`data-agent-native-node-id="${movingId}"`),
       `Figma: dragging an element across a frame boundary reparents it into ` +

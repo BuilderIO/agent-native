@@ -33,6 +33,7 @@ import {
   getDraftPreviewGeometryForTool,
 } from "./multi-screen/draft-primitives";
 import {
+  findTopFrameEntryAtPoint,
   frameStyleLeftTop,
   getBreakpointFrameGeometry,
   getLayerSelectableBounds,
@@ -1410,6 +1411,40 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
 
     expect(roundTrip.x).toBeCloseTo(local.x, 8);
     expect(roundTrip.y).toBeCloseTo(local.y, 8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findTopFrameEntryAtPoint: cross-screen drop release resolution
+// (drag-reparent-1)
+// ---------------------------------------------------------------------------
+describe("findTopFrameEntryAtPoint at a cross-screen drop release point", () => {
+  it("picks the source screen over an overlapping destination when foregroundId favors the source", () => {
+    // A dragged element still lives in the source document until commit, so
+    // the source screen's measured (content-fit) geometry can grow mid-drag
+    // to overlap the destination screen it is being dropped into. Both
+    // frames now genuinely contain the release point.
+    const entries = [
+      { id: "source", geometry: makeGeom(0, 0, 900, 1400) },
+      { id: "dest", geometry: makeGeom(0, 1024, 900, 900) },
+    ];
+    const releasePoint = { x: 260, y: 1330 };
+
+    // Unfiltered: the foregroundId tie-break (the active/source screen)
+    // wins the overlap, silently discarding the real cross-screen drop.
+    const naive = findTopFrameEntryAtPoint(entries, releasePoint, {
+      foregroundId: "source",
+    });
+    expect(naive?.id).toBe("source");
+
+    // The fix: exclude the source screen from the candidate set before
+    // hit-testing, so an overlap can never resolve back to it.
+    const excludingSource = findTopFrameEntryAtPoint(
+      entries.filter((entry) => entry.id !== "source"),
+      releasePoint,
+      { foregroundId: "source" },
+    );
+    expect(excludingSource?.id).toBe("dest");
   });
 });
 

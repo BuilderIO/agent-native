@@ -291,14 +291,14 @@ export function runLayerMove(
       // instead of teleporting to (0,0)-relative-to-new-parent; mirror
       // that here for the panel/tree move path.
       const targetOwnerNode = codeLayerOwnerByNodeId.get(intent.targetId);
-      const newParentAttrId =
+      const newParentId =
         intent.placement === "inside"
           ? intent.targetId
           : (targetOwnerNode?.node.parentId ?? null);
       const isCrossParent = Boolean(
         draggedOwner &&
-        newParentAttrId &&
-        draggedOwner.node.parentId !== newParentAttrId,
+        newParentId &&
+        draggedOwner.node.parentId !== newParentId,
       );
       const prevContentForRebase = nextDestContent;
       const patch = applyVisualEdit(nextDestContent, {
@@ -318,16 +318,31 @@ export function runLayerMove(
         continue;
       }
       nextDestContent = patch.content;
-      if (isCrossParent && newParentAttrId) {
+      if (isCrossParent && newParentId) {
         const movedNodeAttrId =
           patch.projection.nodes.find(
             (n) =>
               n.dataAttributes["data-agent-native-node-id"] === draggedId ||
               n.id === draggedId,
           )?.dataAttributes["data-agent-native-node-id"] ?? draggedId;
+        // getAbsolutePositioningForNodeInHtml/setAbsolutePositioningForNodeInHtml
+        // select elements by their literal data-agent-native-node-id DOM
+        // attribute, not this internal projection id (nodeIdFor always
+        // derives a synthetic "html:<hash>" id, even for an element that
+        // already carries an explicit attribute) — resolve both ends
+        // through their owners first, or the lookups below silently miss
+        // and the rebase never happens, leaving the dragged node's old
+        // parent-relative left/top to render against the new parent.
+        const draggedAttrId =
+          draggedOwner?.node.dataAttributes["data-agent-native-node-id"] ??
+          draggedId;
+        const newParentAttrId =
+          codeLayerOwnerByNodeId.get(newParentId)?.node.dataAttributes[
+            "data-agent-native-node-id"
+          ] ?? newParentId;
         const sourcePosition = getAbsolutePositioningForNodeInHtml(
           prevContentForRebase,
-          draggedId,
+          draggedAttrId,
         );
         const targetPosition = getAbsolutePositioningForNodeInHtml(
           prevContentForRebase,

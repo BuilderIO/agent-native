@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { draftPrimitiveToInsert } from "./draft-primitives";
+import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
+import {
+  createDraftPrimitive,
+  draftPrimitiveToInsert,
+} from "./draft-primitives";
 import type {
   DraftPrimitive,
   FrameGeometry,
@@ -19,6 +23,52 @@ function frame(
 function rectDraft(geometry: FrameGeometry): DraftPrimitive {
   return { id: "draft-rect", kind: "rectangle", geometry } as DraftPrimitive;
 }
+
+describe("createDraftPrimitive default fill", () => {
+  const start = { x: 0, y: 0 };
+  const end = { x: 100, y: 100 };
+
+  it("gives a freshly drawn ellipse a real, removable default fill", () => {
+    const draft = createDraftPrimitive({
+      tool: "ellipse",
+      start,
+      end,
+      moved: true,
+    });
+    expect(draft.fill).toBe(DEFAULT_SHAPE_FILL);
+  });
+
+  it("gives a freshly drawn rectangle a real, removable default fill", () => {
+    const draft = createDraftPrimitive({
+      tool: "rect",
+      start,
+      end,
+      moved: true,
+    });
+    expect(draft.fill).toBe(DEFAULT_SHAPE_FILL);
+  });
+
+  it("keeps an explicitly chosen tool fill instead of overriding it", () => {
+    const draft = createDraftPrimitive({
+      tool: "rect",
+      start,
+      end,
+      moved: true,
+      toolProps: { fill: "rgb(1 2 3)" },
+    });
+    expect(draft.fill).toBe("rgb(1 2 3)");
+  });
+
+  it("leaves a freshly drawn frame transparent (no default fill)", () => {
+    const draft = createDraftPrimitive({
+      tool: "frame",
+      start,
+      end,
+      moved: true,
+    });
+    expect(draft.fill).toBeUndefined();
+  });
+});
 
 describe("draftPrimitiveToInsert draw scaling", () => {
   it("keeps a drawn rectangle the exact size it was dragged on a landscape inline frame", () => {

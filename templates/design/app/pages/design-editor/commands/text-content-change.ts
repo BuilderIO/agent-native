@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { trace } from "@/components/design/design-trace";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { defaultTextLayerName } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerNodeMatchesBridgeTarget,
@@ -18,6 +19,7 @@ import {
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -188,6 +190,31 @@ export function runTextContentChange(
     );
     return;
   }
+  const nextProjection = buildCodeLayerProjection(nextContent);
+  const nextNode = targetNode
+    ? nextProjection.nodes.find((node) =>
+        codeLayerNodeMatchesBridgeTarget(
+          node,
+          selector,
+          bridgeSourceIdForCodeLayerNode(targetNode),
+        ),
+      )
+    : null;
+  // Figma names a freshly typed text layer after its own content. The
+  // primitive is drawn with an empty draft (primitiveLayerName's text case
+  // stamps the "Text" placeholder), so the real name is only knowable once
+  // this — the creation's first content commit — lands. Computed eagerly but
+  // only ever applied below when finalizePendingTextCreation confirms this
+  // commit really is that first commit, so editing an already-named text
+  // layer later never re-syncs its name to its content.
+  const namedContent = nextNode
+    ? (setCodeLayerAttributeInHtml(
+        nextContent,
+        nextNode,
+        "data-agent-native-layer-name",
+        defaultTextLayerName(value),
+      ) ?? nextContent)
+    : nextContent;
   const finalizedCreation = finalizePendingTextCreation(
     activeFile.id,
     [
@@ -195,14 +222,15 @@ export function runTextContentChange(
       targetNode?.id,
       targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
     ],
-    nextContent,
+    namedContent,
   );
+  const contentToApply = finalizedCreation ? namedContent : nextContent;
   if (activeLiveSnapshot) {
-    updateLiveScreenSnapshotContent(activeFile.id, nextContent, {
+    updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
       recordHistory: !finalizedCreation,
     });
   } else {
-    applyLocalContentUpdate(nextContent, {
+    applyLocalContentUpdate(contentToApply, {
       skipPreview: true,
       recordHistory: !finalizedCreation,
     });
@@ -218,16 +246,6 @@ export function runTextContentChange(
     setSelectedLayerIdsState([]);
     return;
   }
-  const nextProjection = buildCodeLayerProjection(nextContent);
-  const nextNode = targetNode
-    ? nextProjection.nodes.find((node) =>
-        codeLayerNodeMatchesBridgeTarget(
-          node,
-          selector,
-          bridgeSourceIdForCodeLayerNode(targetNode),
-        ),
-      )
-    : null;
   if (nextNode) setSelectedLayerIdsState([nextNode.id]);
   setSelectedElement((previous) => {
     const base =

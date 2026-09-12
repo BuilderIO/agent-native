@@ -67,7 +67,15 @@ describe("MultiScreenCanvas auto-fit framing", () => {
 
   async function renderScreens(
     widths: number[],
-    { height = 800 }: { height?: number } = {},
+    {
+      height = 800,
+      chromeInsetLeft = 0,
+      chromeInsetRight = 0,
+    }: {
+      height?: number;
+      chromeInsetLeft?: number;
+      chromeInsetRight?: number;
+    } = {},
   ) {
     const screens = widths.map((width, index) => ({
       id: `screen-${index}`,
@@ -90,6 +98,8 @@ describe("MultiScreenCanvas auto-fit framing", () => {
           activeTool="move"
           geometryById={geometryById}
           onPick={() => {}}
+          chromeInsetLeft={chromeInsetLeft}
+          chromeInsetRight={chromeInsetRight}
         />,
       );
     });
@@ -115,5 +125,21 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     const view = await renderScreens([16384, 16384], { height: 1304 });
     expect((800 - 180) / (16384 * 2 + 120)).toBeLessThan(0.1);
     expect(view.scale).toBeCloseTo(0.1, 6);
+  });
+
+  it("keeps the first frame clear of the left/right chrome insets", async () => {
+    // Without chromeInsetLeft/Right, centring against the raw surface width
+    // renders the frame (and its label) underneath the left shell chrome —
+    // real-world numbers: a 64px rail + 280px panel overlaps the first
+    // screen at the default overview viewport (alt-drag-duplicate-2).
+    const chromeInsetLeft = 344;
+    const chromeInsetRight = 60;
+    const view = await renderScreens([200], { chromeInsetLeft, chromeInsetRight });
+    // The single screen sits at geometry.x = 0, so its on-screen left edge
+    // is exactly the world pan's x plus the padded-world offset.
+    const frameScreenLeft = view.x + SURFACE_PADDING * view.scale;
+    const frameScreenRight = frameScreenLeft + 200 * view.scale;
+    expect(frameScreenLeft).toBeGreaterThanOrEqual(chromeInsetLeft);
+    expect(frameScreenRight).toBeLessThanOrEqual(SURFACE_WIDTH - chromeInsetRight);
   });
 });

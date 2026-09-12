@@ -72,9 +72,12 @@ async function fileContent(page: Page, filename: string): Promise<string> {
   );
   if (!res.ok()) throw new Error(`get-design failed: ${res.status()}`);
   const payload = await res.json();
-  const design = [payload, payload?.result, payload?.design, payload?.data].find(
-    (candidate) => Array.isArray(candidate?.files),
-  );
+  const design = [
+    payload,
+    payload?.result,
+    payload?.design,
+    payload?.data,
+  ].find((candidate) => Array.isArray(candidate?.files));
   const file = design?.files?.find(
     (candidate: { filename?: string }) => candidate.filename === filename,
   );
@@ -112,10 +115,20 @@ async function pressToolKey(page: Page, key: string): Promise<void> {
  * committing via Escape (not a second click, which redrafts a new empty text
  * box while the Text tool is still armed) avoids that trap.
  */
-async function placeText(page: Page, card: { x: number; y: number; width: number; height: number }, text: string): Promise<void> {
+async function placeText(
+  page: Page,
+  card: { x: number; y: number; width: number; height: number },
+  text: string,
+): Promise<void> {
   await pressToolKey(page, "t");
-  await expect(toolButton(page, "Text")).toHaveAttribute("aria-pressed", "true");
-  await page.mouse.click(card.x + card.width * 0.5, card.y + card.height * 0.85);
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.mouse.click(
+    card.x + card.width * 0.5,
+    card.y + card.height * 0.85,
+  );
   await page.waitForTimeout(200);
   await page.keyboard.type(text, { delay: 30 });
   await page.waitForTimeout(300);
@@ -182,9 +195,7 @@ async function textPrimitiveNodeIds(
   const ids: string[] = await page.evaluate(
     ({ html, text }) => {
       const doc = new DOMParser().parseFromString(html, "text/html");
-      return Array.from(
-        doc.querySelectorAll("[data-agent-native-node-id]"),
-      )
+      return Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
         .filter((el) => (el.textContent ?? "").trim() === text)
         .map((el) => el.getAttribute("data-agent-native-node-id")!);
     },
@@ -218,20 +229,22 @@ async function renameLayerViaPanel(
     .filter({ has: page.locator(`span[title="${currentName}"]`) })
     .first();
   await expect(row).toBeVisible();
-  // Select first (settles any re-render from the initial selection change),
-  // then double-click via two raw mouse clicks at the settled box center —
-  // a locator-based `.dblclick()` re-resolves the target between its two
-  // clicks, which can straddle a React re-render and miss the native
-  // dblclick entirely.
-  await row.click({ force: true });
+  // Re-resolve by the row's own stable node-id attribute, not by the
+  // name-bearing span used to find it above: entering rename mode replaces
+  // that span with the rename `<input>`, so a locator still filtered on
+  // `span[title=...]` stops matching the instant rename starts and any
+  // further `.locator(...)` off of it always finds zero elements — that
+  // looks exactly like "double-click never enters rename mode" but isn't.
+  const nodeId = await row.getAttribute("data-layer-node-id");
+  const stableRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${nodeId}"]`);
+  // Select first to settle any re-render from the initial selection change,
+  // then a real double-click.
+  await stableRow.click({ force: true });
   await page.waitForTimeout(300);
-  const rowBox = await row.boundingBox();
-  if (!rowBox) throw new Error(`layer row "${currentName}" has no bounding box`);
-  const rx = rowBox.x + 24;
-  const ry = rowBox.y + rowBox.height / 2;
-  await page.mouse.click(rx, ry);
-  await page.mouse.click(rx, ry);
-  const input = row.locator("input");
+  await stableRow.dblclick({ force: true });
+  const input = stableRow.locator("input");
   await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill(nextName);
   await input.press("Enter");
@@ -274,6 +287,12 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     expect(textIds.length, "expected one text node with content 'Button'").toBe(
       1,
     );
+
+    // Figma names a freshly typed text layer after its own content, not a
+    // generic "Text" placeholder — the tutorial's own step 2 renames it to
+    // "Label", implying the interim default name here is "Button".
+    const html = await fileContent(page, "index.html");
+    expect(layerNameOf(html, textIds[0]!)).toBe("Button");
   });
 
   test("step 2: double-click a layer row in the panel enters rename mode", async ({
@@ -316,9 +335,7 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
 
     // --- Step 4: Select the text, press Shift+A (auto layout wraps it) ---
     await selectByText(page, "Button");
-    await expect
-      .poll(async () => selectedNodeId(page))
-      .toBe(textId);
+    await expect.poll(async () => selectedNodeId(page)).toBe(textId);
     await page.keyboard.press("Shift+A");
     await page.waitForTimeout(400);
 
@@ -428,14 +445,19 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     const wrapperMatch = new RegExp(
       `data-agent-native-node-id="([^"]+)"[^>]*>(?:(?!data-agent-native-node-id)[\\s\\S])*?data-agent-native-node-id="${textId}"`,
     ).exec(html);
-    if (!wrapperMatch) throw new Error("auto layout wrap did not produce a wrapper (see other test)");
+    if (!wrapperMatch)
+      throw new Error(
+        "auto layout wrap did not produce a wrapper (see other test)",
+      );
     const wrapperId = wrapperMatch[1]!;
 
     // Select the wrapper frame in the layers panel by its current name.
     const wrapperName = layerNameOf(html, wrapperId) ?? "Group";
     const searchInput = page.getByPlaceholder("Search layers...");
     if (!(await searchInput.isVisible().catch(() => false))) {
-      await page.getByRole("button", { name: "Search layers...", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Search layers...", exact: true })
+        .click();
     }
     await searchInput.fill(wrapperName);
     const row = page
@@ -452,7 +474,9 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     const addFill = fillSection.getByRole("button", { name: "Add fill" });
     if ((await addFill.count()) > 0) {
       await addFill.click();
-      const hexInput = fillSection.locator('input[aria-label*="hex" i]').first();
+      const hexInput = fillSection
+        .locator('input[aria-label*="hex" i]')
+        .first();
       if ((await hexInput.count()) > 0) {
         await hexInput.fill("DEB0FB");
         await hexInput.press("Enter");
@@ -472,7 +496,9 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     if ((await addStroke.count()) > 0) {
       await addStroke.click();
       await page.waitForTimeout(150);
-      const weightInput = strokeSection.locator('input[aria-label="Weight" i]').first();
+      const weightInput = strokeSection
+        .locator('input[aria-label="Weight" i]')
+        .first();
       if ((await weightInput.count()) > 0) {
         await weightInput.fill("1");
         await weightInput.press("Enter");
@@ -480,7 +506,9 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
       html = await fileContent(page, "index.html");
       const strokeStyle = styleOf(html, wrapperId);
       strokeApplied = Boolean(
-        strokeStyle["border"] || strokeStyle["outline"] || strokeStyle["border-width"],
+        strokeStyle["border"] ||
+        strokeStyle["outline"] ||
+        strokeStyle["border-width"],
       );
     }
 
@@ -498,11 +526,15 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
 
     // --- Step 9: Add Effect -> Drop shadow ---
     const effectsSection = inspectorSection(page, /^Effects$/i);
-    const addEffect = effectsSection.getByRole("button", { name: "Add effect" });
+    const addEffect = effectsSection.getByRole("button", {
+      name: "Add effect",
+    });
     let shadowApplied = false;
     if ((await addEffect.count()) > 0) {
       await addEffect.click();
-      const dropShadowItem = page.getByRole("menuitem", { name: "Drop shadow" });
+      const dropShadowItem = page.getByRole("menuitem", {
+        name: "Drop shadow",
+      });
       if ((await dropShadowItem.count()) > 0) {
         await dropShadowItem.click();
         html = await fileContent(page, "index.html");
@@ -526,13 +558,15 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
       paddingApplied = false;
     }
 
-    test.info().annotations.push(
-      { type: "fill-applied", description: String(fillApplied) },
-      { type: "stroke-applied", description: String(strokeApplied) },
-      { type: "radius-applied", description: String(radiusApplied) },
-      { type: "shadow-applied", description: String(shadowApplied) },
-      { type: "padding-applied", description: String(paddingApplied) },
-    );
+    test
+      .info()
+      .annotations.push(
+        { type: "fill-applied", description: String(fillApplied) },
+        { type: "stroke-applied", description: String(strokeApplied) },
+        { type: "radius-applied", description: String(radiusApplied) },
+        { type: "shadow-applied", description: String(shadowApplied) },
+        { type: "padding-applied", description: String(paddingApplied) },
+      );
 
     // These are peer(codex)-owned inspector controls; assert to identify the
     // exact failing step rather than silently accepting a no-op.
@@ -611,24 +645,30 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.waitForTimeout(500);
 
     await expect
-      .poll(async () => {
-        const params = new URLSearchParams({ id: currentDesignId });
-        const res = await page.request.get(
-          `${baseURLForActions}/_agent-native/actions/get-design?${params}`,
-        );
-        const payload = await res.json();
-        const design = [payload, payload?.result, payload?.design, payload?.data].find(
-          (candidate: any) => Array.isArray(candidate?.files),
-        );
-        const files: { filename?: string; content?: string }[] =
-          design?.files ?? [];
-        const board = files.find((f) => f.filename === "__board__.html");
-        const index = files.find((f) => f.filename === "index.html");
-        return {
-          boardHasText: Boolean(board?.content?.includes("Board Label")),
-          indexHasText: Boolean(index?.content?.includes("Board Label")),
-        };
-      }, { timeout: 15_000 })
+      .poll(
+        async () => {
+          const params = new URLSearchParams({ id: currentDesignId });
+          const res = await page.request.get(
+            `${baseURLForActions}/_agent-native/actions/get-design?${params}`,
+          );
+          const payload = await res.json();
+          const design = [
+            payload,
+            payload?.result,
+            payload?.design,
+            payload?.data,
+          ].find((candidate: any) => Array.isArray(candidate?.files));
+          const files: { filename?: string; content?: string }[] =
+            design?.files ?? [];
+          const board = files.find((f) => f.filename === "__board__.html");
+          const index = files.find((f) => f.filename === "index.html");
+          return {
+            boardHasText: Boolean(board?.content?.includes("Board Label")),
+            indexHasText: Boolean(index?.content?.includes("Board Label")),
+          };
+        },
+        { timeout: 15_000 },
+      )
       .toMatchObject({ boardHasText: true, indexHasText: false });
   });
 
@@ -651,25 +691,30 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
 
     // A click (no drag) with a shape tool creates a default 100x100 shape
     // (figma-interaction-spec Part 3). Locate it and drag it.
-    const boardShape = page
-      .locator('[data-board-object-id]')
-      .first();
+    const boardShape = page.locator("[data-board-object-id]").first();
     const before = await boardShape.boundingBox();
     if (!before) {
       test.skip(true, "harness could not locate the created board shape");
       return;
     }
-    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.move(
+      before.x + before.width / 2,
+      before.y + before.height / 2,
+    );
     await page.mouse.down();
-    await page.mouse.move(before.x + before.width / 2 + 80, before.y + before.height / 2 + 40, {
-      steps: 10,
-    });
+    await page.mouse.move(
+      before.x + before.width / 2 + 80,
+      before.y + before.height / 2 + 40,
+      {
+        steps: 10,
+      },
+    );
     await page.mouse.up();
     await page.waitForTimeout(400);
 
     const after = await boardShape.boundingBox();
     expect(after).not.toBeNull();
-    expect(Math.abs((after!.x - before.x) - 80)).toBeLessThan(20);
+    expect(Math.abs(after!.x - before.x - 80)).toBeLessThan(20);
   });
 
   test("dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each)", async ({
@@ -684,7 +729,11 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     if (!card) throw new Error("no screen card box");
     await placeText(page, card, "Cross Boundary");
 
-    const textIds = await textPrimitiveNodeIds(page, "index.html", "Cross Boundary");
+    const textIds = await textPrimitiveNodeIds(
+      page,
+      "index.html",
+      "Cross Boundary",
+    );
     expect(textIds.length).toBe(1);
     const textId = textIds[0]!;
 
@@ -716,10 +765,14 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
         `${baseURLForActions}/_agent-native/actions/get-design?${params}`,
       );
       const payload = await res.json();
-      const design = [payload, payload?.result, payload?.design, payload?.data].find(
-        (candidate: any) => Array.isArray(candidate?.files),
-      );
-      const files: { filename?: string; content?: string }[] = design?.files ?? [];
+      const design = [
+        payload,
+        payload?.result,
+        payload?.design,
+        payload?.data,
+      ].find((candidate: any) => Array.isArray(candidate?.files));
+      const files: { filename?: string; content?: string }[] =
+        design?.files ?? [];
       return files.find((f) => f.filename === "__board__.html")?.content ?? "";
     })();
 
@@ -729,23 +782,32 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     const leftScreen = !hasNode(indexHtmlAfterOut, textId);
     const enteredBoard = outResult.includes(textId);
 
-    expect(leftScreen, "dragging out of the screen should remove it from index.html").toBe(
-      true,
-    );
+    expect(
+      leftScreen,
+      "dragging out of the screen should remove it from index.html",
+    ).toBe(true);
     expect(
       enteredBoard,
       "dragging out onto open canvas should reparent it into the board",
     ).toBe(true);
 
     // Now drag it back into the screen.
-    const boardNode = page.locator(`[data-agent-native-node-id="${textId}"]`).first();
+    const boardNode = page
+      .locator(`[data-agent-native-node-id="${textId}"]`)
+      .first();
     const boardBox = await boardNode.boundingBox();
-    if (!boardBox) throw new Error("could not find board node after reparent-out");
+    if (!boardBox)
+      throw new Error("could not find board node after reparent-out");
     const backX = card.x + card.width * 0.5;
     const backY = card.y + card.height * 0.5;
-    await page.mouse.move(boardBox.x + boardBox.width / 2, boardBox.y + boardBox.height / 2);
+    await page.mouse.move(
+      boardBox.x + boardBox.width / 2,
+      boardBox.y + boardBox.height / 2,
+    );
     await page.mouse.down();
-    await page.mouse.move((boardBox.x + backX) / 2, (boardBox.y + backY) / 2, { steps: 8 });
+    await page.mouse.move((boardBox.x + backX) / 2, (boardBox.y + backY) / 2, {
+      steps: 8,
+    });
     await page.mouse.move(backX, backY, { steps: 8 });
     await page.waitForTimeout(150);
     await page.mouse.up();

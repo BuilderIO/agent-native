@@ -132,7 +132,9 @@ async function layerNames(page: Page): Promise<string[]> {
     .locator(
       '[role="treeitem"]:not([aria-level="1"]) [data-layer-row-button] span[title]',
     )
-    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title") ?? ""));
+    .evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("title") ?? ""),
+    );
 }
 
 // Camera pan/zoom persists across designs in application_state (see
@@ -194,7 +196,9 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.waitForTimeout(1200);
 
       const groupChildIds = await frame
-        .locator('[data-agent-native-node-id="group"] > [data-agent-native-node-id]')
+        .locator(
+          '[data-agent-native-node-id="group"] > [data-agent-native-node-id]',
+        )
         .evaluateAll((els) =>
           els.map((el) => el.getAttribute("data-agent-native-node-id")),
         );
@@ -203,7 +207,8 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       );
 
       if (!copyId || groupChildIds.indexOf(copyId) !== 1) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ groupChildIds, copyId, trace }),
@@ -222,9 +227,7 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
         .boundingBox();
       // Same size as the original.
       expect(Math.round(copyBox!.width)).toBe(Math.round(originalBox!.width));
-      expect(Math.round(copyBox!.height)).toBe(
-        Math.round(originalBox!.height),
-      );
+      expect(Math.round(copyBox!.height)).toBe(Math.round(originalBox!.height));
 
       const names = await layerNames(page);
       expect(names.filter((n) => n === "Original")).toHaveLength(2);
@@ -237,10 +240,7 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
     page,
     request,
   }) => {
-    const { designId } = await createDesign(
-      request,
-      CONTAINER_AND_SOURCE_HTML,
-    );
+    const { designId } = await createDesign(request, CONTAINER_AND_SOURCE_HTML);
     try {
       await gotoEditorZoomed(page, designId);
       const frame = designFrame(page);
@@ -255,7 +255,8 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
         '[data-agent-native-node-id="container"] > [data-agent-native-node-id]',
       );
       if ((await containerChildren.count()) !== 1) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ trace }),
@@ -282,7 +283,9 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.waitForTimeout(1000);
 
       const groupChildIds = await frame
-        .locator('[data-agent-native-node-id="group"] > [data-agent-native-node-id]')
+        .locator(
+          '[data-agent-native-node-id="group"] > [data-agent-native-node-id]',
+        )
         .evaluateAll((els) =>
           els.map((el) => el.getAttribute("data-agent-native-node-id")),
         );
@@ -290,7 +293,8 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
         (id) => id !== "original" && id !== "sibling",
       );
       if (!copyId || groupChildIds.indexOf(copyId) !== 1) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ groupChildIds, copyId, trace }),
@@ -314,8 +318,13 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       // verify via __designTrace's selection-changed element selector instead
       // (the same signal every other assertion in this file relies on).
       const trace = await dumpTrace(page);
-      const selectionMatches = [...(trace ?? "").matchAll(/\[select:selection-changed\] \{"layers":\[[^\]]*\],"element":"((?:[^"\\]|\\.)*)"/g)];
-      const lastSelection = selectionMatches.at(-1)?.[1] ?? null;
+      const selectionMatches = [
+        ...(trace ?? "").matchAll(
+          /\[select:selection-changed\] \{"layers":\[[^\]]*\],"element":"((?:[^"\\]|\\.)*)"/g,
+        ),
+      ];
+      const lastSelection =
+        selectionMatches[selectionMatches.length - 1]?.[1] ?? null;
       if (!lastSelection || !lastSelection.includes(copyId!)) {
         console.log("TRACE_DEBUG", JSON.stringify(trace));
       }
@@ -345,7 +354,8 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
         namesAfter.length !== 2 ||
         namesAfter.some((n) => n !== originalName)
       ) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ originalName, namesAfter, trace }),
@@ -365,10 +375,7 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
     page,
     request,
   }) => {
-    const { designId } = await createDesign(
-      request,
-      CONTAINER_AND_SOURCE_HTML,
-    );
+    const { designId } = await createDesign(request, CONTAINER_AND_SOURCE_HTML);
     try {
       await gotoEditorZoomed(page, designId);
       const frame = designFrame(page);
@@ -388,12 +395,11 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
         .locator('[data-agent-native-layer-name="Source"]')
         .count();
       if (containerGone !== 0 || clonesOfSource !== 2) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
-          description: JSON.stringify(
-            { containerGone, clonesOfSource, trace },
-          ),
+          description: JSON.stringify({ containerGone, clonesOfSource, trace }),
         });
       }
       // The original container node is gone, replaced by a clone of Source.
@@ -420,7 +426,8 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
         .locator('[data-agent-native-node-id="rect"]')
         .count();
       if (afterCut !== 0) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ afterCut, trace }),
@@ -451,12 +458,16 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.keyboard.press("ControlOrMeta+d");
       await page.waitForTimeout(1000);
       await expect(
-        frame.locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]'),
+        frame.locator(
+          '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
+        ),
       ).toHaveCount(2, { timeout: 10_000 });
       await page.keyboard.press("ControlOrMeta+z");
       await page.waitForTimeout(800);
       await expect(
-        frame.locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]'),
+        frame.locator(
+          '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
+        ),
       ).toHaveCount(1, { timeout: 10_000 });
 
       // Copy + paste: one undo step for the paste (copy has no history entry).
@@ -466,10 +477,13 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.keyboard.press("ControlOrMeta+v");
       await page.waitForTimeout(1200);
       const afterPasteCount = await frame
-        .locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]')
+        .locator(
+          '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
+        )
         .count();
       if (afterPasteCount !== 2) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ afterPasteCount, trace }),
@@ -479,7 +493,9 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.keyboard.press("ControlOrMeta+z");
       await page.waitForTimeout(800);
       await expect(
-        frame.locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]'),
+        frame.locator(
+          '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
+        ),
       ).toHaveCount(1, { timeout: 10_000 });
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
@@ -514,9 +530,9 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
       await page.waitForTimeout(1000);
 
       const frameA = designFrame(page, fileIds[0]);
-      const rectBox = (
-        await frameA.locator('[data-agent-native-node-id="rect"]').boundingBox()
-      )!;
+      const rectBox = (await frameA
+        .locator('[data-agent-native-node-id="rect"]')
+        .boundingBox())!;
       await page.mouse.click(
         rectBox.x + rectBox.width / 2,
         rectBox.y + rectBox.height / 2,
@@ -540,7 +556,8 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
         '[data-agent-native-layer-name="Widget"]',
       );
       if ((await pasted.count()) !== 1) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ trace }),
@@ -609,7 +626,8 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
         ),
       );
       if (Object.keys(after).length !== 2) {
-        const trace = await dumpTrace(page); console.log("TRACE_DEBUG", JSON.stringify(trace));
+        const trace = await dumpTrace(page);
+        console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ before, after, trace }),

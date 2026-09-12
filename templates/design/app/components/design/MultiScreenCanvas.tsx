@@ -574,6 +574,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   gradientEditTarget,
   onDropFiles,
   cameraCommand,
+  chromeInsetLeft = 0,
+  chromeInsetRight = 0,
 }: MultiScreenCanvasProps) {
   const { resolvedTheme } = useTheme();
   const t = useT();
@@ -1803,9 +1805,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // Leave a Figma-like board gutter beside the last frame for quick drops/draws,
     // and fit tall single frames so lower canvas interactions remain reachable.
     const minFitScale = AUTOFIT_MIN_ZOOM / 100;
+    // The left/right chrome overlays the surface without shrinking
+    // rect.width (see chromeInsetLeft/Right's doc on MultiScreenCanvasProps),
+    // so the space actually free for content is rect.width minus both insets
+    // — fitting and centering against the raw rect.width renders the first
+    // screen (and its frame label) unreachable underneath the left shell.
+    const availableWidth = Math.max(
+      0,
+      rect.width - chromeInsetLeft - chromeInsetRight,
+    );
     const widthFitScale =
       renderedScreens.length > 1 && totalWidth > 0
-        ? Math.max(minFitScale, (rect.width - 180) / totalWidth)
+        ? Math.max(minFitScale, (availableWidth - 180) / totalWidth)
         : scale;
     const heightFitScale =
       totalHeight > 0
@@ -1820,7 +1831,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     // Genuinely centred, including when content overflows: flooring these
     // pins an oversized lineup against one edge and runs it off the other.
-    const visualLeft = (rect.width - totalWidth * nextScale) / 2;
+    const visualLeft =
+      chromeInsetLeft + (availableWidth - totalWidth * nextScale) / 2;
     const visualTop = (rect.height - totalHeight * nextScale) / 2;
     const nextPan = {
       x: visualLeft - (SURFACE_PADDING + boundsLeft) * nextScale,
@@ -1976,19 +1988,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   const getFrameEntryAtPoint = useCallback(
-    (point: Point) =>
-      findTopFrameEntryAtPoint(getSelectableFrameEntries(), point, {
-        // Screen wrappers give this same id a large z-index boost. Geometry
-        // hit testing must mirror it or drops/draws on overlapping frames can
-        // persist into a visually obscured sibling.
-        foregroundId:
-          selectedIdsRef.current.find(
-            (id) => frameGeometryRef.current[id] !== undefined,
-          ) ??
-          (activeId && frameGeometryRef.current[activeId]
-            ? activeId
-            : screensRef.current[0]?.id),
-      }),
+    (point: Point, options?: { excludeId?: string }) =>
+      findTopFrameEntryAtPoint(
+        options?.excludeId
+          ? getSelectableFrameEntries().filter(
+              (entry) => entry.id !== options.excludeId,
+            )
+          : getSelectableFrameEntries(),
+        point,
+        {
+          // Screen wrappers give this same id a large z-index boost. Geometry
+          // hit testing must mirror it or drops/draws on overlapping frames can
+          // persist into a visually obscured sibling.
+          foregroundId:
+            selectedIdsRef.current.find(
+              (id) => frameGeometryRef.current[id] !== undefined,
+            ) ??
+            (activeId && frameGeometryRef.current[activeId]
+              ? activeId
+              : screensRef.current[0]?.id),
+        },
+      ),
     [activeId, getSelectableFrameEntries],
   );
 
@@ -3112,17 +3132,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             msg.viewportW ?? 0,
             msg.viewportH ?? 0,
           ) ?? crossScreenLastBoardPointRef.current;
+        // Exclude the source screen from the hit test itself rather than
+        // discarding an equal-id result afterward: a dragged element still
+        // lives in the source document until commit, so the source screen's
+        // measured (content-fit) geometry can grow to overlap the
+        // destination mid-drag, and the foregroundId tie-break in
+        // findTopFrameEntryAtPoint favors the source (the active screen)
+        // over a destination it genuinely overlaps — silently discarding a
+        // real cross-screen drop as "released back over its own screen".
         const targetAtRelease = lastBoardPoint
-          ? getFrameEntryAtPoint(lastBoardPoint)
+          ? getFrameEntryAtPoint(lastBoardPoint, { excludeId: sourceScreenId })
           : null;
         // The release point wins over the last move tick. Re-entering the
         // source screen stops the cross-screen move messages entirely, so the
         // ref can still name the board while the pointer is over a screen —
         // and a board drop under a screen renders behind it.
         const candidate = targetAtRelease
-          ? targetAtRelease.id === sourceScreenId
-            ? null
-            : { id: targetAtRelease.id, geometry: targetAtRelease.geometry }
+          ? { id: targetAtRelease.id, geometry: targetAtRelease.geometry }
           : crossScreenTargetRef.current;
         finalizeCrossScreenDrop(
           sourceScreenId,
@@ -7314,9 +7340,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       const rect = surfaceRef.current?.getBoundingClientRect();
       if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      // Fit against the width actually free of the left/right chrome
+      // overlays (see chromeInsetLeft/Right's doc), then shift the result
+      // right by chromeInsetLeft — getCameraForBounds centers within
+      // [0, viewport.width], so this re-centers within
+      // [chromeInsetLeft, rect.width - chromeInsetRight] instead.
+      const availableWidth = Math.max(
+        1,
+        rect.width - chromeInsetLeft - chromeInsetRight,
+      );
       const camera = getCameraForBounds(
         cameraCommand.fitBounds,
-        { width: rect.width, height: rect.height },
+        { width: availableWidth, height: rect.height },
         {
           paddingScreenPx:
             cameraCommand.paddingScreenPx ?? CANVAS_FIT_PADDING_PX,
@@ -7329,6 +7364,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           fallbackZoom: zoomRef.current,
         },
       );
+      camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();

@@ -223,7 +223,8 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
           /\[select:selection-changed\] \{"layers":\[[^\]]*\],"element":"((?:[^"\\]|\\.)*)"/g,
         ),
       ];
-      const lastSelection = selectionMatches.at(-1)?.[1] ?? null;
+      const lastSelection =
+        selectionMatches[selectionMatches.length - 1]?.[1] ?? null;
       if (!lastSelection || !lastSelection.includes(copyId!)) {
         test.info().annotations.push({
           type: "trace",

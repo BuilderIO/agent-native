@@ -887,6 +887,12 @@ type UpdateScreenSourceActionResult = {
 /* i18n-ignore */
 /* i18n-ignore */
 
+// Mirrors `--design-chrome-rail-width` in app/global.css (8 baseline units ×
+// 8px). The rail is always-on chrome (not measured via a ref) so the very
+// first overview camera render — before any layout effect could measure the
+// DOM — already accounts for it; see chromeInsetLeft below.
+const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
+
 function pageHasWebMcpHost(): boolean {
   if (typeof navigator === "undefined") return false;
   const navigatorWithModelContext = navigator as Navigator & {
@@ -5817,11 +5823,16 @@ function DesignEditor() {
     if (!activeEditorDragRef.current) return false;
     activeEditorDragRef.current = false;
     if (typeof document === "undefined") return true;
+    // Stamped here, at the real Escape keydown, not at message-delivery time:
+    // the bridge orders this against its own commit timestamp (both Date.now,
+    // a wall clock shared across documents) to tell "Escape predates the
+    // mouseup" from "Escape came after the drag already finished".
+    const pressedAt = Date.now();
     document
       .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
       .forEach((iframe) => {
         iframe.contentWindow?.postMessage(
-          { type: "agent-native:cancel-active-drag" },
+          { type: "agent-native:cancel-active-drag", pressedAt },
           "*",
         );
       });
@@ -20294,6 +20305,16 @@ function DesignEditor() {
     !uiHidden &&
     !initialGenerationChromeLimited &&
     (!minimalUi || minimalInspectorHasSelection);
+  // Both shells are absolutely-positioned overlays on top of the canvas
+  // surface (see the `left-shell`/`right-panel` chrome regions below), not
+  // flex siblings, so MultiScreenCanvas's own measured rect never shrinks
+  // for them — feed their widths in so its overview camera/fit math can
+  // center content in the space actually free of this chrome instead of
+  // rendering the first screen (and its frame label) underneath it.
+  const chromeInsetLeft = leftSidebarVisible
+    ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
+    : 0;
+  const chromeInsetRight = rightSidebarVisible ? rightSidebarWidth : 0;
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -21223,6 +21244,8 @@ function DesignEditor() {
                         zoom={overviewCanvasZoom}
                         onZoomChange={setExplicitOverviewCanvasZoom}
                         cameraCommand={cameraCommand}
+                        chromeInsetLeft={chromeInsetLeft}
+                        chromeInsetRight={chromeInsetRight}
                         activeId={activeFileId}
                         selectedScreenIds={overviewSelectedScreenIds}
                         selectedElementScreenId={selectedElementScreenId}

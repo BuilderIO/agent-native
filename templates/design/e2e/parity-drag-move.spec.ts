@@ -7,7 +7,6 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
 import {
   setBaseURL,
   MOD,
@@ -18,7 +17,9 @@ import {
   selectViaTree,
   dragBy,
   activeOverlays,
+  toolbar,
 } from "./drag-and-drop.shared";
+import { appPath } from "./helpers";
 
 /**
  * Figma parity — Move (spec §2 + Part 3). Covers both placements the spec
@@ -54,7 +55,8 @@ async function action(
   const res = await request.post(`${BASE_URL}/_agent-native/actions/${name}`, {
     data: input,
   });
-  if (!res.ok()) throw new Error(`${name}: ${res.status()} ${await res.text()}`);
+  if (!res.ok())
+    throw new Error(`${name}: ${res.status()} ${await res.text()}`);
   return res.json();
 }
 
@@ -89,7 +91,13 @@ async function createFrameDesign(
       {
         op: "set",
         path: ["canvasFrames", fileId],
-        value: { x: frames[i]!.x, y: frames[i]!.y, width: SCREEN_W, height: SCREEN_H, z: i },
+        value: {
+          x: frames[i]!.x,
+          y: frames[i]!.y,
+          width: SCREEN_W,
+          height: SCREEN_H,
+          z: i,
+        },
       },
     ]),
   });
@@ -100,13 +108,18 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, { timeout: 30_000 });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
+    timeout: 30_000,
+  });
   await expect(page.locator("[data-screen-card]").first()).toBeVisible();
   await page.waitForTimeout(1500);
 }
 
 async function canvasScale(page: Page): Promise<number> {
-  const card = (await page.locator("[data-screen-card]").first().boundingBox())!;
+  const card = (await page
+    .locator("[data-screen-card]")
+    .first()
+    .boundingBox())!;
   return card.width / SCREEN_W;
 }
 
@@ -122,10 +135,15 @@ async function visibleCentre(page: Page, locator: Locator) {
 async function frameOffsets(page: Page) {
   return page.evaluate(() =>
     Object.fromEntries(
-      Array.from(document.querySelectorAll<HTMLElement>("[data-frame-id]")).map((n) => [
-        n.getAttribute("data-frame-id")!,
-        { left: Number.parseFloat(n.style.left), top: Number.parseFloat(n.style.top) },
-      ]),
+      Array.from(document.querySelectorAll<HTMLElement>("[data-frame-id]")).map(
+        (n) => [
+          n.getAttribute("data-frame-id")!,
+          {
+            left: Number.parseFloat(n.style.left),
+            top: Number.parseFloat(n.style.top),
+          },
+        ],
+      ),
     ),
   );
 }
@@ -158,7 +176,9 @@ test("in-screen: a drag moves the element by exactly the pointer delta at the cu
   // renders at, so a correct implementation reproduces this delta almost
   // exactly regardless of which zoom level is active; a bug that ignores (or
   // double-applies) zoom would drift far from 1:1 here.
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 300, 150, { settle: false });
+  await dragBy(page, (await node(page, "box-a").boundingBox())!, 300, 150, {
+    settle: false,
+  });
   await expect
     .poll(async () => (await geom(page, id, "box-a")).left)
     .not.toBe(before.left);
@@ -187,7 +207,10 @@ test("overview: dragging a screen frame moves it by exactly the pointer delta at
     await selectFrame(page, 1);
     const scale = await canvasScale(page);
     const before = await frameOffsets(page);
-    const start = await visibleCentre(page, page.locator("[data-frame-drag-surface]"));
+    const start = await visibleCentre(
+      page,
+      page.locator("[data-frame-drag-surface]"),
+    );
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.mouse.move(start.x + 240, start.y + 120, { steps: 20 });
@@ -220,7 +243,10 @@ test("overview: Shift+drag constrains a screen frame move to one axis", async ({
     await openOverview(page, designId, 2);
     await selectFrame(page, 1);
     const before = await frameOffsets(page);
-    const start = await visibleCentre(page, page.locator("[data-frame-drag-surface]"));
+    const start = await visibleCentre(
+      page,
+      page.locator("[data-frame-drag-surface]"),
+    );
     await page.keyboard.down("Shift");
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
@@ -249,18 +275,87 @@ test("in-screen: Escape mid-drag cancels the move and restores the exact origina
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
   const before = await geom(page, id, "box-a");
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 200, 100, { cancel: true });
+  await dragBy(page, (await node(page, "box-a").boundingBox())!, 200, 100, {
+    cancel: true,
+  });
   const after = await geom(page, id, "box-a");
   if (after.left !== before.left || after.top !== before.top) {
-    const trace = await page.evaluate(() =>
-      (window as any).__designTrace?.dump?.(),
-    ).catch(() => undefined);
-    console.log("designTrace after failed Escape-cancel:", JSON.stringify(trace)?.slice(0, 2000));
+    const trace = await page
+      .evaluate(() => (window as any).__designTrace?.dump?.())
+      .catch(() => undefined);
+    console.log(
+      "designTrace after failed Escape-cancel:",
+      JSON.stringify(trace)?.slice(0, 2000),
+    );
   }
   expect(
     [after.left, after.top],
     `Escape mid-drag must restore the start position (${before.left},${before.top}); got (${after.left},${after.top})`,
   ).toEqual([before.left, before.top]);
+});
+
+test("in-screen: Escape after a completed drag does NOT revert it (host focus and iframe focus)", async ({
+  page,
+}) => {
+  // Figma spec: Escape only cancels a drag while it is live; once the pointer
+  // releases, the move is committed and a later Escape (even 1ms later) must
+  // leave it alone. A prior fix made a *late-arriving* cancel message from an
+  // Escape that predates the mouseup still win the postMessage race — but
+  // that same 200ms grace window would also wrongly revert an Escape a user
+  // genuinely presses after the drag is already done, unless the pending
+  // revert is ordered by when Escape was actually pressed, not by when its
+  // message shows up. Cover both routes a real Escape can take from here:
+  // iframe focus (the bridge's own local keydown listener) and host focus
+  // (the async "agent-native:cancel-active-drag" postMessage).
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  // iframe focus: nothing refocuses the host after the drag's own pointer
+  // events, so focus is still inside the iframe when Escape is pressed.
+  await selectViaTree(page, "Box A");
+  const beforeA = await geom(page, id, "box-a");
+  const boxA = (await node(page, "box-a").boundingBox())!;
+  await page.mouse.move(boxA.x + boxA.width / 2, boxA.y + boxA.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    boxA.x + boxA.width / 2 + 200,
+    boxA.y + boxA.height / 2 + 100,
+    { steps: 16 },
+  );
+  await page.waitForTimeout(350);
+  await page.mouse.up();
+  await page.waitForTimeout(50);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  const afterA = await geom(page, id, "box-a");
+  expect(
+    [afterA.left, afterA.top],
+    `iframe-focus Escape after release must not revert Box A from (${afterA.left},${afterA.top}) back to (${beforeA.left},${beforeA.top})`,
+  ).not.toEqual([beforeA.left, beforeA.top]);
+
+  // host focus: click a host toolbar control (outside the iframe) before
+  // pressing Escape, so the key event routes through the host's own keydown
+  // listener and the async cancel-active-drag postMessage instead.
+  await selectViaTree(page, "Box B");
+  const beforeB = await geom(page, id, "box-b");
+  const boxB = (await node(page, "box-b").boundingBox())!;
+  await page.mouse.move(boxB.x + boxB.width / 2, boxB.y + boxB.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    boxB.x + boxB.width / 2 + 200,
+    boxB.y + boxB.height / 2 + 100,
+    { steps: 16 },
+  );
+  await page.waitForTimeout(350);
+  await page.mouse.up();
+  await toolbar(page).locator('button[aria-label="Move"]').click();
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  const afterB = await geom(page, id, "box-b");
+  expect(
+    [afterB.left, afterB.top],
+    `host-focus Escape after release must not revert Box B from (${afterB.left},${afterB.top}) back to (${beforeB.left},${beforeB.top})`,
+  ).not.toEqual([beforeB.left, beforeB.top]);
 });
 
 test("overview: Escape mid-drag cancels a screen-frame drag and restores its original position", async ({
@@ -275,7 +370,10 @@ test("overview: Escape mid-drag cancels a screen-frame drag and restores its ori
     await openOverview(page, designId, 2);
     await selectFrame(page, 1);
     const before = await frameOffsets(page);
-    const start = await visibleCentre(page, page.locator("[data-frame-drag-surface]"));
+    const start = await visibleCentre(
+      page,
+      page.locator("[data-frame-drag-surface]"),
+    );
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.mouse.move(start.x + 240, start.y + 120, { steps: 20 });
@@ -293,7 +391,9 @@ test("overview: Escape mid-drag cancels a screen-frame drag and restores its ori
   }
 });
 
-test("in-screen: smart guides disappear once the drop commits", async ({ page }) => {
+test("in-screen: smart guides disappear once the drop commits", async ({
+  page,
+}) => {
   const id = await newDesign(page);
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
@@ -311,7 +411,10 @@ test("in-screen: smart guides disappear once the drop commits", async ({ page })
   const afterDrop = (await activeOverlays(page)).filter((k) =>
     /snap-guide|measurement/.test(k),
   ).length;
-  expect(duringDrag, "the drag itself never produced a guide to test disappearance of").toBeGreaterThan(0);
+  expect(
+    duringDrag,
+    "the drag itself never produced a guide to test disappearance of",
+  ).toBeGreaterThan(0);
   expect(
     afterDrop,
     `guide overlays stayed painted after mouseup (count=${afterDrop}); Figma clears them on drop`,
@@ -323,11 +426,22 @@ test("in-screen: smart guides disappear once the drop commits", async ({ page })
 // overview-snap-guides.spec.ts's dragInsideScreen — the host-level dragBy
 // path multiplies through the editor's own card-width/content-width ratio,
 // which at this editor's default (well-below-100%) zoom makes small,
-// threshold-sized deltas dominated by drag-start-threshold noise. Dispatching
-// inside the iframe and dividing by the bridge's own
-// --agent-native-editor-chrome-line-scale gives a delta accurate to ~1px
-// regardless of zoom, which single-purpose small-delta snap-threshold checks
-// need and the coarser page.mouse path cannot reliably provide.
+// threshold-sized deltas dominated by drag-start-threshold noise.
+//
+// Dispatched events land inside the iframe's OWN document, so their
+// `clientX`/`clientY` are already the iframe's native (unscaled) pixels —
+// identical to content px — with no outer CSS-zoom transform to compensate
+// for; that transform only matters for REAL mouse input arriving through the
+// host's visually-scaled rendering of the iframe element, which the browser
+// itself remaps before it ever reaches this document. Dividing by the
+// bridge's own --agent-native-editor-chrome-line-scale here (a screen-px ->
+// content-px conversion the bridge applies to its 6px SNAP_THRESHOLD, not to
+// raw pointer deltas) silently shrank every requested delta by that same
+// factor, so what looked like "the drag snapped 50px past the documented
+// threshold" was this helper asking for a much smaller move than it thought
+// it did. Verified against a bare, undivided dispatch: an unsnapped drag with
+// no candidates nearby lands exactly on origin + the requested delta, on both
+// axes, at this editor's zoom.
 async function dragContentPx(
   page: Page,
   nodeId: string,
@@ -344,14 +458,8 @@ async function dragContentPx(
         `[data-agent-native-node-id="${id}"]`,
       );
       if (!box) throw new Error(`${id} not found in this frame`);
-      const lineScale =
-        Number.parseFloat(
-          getComputedStyle(document.documentElement).getPropertyValue(
-            "--agent-native-editor-chrome-line-scale",
-          ),
-        ) || 1;
-      const dx = contentDx / lineScale;
-      const dy = contentDy / lineScale;
+      const dx = contentDx;
+      const dy = contentDy;
       const rect = box.getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
@@ -371,14 +479,22 @@ async function dragContentPx(
         target.dispatchEvent(new PointerEvent(`pointer${kind}`, init));
         target.dispatchEvent(
           new MouseEvent(
-            kind === "down" ? "mousedown" : kind === "move" ? "mousemove" : "mouseup",
+            kind === "down"
+              ? "mousedown"
+              : kind === "move"
+                ? "mousemove"
+                : "mouseup",
             init,
           ),
         );
       };
       const prime = 3.5; // just over the bridge's own move-start threshold
       fire("down", cx, cy);
-      fire("move", cx + Math.sign(dx || 1) * prime, cy + Math.sign(dy || 1) * prime);
+      fire(
+        "move",
+        cx + Math.sign(dx || 1) * prime,
+        cy + Math.sign(dy || 1) * prime,
+      );
       fire("move", cx + dx, cy + dy);
       fire("up", cx + dx, cy + dy);
       return { left: box.style.left, top: box.style.top };
@@ -430,8 +546,12 @@ test("in-screen: arrow-nudge after a drag continues from the dropped position", 
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
   const before = await geom(page, id, "box-a");
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 90, 55, { settle: false });
-  await expect.poll(async () => (await geom(page, id, "box-a")).left).not.toBe(before.left);
+  await dragBy(page, (await node(page, "box-a").boundingBox())!, 90, 55, {
+    settle: false,
+  });
+  await expect
+    .poll(async () => (await geom(page, id, "box-a")).left)
+    .not.toBe(before.left);
   const dropped = await geom(page, id, "box-a");
   await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(500);
@@ -451,8 +571,12 @@ test("in-screen: one plain drag is exactly one undo step", async ({ page }) => {
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
   const before = await geom(page, id, "box-a");
-  await dragBy(page, (await node(page, "box-a").boundingBox())!, 150, 90, { settle: false });
-  await expect.poll(async () => (await geom(page, id, "box-a")).left).not.toBe(before.left);
+  await dragBy(page, (await node(page, "box-a").boundingBox())!, 150, 90, {
+    settle: false,
+  });
+  await expect
+    .poll(async () => (await geom(page, id, "box-a")).left)
+    .not.toBe(before.left);
   const dropped = await geom(page, id, "box-a");
   await page.keyboard.press(`${MOD}+z`);
   await page.waitForTimeout(700);

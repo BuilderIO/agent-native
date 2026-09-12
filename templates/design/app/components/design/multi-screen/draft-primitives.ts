@@ -10,7 +10,10 @@ import {
   type PenPath,
 } from "@shared/pen-path";
 
-import { DEFAULT_LINE_STROKE_WIDTH_PX } from "../canvas-primitive-style";
+import {
+  DEFAULT_LINE_STROKE_WIDTH_PX,
+  DEFAULT_SHAPE_FILL,
+} from "../canvas-primitive-style";
 import { boardPointToScreenLocalPoint } from "./coordinate-transforms";
 import { getFrameCenter, getScreenPreviewViewport } from "./frame-geometry";
 import type {
@@ -158,16 +161,20 @@ export function createDraftPrimitive({
       strokeWidth: toolProps?.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
     };
   }
+  const isFrame = tool === "frame";
   return {
     id,
-    kind:
-      tool === "frame"
-        ? "frame"
-        : tool === "ellipse" || tool === "polygon" || tool === "star"
-          ? tool
-          : "rectangle",
+    kind: isFrame
+      ? "frame"
+      : tool === "ellipse" || tool === "polygon" || tool === "star"
+        ? tool
+        : "rectangle",
     geometry,
-    fill: toolProps?.fill,
+    // Figma materializes a real, removable solid Fill layer on every newly
+    // drawn shape — frames stay transparent by default (matching
+    // shared/board-file.ts's own kind==="frame" split) so this must not
+    // apply to them.
+    fill: isFrame ? toolProps?.fill : (toolProps?.fill ?? DEFAULT_SHAPE_FILL),
     stroke: toolProps?.stroke,
     strokeWidth: toolProps?.strokeWidth,
   };

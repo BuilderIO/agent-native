@@ -50,3 +50,34 @@ describe("applyWrapNodes (Cmd+G group)", () => {
     expect(blueIdx).toBeGreaterThan(redIdx);
   });
 });
+
+describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
+  // A named leaf so the fixture's own fallback layer-naming (a plain,
+  // childless <div> defaults to "Frame") can't coincidentally satisfy this
+  // assertion regardless of what the wrap itself names its wrapper.
+  const NAMED_LEAF = `<body>
+  <div data-agent-native-node-id="label" data-agent-native-layer-name="Label" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
+</body>`;
+
+  it("names the wrapper 'Frame', not 'Group', when autoLayout is set", () => {
+    const patch = applyVisualEdit(NAMED_LEAF, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('data-agent-native-layer-name="Frame"');
+    expect(patch.content).not.toContain('data-agent-native-layer-name="Group"');
+  });
+
+  it("still names a plain (non-auto-layout) wrap 'Group'", () => {
+    const patch = applyVisualEdit(NAMED_LEAF, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('data-agent-native-layer-name="Group"');
+  });
+});

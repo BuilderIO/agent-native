@@ -73,6 +73,11 @@ describe("Escape mid-drag cancels an in-screen move even when it loses the postM
       await page.mouse.down();
       await page.mouse.move(290, 420, { steps: 8 });
       await page.waitForTimeout(30);
+      // Escape is physically pressed just before the mouseup — captured here
+      // as the host would, at the real keydown — even though, per the race
+      // this test drives, the message carrying it won't arrive until after
+      // the mouseup below has already committed.
+      const pressedAt = await page.evaluate(() => Date.now());
       // The real mouseup that ends the gesture — dispatched directly, and in
       // production this finishes (commits) before the host's async
       // "cancel-active-drag" reply for an Escape pressed around now would
@@ -86,10 +91,14 @@ describe("Escape mid-drag cancels an in-screen move even when it loses the postM
       ).not.toBe("30px");
 
       // The cancel arrives AFTER that commit — exactly the losing order a
-      // real Escape-then-mouseup produces.
-      await page.evaluate(() => {
-        window.postMessage({ type: "agent-native:cancel-active-drag" }, "*");
-      });
+      // real Escape-then-mouseup produces — but it is stamped with the
+      // (earlier) moment Escape was actually pressed, so it must still win.
+      await page.evaluate((stamp) => {
+        window.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt: stamp },
+          "*",
+        );
+      }, pressedAt);
       await page.waitForTimeout(30);
 
       expect(
@@ -222,6 +231,69 @@ describe("Escape mid-drag cancels an in-screen move even when it loses the postM
       expect(
         domPosition.left,
         "an unrelated Escape after the drag already committed must not revert it",
+      ).not.toBe("30px");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("does not revert a completed drag from a host cancel-message whose Escape was pressed genuinely after the mouseup", async () => {
+    // The regression this guards: the grace window above exists so a cancel
+    // whose Escape predates the mouseup still wins even though its message
+    // arrives late. But "the message arrived after the commit" is also true
+    // of an Escape a user presses well AFTER the drag is already done and
+    // released (the host-focus case) — that one must NOT revert. Only the
+    // pressedAt-vs-releasedAt comparison tells these apart; message order
+    // alone cannot.
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="box-a"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(290, 420, { steps: 8 });
+      await page.waitForTimeout(30);
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const afterCommit = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => el.style.left);
+      expect(afterCommit).not.toBe("30px");
+
+      // Escape is pressed here, strictly after the mouseup and its commit
+      // above — still well inside the 200ms grace window when the message
+      // arrives, so the grace window alone would wrongly revert this.
+      const pressedAt = await page.evaluate(() => Date.now());
+      await page.evaluate((stamp) => {
+        window.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt: stamp },
+          "*",
+        );
+      }, pressedAt);
+      await page.waitForTimeout(30);
+
+      const domPosition = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => ({
+          left: el.style.left,
+          top: el.style.top,
+        }));
+      expect(
+        domPosition.left,
+        "an Escape pressed after the drag already released must not revert it",
       ).not.toBe("30px");
     } finally {
       await browser.close();

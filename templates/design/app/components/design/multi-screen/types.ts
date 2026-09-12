@@ -544,6 +544,18 @@ export interface MultiScreenCanvasProps {
     paddingScreenPx?: number;
     nonce: number;
   } | null;
+  /**
+   * Screen-px width of fixed chrome the caller renders OVER this canvas's
+   * left/right edges (e.g. the left workspace rail+panel shell, the right
+   * inspector panel) — both are absolutely-positioned overlays, not flex
+   * siblings, so this component's own measured surface rect never shrinks
+   * for them. Every camera-fit computation (the default overview lineup
+   * recenter and the explicit `cameraCommand` fit) must center content in
+   * the space actually free of that chrome, or the first screen and its
+   * frame label render unreachable underneath it. Defaults to 0.
+   */
+  chromeInsetLeft?: number;
+  chromeInsetRight?: number;
 }
 
 export interface FrameGeometry {

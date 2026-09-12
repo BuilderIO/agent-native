@@ -3350,16 +3350,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     var dragGestureSequence = 0;
     var pendingMoveCommitRevert = null;
     function armPostCommitCancelGrace(gestureId, revert) {
-      pendingMoveCommitRevert = { gestureId, revert };
+      pendingMoveCommitRevert = {
+        gestureId,
+        // Date.now, not performance.now: the host stamps the Escape keydown
+        // with Date.now too, and the two documents' performance.now clocks
+        // have different origins, so only a shared wall clock can order them.
+        releasedAt: Date.now(),
+        revert
+      };
       window.setTimeout(function() {
         if (pendingMoveCommitRevert && pendingMoveCommitRevert.gestureId === gestureId) {
           pendingMoveCommitRevert = null;
         }
       }, MOVE_CANCEL_RACE_GRACE_MS);
     }
-    function cancelActiveBridgeDragOrPendingCommit() {
+    function cancelActiveBridgeDragOrPendingCommit(pressedAt) {
       if (cancelActiveBridgeDrag()) return true;
-      if (pendingMoveCommitRevert) {
+      if (pendingMoveCommitRevert && typeof pressedAt === "number" && pressedAt <= pendingMoveCommitRevert.releasedAt) {
         var pending = pendingMoveCommitRevert;
         pendingMoveCommitRevert = null;
         pending.revert();
@@ -9227,7 +9234,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             clearReorderReflow2();
             showTransformBadge("Move layer", cx, cy);
           } else {
-            crossScreenClaimedByHost = false;
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
@@ -9645,7 +9651,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
-          crossScreenClaimedByHost = false;
           currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
@@ -11740,7 +11745,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {
-        cancelActiveBridgeDragOrPendingCommit();
+        cancelActiveBridgeDragOrPendingCommit(
+          typeof e.data.pressedAt === "number" ? e.data.pressedAt : void 0
+        );
         return;
       }
       if (e.data.type === "agent-native:reset-live-visual-edit-baselines") {

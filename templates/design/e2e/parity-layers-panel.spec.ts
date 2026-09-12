@@ -50,12 +50,13 @@ const FIXTURE = `<!doctype html>
       <a data-agent-native-node-id="nav-contact" data-agent-native-layer-name="Contact" href="#">Contact</a>
     </nav>
     <main data-agent-native-node-id="main" data-agent-native-layer-name="Main" style="min-height:600px;padding:24px">
-      <div data-agent-native-node-id="panel" data-agent-native-layer-name="Panel" style="width:300px;height:200px;background:#e5e7eb">
+      <div data-agent-native-node-id="panel" data-agent-native-layer-name="Panel" style="position:relative;width:300px;height:200px;background:#e5e7eb">
         <div data-agent-native-node-id="panel-child" data-agent-native-layer-name="Panel Child" style="width:100px;height:60px;background:#93c5fd"></div>
       </div>
       <div data-agent-native-node-id="loose" data-agent-native-layer-name="Loose Card" style="width:120px;height:60px;background:#fca5a5;margin-top:16px"></div>
       <div data-agent-native-node-id="loose2" style="width:120px;height:60px;background:#86efac;margin-top:16px">Untitled</div>
     </main>
+    <div data-agent-native-node-id="sticker" data-agent-native-layer-name="Sticker" style="position:absolute;left:500px;top:1000px;width:60px;height:40px;background:#fb923c"></div>
     <footer data-agent-native-node-id="footer" data-agent-native-layer-name="Footer" style="height:80px;background:#111827;color:#fff">Footer</footer>
   </body>
 </html>`;
@@ -212,7 +213,9 @@ test.describe("Figma parity — layers panel", () => {
       names.indexOf("Nav"),
       names.indexOf("Site Header"),
     ];
-    expect(topLevelInPanelOrder).toEqual([...topLevelInPanelOrder].sort((a, b) => a - b));
+    expect(topLevelInPanelOrder).toEqual(
+      [...topLevelInPanelOrder].sort((a, b) => a - b),
+    );
   });
 
   test('dragging a nav link row inserts exactly "above Shop"', async ({
@@ -234,25 +237,28 @@ test.describe("Figma parity — layers panel", () => {
     });
 
     await expect
-      .poll(async () => {
-        const names = await visibleLayerNames(page);
-        const contactIdx = names.indexOf("Contact");
-        const shopIdx = names.indexOf("Shop");
-        const aboutIdx = names.indexOf("About");
-        // "Above Shop" in the panel means immediately preceding Shop's row
-        // and still after About (i.e. it landed exactly between About and
-        // Shop, not just "somewhere above Shop" / at the very top).
-        return (
-          contactIdx > -1 &&
-          shopIdx > -1 &&
-          aboutIdx > -1 &&
-          contactIdx === shopIdx - 1 &&
-          aboutIdx < contactIdx
-        );
-      }, {
-        message:
-          "expected Contact to land directly between About and Shop after the drag",
-      })
+      .poll(
+        async () => {
+          const names = await visibleLayerNames(page);
+          const contactIdx = names.indexOf("Contact");
+          const shopIdx = names.indexOf("Shop");
+          const aboutIdx = names.indexOf("About");
+          // "Above Shop" in the panel means immediately preceding Shop's row
+          // and still after About (i.e. it landed exactly between About and
+          // Shop, not just "somewhere above Shop" / at the very top).
+          return (
+            contactIdx > -1 &&
+            shopIdx > -1 &&
+            aboutIdx > -1 &&
+            contactIdx === shopIdx - 1 &&
+            aboutIdx < contactIdx
+          );
+        },
+        {
+          message:
+            "expected Contact to land directly between About and Shop after the drag",
+        },
+      )
       .toBe(true);
     await expect(toastMessages(page)).resolves.not.toContain(
       "Could not move that layer",
@@ -292,11 +298,54 @@ test.describe("Figma parity — layers panel", () => {
     await expect
       .poll(() =>
         node(page, "panel").evaluate(
-          (el, childId) => Boolean(el.querySelector(`[data-agent-native-node-id="${childId}"]`)),
+          (el, childId) =>
+            Boolean(
+              el.querySelector(`[data-agent-native-node-id="${childId}"]`),
+            ),
           "loose",
         ),
       )
       .toBe(true);
+  });
+
+  test("dropping an absolutely positioned layer row onto a Frame row keeps its on-screen position", async ({
+    page,
+  }) => {
+    // Figma: reparenting a layer via the layers panel keeps it exactly
+    // where it was on screen — its coordinates rebase into the new parent's
+    // coordinate space rather than keeping the old parent-relative left/top
+    // (figma-ground-truth.md checks 5-6). "Sticker" is a top-level,
+    // absolutely positioned sibling; "Panel" is an unrelated container at a
+    // different position, so a naive reparent that keeps the old CSS
+    // left/top would visibly move it by Panel's offset.
+    const before = await node(page, "sticker").boundingBox();
+    if (!before) throw new Error("Sticker has no bounding box");
+
+    const panelRow = layerRow(page, "Panel");
+    const panelBox = await panelRow.boundingBox();
+    if (!panelBox) throw new Error("Panel row has no bounding box");
+    await layerRowButton(page, "Sticker").dragTo(panelRow, {
+      targetPosition: { x: 96, y: panelBox.height / 2 },
+    });
+
+    await expect
+      .poll(() =>
+        node(page, "panel").evaluate((el) =>
+          Boolean(el.querySelector('[data-agent-native-node-id="sticker"]')),
+        ),
+      )
+      .toBe(true);
+
+    const after = await node(page, "sticker").boundingBox();
+    if (!after) throw new Error("Sticker has no bounding box after the move");
+    expect(
+      after.x,
+      `reparenting via the panel must not move the element on screen — was x=${before.x}, now x=${after.x}`,
+    ).toBeCloseTo(before.x, 0);
+    expect(
+      after.y,
+      `reparenting via the panel must not move the element on screen — was y=${before.y}, now y=${after.y}`,
+    ).toBeCloseTo(before.y, 0);
   });
 
   test("Could not move that layer never appears for an ordinary, default-named layer (Logan's repro)", async ({
@@ -431,9 +480,10 @@ test.describe("Figma parity — layers panel", () => {
   }) => {
     const beforeBox = await node(page, "loose").boundingBox();
     if (!beforeBox) throw new Error("no bounding box for loose before move");
-    const beforeParentIsMain = await node(page, "loose").evaluate((el) =>
-      Boolean(el.closest('[data-agent-native-node-id="main"]')) &&
-      !el.closest('[data-agent-native-node-id="panel"]'),
+    const beforeParentIsMain = await node(page, "loose").evaluate(
+      (el) =>
+        Boolean(el.closest('[data-agent-native-node-id="main"]')) &&
+        !el.closest('[data-agent-native-node-id="panel"]'),
     );
     expect(beforeParentIsMain).toBe(true);
 

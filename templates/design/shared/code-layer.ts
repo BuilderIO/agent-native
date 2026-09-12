@@ -4303,27 +4303,33 @@ function stripFlexItemStylingFromChild(
 }
 
 /**
- * L7: sequential "Group N" naming. Counts existing layer names already
- * matching "Group" or "Group <number>" in the projection (via
+ * L7: sequential "<baseName> N" naming. Counts existing layer names already
+ * matching "<baseName>" or "<baseName> <number>" in the projection (via
  * data-agent-native-layer-name / layerName) and returns the next unused
  * name in that sequence, so repeated grouping doesn't leave multiple
- * ambiguous "Group" layers.
+ * ambiguous same-named layers. Figma names a plain ⌘G group "Group" but an
+ * auto-layout wrap (Shift+A) "Frame" — same wrapper mechanics, different
+ * default name — so the base name is threaded in by the caller rather than
+ * hardcoded here.
  */
-function nextSequentialGroupName(nodes: CodeLayerNode[]): string {
-  const groupNamePattern = /^Group(?: (\d+))?$/;
+function nextSequentialWrapperName(
+  nodes: CodeLayerNode[],
+  baseName: string,
+): string {
+  const namePattern = new RegExp(`^${baseName}(?: (\\d+))?$`);
   let highestNumbered = 0;
-  let hasBareGroup = false;
+  let hasBareName = false;
   for (const node of nodes) {
-    const match = groupNamePattern.exec(node.layerName.trim());
+    const match = namePattern.exec(node.layerName.trim());
     if (!match) continue;
     if (match[1]) {
       highestNumbered = Math.max(highestNumbered, Number(match[1]));
     } else {
-      hasBareGroup = true;
+      hasBareName = true;
     }
   }
-  if (!hasBareGroup && highestNumbered === 0) return "Group";
-  return `Group ${Math.max(highestNumbered, hasBareGroup ? 1 : 0) + 1}`;
+  if (!hasBareName && highestNumbered === 0) return baseName;
+  return `${baseName} ${Math.max(highestNumbered, hasBareName ? 1 : 0) + 1}`;
 }
 
 interface AbsoluteUnionBounds {
@@ -4469,10 +4475,14 @@ function applyWrapNodes(
     `wrap:${targetElements.map((el) => el.start).join(":")}`,
   );
 
-  // L7: sequential "Group N" naming — count existing "Group"/"Group N" names
-  // already in the projection so repeated grouping doesn't produce multiple
-  // ambiguous layers all just named "Group".
-  const wrapperLayerName = nextSequentialGroupName(build.projection.nodes);
+  // L7: sequential naming — an auto-layout wrap (Shift+A) reads as a Figma
+  // "Frame", a plain wrap (⌘G) as a "Group"; count existing same-named
+  // layers already in the projection so repeated wraps don't produce
+  // multiple ambiguous layers with the same bare name.
+  const wrapperLayerName = nextSequentialWrapperName(
+    build.projection.nodes,
+    autoLayout ? "Frame" : "Group",
+  );
 
   // L7: when EVERY target is absolutely positioned with pixel left/top (and
   // ideally width/height), give the wrapper real computed geometry — the

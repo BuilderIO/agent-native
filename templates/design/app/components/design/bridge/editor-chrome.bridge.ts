@@ -3807,13 +3807,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var dragGestureSequence = 0;
   var pendingMoveCommitRevert: {
     gestureId: number;
+    releasedAt: number;
     revert: () => void;
   } | null = null;
   function armPostCommitCancelGrace(
     gestureId: number,
     revert: () => void,
   ): void {
-    pendingMoveCommitRevert = { gestureId: gestureId, revert: revert };
+    pendingMoveCommitRevert = {
+      gestureId: gestureId,
+      // Date.now, not performance.now: the host stamps the Escape keydown
+      // with Date.now too, and the two documents' performance.now clocks
+      // have different origins, so only a shared wall clock can order them.
+      releasedAt: Date.now(),
+      revert: revert,
+    };
     window.setTimeout(function () {
       if (
         pendingMoveCommitRevert &&
@@ -3828,9 +3836,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // the grace window above is never reachable from the plain-keydown Escape
   // path (which keeps calling cancelActiveBridgeDrag directly, touching only
   // a genuinely live gesture).
-  function cancelActiveBridgeDragOrPendingCommit(): boolean {
+  //
+  // `pressedAt` is the host's Date.now() at the moment Escape was actually
+  // pressed, not at message-delivery time — the postMessage round trip means
+  // "cancel arrived after the commit" is true for BOTH an Escape that predates
+  // the mouseup (the race this grace window exists to fix) and one pressed
+  // genuinely after the drag already finished (which must NOT revert it).
+  // Comparing the two Date.now() stamps — a clock shared across documents —
+  // is the only way to tell those apart; message arrival order alone cannot.
+  function cancelActiveBridgeDragOrPendingCommit(pressedAt?: number): boolean {
     if (cancelActiveBridgeDrag()) return true;
-    if (pendingMoveCommitRevert) {
+    if (
+      pendingMoveCommitRevert &&
+      typeof pressedAt === "number" &&
+      pressedAt <= pendingMoveCommitRevert.releasedAt
+    ) {
       var pending = pendingMoveCommitRevert;
       pendingMoveCommitRevert = null;
       pending.revert();
@@ -7846,9 +7866,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (candidate.id) return candidate.id;
     if (candidate.children.length === 0) {
-      var textLabel = (candidate.textContent || "")
-        .trim()
-        .replace(/\s+/g, " ");
+      var textLabel = (candidate.textContent || "").trim().replace(/\s+/g, " ");
       if (textLabel && textLabel.length <= 48) return textLabel;
     }
     return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
@@ -12903,9 +12921,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clearReorderReflow();
           showTransformBadge("Move layer", cx, cy);
         } else {
-          // Back inside: the host stops receiving cross-screen moves, so its
-          // claim goes stale and a release here would commit nowhere.
-          crossScreenClaimedByHost = false;
+          // NOT reset here: postCrossScreenDrag above runs every tick
+          // regardless of inside/outside, so crossScreenClaimedByHost tracks
+          // only the host's own "agent-native:cross-screen-claim" reply (see
+          // the matching comment in the free-drag onMove above for why this
+          // `outside` check cannot be used to invalidate it).
           // Cursor is inside this iframe — use existing in-iframe behavior,
           // stabilized (hysteresis) and previewed with live sibling reflow when
           // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
@@ -13427,10 +13447,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
-        // Back inside: the host stops receiving cross-screen moves here, so its
-        // claim is about to go stale. Reclaim the gesture or the release commits
-        // nowhere.
-        crossScreenClaimedByHost = false;
+        // NOT reset here: scheduleCrossScreenDragMove above runs every tick
+        // regardless of inside/outside, so the host always sees a fresh point
+        // and its "agent-native:cross-screen-claim" reply is the only source
+        // of truth for crossScreenClaimedByHost. Every per-screen iframe
+        // renders oversized relative to its screen's visible card, so
+        // isOutsideIframeViewport reads false even while the pointer sits
+        // squarely over a DIFFERENT screen — resetting the flag here on that
+        // signal clobbered a true claim the host had just granted, and the
+        // host only resends a claim message on a claimed-value CHANGE, so
+        // once clobbered it stayed false for the rest of the drag with no
+        // further message ever arriving to correct it.
         currentAutoLayoutTarget =
           !duplicatedForDrag && !bridgeSpaceKeyPressed
             ? autoLayoutInsertionTargetForPoint(
@@ -16299,7 +16326,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {
-      cancelActiveBridgeDragOrPendingCommit();
+      cancelActiveBridgeDragOrPendingCommit(
+        typeof e.data.pressedAt === "number" ? e.data.pressedAt : undefined,
+      );
       return;
     }
     if (e.data.type === "agent-native:reset-live-visual-edit-baselines") {
