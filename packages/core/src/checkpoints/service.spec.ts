@@ -118,9 +118,12 @@ describe("checkpoint service", () => {
   it("commits the staged snapshot when an owned file changes after add", () => {
     const cwd = createTempRepo();
     const file = path.join(cwd, "agent.txt");
+    const developerFile = path.join(cwd, "developer.txt");
     fs.writeFileSync(file, "before\n");
+    fs.writeFileSync(developerFile, "before\n");
     createCheckpoint(cwd, "Initial checkpoint");
     fs.writeFileSync(file, "agent change\n");
+    fs.writeFileSync(developerFile, "developer change\n");
 
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), "an-git-wrapper-"));
     tmpDirs.push(bin);
@@ -130,17 +133,19 @@ describe("checkpoint service", () => {
     const wrapper = path.join(bin, "git");
     fs.writeFileSync(
       wrapper,
-      `#!/bin/sh\n"$AGENT_NATIVE_REAL_GIT" "$@"\nstatus=$?\nif [ "$1" = "add" ] && [ "$status" -eq 0 ]; then printf 'developer later\\n' > "$AGENT_NATIVE_RACE_PATH"; fi\nexit "$status"\n`,
+      `#!/bin/sh\n"$AGENT_NATIVE_REAL_GIT" "$@"\nstatus=$?\nif [ "$1" = "add" ] && [ "$status" -eq 0 ]; then printf 'developer later\\n' > "$AGENT_NATIVE_RACE_PATH"; unset GIT_INDEX_FILE; "$AGENT_NATIVE_REAL_GIT" add -- "$AGENT_NATIVE_STAGE_PATH"; fi\nexit "$status"\n`,
       { mode: 0o755 },
     );
     const previous = {
       path: process.env.PATH,
       git: process.env.AGENT_NATIVE_REAL_GIT,
       race: process.env.AGENT_NATIVE_RACE_PATH,
+      stage: process.env.AGENT_NATIVE_STAGE_PATH,
     };
     process.env.PATH = `${bin}${path.delimiter}${previous.path ?? ""}`;
     process.env.AGENT_NATIVE_REAL_GIT = realGit;
     process.env.AGENT_NATIVE_RACE_PATH = file;
+    process.env.AGENT_NATIVE_STAGE_PATH = developerFile;
     try {
       expect(createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"])).toMatch(
         /^[0-9a-f]{40}$/,
@@ -152,6 +157,9 @@ describe("checkpoint service", () => {
       if (previous.race === undefined)
         delete process.env.AGENT_NATIVE_RACE_PATH;
       else process.env.AGENT_NATIVE_RACE_PATH = previous.race;
+      if (previous.stage === undefined)
+        delete process.env.AGENT_NATIVE_STAGE_PATH;
+      else process.env.AGENT_NATIVE_STAGE_PATH = previous.stage;
     }
     expect(
       execFileSync("git", ["show", "HEAD:agent.txt"], {
@@ -159,6 +167,12 @@ describe("checkpoint service", () => {
         encoding: "utf-8",
       }),
     ).toBe("agent change\n");
+    expect(
+      execFileSync("git", ["diff", "--cached", "--name-only"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe("developer.txt");
     expect(fs.readFileSync(file, "utf-8")).toBe("developer later\n");
     expect(getUncommittedStatus(cwd)).toContain("agent.txt");
   });

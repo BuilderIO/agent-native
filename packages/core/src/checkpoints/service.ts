@@ -14,15 +14,19 @@ const checkpointEnv = () => ({
   GIT_COMMITTER_EMAIL: "noreply@agent-native.com",
 });
 
-function withCheckpointLock<T>(cwd: string, work: () => T): T | null {
+function withCheckpointLock<T>(
+  cwd: string,
+  work: (indexPath: string) => T,
+): T | null {
   const indexPath = execFileSync("git", ["rev-parse", "--git-path", "index"], {
     cwd,
     stdio: "pipe",
     timeout: TIMEOUT,
     encoding: "utf-8",
   }).trim();
+  const resolvedIndexPath = path.resolve(cwd, indexPath);
   const lockPath = path.join(
-    path.dirname(path.resolve(cwd, indexPath)),
+    path.dirname(resolvedIndexPath),
     "agent-native-checkpoint.lock",
   );
   while (true) {
@@ -44,7 +48,7 @@ function withCheckpointLock<T>(cwd: string, work: () => T): T | null {
     }
   }
   try {
-    return work();
+    return work(resolvedIndexPath);
   } finally {
     try {
       fs.rmdirSync(lockPath);
@@ -106,25 +110,97 @@ export function createCheckpoint(
       : null;
     if (pathspecs && pathspecs.length === 0) return null;
 
-    return withCheckpointLock(cwd, () => {
+    return withCheckpointLock(cwd, (indexPath) => {
       const env = checkpointEnv();
       if (pathspecs) {
-        const staged = execFileSync(
-          "git",
-          ["diff", "--cached", "--name-only", "-z"],
-          { cwd, stdio: "pipe", timeout: TIMEOUT, encoding: "utf-8", env },
-        )
-          .split("\0")
-          .filter(Boolean);
-        if (staged.some((file) => !pathspecs.includes(file))) return null;
+        const indexDir = fs.mkdtempSync(
+          path.join(path.dirname(indexPath), "agent-native-checkpoint-index-"),
+        );
+        try {
+          const isolatedEnv = {
+            ...env,
+            GIT_INDEX_FILE: path.join(indexDir, "index"),
+          };
+          let head: string | null = null;
+          try {
+            head = execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
+              cwd,
+              stdio: "pipe",
+              timeout: TIMEOUT,
+              encoding: "utf-8",
+              env,
+            }).trim();
+          } catch {
+            execFileSync("git", ["read-tree", "--empty"], {
+              cwd,
+              stdio: "pipe",
+              timeout: TIMEOUT,
+              env: isolatedEnv,
+            });
+          }
+          if (head) {
+            execFileSync("git", ["read-tree", head], {
+              cwd,
+              stdio: "pipe",
+              timeout: TIMEOUT,
+              env: isolatedEnv,
+            });
+          }
+          execFileSync("git", ["add", "--", ...pathspecs], {
+            cwd,
+            stdio: "pipe",
+            timeout: TIMEOUT,
+            env: isolatedEnv,
+          });
+          const tree = execFileSync("git", ["write-tree"], {
+            cwd,
+            stdio: "pipe",
+            timeout: TIMEOUT,
+            encoding: "utf-8",
+            env: isolatedEnv,
+          }).trim();
+          const sha = execFileSync(
+            "git",
+            ["commit-tree", tree, ...(head ? ["-p", head] : []), "-m", message],
+            {
+              cwd,
+              stdio: "pipe",
+              timeout: TIMEOUT,
+              encoding: "utf-8",
+              env: isolatedEnv,
+            },
+          ).trim();
+          execFileSync(
+            "git",
+            ["update-ref", "HEAD", sha, head ?? "0".repeat(40)],
+            {
+              cwd,
+              stdio: "pipe",
+              timeout: TIMEOUT,
+              env,
+            },
+          );
+          execFileSync(
+            "git",
+            ["reset", "--quiet", "HEAD", "--", ...pathspecs],
+            {
+              cwd,
+              stdio: "pipe",
+              timeout: TIMEOUT,
+              env,
+            },
+          );
+          return sha || null;
+        } finally {
+          fs.rmSync(indexDir, { recursive: true, force: true });
+        }
       }
-      execFileSync(
-        "git",
-        pathspecs ? ["add", "--", ...pathspecs] : ["add", "-A"],
-        { cwd, stdio: "pipe", timeout: TIMEOUT, env },
-      );
-      // Commit the index snapshot from `git add`; a later working-tree edit to
-      // an owned path remains dirty instead of leaking into this checkpoint.
+      execFileSync("git", ["add", "-A"], {
+        cwd,
+        stdio: "pipe",
+        timeout: TIMEOUT,
+        env,
+      });
       execFileSync("git", ["commit", "-m", message], {
         cwd,
         stdio: "pipe",
