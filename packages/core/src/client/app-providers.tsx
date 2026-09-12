@@ -234,7 +234,15 @@ function SessionGatedAgentNativeWebMcpRegistration() {
     // auth arrival) instead of firing a request that is expected to fail.
     // Previously an unavailable session registered anyway ("best-effort");
     // that traded a known-bad manifest fetch for zero benefit.
-    if (status !== "authenticated") return;
+    if (status === "unauthenticated" || status === "signing-out") {
+      // Confirmed sign-out is the only session change that stops a live
+      // registration; a transient revalidation (loading/unavailable) keeps
+      // the existing one alive until the session settles.
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+      return;
+    }
+    if (status !== "authenticated" || registrationRef.current) return;
     const cancel = scheduleAfterPaint(() => {
       const registration = createAgentNativeServerActionWebMcpRegistration();
       void registration.start().catch(() => {
@@ -246,10 +254,17 @@ function SessionGatedAgentNativeWebMcpRegistration() {
     });
     return () => {
       cancel();
+    };
+    // Unmount stops exactly the registration this surface created, whether
+    // it started or is still scheduled.
+  }, [status]);
+  useEffect(
+    () => () => {
       registrationRef.current?.stop();
       registrationRef.current = null;
-    };
-  }, [status]);
+    },
+    [],
+  );
   return null;
 }
 
