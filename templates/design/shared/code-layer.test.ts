@@ -587,7 +587,7 @@ describe("applyVisualEdit vector paint", () => {
       "mask: url(#an-vector-stroke-pen-1-outside)",
     );
     expect(outside.content).toContain('mask-type="luminance"');
-    expect(outside.content).toContain("overflow: visible");
+    expect(outside.content).toContain("overflow: visible !important");
     expect(outside.content).toContain(
       'data-an-vector-stroke-original-overflow="hidden"',
     );
@@ -649,6 +649,22 @@ describe("applyVisualEdit vector paint", () => {
     expect(patch.content).toBe(openPath);
   });
 
+  it("rejects an open path tagged as a polygon", () => {
+    const content =
+      '<svg data-agent-native-node-id="open-polygon" data-an-primitive="polygon" ' +
+      'viewBox="0 0 100 80"><path d="M 0 0 L 80 60" fill="none" ' +
+      'stroke="#000000" stroke-width="2"/></svg>';
+    const patch = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "open-polygon" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+  });
+
   it("preserves dash offset and miter limit on the aligned stroke", () => {
     const patch = applyVisualEdit(html, {
       kind: "style",
@@ -669,6 +685,84 @@ describe("applyVisualEdit vector paint", () => {
     expect(overlay).toContain("stroke-dasharray: 8 2");
     expect(overlay).toContain("stroke-dashoffset: -3px");
     expect(overlay).toContain("stroke-miterlimit: 9");
+  });
+
+  it("preserves the vector shape opacity on the aligned stroke", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      opacity: "0.5",
+    });
+    const overlay = patch.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+    const node = buildCodeLayerProjection(patch.content).nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(overlay).toContain("opacity: 0.5");
+    expect(node?.style.vectorOpacity).toBe("0.5");
+  });
+
+  it("falls back to shape opacity when refreshing a legacy overlay", () => {
+    const styledShape = html.replace(
+      "<path d=",
+      '<path style="opacity: 0.5" d=',
+    );
+    const outside = applyVisualEdit(styledShape, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    const legacyOverlay = outside.content.replace("opacity: 0.5; ", "");
+    const refreshed = applyVisualEdit(legacyOverlay, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    const overlay = refreshed.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+
+    expect(outside.result.status).toBe("applied");
+    expect(refreshed.result.status).toBe("applied");
+    expect(overlay).toContain("opacity: 0.5");
+  });
+
+  it("restores an absent inline overflow after outside alignment", () => {
+    const withCssOverflow =
+      '<style>svg[data-agent-native-node-id="pen-1"]{overflow:hidden!important}</style>' +
+      html;
+    const outside = applyVisualEdit(withCssOverflow, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    const center = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    const svg = center.content.match(/<svg\b[^>]*>/)?.[0];
+
+    expect(outside.result.status).toBe("applied");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow=""',
+    );
+    expect(outside.content).toContain("overflow: visible !important");
+    expect(center.result.status).toBe("applied");
+    expect(svg).not.toContain("overflow:");
+    expect(center.content).not.toContain(
+      "data-an-vector-stroke-original-overflow=",
+    );
   });
 
   it("pads outside masks for the doubled stroke and acute miter joins", () => {
@@ -725,6 +819,26 @@ describe("applyVisualEdit vector paint", () => {
       kind: "circle",
       tag: "circle",
       geometry: 'cx="40" cy="25" r="18"',
+    },
+    {
+      kind: "circle",
+      tag: "ellipse",
+      geometry: 'cx="40" cy="25" rx="18" ry="18"',
+    },
+    {
+      kind: "ellipse",
+      tag: "circle",
+      geometry: 'cx="40" cy="25" r="18"',
+    },
+    {
+      kind: "polygon",
+      tag: "path",
+      geometry: 'd="M 50 5 L 95 95 L 5 95 Z"',
+    },
+    {
+      kind: "star",
+      tag: "path",
+      geometry: 'd="M 50 5 L 60 40 L 95 50 Z"',
     },
   ])(
     "aligns SVG $kind geometry and preserves its attributes",

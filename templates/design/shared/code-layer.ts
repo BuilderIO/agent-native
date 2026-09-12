@@ -425,6 +425,7 @@ export interface StyleEditIntent {
   target: EditIntentTarget;
   property: VisualStyleProperty | (string & {});
   value: string;
+  opacity?: string;
   stroke?: string;
   strokeWidth?: string;
   strokeOpacity?: string;
@@ -3741,6 +3742,7 @@ function applyVectorStrokePositionEdit(
     return "unsupported";
   }
   const computedStyles = [
+    ["opacity", intent.opacity],
     ["stroke", intent.stroke],
     ["stroke-width", intent.strokeWidth],
     ["stroke-opacity", intent.strokeOpacity],
@@ -3792,6 +3794,11 @@ function applyVectorStrokePositionEdit(
     : {};
   const paint = previousOverlay ?? shape;
   const stroke = intent.stroke ?? vectorStyleValue(paint, "stroke") ?? "none";
+  const shapeOpacity =
+    intent.opacity ??
+    vectorStyleValue(paint, "opacity") ??
+    (previousOverlay ? vectorStyleValue(shape, "opacity") : null) ??
+    undefined;
   const logicalWidth =
     intent.strokeWidth ??
     (previousOverlay
@@ -3840,7 +3847,7 @@ function applyVectorStrokePositionEdit(
     VECTOR_STROKE_ORIGINAL_OVERFLOW,
   );
   if (position === "outside") {
-    if (!savedOverflow) {
+    if (savedOverflow === undefined) {
       const overflow = parseStyleDeclarations(
         attributeValue(freshWrapper, "style"),
       ).find((declaration) => declaration.property === "overflow");
@@ -3874,10 +3881,10 @@ function applyVectorStrokePositionEdit(
       setStyleValue(
         attributeValue(freshWrapper, "style"),
         "overflow",
-        "visible",
+        "visible !important",
       ),
     );
-  } else if (savedOverflow) {
+  } else if (savedOverflow !== undefined) {
     const value = attributeValue(freshWrapper, VECTOR_STROKE_ORIGINAL_OVERFLOW);
     const priority = attributeValue(
       freshWrapper,
@@ -3982,6 +3989,7 @@ function applyVectorStrokePositionEdit(
     { property: "fill", value: "none" },
     { property: "stroke", value: stroke },
     { property: "stroke-width", value: actualWidth },
+    ...(shapeOpacity ? [{ property: "opacity", value: shapeOpacity }] : []),
     ...Object.entries(strokeExtras).map(([property, value]) => ({
       property,
       value,
@@ -4024,13 +4032,15 @@ function vectorStrokeCanAlign(
   shape: ParsedElement,
 ): boolean {
   if (kind === "polygon" || kind === "star") {
-    return shape.tag === "polygon" || shape.tag === "path";
+    return (
+      shape.tag === "polygon" ||
+      (shape.tag === "path" && /z/i.test(attributeValue(shape, "d") ?? ""))
+    );
   }
   if (kind === "rect" || kind === "rectangle") return shape.tag === "rect";
-  if (kind === "ellipse") {
+  if (kind === "ellipse" || kind === "circle") {
     return shape.tag === "ellipse" || shape.tag === "circle";
   }
-  if (kind === "circle") return shape.tag === "circle";
   return (
     kind === "path" &&
     shape.tag === "path" &&
@@ -4065,6 +4075,11 @@ function withVectorPaintStyle(
         : (childStyle[property] ?? attributeValue(child, property));
     if (value) merged[property] = value;
   }
+  const vectorOpacity =
+    overlayStyle?.opacity ??
+    childStyle.opacity ??
+    attributeValue(child, "opacity");
+  if (vectorOpacity) merged.vectorOpacity = vectorOpacity;
   if (overlay) {
     merged["stroke-width"] =
       attributeValue(overlay, VECTOR_STROKE_LOGICAL_WIDTH) ??

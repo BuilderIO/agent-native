@@ -2771,6 +2771,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         strokeLinecap: strokeCs.strokeLinecap,
         strokeLinejoin: strokeCs.strokeLinejoin,
         strokeMiterlimit: strokeCs.strokeMiterlimit,
+        vectorOpacity: paintCs.opacity,
         vectorTransform: paintCs.transform,
         vectorTransformOrigin: paintCs.transformOrigin,
         vectorTransformBox: paintCs.transformBox,
@@ -9013,8 +9014,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return true;
     }
-    if ((kind === "polygon" || kind === "star") && shapeTag === "polygon") {
-      return true;
+    if (kind === "polygon" || kind === "star") {
+      return (
+        shapeTag === "polygon" ||
+        (shapeTag === "path" && /z/i.test(shape.getAttribute("d") || ""))
+      );
     }
     if (kind !== "path") return false;
     return !!(
@@ -9048,11 +9052,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var paintStyle = oldIsOverlay
       ? window.getComputedStyle(oldOverlay!)
       : shapeStyle;
+    var overlayOpacity = oldIsOverlay
+      ? (oldOverlay as SVGElement).style.getPropertyValue("opacity") ||
+        oldOverlay!.getAttribute("opacity")
+      : "";
     var logicalWidth = oldIsOverlay
       ? oldOverlay!.getAttribute("data-an-vector-logical-width") ||
         paintStyle.strokeWidth
       : paintStyle.strokeWidth;
     var paint = {
+      opacity: overlayOpacity ? paintStyle.opacity : shapeStyle.opacity,
       stroke: paintStyle.stroke,
       strokeOpacity: paintStyle.strokeOpacity,
       strokeDasharray: paintStyle.strokeDasharray,
@@ -9094,7 +9103,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           wrapperStyle.getPropertyPriority("overflow"),
         );
       }
-      wrapperStyle.setProperty("overflow", "visible");
+      wrapperStyle.setProperty("overflow", "visible", "important");
     } else if (savedOverflow !== null) {
       var overflowPriority =
         el.getAttribute("data-an-vector-stroke-original-overflow-priority") ||
@@ -9207,6 +9216,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     overlay.setAttribute("aria-hidden", "true");
     var overlayStyle = (overlay as unknown as HTMLElement).style;
     overlayStyle.setProperty("fill", "none");
+    overlayStyle.setProperty("opacity", paint.opacity);
     overlayStyle.setProperty("stroke", paint.stroke);
     overlayStyle.setProperty("stroke-width", actualWidth);
     overlayStyle.setProperty("stroke-opacity", paint.strokeOpacity);

@@ -780,11 +780,13 @@ describe("reopening and reclosing a pen path", () => {
   });
 
   it("removes every direct generated pair when reopening and keeps overlay paint", () => {
-    const content = alignOutside(
-      svgHtml("rgb(218 218 218)", "#ff0000"),
+    const content = svgHtml(
+      "rgb(218 218 218)",
+      "#ff0000",
+      'data-an-vector-stroke-position="outside"',
     ).replace(
       "</svg>",
-      '<defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#00ff00;stroke-width:8px"></use></svg>',
+      '<defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#00ff00;stroke-width:8px;stroke-dashoffset:3px;stroke-miterlimit:7"></use><defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#0000ff;stroke-width:8px;stroke-dashoffset:5px;stroke-miterlimit:9"></use></svg>',
     );
 
     const reopened = writeBackVectorEditedPenPath(content, "pen-1", openPath);
@@ -792,7 +794,9 @@ describe("reopening and reclosing a pen path", () => {
     const svg = doc.querySelector("svg");
     const path = svg?.querySelector("path");
 
-    expect(path?.style.getPropertyValue("stroke")).toBe("#ff0000");
+    expect(path?.style.getPropertyValue("stroke")).toBe("#00ff00");
+    expect(path?.style.getPropertyValue("stroke-dashoffset")).toBe("3px");
+    expect(path?.style.getPropertyValue("stroke-miterlimit")).toBe("7");
     expect(
       svg?.querySelectorAll(
         ":scope > defs[data-an-vector-stroke-defs], :scope > use[data-an-vector-stroke-overlay]",

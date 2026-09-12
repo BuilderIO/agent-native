@@ -2767,6 +2767,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           strokeLinecap: strokeCs.strokeLinecap,
           strokeLinejoin: strokeCs.strokeLinejoin,
           strokeMiterlimit: strokeCs.strokeMiterlimit,
+          vectorOpacity: paintCs.opacity,
           vectorTransform: paintCs.transform,
           vectorTransformOrigin: paintCs.transformOrigin,
           vectorTransformBox: paintCs.transformBox,
@@ -6927,8 +6928,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if ((kind === "ellipse" || kind === "circle") && (shapeTag === "ellipse" || shapeTag === "circle")) {
         return true;
       }
-      if ((kind === "polygon" || kind === "star") && shapeTag === "polygon") {
-        return true;
+      if (kind === "polygon" || kind === "star") {
+        return shapeTag === "polygon" || shapeTag === "path" && /z/i.test(shape.getAttribute("d") || "");
       }
       if (kind !== "path") return false;
       return !!(shape && shapeTag === "path" && /z/i.test(shape.getAttribute("d") || ""));
@@ -6948,8 +6949,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var oldIsOverlay = oldOverlay && oldOverlay.hasAttribute("data-an-vector-stroke-overlay");
       var shapeStyle = window.getComputedStyle(shape);
       var paintStyle = oldIsOverlay ? window.getComputedStyle(oldOverlay) : shapeStyle;
+      var overlayOpacity = oldIsOverlay ? oldOverlay.style.getPropertyValue("opacity") || oldOverlay.getAttribute("opacity") : "";
       var logicalWidth = oldIsOverlay ? oldOverlay.getAttribute("data-an-vector-logical-width") || paintStyle.strokeWidth : paintStyle.strokeWidth;
       var paint = {
+        opacity: overlayOpacity ? paintStyle.opacity : shapeStyle.opacity,
         stroke: paintStyle.stroke,
         strokeOpacity: paintStyle.strokeOpacity,
         strokeDasharray: paintStyle.strokeDasharray,
@@ -6982,7 +6985,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             wrapperStyle.getPropertyPriority("overflow")
           );
         }
-        wrapperStyle.setProperty("overflow", "visible");
+        wrapperStyle.setProperty("overflow", "visible", "important");
       } else if (savedOverflow !== null) {
         var overflowPriority = el.getAttribute("data-an-vector-stroke-original-overflow-priority") || "";
         if (savedOverflow) {
@@ -7087,6 +7090,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       overlay.setAttribute("aria-hidden", "true");
       var overlayStyle = overlay.style;
       overlayStyle.setProperty("fill", "none");
+      overlayStyle.setProperty("opacity", paint.opacity);
       overlayStyle.setProperty("stroke", paint.stroke);
       overlayStyle.setProperty("stroke-width", actualWidth);
       overlayStyle.setProperty("stroke-opacity", paint.strokeOpacity);

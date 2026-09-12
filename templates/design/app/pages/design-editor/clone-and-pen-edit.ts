@@ -129,8 +129,10 @@ export function writeBackVectorEditedPenPath(
           "stroke-width",
           "stroke-opacity",
           "stroke-dasharray",
+          "stroke-dashoffset",
           "stroke-linecap",
           "stroke-linejoin",
+          "stroke-miterlimit",
         ]) {
           const value =
             property === "stroke-width"

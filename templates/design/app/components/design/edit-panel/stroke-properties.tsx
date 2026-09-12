@@ -918,6 +918,7 @@ function VectorStrokeProperties({
                       strokeLinecap: styles.strokeLinecap,
                       strokeLinejoin: styles.strokeLinejoin,
                       strokeMiterlimit: styles.strokeMiterlimit,
+                      opacity: styles.vectorOpacity,
                       transform: styles.vectorTransform,
                       transformOrigin: styles.vectorTransformOrigin,
                       transformBox: styles.vectorTransformBox,

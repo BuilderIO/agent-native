@@ -15,7 +15,7 @@ const SCREEN_HTML = `<!doctype html>
 <body style="margin:0;min-height:600px">
 <main data-agent-native-node-id="main" style="position:relative;min-height:600px"></main></body></html>`;
 const EDGE_SCREEN_HTML = `<!doctype html>
-<html><head><meta charset="utf-8"><title>Edge stroke</title></head>
+<html><head><meta charset="utf-8"><title>Edge stroke</title><style>svg[data-agent-native-node-id="edge-path"]{overflow:hidden!important}</style></head>
 <body style="margin:0;min-height:600px">
 <main data-agent-native-node-id="main" style="position:relative;min-height:600px">
 <svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="edge-path" data-an-primitive="path" viewBox="0 0 100 100" style="position:absolute;left:200px;top:200px;width:100px;height:100px;overflow:hidden">
@@ -25,11 +25,12 @@ const SVG_WRAPPER_SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>SVG stroke alignment</title></head>
 <body style="margin:0;min-height:600px"><main data-agent-native-node-id="main" style="position:relative;min-height:600px">
 <svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-rect" data-an-primitive="rectangle" viewBox="0 0 100 100" style="position:absolute;left:20px;top:60px;width:100px;height:100px"><rect x="5" y="7" width="90" height="86" rx="8" ry="10" fill="#dadada" stroke="none"/></svg>
-<svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-ellipse" data-an-primitive="ellipse" viewBox="0 0 100 100" style="position:absolute;left:150px;top:60px;width:100px;height:100px"><ellipse cx="50" cy="50" rx="43" ry="38" fill="#dadada" stroke="none"/></svg>
-<svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-circle" data-an-primitive="circle" viewBox="0 0 100 100" style="position:absolute;left:280px;top:60px;width:100px;height:100px"><circle cx="50" cy="50" r="45" fill="#dadada" stroke="none"/></svg>
-<svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-polygon" data-an-primitive="polygon" viewBox="0 0 100 100" style="position:absolute;left:410px;top:60px;width:100px;height:100px"><polygon points="50,5 95,95 5,95" fill="#dadada" stroke="none"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-ellipse" data-an-primitive="ellipse" viewBox="0 0 100 100" style="position:absolute;left:150px;top:60px;width:100px;height:100px"><circle cx="50" cy="50" r="38" fill="#dadada" stroke="none"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-circle" data-an-primitive="circle" viewBox="0 0 100 100" style="position:absolute;left:280px;top:60px;width:100px;height:100px"><ellipse cx="50" cy="50" rx="45" ry="45" fill="#dadada" stroke="none"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-polygon" data-an-primitive="polygon" viewBox="0 0 100 100" style="position:absolute;left:410px;top:60px;width:100px;height:100px"><path d="M 50 5 L 95 95 L 5 95 Z" fill="#dadada" stroke="none" style="opacity:0.5"/></svg>
 <svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-line" data-an-primitive="line" viewBox="0 0 100 100" style="position:absolute;left:540px;top:60px;width:100px;height:100px"><line x1="5" y1="50" x2="95" y2="50" fill="none" stroke="none"/></svg>
 <svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-arrow" data-an-primitive="arrow" viewBox="0 0 100 100" style="position:absolute;left:670px;top:60px;width:100px;height:100px"><path d="M 5 50 L 95 50" fill="none" stroke="none"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="svg-polygon-open-path" data-an-primitive="polygon" viewBox="0 0 100 100" style="position:absolute;left:20px;top:200px;width:100px;height:100px"><path d="M 5 5 L 95 95" fill="none" stroke="none"/></svg>
 </main></body></html>`;
 
 async function action(
@@ -126,9 +127,13 @@ async function vectorPaint(page: Page) {
       wrapperBackground: svgStyle.background || svgStyle.backgroundColor,
       wrapperBorderWidth: svgStyle.borderWidth,
       wrapperOverflow: getComputedStyle(svg).overflow,
+      wrapperOverflowValue: svgStyle.getPropertyValue("overflow"),
+      wrapperOverflowPriority: svgStyle.getPropertyPriority("overflow"),
       originalOverflow: svg.getAttribute(
         "data-an-vector-stroke-original-overflow",
       ),
+      strokeOverlayStyle: strokeTarget.getAttribute("style"),
+      shapeOpacity: shape.opacity,
     };
   });
 }
@@ -440,6 +445,8 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
       .toBe("outside");
     const paint = (await vectorPaint(page))!;
     expect(paint.wrapperOverflow).toBe("visible");
+    expect(paint.wrapperOverflowValue).toBe("visible");
+    expect(paint.wrapperOverflowPriority).toBe("important");
     expect(paint.originalOverflow).toBe("hidden");
     const initialMaskWidth = Number(paint.outsideMaskWidth);
     await page.evaluate(() => {
@@ -479,6 +486,8 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
       .toBe("center");
     const centered = (await vectorPaint(page))!;
     expect(centered.wrapperOverflow).toBe("hidden");
+    expect(centered.wrapperOverflowValue).toBe("hidden");
+    expect(centered.wrapperOverflowPriority).toBe("");
     expect(centered.originalOverflow).toBeNull();
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
@@ -504,18 +513,20 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
       {
         id: "svg-ellipse",
         position: true,
-        attrs: { cx: "50", cy: "50", rx: "43", ry: "38" },
+        attrs: { cx: "50", cy: "50", r: "38" },
       },
       {
         id: "svg-circle",
         position: true,
-        attrs: { cx: "50", cy: "50", r: "45" },
+        attrs: { cx: "50", cy: "50", rx: "45", ry: "45" },
       },
       {
         id: "svg-polygon",
         position: true,
-        attrs: { points: "50,5 95,95 5,95" },
+        attrs: { d: "M 50 5 L 95 95 L 5 95 Z" },
+        opacity: "0.5",
       },
+      { id: "svg-polygon-open-path", position: false, attrs: {} },
       { id: "svg-line", position: false, attrs: {} },
       { id: "svg-arrow", position: false, attrs: {} },
     ] as const;
@@ -567,6 +578,21 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
           vector.locator(":scope > use[data-an-vector-stroke-overlay]").count(),
         )
         .toBe(1);
+      if ("opacity" in item) {
+        const overlay = vector.locator(
+          ":scope > use[data-an-vector-stroke-overlay]",
+        );
+        await expect(overlay).toHaveAttribute("style", /opacity: 0.5/);
+        await overlay.evaluate((element) => {
+          (element as SVGUseElement).style.removeProperty("opacity");
+        });
+        await position.click();
+        await page.getByRole("option", { name: "Center" }).click();
+        await expect
+          .poll(() => vector.getAttribute("data-an-vector-stroke-position"))
+          .toBe("center");
+        await expect(overlay).toHaveAttribute("style", /opacity: 0.5/);
+      }
     }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
