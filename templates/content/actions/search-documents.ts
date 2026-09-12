@@ -23,7 +23,7 @@ function escapeLike(s: string): string {
 // `content` here may be a bounded preview (see the `contentPreview`
 // projection below) rather than the full document body. If the query match
 // falls outside the preview window (a deeper match in the full doc, which the
-// SQL LIKE filter already confirmed exists), `indexOf` simply misses and we
+// SQL ILIKE filter already confirmed exists), `indexOf` simply misses and we
 // fall back to a beginning-of-document snippet — the same behavior as the
 // no-match case. The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
@@ -110,7 +110,7 @@ export default defineAction({
       spaceId: args.spaceId,
       documentType: args.documentType,
       additional: pattern
-        ? sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`
+        ? sql`(${schema.documents.title} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} ILIKE ${pattern} ESCAPE '\\')`
         : undefined,
     });
     const [countRow] = await db
