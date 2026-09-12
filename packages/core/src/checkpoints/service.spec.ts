@@ -68,6 +68,27 @@ describe("checkpoint service", () => {
     expect(fs.existsSync(addedPath)).toBe(false);
   });
 
+  it("commits only the paths owned by the agent turn", () => {
+    const cwd = createTempRepo();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");
+    fs.writeFileSync(path.join(cwd, "developer.txt"), "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "agent change\n");
+    fs.writeFileSync(path.join(cwd, "developer.txt"), "developer change\n");
+
+    expect(createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"])).toMatch(
+      /^[0-9a-f]{40}$/,
+    );
+    expect(
+      execFileSync("git", ["show", "--format=", "--name-only", "HEAD"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe("agent.txt");
+    expect(getUncommittedStatus(cwd)).toContain("developer.txt");
+  });
+
   it("returns false/null outside a git repo instead of throwing", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-not-git-"));
     tmpDirs.push(cwd);

@@ -13,6 +13,7 @@ let latestEventRows: Array<{
 }> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
+let completedTurnRows: Array<{ id: string }> = [];
 let runStatusRows: Array<{ status: string }> = [];
 let claimStateRows: Array<{
   dispatch_mode: string | null;
@@ -65,6 +66,13 @@ const mockDb = {
     // Must come before the broader stale-run SELECT check since both match
     // "SELECT id FROM agent_runs ... status = 'running'". Matches both the
     // livenessBasisSql CASE expression and any legacy heartbeat-only form.
+    if (
+      /SELECT id FROM agent_runs WHERE thread_id = \? AND turn_id = \? AND status = 'completed'/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: completedTurnRows, rowsAffected: 0 };
+    }
     if (
       /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(rawSql) &&
       (/COALESCE\(last_progress_at, started_at\)/i.test(rawSql) ||
@@ -263,6 +271,7 @@ describe("run store", () => {
     latestEventRows = [];
     staleSelectRows = [];
     claimSlotRows = [];
+    completedTurnRows = [];
     runStatusRows = [];
     claimStateRows = [];
     runListRows = [];
@@ -1000,6 +1009,18 @@ describe("run store", () => {
     const result = await tryClaimRunSlot("thread-busy");
     expect(result.claimed).toBe(false);
     expect(result.activeRunId).toBe("run-active-123");
+  });
+
+  it("tryClaimRunSlot reuses a completed run for the same turn", async () => {
+    completedTurnRows = [{ id: "run-completed" }];
+
+    await expect(
+      tryClaimRunSlot("thread-completed", undefined, "turn-completed"),
+    ).resolves.toEqual({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-completed",
+    });
   });
 
   it("tryClaimRunSlot uses a liveness cutoff to exclude stale rows", async () => {

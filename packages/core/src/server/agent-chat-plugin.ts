@@ -3244,7 +3244,6 @@ export function createAgentChatPlugin(
                 createCheckpoint: gitCheckpoint,
                 isGitRepo,
                 hasUncommittedChanges,
-                getChangedFileNames,
                 getUncommittedStatus,
               } = await import("../checkpoints/service.js");
               const cwd = process.cwd();
@@ -3257,9 +3256,25 @@ export function createAgentChatPlugin(
               // If the tree was already dirty, a checkpoint commit would sweep
               // up the user's unrelated work when a reconnect/refresh finishes.
               const postRunStatus = getUncommittedStatus(cwd);
+              const agentModifiedPaths = [
+                ...new Set(
+                  (run.events ?? []).flatMap(({ event }) => {
+                    if (
+                      event.type !== "tool_done" ||
+                      event.isError === true ||
+                      !["edit", "write", "write-file"].includes(event.tool) ||
+                      typeof event.input?.path !== "string"
+                    ) {
+                      return [];
+                    }
+                    return [event.input.path];
+                  }),
+                ),
+              ];
               if (
                 preRunStatus === "" &&
                 postRunStatus?.trim() &&
+                agentModifiedPaths.length > 0 &&
                 isGitRepo(cwd) &&
                 hasUncommittedChanges(cwd)
               ) {
@@ -3287,7 +3302,9 @@ export function createAgentChatPlugin(
 
                 // Fall back to listing changed files
                 if (!summary) {
-                  const files = getChangedFileNames(cwd);
+                  const files = agentModifiedPaths.map((file) =>
+                    file.split(/[\\/]/).pop(),
+                  );
                   if (files.length > 0) {
                     summary = `Update ${files.join(", ")}`;
                   }
@@ -3297,7 +3314,7 @@ export function createAgentChatPlugin(
                 if (summary.length > 120)
                   summary = summary.slice(0, 117) + "...";
 
-                const sha = gitCheckpoint(cwd, summary);
+                const sha = gitCheckpoint(cwd, summary, agentModifiedPaths);
                 if (sha) {
                   const { insertCheckpoint } =
                     await import("../checkpoints/store.js");

@@ -10476,7 +10476,28 @@ export function createProductionAgentHandler(
       ) {
         return { ok: true, stopped: true };
       }
-      const slot = await tryClaimRunSlot(threadId);
+      const slot = await tryClaimRunSlot(
+        threadId,
+        undefined,
+        typeof requestTurnId === "string" &&
+          requestTurnId.trim() &&
+          !requestedApprovedToolCalls
+          ? requestTurnId.trim()
+          : undefined,
+      );
+      if (slot.completedRunId) {
+        const stream = subscribeToRun(slot.completedRunId, 0);
+        if (!stream) {
+          setResponseStatus(event, 500);
+          return { error: "Failed to replay completed agent run" };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return stream;
+      }
       if (!slot.claimed) {
         setResponseStatus(event, 409);
         return {

@@ -43,19 +43,49 @@ export function getUncommittedStatus(cwd: string): string | null {
   }
 }
 
-export function createCheckpoint(cwd: string, message: string): string | null {
+export function createCheckpoint(
+  cwd: string,
+  message: string,
+  paths?: string[],
+): string | null {
   try {
-    execFileSync("git", ["add", "-A"], {
-      cwd,
-      stdio: "pipe",
-      timeout: TIMEOUT,
-    });
-    execFileSync("git", ["commit", "-m", message], {
-      cwd,
-      stdio: "pipe",
-      timeout: TIMEOUT,
-      env: CHECKPOINT_ENV,
-    });
+    const pathspecs = paths
+      ? [
+          ...new Set(
+            paths
+              .map((file) => path.relative(cwd, path.resolve(cwd, file)))
+              .filter(
+                (file) =>
+                  file !== "" &&
+                  file !== ".." &&
+                  !file.startsWith(`..${path.sep}`),
+              ),
+          ),
+        ]
+      : null;
+    if (pathspecs && pathspecs.length === 0) return null;
+
+    execFileSync(
+      "git",
+      pathspecs ? ["add", "--", ...pathspecs] : ["add", "-A"],
+      {
+        cwd,
+        stdio: "pipe",
+        timeout: TIMEOUT,
+      },
+    );
+    execFileSync(
+      "git",
+      pathspecs
+        ? ["commit", "--only", "-m", message, "--", ...pathspecs]
+        : ["commit", "-m", message],
+      {
+        cwd,
+        stdio: "pipe",
+        timeout: TIMEOUT,
+        env: CHECKPOINT_ENV,
+      },
+    );
     const sha = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd,
       stdio: "pipe",

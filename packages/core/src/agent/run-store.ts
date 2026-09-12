@@ -1164,15 +1164,33 @@ export async function getRunOwnerEmail(runId: string): Promise<string | null> {
  * replaced without waiting for the reaper, mirroring `reapIfStale`.
  *
  * Callers that win the claim then insert the run row normally; callers that
- * lose skip the run and return the existing active runId to the caller.
+ * lose skip the run and return the existing active runId to the caller. When a
+ * turnId is supplied, a completed run wins first so reconnects replay it rather
+ * than repeat the logical turn.
  */
 export async function tryClaimRunSlot(
   threadId: string,
   maxStaleMs?: number,
-): Promise<{ claimed: boolean; activeRunId: string | null }> {
+  turnId?: string,
+): Promise<{
+  claimed: boolean;
+  activeRunId: string | null;
+  completedRunId?: string;
+}> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
+  if (turnId) {
+    const completed = await client.execute({
+      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'completed' ORDER BY started_at ASC LIMIT 1`,
+      args: [threadId, turnId],
+    });
+    const completedRunId = (completed.rows[0] as { id?: string } | undefined)
+      ?.id;
+    if (completedRunId) {
+      return { claimed: false, activeRunId: null, completedRunId };
+    }
+  }
   // Default: per-row background-aware window so a live background run (which can
   // legitimately go >15s between heartbeats during a cold-start) isn't seen as
   // "free" and double-claimed by a racing foreground POST. An explicit

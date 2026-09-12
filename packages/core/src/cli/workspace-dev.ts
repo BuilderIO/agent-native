@@ -882,6 +882,7 @@ export async function runWorkspaceDev(
           AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
             app.protectedPaths,
           ),
+          APP_URL: gatewayUrl,
           APP_BASE_PATH: basePath,
           VITE_AGENT_NATIVE_WORKSPACE: "1",
           VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app.id,

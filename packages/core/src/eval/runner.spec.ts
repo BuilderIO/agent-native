@@ -383,6 +383,27 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     expect(out.error).toBe("model exploded");
   });
 
+  it("disables reasoning for bounded LLM judge calls", async () => {
+    const stream = vi.fn(async function* () {
+      yield { type: "text-delta", text: '{"score":1,"reasoning":"ok"}' };
+    });
+    const engine = {
+      defaultModel: "fake-model",
+      stream,
+    } as unknown as AgentEngine;
+    const runner = await createAgentRunner({
+      actions: {},
+      engine,
+      model: "fake-model",
+    });
+
+    await runner.analyzeContext().judge({ prompt: "Score this" });
+
+    expect(stream).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: "none" }),
+    );
+  });
+
   it("resolves engine + model from the registry when not supplied", async () => {
     engineMod.resolveEngine.mockResolvedValue({
       defaultModel: "registry-model",
