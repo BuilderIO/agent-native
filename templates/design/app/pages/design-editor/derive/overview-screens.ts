@@ -1,4 +1,5 @@
 import { isBoardFile } from "@shared/board-file";
+import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
 
 import { normalizedDesignFileType } from "../canvas-primitive-insert";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
@@ -121,7 +122,8 @@ export function deriveOverviewScreens({
                   String(Number(width)) === width &&
                   typeof height === "number" &&
                   Number.isFinite(height) &&
-                  height > 0,
+                  height > 0 &&
+                  height <= MAX_SANE_FRAME_DIMENSION_PX,
               ),
             )
           : undefined;

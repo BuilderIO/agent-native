@@ -1,3 +1,4 @@
+import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
 import { describe, expect, it } from "vitest";
 
 import type { DesignFile } from "../types";
@@ -61,6 +62,7 @@ describe("deriveOverviewScreens", () => {
               "768": "1800",
               "0390": 2000,
               "1440": 0,
+              "500": MAX_SANE_FRAME_DIMENSION_PX + 1,
             },
           },
         },

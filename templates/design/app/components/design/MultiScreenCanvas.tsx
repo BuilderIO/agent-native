@@ -54,7 +54,10 @@ import {
   type PenNode,
   type PenPath,
 } from "@shared/pen-path";
-import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
+import {
+  getResponsiveBreakpointHeightPx,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "@shared/responsive-frame-layout";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   IconCopy,
@@ -7990,7 +7993,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         data.height <= 0 ||
         // Ignore an implausible height (matches the persist sanity ceiling) so a
         // bogus postMessage can't blow a frame up to an unusable size.
-        data.height > 100_000
+        data.height > MAX_SANE_FRAME_DIMENSION_PX
       ) {
         return;
       }

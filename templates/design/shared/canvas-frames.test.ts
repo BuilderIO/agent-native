@@ -6,6 +6,10 @@ import {
   numericDesignDataWriteError,
   parseCanvasFrameGeometryById,
 } from "./canvas-frames";
+import {
+  getResponsiveBreakpointHeightPx,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "./responsive-frame-layout";
 
 describe("numericDesignDataWriteError", () => {
   it("rejects string dimensions", () => {
@@ -45,6 +49,23 @@ describe("numericDesignDataWriteError", () => {
         0,
       ),
     ).toContain("must be positive");
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        MAX_SANE_FRAME_DIMENSION_PX + 1,
+      ),
+    ).toContain(`must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px`);
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "breakpointHeights", "390"],
+        1e308,
+      ),
+    ).toContain(`must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px`);
+    expect(
+      numericDesignDataWriteError(["screenMetadata", "screen_a"], {
+        breakpointHeights: { "390": 1e308 },
+      }),
+    ).toContain(`must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px`);
     expect(
       numericDesignDataWriteError(["screenMetadata", "screen_a"], {
         breakpointHeights: { "390": "2400" },
@@ -88,6 +109,29 @@ describe("numericDesignDataWriteError", () => {
     expect(
       numericDesignDataWriteError(["tweakSelections"], { accent: "blue" }),
     ).toBeNull();
+  });
+});
+
+describe("getResponsiveBreakpointHeightPx", () => {
+  it("ignores persisted heights above the frame dimension ceiling", () => {
+    expect(
+      getResponsiveBreakpointHeightPx(
+        { breakpointHeights: { "390": MAX_SANE_FRAME_DIMENSION_PX } },
+        390,
+      ),
+    ).toBe(MAX_SANE_FRAME_DIMENSION_PX);
+    expect(
+      getResponsiveBreakpointHeightPx(
+        { breakpointHeights: { "390": MAX_SANE_FRAME_DIMENSION_PX + 1 } },
+        390,
+      ),
+    ).toBeUndefined();
+    expect(
+      getResponsiveBreakpointHeightPx(
+        { breakpointHeights: { "390": 1e308 } },
+        390,
+      ),
+    ).toBeUndefined();
   });
 });
 

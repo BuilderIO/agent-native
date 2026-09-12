@@ -128,7 +128,10 @@ import {
   breakpointUpperBoundPx,
   utilityStem,
 } from "@shared/responsive-classes";
-import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
+import {
+  getResponsiveBreakpointHeightPx,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "@shared/responsive-frame-layout";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import {
@@ -4252,7 +4255,8 @@ function DesignEditor() {
         !Number.isSafeInteger(widthPx) ||
         widthPx <= 0 ||
         !Number.isFinite(heightPx) ||
-        heightPx <= 0
+        heightPx <= 0 ||
+        heightPx > MAX_SANE_FRAME_DIMENSION_PX
       ) {
         return;
       }

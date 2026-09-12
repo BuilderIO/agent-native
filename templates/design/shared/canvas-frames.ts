@@ -3,6 +3,7 @@ import {
   getResponsiveBreakpointHeightPx,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "./responsive-frame-layout.js";
 
@@ -139,9 +140,13 @@ function breakpointHeightError(width: string, value: unknown): string | null {
     value,
   );
   if (error) return error;
-  return (value as number) > 0
+  const height = value as number;
+  if (height <= 0) {
+    return `Responsive breakpoint height at width ${width} must be positive.`;
+  }
+  return height <= MAX_SANE_FRAME_DIMENSION_PX
     ? null
-    : `Responsive breakpoint height at width ${width} must be positive.`;
+    : `Responsive breakpoint height at width ${width} must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px.`;
 }
 
 /**

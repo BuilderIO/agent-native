@@ -10,6 +10,8 @@
 /** Gap between the primary frame and each breakpoint preview beside it. */
 export const BREAKPOINT_FRAME_GAP = 24;
 
+export const MAX_SANE_FRAME_DIMENSION_PX = 100_000;
+
 /**
  * Extra screen-constant gap between the last breakpoint card (or primary) and
  * the circular "+" add-breakpoint affordance. Multiplied by `chromeScale` so it
@@ -71,7 +73,10 @@ export function getResponsiveBreakpointHeightPx(
     return undefined;
   }
   const height = (heights as Record<string, unknown>)[String(widthPx)];
-  return typeof height === "number" && Number.isFinite(height) && height > 0
+  return typeof height === "number" &&
+    Number.isFinite(height) &&
+    height > 0 &&
+    height <= MAX_SANE_FRAME_DIMENSION_PX
     ? height
     : undefined;
 }
