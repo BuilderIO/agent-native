@@ -13,10 +13,13 @@ import {
   createContext,
   createElement,
   useContext,
+  useEffect,
   type ReactNode,
 } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { hasPendingMcpConnection } from "./mcp-connection-refresh.js";
+import { addMcpConnectionCompleteListener } from "./mcp-connection-resume.js";
 
 export type McpServerScope = "user" | "org";
 
@@ -173,6 +176,29 @@ const defaultMcpServersApi: McpServersApi = {
 
 export function useMcpServers() {
   const api = useMcpServersApi();
+  const qc = useQueryClient();
+  // An OAuth authorization finishes by redirecting the popup, so nothing in
+  // this window ever learns the connection landed. Revalidate when the user
+  // comes back, but only inside the bounded pending window — the house
+  // QueryClient turns refetchOnWindowFocus off on purpose.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const revalidate = () => {
+      if (!hasPendingMcpConnection()) return;
+      void qc.invalidateQueries({ queryKey: LIST_KEY });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") revalidate();
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", onVisibility);
+    const removeCompleteListener = addMcpConnectionCompleteListener(revalidate);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", onVisibility);
+      removeCompleteListener();
+    };
+  }, [qc]);
   return useQuery<McpServersList>({
     queryKey: LIST_KEY,
     queryFn: api.list,

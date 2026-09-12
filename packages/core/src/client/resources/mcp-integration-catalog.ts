@@ -4,6 +4,7 @@ import {
   type NormalizedMcpIntegrationsConfig,
 } from "../../shared/mcp-integration-config.js";
 import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
+import { markMcpConnectionPending } from "./mcp-connection-refresh.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
 export type McpIntegrationAuthMode = "none" | "headers" | "oauth";
@@ -803,7 +804,11 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "builder-cms",
-    name: "Builder.io",
+    // Not plain "Builder.io": onboarding connects a Builder.io *account* for
+    // model credits one screen earlier, and a row labelled "Builder.io —
+    // Connect" right after reads as that account failing to connect. This is
+    // the separate Publish content grant.
+    name: "Builder.io Publish",
     provider: "builder",
     description: "Search Builder Publish and Hybrid Space content.",
     descriptionKey: "mcpIntegrations.catalog.builder.description",
@@ -1010,6 +1015,9 @@ export function navigateToMcpOAuthStart(url: string): boolean {
     if (!popup) return false;
     popup.opener = null;
     popup.location.replace(url);
+    // The callback redirects the popup, not this window, so this marker is the
+    // only thing that tells the opener its cached server list is now suspect.
+    markMcpConnectionPending();
     return true;
   } catch (error) {
     console.error("Failed to open MCP OAuth popup.", error);
