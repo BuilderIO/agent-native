@@ -229,9 +229,7 @@ describe("suggest-document-edit", () => {
             },
             ctx,
           ),
-        ).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
-        );
+        ).rejects.toThrow(/already used for a suggestion on a different page/);
       },
     );
   });

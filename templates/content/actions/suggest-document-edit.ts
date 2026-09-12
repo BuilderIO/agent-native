@@ -204,9 +204,21 @@ export default defineAction({
         const [first] = receipt.suggestion.operations ?? [];
         const before = first?.before as { changedText?: unknown } | undefined;
         const after = first?.after as { changedText?: unknown } | undefined;
+        if (
+          receipt.suggestion.resourceType !== "document" ||
+          receipt.suggestion.resourceId !== id
+        ) {
+          // The receipt may belong to a document this caller cannot read;
+          // never disclose its identity through a mismatch error.
+          throw new ActionContractError(
+            "This idempotencyKey was already used for a suggestion on a different page; use a fresh key.",
+            {
+              errorCode: "SUGGESTION_EDIT_PROTOCOL_KEY_MISMATCH",
+              statusCode: 409,
+            },
+          );
+        }
         const sameEdit =
-          receipt.suggestion.resourceType === "document" &&
-          receipt.suggestion.resourceId === id &&
           receipt.suggestion.summary === effectiveSummary &&
           first?.kind === "replace_text" &&
           before?.changedText === args.find &&
