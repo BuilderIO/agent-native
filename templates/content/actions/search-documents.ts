@@ -44,7 +44,7 @@ function makeSnippet(content: string, query: string, radius = 120) {
 
 export default defineAction({
   description:
-    "Search one bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.",
+    "Search one bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Free-text queries exclude pages hidden from search; exactTitle does not. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.",
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -102,6 +102,9 @@ export default defineAction({
       ]),
     ];
     const pattern = args.query ? `%${escapeLike(args.query)}%` : undefined;
+    // Free-text mode only: hidden pages must not crowd out visible results.
+    // exactTitle (and the list flows elsewhere) resolve titles regardless of
+    // the hide-in-search flag, so this cannot live in documentDiscoveryWhere.
     const where = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
@@ -110,7 +113,7 @@ export default defineAction({
       spaceId: args.spaceId,
       documentType: args.documentType,
       additional: pattern
-        ? sql`(${schema.documents.title} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} ILIKE ${pattern} ESCAPE '\\')`
+        ? sql`(${schema.documents.title} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} ILIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} ILIKE ${pattern} ESCAPE '\\') AND (${schema.documents.hideFromSearch} = 0 OR ${schema.documents.hideFromSearch} IS NULL)`
         : undefined,
     });
     const [countRow] = await db

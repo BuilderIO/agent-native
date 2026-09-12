@@ -11,6 +11,8 @@ const TEST_DB_PATH = join(
 );
 const OWNER = "search-documents-owner@example.com";
 const CASE_PROBE_ID = "case-probe-zeta";
+const CROWDING_VISIBLE_ID = "crowding-visible-match";
+const CROWDING_HIDDEN_ID = "crowding-hidden-match";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -43,6 +45,35 @@ beforeAll(async () => {
     createdAt: now,
     updatedAt: now,
   });
+  await getDb()
+    .insert(schema.documents)
+    .values([
+      {
+        id: CROWDING_VISIBLE_ID,
+        ownerEmail: OWNER,
+        orgId: null,
+        parentId: null,
+        title: "Crowding Visible Match",
+        content: "crowding probe visible body",
+        position: 1,
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: CROWDING_HIDDEN_ID,
+        ownerEmail: OWNER,
+        orgId: null,
+        parentId: null,
+        title: "Crowding Hidden Match",
+        content: "crowding probe hidden body",
+        position: 2,
+        visibility: "private",
+        hideFromSearch: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
 }, 60_000);
 
 afterAll(() => {
@@ -102,5 +133,29 @@ describe("search-documents free-text case sensitivity", () => {
       nextOffset: null,
     });
     expect(exactCase.documents.map((doc) => doc.id)).toEqual([CASE_PROBE_ID]);
+  });
+
+  it("excludes hidden pages from free-text search and its total count", async () => {
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "crowding", limit: 10, offset: 0 }),
+    );
+
+    expect(result.documents.map((doc) => doc.id)).toEqual([
+      CROWDING_VISIBLE_ID,
+    ]);
+    expect(result.pagination.totalItems).toBe(1);
+  });
+
+  it("still resolves hidden pages through exactTitle", async () => {
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        exactTitle: "Crowding Hidden Match",
+        limit: 10,
+        offset: 0,
+      }),
+    );
+
+    expect(result.documents.map((doc) => doc.id)).toEqual([CROWDING_HIDDEN_ID]);
+    expect(result.documents[0]?.hideFromSearch).toBe(true);
   });
 });

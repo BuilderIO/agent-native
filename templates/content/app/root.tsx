@@ -74,8 +74,11 @@ import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import {
+  COMMAND_SEARCH_PAGE_LIMIT,
   contentCommandDocumentPath,
   groupContentCommandSearchResults,
+  mergeContentCommandSearchPage,
+  type CommandSearchDocumentPages,
   type CommandSearchDocumentsResponse,
 } from "./lib/content-command-search";
 
@@ -306,6 +309,11 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debouncedValue;
 }
 
+const EMPTY_COMMAND_SEARCH_PAGES: CommandSearchDocumentPages = {
+  nextOffset: 0,
+  documents: [],
+};
+
 function ContentCommandSearchResults({
   query,
   onOpenChange,
@@ -318,9 +326,27 @@ function ContentCommandSearchResults({
   const trimmedQuery = query.trim();
   const debouncedQuery = useDebouncedValue(trimmedQuery, 200);
   const searchEnabled = debouncedQuery.length > 0;
+  // The server hides hide-from-search rows in free-text mode; the client
+  // still follows pagination until the accumulated VISIBLE documents top the
+  // display budget, so a hidden row slipping past cannot crowd out results.
+  const [documentPages, setDocumentPages] = useState<
+    {
+      query: string;
+    } & CommandSearchDocumentPages
+  >({ query: "", nextOffset: 0, documents: [] });
+  const accumulatedPages =
+    documentPages.query === debouncedQuery
+      ? documentPages
+      : EMPTY_COMMAND_SEARCH_PAGES;
   const documentsQuery = useActionQuery<CommandSearchDocumentsResponse>(
     "search-documents",
-    searchEnabled ? { query: debouncedQuery, limit: 8 } : undefined,
+    searchEnabled
+      ? {
+          query: debouncedQuery,
+          limit: COMMAND_SEARCH_PAGE_LIMIT,
+          offset: accumulatedPages.nextOffset,
+        }
+      : undefined,
     { enabled: searchEnabled, retry: false },
   );
   const databasesQuery = useActionQuery<ListContentDatabasesResponse>(
@@ -329,16 +355,31 @@ function ContentCommandSearchResults({
     { enabled: searchEnabled, retry: false, staleTime: 60_000 },
   );
 
+  const consumedDocumentsResponseRef =
+    useRef<CommandSearchDocumentsResponse | null>(null);
+  useEffect(() => {
+    const response = documentsQuery.data;
+    if (!response || consumedDocumentsResponseRef.current === response) return;
+    consumedDocumentsResponseRef.current = response;
+    setDocumentPages((current) => ({
+      query: debouncedQuery,
+      ...mergeContentCommandSearchPage(
+        current.query === debouncedQuery ? current : EMPTY_COMMAND_SEARCH_PAGES,
+        response,
+      ),
+    }));
+  }, [documentsQuery.data, debouncedQuery]);
+
   const searchGroups = useMemo(
     () =>
       groupContentCommandSearchResults({
-        documents: documentsQuery.data?.documents ?? [],
+        documents: accumulatedPages.documents,
         databases: databasesQuery.data?.databases ?? [],
         query: debouncedQuery,
       }),
     [
+      accumulatedPages.documents,
       databasesQuery.data?.databases,
-      documentsQuery.data?.documents,
       debouncedQuery,
     ],
   );
