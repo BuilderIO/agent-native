@@ -7,6 +7,11 @@ import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
+import {
+  landingOptimisticTitle,
+  stashLandingTitleHint,
+} from "@/lib/document-title-hint";
 
 const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
@@ -27,11 +32,17 @@ export function meta() {
   ];
 }
 
-function DocumentSkeleton() {
+function DocumentSkeleton({ title }: { title?: string | null }) {
   return (
     <div className="flex-1 flex items-start justify-center bg-background overflow-hidden">
       <div className="w-full max-w-3xl px-12 pt-24 space-y-6">
-        <Skeleton className="h-10 w-2/3" />
+        {title ? (
+          <div className="block w-full break-words bg-transparent p-0 font-bold leading-tight text-foreground text-3xl md:text-4xl">
+            {title}
+          </div>
+        ) : (
+          <Skeleton className="h-10 w-2/3" />
+        )}
         <div className="space-y-3 pt-4">
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-11/12" />
@@ -51,6 +62,9 @@ export default function HomeRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const startedRef = useRef(false);
+  const lastLocationHint = useLastLocationTitleHint();
+  const lastLocationHintRef = useRef(lastLocationHint);
+  lastLocationHintRef.current = lastLocationHint;
   const resolveLanding = useActionMutation<
     ContentLandingResult,
     Record<string, never>
@@ -64,6 +78,12 @@ export default function HomeRoute() {
       if (result.fallbackReason === "saved-document-unavailable") {
         toast.info(t("landing.previousPageUnavailable"));
       }
+      // Hand the known title to the editor skeleton only when the resolver
+      // confirmed it for this exact page; a fallback keeps the title hidden.
+      const hint = lastLocationHintRef.current;
+      stashLandingTitleHint(
+        hint && hint.documentId === result.documentId ? hint : null,
+      );
       void navigate(
         {
           pathname: `/page/${result.documentId}`,
@@ -95,5 +115,7 @@ export default function HomeRoute() {
       />
     );
   }
-  return <DocumentSkeleton />;
+  return (
+    <DocumentSkeleton title={landingOptimisticTitle(null, lastLocationHint)} />
+  );
 }

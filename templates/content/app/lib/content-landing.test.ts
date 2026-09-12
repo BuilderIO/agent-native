@@ -27,6 +27,30 @@ describe("rememberContentLandingDocument", () => {
     );
   });
 
+  it("records the title so the next landing can paint it optimistically", async () => {
+    writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
+
+    await rememberContentLandingDocument("doc-1", "Quarterly planning notes");
+
+    expect(writeClientAppState).toHaveBeenCalledWith(
+      "content-last-location-v1",
+      { documentId: "doc-1", title: "Quarterly planning notes" },
+      { requestSource: "content-landing" },
+    );
+  });
+
+  it("omits blank titles instead of recording an unusable hint", async () => {
+    writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
+
+    await rememberContentLandingDocument("doc-1", "   ");
+
+    expect(writeClientAppState).toHaveBeenCalledWith(
+      "content-last-location-v1",
+      { documentId: "doc-1" },
+      { requestSource: "content-landing" },
+    );
+  });
+
   it("preserves navigation order when an earlier write is slower", async () => {
     let finishFirst!: (value: { documentId: string }) => void;
     writeClientAppState

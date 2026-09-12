@@ -105,6 +105,10 @@ import {
   useDocumentSyncStatus,
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
+import {
+  useOptimisticDocumentTitle,
+  refreshLandingTitleHintCache,
+} from "@/hooks/use-optimistic-document-title";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
@@ -562,6 +566,12 @@ export function PageEditorSurface({
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
+  // While the dedicated get-document response is awaited, a snapshot another
+  // surface seeded into the cache still carries a usable title.
+  const optimisticTitle = useOptimisticDocumentTitle(documentId, {
+    seededTitle:
+      queriedDocument?.id === documentId ? queriedDocument.title : null,
+  });
   const loadFailure = updateDocumentLoadFailureState({
     previous: loadFailureRef.current,
     documentId,
@@ -640,7 +650,7 @@ export function PageEditorSurface({
   // get-document response; later poll/SSE refetches remain live and reconcile
   // without replacing the editor.
   if (!document || loadState.view === "skeleton") {
-    return <DocumentEditorSkeleton />;
+    return <DocumentEditorSkeleton title={optimisticTitle} />;
   }
 
   const editor = (
@@ -1401,7 +1411,10 @@ function PageEditorSessionBody({
   });
   useEffect(() => {
     if (host !== "page") return;
-    void rememberContentLandingDocument(documentId).catch((error) => {
+    void rememberContentLandingDocument(
+      documentId,
+      currentDocumentRef.current?.title,
+    ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
@@ -3200,6 +3213,8 @@ function PageEditorSessionBody({
       localTitleRef.current = newTitle;
       setLocalTitle(newTitle);
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
+      // Renames must not leave a stale optimistic title for the next landing.
+      refreshLandingTitleHintCache(queryClient, documentId, newTitle);
       debouncedSave(newTitle, localContentRef.current);
     },
     [debouncedSave, documentId, editorCanEdit, isSuggesting, queryClient],

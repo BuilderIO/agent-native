@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
+import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
 import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
@@ -101,6 +102,11 @@ export function Layout({ children }: LayoutProps) {
   const activeDocumentId = pendingDocumentId ?? currentDocumentId;
   const showPendingDocumentSkeleton =
     !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
+  // The route chunk for the pending page still has to load, so carry the
+  // landing title across this gap instead of flashing a blank title bar.
+  const pendingDocumentTitle = useOptimisticDocumentTitle(pendingDocumentId, {
+    enabled: !!pendingDocumentId,
+  });
   // Bind chat to the currently-open document. Everywhere else (list view,
   // settings) leaves scope null so general chats stay available.
   const documentScope = useMemo(
@@ -317,7 +323,7 @@ export function Layout({ children }: LayoutProps) {
             />
             <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
               {showPendingDocumentSkeleton ? (
-                <DocumentEditorSkeleton />
+                <DocumentEditorSkeleton title={pendingDocumentTitle} />
               ) : (
                 children
               )}

@@ -103,7 +103,7 @@ export function PageDraftRecovery({
         retrying={drafts.isFetching}
       />
     );
-  if (!drafts.data) return <DocumentEditorSkeleton />;
+  if (!drafts.data) return <DocumentEditorSkeleton title={document.title} />;
   if (!draft) return children;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
