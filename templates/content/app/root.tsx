@@ -69,6 +69,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
+import { ContentLoadingShell } from "./components/layout/ContentLoadingShell";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
@@ -632,6 +633,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        clientOnlyFallback={<ContentLoadingShell />}
         disableThemeTransitions={false}
         toaster={contentToaster}
         i18n={{
