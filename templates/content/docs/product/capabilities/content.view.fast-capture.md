@@ -33,7 +33,7 @@ last_reviewed: "2026-07-29"
 ## Why this exists
 
 Quick capture keeps a small thought from becoming a ceremony while retaining the
-Database's rules and the record's canonical identity.
+Collection's rules and the record's canonical identity.
 
 ## Example workflow
 
@@ -43,7 +43,7 @@ an explanation; it does not leave a convincing but unsaved row behind.
 
 ## Product contract
 
-- List and Table are keyboard editors of canonical Database records, not local drafts.
+- List and Table are keyboard editors of canonical Collection records, not local drafts.
 - Enter, Tab, arrow navigation, escape, selection, and focus restoration are predictable and accessible.
 - Creation and edits use the same authorized Action, validation, Events, history, and failure behavior as an agent.
 - Optimistic UI is reversible; denied, invalid, stale, or unavailable work is visibly distinct from success.
@@ -67,7 +67,7 @@ the rendered value rolls back, focus remains useful, and the failure is announce
 
 ## Current evidence
 
-Existing Database editing and View machinery are donor substrate. No complete proof yet
+Existing Collection editing and View machinery are donor substrate. No complete proof yet
 covers keyboard semantics, Action parity, rollback, accessibility, and recovery; this
 Capability remains `approved_shape`.
 

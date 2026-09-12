@@ -17,8 +17,8 @@ export default defineAction({
   description:
     "Stage pending local Builder CMS changes as a local-only save-revision review record. This never calls Builder APIs or performs external writes.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()

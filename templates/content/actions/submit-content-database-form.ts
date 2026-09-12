@@ -34,7 +34,7 @@ import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
 const submitContentDatabaseFormSchema = z.object({
-  databaseId: z.string().min(1).describe("Content database ID"),
+  databaseId: z.string().min(1).describe("Content collection ID"),
   viewId: z
     .string()
     .min(1)
@@ -197,7 +197,7 @@ function resolveSubmittedProperties(
 
 export default defineAction({
   description:
-    "Submit one row through a Content database form. Validates that form's required questions, resolves option labels safely, writes the title, Blocks, and property values atomically, verifies the saved row, and returns its exact page link.",
+    "Submit one row through a Content collection form. Validates that form's required questions, resolves option labels safely, writes the title, Blocks, and property values atomically, verifies the saved row, and returns its exact page link.",
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -205,14 +205,14 @@ export default defineAction({
     isConsequential: true,
     title: "Submit Content Database Form",
     description:
-      "Delegate a validated, atomic submission to an existing Content database form.",
+      "Delegate a validated, atomic submission to an existing Content collection form.",
   },
   schema: submitContentDatabaseFormSchema,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
       title: "Open submitted page",
-      description: "Open the new database row in Content.",
+      description: "Open the new collection row in Content.",
       iframeTitle: "Agent-Native Content",
       openLabel: "Open in Content",
       height: 900,

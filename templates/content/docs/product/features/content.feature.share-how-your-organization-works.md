@@ -30,7 +30,7 @@ Govern reusable Templates, Properties, Expressions, and Custom Blocks without ta
 
 ## Product contract
 
-- **Templates:** Package Pages, Databases, Views, Properties, Rules, and content into reusable starting systems.
+- **Templates:** Package Pages, Collections, Views, Properties, Rules, and content into reusable starting systems.
 - **Custom Properties:** Offer approved reusable field definitions without making every ordinary local column secretly global.
 - **Expressions:** Store reusable typed logic with personal, workspace, or organization scope.
 - **Catalog discovery:** Uses consistent names, descriptions, aliases, ownership, compatibility, and previews.

@@ -46,12 +46,12 @@ See [Getting started](/docs/getting-started) for the rest of the setup and the f
 
 ## Data model
 
-Content's schema (`server/db/schema.ts`) currently defines 22 tables, not the nine a much earlier version of this doc described. Nine cover the document lifecycle, collaboration, and sync surfaces below; the other 13 belong to the inline-database and external-source subsystem, documented in full on [Databases, properties & forms](/docs/template-content-databases#data-model).
+Content's schema (`server/db/schema.ts`) currently defines 22 tables, not the nine a much earlier version of this doc described. Nine cover the document lifecycle, collaboration, and sync surfaces below; the other 13 belong to the inline-collection and external-source subsystem, documented in full on [Collections, properties & forms](/docs/template-content-databases#data-model).
 
 | Table                                      | What it holds                                                                                            |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | `documents`                                | The page tree — title, markdown content, description, icon, parent/position, favorite, visibility, space |
-| `content_spaces`                           | A personal or org workspace; owns one canonical Files database                                           |
+| `content_spaces`                           | A personal or org workspace; owns one canonical Files collection                                         |
 | `content_space_catalog_items`              | Maps a space into the current user's visible workspace catalog                                           |
 | `document_versions`                        | Full title/content snapshots for version history and restore                                             |
 | `document_preview_drafts`                  | An unsaved editor draft, kept separate from the saved document                                           |
@@ -59,25 +59,25 @@ Content's schema (`server/db/schema.ts`) currently defines 22 tables, not the ni
 | `document_sync_links`                      | One row per Notion-linked document — remote page id, sync state, content hash, conflict flag             |
 | `builder_doc_sidecars`                     | Raw sidecar files (e.g. `.raw` Builder blocks) alongside a Builder-synced document                       |
 | `document_shares`                          | Framework shares table — per-user/per-org grants (`createSharesTable`)                                   |
-| `document_property_definitions`            | Column definitions for inline databases _(see Databases page)_                                           |
-| `content_databases`                        | Inline database objects _(see Databases page)_                                                           |
-| `content_database_items`                   | Database rows _(see Databases page)_                                                                     |
+| `document_property_definitions`            | Column definitions for inline collections _(see Collections page)_                                       |
+| `content_databases`                        | Inline collection objects _(see Collections page)_                                                       |
+| `content_database_items`                   | Collection rows _(see Collections page)_                                                                 |
 | `content_database_body_hydration_queue`    | Queues a body-content backfill pass for source-imported rows that need one                               |
-| `content_database_sources`                 | An attached external source _(see Databases page)_                                                       |
-| `content_database_source_fields`           | Field mappings _(see Databases page)_                                                                    |
-| `content_database_source_rows`             | Row identity/provenance _(see Databases page)_                                                           |
-| `content_database_source_change_sets`      | Proposed sync changes _(see Databases page)_                                                             |
-| `content_database_source_change_reviews`   | Review decisions _(see Databases page)_                                                                  |
-| `content_database_source_executions`       | Guarded write-back attempts _(see Databases page)_                                                       |
+| `content_database_sources`                 | An attached external source _(see Collections page)_                                                     |
+| `content_database_source_fields`           | Field mappings _(see Collections page)_                                                                  |
+| `content_database_source_rows`             | Row identity/provenance _(see Collections page)_                                                         |
+| `content_database_source_change_sets`      | Proposed sync changes _(see Collections page)_                                                           |
+| `content_database_source_change_reviews`   | Review decisions _(see Collections page)_                                                                |
+| `content_database_source_executions`       | Guarded write-back attempts _(see Collections page)_                                                     |
 | `content_database_source_execution_claims` | Idempotency keys so a retried write-back can't double-write                                              |
-| `document_property_values`                 | Per-row property values _(see Databases page)_                                                           |
-| `document_block_field_contents`            | Content for secondary Blocks fields _(see Databases page)_                                               |
+| `document_property_values`                 | Per-row property values _(see Collections page)_                                                         |
+| `document_block_field_contents`            | Content for secondary Blocks fields _(see Collections page)_                                             |
 
 <DataModel
   id="doc-block-content9"
   title="Documents, collaboration, and sync"
   summary={
-    "documents is the page tree; every other table here hangs off it for spaces, versions, comments, Notion sync, Builder sidecars, and sharing. The inline-database and external-source subsystem is a separate, larger block on the Databases page."
+    "documents is the page tree; every other table here hangs off it for spaces, versions, comments, Notion sync, Builder sidecars, and sharing. The inline-collection and external-source subsystem is a separate, larger block on the Collections page."
   }
   entities={[
     {
@@ -129,7 +129,7 @@ Content's schema (`server/db/schema.ts`) currently defines 22 tables, not the ni
     {
       id: "content_spaces",
       name: "content_spaces",
-      note: "A personal or org workspace; owns one canonical Files database",
+      note: "A personal or org workspace; owns one canonical Files collection",
       fields: [
         { name: "id", type: "id", pk: true },
         { name: "name", type: "string" },
@@ -278,9 +278,9 @@ Every operation is a TypeScript file in `templates/content/actions/`, auto-mount
 
 **Comments** — `list-comments`, `add-comment`, `update-comment`, `delete-comment`.
 
-**Databases, properties & views** — `create-content-database`, `create-inline-content-database`, `get-content-database`, `list-content-databases`, `delete-content-database`, `restore-content-database`, `list-trashed-content-databases`, `add-database-item`, `duplicate-database-item`, `duplicate-database-items`, `remove-database-items`, `move-database-item`, `update-content-database-view`, `get-content-database-personal-view`, `update-content-database-personal-view`, `list-document-properties`, `configure-document-property`, `set-document-property`, `duplicate-document-property`, `delete-document-property`, `reorder-document-property`, `submit-content-database-form`.
+**Collections, properties & views** — `create-content-database`, `create-inline-content-database`, `get-content-database`, `list-content-databases`, `delete-content-database`, `restore-content-database`, `list-trashed-content-databases`, `add-database-item`, `duplicate-database-item`, `duplicate-database-items`, `remove-database-items`, `move-database-item`, `update-content-database-view`, `get-content-database-personal-view`, `update-content-database-personal-view`, `list-document-properties`, `configure-document-property`, `set-document-property`, `duplicate-document-property`, `delete-document-property`, `reorder-document-property`, `submit-content-database-form`.
 
-**External database sources** — `attach-content-database-source`, `disconnect-content-database-source`, `get-content-database-source`, `refresh-content-database-source`, `review-content-database-source-change-set`, `bind-content-database-source-field`, `add-content-database-source-field-property`, `suggest-source-join-key`, `list-notion-database-sources`, `list-builder-cms-models`. Builder's write-back path adds `prepare-builder-source-review`, `preview-builder-source-review`, `prepare-builder-source-execution`, `validate-builder-source-execution`, `execute-builder-source-execution`, `execute-builder-source-batch`, `cancel-prepared-builder-source-update`, `stage-builder-revision`, `stage-builder-source-bulk-update`, `materialize-builder-required-fields`, and `process-builder-body-hydration`.
+**External collection sources** — `attach-content-database-source`, `disconnect-content-database-source`, `get-content-database-source`, `refresh-content-database-source`, `review-content-database-source-change-set`, `bind-content-database-source-field`, `add-content-database-source-field-property`, `suggest-source-join-key`, `list-notion-database-sources`, `list-builder-cms-models`. Builder's write-back path adds `prepare-builder-source-review`, `preview-builder-source-review`, `prepare-builder-source-execution`, `validate-builder-source-execution`, `execute-builder-source-execution`, `execute-builder-source-batch`, `cancel-prepared-builder-source-update`, `stage-builder-revision`, `stage-builder-source-bulk-update`, `materialize-builder-required-fields`, and `process-builder-body-hydration`.
 
 **Notion document sync** — `connect-notion-status`, `link-notion-page`, `create-and-link-notion-page`, `unlink-notion-page`, `list-notion-links`, `pull-notion-page`, `push-notion-page`, `refresh-notion-sync-status`, `resolve-notion-sync-conflict`, `sync-notion-comments`, `search-notion-pages`, `disconnect-notion`.
 
@@ -301,7 +301,7 @@ Every operation is a TypeScript file in `templates/content/actions/`, auto-mount
 | `_app.tsx`                                                                                                         | Pathless layout — sidebar and agent panel stay mounted across navigation                                                                                     |
 | `_app._index.tsx`                                                                                                  | Landing view — the document tree                                                                                                                             |
 | `_app.page.tsx` / `_app.page._index.tsx` / `_app.page.$id.tsx`                                                     | The editor route family — `/page/:id` opens one document                                                                                                     |
-| `_app.favorites.tsx`                                                                                               | Redirects into the current space's Favorites Files-database document                                                                                         |
+| `_app.favorites.tsx`                                                                                               | Redirects into the current space's Favorites Files-collection document                                                                                       |
 | `_app.local-files.tsx`                                                                                             | `/local-files` — connect, pull, check, and push local folders                                                                                                |
 | `_app.settings.tsx`                                                                                                | Settings                                                                                                                                                     |
 | `_app.team.tsx`                                                                                                    | `/team` redirects to `/settings/organization`                                                                                                                |
@@ -314,14 +314,14 @@ Every operation is a TypeScript file in `templates/content/actions/`, auto-mount
 
 ### Data grid boundary {#data-grid}
 
-Content's database table view composes the reusable `DataGrid` component from
+Content's collection table view composes the reusable `DataGrid` component from
 `@agent-native/toolkit/data-grid`. The adapter is
 `app/components/editor/database/DatabaseView.tsx`.
 
 Toolkit supplies the shared spreadsheet mechanics: keyboard navigation,
 active-cell behavior, the scroll surface, and the optional selection and column
 width callbacks. Content supplies `ContentDatabaseItem` rows and typed
-columns, then keeps database-specific property rendering, grouping, filters,
+columns, then keeps collection-specific property rendering, grouping, filters,
 row drag and drop, previews, access checks, and action-backed mutations in the
 app.
 
@@ -352,7 +352,7 @@ const dataGridColumns: readonly DataGridColumn<ContentDatabaseItem>[] = [
 The live implementation also supplies Content's custom `renderHeader` and
 `renderBody` callbacks around this shell.
 
-Do not move Content database models, access checks, grouping, drag and drop,
+Do not move Content collection models, access checks, grouping, drag and drop,
 or domain actions into Toolkit. If a change is reusable spreadsheet behavior,
 extend the Toolkit contract first. If it describes how Content rows behave,
 keep it in the app adapter and its actions.
@@ -368,13 +368,13 @@ keep it in the app adapter and its actions.
   annotations={[
     {
       lines: "18-20",
-      label: "System databases are protected",
-      note: "A database created by the framework itself (Files, Favorites, workspace catalog) carries a systemRole and refuses deletion here, so a stray delete call can't orphan a space's canonical storage.",
+      label: "System collections are protected",
+      note: "A collection created by the framework itself (Files, Favorites, workspace catalog) carries a systemRole and refuses deletion here, so a stray delete call can't orphan a space's canonical storage.",
     },
     {
       lines: "24-31",
       label: "Reuse the document trash, don't reimplement it",
-      note: "trashDocumentSubtree is the same helper delete-document uses. A database's row documents get the identical soft-delete/restore semantics as any other page subtree instead of a second, database-specific trash implementation.",
+      note: "trashDocumentSubtree is the same helper delete-document uses. A collection's row documents get the identical soft-delete/restore semantics as any other page subtree instead of a second, collection-specific trash implementation.",
     },
     {
       lines: "33",
@@ -388,14 +388,14 @@ The places to look when changing behavior:
 
 - **`actions/`** — every operation the agent or UI can perform. Add a new file like `actions/publish-to-wordpress.ts` using `defineAction` and both sides get it for free.
 - **`app/routes/`** — the page surface described above.
-- **`app/components/editor/database/DatabaseView.tsx`** — the Content database
+- **`app/components/editor/database/DatabaseView.tsx`** — the Content collection
   table adapter. It composes `@agent-native/toolkit/data-grid` while keeping
-  database-specific rendering and actions local.
+  collection-specific rendering and actions local.
 - **`app/components/editor/`** — the Tiptap editor. Add a new node type under `extensions/` and register it in `DocumentEditor.tsx`. The bubble toolbar, slash menu, and hover previews are all component files you can edit.
 - **`.agents/skills/`** — guidance the agent reads before acting: `content`, `document-editing`, `notion-integration`, `creative-context`, plus the framework skills. Add a new skill folder when you add a capability big enough to need its own guidance.
 - **`AGENTS.md`** — the top-level agent guide with the action cheatsheet. Update it whenever you add a feature so the agent discovers it without exploring.
 - **`server/db/schema.ts`** — the data model. Content has no `db:push` script; it relies on strictly additive migrations that run on startup. Migrations must never drop, rename, or destructively alter existing tables or columns — see [Database](/docs/server-database#migrations).
-- **A new external-source adapter** — implement the `ContentDatabaseSourceAdapter` interface in `actions/_content-database-source-adapters.ts` (see the existing `builder-cms`, `local-table`, and `notion-database` adapters) and wire it into `attach-content-database-source`. Every adapter reads into the same change-set/review pipeline described on the [Databases page](/docs/template-content-databases#connecting-an-external-source) — a new adapter should not bypass it with a direct write.
+- **A new external-source adapter** — implement the `ContentDatabaseSourceAdapter` interface in `actions/_content-database-source-adapters.ts` (see the existing `builder-cms`, `local-table`, and `notion-database` adapters) and wire it into `attach-content-database-source`. Every adapter reads into the same change-set/review pipeline described on the [Collections page](/docs/template-content-databases#connecting-an-external-source) — a new adapter should not bypass it with a direct write.
 - **`shared/content-source.ts`** — the local-folder sync contract (filenames, frontmatter, parsing, serialization). Extend this if you change what an exported file looks like.
 - **`shared/nfm.ts`** — the Notion-Flavored Markdown converter. Extend this if you add block types that need to round-trip through Notion.
 
@@ -405,7 +405,7 @@ The agent can make most of these changes itself — ask it to "add a tags column
 
 - [Content overview](/docs/template-content) — what the app is and how to get started
 - [Writing & organizing documents](/docs/template-content-editing) — the non-developer view of the editor and sharing model
-- [Databases, properties & forms](/docs/template-content-databases) — the full inline-database and external-source data model
+- [Collections, properties & forms](/docs/template-content-databases) — the full inline-collection and external-source data model
 - [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — the non-developer view of every sync surface
 - [Database](/docs/server-database) — the framework's Drizzle conventions and migration rules
 - [Actions](/docs/actions-overview) — the action system every operation above is built on

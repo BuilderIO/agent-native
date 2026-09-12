@@ -1,6 +1,6 @@
 # Documents — Agent Guide
 
-Documents is an agent-native editor for docs, comments, media blocks, databases,
+Documents is an agent-native editor for docs, comments, media blocks, collections,
 sharing, and Notion-connected content; the agent and the UI share the same
 actions and application state.
 
@@ -8,10 +8,10 @@ actions and application state.
 
 Read the relevant skill before deeper work:
 
-- `content` — Markdown/MDX authoring, local folder sources, databases, intake
+- `content` — Markdown/MDX authoring, local folder sources, collections, intake
   forms, and Slack/A2A artifact replies.
 - `document-editing` — document and comment actions, screen context and IDs,
-  suggestions, common tasks, the data model, and the databases reference.
+  suggestions, common tasks, the data model, and the collections reference.
 - `notion-integration` — connected Notion workflows and the raw Notion provider
   API path.
 - `creative-context` — cross-app source reuse, pinned packs, provenance, and
@@ -82,11 +82,11 @@ Read the relevant skill before deeper work:
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |
-| `list-content-database-blocks` | List stable blocks and revisions in one exact database row/property |
+| `list-content-database-blocks` | List stable blocks and revisions in one exact collection row/property |
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
 | `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 Every action carries its own schema, and the rest of the app-specific surface
-(comments, sharing, databases, Notion, local file sources such as
+(comments, sharing, collections, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 

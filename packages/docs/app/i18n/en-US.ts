@@ -2313,7 +2313,7 @@ const enUS = {
     content: "Content",
     contentOverview: "Overview",
     contentEditing: "Writing & Organizing",
-    contentDatabases: "Databases & Forms",
+    contentDatabases: "Collections & Forms",
     contentSync: "Local Files & Sync",
     contentDevelopers: "Developer Guide",
     plans: "Plans",

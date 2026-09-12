@@ -54,24 +54,24 @@ const createContentDatabaseSchema = z
     documentId: z
       .string()
       .optional()
-      .describe("Existing document to convert into a database page"),
+      .describe("Existing document to convert into a collection page"),
     newDocumentId: z
       .string()
       .optional()
-      .describe("Caller-provided document ID for a new database page"),
+      .describe("Caller-provided document ID for a new collection page"),
     spaceId: z
       .string()
       .optional()
-      .describe("Content space for a new top-level database"),
+      .describe("Content space for a new top-level collection"),
     parentId: z
       .string()
       .nullish()
-      .describe("Parent document for a new database page"),
-    title: z.string().optional().describe("Database title"),
+      .describe("Parent document for a new collection page"),
+    title: z.string().optional().describe("Collection title"),
     description: z
       .string()
       .optional()
-      .describe("Stable guidance describing what belongs in this database"),
+      .describe("Stable guidance describing what belongs in this collection"),
   })
   .strict();
 
@@ -86,12 +86,12 @@ const createDatabaseAgentSchema = z
       .trim()
       .min(1)
       .max(500)
-      .describe("Name of the new ordinary database"),
+      .describe("Name of the new ordinary collection"),
     description: z
       .string()
       .max(10000)
       .optional()
-      .describe("Guidance describing what belongs in this database"),
+      .describe("Guidance describing what belongs in this collection"),
     parentId: z
       .string()
       .min(1)
@@ -114,7 +114,7 @@ const createDatabaseReliableSchema = createDatabaseAgentSchema.extend({
 
 export default defineAction({
   description:
-    "Create one ordinary Content database in an exact authorized space with a default table and verified receipt. Retry a lost response with the same payload and idempotency key.",
+    "Create one ordinary Content collection in an exact authorized space with a default table and verified receipt. Retry a lost response with the same payload and idempotency key.",
   mcpTool: true,
   agentInputSchema: createDatabaseAgentSchema,
   audit: {
@@ -133,7 +133,7 @@ export default defineAction({
     compactCatalog: true,
     resource: embedApp({
       title: "Open database",
-      description: "Open the database page in the Content app.",
+      description: "Open the collection page in the Content app.",
       iframeTitle: "Agent-Native Content",
       openLabel: "Open in Content",
       height: 900,
@@ -543,5 +543,5 @@ export function databaseTitleForPage(
   requestedTitle?: string | null,
   pageTitle?: string | null,
 ) {
-  return requestedTitle?.trim() || pageTitle?.trim() || "Untitled database";
+  return requestedTitle?.trim() || pageTitle?.trim() || "Untitled collection";
 }

@@ -30,11 +30,11 @@ function positionCaseSql(
 
 export default defineAction({
   description:
-    "Move an exact page membership to a new position in a content database without changing the page's parent or access.",
+    "Move an exact page membership to a new position in a content collection without changing the page's parent or access.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    itemId: z.string().optional().describe("Database item ID"),
-    documentId: z.string().optional().describe("Database row document ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    itemId: z.string().optional().describe("Collection item ID"),
+    documentId: z.string().optional().describe("Collection row document ID"),
     position: z.coerce.number().int().describe("New zero-based row position"),
   }),
   run: async ({ databaseId, itemId, documentId, position }) => {

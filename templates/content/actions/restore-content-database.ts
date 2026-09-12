@@ -44,7 +44,7 @@ async function shouldClearStaleInlineOwnership(args: {
 
 export default defineAction({
   description:
-    "Restore one exact ordinary database from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
+    "Restore one exact ordinary collection from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: setupLifecycleSchema,
@@ -52,7 +52,7 @@ export default defineAction({
     setupLifecycleSchema,
     z
       .object({
-        databaseId: z.string().describe("Content database ID"),
+        databaseId: z.string().describe("Content collection ID"),
       })
       .strict(),
   ]),

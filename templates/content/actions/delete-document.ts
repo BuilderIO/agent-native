@@ -935,7 +935,7 @@ export default defineAction({
     databaseDocumentId: z
       .string()
       .optional()
-      .describe("Database page the deletion was initiated from"),
+      .describe("Collection page the deletion was initiated from"),
   }),
   run: async (args) => {
     const id = args.id;

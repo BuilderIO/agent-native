@@ -18,7 +18,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Database ID that owns the properties; omit only for context-free entry points",
+        "Collection ID that owns the properties; omit only for context-free entry points",
       ),
   }),
   http: { method: "GET" },

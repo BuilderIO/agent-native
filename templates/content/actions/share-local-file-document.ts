@@ -70,7 +70,7 @@ function serializeDocument(row: typeof schema.documents.$inferSelect) {
 
 export default defineAction({
   description:
-    "Create or refresh a database-backed shareable copy of a local-file document. Use this before sharing a local file with other users.",
+    "Create or refresh a collection-backed shareable copy of a local-file document. Use this before sharing a local file with other users.",
   schema: z.object({
     id: z.string().describe("Local file document ID to make shareable"),
   }),
@@ -79,7 +79,7 @@ export default defineAction({
     resource: embedApp({
       title: "Share document",
       description:
-        "Open the shareable database copy in the real Content editor so the user can invite people or change visibility.",
+        "Open the shareable collection copy in the real Content editor so the user can invite people or change visibility.",
       iframeTitle: "Agent-Native Content",
       openLabel: "Open in Content",
       height: 900,

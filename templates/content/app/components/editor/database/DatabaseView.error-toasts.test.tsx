@@ -669,7 +669,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Database settings"]',
+      '[aria-label="Collection settings"]',
     );
     expect(settingsButton).toBeTruthy();
     await act(async () => {
@@ -950,7 +950,7 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(document.body.textContent).not.toContain("Database settings");
+    expect(document.body.textContent).not.toContain("Collection settings");
     expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
 
     await act(async () => {

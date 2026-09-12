@@ -310,7 +310,7 @@ export function serializeDatabaseMembership(
   return {
     databaseId: row.database.id,
     databaseDocumentId: row.database.documentId,
-    databaseTitle: row.database.title || "Untitled database",
+    databaseTitle: row.database.title || "Untitled collection",
     systemRole: row.database.systemRole,
     position: row.item.position,
     sourceId: row.sourceId ?? null,

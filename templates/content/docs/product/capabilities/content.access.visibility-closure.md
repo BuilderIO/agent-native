@@ -49,7 +49,7 @@ An author publishes a Page that references internal research. Public readers see
 
 ## Boundaries and non-goals
 
-- Visibility closure is not a replacement for Page/Database roles or row principals.
+- Visibility closure is not a replacement for Page/Collection roles or row principals.
 - It does not decide how a public Page is published, only what its reachable projections may reveal.
 - It does not require every broken public reference to be silently invisible; authorized degradation can be meaningful.
 

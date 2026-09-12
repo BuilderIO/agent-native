@@ -2271,7 +2271,7 @@ const messages = {
     content: "內容",
     contentOverview: "總覽",
     contentEditing: "寫作與整理",
-    contentDatabases: "資料庫與表單",
+    contentDatabases: "集合與表單",
     contentSync: "本機檔案與同步",
     contentDevelopers: "開發者指南",
     plans: "Plans",

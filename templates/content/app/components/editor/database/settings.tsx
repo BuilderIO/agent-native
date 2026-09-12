@@ -265,7 +265,7 @@ export function DatabaseSettingsPanelSheet({
 
   const title =
     panel === "main"
-      ? "Database settings"
+      ? "Collection settings"
       : panel === "source"
         ? sourceNavTitle(sourceNavStack)
         : databaseSettingsPanelTitle(panel);
@@ -381,7 +381,7 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
   if (panel === "group") return "Group";
-  return "Database settings";
+  return "Collection settings";
 }
 
 function DatabaseSettingsMainPanel({
@@ -3262,7 +3262,7 @@ function databaseOpenPagesInLabel(value: ContentDatabaseOpenPagesIn) {
 function databaseOpenPagesInDescription(value: ContentDatabaseOpenPagesIn) {
   return value === "full_page"
     ? "Navigate to the page when opening a row."
-    : "Open rows in a side panel without leaving the database.";
+    : "Open rows in a side panel without leaving the collection.";
 }
 
 export function databaseFilterModeLabel(filterMode: DatabaseFilterMode) {

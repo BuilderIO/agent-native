@@ -17,10 +17,10 @@ import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Duplicate exactly one page row in a content database, including stored property values. For two or more rows, use duplicate-database-items once instead of looping this action.",
+    "Duplicate exactly one page row in a content collection, including stored property values. For two or more rows, use duplicate-database-items once instead of looping this action.",
   schema: z.object({
-    itemId: z.string().optional().describe("Database item ID"),
-    documentId: z.string().optional().describe("Database row document ID"),
+    itemId: z.string().optional().describe("Collection item ID"),
+    documentId: z.string().optional().describe("Collection row document ID"),
     title: z.string().optional().describe("Optional title for the duplicate"),
   }),
   run: async ({ itemId, documentId, title }) => {

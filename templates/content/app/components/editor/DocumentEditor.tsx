@@ -1251,7 +1251,7 @@ export function documentEditorDefaultIconKind(
 export function databaseMembershipDatabaseTitle(
   membership: Document["databaseMembership"],
 ) {
-  return membership?.databaseTitle?.trim() || "Untitled database";
+  return membership?.databaseTitle?.trim() || "Untitled collection";
 }
 
 export function documentEditorBreadcrumbItems(

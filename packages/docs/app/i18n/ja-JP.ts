@@ -2323,7 +2323,7 @@ const jaJP = {
     content: "コンテンツ",
     contentOverview: "概要",
     contentEditing: "執筆と整理",
-    contentDatabases: "データベースとフォーム",
+    contentDatabases: "コレクションとフォーム",
     contentSync: "ローカルファイルと同期",
     contentDevelopers: "開発者ガイド",
     plans: "Plans",
