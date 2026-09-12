@@ -80,6 +80,7 @@ describe("checkpoint service", () => {
 
     fs.writeFileSync(path.join(cwd, "agent.txt"), "agent change\n");
     fs.writeFileSync(path.join(cwd, "developer.txt"), "developer change\n");
+    execFileSync("git", ["add", "--", "developer.txt"], { cwd });
 
     expect(createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"])).toMatch(
       /^[0-9a-f]{40}$/,
@@ -91,6 +92,12 @@ describe("checkpoint service", () => {
       }).trim(),
     ).toBe("agent.txt");
     expect(getUncommittedStatus(cwd)).toContain("developer.txt");
+    expect(
+      execFileSync("git", ["diff", "--cached", "--name-only"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe("developer.txt");
   });
 
   it("treats agent-owned paths as literals instead of Git pathspecs", () => {
@@ -133,7 +140,7 @@ describe("checkpoint service", () => {
     const wrapper = path.join(bin, "git");
     fs.writeFileSync(
       wrapper,
-      `#!/bin/sh\n"$AGENT_NATIVE_REAL_GIT" "$@"\nstatus=$?\nif [ "$1" = "add" ] && [ "$status" -eq 0 ]; then printf 'developer later\\n' > "$AGENT_NATIVE_RACE_PATH"; unset GIT_INDEX_FILE; "$AGENT_NATIVE_REAL_GIT" add -- "$AGENT_NATIVE_STAGE_PATH"; fi\nexit "$status"\n`,
+      `#!/bin/sh\n"$AGENT_NATIVE_REAL_GIT" "$@"\nstatus=$?\nif [ "$1" = "add" ] && [ "$status" -eq 0 ]; then printf 'developer later\\n' > "$AGENT_NATIVE_RACE_PATH"; unset GIT_INDEX_FILE; if "$AGENT_NATIVE_REAL_GIT" add -- "$AGENT_NATIVE_STAGE_PATH" 2>/dev/null; then printf succeeded > "$AGENT_NATIVE_STAGE_RESULT"; else printf blocked > "$AGENT_NATIVE_STAGE_RESULT"; fi; fi\nexit "$status"\n`,
       { mode: 0o755 },
     );
     const previous = {
@@ -141,11 +148,13 @@ describe("checkpoint service", () => {
       git: process.env.AGENT_NATIVE_REAL_GIT,
       race: process.env.AGENT_NATIVE_RACE_PATH,
       stage: process.env.AGENT_NATIVE_STAGE_PATH,
+      stageResult: process.env.AGENT_NATIVE_STAGE_RESULT,
     };
     process.env.PATH = `${bin}${path.delimiter}${previous.path ?? ""}`;
     process.env.AGENT_NATIVE_REAL_GIT = realGit;
     process.env.AGENT_NATIVE_RACE_PATH = file;
     process.env.AGENT_NATIVE_STAGE_PATH = developerFile;
+    process.env.AGENT_NATIVE_STAGE_RESULT = path.join(cwd, "stage-result.txt");
     try {
       expect(createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"])).toMatch(
         /^[0-9a-f]{40}$/,
@@ -160,6 +169,9 @@ describe("checkpoint service", () => {
       if (previous.stage === undefined)
         delete process.env.AGENT_NATIVE_STAGE_PATH;
       else process.env.AGENT_NATIVE_STAGE_PATH = previous.stage;
+      if (previous.stageResult === undefined)
+        delete process.env.AGENT_NATIVE_STAGE_RESULT;
+      else process.env.AGENT_NATIVE_STAGE_RESULT = previous.stageResult;
     }
     expect(
       execFileSync("git", ["show", "HEAD:agent.txt"], {
@@ -167,14 +179,37 @@ describe("checkpoint service", () => {
         encoding: "utf-8",
       }),
     ).toBe("agent change\n");
+    expect(fs.readFileSync(path.join(cwd, "stage-result.txt"), "utf-8")).toBe(
+      "blocked",
+    );
+    expect(fs.readFileSync(file, "utf-8")).toBe("developer later\n");
+    expect(getUncommittedStatus(cwd)).toContain("agent.txt");
+  });
+
+  it("does not overwrite staging for an owned path", () => {
+    const cwd = createTempRepo();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+    const head = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf-8",
+    }).trim();
+    fs.writeFileSync(path.join(cwd, "agent.txt"), "staged by developer\n");
+    execFileSync("git", ["add", "--", "agent.txt"], { cwd });
+
+    expect(createCheckpoint(cwd, "Agent checkpoint", ["agent.txt"])).toBeNull();
+    expect(
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe(head);
     expect(
       execFileSync("git", ["diff", "--cached", "--name-only"], {
         cwd,
         encoding: "utf-8",
       }).trim(),
-    ).toBe("developer.txt");
-    expect(fs.readFileSync(file, "utf-8")).toBe("developer later\n");
-    expect(getUncommittedStatus(cwd)).toContain("agent.txt");
+    ).toBe("agent.txt");
   });
 
   it("skips a checkpoint immediately when the checkout lock is held", () => {

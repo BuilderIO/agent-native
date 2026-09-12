@@ -116,11 +116,27 @@ export function createCheckpoint(
         const indexDir = fs.mkdtempSync(
           path.join(path.dirname(indexPath), "agent-native-checkpoint-index-"),
         );
+        const isolatedIndexPath = path.join(indexDir, "index");
+        const indexLockPath = `${indexPath}.lock`;
+        let indexLocked = false;
         try {
           const isolatedEnv = {
             ...env,
-            GIT_INDEX_FILE: path.join(indexDir, "index"),
+            GIT_INDEX_FILE: isolatedIndexPath,
           };
+          execFileSync("git", ["read-tree", "--empty"], {
+            cwd,
+            stdio: "pipe",
+            timeout: TIMEOUT,
+            env: isolatedEnv,
+          });
+          fs.copyFileSync(
+            fs.existsSync(indexPath) ? indexPath : isolatedIndexPath,
+            indexLockPath,
+            fs.constants.COPYFILE_EXCL,
+          );
+          indexLocked = true;
+          const lockedIndexEnv = { ...env, GIT_INDEX_FILE: indexLockPath };
           let head: string | null = null;
           try {
             head = execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
@@ -131,12 +147,7 @@ export function createCheckpoint(
               env,
             }).trim();
           } catch {
-            execFileSync("git", ["read-tree", "--empty"], {
-              cwd,
-              stdio: "pipe",
-              timeout: TIMEOUT,
-              env: isolatedEnv,
-            });
+            // coercion-ok: unborn repositories use the empty index as root.
           }
           if (head) {
             execFileSync("git", ["read-tree", head], {
@@ -145,6 +156,26 @@ export function createCheckpoint(
               timeout: TIMEOUT,
               env: isolatedEnv,
             });
+            if (!fs.existsSync(indexPath)) {
+              execFileSync("git", ["read-tree", head], {
+                cwd,
+                stdio: "pipe",
+                timeout: TIMEOUT,
+                env: lockedIndexEnv,
+              });
+            }
+            const stagedOwnedPaths = execFileSync(
+              "git",
+              ["diff", "--cached", "--name-only", "-z", "--", ...pathspecs],
+              {
+                cwd,
+                stdio: "pipe",
+                timeout: TIMEOUT,
+                encoding: "utf-8",
+                env: lockedIndexEnv,
+              },
+            );
+            if (stagedOwnedPaths) return null;
           }
           execFileSync("git", ["add", "--", ...pathspecs], {
             cwd,
@@ -170,6 +201,12 @@ export function createCheckpoint(
               env: isolatedEnv,
             },
           ).trim();
+          execFileSync("git", ["reset", "--quiet", sha, "--", ...pathspecs], {
+            cwd,
+            stdio: "pipe",
+            timeout: TIMEOUT,
+            env: lockedIndexEnv,
+          });
           execFileSync(
             "git",
             ["update-ref", "HEAD", sha, head ?? "0".repeat(40)],
@@ -180,18 +217,30 @@ export function createCheckpoint(
               env,
             },
           );
-          execFileSync(
-            "git",
-            ["reset", "--quiet", "HEAD", "--", ...pathspecs],
-            {
-              cwd,
-              stdio: "pipe",
-              timeout: TIMEOUT,
-              env,
-            },
-          );
+          try {
+            fs.renameSync(indexLockPath, indexPath);
+            indexLocked = false;
+          } catch (error) {
+            if (head) {
+              execFileSync("git", ["update-ref", "HEAD", head, sha], {
+                cwd,
+                stdio: "pipe",
+                timeout: TIMEOUT,
+                env,
+              });
+            } else {
+              execFileSync("git", ["update-ref", "-d", "HEAD", sha], {
+                cwd,
+                stdio: "pipe",
+                timeout: TIMEOUT,
+                env,
+              });
+            }
+            throw error;
+          }
           return sha || null;
         } finally {
+          if (indexLocked) fs.rmSync(indexLockPath, { force: true });
           fs.rmSync(indexDir, { recursive: true, force: true });
         }
       }
