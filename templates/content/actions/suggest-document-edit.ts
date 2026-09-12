@@ -309,7 +309,8 @@ export default defineAction({
       // way the read above did.
       {
         ...(ctx as ActionRunContext),
-        orgId: existing.orgId ?? ctx?.orgId ?? undefined,
+        orgId:
+          access.authority?.orgId ?? existing.orgId ?? ctx?.orgId ?? undefined,
       },
     );
 

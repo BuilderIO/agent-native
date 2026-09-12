@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -258,6 +259,42 @@ describe("suggest-document-edit", () => {
           userEmail: ctx.userEmail,
         })) as { suggestionId: string };
         expect(retry.suggestionId).toBe(first.suggestionId);
+      },
+    );
+  });
+
+  it("suggests an owner-org document shared to another organization", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id } = await createPage("Shared across orgs body.");
+        const db = getDb();
+        await db
+          .update(schema.documents)
+          .set({ orgId: "org-owner" })
+          .where(eq(schema.documents.id, id));
+        await db.insert(schema.documentShares).values({
+          id: `cross-org-share-${id}`,
+          resourceId: id,
+          principalType: "org",
+          principalId: "org-shared",
+          role: "commenter",
+          createdBy: ctx.userEmail,
+        });
+
+        const result = await runWithRequestContext(
+          { userEmail: "member@other-org", orgId: "org-shared" },
+          async () =>
+            (await suggestDocumentEdit.run(
+              {
+                id,
+                find: "Shared across orgs body.",
+                replace: "Edited body.",
+              },
+              { caller: "cli" as const, userEmail: "member@other-org" },
+            )) as { suggestionId: string },
+        );
+        expect(result.suggestionId).toBeTruthy();
       },
     );
   });
