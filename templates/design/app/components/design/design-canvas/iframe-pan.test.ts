@@ -19,6 +19,8 @@ function panMessage(
     buttons: phase === "end" || phase === "cancel" ? 0 : 4,
     clientX: 20,
     clientY: 30,
+    movementX: 0,
+    movementY: 0,
     ctrlKey: false,
     metaKey: false,
     shiftKey: false,
@@ -29,8 +31,12 @@ function panMessage(
 
 describe("forwardEmbeddedCanvasPanMessage", () => {
   let iframe: HTMLIFrameElement;
+  let frameLeft = 100;
+  let frameTop = 50;
 
   beforeEach(() => {
+    frameLeft = 100;
+    frameTop = 50;
     iframe = document.createElement("iframe");
     document.body.append(iframe);
     Object.defineProperty(iframe, "clientWidth", {
@@ -41,17 +47,17 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
       configurable: true,
       value: 100,
     });
-    vi.spyOn(iframe, "getBoundingClientRect").mockReturnValue({
-      x: 100,
-      y: 50,
-      top: 50,
-      right: 500,
-      bottom: 250,
-      left: 100,
+    vi.spyOn(iframe, "getBoundingClientRect").mockImplementation(() => ({
+      x: frameLeft,
+      y: frameTop,
+      top: frameTop,
+      right: frameLeft + 400,
+      bottom: frameTop + 200,
+      left: frameLeft,
       width: 400,
       height: 200,
       toJSON: () => ({}),
-    });
+    }));
   });
 
   afterEach(() => {
@@ -90,14 +96,24 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
     });
     session = start.session;
     const move = forwardEmbeddedCanvasPanMessage({
-      data: panMessage("move", { clientX: 35, clientY: 45 }),
+      data: panMessage("move", {
+        clientX: 35,
+        clientY: 45,
+        movementX: 15,
+        movementY: 15,
+      }),
       iframe,
       hostWindow: window,
       session,
     });
     session = move.session;
     const end = forwardEmbeddedCanvasPanMessage({
-      data: panMessage("end", { clientX: 40, clientY: 50 }),
+      data: panMessage("end", {
+        clientX: 40,
+        clientY: 50,
+        movementX: 5,
+        movementY: 5,
+      }),
       iframe,
       hostWindow: window,
       session,
@@ -153,16 +169,22 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
         session: null,
       }),
     ).toEqual({ handled: false, session: null });
+    const session = {
+      pointerId: 7,
+      button: 1 as const,
+      clientX: 140,
+      clientY: 110,
+    };
     expect(
       forwardEmbeddedCanvasPanMessage({
         data: panMessage("move", { pointerId: 99 }),
         iframe,
         hostWindow: window,
-        session: { pointerId: 7, button: 1 },
+        session,
       }),
     ).toEqual({
       handled: false,
-      session: { pointerId: 7, button: 1 },
+      session,
     });
     expect(mousedown).not.toHaveBeenCalled();
     expect(mousemove).not.toHaveBeenCalled();
@@ -185,6 +207,42 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
       session: null,
     });
 
-    expect(received).toEqual({ clientX: 200_100, clientY: -199_950 });
+    expect(received).toEqual({ clientX: 100_000, clientY: -100_000 });
+  });
+
+  it("keeps pan deltas stable when the parent scrolls the iframe between messages", () => {
+    const moves: Array<{ clientX: number; clientY: number }> = [];
+    window.addEventListener("mousemove", (event) => {
+      const mouse = event as MouseEvent;
+      moves.push({ clientX: mouse.clientX, clientY: mouse.clientY });
+    });
+
+    const start = forwardEmbeddedCanvasPanMessage({
+      data: panMessage("start"),
+      iframe,
+      hostWindow: window,
+      session: null,
+    });
+    frameLeft = 70;
+    frameTop = 20;
+    const move = forwardEmbeddedCanvasPanMessage({
+      data: panMessage("move", {
+        clientX: 35,
+        clientY: 45,
+        movementX: 15,
+        movementY: 15,
+      }),
+      iframe,
+      hostWindow: window,
+      session: start.session,
+    });
+
+    expect(moves).toEqual([{ clientX: 170, clientY: 140 }]);
+    expect(move.session).toEqual({
+      pointerId: 7,
+      button: 1,
+      clientX: 170,
+      clientY: 140,
+    });
   });
 });

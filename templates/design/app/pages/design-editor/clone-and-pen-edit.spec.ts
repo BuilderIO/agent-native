@@ -202,11 +202,105 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     expect(clone.getAttribute("data-source-line")).toBe("42");
     expect(clone.getAttribute("data-source-column")).toBe("7");
     expect(clone.getAttribute("data-component-name")).toBe("Card");
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
     expect((clone as HTMLElement).style.display).toBe("grid");
     expect((clone as HTMLElement).style.backgroundColor).toBe("rgb(4, 5, 6)");
     expect((clone.querySelector("span") as HTMLElement).style.fontWeight).toBe(
       "700",
     );
+  });
+
+  it("preserves group identity when cloning a legacy generated wrapper", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="an-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"><span data-agent-native-node-id="child">Text</span></div>',
+      ],
+      {
+        styleSnapshots: [
+          {
+            version: 1,
+            rootSourceId: "group",
+            nodes: [
+              {
+                sourceId: "group",
+                path: [],
+                styles: { display: "block" },
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBe("true");
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
+  });
+
+  it("preserves legacy generated group identity without a style snapshot", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+      '<div data-agent-native-node-id="an-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"><span data-agent-native-node-id="child">Text</span></div>',
+    ]);
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBe("true");
+  });
+
+  it("marks a copied authored Group as a clone, not a legacy generated wrapper", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="group" data-agent-native-layer-name="Group"><span data-agent-native-node-id="child">Text</span></div>',
+      ],
+      {
+        styleSnapshots: [
+          {
+            version: 1,
+            rootSourceId: "group",
+            nodes: [
+              {
+                sourceId: "group",
+                path: [],
+                styles: { display: "block" },
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBeNull();
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
+  });
+
+  it("does not promote an older copied Group with preserved styles", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="copy-old-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"><span data-agent-native-node-id="child">Text</span></div>',
+      ],
+      {
+        styleSnapshots: [
+          {
+            version: 1,
+            rootSourceId: "copy-old-group",
+            nodes: [
+              {
+                sourceId: "copy-old-group",
+                path: [],
+                styles: { display: "block" },
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect(clone.getAttribute("data-agent-native-group-wrapper")).toBeNull();
+    expect(clone.getAttribute("data-agent-native-clone-root")).toBe("true");
   });
 
   it("returns the destination URL byte-for-byte instead of turning it into HTML", () => {

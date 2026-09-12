@@ -15,6 +15,17 @@ describe("removeEmptyGeneratedGroupWrappers", () => {
     expect(next).toContain('data-agent-native-node-id="keep"');
   });
 
+  it("removes an empty legacy generated wrapper", () => {
+    const content = wrap(
+      '<div data-agent-native-node-id="an-emptygroup" data-agent-native-layer-name="Group 3" data-agent-native-preserve-styles="true"></div>',
+    );
+    const next = removeEmptyGeneratedGroupWrappers(
+      content,
+      new Set(["an-emptygroup"]),
+    );
+    expect(next).not.toContain('data-agent-native-node-id="an-emptygroup"');
+  });
+
   it("removes a chain of nested generated wrappers", () => {
     const content = wrap(
       '<div data-agent-native-node-id="g1" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true"><div data-agent-native-node-id="g2" data-agent-native-layer-name="Group 2" data-agent-native-group-wrapper="true"></div></div>',
@@ -34,6 +45,24 @@ describe("removeEmptyGeneratedGroupWrappers", () => {
     expect(removeEmptyGeneratedGroupWrappers(content, new Set(["c1"]))).toBe(
       content,
     );
+  });
+
+  it("leaves a style-preserving cloned Group layer alone", () => {
+    const content = wrap(
+      '<div data-agent-native-node-id="copy" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true" data-agent-native-clone-root="true"></div>',
+    );
+    expect(removeEmptyGeneratedGroupWrappers(content, new Set(["copy"]))).toBe(
+      content,
+    );
+  });
+
+  it("leaves an older authored Group with preserved styles alone", () => {
+    const content = wrap(
+      '<div data-agent-native-node-id="copy-old-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true"></div>',
+    );
+    expect(
+      removeEmptyGeneratedGroupWrappers(content, new Set(["copy-old-group"])),
+    ).toBe(content);
   });
 
   it("leaves a generated wrapper that still has children alone", () => {

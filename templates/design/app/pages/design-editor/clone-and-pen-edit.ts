@@ -248,8 +248,25 @@ function prepareClonedHtmlLayer(
     layerDoc.body.firstElementChild;
   if (!source) return null;
   const clone = doc.importNode(source, true) as Element;
+  const sourceLayerName =
+    source.getAttribute("data-agent-native-layer-name") ||
+    source.getAttribute("data-layer-name") ||
+    "";
+  const sourceNodeId = source.getAttribute("data-agent-native-node-id") || "";
+  const sourceIsLegacyGroup =
+    /^an-[a-z0-9]+$/i.test(sourceNodeId) &&
+    /^group(?: \d+)?$/i.test(sourceLayerName.trim()) &&
+    source.getAttribute("data-agent-native-preserve-styles") === "true" &&
+    source.getAttribute("data-agent-native-clone-root") !== "true";
+  if (
+    sourceIsLegacyGroup &&
+    source.getAttribute("data-agent-native-group-wrapper") !== "true"
+  ) {
+    clone.setAttribute("data-agent-native-group-wrapper", "true");
+  }
   if (styleSnapshot) {
     clone.setAttribute("data-agent-native-preserve-styles", "true");
+    clone.setAttribute("data-agent-native-clone-root", "true");
     styleSnapshot.nodes.forEach((node) => {
       const target = elementAtPortableStylePath(clone, node);
       if (target) applyPortableStyles(target, node.styles);

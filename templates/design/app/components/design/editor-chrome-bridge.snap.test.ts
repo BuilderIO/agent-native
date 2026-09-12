@@ -451,6 +451,85 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     expect(selectionTargetForHit(child, true)).toBe(child);
   });
 
+  it("selects a renamed generated group by its marker", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const group = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Illustrations"
+          : name === "data-agent-native-group-wrapper"
+            ? "true"
+            : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: group,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(group);
+  });
+
+  it("recognizes a legacy generated group without promoting authored clones", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const legacyGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group 2"
+          : name === "data-agent-native-node-id"
+            ? "an-legacygroup"
+            : name === "data-agent-native-preserve-styles"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: legacyGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const copiedGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-node-id"
+            ? "copy-authored-group"
+            : name === "data-agent-native-preserve-styles" ||
+                name === "data-agent-native-clone-root"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const copiedChild = {
+      parentElement: copiedGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const oldCopiedGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-node-id"
+            ? "copy-old-authored-group"
+            : name === "data-agent-native-preserve-styles"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const oldCopiedChild = {
+      parentElement: oldCopiedGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(legacyGroup);
+    expect(selectionTargetForHit(copiedChild)).toBe(copiedChild);
+    expect(selectionTargetForHit(oldCopiedChild)).toBe(oldCopiedChild);
+  });
+
   it("promotes a hit on svg geometry to the outermost svg, whose box is not 0-height", () => {
     const selectionTargetForHit = loadSelectionTargetForHit({
       body: {} as Element,

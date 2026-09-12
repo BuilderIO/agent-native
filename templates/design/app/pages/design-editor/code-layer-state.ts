@@ -1148,7 +1148,21 @@ export function findCodeLayerSiblingOrder(
 }
 
 export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
-  return node.dataAttributes["data-agent-native-group-wrapper"] === "true";
+  if (node.dataAttributes["data-agent-native-group-wrapper"] === "true") {
+    return true;
+  }
+  const layerName =
+    node.dataAttributes["data-agent-native-layer-name"] ??
+    node.dataAttributes["data-layer-name"] ??
+    "";
+  const nodeId = node.dataAttributes["data-agent-native-node-id"] ?? "";
+  // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
+  return (
+    /^an-[a-z0-9]+$/i.test(nodeId) &&
+    /^group(?: \d+)?$/i.test(layerName.trim()) &&
+    node.dataAttributes["data-agent-native-preserve-styles"] === "true" &&
+    node.dataAttributes["data-agent-native-clone-root"] !== "true"
+  );
 }
 
 /**
@@ -1166,10 +1180,13 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
-  // Checking the marker on the raw string first keeps a document with no
+  // Checking for either current or legacy markers keeps a document with no
   // generated groups — the common case — from paying for a full projection
   // of post-edit content on every structural edit.
-  if (!content.includes("data-agent-native-group-wrapper")) {
+  if (
+    !content.includes("data-agent-native-group-wrapper") &&
+    !content.includes("data-agent-native-preserve-styles")
+  ) {
     return content;
   }
   let next = content;
