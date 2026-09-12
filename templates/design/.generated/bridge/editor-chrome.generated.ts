@@ -2257,7 +2257,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var group = target;
         while (group && !isDocumentRootElement(group)) {
           var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
-          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true";
+          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
           var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
           var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
           if (generatedGroupMarker || legacyGeneratedGroup) {

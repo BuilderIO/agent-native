@@ -13,6 +13,7 @@ import {
   PngCaptureError,
   cropCanvasToRect,
   renderExportDocumentCanvas,
+  resolveBoardExportCropRect,
   resolveExportCropRect,
 } from "@/pages/design-editor/png-export-render";
 
@@ -161,15 +162,20 @@ export async function runRenderPngBlob(
     }
   } else {
     const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
+    const selectionCropRect = resolveExportCropRect(doc, cropSelection);
+    const boardCropRect =
+      scope === "document" && !selectionCropRect
+        ? resolveBoardExportCropRect(doc, iframe)
+        : null;
     const rendered = await renderExportDocumentCanvas({
       doc,
       iframe,
       exportScale: requestedExportScale,
+      cropRect: boardCropRect,
       render: html2canvas,
     });
-    const cropRect = resolveExportCropRect(doc, cropSelection);
-    const cropped = cropRect
-      ? cropCanvasToRect(rendered.canvas, cropRect, rendered.scale)
+    const cropped = selectionCropRect
+      ? cropCanvasToRect(rendered.canvas, selectionCropRect, rendered.scale)
       : null;
     // An element capture that silently widens to the whole document is a
     // preview of something the user did not ask to export, and nothing

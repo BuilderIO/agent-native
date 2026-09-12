@@ -4,6 +4,7 @@ import {
   canvasZoom,
   readSeedDesignId,
   gotoEditor,
+  createFixtureDesign,
   designFrame,
   enterDirectMode,
   selectByText,
@@ -13,6 +14,7 @@ import {
   installBridge,
   waitForBridge,
   bridgeMessages,
+  appPath,
 } from "./helpers";
 
 let designId: string;
@@ -252,6 +254,43 @@ test("screen overview adds and targets frames from the unified breakpoint contro
     releaseFirstAdd();
     await page.unroute("**/_agent-native/actions/add-breakpoint");
   }
+});
+
+test("frame plus skips the breakpoint matching the base screen width", async ({
+  page,
+}) => {
+  const fixtureDesignId = await createFixtureDesign(
+    page,
+    "E2E Frame Breakpoint Plus",
+  );
+  const actionUrl = `${new URL(page.url()).origin}/_agent-native/actions/add-breakpoint`;
+  for (const breakpoint of [
+    { label: "Mobile", widthPx: 390 },
+    { label: "Tablet", widthPx: 768 },
+  ]) {
+    const response = await page.request.post(actionUrl, {
+      data: { designId: fixtureDesignId, ...breakpoint },
+    });
+    expect(response.ok()).toBe(true);
+  }
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto(appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+  await page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: "All screens", exact: true })
+    .click();
+  await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+
+  await expect(
+    page.locator(
+      'button[title="Add Desktop breakpoint (1280px) to all screens"]',
+    ),
+  ).toHaveCount(0);
 });
 
 test("screen overview keeps compact frame actions contained when header space is tight", async ({

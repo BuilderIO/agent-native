@@ -196,6 +196,18 @@ export function getBoardSurfaceRenderGeometry(args: {
   screenGeometries?: readonly FrameGeometry[];
   focus?: { x: number; y: number };
 }): FrameGeometry {
+  const [onlyVisibleGeometry] = args.screenGeometries ?? [];
+  if (
+    !args.contentBounds &&
+    args.screenGeometries?.length === 1 &&
+    args.focus &&
+    onlyVisibleGeometry &&
+    args.focus.x === onlyVisibleGeometry.x + onlyVisibleGeometry.width / 2 &&
+    args.focus.y === onlyVisibleGeometry.y + onlyVisibleGeometry.height / 2
+  ) {
+    return onlyVisibleGeometry;
+  }
+
   const candidates = [
     ...(args.contentBounds ? [args.contentBounds] : []),
     ...(args.screenGeometries ?? []),

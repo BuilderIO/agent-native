@@ -2122,7 +2122,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "";
         var generatedGroupMarker =
           group.getAttribute &&
-          group.getAttribute("data-agent-native-group-wrapper") === "true";
+          group.getAttribute("data-agent-native-group-wrapper") === "true" &&
+          group.getAttribute("data-agent-native-clone-root") !== "true";
         var legacyNodeId =
           group.getAttribute && group.getAttribute("data-agent-native-node-id");
         // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.

@@ -24,7 +24,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "將保留 {{screens}} 個畫面 · {{locks}} 個鎖定圖層",
       saveTemplate: "儲存範本",
-      templateSaved: "已儲存範本，包含 {{count}} 個鎖定圖層",
+      templateSaved: "範本已儲存",
       templateSaveFailed: "無法儲存此範本",
     },
     templatesPage: {
@@ -88,7 +88,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "将保留 {{screens}} 个屏幕 · {{locks}} 个锁定图层",
       saveTemplate: "保存模板",
-      templateSaved: "模板已保存，包含 {{count}} 个锁定图层",
+      templateSaved: "模板已保存",
       templateSaveFailed: "无法保存此模板",
     },
     templatesPage: {
@@ -152,7 +152,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "Se conservarán {{screens}} pantalla(s) · {{locks}} capa(s) bloqueada(s)",
       saveTemplate: "Guardar plantilla",
-      templateSaved: "Plantilla guardada con {{count}} capa(s) bloqueada(s)",
+      templateSaved: "Plantilla guardada",
       templateSaveFailed: "No se pudo guardar esta plantilla",
     },
     templatesPage: {
@@ -219,7 +219,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "{{screens}} écran(s) · {{locks}} calque(s) verrouillé(s) seront conservés",
       saveTemplate: "Enregistrer le modèle",
-      templateSaved: "Modèle enregistré avec {{count}} calque(s) verrouillé(s)",
+      templateSaved: "Modèle enregistré",
       templateSaveFailed: "Impossible d’enregistrer ce modèle",
     },
     templatesPage: {
@@ -288,7 +288,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "{{screens}} Screen(s) · {{locks}} gesperrte Ebene(n) werden beibehalten",
       saveTemplate: "Vorlage speichern",
-      templateSaved: "Vorlage mit {{count}} gesperrten Ebene(n) gespeichert",
+      templateSaved: "Vorlage gespeichert",
       templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
     },
     templatesPage: {
@@ -356,8 +356,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "{{screens}} 画面 · {{locks}} 個のロックされたレイヤーを保持します",
       saveTemplate: "テンプレートを保存",
-      templateSaved:
-        "{{count}} 個のロックされたレイヤーを含むテンプレートを保存しました",
+      templateSaved: "テンプレートを保存しました",
       templateSaveFailed: "このテンプレートを保存できませんでした",
     },
     templatesPage: {
@@ -425,7 +424,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "화면 {{screens}}개 · 잠긴 레이어 {{locks}}개가 유지됩니다",
       saveTemplate: "템플릿 저장",
-      templateSaved: "잠긴 레이어 {{count}}개와 함께 템플릿을 저장했습니다",
+      templateSaved: "템플릿을 저장했습니다",
       templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
     },
     templatesPage: {
@@ -491,7 +490,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "{{screens}} tela(s) · {{locks}} camada(s) bloqueada(s) serão preservadas",
       saveTemplate: "Salvar modelo",
-      templateSaved: "Modelo salvo com {{count}} camada(s) bloqueada(s)",
+      templateSaved: "Modelo salvo",
       templateSaveFailed: "Não foi possível salvar este modelo",
     },
     templatesPage: {
@@ -558,7 +557,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "{{screens}} स्क्रीन · {{locks}} लॉक लेयर सुरक्षित रहेंगी",
       saveTemplate: "टेम्पलेट सहेजें",
-      templateSaved: "{{count}} लॉक लेयर के साथ टेम्पलेट सहेजा गया",
+      templateSaved: "टेम्पलेट सहेजा गया",
       templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     },
     templatesPage: {
@@ -623,7 +622,7 @@ export const designTemplateFeatureOverrides = {
       templateSnapshotSummary:
         "سيتم الاحتفاظ بـ {{screens}} شاشة و{{locks}} طبقة مقفلة",
       saveTemplate: "حفظ القالب",
-      templateSaved: "تم حفظ القالب مع {{count}} طبقة مقفلة",
+      templateSaved: "تم حفظ القالب",
       templateSaveFailed: "تعذر حفظ هذا القالب",
     },
     templatesPage: {

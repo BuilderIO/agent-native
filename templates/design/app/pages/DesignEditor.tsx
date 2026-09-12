@@ -22001,16 +22001,12 @@ function DesignEditor() {
         saving={saveDesignAsTemplateMutation.isPending}
         onSave={async (values) => {
           try {
-            const result = (await saveDesignAsTemplateMutation.mutateAsync({
+            await saveDesignAsTemplateMutation.mutateAsync({
               designId: id,
               ...values,
-            })) as { lockedLayerCount?: number };
+            });
             setSaveTemplateOpen(false);
-            toast.success(
-              t("designEditor.templateSaved", {
-                count: result.lockedLayerCount ?? durableLockedLayerCount,
-              }),
-            );
+            toast.success(t("designEditor.templateSaved"));
             await queryClient.invalidateQueries({
               queryKey: ["action", "list-design-templates"],
             });

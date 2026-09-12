@@ -2246,7 +2246,7 @@ it(
     <div id="legacy-group" class="group" data-agent-native-node-id="an-legacygroup" data-agent-native-layer-name="Group 2" data-agent-native-preserve-styles="true">
       <div id="legacy-child" class="child" data-agent-native-node-id="legacy-child"></div>
     </div>
-    <div id="cloned-group" class="group" data-agent-native-node-id="copy-cloned-group" data-agent-native-layer-name="Group" data-agent-native-preserve-styles="true">
+    <div id="cloned-group" class="group" data-agent-native-node-id="copy-cloned-group" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true" data-agent-native-clone-root="true" data-agent-native-preserve-styles="true">
       <div id="cloned-child" class="child" data-agent-native-node-id="cloned-child"></div>
     </div>
   </body>
