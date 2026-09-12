@@ -26,6 +26,16 @@ export function canSeeAwarenessChangeForUser(
   return canSeeChangeForUser(change, userEmail, orgId);
 }
 
+export interface PollEventsHandlerOptions {
+  /**
+   * Close the stream after this many milliseconds instead of holding it open
+   * indefinitely. Set it below the host's function ceiling on a serverless
+   * runtime. Unset (the default) keeps the stream open until the client or the
+   * platform ends it.
+   */
+  maxDurationMs?: number;
+}
+
 /**
  * Stream in-process poll events over SSE.
  *
@@ -43,10 +53,27 @@ export function canSeeAwarenessChangeForUser(
  * unchanged; the hosted gateway passes a per-app instance to fan out that
  * app's events (awareness stays on the process-global emitter and is a v0
  * gateway Non-Goal).
+ *
+ * `maxDurationMs` closes the stream cleanly after that long. The stream is
+ * otherwise unbounded, which is right for a long-lived host and wrong for a
+ * serverless one: the platform kills the invocation at its own ceiling and
+ * records it as a failure, so a single open tab turns into a steady drip of
+ * runtime-timeout errors that mask real ones. Closing first ends the response
+ * at 200; EventSource reconnects exactly as it does after a platform kill, and
+ * `/poll` replays the gap from the cursor, so no event is lost either way.
+ * Default: unset (no cap), preserving today's behavior everywhere.
  */
 export function createPollEventsHandler(
   state: AppSyncState = getDefaultAppSyncState(),
+  options: PollEventsHandlerOptions = {},
 ) {
+  const maxDurationMs =
+    typeof options.maxDurationMs === "number" &&
+    Number.isFinite(options.maxDurationMs) &&
+    options.maxDurationMs > 0
+      ? options.maxDurationMs
+      : undefined;
+
   return defineEventHandler(async (event) => {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
@@ -105,10 +132,20 @@ export function createPollEventsHandler(
 
     pushHeartbeat();
     const heartbeatTimer = setInterval(pushHeartbeat, 10_000);
+    // `close()` resolves the writer's `closed` promise, which is what
+    // `onClosed` subscribes to — so the teardown below runs for a self-close
+    // exactly as it does for a client disconnect. Nothing to unwind here.
+    const lifespanTimer = maxDurationMs
+      ? setTimeout(() => {
+          closed = true;
+          void stream.close();
+        }, maxDurationMs)
+      : undefined;
 
     stream.onClosed(() => {
       closed = true;
       clearInterval(heartbeatTimer);
+      if (lifespanTimer) clearTimeout(lifespanTimer);
       state.getPollEmitter().off(POLL_CHANGE_EVENT, push);
       if (forwardAwareness) {
         getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, pushAwareness);
