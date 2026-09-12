@@ -1,3 +1,4 @@
+import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
 import {
   lazy,
   Suspense,
@@ -17,7 +18,9 @@ type McpIntegrationDialogProps = ComponentProps<
 >;
 
 // The MCP integration dialog bundle is heavy; keep it out of first-load by
-// fetching it only when the dialog is first opened.
+// fetching it only when the dialog is first opened. The fallback mirrors the
+// dialog's overlay geometry so the first uncached open never reads as a
+// swallowed click while the chunk fetches.
 export function McpIntegrationDialogDeferred(props: McpIntegrationDialogProps) {
   const [opened, setOpened] = useState(false);
   useEffect(() => {
@@ -25,7 +28,13 @@ export function McpIntegrationDialogDeferred(props: McpIntegrationDialogProps) {
   }, [props.open]);
   if (!opened) return null;
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="fixed inset-0 z-[270] grid place-items-center bg-background/45 backdrop-blur-[1px]">
+          <CubeLoader className="size-6" />
+        </div>
+      }
+    >
       <McpIntegrationDialogLazy {...props} />
     </Suspense>
   );
