@@ -759,23 +759,36 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
 }
 
 /**
- * A completed tool with no later assistant text is an unfinished turn, not a
+ * A tool result with no later assistant text is an unfinished turn, not a
  * successful terminal response. Keep this predicate beside the run-manager's
  * terminal synthesis so the run-manager and production continuation paths use
  * the same boundary evidence.
+ *
+ * A FAILED tool result counts too. Skipping it made the verdict depend on
+ * whether some earlier call in the same turn happened to succeed: a turn ending
+ * on `resources` ok then `web_request` failed continued, while the same turn
+ * with both failing terminated as a plain `done`. The client can only render
+ * "stopped after these actions ... without sending a final message" for that,
+ * so the tool's real error — an expired handoff URL, a missing credential —
+ * never reached the user, and typing "continue" by hand was the only way to see
+ * it. The model has not read the error yet at this point, which makes a failed
+ * tail strictly more unfinished than a successful one.
  */
-export function endsAfterCompletedToolWithoutAssistantFinal(
+export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
 ): boolean {
-  let completedToolAfterLastAssistantText = false;
+  let toolResultAfterLastAssistantText = false;
   for (const { event } of run.events) {
     if (event.type === "text" && event.text.trim().length > 0) {
-      completedToolAfterLastAssistantText = false;
+      toolResultAfterLastAssistantText = false;
       continue;
     }
-    if (event.type === "tool_done" && event.isError !== true) {
-      completedToolAfterLastAssistantText =
-        event.chatUI === undefined && event.mcpApp === undefined;
+    if (event.type === "tool_done") {
+      // Custom UI is the one tool result that is a legitimate final answer on
+      // its own, and only when it succeeded.
+      toolResultAfterLastAssistantText =
+        event.isError === true ||
+        (event.chatUI === undefined && event.mcpApp === undefined);
       continue;
     }
     if (
@@ -785,10 +798,10 @@ export function endsAfterCompletedToolWithoutAssistantFinal(
       event.type === "auto_continue" ||
       event.type === "loop_limit"
     ) {
-      completedToolAfterLastAssistantText = false;
+      toolResultAfterLastAssistantText = false;
     }
   }
-  return completedToolAfterLastAssistantText;
+  return toolResultAfterLastAssistantText;
 }
 
 /**
@@ -2107,7 +2120,7 @@ export function startRun(
       run.status = finalStatus;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
-        (endsAfterCompletedToolWithoutAssistantFinal(run) ||
+        (endsAfterToolResultWithoutAssistantFinal(run) ||
           endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
