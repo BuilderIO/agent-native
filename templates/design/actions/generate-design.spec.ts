@@ -1110,6 +1110,257 @@ describe("generate-design: new screens never stack on existing frames", () => {
     expect(overlaps).toBe(false);
     expect(second.x).toBeGreaterThanOrEqual(1440);
   });
+
+  it("spaces generated screens after their responsive previews", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a responsive product flow",
+      devices: ["desktop", "tablet", "mobile"],
+      files: [
+        {
+          filename: "home.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Home</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    const first = frames[result.savedFiles[0]!.id]!;
+    const second = frames[result.savedFiles[1]!.id]!;
+    // The default source aspect differs from the desktop frame, so both
+    // responsive previews use the renderer's full-scale reflow path.
+    expect(second.x - first.x).toBeCloseTo(1440 + 24 + 768 + 24 + 390 + 96);
+  });
+
+  it("does not add responsive previews to primitive board frames", async () => {
+    mocks.setFileRows([
+      {
+        id: "board",
+        designId: "design-1",
+        filename: "__board__.html",
+        fileType: "html",
+        content: "<!doctype html><html><body>Board</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        board: { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add another screen",
+      files: [
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    expect(frames[result.savedFiles[0]!.id]?.x).toBe(1440 + 96);
+  });
+
+  it("does not count JSX support files as responsive screen occupancy", async () => {
+    mocks.setFileRows([
+      {
+        id: "support",
+        designId: "design-1",
+        filename: "support.jsx",
+        fileType: "jsx",
+        content: "export default function Support() {}",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        {
+          filename: "next.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Next</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    expect(frames[result.savedFiles[0]!.id]?.x).toBe(1440 + 96);
+  });
+
+  it("uses responsive bounds for existing screens without metadata", async () => {
+    setExistingFile("<html><body>existing</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "tablet", label: "Tablet", widthPx: 768 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add another screen",
+      files: [
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    expect(frames[result.savedFiles[0]!.id]?.x).toBeGreaterThan(1440 + 96);
+  });
+
+  it("reserves the final responsive footprint when an existing frame is resized", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        "file-1": { width: 1280, height: 800 },
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 844 },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Regenerate this responsive flow",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>updated</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number; height: number }
+    >;
+    const newFile = result.savedFiles.find(
+      (file) => file.filename === "details.html",
+    );
+    expect(newFile).toBeDefined();
+    expect(frames["file-1"]).toMatchObject({ width: 1440, height: 900 });
+    expect(frames[newFile!.id]?.x).toBeCloseTo(
+      1440 + 24 + 390 * (1440 / 1280) + 96,
+    );
+  });
+
+  it("reserves rotated breakpoints around the primary after an aspect-changing regeneration", async () => {
+    setExistingFile("<html><body>old</body></html>");
+    mocks.setDesignData({
+      screenMetadata: {
+        "file-1": {
+          width: 1440,
+          height: 900,
+          breakpointHeights: { "390": 2200 },
+        },
+      },
+      canvasFrames: {
+        "file-1": {
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          rotation: -90,
+        },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Regenerate for tablet and mobile",
+      devices: ["tablet", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>updated</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>details</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number; height: number; rotation?: number }
+    >;
+    const newFile = result.savedFiles.find(
+      (file) => file.filename === "details.html",
+    );
+    expect(newFile).toBeDefined();
+    expect(frames["file-1"]).toMatchObject({
+      width: 768,
+      height: 1024,
+      rotation: -90,
+    });
+    expect(frames[newFile!.id]?.x).toBeCloseTo(2072 + 96);
+  });
 });
 
 describe("generate-design: single-device regen clears stale breakpoints", () => {
@@ -1327,6 +1578,51 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
     >;
     const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
     expect(placed.x).not.toBe(1450);
+  });
+
+  it("advances a rotated responsive screen until its AABB clears the layout", async () => {
+    setExistingFile("<html><body>existing</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900 },
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a rotated responsive screen",
+      files: [
+        {
+          filename: "rotated.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Rotated</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "rotated.html",
+          x: 1450,
+          y: 0,
+          width: 200,
+          height: 200,
+          rotation: 90,
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    expect(placed.x).toBeCloseTo(2530);
   });
 });
 

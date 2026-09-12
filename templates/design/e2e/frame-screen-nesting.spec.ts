@@ -311,17 +311,15 @@ test("1:19 — the Screen tool makes a top-level screen, the Frame tool does not
   ).toBe(before.length + 1);
 });
 
-// Board-to-screen drag still needs a reliable board-frame interaction harness;
-// keep the Clip regression visible until that path can be exercised honestly.
-test.fixme("4:24 — a board frame can be dragged into a screen and become a child", async ({
+test("4:24 — a board frame can be dragged into a screen and become a child", async ({
   page,
 }) => {
   const id = await newDesign(page);
   await openEditor(page, id);
   const empty = await emptyBoardPoint(page);
   await drawFrameTool(page, "Frame", empty, {
-    x: empty.x + 200,
-    y: empty.y + 200,
+    x: empty.x + 90,
+    y: empty.y + 90,
   });
 
   expect(
@@ -352,18 +350,16 @@ test.fixme("4:24 — a board frame can be dragged into a screen and become a chi
   );
   await page.mouse.move(
     screen.x + screen.width / 2,
-    screen.y + 300 * screen.scale,
+    screen.y + screen.height / 2,
     { steps: 24 },
   );
-  await page.waitForTimeout(700);
   await page.mouse.up();
-  await page.waitForTimeout(3000);
-
-  expect(
-    await fileContent(page, id, "index.html"),
-    `Clip 4:24 "adding a frame inside of a screen is not possible". Dragging a ` +
-      `board frame onto a screen must move it into that screen's document.`,
-  ).toContain('data-an-primitive="frame"');
+  await expect
+    .poll(() => fileContent(page, id, "index.html"), { timeout: 10_000 })
+    .toContain('data-an-primitive="frame"');
+  await expect
+    .poll(() => fileContent(page, id, "__board__.html"), { timeout: 10_000 })
+    .not.toContain('data-an-primitive="frame"');
 });
 
 // Was an invisible skip: it fired on EVERY run, so this guarded nothing while
@@ -453,8 +449,8 @@ test("the canvas does not go black and hide the screens after drawing a frame", 
   ).toBeGreaterThan(50);
 
   await drawFrameTool(page, "Frame", empty, {
-    x: empty.x + 240,
-    y: empty.y + 260,
+    x: empty.x + 90,
+    y: empty.y + 90,
   });
 
   // The frame has to exist, or "the screens are still visible" holds for the
@@ -466,7 +462,7 @@ test("the canvas does not go black and hide the screens after drawing a frame", 
   // Clip "Canvas Turns Black and Hides Frames": after the frame was created
   // the overview painted black and every screen vanished from the canvas.
   const after = await page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .boundingBox();
   expect(

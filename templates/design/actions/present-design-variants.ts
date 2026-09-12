@@ -21,9 +21,12 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
+  getResponsiveBreakpointWidths,
+  getResponsiveGroupHeight,
   getResponsiveGroupWidth,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
@@ -822,6 +825,10 @@ function placeVariantScreens(
     let rowHeight = 0;
 
     for (const [offset, screen] of row.entries()) {
+      const visibleWidths = visibleBreakpointWidths(
+        breakpointWidths,
+        screen.width,
+      );
       placements.push({
         fileId: screen.id,
         filename: screen.filename,
@@ -831,18 +838,24 @@ function placeVariantScreens(
         height: screen.height,
         z: rowStart + offset,
       });
+      // These frames use their natural device dimensions, so previews are
+      // drawn at scale 1.
       x +=
         getResponsiveGroupWidth({
           primaryWidth: screen.width,
-          // Frames are placed at their natural device width, so the breakpoint
-          // previews beside them are drawn unscaled.
           scale: 1,
-          visibleWidths: visibleBreakpointWidths(
-            breakpointWidths,
-            screen.width,
-          ),
+          visibleWidths,
         }) + VARIANT_GAP;
-      rowHeight = Math.max(rowHeight, screen.height);
+      rowHeight = Math.max(
+        rowHeight,
+        getResponsiveGroupHeight({
+          primaryHeight: screen.height,
+          scale: 1,
+          sourceWidth: screen.width,
+          sourceHeight: screen.height,
+          visibleWidths,
+        }),
+      );
     }
 
     rowY += rowHeight + VARIANT_GAP;
@@ -855,16 +868,10 @@ function placeVariantScreens(
  * settles: the design's own set when it has one, otherwise the set this action
  * is about to install. */
 function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
-  const breakpoints = hasBreakpointSet(currentBreakpointSet)
-    ? ((currentBreakpointSet as { breakpoints: Array<{ widthPx?: unknown }> })
-        .breakpoints ?? [])
-    : DEFAULT_RESPONSIVE_BREAKPOINTS;
-  return breakpoints
-    .map((breakpoint) => breakpoint.widthPx)
-    .filter(
-      (widthPx): widthPx is number =>
-        typeof widthPx === "number" && Number.isFinite(widthPx) && widthPx > 0,
-    );
+  if (!hasBreakpointSet(currentBreakpointSet)) {
+    return DEFAULT_RESPONSIVE_BREAKPOINTS.map(({ widthPx }) => widthPx);
+  }
+  return getResponsiveBreakpointWidths(currentBreakpointSet);
 }
 
 export default defineAction({
@@ -989,6 +996,7 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
+    const screenFileIds = getOverviewScreenFileIds(existingFiles);
     const variantSetId = nanoid();
     const screens: VariantScreen[] = [];
 
@@ -1084,6 +1092,13 @@ export default defineAction({
             // marching further down each time.
             nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
               ignoreFileIds: screens.map((screen) => screen.id),
+              responsiveLayout: {
+                screenFileIds,
+                screenMetadataByFileId: current.screenMetadata,
+                breakpointWidths: effectiveBreakpointWidths(
+                  current.breakpointSet,
+                ),
+              },
             }),
           ),
           resolveFileId: (placement) => placement.fileId,
