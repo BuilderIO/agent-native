@@ -209,17 +209,17 @@ let activeWebMcpRegistration: ReturnType<
 
 function AgentNativeWebMcpRegistration() {
   useEffect(() => {
-    const cancel = scheduleAfterPaint(() => {
-      const registration = createAgentNativeServerActionWebMcpRegistration();
-      void registration.start().catch(() => {
-        // WebMCP is progressive enhancement. Session expiry or a transient
-        // manifest failure must not prevent the authenticated app from
-        // loading.
-      });
-      activeWebMcpRegistration = registration;
+    // sessionBypass surfaces are token-authenticated MCP embeds; their host
+    // may call tools immediately, so registration must not wait out the
+    // paint-aligned window — only the cookie-session-gated variant defers.
+    const registration = createAgentNativeServerActionWebMcpRegistration();
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Session expiry or a transient
+      // manifest failure must not prevent the authenticated app from
+      // loading.
     });
+    activeWebMcpRegistration = registration;
     return () => {
-      cancel();
       activeWebMcpRegistration?.stop();
       activeWebMcpRegistration = null;
     };

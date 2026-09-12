@@ -12,6 +12,7 @@ describe("scheduleAfterPaint", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -47,6 +48,9 @@ describe("scheduleAfterPaint", () => {
   });
 
   it("stays idle without a window", () => {
+    // Stub the global away so this genuinely exercises the SSR path instead
+    // of relying on the happy-dom environment having a window.
+    vi.stubGlobal("window", undefined);
     let ran = false;
     const cancel = scheduleAfterPaint(() => {
       ran = true;

@@ -314,11 +314,15 @@ describe("AppProviders session gate", () => {
 
     renderProviders({ sessionBypass: true });
 
+    // Bypass surfaces register immediately: a token-authenticated MCP embed's
+    // host may call tools right away, so the manifest fetch must not wait out
+    // the paint-aligned window (only the session-gated variant defers).
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/_agent-native/webmcp/manifest",
-        expect.objectContaining({ credentials: "same-origin" }),
-      );
       expect(modelContext.registerTool).toHaveBeenCalledWith(
         expect.objectContaining({ name: "view-screen" }),
         expect.anything(),
