@@ -1,5 +1,4 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import { renderMathToHtml } from "@shared/math-rendering";
@@ -32,9 +31,22 @@ import {
   IconSquareRoot2,
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+
+// The composer bundle is heavy; only load it when the generate prompt opens.
+const PromptComposer = React.lazy(() =>
+  import("@agent-native/core/client/composer").then((m) => ({
+    default: m.PromptComposer,
+  })),
+);
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { Button } from "@/components/ui/button";
@@ -1417,13 +1429,19 @@ export function SlashCommandMenu({
             <p className="px-1 pb-2 text-sm font-semibold text-foreground">
               {t("editor.generateWithAi")}
             </p>
-            <PromptComposer
-              autoFocus
-              disabled={isGenerating}
-              placeholder={t("editor.describeWhatToGenerate")}
-              draftScope={`content:generate:${documentId ?? "document"}`}
-              onSubmit={submitGeneratePrompt}
-            />
+            <React.Suspense
+              fallback={
+                <div className="flex h-[72px] items-center rounded-md border border-input px-3 text-sm text-muted-foreground" />
+              }
+            >
+              <PromptComposer
+                autoFocus
+                disabled={isGenerating}
+                placeholder={t("editor.describeWhatToGenerate")}
+                draftScope={`content:generate:${documentId ?? "document"}`}
+                onSubmit={submitGeneratePrompt}
+              />
+            </React.Suspense>
           </PopoverContent>
         </Popover>
       )}

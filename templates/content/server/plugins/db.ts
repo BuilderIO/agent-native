@@ -1,42 +1,6 @@
-import {
-  ensureAdditiveColumns,
-  getDbExec,
-  runMigrations,
-} from "@agent-native/core/db";
+import { runMigrations } from "@agent-native/core/db";
 
-import { repairFilesSystemPropertyDefinitions } from "../../actions/_files-system-properties.js";
-import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
-import * as schema from "../db/schema.js";
-
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
-function isDrizzleTable(value: unknown): value is object {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    Object.getOwnPropertySymbols(value).some((s) =>
-      s.toString().includes("drizzle"),
-    )
-  );
-}
-
-const schemaTables = Object.values(schema).filter(isDrizzleTable);
-
-function scheduleBlocksRepairRetry(attempt = 1): void {
-  const delayMs = Math.min(30_000 * attempt, 5 * 60_000);
-  const timeout = setTimeout(() => {
-    repairUnseededBlocksFields().catch(() => {
-      if (attempt < 5) scheduleBlocksRepairRetry(attempt + 1);
-    });
-  }, delayMs);
-  if (typeof timeout === "object" && "unref" in timeout) {
-    timeout.unref();
-  }
-}
+import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -1173,55 +1137,17 @@ export const runContentSourceMigrations = runMigrations(
 
 /**
  * The migration lists above are the authoritative source for tables, indexes,
- * and data transforms. `ensureAdditiveColumns` runs after they complete as a
- * belt-and-braces safety net for the failure mode where a column is added to
- * schema.ts without a matching hand-written ALTER migration, which silently
- * 500s every query touching a pre-existing production table. It only ever
- * adds missing columns — never drops, renames, or retypes anything — and any
- * failure here is logged and swallowed so it can never fail boot.
+ * and data transforms. Boot awaits only them. `ensureAdditiveColumns` and the
+ * one-time data repairs moved to server/lib/startup-maintenance.ts, which
+ * schedules them once per isolate right after boot instead of blocking the
+ * first response — steady-state boots no longer pay for a schema probe and
+ * repairs that are usually no-ops. Failures there log loudly and retry; they
+ * are never silently dropped.
  */
 export default async function contentDatabasePlugin(
   nitroApp: Parameters<typeof runContentMigrations>[0],
 ) {
   await runContentMigrations(nitroApp);
   await runContentSourceMigrations(nitroApp);
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
-      console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
-      );
-    }
-  } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
-  // One-time, boot-time repair: seed the primary "Content" Blocks field for any
-  // legacy database that has never been seeded (blocks_seeded = 0). Idempotent —
-  // the atomic claim in seedDefaultBlocksField makes re-runs no-ops, and it
-  // never runs from a read path, so opening a shared/legacy row stays a pure
-  // read. Failures here must not crash boot; migrations themselves succeeded.
-  try {
-    await repairUnseededBlocksFields();
-  } catch {
-    // Retry in-process so a transient boot-time repair failure does not leave
-    // legacy databases without their primary Blocks field until a full reboot.
-    scheduleBlocksRepairRetry();
-  }
-  try {
-    await repairFilesSystemPropertyDefinitions();
-  } catch (err) {
-    console.warn(
-      "[db] Files system-property repair failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
+  void scheduleStartupMaintenance();
 }
