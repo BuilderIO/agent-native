@@ -1158,20 +1158,21 @@ export async function getRunOwnerEmail(runId: string): Promise<string | null> {
 }
 
 /**
- * Atomically acquire a run lease for a thread. Succeeds (returns true) only
- * when no other run for the same thread is currently status='running' with a
- * fresh heartbeat. The stale-cutoff comparison lets a dead producer's run be
- * replaced without waiting for the reaper, mirroring `reapIfStale`.
- *
- * Callers that win the claim then insert the run row normally; callers that
- * lose skip the run and return the existing active runId to the caller. When a
- * turnId is supplied, a completed run wins first so reconnects replay it rather
- * than repeat the logical turn.
+ * Atomically insert a run row when no live run already owns this thread.
+ * The transaction-scoped advisory lock, active/completed checks, and INSERT
+ * share one transaction so two serverless isolates cannot both observe a free
+ * slot before either run is durable.
  */
 export async function tryClaimRunSlot(
   threadId: string,
+  runId: string,
   maxStaleMs?: number,
-  turnId?: string,
+  options?: {
+    turnId?: string;
+    replayCompletedTurn?: boolean;
+    dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+    dispatchPayload?: string;
+  },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
@@ -1180,51 +1181,65 @@ export async function tryClaimRunSlot(
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
-  if (turnId) {
-    const completed = await client.execute({
-      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'completed' ORDER BY started_at ASC LIMIT 1`,
-      args: [threadId, turnId],
-    });
-    const completedRunId = (completed.rows[0] as { id?: string } | undefined)
-      ?.id;
-    if (completedRunId) {
-      return { claimed: false, activeRunId: null, completedRunId };
-    }
+  const turnId = options?.turnId ?? runId;
+  const replayCompletedTurn =
+    options?.replayCompletedTurn === true && Boolean(options.turnId);
+  if (!client.transaction) {
+    throw new Error("Atomic run-slot claims require transaction support");
   }
-  // Default: per-row background-aware window so a live background run (which can
-  // legitimately go >15s between heartbeats during a cold-start) isn't seen as
-  // "free" and double-claimed by a racing foreground POST. An explicit
-  // `maxStaleMs` override keeps a flat window for callers that want one.
-  if (typeof maxStaleMs === "number") {
-    const heartbeatCutoff = now - maxStaleMs;
-    const { rows } = await client.execute({
+  return client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${threadId}`],
+    });
+    const explicitCutoff = typeof maxStaleMs === "number";
+    const active = await tx.execute({
       sql: `SELECT id FROM agent_runs
             WHERE thread_id = ?
               AND status = 'running'
               AND ${terminalRunEventExclusionSql()}
-              AND ${livenessBasisSql()} >= ?
+              AND ${livenessBasisSql()} >= ${explicitCutoff ? "?" : backgroundAwareStaleCutoffSql()}
             ORDER BY started_at DESC LIMIT 1`,
-      args: [threadId, heartbeatCutoff],
+      args: [threadId, explicitCutoff ? now - maxStaleMs : now],
     });
-    if (rows.length > 0) {
-      return { claimed: false, activeRunId: (rows[0] as { id: string }).id };
+    const activeRunId = (active.rows[0] as { id?: string } | undefined)?.id;
+    if (activeRunId) return { claimed: false, activeRunId };
+
+    if (replayCompletedTurn) {
+      const latest = await tx.execute({
+        sql: `SELECT id, status FROM agent_runs WHERE thread_id = ? AND turn_id = ? ORDER BY started_at DESC LIMIT 1`,
+        args: [threadId, turnId],
+      });
+      const latestRun = latest.rows[0] as
+        | { id?: string; status?: string }
+        | undefined;
+      if (latestRun?.id && latestRun.status === "completed") {
+        return {
+          claimed: false,
+          activeRunId: null,
+          completedRunId: latestRun.id,
+        };
+      }
+    }
+
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      args: [
+        runId,
+        threadId,
+        now,
+        now,
+        now,
+        turnId,
+        options?.dispatchMode ?? null,
+        options?.dispatchPayload ?? null,
+      ],
+    });
+    if ((inserted.rowsAffected ?? 0) !== 1) {
+      throw new Error(`Failed to insert claimed run ${runId}`);
     }
     return { claimed: true, activeRunId: null };
-  }
-  const { rows } = await client.execute({
-    sql: `SELECT id FROM agent_runs
-          WHERE thread_id = ?
-            AND status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND ${livenessBasisSql()} >= ${backgroundAwareStaleCutoffSql()}
-          ORDER BY started_at DESC LIMIT 1`,
-    args: [threadId, now],
   });
-  if (rows.length > 0) {
-    const row = rows[0] as { id: string };
-    return { claimed: false, activeRunId: row.id };
-  }
-  return { claimed: true, activeRunId: null };
 }
 
 /**

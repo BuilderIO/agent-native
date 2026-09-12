@@ -6,6 +6,7 @@ const TIMEOUT = 10_000;
 
 const CHECKPOINT_ENV = {
   ...process.env,
+  GIT_LITERAL_PATHSPECS: "1",
   GIT_AUTHOR_NAME: "agent-native",
   GIT_AUTHOR_EMAIL: "noreply@agent-native.com",
   GIT_COMMITTER_NAME: "agent-native",
@@ -72,6 +73,7 @@ export function createCheckpoint(
         cwd,
         stdio: "pipe",
         timeout: TIMEOUT,
+        env: CHECKPOINT_ENV,
       },
     );
     execFileSync(

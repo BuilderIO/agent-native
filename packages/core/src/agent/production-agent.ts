@@ -182,6 +182,7 @@ import {
 import {
   startRun,
   subscribeToRun,
+  replayCompletedTurn,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
   getRun,
@@ -10458,68 +10459,6 @@ export function createProductionAgentHandler(
       tools: requestTools,
       availableToolCount: availableRequestTools.length,
     });
-
-    // Atomically claim the run slot for this thread. The claim checks SQL for
-    // a live (non-stale) running row so two near-simultaneous POSTs on
-    // different serverless isolates both see the correct state — a plain
-    // read-then-act check races on multi-isolate deployments because both
-    // reads see no running row before either insert commits.
-    //
-    // The background worker SKIPS this: the foreground POST already claimed the
-    // slot and inserted the run row before dispatching, so re-claiming here
-    // would falsely 409 against the row the foreground holds.
-    if (threadId && !isBackgroundWorker) {
-      if (
-        typeof requestTurnId === "string" &&
-        requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId))
-      ) {
-        return { ok: true, stopped: true };
-      }
-      const slot = await tryClaimRunSlot(
-        threadId,
-        undefined,
-        typeof requestTurnId === "string" &&
-          requestTurnId.trim() &&
-          !requestedApprovedToolCalls
-          ? requestTurnId.trim()
-          : undefined,
-      );
-      if (slot.completedRunId) {
-        const stream = subscribeToRun(slot.completedRunId, 0);
-        if (!stream) {
-          setResponseStatus(event, 500);
-          return { error: "Failed to replay completed agent run" };
-        }
-        setResponseHeader(event, "Content-Type", "text/event-stream");
-        setResponseHeader(event, "Cache-Control", "no-cache");
-        setResponseHeader(event, "Connection", "keep-alive");
-        setResponseHeader(event, "X-Run-Id", slot.completedRunId);
-        setResponseHeader(event, "X-Dispatch-Mode", "replay");
-        return stream;
-      }
-      if (!slot.claimed) {
-        setResponseStatus(event, 409);
-        return {
-          error: "Run already in progress for this thread",
-          activeRunId: slot.activeRunId,
-        };
-      }
-    }
-
-    // Start agent loop in background via run-manager. The background worker
-    // reuses the runId carried in the marker (signed into the dispatch token):
-    //  - First background chunk (count 0): the foreground generated + INSERTED
-    //    this runId, so the event stream the client is already subscribed to is
-    //    the one we write to.
-    //  - Chained continuation chunk (count > 0): the prior chunk minted a FRESH
-    //    runId for this one (a reused runId would restart `startRun`'s in-memory
-    //    seq log at 0 and collide with the prior chunk's persisted seqs, which
-    //    insertRunEvent's ON CONFLICT would drop — making the continuation
-    //    invisible). A fresh runId on the SAME thread + SAME turnId folds onto
-    //    one assistant message and is surfaced by the existing
-    //    `/runs/active?threadId` reconnect path. The continuation worker inserts
-    //    its own background row below (the foreground only inserted chunk-0's).
     const isChainedBackgroundContinuation =
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
@@ -10545,6 +10484,79 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    const foregroundSelfChainEligible =
+      !isBackgroundWorker &&
+      !dispatchToBackground &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      isAgentChatForegroundSelfChainEnabled();
+    let foregroundRunRowInserted = false;
+
+    // Claim and insert one durable run row in the same advisory-locked SQL
+    // statement so different serverless isolates cannot execute this turn twice.
+    //
+    // The background worker SKIPS this: the foreground POST already claimed the
+    // slot and inserted the run row before dispatching, so re-claiming here
+    // would falsely 409 against the row the foreground holds.
+    if (threadId && !isBackgroundWorker) {
+      if (
+        typeof requestTurnId === "string" &&
+        requestTurnId &&
+        (await isTurnAborted(threadId, requestTurnId))
+      ) {
+        return { ok: true, stopped: true };
+      }
+      const slot = await tryClaimRunSlot(threadId, runId, undefined, {
+        turnId: effectiveTurnId,
+        replayCompletedTurn:
+          typeof requestTurnId === "string" &&
+          Boolean(requestTurnId.trim()) &&
+          !requestedApprovedToolCalls,
+        dispatchMode: dispatchToBackground
+          ? "background"
+          : foregroundSelfChainEligible
+            ? "foreground-self-chain"
+            : "foreground",
+        ...(dispatchToBackground
+          ? { dispatchPayload: JSON.stringify(body) }
+          : {}),
+      });
+      if (slot.completedRunId) {
+        const stream = await replayCompletedTurn(threadId, effectiveTurnId);
+        if (!stream) {
+          setResponseStatus(event, 500);
+          return { error: "Failed to replay completed agent run" };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return stream;
+      }
+      if (!slot.claimed) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Run already in progress for this thread",
+          activeRunId: slot.activeRunId,
+        };
+      }
+      foregroundRunRowInserted = true;
+    }
+
+    // Start agent loop in background via run-manager. The background worker
+    // reuses the runId carried in the marker (signed into the dispatch token):
+    //  - First background chunk (count 0): the foreground generated + INSERTED
+    //    this runId, so the event stream the client is already subscribed to is
+    //    the one we write to.
+    //  - Chained continuation chunk (count > 0): the prior chunk minted a FRESH
+    //    runId for this one (a reused runId would restart `startRun`'s in-memory
+    //    seq log at 0 and collide with the prior chunk's persisted seqs, which
+    //    insertRunEvent's ON CONFLICT would drop — making the continuation
+    //    invisible). A fresh runId on the SAME thread + SAME turnId folds onto
+    //    one assistant message and is surfaced by the existing
+    //    `/runs/active?threadId` reconnect path. The continuation worker inserts
+    //    its own background row below (the foreground only inserted chunk-0's).
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {
@@ -10707,28 +10719,30 @@ export function createProductionAgentHandler(
     // change. With the flag OFF this whole branch is skipped and the inline
     // `startRun` path below runs exactly as before (byte-for-byte).
     if (dispatchToBackground) {
-      let backgroundRowInserted = false;
-      try {
-        // Insert the run row up front so /runs/active sees it immediately and
-        // the slot stays held while the background function cold-starts. Mark
-        // it background-dispatched so the stale reaper uses the wider window.
-        // The full request body is persisted ON the row (dispatch_payload) so
-        // the self-POST below can carry only the tiny marker — Netlify caps
-        // background-function request bodies at 256KB, and a large chat
-        // history (inline attachments especially) silently exceeded that.
-        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
-          dispatchMode: "background",
-          dispatchPayload: JSON.stringify(body),
-        });
-        backgroundRowInserted = true;
-      } catch (err) {
-        // A duplicate-PK collision means the row already exists (ret­ried POST);
-        // any other failure means we can't safely hand off — fall back to the
-        // inline path rather than dropping the turn.
-        console.error(
-          "[agent-chat] background insertRun failed; falling back to inline:",
-          err instanceof Error ? err.message : err,
-        );
+      let backgroundRowInserted = foregroundRunRowInserted;
+      if (!backgroundRowInserted) {
+        try {
+          // Insert the run row up front so /runs/active sees it immediately and
+          // the slot stays held while the background function cold-starts. Mark
+          // it background-dispatched so the stale reaper uses the wider window.
+          // The full request body is persisted ON the row (dispatch_payload) so
+          // the self-POST below can carry only the tiny marker — Netlify caps
+          // background-function request bodies at 256KB, and a large chat
+          // history (inline attachments especially) silently exceeded that.
+          await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+            dispatchMode: "background",
+            dispatchPayload: JSON.stringify(body),
+          });
+          backgroundRowInserted = true;
+        } catch (err) {
+          // A duplicate-PK collision means the row already exists (ret­ried POST);
+          // any other failure means we can't safely hand off — fall back to the
+          // inline path rather than dropping the turn.
+          console.error(
+            "[agent-chat] background insertRun failed; falling back to inline:",
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
 
       // Stop may land after the pre-claim check but before the durable row was
@@ -10922,12 +10936,6 @@ export function createProductionAgentHandler(
     // via `/runs/active?threadId` and the successor chunk resumes from the
     // thread's persisted thread_data — without a thread there is neither a
     // discovery channel nor durable progress to resume from.
-    const foregroundSelfChainEligible =
-      !isBackgroundWorker &&
-      !dispatchToBackground &&
-      typeof threadId === "string" &&
-      threadId.trim().length > 0 &&
-      isAgentChatForegroundSelfChainEnabled();
     const noProgressRepeatForRun = (run: ActiveRun) =>
       resolveBackgroundNoProgressRepeat({
         run,
@@ -11815,6 +11823,7 @@ export function createProductionAgentHandler(
           : foregroundSelfChainEligible
             ? "foreground-self-chain"
             : "foreground",
+        runRowAlreadyInserted: foregroundRunRowInserted,
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this

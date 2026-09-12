@@ -34,7 +34,7 @@ afterAll(async () => {
   await pglite.close();
 });
 
-const rawClient = {
+const rawClient: any = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -48,6 +48,19 @@ const rawClient = {
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
+};
+rawClient.transaction = async (
+  fn: (tx: typeof rawClient) => Promise<unknown>,
+) => {
+  await pglite.exec("BEGIN");
+  try {
+    const result = await fn(rawClient);
+    await pglite.exec("COMMIT");
+    return result;
+  } catch (error) {
+    await pglite.exec("ROLLBACK");
+    throw error;
+  }
 };
 
 vi.mock("../db/client.js", () => ({
@@ -129,7 +142,7 @@ describe("foreground self-chain — pre-inserted successor vs racing client cont
     // A racing client auto_continue re-POST hits the atomic thread-slot claim
     // and must NOT be allowed to start a duplicate run — it is pointed at the
     // successor run to reconnect to (the client's 409 → adopt path).
-    const slot = await tryClaimRunSlot(thread);
+    const slot = await tryClaimRunSlot(thread, "run-client-race-1");
     expect(slot.claimed).toBe(false);
     expect(slot.activeRunId).toBe(successor);
   });
@@ -144,7 +157,7 @@ describe("foreground self-chain — pre-inserted successor vs racing client cont
 
     expect(await claimBackgroundRun(successor)).toBe(true);
 
-    const slot = await tryClaimRunSlot(thread);
+    const slot = await tryClaimRunSlot(thread, "run-client-race-2");
     expect(slot.claimed).toBe(false);
     expect(slot.activeRunId).toBe(successor);
   });
@@ -182,7 +195,7 @@ describe("foreground self-chain — pre-inserted successor vs racing client cont
     // ...and the client (which still receives the terminal auto_continue —
     // run-manager emits it after onComplete) can re-POST its continuation:
     // the thread slot is free again. No deadlock, no double-run.
-    const slot = await tryClaimRunSlot(thread);
+    const slot = await tryClaimRunSlot(thread, "run-client-race-3");
     expect(slot.claimed).toBe(true);
   });
 });

@@ -45,7 +45,7 @@ let prunedRunRows: Array<Record<string, unknown>> = [];
 // a test can prove per-row independence too.
 const claimedBackgroundRunIds = new Set<string>();
 
-const mockDb = {
+const mockDb: any = {
   execute: vi.fn(async (sql: string | { sql: string; args?: unknown[] }) => {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
@@ -54,7 +54,6 @@ const mockDb = {
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
     }
-
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
         rawSql,
@@ -67,11 +66,17 @@ const mockDb = {
     // "SELECT id FROM agent_runs ... status = 'running'". Matches both the
     // livenessBasisSql CASE expression and any legacy heartbeat-only form.
     if (
-      /SELECT id FROM agent_runs WHERE thread_id = \? AND turn_id = \? AND status = 'completed'/i.test(
+      /SELECT id, status FROM agent_runs WHERE thread_id = \? AND turn_id = \?/i.test(
         rawSql,
       )
     ) {
-      return { rows: completedTurnRows, rowsAffected: 0 };
+      return {
+        rows: completedTurnRows.map((row) => ({
+          ...row,
+          status: "completed",
+        })),
+        rowsAffected: 0,
+      };
     }
     if (
       /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(rawSql) &&
@@ -196,6 +201,7 @@ const mockDb = {
       rowsAffected: /^\s*(UPDATE|INSERT|DELETE)\b/i.test(rawSql) ? 1 : 0,
     };
   }),
+  transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => fn(mockDb)),
 };
 
 const mockCaptureError = vi.fn();
@@ -999,14 +1005,20 @@ describe("run store", () => {
   // Fix 2: atomic run lease
   it("tryClaimRunSlot grants the slot when no live running row exists", async () => {
     claimSlotRows = []; // no current runner
-    const result = await tryClaimRunSlot("thread-free");
+    const result = await tryClaimRunSlot("thread-free", "run-free");
     expect(result.claimed).toBe(true);
     expect(result.activeRunId).toBeNull();
+    expect(
+      execCalls.some((call) => call.sql.includes("pg_advisory_xact_lock")),
+    ).toBe(true);
+    expect(
+      execCalls.some((call) => call.sql.includes("INSERT INTO agent_runs")),
+    ).toBe(true);
   });
 
   it("tryClaimRunSlot denies the slot when a live running row exists", async () => {
     claimSlotRows = [{ id: "run-active-123" }];
-    const result = await tryClaimRunSlot("thread-busy");
+    const result = await tryClaimRunSlot("thread-busy", "run-contender");
     expect(result.claimed).toBe(false);
     expect(result.activeRunId).toBe("run-active-123");
   });
@@ -1015,7 +1027,10 @@ describe("run store", () => {
     completedTurnRows = [{ id: "run-completed" }];
 
     await expect(
-      tryClaimRunSlot("thread-completed", undefined, "turn-completed"),
+      tryClaimRunSlot("thread-completed", "run-retry", undefined, {
+        turnId: "turn-completed",
+        replayCompletedTurn: true,
+      }),
     ).resolves.toEqual({
       claimed: false,
       activeRunId: null,
@@ -1025,7 +1040,7 @@ describe("run store", () => {
 
   it("tryClaimRunSlot uses a liveness cutoff to exclude stale rows", async () => {
     claimSlotRows = []; // stale row was filtered by liveness cutoff in SQL
-    const result = await tryClaimRunSlot("thread-stale");
+    const result = await tryClaimRunSlot("thread-stale", "run-replacement");
     expect(result.claimed).toBe(true);
 
     const select = execCalls.find(
@@ -1045,7 +1060,7 @@ describe("run store", () => {
     // as int4 from the literal windows, and Date.now() overflows with
     // `value "…" is out of range for type integer`, failing every chat turn.
     claimSlotRows = [];
-    await tryClaimRunSlot("thread-cast");
+    await tryClaimRunSlot("thread-cast", "run-cast");
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&

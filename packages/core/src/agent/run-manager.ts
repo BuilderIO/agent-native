@@ -25,6 +25,7 @@ import {
   getRunAbortState,
   getRunStatus,
   getRunEventsSince,
+  getCurrentTurnEventsForThread,
   getRunById,
   getRunByThread,
   getRunTurnRef,
@@ -548,6 +549,8 @@ export interface StartRunOptions {
    * would have looked.
    */
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+  /** The caller atomically inserted this run while claiming the thread slot. */
+  runRowAlreadyInserted?: boolean;
   /**
    * Optional context forwarded onto the terminal-outcome analytics event
    * (see `emitRunTerminalTrackingEvent`) so run cutoffs can be broken down
@@ -1179,9 +1182,11 @@ export function startRun(
     ? { dispatchMode: options.dispatchMode }
     : undefined;
   const insertRunPromise = (
-    insertOptions
-      ? insertRun(runId, threadId, options?.turnId, insertOptions)
-      : insertRun(runId, threadId, options?.turnId)
+    options?.runRowAlreadyInserted
+      ? Promise.resolve()
+      : insertOptions
+        ? insertRun(runId, threadId, options?.turnId, insertOptions)
+        : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
   });
@@ -2396,6 +2401,28 @@ export function subscribeToRun(
   }
   // Not in local memory — try SQL (cross-isolate path)
   return subscribeFromSQL(runId, fromSeq);
+}
+
+/** Replay every persisted chunk of one completed logical turn as one SSE stream. */
+export async function replayCompletedTurn(
+  threadId: string,
+  turnId: string,
+): Promise<ReadableStream<Uint8Array> | null> {
+  const persisted = await getCurrentTurnEventsForThread(threadId, turnId);
+  if (persisted.length === 0) return null;
+  const events = persisted.filter((event) => event.type !== "auto_continue");
+  if (!events.some(isTerminalRunEvent)) events.push({ type: "done" });
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      events.forEach((event, seq) => {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ ...event, seq })}\n\n`),
+        );
+      });
+      controller.close();
+    },
+  });
 }
 
 /** In-memory subscription (same isolate, fast path) */

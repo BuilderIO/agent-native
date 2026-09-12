@@ -89,6 +89,28 @@ describe("checkpoint service", () => {
     expect(getUncommittedStatus(cwd)).toContain("developer.txt");
   });
 
+  it("treats agent-owned paths as literals instead of Git pathspecs", () => {
+    const cwd = createTempRepo();
+    const literalPathspec = ":(glob)**";
+    fs.writeFileSync(path.join(cwd, literalPathspec), "before\n");
+    fs.writeFileSync(path.join(cwd, "developer.txt"), "before\n");
+    createCheckpoint(cwd, "Initial checkpoint");
+
+    fs.writeFileSync(path.join(cwd, literalPathspec), "agent change\n");
+    fs.writeFileSync(path.join(cwd, "developer.txt"), "developer change\n");
+
+    expect(
+      createCheckpoint(cwd, "Literal checkpoint", [literalPathspec]),
+    ).toMatch(/^[0-9a-f]{40}$/);
+    expect(
+      execFileSync("git", ["show", "--format=", "--name-only", "HEAD"], {
+        cwd,
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe(literalPathspec);
+    expect(getUncommittedStatus(cwd)).toContain("developer.txt");
+  });
+
   it("returns false/null outside a git repo instead of throwing", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-not-git-"));
     tmpDirs.push(cwd);
