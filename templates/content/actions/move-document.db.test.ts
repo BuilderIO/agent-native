@@ -141,6 +141,33 @@ describe("move-document position race", () => {
     ).rejects.toThrow(/Requires editor role on document .*argument: id/);
   });
 
+  it("keeps an existing but inaccessible parent forbidden instead of not-found", async () => {
+    const outsider = "outsider@example.com";
+    const id = await createDocument({ title: "Movable" });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: outsider,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    const privateParentId = await createDocument({
+      title: "Private parent",
+      ownerEmail: "someoneelse@example.com",
+    });
+    await expect(
+      runWithRequestContext({ userEmail: outsider }, () =>
+        moveDocumentAction.run({ id, parentId: privateParentId } as any),
+      ),
+    ).rejects.toThrow(
+      `No access to document ${privateParentId} (argument: parentId)`,
+    );
+  });
+
   it("assigns distinct, gapless positions when several documents are reparented into the same parent at an explicit position concurrently", async () => {
     const parentId = await createDocument({ title: "Parent" });
     // Two pre-existing children the resequence branch must also account for.

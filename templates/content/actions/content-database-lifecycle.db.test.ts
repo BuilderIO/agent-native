@@ -2506,7 +2506,9 @@ describe("content database soft-delete actions and reads", () => {
       runWithRequestContext({ userEmail: COLLABORATOR }, () =>
         moveDocumentAction.run({ id: databaseDocumentId, parentId: null }),
       ),
-    ).rejects.toThrow(`Document "${hostDocumentId}" not found (argument: id)`);
+    ).rejects.toThrow(
+      `No access to document ${hostDocumentId} (argument: ownerDocumentId)`,
+    );
 
     const database = await databaseRow(databaseId);
     expect(database?.ownerDocumentId).toBe(hostDocumentId);

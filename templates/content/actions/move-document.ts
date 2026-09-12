@@ -83,7 +83,11 @@ async function preflightBlockDatabaseOwnershipClearance({
     return null;
   }
 
-  await assertDocumentMutationAccess(database.ownerDocumentId, "editor", "id");
+  await assertDocumentMutationAccess(
+    database.ownerDocumentId,
+    "editor",
+    "ownerDocumentId",
+  );
   return database.id;
 }
 
