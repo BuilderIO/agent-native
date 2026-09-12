@@ -2590,6 +2590,103 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("names the failing action and its error when a turn stops on a tool failure", async () => {
+    // Analytics /ask reported the generic "stopped after these actions ...
+    // without sending a final message" note while the real cause — a missing
+    // Stripe credential — stayed buried in the tool card.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Pulling the revenue numbers." },
+          {
+            type: "tool_start",
+            tool: "provider-api-request",
+            id: "call-1",
+            input: { provider: "stripe" },
+          },
+          {
+            type: "tool_done",
+            tool: "provider-api-request",
+            id: "call-1",
+            result:
+              "Error running provider-api-request: stripe credential not configured.",
+            isError: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-failed-tool",
+      ),
+    );
+
+    const warningText = results
+      .at(-1)
+      ?.content.find(
+        (part): part is { type: "text"; text: string } =>
+          part.type === "text" &&
+          part.text.includes("without sending a final message"),
+      )?.text;
+    expect(warningText).toContain("provider api request");
+    expect(warningText).toContain("failed");
+    expect(warningText).toContain("stripe credential not configured");
+    expect(results.at(-1)?.metadata).toMatchObject({
+      custom: {
+        runWarning: {
+          errorCode: "final_response_missing_after_tool",
+          failedTools: ["provider-api-request"],
+          recoverable: true,
+        },
+      },
+    });
+  });
+
+  it("keeps the completed-action note when the trailing tools all succeeded", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Looking that up." },
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "call-1",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "call-1",
+            result: '{"ok":true}',
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-completed-tool",
+      ),
+    );
+
+    const warningText = results
+      .at(-1)
+      ?.content.find(
+        (part): part is { type: "text"; text: string } =>
+          part.type === "text" && part.text.includes("final message"),
+      )?.text;
+    expect(warningText).toContain("completed the resources action");
+    expect(results.at(-1)?.metadata).toMatchObject({
+      custom: {
+        runWarning: { errorCode: "final_response_missing_after_tool" },
+      },
+    });
+    expect(
+      (
+        results.at(-1)?.metadata as {
+          custom?: { runWarning?: { failedTools?: string[] } };
+        }
+      )?.custom?.runWarning?.failedTools,
+    ).toBeUndefined();
+  });
+
   it("keeps an intentional user stop neutral instead of adding a final warning", async () => {
     const results = await drain(
       readSSEStream(
