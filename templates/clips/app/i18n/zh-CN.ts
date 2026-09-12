@@ -911,6 +911,8 @@ const messages = {
     renameFailed: "重命名剪辑失败",
     renameClip: "重命名剪辑",
     clipTitle: "剪辑标题",
+    archiveAction: "归档",
+    moveToTrashAction: "移至废纸篓",
     movedToTrash: "已移至废纸篓",
     restoredFromArchive: "已从归档恢复",
     archived: "已归档",

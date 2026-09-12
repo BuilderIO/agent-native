@@ -942,6 +942,8 @@ const messages = {
     renameFailed: "क्लिप का नाम बदलने में विफल",
     renameClip: "क्लिप का नाम बदलें",
     clipTitle: "क्लिप शीर्षक",
+    archiveAction: "आर्काइव करें",
+    moveToTrashAction: "ट्रैश में ले जाएं",
     movedToTrash: "ट्रैश में ले जाया गया",
     restoredFromArchive: "आर्काइव से पुनर्स्थापित",
     archived: "आर्काइव किया गया",

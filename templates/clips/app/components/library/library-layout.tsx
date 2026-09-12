@@ -439,16 +439,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       icon: IconUsersGroup,
       match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
     },
-    ...(meetingsLabEnabled
-      ? [
-          {
-            to: "/meetings",
-            label: t("navigation.meetings"),
-            icon: IconCalendar,
-            match: (p: string) => p.startsWith("/meetings"),
-          },
-        ]
-      : []),
+    {
+      to: meetingsLabEnabled ? "/meetings" : "/settings#lab-clips.meetings",
+      label: t("navigation.meetings"),
+      icon: IconCalendar,
+      match: (p) => p.startsWith("/meetings"),
+    },
     ...(wisprFlowLabEnabled
       ? [
           {

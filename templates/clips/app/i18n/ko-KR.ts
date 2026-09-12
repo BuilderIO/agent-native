@@ -950,6 +950,8 @@ const messages = {
     renameFailed: "클립 이름 변경 실패",
     renameClip: "클립 이름 변경",
     clipTitle: "클립 제목",
+    archiveAction: "보관",
+    moveToTrashAction: "휴지통으로 이동",
     movedToTrash: "휴지통으로 이동됨",
     restoredFromArchive: "보관함에서 복원됨",
     archived: "보관됨",

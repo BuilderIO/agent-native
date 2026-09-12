@@ -910,6 +910,8 @@ const messages = {
     renameFailed: "重新命名剪輯失敗",
     renameClip: "重新命名剪輯",
     clipTitle: "剪輯標題",
+    archiveAction: "封存",
+    moveToTrashAction: "移至廢紙簍",
     movedToTrash: "已移至廢紙簍",
     restoredFromArchive: "已從封存恢復",
     archived: "已封存",

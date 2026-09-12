@@ -976,6 +976,8 @@ const messages = {
     renameFailed: "Échec du renommage du clip",
     renameClip: "Renommer le clip",
     clipTitle: "Titre du clip",
+    archiveAction: "Archiver",
+    moveToTrashAction: "Déplacer vers la corbeille",
     movedToTrash: "Déplacé vers la corbeille",
     restoredFromArchive: "Restauré depuis l’archive",
     archived: "Archivé",

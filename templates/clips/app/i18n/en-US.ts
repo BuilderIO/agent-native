@@ -947,6 +947,8 @@ const messages = {
     renameFailed: "Failed to rename clip",
     renameClip: "Rename clip",
     clipTitle: "Clip title",
+    archiveAction: "Archive",
+    moveToTrashAction: "Move to trash",
     movedToTrash: "Moved to trash",
     restoredFromArchive: "Restored from archive",
     archived: "Archived",

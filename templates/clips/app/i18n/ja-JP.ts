@@ -965,6 +965,8 @@ const messages = {
     renameFailed: "クリップ名の変更に失敗しました",
     renameClip: "クリップ名を変更",
     clipTitle: "クリップタイトル",
+    archiveAction: "アーカイブ",
+    moveToTrashAction: "ゴミ箱に移動",
     movedToTrash: "ゴミ箱に移動しました",
     restoredFromArchive: "アーカイブから復元しました",
     archived: "アーカイブしました",
