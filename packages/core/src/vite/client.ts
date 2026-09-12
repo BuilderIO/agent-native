@@ -3113,13 +3113,21 @@ function devActionBridgePlugin(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (!addr || typeof addr !== "object" || !addr.port) return;
-        const databaseKey = hashDatabaseKey(
-          getRuntimeDatabaseUrl("pglite:./data/pglite"),
-        );
+        // The recorded origin must be the URL Vite prints (`resolvedUrls`), not
+        // a second derivation of the bind address: the browser cookie jar keys
+        // on the exact host label, so the origin a CLI/agent flow opens and
+        // the printed origin have to be one value.
+        const printedOrigin = devActionBridgeOrigin(server.resolvedUrls);
+        if (!printedOrigin) {
+          server.config.logger.warn(
+            "[agent-native] could not resolve the dev server's printed URL; skipping the dev action discovery file (pnpm action will run in-process)",
+          );
+          return;
+        }
         writeDevActionDiscoveryFile(
           appRoot,
-          `http://127.0.0.1:${addr.port}`,
-          databaseKey,
+          printedOrigin,
+          hashDatabaseKey(getRuntimeDatabaseUrl("pglite:./data/pglite")),
         );
       });
       const cleanup = () => removeDevActionDiscoveryFile(appRoot);
@@ -3127,6 +3135,25 @@ function devActionBridgePlugin(): Plugin {
       process.once("exit", cleanup);
     },
   };
+}
+
+/**
+ * The origin of the URL Vite prints in its "Local:" boot line — the single
+ * canonical dev origin every other surface derives from. `undefined` when
+ * nothing was printed (callers must degrade loudly, not guess a label).
+ */
+function devActionBridgeOrigin(
+  resolvedUrls: { local?: string[] } | null | undefined,
+): string | undefined {
+  const printed = resolvedUrls?.local?.[0];
+  if (!printed) return undefined;
+  try {
+    return new URL(printed).origin;
+  } catch {
+    // coercion-ok: undefined is the typed "nothing printed" result the caller
+    // already handles with a loud warning, not a swallowed success.
+    return undefined;
+  }
 }
 
 function isNitroEnvironmentUnavailable(error: unknown): boolean {
@@ -4593,6 +4620,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 }
 
 export {
+  devActionBridgePlugin as _devActionBridgePlugin,
+  devActionBridgeOrigin as _devActionBridgeOrigin,
   getClientDedupe as _getClientDedupe,
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,

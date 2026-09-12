@@ -423,9 +423,12 @@ export async function tryForwardToDevServer(
 function isLoopbackDevActionOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
+    // Discovery files record the URL Vite prints — `localhost` on the default
+    // wildcard bind; older dev servers recorded the 127.0.0.1 literal. Both
+    // are loopback labels for the same local server.
     return (
       url.protocol === "http:" &&
-      url.hostname === "127.0.0.1" &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
       url.pathname === "/" &&
       !url.search &&
       !url.hash
