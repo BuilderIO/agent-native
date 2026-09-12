@@ -184,6 +184,104 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
   });
 });
 
+// A focus or visibility event inside the after-paint window used to stack a
+// second summary read on top of the scheduled initial read once the window
+// elapsed; it must consume the scheduled read instead so exactly one lands.
+describe("useOnboarding — focus during the deferral window", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: UseOnboardingResult | null;
+  let summaryCalls = 0;
+
+  function Harness() {
+    latest = useOnboarding({ initialFirstRun: true });
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    latest = null;
+    summaryCalls = 0;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/onboarding/summary")) {
+          summaryCalls += 1;
+          return jsonResponse({
+            steps: [],
+            dismissed: false,
+            profile: {
+              appId: "app",
+              appName: "App",
+              capabilities: [],
+            },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function settlePastPaintWindow() {
+    // The fallback timer bounds the deferral wait at 250ms, so settling past
+    // it is deterministic.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("focus inside the window consumes the scheduled read instead of duplicating it", async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    // The focus refetch stays immediate and the scheduled initial read is
+    // consumed, not stacked behind it.
+    expect(summaryCalls).toBe(1);
+
+    await settlePastPaintWindow();
+    expect(summaryCalls).toBe(1);
+    expect(latest?.error).toBeNull();
+    expect(latest?.loading).toBe(false);
+  });
+
+  it("visibility-visible inside the window behaves the same", async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+    expect(summaryCalls).toBe(1);
+
+    await settlePastPaintWindow();
+    expect(summaryCalls).toBe(1);
+    expect(latest?.error).toBeNull();
+    // Restore happy-dom's own visibilityState for the other describes.
+    delete (document as { visibilityState?: string }).visibilityState;
+  });
+});
+
 // The composed summary endpoint serves steps and profile even when the
 // optional dismissed-flag read had to fall back to its safe default, so the
 // hook must adopt that degraded summary instead of surfacing an error that

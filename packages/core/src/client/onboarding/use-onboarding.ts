@@ -167,15 +167,27 @@ export function useOnboarding(
     // The checklist is not visible during first paint; defer the initial
     // read past the startup window. Focus/visibility refetches and
     // post-mutation refreshes below stay immediate.
+    let initialFetchRan = false;
     const cancelInitialFetch = scheduleAfterPaint(() => {
+      initialFetchRan = true;
       if (mountedRef.current) void fetchAll();
     });
     // Refetch when the tab regains focus — picks up any changes the agent
-    // made while the user was away (or that another tab made).
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void fetchAll();
+    // made while the user was away (or that another tab made). A focus or
+    // visibility event inside the deferral window consumes the scheduled
+    // initial read, so one fetch lands immediately instead of two when the
+    // window elapses.
+    const refetchOnFocus = () => {
+      if (!initialFetchRan) {
+        initialFetchRan = true;
+        cancelInitialFetch();
+      }
+      void fetchAll();
     };
-    const onFocus = () => fetchAll();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refetchOnFocus();
+    };
+    const onFocus = () => refetchOnFocus();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
     return () => {
