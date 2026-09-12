@@ -416,6 +416,18 @@ function ProvidersInner({
   );
 }
 
+// Public/SEO surfaces must stay impersonal and request-light: they default to
+// the non-persisting i18n runtime, which never resolves the session and never
+// fires the localization preference read or app-state write (locale comes from
+// localStorage/browser language). A caller that explicitly sets
+// `persistPreference` keeps its choice; `i18n: false` opts out entirely.
+function publicPathI18n(
+  i18n: AppProvidersProps["i18n"],
+): AppProvidersProps["i18n"] {
+  if (i18n === false || i18n?.persistPreference !== undefined) return i18n;
+  return { ...(i18n ?? {}), persistPreference: false };
+}
+
 export function AppProviders({
   queryClient,
   isPublicPath = false,
@@ -445,7 +457,7 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         disableWebMcp={disableWebMcp}
         sessionBypass={sessionBypass}
-        i18n={i18n}
+        i18n={publicPathI18n(i18n)}
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
         showEnvironmentBadge={showEnvironmentBadge}

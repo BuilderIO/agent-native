@@ -226,6 +226,50 @@ describe("AppProviders session gate", () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
+  it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          toaster={null}
+          isPublicPath
+          disableWebMcp
+        >
+          <div data-testid="app-content">content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+    // The non-persisting runtime never mounts the session hook, and with
+    // WebMCP disabled nothing else resolves the session on a public path.
+    expect(useSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit public-path persistPreference opt-in session-aware", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          toaster={null}
+          isPublicPath
+          disableWebMcp
+          i18n={{ persistPreference: true }}
+        >
+          <div data-testid="app-content">content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(useSessionMock).toHaveBeenCalled();
+  });
+
   it("skips WebMCP registration for signed-out public-path visitors", async () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
     const { fetchMock, modelContext } = setupWebMcpManifest();

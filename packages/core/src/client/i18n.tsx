@@ -764,7 +764,11 @@ function I18nRuntime({
 /**
  * Session-aware variant: only mounts the session hook (and therefore only
  * ever resolves the shared session) on surfaces that persist preferences.
- * Public/anonymous providers keep their existing request profile.
+ * AppProviders defaults public paths to the non-persisting variant, so a
+ * public page never resolves the session for localization; a persisting
+ * surface pays one deduped session probe and skips the preference read and
+ * app-state write until the session confirms, which is what keeps anonymous
+ * visits free of localization 401s.
  */
 function SessionAwareI18nRuntime(
   props: Omit<AgentNativeI18nProviderProps, "persistPreference"> & {
