@@ -3,9 +3,11 @@
  *
  * Routes:
  *   GET  /_agent-native/onboarding/steps              — list steps + completion
+ *   GET  /_agent-native/onboarding/summary            — composed steps + dismissed + profile
  *   POST /_agent-native/onboarding/steps/:id/complete — manual override (marks complete)
  *   POST /_agent-native/onboarding/dismiss            — dismiss the banner
  *   GET  /_agent-native/onboarding/dismissed          — dismissed flag + allComplete
+ *   GET  /_agent-native/onboarding/profile            — app profile
  *   GET  /_agent-native/onboarding/first-run/status   — post-signup flow status
  *   POST /_agent-native/onboarding/first-run/role     — save role preference
  *   POST /_agent-native/onboarding/first-run/complete — permanently complete it
@@ -303,6 +305,37 @@ export function createOnboardingPlugin(
           return { error: "Method not allowed" };
         }
         return appProfile;
+      }),
+    );
+
+    // GET /_agent-native/onboarding/summary — one composed read for the
+    // onboarding dialog: steps + dismissed flag + app profile. Reuses the
+    // steps serialization and the dismissed-state key instead of making the
+    // client pay for three round trips on every mount.
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/summary`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const context = await resolveOnboardingContext(event);
+        const query = getQuery(event) as Record<string, unknown>;
+        const preview = query.preview === "1" || query.preview === 1;
+        return withOnboardingRequestContext(context, async () => {
+          const [steps, value] = await Promise.all([
+            serializeSteps(context, { preview }),
+            appStateGet(context.sessionId, DISMISSED_KEY),
+          ]);
+          const dismissed = !!(
+            value && (value as { dismissed?: boolean }).dismissed
+          );
+          return {
+            steps,
+            dismissed,
+            profile: appProfile,
+          };
+        });
       }),
     );
 

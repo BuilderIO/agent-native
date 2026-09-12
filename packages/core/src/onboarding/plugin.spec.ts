@@ -260,6 +260,31 @@ describe("onboarding plugin routes", () => {
     });
   });
 
+  it("composes steps, dismissed state, and profile in one summary read", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === "onboarding:dismissed" ? { dismissed: true } : null,
+    );
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      steps: [expect.objectContaining({ id: "llm", complete: true })],
+      dismissed: true,
+      profile: expect.objectContaining({ appId: expect.any(String) }),
+    });
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "onboarding:dismissed",
+    );
+  });
+
   it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {
     vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     const nitroApp = createNitroApp();

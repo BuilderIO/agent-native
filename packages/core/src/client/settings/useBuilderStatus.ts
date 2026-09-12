@@ -5,6 +5,7 @@ import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
+import { scheduleAfterPaint } from "../use-after-paint.js";
 import { usePollLoop } from "../use-poll-loop.js";
 
 export interface BuilderStatus {
@@ -124,7 +125,12 @@ export function useBuilderStatus({
       return;
     }
     setLoading(true);
-    void fetchStatus();
+    // The Builder card is not visible during first paint; defer the initial
+    // status read past the startup window. Focus/visibility/event refreshes
+    // below stay immediate.
+    const cancelInitialFetch = scheduleAfterPaint(() => {
+      void fetchStatus();
+    });
 
     function onFocus() {
       void fetchStatus();
@@ -139,6 +145,7 @@ export function useBuilderStatus({
     window.addEventListener("agent-engine:configured-changed", fetchStatus);
     return () => {
       requestGenerationRef.current += 1;
+      cancelInitialFetch();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(
@@ -801,7 +808,12 @@ export function useBuilderConnectFlow(
       }
     };
     retryStatusRef.current = () => void refresh();
-    void refresh();
+    // Connect-CTA cards render above the fold but their status is not needed
+    // for first paint; defer the initial read. Focus/visibility/event
+    // refreshes below stay immediate.
+    const cancelInitialRefresh = scheduleAfterPaint(() => {
+      void refresh();
+    });
     const onVisible = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -811,6 +823,7 @@ export function useBuilderConnectFlow(
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      cancelInitialRefresh();
       retryStatusRef.current = () => {};
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);

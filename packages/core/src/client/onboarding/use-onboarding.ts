@@ -12,9 +12,11 @@ import type {
   OnboardingAppProfile,
   OnboardingMethod,
   OnboardingStepStatus,
+  OnboardingSummary,
 } from "../../onboarding/types.js";
 import { getAnalyticsIdentityKey, trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
+import { scheduleAfterPaint } from "../use-after-paint.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
@@ -99,10 +101,13 @@ export function useOnboarding(
 
   const fetchAll = useCallback(async () => {
     try {
-      const stepsUrl = agentNativePath(
+      // One composed read replaces the three per-mount calls (steps,
+      // dismissed, profile); first-run status keeps its own endpoint because
+      // the startup gate reads it independently.
+      const summaryUrl = agentNativePath(
         preview
-          ? "/_agent-native/onboarding/steps?preview=1"
-          : "/_agent-native/onboarding/steps",
+          ? "/_agent-native/onboarding/summary?preview=1"
+          : "/_agent-native/onboarding/summary",
       );
       const firstRunPromise = preview
         ? Promise.resolve(true).then((value) => {
@@ -112,22 +117,18 @@ export function useOnboarding(
         : initialFirstRun
           ? Promise.resolve(true)
           : fetchFirstRunOnboardingStatus();
-      const [stepsRes, dismissRes, profileRes, firstRunRes] = await Promise.all(
-        [
-          fetch(stepsUrl),
-          fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
-          fetch(agentNativePath("/_agent-native/onboarding/profile")),
-          firstRunPromise,
-        ],
-      );
+      const [summaryRes, firstRunRes] = await Promise.all([
+        fetch(summaryUrl),
+        firstRunPromise,
+      ]);
       if (!mountedRef.current) return;
-      if (!stepsRes.ok) {
-        throw new Error(`steps: ${stepsRes.status}`);
+      if (!summaryRes.ok) {
+        throw new Error(`summary: ${summaryRes.status}`);
       }
-      const stepsData: OnboardingStepStatus[] = await stepsRes.json();
+      const summary = (await summaryRes.json()) as OnboardingSummary;
       const previousSteps = stepsRef.current;
       if (previousSteps.length > 0) {
-        for (const [stepIndex, step] of stepsData.entries()) {
+        for (const [stepIndex, step] of summary.steps.entries()) {
           const previousStep = previousSteps.find(
             (previous) => previous.id === step.id,
           );
@@ -140,13 +141,10 @@ export function useOnboarding(
           }
         }
       }
-      stepsRef.current = stepsData;
-      setSteps(stepsData);
+      stepsRef.current = summary.steps;
+      setSteps(summary.steps);
 
-      if (!profileRes.ok) {
-        throw new Error(`profile: ${profileRes.status}`);
-      }
-      setProfile((await profileRes.json()) as OnboardingAppProfile);
+      setProfile(summary.profile);
 
       if (preview) {
         setFirstRun(true);
@@ -154,13 +152,7 @@ export function useOnboarding(
         setFirstRun(firstRunRes === true);
       }
 
-      if (dismissRes.ok) {
-        const d = (await dismissRes.json()) as {
-          dismissed?: boolean;
-          allComplete?: boolean;
-        };
-        setDismissed(!!d.dismissed);
-      }
+      setDismissed(!!summary.dismissed);
       setError(null);
     } catch (e) {
       if (!mountedRef.current) return;
@@ -172,7 +164,12 @@ export function useOnboarding(
 
   useEffect(() => {
     mountedRef.current = true;
-    void fetchAll();
+    // The checklist is not visible during first paint; defer the initial
+    // read past the startup window. Focus/visibility refetches and
+    // post-mutation refreshes below stay immediate.
+    const cancelInitialFetch = scheduleAfterPaint(() => {
+      if (mountedRef.current) void fetchAll();
+    });
     // Refetch when the tab regains focus — picks up any changes the agent
     // made while the user was away (or that another tab made).
     const onVisibility = () => {
@@ -183,6 +180,7 @@ export function useOnboarding(
     window.addEventListener("focus", onFocus);
     return () => {
       mountedRef.current = false;
+      cancelInitialFetch();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };

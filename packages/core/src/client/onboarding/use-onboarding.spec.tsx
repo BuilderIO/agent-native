@@ -36,15 +36,15 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
   ) {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/onboarding/steps")) return jsonResponse([]);
-      if (url.includes("/onboarding/dismissed")) {
-        return jsonResponse({ dismissed: false });
-      }
-      if (url.includes("/onboarding/profile")) {
+      if (url.includes("/onboarding/summary")) {
         return jsonResponse({
-          appId: "app",
-          appName: "App",
-          capabilities: [],
+          steps: [],
+          dismissed: false,
+          profile: {
+            appId: "app",
+            appName: "App",
+            capabilities: [],
+          },
         });
       }
       if (url.includes("/onboarding/first-run/status")) {
@@ -77,6 +77,9 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
   async function mountAndSettle() {
     await act(async () => {
       root.render(<Harness />);
+      // The initial read is deferred past first paint; the fallback timer
+      // bounds that wait at 250ms, so settling past it is deterministic.
+      await new Promise((resolve) => setTimeout(resolve, 300));
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -142,15 +145,15 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes("/onboarding/steps")) return jsonResponse([]);
-        if (url.includes("/onboarding/dismissed")) {
-          return jsonResponse({ dismissed: false });
-        }
-        if (url.includes("/onboarding/profile")) {
+        if (url.includes("/onboarding/summary")) {
           return jsonResponse({
-            appId: "app",
-            appName: "App",
-            capabilities: [],
+            steps: [],
+            dismissed: false,
+            profile: {
+              appId: "app",
+              appName: "App",
+              capabilities: [],
+            },
           });
         }
         if (url.includes("/onboarding/first-run/status")) {

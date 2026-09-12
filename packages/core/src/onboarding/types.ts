@@ -125,3 +125,10 @@ export interface OnboardingAppProfile {
   appName: string;
   capabilities: OnboardingCapability[];
 }
+
+/** Composed shape returned by `GET /_agent-native/onboarding/summary`. */
+export interface OnboardingSummary {
+  steps: OnboardingStepStatus[];
+  dismissed: boolean;
+  profile: OnboardingAppProfile;
+}

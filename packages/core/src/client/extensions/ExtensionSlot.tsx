@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useAfterPaint } from "../use-after-paint.js";
 import { EmbeddedExtension } from "./EmbeddedExtension.js";
 import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
@@ -77,8 +78,12 @@ export function ExtensionSlot({
   const t = useT();
   const readyInstallIds = useRef(new Set<string>());
   const readyNotified = useRef(false);
+  // Slot installs render in sidebars and panels that are not visible during
+  // first paint; wait out the startup window before fetching.
+  const afterPaint = useAfterPaint();
   const installsQuery = useQuery<SlotInstall[]>({
     queryKey: ["slot-installs", id],
+    enabled: afterPaint,
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(

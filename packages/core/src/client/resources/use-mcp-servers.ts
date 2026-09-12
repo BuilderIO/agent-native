@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { useAfterPaint } from "../use-after-paint.js";
 
 export type McpServerScope = "user" | "org";
 
@@ -173,10 +174,14 @@ const defaultMcpServersApi: McpServersApi = {
 
 export function useMcpServers() {
   const api = useMcpServersApi();
+  // The list is never visible during first paint; every mount point (composer
+  // suggestion, agent page, resources panel) can wait out the paint window.
+  const afterPaint = useAfterPaint();
   return useQuery<McpServersList>({
     queryKey: LIST_KEY,
     queryFn: api.list,
     staleTime: 10_000,
+    enabled: afterPaint,
   });
 }
 
