@@ -159,6 +159,24 @@ function DateSearchChoice({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    // The picker's dialog dismisses on Escape via its own document-capture
+    // listener, registered before this popover exists, and Radix layer
+    // stacking does not protect it across dialog/popover package instances.
+    // Capture Escape on window — the only node ahead of document in the
+    // capture path — so the calendar dismisses and the picker stays open;
+    // Radix's own dismissal is bypassed by the same capture, hence the
+    // manual close.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [open]);
   const presets = [
     { value: "all" as const, label: t("root.searchAnyDate") },
     { value: "7" as const, label: t("root.searchPastWeek") },
@@ -179,12 +197,6 @@ function DateSearchChoice({
       <PopoverContent
         className="w-auto p-2"
         align="start"
-        onKeyDown={(event) => {
-          // Modal keeps this popover as the top DismissableLayer so Escape
-          // here closes only the calendar; stopping propagation additionally
-          // guards the dialog should focus ever sit on the trigger instead.
-          if (event.key === "Escape") event.stopPropagation();
-        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           focusInput();
