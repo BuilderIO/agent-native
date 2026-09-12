@@ -53,7 +53,9 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toContain("<DocumentEditorSkeleton />");
+    expect(source).toContain(
+      "<DocumentEditorSkeleton title={pendingDocumentTitle} />",
+    );
   });
 
   it("creates keyboard pages without waiting for persistence before returning", () => {

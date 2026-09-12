@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+// Locale data registers into messagesByLocale when each lazy module loads;
+// importing every locale module here mirrors the built app's registry.
+import "./i18n/ar-SA";
+import "./i18n/de-DE";
+import "./i18n/es-ES";
+import "./i18n/fr-FR";
+import "./i18n/hi-IN";
+import "./i18n/ja-JP";
+import "./i18n/ko-KR";
+import "./i18n/pt-BR";
+import "./i18n/zh-CN";
+import "./i18n/zh-TW";
 import { messagesByLocale } from "./i18n-data";
 
 describe("local folder host guidance", () => {
