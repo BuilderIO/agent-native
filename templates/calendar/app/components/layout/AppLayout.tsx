@@ -30,6 +30,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { prefetchPeopleContacts } from "@/hooks/use-people";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
+import { isCalendarShortcutSuppressedTarget } from "@/lib/keyboard-shortcuts";
 
 import { Sidebar } from "./Sidebar";
 
@@ -301,14 +302,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     const openShortcuts = () => setShortcutsHelpOpen(true);
     window.addEventListener("calendar:open-shortcuts", openShortcuts);
     function handleKey(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
+      if (isCalendarShortcutSuppressedTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
         e.preventDefault();

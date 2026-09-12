@@ -39,12 +39,18 @@ interface DragState {
   currentDayIndex: number;
   /** Whether we've moved enough to count as a drag (vs click) */
   hasMoved: boolean;
+  /** Keep the final preview visible while confirmation or the write is pending. */
+  isCommitting: boolean;
 }
 
 export interface DragOverrides {
   top: number;
   height: number;
   dayIndex: number;
+}
+
+export interface EventTimeChangeHandler {
+  (eventId: string, newStart: Date, newEnd: Date): void | PromiseLike<void>;
 }
 
 export interface UseEventDragOptions {
@@ -55,7 +61,7 @@ export interface UseEventDragOptions {
   /** Days array (for week view cross-day dragging) */
   days?: Date[];
   /** Called when drag completes with new start/end times */
-  onEventTimeChange: (eventId: string, newStart: Date, newEnd: Date) => void;
+  onEventTimeChange: EventTimeChangeHandler;
   /** All events (to find the event being dragged) */
   events: CalendarEvent[];
   /** IANA timezone used by the visible calendar grid */
@@ -171,6 +177,7 @@ export function useEventDrag({
         currentHeight: originalHeight,
         currentDayIndex: dayIndex,
         hasMoved: false,
+        isCommitting: false,
       };
 
       dragStateRef.current = state;
@@ -261,7 +268,7 @@ export function useEventDrag({
 
   const onPointerMove = useCallback(
     (e: PointerEvent) => {
-      if (!dragStateRef.current) return;
+      if (!dragStateRef.current || dragStateRef.current.isCommitting) return;
       pendingMoveEventRef.current = e;
       if (rafIdRef.current === null) {
         rafIdRef.current = requestAnimationFrame(flushPendingMove);
@@ -280,11 +287,14 @@ export function useEventDrag({
     pendingMoveEventRef.current = null;
     const state = dragStateRef.current;
     if (pending && state) {
-      dragStateRef.current = computeNextDragState(state, pending);
+      const updated = computeNextDragState(state, pending);
+      dragStateRef.current = updated;
+      setDragState(updated);
     }
   }, [computeNextDragState]);
 
   const onPointerUp = useCallback(() => {
+    if (dragStateRef.current?.isCommitting) return;
     flushAndCancelPendingMove();
     const state = dragStateRef.current;
     if (!state) return;
@@ -339,7 +349,30 @@ export function useEventDrag({
       const newStart = new Date(toZonedIso(startTotalMinutes));
       const newEnd = new Date(toZonedIso(endTotalMinutes));
 
-      onEventTimeChange(state.eventId, newStart, newEnd);
+      let completion: void | PromiseLike<void>;
+      try {
+        completion = onEventTimeChange(state.eventId, newStart, newEnd);
+      } catch (error) {
+        dragStateRef.current = null;
+        setDragState(null);
+        throw error;
+      }
+
+      if (
+        completion &&
+        typeof (completion as PromiseLike<void>).then === "function"
+      ) {
+        const committingState = { ...state, isCommitting: true };
+        dragStateRef.current = committingState;
+        setDragState(committingState);
+        const clearPreview = () => {
+          if (dragStateRef.current !== committingState) return;
+          dragStateRef.current = null;
+          setDragState(null);
+        };
+        void Promise.resolve(completion).then(clearPreview, clearPreview);
+        return;
+      }
     }
 
     dragStateRef.current = null;
@@ -365,7 +398,7 @@ export function useEventDrag({
 
   // Attach global listeners when dragging
   useEffect(() => {
-    if (!dragState) return;
+    if (!dragState || dragState.isCommitting) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();

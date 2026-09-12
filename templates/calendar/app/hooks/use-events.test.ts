@@ -5,7 +5,9 @@ import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
+  removeCalendarEventsForScope,
   removeOptimisticCalendarEventFromList,
+  restoreMissingCalendarEvents,
 } from "./event-list-cache";
 import {
   findEventByCurrentOrReplacedId,
@@ -121,6 +123,64 @@ describe("calendar event list cache helpers", () => {
     );
 
     expect(next?.map((event) => event.id)).toEqual(["event-3"]);
+  });
+
+  it("optimistically removes a recurring event at the selected scope", () => {
+    const past = calendarEvent({
+      id: "past",
+      recurringEventId: "series-1",
+      start: "2026-05-15T16:00:00.000Z",
+    });
+    const target = calendarEvent({
+      id: "target",
+      recurringEventId: "series-1",
+      start: "2026-05-22T16:00:00.000Z",
+    });
+    const future = calendarEvent({
+      id: "future",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const otherSeries = calendarEvent({
+      id: "other-series",
+      recurringEventId: "series-2",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const events = [past, target, future, otherSeries];
+
+    expect(
+      removeCalendarEventsForScope(events, target.id, "single")?.map(
+        (event) => event.id,
+      ),
+    ).toEqual(["past", "future", "other-series"]);
+    expect(
+      removeCalendarEventsForScope(events, target.id, "thisAndFollowing")?.map(
+        (event) => event.id,
+      ),
+    ).toEqual(["past", "other-series"]);
+    expect(
+      removeCalendarEventsForScope(events, target.id, "all")?.map(
+        (event) => event.id,
+      ),
+    ).toEqual(["other-series"]);
+  });
+
+  it("rolls back only missing deleted events without overwriting newer cache data", () => {
+    const removed = calendarEvent({ id: "target", title: "Original" });
+    const updated = calendarEvent({ id: "target", title: "Updated" });
+    const other = calendarEvent({ id: "other" });
+
+    expect(restoreMissingCalendarEvents([other], [removed])).toEqual([
+      other,
+      removed,
+    ]);
+    expect(restoreMissingCalendarEvents([updated, other], [removed])).toEqual([
+      updated,
+      other,
+    ]);
+    expect(restoreMissingCalendarEvents(undefined, [removed])).toEqual([
+      removed,
+    ]);
   });
 
   it("optimistically updates the event and self attendee RSVP status", () => {

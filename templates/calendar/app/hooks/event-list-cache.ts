@@ -62,11 +62,10 @@ export function removeOptimisticCalendarEventFromList(
 }
 
 function sameRecurringSeries(event: CalendarEvent, target: CalendarEvent) {
-  if (!target.recurringEventId) return false;
-  return event.recurringEventId === target.recurringEventId;
+  return event.recurringEventId === (target.recurringEventId ?? target.id);
 }
 
-function shouldApplyRsvpToEvent(
+function shouldApplyToEventInScope(
   event: CalendarEvent,
   target: CalendarEvent,
   scope: RsvpScope,
@@ -81,6 +80,33 @@ function shouldApplyRsvpToEvent(
     return false;
   }
   return eventStart >= targetStart;
+}
+
+export function removeCalendarEventsForScope(
+  old: CalendarEvent[] | undefined,
+  targetId: string,
+  scope: RsvpScope = "single",
+) {
+  if (!old) return old;
+  const target = old.find((event) => event.id === targetId);
+  if (!target) return old;
+
+  return old.filter(
+    (event) => !shouldApplyToEventInScope(event, target, scope),
+  );
+}
+
+export function restoreMissingCalendarEvents(
+  current: CalendarEvent[] | undefined,
+  removed: CalendarEvent[],
+) {
+  if (removed.length === 0) return current;
+  if (!current) return sortCalendarEvents(removed);
+  const currentIds = new Set(current.map((event) => event.id));
+  const missing = removed.filter((event) => !currentIds.has(event.id));
+  return missing.length > 0
+    ? sortCalendarEvents([...current, ...missing])
+    : current;
 }
 
 function isSelfAttendee(
@@ -130,7 +156,7 @@ export function applyCalendarEventRsvp(
   if (!target) return old;
 
   return old.map((event) =>
-    shouldApplyRsvpToEvent(event, target, scope)
+    shouldApplyToEventInScope(event, target, scope)
       ? applyRsvpStatus(event, status, accountEmail, note)
       : event,
   );

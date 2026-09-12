@@ -29,7 +29,9 @@ import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
+  removeCalendarEventsForScope,
   removeOptimisticCalendarEventFromList,
+  restoreMissingCalendarEvents,
 } from "./event-list-cache";
 
 type CreateEventInput = Omit<
@@ -71,6 +73,9 @@ type CreateEventMutationContext = EventListMutationContext & {
 };
 type RsvpEventMutationContext = EventListMutationContext & {
   previousEvent?: CalendarEvent;
+};
+type DeleteEventMutationContext = {
+  removedByQuery?: Array<[QueryKey, CalendarEvent[]]>;
 };
 
 type UpdateEventResult = Partial<CalendarEvent> & {
@@ -618,24 +623,29 @@ export function useDeleteEvent() {
       notificationMessage?: string;
     }
   >("delete-event", {
-    onMutate: async ({ id }) => {
+    onMutate: async ({ id, scope }) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
-      queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["action", "list-events"] },
-        (old) => old?.filter((e) => e.id !== id),
-      );
-      return { previous };
+      const removedByQuery: Array<[QueryKey, CalendarEvent[]]> = [];
+      for (const [key, old] of previous) {
+        const next = removeCalendarEventsForScope(old, id, scope);
+        const retainedIds = new Set(next?.map((event) => event.id) ?? []);
+        const removed =
+          old?.filter((event) => !retainedIds.has(event.id)) ?? [];
+        if (removed.length > 0) removedByQuery.push([key, removed]);
+        if (next !== old) queryClient.setQueryData(key, next);
+      }
+      return { removedByQuery };
     },
     onError: (_err, _vars, context) => {
-      const previous = (context as EventListMutationContext | undefined)
-        ?.previous;
-      if (previous) {
-        for (const [key, data] of previous) {
-          queryClient.setQueryData(key, data);
-        }
+      const removedByQuery = (context as DeleteEventMutationContext | undefined)
+        ?.removedByQuery;
+      for (const [key, removed] of removedByQuery ?? []) {
+        queryClient.setQueryData<CalendarEvent[]>(key, (current) =>
+          restoreMissingCalendarEvents(current, removed),
+        );
       }
     },
     onSettled: () => {

@@ -15,7 +15,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useEventDrag } from "@/hooks/use-event-drag";
+import {
+  useEventDrag,
+  type EventTimeChangeHandler,
+} from "@/hooks/use-event-drag";
 import { useGridCreateDrag } from "@/hooks/use-grid-create-drag";
 import {
   useViewPreferences,
@@ -61,7 +64,7 @@ interface DayViewProps {
   date: Date;
   timezone?: string;
   onDeleteEvent: (eventId: string) => void;
-  onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
+  onEventTimeChange?: EventTimeChangeHandler;
   onClickTimeSlot?: (
     date: Date,
     startTime: string,
@@ -655,7 +658,7 @@ export const DayView = memo(function DayView({
   // Drag-to-move and drag-to-resize
   const handleEventTimeChange = useCallback(
     (eventId: string, newStart: Date, newEnd: Date) => {
-      onEventTimeChange?.(eventId, newStart, newEnd);
+      return onEventTimeChange?.(eventId, newStart, newEnd);
     },
     [onEventTimeChange],
   );

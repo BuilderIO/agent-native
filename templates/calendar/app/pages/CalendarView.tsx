@@ -111,6 +111,7 @@ import {
   resolveEventTimezone,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
+import { isCalendarShortcutSuppressedTarget } from "@/lib/keyboard-shortcuts";
 import { getLocationSuggestions } from "@/lib/location-suggestions";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -1394,25 +1395,21 @@ export default function CalendarView() {
           : t("calendarView.updatingEvent"),
       );
 
-      updateEvent.mutate(
-        {
+      try {
+        await updateEvent.mutateAsync({
           id: eventId,
           accountEmail: event.accountEmail,
           ...updates,
           ...guestNotification,
-        },
-        {
-          onSuccess: () => {
-            setUndoAction(undo);
-            toast.success(t("calendarView.eventUpdated"), {
-              id: toastId,
-              action: { label: t("calendarView.undo"), onClick: undo },
-            });
-          },
-          onError: () =>
-            toast.error(t("calendarView.failedUpdateEvent"), { id: toastId }),
-        },
-      );
+        });
+        setUndoAction(undo);
+        toast.success(t("calendarView.eventUpdated"), {
+          id: toastId,
+          action: { label: t("calendarView.undo"), onClick: undo },
+        });
+      } catch {
+        toast.error(t("calendarView.failedUpdateEvent"), { id: toastId });
+      }
     },
     [
       displayTimezone,
@@ -1722,27 +1719,18 @@ export default function CalendarView() {
     [defaultAccountEmail, discardDraftEvent, events, deleteEvent],
   );
 
-  // IconKeyboard shortcuts — don't fire when user is typing in an input
-  const isTypingInInput = useCallback((e: KeyboardEvent) => {
-    const target = e.target as HTMLElement;
-    return (
-      target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.isContentEditable
-    );
-  }, []);
-
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+K / Ctrl+K — always open command palette
+      if (isCalendarShortcutSuppressedTarget(e.target)) return;
+
+      // Cmd+K / Ctrl+K — open the command palette from the calendar surface.
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         openCommandPalette();
         return;
       }
 
-      // Skip all other shortcuts when typing or when a dialog is open
-      if (isTypingInInput(e)) return;
+      // Skip calendar-specific shortcuts while a page-owned dialog is open.
       if (createDialogOpen || deleteDialogEvent) return;
 
       // Delete/Backspace — delete the selected event
@@ -1840,7 +1828,6 @@ export default function CalendarView() {
   }, [
     createDialogOpen,
     deleteDialogEvent,
-    isTypingInInput,
     openCommandPalette,
     viewMode,
     selectedDate,
