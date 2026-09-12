@@ -664,7 +664,8 @@ const messages = {
       revealedLocalFile: "顯示本機檔案",
       searchNotionPages: "搜尋概念頁面...",
       setUpNotion: "樹立觀念",
-      setUpNotionFirst: "首先在側邊欄中設定 Notion - 點選 Notion 圖示。",
+      setUpNotionFirst:
+        "首先設定 Notion - 開啟設定，然後開啟 Integrations，連線 Notion。",
       setUpNotionToSync: "設定 Notion 來同步此檔案。",
       pasteNotionPageUrlOrId: "貼上 Notion 頁面 URL 或頁面 ID。",
       pasteNotionPageUrlOrIdToLink:

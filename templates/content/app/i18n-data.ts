@@ -2978,7 +2978,7 @@ const editorToolbarMessages = {
   searchNotionPages: "Search Notion pages...",
   setUpNotion: "Set up Notion",
   setUpNotionFirst:
-    "Set up Notion in the sidebar first - click the Notion icon.",
+    "Set up Notion first - open Settings, then Integrations, and connect Notion.",
   setUpNotionToSync: "Set up Notion to sync this document.",
   pasteNotionPageUrlOrId: "Paste a Notion page URL or page ID.",
   pasteNotionPageUrlOrIdToLink:
@@ -6456,7 +6456,8 @@ const editorMessagesByLocale = {
       revealedLocalFile: "显示本地文件",
       searchNotionPages: "搜索概念页面...",
       setUpNotion: "树立观念",
-      setUpNotionFirst: "首先在侧边栏中设置 Notion - 单击 Notion 图标。",
+      setUpNotionFirst:
+        "首先设置 Notion - 打开设置，然后打开 Integrations，连接 Notion。",
       setUpNotionToSync: "设置 Notion 来同步此文档。",
       share: "分享",
       shareableCopyReady: "可共享副本已准备就绪",
@@ -6847,7 +6848,7 @@ const editorMessagesByLocale = {
       searchNotionPages: "Buscar páginas de Notion...",
       setUpNotion: "Configurar noción",
       setUpNotionFirst:
-        "Primero configure Notion en la barra lateral: haga clic en el icono de Notion.",
+        "Primero configure Notion - abra Ajustes, luego Integrations, y conecte Notion.",
       setUpNotionToSync: "Configure Notion para sincronizar este documento.",
       share: "Compartir",
       shareableCopyReady: "Copia compartible lista",
@@ -7245,7 +7246,7 @@ const editorMessagesByLocale = {
       searchNotionPages: "Rechercher des pages de notions...",
       setUpNotion: "Configurer Notion",
       setUpNotionFirst:
-        "Configurez d'abord Notion dans la barre latérale - cliquez sur l'icône Notion.",
+        "Configurez d'abord Notion - ouvrez Paramètres, puis Integrations, et connectez Notion.",
       setUpNotionToSync: "Configurez Notion pour synchroniser ce document.",
       share: "Partager",
       shareableCopyReady: "Copie partageable prête",
@@ -7645,7 +7646,7 @@ const editorMessagesByLocale = {
       searchNotionPages: "Notion-Seiten durchsuchen...",
       setUpNotion: "Konzept einrichten",
       setUpNotionFirst:
-        "Richten Sie Notion zunächst in der Seitenleiste ein – klicken Sie auf das Notion-Symbol.",
+        "Richten Sie Notion zunächst ein – öffnen Sie die Einstellungen, dann Integrations, und verbinden Sie Notion.",
       setUpNotionToSync:
         "Richten Sie Notion ein, um dieses Dokument zu synchronisieren.",
       share: "Teilen",
@@ -8036,7 +8037,7 @@ const editorMessagesByLocale = {
       searchNotionPages: "Notion ページを検索...",
       setUpNotion: "概念をセットアップする",
       setUpNotionFirst:
-        "まずサイドバーで Notion をセットアップします。Notion アイコンをクリックします。",
+        "まず Notion をセットアップします。設定を開き、Integrations で Notion を接続します。",
       setUpNotionToSync:
         "このドキュメントを同期するように Notion をセットアップします。",
       share: "シェアする",
@@ -8425,7 +8426,7 @@ const editorMessagesByLocale = {
       searchNotionPages: "Notion 페이지 검색...",
       setUpNotion: "노션 설정",
       setUpNotionFirst:
-        "먼저 사이드바에서 Notion을 설정하세요. Notion 아이콘을 클릭하세요.",
+        "먼저 Notion을 설정하세요. 설정을 열고 Integrations에서 Notion을 연결하세요.",
       setUpNotionToSync: "이 문서를 동기화하려면 Notion을 설정하세요.",
       share: "공유",
       shareableCopyReady: "공유 가능한 사본 준비됨",
@@ -8820,7 +8821,7 @@ const editorMessagesByLocale = {
       searchNotionPages: "Pesquisar páginas de noção...",
       setUpNotion: "Configurar noção",
       setUpNotionFirst:
-        "Configure primeiro o Notion na barra lateral - clique no ícone do Notion.",
+        "Configure primeiro o Notion - abra Configurações, depois Integrations, e conecte o Notion.",
       setUpNotionToSync: "Configure o Notion para sincronizar este documento.",
       share: "Compartilhar",
       shareableCopyReady: "Cópia compartilhável pronta",
@@ -9204,7 +9205,8 @@ const editorMessagesByLocale = {
       revealedLocalFile: "स्थानीय फ़ाइल का खुलासा",
       searchNotionPages: "धारणा पृष्ठ खोजें...",
       setUpNotion: "धारणा स्थापित करें",
-      setUpNotionFirst: "सबसे पहले साइडबार में नोशन सेट करें - नोशन आइकन पर क्लिक करें।",
+      setUpNotionFirst:
+        "सबसे पहले नोशन सेट करें - सेटिंग्स खोलें, फिर Integrations खोलें, और नोशन कनेक्ट करें।",
       setUpNotionToSync: "इस दस्तावेज़ को सिंक करने के लिए नोशन सेट करें।",
       share: "साझा करें",
       shareableCopyReady: "साझा करने योग्य प्रति तैयार",
@@ -9588,7 +9590,7 @@ const editorMessagesByLocale = {
       searchNotionPages: "بحث في صفحات الفكرة...",
       setUpNotion: "إعداد الفكرة",
       setUpNotionFirst:
-        "قم بإعداد Notion في الشريط الجانبي أولاً - انقر فوق أيقونة Notion.",
+        "قم بإعداد Notion أولاً - افتح الإعدادات، ثم Integrations، وقم بالاتصال بـ Notion.",
       setUpNotionToSync: "قم بإعداد Notion لمزامنة هذا المستند.",
       share: "شارك",
       shareableCopyReady: "نسخة قابلة للمشاركة جاهزة",

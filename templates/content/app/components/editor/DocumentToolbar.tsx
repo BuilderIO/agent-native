@@ -4,6 +4,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
@@ -910,8 +911,8 @@ export function DocumentToolbar({
   );
 
   const handleSetup = () => {
-    toast.info(t("editor.toolbar.setUpNotionFirst"));
     setOpen(false);
+    void navigate(buildSettingsRoute("integrations"));
   };
 
   const handleExport = useCallback(
