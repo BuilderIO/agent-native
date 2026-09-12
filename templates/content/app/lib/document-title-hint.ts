@@ -70,8 +70,7 @@ export function resolveOptimisticDocumentTitle(args: {
   lastLocation: LandingTitleHint | null | undefined;
   cachedTitle?: string | null;
 }): string | null {
-  const usable = (title: string | null | undefined) =>
-    typeof title === "string" && title.trim() ? title : null;
+  const usable = usableTitle;
   if (args.documentId) {
     if (args.stashed?.documentId === args.documentId) {
       const title = usable(args.stashed.title);
