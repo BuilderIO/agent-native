@@ -17,6 +17,8 @@ const ASSETS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-libraries",
+  "match-library",
+  "list-templates",
   "list-assets",
   "search-assets",
   "get-asset",
@@ -27,7 +29,6 @@ const INITIAL_TOOL_NAMES = [
   "refine-image",
   "save-generated-asset",
   "export-asset",
-  "create-library",
   "create-collection",
   "open-asset-picker",
   "navigate",

@@ -2177,6 +2177,25 @@ describe("createProductionAgentHandler", () => {
       }),
     );
   });
+
+  it("terminalizes a preclaimed row when turn persistence fails", () => {
+    const source = readFileSync(
+      new URL("./production-agent.ts", import.meta.url),
+      "utf8",
+    );
+    const preparation = source.slice(
+      source.indexOf("if (options.onRunPrepared"),
+      source.indexOf("// ─── Durable-background dispatch decision"),
+    );
+
+    expect(preparation).toContain("await options.onRunPrepared");
+    expect(preparation).toContain("if (foregroundRunRowInserted)");
+    expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
+    expect(preparation).toContain(
+      'setRunTerminalReason(runId, "run_preparation_failed")',
+    );
+    expect(preparation).toContain("throw error");
+  });
 });
 
 describe("filterActionsByAllowedNames", () => {
