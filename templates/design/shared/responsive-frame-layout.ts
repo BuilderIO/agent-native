@@ -79,6 +79,51 @@ export function getScreenPreviewViewport(
   };
 }
 
+/** Rotates the right-extended preview group around its primary frame center. */
+export function getResponsiveGroupRotatedBounds({
+  x,
+  y,
+  primaryWidth,
+  primaryHeight,
+  groupWidth,
+  groupHeight,
+  rotation,
+}: {
+  x: number;
+  y: number;
+  primaryWidth: number;
+  primaryHeight: number;
+  groupWidth: number;
+  groupHeight: number;
+  rotation: number;
+}): { x: number; y: number; width: number; height: number } {
+  const radians = (rotation * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const pivotX = x + primaryWidth / 2;
+  const pivotY = y + primaryHeight / 2;
+  const corners = [
+    { x, y },
+    { x: x + groupWidth, y },
+    { x, y: y + groupHeight },
+    { x: x + groupWidth, y: y + groupHeight },
+  ].map((point) => {
+    const dx = point.x - pivotX;
+    const dy = point.y - pivotY;
+    return {
+      x: pivotX + dx * cosine - dy * sine,
+      y: pivotY + dx * sine + dy * cosine,
+    };
+  });
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
 export function getResponsiveBreakpointWidths(value: unknown): number[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
   const breakpoints = (value as Record<string, unknown>).breakpoints;

@@ -196,6 +196,24 @@ describe("responsive overview group layout", () => {
     expect(group.height).toBeGreaterThan(320);
   });
 
+  it("keeps the rotated right-extended preview inside cull bounds", () => {
+    const group = getResponsiveScreenCullGeometry(
+      {
+        id: "s1",
+        metadata: { width: 1440, height: 900 },
+        breakpointWidths: [390],
+      },
+      { x: 0, y: 0, width: 768, height: 1024, rotation: 90 },
+      () => 2200,
+    );
+
+    expect(group.x).toBeCloseTo(-1304);
+    expect(group.y).toBeCloseTo(128);
+    expect(group.width).toBeCloseTo(2200);
+    expect(group.height).toBeCloseTo(1182);
+    expect(group.rotation).toBeUndefined();
+  });
+
   it("self-heals persisted legacy lineup coordinates without moving custom layouts", () => {
     const legacy = {
       "variation-1": { x: 0, y: 0, width: 320, height: 200 },

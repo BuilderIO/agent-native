@@ -246,7 +246,7 @@ describe("nextFreeCanvasRowY", () => {
           breakpointWidths: [390, 768, 1440],
         },
       }),
-    ).toBeCloseTo(96 + 844 / 2 + responsiveWidth / 2);
+    ).toBeCloseTo(96 + 844 / 2 + responsiveWidth - 390 / 2);
   });
 
   it("reserves measured tall breakpoint heights when placing the next row", () => {
@@ -288,6 +288,27 @@ describe("nextFreeCanvasRowY", () => {
         },
       ),
     ).toBe(2200 + 96);
+  });
+
+  it("clears rotated responsive previews around the primary frame pivot", () => {
+    expect(
+      nextFreeCanvasRowY(
+        { tablet: { x: 0, y: 0, width: 768, height: 1024, rotation: 90 } },
+        96,
+        {
+          responsiveLayout: {
+            screenMetadataByFileId: {
+              tablet: {
+                width: 1440,
+                height: 900,
+                breakpointHeights: { "390": 2200 },
+              },
+            },
+            breakpointWidths: [390],
+          },
+        },
+      ),
+    ).toBe(1310 + 96);
   });
 
   it("ignores the frames being rewritten so a re-run stays put", () => {

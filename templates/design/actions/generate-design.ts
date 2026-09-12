@@ -59,6 +59,7 @@ import {
   getResponsiveBreakpointHeightPx,
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
   getResponsiveGroupWidth,
   getScreenPreviewViewport,
   visibleBreakpointWidths,
@@ -1160,20 +1161,15 @@ const generateDesignAction = defineAction({
           if (!rotation || width <= 0 || height <= 0) {
             return { x, y, width: groupWidth, height: groupHeight };
           }
-          // Existing frames render rotated about their center; use the rotated
-          // rect's axis-aligned bounding box so a new screen isn't dropped over
-          // a rotated frame's real footprint.
-          const radians = (rotation * Math.PI) / 180;
-          const cos = Math.abs(Math.cos(radians));
-          const sin = Math.abs(Math.sin(radians));
-          const aabbWidth = groupWidth * cos + groupHeight * sin;
-          const aabbHeight = groupWidth * sin + groupHeight * cos;
-          return {
-            x: x + width / 2 - aabbWidth / 2,
-            y: y + height / 2 - aabbHeight / 2,
-            width: aabbWidth,
-            height: aabbHeight,
-          };
+          return getResponsiveGroupRotatedBounds({
+            x,
+            y,
+            primaryWidth: width,
+            primaryHeight: height,
+            groupWidth,
+            groupHeight,
+            rotation,
+          });
         };
         const framesOverlap = (
           a: ReturnType<typeof rectOf>,

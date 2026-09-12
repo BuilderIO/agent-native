@@ -3,11 +3,11 @@ import {
   BREAKPOINT_FRAME_GAP,
   deviceViewportFloorForWidth,
   getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
   getResponsiveGroupWidth,
   getScreenPreviewViewport,
   visibleBreakpointWidths,
-} from "@shared/responsive-frame-layout";
-
+} from "../../../../shared/responsive-frame-layout";
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
@@ -115,40 +115,17 @@ export function getResponsiveScreenCullGeometry(
     };
   }
 
-  const radians = (rotation * Math.PI) / 180;
-  const cosine = Math.cos(radians);
-  const sine = Math.sin(radians);
-  const pivot = {
-    x: primaryGeometry.x + primaryGeometry.width / 2,
-    y: primaryGeometry.y + primaryGeometry.height / 2,
-  };
-  const corners = [
-    { x: primaryGeometry.x, y: primaryGeometry.y },
-    { x: primaryGeometry.x + size.width, y: primaryGeometry.y },
-    { x: primaryGeometry.x, y: primaryGeometry.y + size.height },
-    {
-      x: primaryGeometry.x + size.width,
-      y: primaryGeometry.y + size.height,
-    },
-  ].map((point) => {
-    const dx = point.x - pivot.x;
-    const dy = point.y - pivot.y;
-    return {
-      x: pivot.x + dx * cosine - dy * sine,
-      y: pivot.y + dx * sine + dy * cosine,
-    };
+  const bounds = getResponsiveGroupRotatedBounds({
+    x: primaryGeometry.x,
+    y: primaryGeometry.y,
+    primaryWidth: primaryGeometry.width,
+    primaryHeight: primaryGeometry.height,
+    groupWidth: size.width,
+    groupHeight: size.height,
+    rotation,
   });
-  const xs = corners.map((point) => point.x);
-  const ys = corners.map((point) => point.y);
-  const left = Math.min(...xs);
-  const right = Math.max(...xs);
-  const top = Math.min(...ys);
-  const bottom = Math.max(...ys);
   return {
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
+    ...bounds,
     rotation: undefined,
     z: primaryGeometry.z,
   };

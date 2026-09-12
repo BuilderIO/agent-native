@@ -2,6 +2,7 @@ import { getRotatedFrameCorners } from "./canvas-math.js";
 import {
   getResponsiveBreakpointHeightPx,
   getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
   getResponsiveGroupWidth,
   getScreenPreviewViewport,
   MAX_SANE_FRAME_DIMENSION_PX,
@@ -293,11 +294,16 @@ export function nextFreeCanvasRowY(
     if (!rotation) {
       frameBottom = y + paintedHeight;
     } else if (responsiveLayout) {
-      const radians = (rotation * Math.PI) / 180;
-      const rotatedHeight =
-        paintedWidth * Math.abs(Math.sin(radians)) +
-        paintedHeight * Math.abs(Math.cos(radians));
-      frameBottom = y + height / 2 + rotatedHeight / 2;
+      const bounds = getResponsiveGroupRotatedBounds({
+        x,
+        y,
+        primaryWidth,
+        primaryHeight,
+        groupWidth: paintedWidth,
+        groupHeight: paintedHeight,
+        rotation,
+      });
+      frameBottom = bounds.y + bounds.height;
     } else if (Number.isFinite(x) && Number.isFinite(width)) {
       frameBottom = Math.max(
         ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(

@@ -1194,7 +1194,7 @@ describe("generate-design: new screens never stack on existing frames", () => {
     );
   });
 
-  it("reserves full-scale breakpoints when regeneration changes aspect ratio", async () => {
+  it("reserves rotated breakpoints around the primary after an aspect-changing regeneration", async () => {
     setExistingFile("<html><body>old</body></html>");
     mocks.setDesignData({
       screenMetadata: {
@@ -1205,7 +1205,13 @@ describe("generate-design: new screens never stack on existing frames", () => {
         },
       },
       canvasFrames: {
-        "file-1": { x: 0, y: 0, width: 1440, height: 900 },
+        "file-1": {
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          rotation: -90,
+        },
       },
     });
 
@@ -1229,14 +1235,18 @@ describe("generate-design: new screens never stack on existing frames", () => {
 
     const frames = mocks.getDesignData().canvasFrames as Record<
       string,
-      { x: number; width: number; height: number }
+      { x: number; width: number; height: number; rotation?: number }
     >;
     const newFile = result.savedFiles.find(
       (file) => file.filename === "details.html",
     );
     expect(newFile).toBeDefined();
-    expect(frames["file-1"]).toMatchObject({ width: 768, height: 1024 });
-    expect(frames[newFile!.id]?.x).toBeCloseTo(768 + 24 + 390 + 96);
+    expect(frames["file-1"]).toMatchObject({
+      width: 768,
+      height: 1024,
+      rotation: -90,
+    });
+    expect(frames[newFile!.id]?.x).toBeCloseTo(2072 + 96);
   });
 });
 
