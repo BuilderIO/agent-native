@@ -185,6 +185,21 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 
+  it("prefills the search from the q URL parameter", async () => {
+    window.history.replaceState({}, "", "/settings/integrations?q=Notion");
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    expect(search?.value).toBe("Notion");
+    // The mock catalog has no Notion entry, so the filter empties the list.
+    expect(container.textContent).not.toContain("Context7");
+  });
+
   it("keeps connected integrations searchable", async () => {
     integrationMocks.useIntegrationStatus.mockReturnValue({
       statuses: [

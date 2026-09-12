@@ -912,7 +912,7 @@ export function DocumentToolbar({
 
   const handleSetup = () => {
     setOpen(false);
-    void navigate(buildSettingsRoute("integrations"));
+    void navigate(`${buildSettingsRoute("integrations")}?q=Notion`);
   };
 
   const handleExport = useCallback(
@@ -1315,12 +1315,7 @@ export function DocumentToolbar({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className={cn(
-                          "flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                          isLinked
-                            ? "text-foreground"
-                            : "text-muted-foreground",
-                        )}
+                        className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
                       >
                         <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
                           {hasConflict ? (
