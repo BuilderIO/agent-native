@@ -25,8 +25,8 @@ export function timeValueToMinutes(value: string): number | null {
 }
 
 export function minutesToTimeValue(minutes: number): string {
-  const normalized = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) %
-    MINUTES_PER_DAY;
+  const normalized =
+    ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const hour = Math.floor(normalized / 60);
   return `${String(hour).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
 }
@@ -112,9 +112,10 @@ export function buildTimeOptions({
       const slotMinutes = timeValueToMinutes(slot);
       return slotMinutes !== null && slotMinutes > afterMinutes;
     });
-    options = pivot <= 0
-      ? [...TIME_SLOTS]
-      : [...TIME_SLOTS.slice(pivot), ...TIME_SLOTS.slice(0, pivot)];
+    options =
+      pivot <= 0
+        ? [...TIME_SLOTS]
+        : [...TIME_SLOTS.slice(pivot), ...TIME_SLOTS.slice(0, pivot)];
   }
   return options.includes(value) ? options : [value, ...options];
 }
@@ -159,7 +160,11 @@ export function applyEndTimeChange(
   if (start === null || end === null) return next;
   if (end > start) return next;
 
-  const rolled = addMinutesToTimeValue(next.endDate, nextEndTime, MINUTES_PER_DAY);
+  const rolled = addMinutesToTimeValue(
+    next.endDate,
+    nextEndTime,
+    MINUTES_PER_DAY,
+  );
   if (!rolled) return next;
   return { ...next, endDate: rolled.date };
 }

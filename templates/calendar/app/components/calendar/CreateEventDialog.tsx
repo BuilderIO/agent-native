@@ -34,11 +34,6 @@ import {
   RepeatPicker,
   TimePickerPopover,
 } from "@/components/calendar/InlineEventPickers";
-import {
-  applyEndTimeChange,
-  eventDurationMinutes,
-  shiftEndForStartChange,
-} from "@/lib/event-time-range";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import {
@@ -108,6 +103,11 @@ import {
   eventPopoverHeaderTitle,
   eventPopoverShell,
 } from "@/lib/event-popover-style";
+import {
+  applyEndTimeChange,
+  eventDurationMinutes,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";

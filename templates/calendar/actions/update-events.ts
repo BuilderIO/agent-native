@@ -18,6 +18,7 @@ import {
   normalizeWritableGoogleEventId,
   requireActionUserEmail,
   requireExplicitBound,
+  validateEventTimeOrder,
   resolveOwnedAccountEmail,
   startsWithinRange,
   undeletableEventReason,
@@ -119,6 +120,9 @@ export default defineAction({
       (args.start !== undefined || args.end !== undefined)
     ) {
       throw new Error("Pass either shiftMinutes or start/end, not both.");
+    }
+    if (args.start !== undefined && args.end !== undefined) {
+      validateEventTimeOrder({ start: args.start, end: args.end });
     }
 
     const weekdays = normalizeWeekdays(args.daysOfWeek);

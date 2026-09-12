@@ -101,11 +101,6 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import {
-  applyEndTimeChange,
-  eventDurationMinutes,
-  shiftEndForStartChange,
-} from "@/lib/event-time-range";
-import {
   eventPopoverDivider,
   eventPopoverHeader,
   eventPopoverHeaderButton,
@@ -114,6 +109,11 @@ import {
   eventPopoverShell,
   eventPopoverWidth,
 } from "@/lib/event-popover-style";
+import {
+  applyEndTimeChange,
+  eventDurationMinutes,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import {
   createEventDetailPopoverToken,

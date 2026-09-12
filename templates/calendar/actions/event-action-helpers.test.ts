@@ -15,6 +15,7 @@ import {
   buildStatusEventFields,
   ensureOrganizerInAttendees,
   normalizeCreateEventInput,
+  validateEventTimeOrder,
   validateStatusEventTiming,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers";
@@ -433,5 +434,62 @@ describe("validateStatusEventTiming", () => {
         end: "2026-07-06",
       }),
     ).toThrow("end date must be after");
+  });
+});
+
+describe("validateEventTimeOrder", () => {
+  it("rejects a timed event that ends before it starts", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T09:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start");
+  });
+
+  it("rejects a zero-length timed event", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T13:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start");
+  });
+
+  it("allows a normal timed event", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T14:00:00.000Z",
+      }),
+    ).not.toThrow();
+  });
+
+  it("allows a timed event that crosses midnight", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        start: "2026-07-06T23:30:00.000Z",
+        end: "2026-07-07T00:30:00.000Z",
+      }),
+    ).not.toThrow();
+  });
+
+  it("leaves all-day spans to the status-event rules", () => {
+    expect(() =>
+      validateEventTimeOrder({
+        allDay: true,
+        start: "2026-07-06",
+        end: "2026-07-06",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateEventTimeOrder({ start: "2026-07-06", end: "2026-07-06" }),
+    ).not.toThrow();
+  });
+
+  it("fails loudly on an unparseable bound instead of passing it through", () => {
+    expect(() =>
+      validateEventTimeOrder({ start: "not-a-time", end: "also-not-a-time" }),
+    ).toThrow("must be valid timestamps");
   });
 });

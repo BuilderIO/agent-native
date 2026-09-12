@@ -94,7 +94,9 @@ describe("TimePickerPopover", () => {
     // The still-selected 9:30 AM only reappears after the midnight wrap.
     expect(
       optionLabels.findIndex((label) => label.includes("9:30 AM")),
-    ).toBeGreaterThan(optionLabels.findIndex((label) => label.includes("12 AM")));
+    ).toBeGreaterThan(
+      optionLabels.findIndex((label) => label.includes("12 AM")),
+    );
   });
 
   it("keeps the plain midnight list when no start anchor is given", () => {
