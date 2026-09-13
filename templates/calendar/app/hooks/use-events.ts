@@ -124,14 +124,6 @@ function getListEventsParams(
   return params as Record<string, string>;
 }
 
-function getEventQueryKey(id: string, calendarSourceKey?: string) {
-  return [
-    "action",
-    "get-event",
-    calendarSourceKey ? { id, calendarSourceKey } : { id },
-  ] as const;
-}
-
 export function getOptimisticTitleIsGenerated(
   input: Pick<CreateEventInput, "title" | "titleIsGenerated">,
 ): boolean {

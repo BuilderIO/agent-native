@@ -2212,7 +2212,6 @@ export default function CalendarView() {
           onConfirm={(options) => {
             if (!deleteDialogEvent) return;
             const snapshot = { ...deleteDialogEvent };
-            const eventId = deleteDialogEvent.id;
             const undo = () => {
               createEvent.mutate({
                 title: snapshot.title,
