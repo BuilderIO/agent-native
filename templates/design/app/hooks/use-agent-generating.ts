@@ -223,9 +223,13 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           return;
         }
         clearStopDebounce();
-        callbacksRef.current.onRunning?.(activeTabIdRef.current);
+        const tabId = activeTabIdRef.current;
+        callbacksRef.current.onRunning?.(tabId);
         setGenerating(true);
-        startGenerationTimeout(activeTabIdRef.current);
+        if (tabId) {
+          startGenerationTimeout(tabId);
+          startStatusPolling(tabId);
+        }
       }
     };
     window.addEventListener("agentNative.chatRunning", handler);
