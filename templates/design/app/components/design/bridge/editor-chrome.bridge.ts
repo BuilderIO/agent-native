@@ -3746,6 +3746,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var lastEditorPointWasBlocked = false;
 
   function clearRuntimeSelection(): void {
+    window.getSelection?.()?.removeAllRanges();
     selectedEl = null;
     clearHoverGate();
     setPassiveSelectionElements([]);
@@ -14802,25 +14803,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var startX = e.clientX;
     var startY = e.clientY;
     var didStartDrag = false;
-    // Only a click release descends into selected group text; drag starts keep
-    // the group target.
-    function selectTarget(target, ev?: MouseEvent, selectTextChild = false) {
+    function selectTarget(target, ev?: MouseEvent) {
       var previousSelectedEl = selectedEl;
-      if (
-        selectTextChild &&
-        target === previousSelectedEl &&
-        hit &&
-        previousSelectedEl.contains(hit)
-      ) {
-        var textTarget = findTextEditTarget(hit);
-        if (
-          textTarget &&
-          textTarget !== previousSelectedEl &&
-          hasOwnTextContent(textTarget)
-        ) {
-          target = textTarget;
-        }
-      }
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
       // A plain (non-shift) select on a fresh target collapses any prior
@@ -14889,7 +14873,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (cycledEl) {
         selectTarget(cycledEl);
       } else {
-        selectTarget(clickTarget || dragTarget, ev, true);
+        selectTarget(clickTarget || dragTarget, ev);
       }
       suppressNextShieldClickBriefly();
     }

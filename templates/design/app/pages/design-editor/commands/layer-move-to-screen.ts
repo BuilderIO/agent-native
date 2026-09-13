@@ -135,7 +135,6 @@ export function runLayerMoveToScreen(
       });
       return;
     }
-    const sourceFile = files.find((file) => file.id === draggedOwner.fileId);
     const sourceContent = getLayerMoveSourceContent({
       sourceFileId: draggedOwner.fileId,
       activeFileId: activeFile?.id,

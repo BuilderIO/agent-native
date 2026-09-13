@@ -3330,6 +3330,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var hiddenSelectors = [];
     var lastEditorPointWasBlocked = false;
     function clearRuntimeSelection() {
+      window.getSelection?.()?.removeAllRanges();
       selectedEl = null;
       clearHoverGate();
       setPassiveSelectionElements([]);
@@ -10771,14 +10772,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var didStartDrag = false;
-      function selectTarget(target, ev, selectTextChild = false) {
+      function selectTarget(target, ev) {
         var previousSelectedEl = selectedEl;
-        if (selectTextChild && target === previousSelectedEl && hit && previousSelectedEl.contains(hit)) {
-          var textTarget = findTextEditTarget(hit);
-          if (textTarget && textTarget !== previousSelectedEl && hasOwnTextContent(textTarget)) {
-            target = textTarget;
-          }
-        }
         selectedEl = target;
         positionOverlay(selectionOverlay, selectedEl);
         if (!ev?.shiftKey && passiveSelectionEls.length) {
@@ -10822,7 +10817,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (cycledEl) {
           selectTarget(cycledEl);
         } else {
-          selectTarget(clickTarget || dragTarget, ev, true);
+          selectTarget(clickTarget || dragTarget, ev);
         }
         suppressNextShieldClickBriefly();
       }

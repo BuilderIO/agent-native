@@ -2213,7 +2213,7 @@ it(
 );
 
 it(
-  "repeatedly clicking text inside a generated group selects its text layer",
+  "keeps a generated group selected on click and edits its text child on double-click",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -2282,10 +2282,7 @@ it(
         (window as any).__elementSelectPayloads.at(-1),
       );
 
-      expect(repeatedSelection.tagName).toBe("span");
-      expect(repeatedSelection.hasOwnText).toBe(true);
-      expect(repeatedSelection.pendingNodeId).toBeTruthy();
-      expect(isTextElement(repeatedSelection)).toBe(true);
+      expect(repeatedSelection.sourceId).toBe("headline");
 
       await page.mouse.dblclick(point.x, point.y);
       await page.waitForFunction(() =>
@@ -4462,6 +4459,47 @@ describe("editor chrome bridge — text editing session", () => {
           rangeCount: window.getSelection()?.rangeCount ?? 0,
         }));
         expect(state.editing).toBe(false);
+        expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "clears the native selection when the host deselects the text element",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          window.postMessage({ type: "clear-selection" }, "*");
+        });
+        await page.waitForFunction(
+          () => window.getSelection()?.rangeCount === 0,
+        );
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(true);
         expect(state.rangeCount).toBe(0);
         expect(pageErrors).toEqual([]);
       } finally {
