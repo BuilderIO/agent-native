@@ -1,5 +1,7 @@
 import type { CalendarEvent } from "@shared/api";
 
+import type { CalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
+
 type RsvpStatus = NonNullable<CalendarEvent["responseStatus"]>;
 type RsvpScope = "single" | "all" | "thisAndFollowing";
 
@@ -72,7 +74,10 @@ function sameOptionalIdentity(left?: string, right?: string) {
   return (left || undefined) === (right || undefined);
 }
 
-function sameCalendarSource(event: CalendarEvent, target: CalendarEvent) {
+function sameCalendarSource(
+  event: CalendarEvent,
+  target: CalendarEventSourceIdentity,
+) {
   if (event.source !== target.source) return false;
   if (
     !sameOptionalIdentity(event.sourceId, target.sourceId) ||
@@ -109,21 +114,33 @@ function matchesCalendarEventId(event: CalendarEvent, eventId: string) {
 export function findCalendarEventById(
   events: CalendarEvent[],
   eventId: string,
-  accountEmail?: string,
+  identityOrAccount?: CalendarEventSourceIdentity | string,
 ) {
-  const requestedEmail = normalizedEmail(accountEmail);
+  const identity =
+    typeof identityOrAccount === "string" ? undefined : identityOrAccount;
+  const requestedEmail = normalizedEmail(
+    typeof identityOrAccount === "string"
+      ? identityOrAccount
+      : identityOrAccount?.accountEmail,
+  );
   const candidates = events.filter(
     (event) =>
       matchesCalendarEventId(event, eventId) &&
       (!requestedEmail ||
         normalizedEmail(event.accountEmail) === requestedEmail),
   );
-  const first = candidates[0];
-  if (!first || candidates.some((event) => !sameCalendarSource(event, first))) {
+  const sourceMatches = identity
+    ? candidates.filter((event) => sameCalendarSource(event, identity))
+    : candidates;
+  const first = sourceMatches[0];
+  if (
+    !first ||
+    sourceMatches.some((event) => !sameCalendarSource(event, first))
+  ) {
     return undefined;
   }
 
-  return candidates.find((event) => event.id === eventId) ?? first;
+  return sourceMatches.find((event) => event.id === eventId) ?? first;
 }
 
 export function findCalendarEventForSelection(
@@ -298,10 +315,11 @@ export function applyCalendarEventRsvp(
   scope: RsvpScope = "single",
   accountEmail?: string,
   note?: string,
+  identity?: CalendarEventSourceIdentity,
 ) {
   if (!old) return old;
 
-  const target = findCalendarEventById(old, targetId, accountEmail);
+  const target = findCalendarEventById(old, targetId, identity ?? accountEmail);
   if (!target) return old;
 
   return old.map((event) =>

@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { withCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
 import { getDisplayDateInTimezone } from "@/lib/calendar-timezone";
 import { getEditableEventTitle } from "@/lib/event-form-utils";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
@@ -72,8 +73,8 @@ function buildEventDetailSlotContext(event: CalendarEvent) {
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
   onClose: () => void;
-  onDelete: (eventId: string) => void;
-  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  onDelete: (event: CalendarEvent) => void;
+  onTitleSave?: (event: CalendarEvent, title: string) => void;
   timezone?: string;
 }
 
@@ -218,12 +219,15 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onError: () => {
               lastSavedDescriptionRef.current = prev;
@@ -262,12 +266,15 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            targetAccountEmail,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              targetAccountEmail,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast.success(t("eventForm.eventUpdated")),
             onError: () => {
@@ -292,12 +299,15 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
+        withCalendarEventSourceIdentity(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          event,
+        ),
         {
           onSuccess: () => toast(t("eventForm.googleMeetAdded")),
           onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
@@ -320,12 +330,15 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
+        withCalendarEventSourceIdentity(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          event,
+        ),
         {
           onError: () => toast.error(t("eventForm.updateFailed")),
         },
@@ -357,12 +370,17 @@ export function EventDetailPanel({
           updates,
         });
         if (!guestNotification) return;
-        updateEvent.mutate({
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        });
+        updateEvent.mutate(
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
+        );
       })();
     },
     [event, promptGuestNotification, updateEvent],
@@ -371,9 +389,15 @@ export function EventDetailPanel({
   const handleSaveWorkingLocation = useCallback(
     (selection: WorkingLocationSelection) => {
       if (!event) return;
-      updateEvent.mutate(buildWorkingLocationUpdate(event, selection), {
-        onError: () => toast.error(t("calendarView.failedUpdateEvent")),
-      });
+      updateEvent.mutate(
+        withCalendarEventSourceIdentity(
+          buildWorkingLocationUpdate(event, selection),
+          event,
+        ),
+        {
+          onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+        },
+      );
     },
     [event, t, updateEvent],
   );
@@ -448,7 +472,7 @@ export function EventDetailPanel({
                           trimmed &&
                           trimmed !== getEditableEventTitle(event)
                         ) {
-                          onTitleSave?.(event.id, trimmed, event.accountEmail);
+                          onTitleSave?.(event, trimmed);
                         }
                         setIsEditingTitle(false);
                       } else if (e.key === "Escape") {
@@ -460,7 +484,7 @@ export function EventDetailPanel({
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                        onTitleSave?.(event.id, trimmed, event.accountEmail);
+                        onTitleSave?.(event, trimmed);
                       }
                       setIsEditingTitle(false);
                     }}
@@ -712,7 +736,7 @@ export function EventDetailPanel({
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => onDelete(event.id)}
+                    onClick={() => onDelete(event)}
                   >
                     <IconTrash className="mr-1.5 h-3.5 w-3.5" />
                     {t("eventForm.delete")}

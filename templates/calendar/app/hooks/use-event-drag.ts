@@ -12,10 +12,11 @@ import {
   getEventSegmentForCalendarDay,
 } from "@/lib/calendar-timezone";
 
+import { findCalendarEventForSelection } from "./event-list-cache";
+
 const SNAP_MINUTES = 15;
 
 interface DragState {
-  eventId: string;
   mode: "move" | "resize" | "resize-top";
   /** The event being dragged (snapshot at drag start) */
   event: CalendarEvent;
@@ -50,7 +51,11 @@ export interface DragOverrides {
 }
 
 export interface EventTimeChangeHandler {
-  (eventId: string, newStart: Date, newEnd: Date): void | PromiseLike<void>;
+  (
+    event: CalendarEvent,
+    newStart: Date,
+    newEnd: Date,
+  ): void | PromiseLike<void>;
 }
 
 export interface UseEventDragOptions {
@@ -62,8 +67,6 @@ export interface UseEventDragOptions {
   days?: Date[];
   /** Called when drag completes with new start/end times */
   onEventTimeChange: EventTimeChangeHandler;
-  /** All events (to find the event being dragged) */
-  events: CalendarEvent[];
   /** IANA timezone used by the visible calendar grid */
   timezone?: string;
 }
@@ -74,7 +77,6 @@ export function useEventDrag({
   scrollContainerRef,
   days,
   onEventTimeChange,
-  events,
   timezone = getBrowserTimezone(),
 }: UseEventDragOptions) {
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -126,13 +128,10 @@ export function useEventDrag({
   const startDrag = useCallback(
     (
       e: React.PointerEvent,
-      eventId: string,
+      event: CalendarEvent,
       mode: "move" | "resize" | "resize-top",
       dayIndex: number,
     ) => {
-      const event = events.find((ev) => ev.id === eventId);
-      if (!event) return;
-
       // Only handle left mouse button
       if (e.button !== 0) return;
 
@@ -164,7 +163,6 @@ export function useEventDrag({
       const pointerOffset = mode === "move" ? pointerYInGrid - originalTop : 0;
 
       const state: DragState = {
-        eventId,
         mode,
         event,
         startPointerY: pointerYInGrid,
@@ -188,15 +186,7 @@ export function useEventDrag({
       e.preventDefault();
       e.stopPropagation();
     },
-    [
-      events,
-      days,
-      scrollContainerRef,
-      getGridTop,
-      getScrollTop,
-      hourHeight,
-      timezone,
-    ],
+    [days, scrollContainerRef, getGridTop, getScrollTop, hourHeight, timezone],
   );
 
   /** Pure computation from the latest pointer event + current drag state to the next drag state */
@@ -351,7 +341,7 @@ export function useEventDrag({
 
       let completion: void | PromiseLike<void>;
       try {
-        completion = onEventTimeChange(state.eventId, newStart, newEnd);
+        completion = onEventTimeChange(state.event, newStart, newEnd);
       } catch (error) {
         dragStateRef.current = null;
         setDragState(null);
@@ -422,8 +412,13 @@ export function useEventDrag({
 
   /** Get position overrides for an event during drag */
   const getDragOverrides = useCallback(
-    (eventId: string): DragOverrides | null => {
-      if (!dragState || dragState.eventId !== eventId) return null;
+    (event: CalendarEvent): DragOverrides | null => {
+      if (
+        !dragState ||
+        !findCalendarEventForSelection([event], dragState.event)
+      ) {
+        return null;
+      }
       return {
         top: dragState.currentTop,
         height: dragState.currentHeight,
@@ -433,11 +428,14 @@ export function useEventDrag({
     [dragState],
   );
 
+  const isDraggingEvent = useCallback(
+    (event: CalendarEvent) =>
+      !!dragState && !!findCalendarEventForSelection([event], dragState.event),
+    [dragState],
+  );
+
   /** Whether a drag is currently in progress */
   const isDragging = dragState !== null && dragState.hasMoved;
-
-  /** The event ID being dragged */
-  const dragEventId = dragState?.eventId ?? null;
 
   /** Check if a click should be suppressed (because a drag just ended) */
   const shouldSuppressClick = useCallback(() => {
@@ -447,8 +445,9 @@ export function useEventDrag({
   return {
     startDrag,
     getDragOverrides,
+    isDraggingEvent,
     isDragging,
-    dragEventId,
+    draggedEvent: dragState?.event ?? null,
     shouldSuppressClick,
     dragMode: dragState?.mode ?? null,
   };

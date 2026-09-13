@@ -12,7 +12,7 @@ import {
   isSameDay,
   format,
 } from "date-fns";
-import { memo, useState, useMemo } from "react";
+import { memo, useState, useMemo, useRef } from "react";
 
 import {
   Tooltip,
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import {
   dateToCalendarDateKey,
   addCalendarDays,
@@ -43,8 +44,8 @@ interface MonthViewProps {
   timezone?: string;
   onDateSelect: (date: Date) => void;
   onCreateWorkingLocation?: (date: Date) => void;
-  onDeleteEvent?: (eventId: string) => void;
-  onEventDrop?: (eventId: string, newDate: Date) => void;
+  onDeleteEvent?: (event: CalendarEvent) => void;
+  onEventDrop?: (event: CalendarEvent, newDate: Date) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -109,7 +110,10 @@ export const MonthView = memo(function MonthView({
   const isMobile = useIsMobile();
   const { prefs } = useViewPreferences();
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const draggedEventRef = useRef<CalendarEvent | null>(null);
+  const [draggingEvent, setDraggingEvent] = useState<CalendarEvent | null>(
+    null,
+  );
 
   const monthStart = startOfMonth(selectedDate);
   const monthEnd = endOfMonth(selectedDate);
@@ -185,12 +189,13 @@ export const MonthView = memo(function MonthView({
 
   function handleDrop(e: React.DragEvent, day: Date) {
     e.preventDefault();
-    const eventId = e.dataTransfer.getData("text/plain");
-    if (eventId && onEventDrop) {
-      onEventDrop(eventId, day);
+    const draggedEvent = draggedEventRef.current;
+    if (draggedEvent && onEventDrop) {
+      onEventDrop(draggedEvent, day);
     }
+    draggedEventRef.current = null;
     setDragOverDay(null);
-    setDraggingId(null);
+    setDraggingEvent(null);
   }
 
   return (
@@ -305,7 +310,7 @@ export const MonthView = memo(function MonthView({
                     .slice(0, isMobile ? 2 : 3)
                     .map(({ event, isStart, continuesNext }) => (
                       <EventDetailPopover
-                        key={event.id}
+                        key={getCalendarEventRenderKey(event)}
                         event={event}
                         timezone={timezone}
                         onDelete={onDeleteEvent ?? (() => {})}
@@ -336,12 +341,20 @@ export const MonthView = memo(function MonthView({
                             colorPreferences={prefs}
                             compact
                             draggable={isStart}
-                            onDragStart={(id) => setDraggingId(id)}
+                            onDragStart={(draggedEvent) => {
+                              draggedEventRef.current = draggedEvent;
+                              setDraggingEvent(draggedEvent);
+                            }}
                             onDragEnd={() => {
-                              setDraggingId(null);
+                              draggedEventRef.current = null;
+                              setDraggingEvent(null);
                               setDragOverDay(null);
                             }}
-                            dimmed={draggingId === event.id}
+                            dimmed={
+                              draggingEvent !== null &&
+                              getCalendarEventRenderKey(draggingEvent) ===
+                                getCalendarEventRenderKey(event)
+                            }
                           />
                           {continuesNext && (
                             <span

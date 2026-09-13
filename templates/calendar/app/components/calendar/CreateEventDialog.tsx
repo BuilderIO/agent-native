@@ -901,6 +901,7 @@ export function CreateEventPopover({
               delEvent.mutate(
                 buildDeleteEventMutationInput(
                   {
+                    ...result,
                     id: eventId,
                     accountEmail: result.accountEmail ?? accountEmail,
                   },

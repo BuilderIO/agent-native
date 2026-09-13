@@ -14,6 +14,7 @@ import {
 import { nanoid } from "nanoid";
 import { useMemo } from "react";
 
+import type { CalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import {
   isSharedCalendarDemo,
@@ -58,6 +59,7 @@ type CreateEventInput = Omit<
 
 type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
+  cacheEventIdentity?: CalendarEventSourceIdentity;
   targetAccountEmail?: string;
   addGoogleMeet?: boolean;
   removeGoogleMeet?: boolean;
@@ -76,7 +78,7 @@ type CreateEventMutationContext = EventListMutationContext & {
   optimisticId?: string;
 };
 type RsvpEventMutationContext = EventListMutationContext & {
-  previousEvent?: CalendarEvent;
+  previousEventQueries?: Array<[QueryKey, CalendarEvent | undefined]>;
 };
 type DeleteEventMutationContext = {
   removedByQuery?: Array<[QueryKey, CalendarEvent[]]>;
@@ -475,6 +477,7 @@ export function useUpdateEvent() {
         const previous = queryClient.getQueriesData<CalendarEvent[]>({
           queryKey: ["action", "list-events"],
         });
+        const { cacheEventIdentity, ...eventInput } = newData;
         const {
           addGoogleMeet,
           removeGoogleMeet,
@@ -487,7 +490,7 @@ export function useUpdateEvent() {
           workingLocationType,
           workingLocationLabel,
           ...optimisticData
-        } = newData;
+        } = eventInput;
         const optimisticPatch = targetAccountEmail
           ? {}
           : {
@@ -506,7 +509,7 @@ export function useUpdateEvent() {
               ? findCalendarEventById(
                   old,
                   optimisticData.id,
-                  optimisticData.accountEmail,
+                  cacheEventIdentity ?? optimisticData.accountEmail,
                 )
               : undefined;
             if (!target) return old;
@@ -564,6 +567,7 @@ export function useUpdateEvent() {
               input.id,
               eventPatch,
               input.accountEmail,
+              input.cacheEventIdentity,
             ),
         );
       },
@@ -590,6 +594,7 @@ export function reconcileUpdatedEventList(
   originalId: string,
   result: UpdateEventResult,
   accountEmail?: string,
+  cacheEventIdentity?: CalendarEventSourceIdentity,
 ): CalendarEvent[] | undefined {
   if (!result.id) return events;
   const {
@@ -602,7 +607,11 @@ export function reconcileUpdatedEventList(
   } = result;
   const targetId = replacedId ?? originalId;
   const target = events
-    ? findCalendarEventById(events, targetId, accountEmail)
+    ? findCalendarEventById(
+        events,
+        targetId,
+        cacheEventIdentity ?? accountEmail,
+      )
     : undefined;
   if (!target) return events;
 
@@ -637,19 +646,24 @@ export function useDeleteEvent() {
     {
       id: string;
       accountEmail?: string;
+      cacheEventIdentity?: CalendarEventSourceIdentity;
       scope?: "single" | "all" | "thisAndFollowing";
       sendUpdates?: "all" | "none";
       removeOnly?: boolean;
       notificationMessage?: string;
     }
   >("delete-event", {
-    onMutate: async ({ id, accountEmail, scope }) => {
+    onMutate: async ({ id, accountEmail, cacheEventIdentity, scope }) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
       const cachedEvents = previous.flatMap(([, events]) => events ?? []);
-      const targetEvent = findCalendarEventById(cachedEvents, id, accountEmail);
+      const targetEvent = findCalendarEventById(
+        cachedEvents,
+        id,
+        cacheEventIdentity ?? accountEmail,
+      );
       const hasMatchingEvents = cachedEvents.some(
         (event) => event.id === id || event._replacedId === id,
       );
@@ -701,55 +715,84 @@ export function useRsvpEvent() {
       id: string;
       status: "accepted" | "declined" | "tentative";
       accountEmail?: string;
+      cacheEventIdentity?: CalendarEventSourceIdentity;
       scope?: "single" | "all" | "thisAndFollowing";
       note?: string;
       sendUpdates?: "all" | "none";
     }
   >("rsvp-event", {
-    onMutate: async ({ id, status, accountEmail, scope, note }) => {
-      await queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+    onMutate: async ({
+      id,
+      status,
+      accountEmail,
+      cacheEventIdentity,
+      scope,
+      note,
+    }) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY }),
+        queryClient.cancelQueries({ queryKey: ["action", "get-event"] }),
+      ]);
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: LIST_EVENTS_QUERY_KEY,
       });
-      const previousEvent = queryClient.getQueryData<CalendarEvent>(
-        getEventQueryKey(id),
-      );
+      const previousEventQueries = queryClient
+        .getQueriesData<CalendarEvent>({ queryKey: ["action", "get-event"] })
+        .filter(([, event]) => {
+          if (!event) return false;
+          const next = applyCalendarEventRsvp(
+            [event],
+            id,
+            status,
+            scope,
+            accountEmail,
+            note,
+            cacheEventIdentity,
+          );
+          return next?.[0] !== event;
+        });
 
       updateListEventQueries(queryClient, (old) =>
-        applyCalendarEventRsvp(old, id, status, scope, accountEmail, note),
-      );
-      queryClient.setQueryData<CalendarEvent>(getEventQueryKey(id), (old) => {
-        const updated = applyCalendarEventRsvp(
-          old ? [old] : undefined,
+        applyCalendarEventRsvp(
+          old,
           id,
           status,
           scope,
           accountEmail,
           note,
+          cacheEventIdentity,
+        ),
+      );
+      for (const [key, event] of previousEventQueries) {
+        const updated = applyCalendarEventRsvp(
+          event ? [event] : undefined,
+          id,
+          status,
+          scope,
+          accountEmail,
+          note,
+          cacheEventIdentity,
         );
-        return updated?.[0];
-      });
+        queryClient.setQueryData(key, updated?.[0]);
+      }
 
-      return { previous, previousEvent };
+      return { previous, previousEventQueries };
     },
-    onError: (_err, vars, context) => {
+    onError: (_err, _vars, context) => {
       const mutationContext = context as RsvpEventMutationContext | undefined;
       if (mutationContext?.previous) {
         for (const [key, data] of mutationContext.previous) {
           queryClient.setQueryData(key, data);
         }
       }
-      if (mutationContext?.previousEvent) {
-        queryClient.setQueryData(
-          getEventQueryKey(vars.id),
-          mutationContext.previousEvent,
-        );
+      for (const [key, event] of mutationContext?.previousEventQueries ?? []) {
+        queryClient.setQueryData(key, event);
       }
     },
-    onSettled: (_data, _error, vars) => {
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
       void queryClient.invalidateQueries({
-        queryKey: getEventQueryKey(vars.id),
+        queryKey: ["action", "get-event"],
       });
     },
   });

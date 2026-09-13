@@ -30,7 +30,7 @@ describe("useEventDrag", () => {
     onEventTimeChange,
   }: {
     onEventTimeChange: (
-      eventId: string,
+      event: CalendarEvent,
       newStart: Date,
       newEnd: Date,
     ) => void | PromiseLike<void>;
@@ -41,7 +41,6 @@ describe("useEventDrag", () => {
       startHour: 0,
       scrollContainerRef,
       onEventTimeChange,
-      events: [event],
       timezone: "UTC",
     });
     return (
@@ -109,7 +108,7 @@ describe("useEventDrag", () => {
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as React.PointerEvent<HTMLButtonElement>;
-    act(() => drag!.startDrag(pointerDown, event.id, "move", 0));
+    act(() => drag!.startDrag(pointerDown, event, "move", 0));
 
     const pointerMove = new Event("pointermove");
     Object.defineProperties(pointerMove, {
@@ -123,11 +122,11 @@ describe("useEventDrag", () => {
 
     act(() => window.dispatchEvent(new Event("pointerup")));
     expect(onEventTimeChange).toHaveBeenCalledWith(
-      event.id,
+      event,
       new Date("2026-06-01T11:00:00.000Z"),
       new Date("2026-06-01T12:00:00.000Z"),
     );
-    expect(drag?.getDragOverrides(event.id)).toMatchObject({ top: 660 });
+    expect(drag?.getDragOverrides(event)).toMatchObject({ top: 660 });
     expect(drag?.isDragging).toBe(true);
 
     await act(async () => {
@@ -135,6 +134,77 @@ describe("useEventDrag", () => {
       await write;
       await Promise.resolve();
     });
-    expect(drag?.getDragOverrides(event.id)).toBeNull();
+    expect(drag?.getDragOverrides(event)).toBeNull();
+  });
+
+  it("keeps resize identity when calendar event ids collide", () => {
+    const first = {
+      ...event,
+      accountEmail: "steve@builder.io",
+      calendarSourceKey: "calendar-source-a",
+      calendarId: "calendar-a",
+    };
+    const selected = {
+      ...event,
+      start: "2026-06-01T13:00:00.000Z",
+      end: "2026-06-01T14:00:00.000Z",
+      accountEmail: "steve@builder.io",
+      calendarSourceKey: "calendar-source-b",
+      calendarId: "calendar-b",
+    };
+    const onEventTimeChange = vi.fn();
+
+    act(() => root.render(<Harness onEventTimeChange={onEventTimeChange} />));
+    const target = container.querySelector("button")!;
+    Object.defineProperty(target, "setPointerCapture", { value: () => {} });
+    const rect = {
+      top: 0,
+      left: 0,
+      right: 700,
+      bottom: 1200,
+      width: 700,
+      height: 1200,
+      x: 0,
+      y: 0,
+      toJSON: () => undefined,
+    };
+    Object.defineProperty(
+      container.firstElementChild,
+      "getBoundingClientRect",
+      { value: () => rect },
+    );
+
+    const pointerDown = {
+      button: 0,
+      clientX: 10,
+      clientY: 840,
+      pointerId: 1,
+      target,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as React.PointerEvent<HTMLButtonElement>;
+    act(() => drag!.startDrag(pointerDown, selected, "resize", 0));
+
+    expect(drag?.isDraggingEvent(first)).toBe(false);
+    expect(drag?.isDraggingEvent(selected)).toBe(true);
+    expect(drag?.getDragOverrides(first)).toBeNull();
+    expect(drag?.getDragOverrides(selected)).not.toBeNull();
+
+    const pointerMove = new Event("pointermove");
+    Object.defineProperties(pointerMove, {
+      clientX: { value: 10 },
+      clientY: { value: 900 },
+    });
+    act(() => {
+      window.dispatchEvent(pointerMove);
+      pendingFrame?.(0);
+    });
+    act(() => window.dispatchEvent(new Event("pointerup")));
+
+    expect(onEventTimeChange).toHaveBeenCalledWith(
+      selected,
+      new Date("2026-06-01T13:00:00.000Z"),
+      new Date("2026-06-01T15:00:00.000Z"),
+    );
   });
 });

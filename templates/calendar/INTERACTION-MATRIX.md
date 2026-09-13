@@ -16,6 +16,9 @@ The published reference covers [calendars and events](https://www.notion.com/hel
 [availability and time blocking](https://www.notion.com/help/availability-blocking-and-time-zones).
 For live-reference rows, first inspect the shortcut help in the signed-in app;
 do not infer exact key bindings from another version of the product.
+The current events guide says matching event IDs across calendars are merged;
+to RSVP or edit from one specific calendar, hide the other calendars. Treat this
+as a live comparison point, not proof that the current UI matches.
 
 Current baseline on 2026-09-12:
 
@@ -35,6 +38,25 @@ Current baseline on 2026-09-12:
   the task prompt, record each test event ID privately, and delete/verify it on
   both accounts before ending the run. Never use unrelated attendees or send a
   test invite to anyone else.
+
+## Visual fidelity protocol
+
+The 100 interaction scenarios below remain the behavioral matrix; visual fidelity
+is a cross-cutting pass over every scenario that renders UI, not a replacement
+for behavioral checks. Compare Notion Calendar and Calendar side by side at the
+same viewport width and height, device scale factor, browser zoom, date, timezone,
+visible calendar set, and event state. Capture both products at the same point in
+each sequence, including before/after states when an interaction changes the UI.
+
+Check layout and density, geometry and spacing, typography, colors, separators,
+and iconography. For each applicable surface, compare idle, hover, focus,
+selected, loading, and empty states. Include open menus, popovers, dialogs, and
+event details when the scenario reaches them. Keep screenshots in the ignored
+root `.tmp/calendar-parity/` directory and reference their filenames in the
+ledger below; do not put credentials or private event contents in tracked docs.
+Aim for pixel-level similarity only when matching-state screenshots are
+available. Mark a state unverified if it was not captured in both products;
+neither memory nor documented behavior proves visual parity.
 
 ## Navigation and calendar surfaces
 
@@ -62,6 +84,7 @@ Current baseline on 2026-09-12:
 | CAL-05 | Open calendar/account details → disconnect or hide one source → reconnect/reload. | Destructive disconnect is clearly distinguished from hiding; unrelated account calendars remain intact. |
 | CAL-06 | Add a read-only/subscribed calendar → attempt to open, move, and edit an event. | Read-only state is apparent; unsupported writes explain or disable the action rather than silently failing. |
 | CAL-07 | Overlay another person's calendar → hide it → change date range. | Overlay data stays visually attributable and never becomes the default write target. |
+| CAL-08 | Show two calendars containing the same provider event ID → inspect the merged card → hide each source separately → reopen details. | Matching events merge like Notion; hiding a source changes the chosen event context without deleting or mutating the hidden source. |
 
 ## Keyboard, search, and command discovery
 
@@ -104,8 +127,8 @@ Current baseline on 2026-09-12:
 
 | ID | Steps | Pass oracle |
 | --- | --- | --- |
-| EDIT-01 | Open an event from Month, Week, Day, search, and an overlay → compare details. | The same source event and correct account/calendar are shown from every entry point. |
-| EDIT-02 | Edit title, description, location, start/end, color, and availability → save → reopen. | Saved values match the server response; failed writes remain visible and recoverable. |
+| EDIT-01 | Open an event from Month, Week, Day, search, and an overlay → put the same provider event ID on two calendars, then hide all but one. | Notion's duplicate merge/source-selection behavior is matched; each entry point resolves the visible source without cross-updates. |
+| EDIT-02 | Edit title, description, location, start/end, color, and availability → save → reopen with a same-account duplicate ID in another calendar; hide the other source if needed. | Only the selected source changes; saved values match the server response and failed writes remain recoverable. |
 | EDIT-03 | Add, remove, and mark an attendee optional → change guest notification choice → save. | Recipient changes and notification scope are explicit; no unrelated email is sent. |
 | EDIT-04 | Edit a recurring occurrence → choose only this / this and following / all → inspect every affected occurrence. | Scope matches the chosen boundary, including events before the selected instance. |
 | EDIT-05 | Update an event from a read-only calendar or as a non-organizer → try each edit affordance. | Unsupported edits are consistently blocked with clear status; no optimistic false-success state. |
@@ -118,9 +141,9 @@ Current baseline on 2026-09-12:
 
 | ID | Steps | Pass oracle |
 | --- | --- | --- |
-| MOVE-01 | Drag a timed event within one day by 15 minutes → release → inspect preview and saved time. | Preview remains at the drop position through confirmation and write; saved time equals preview. |
-| MOVE-02 | Drag across day columns in Week → cross the week boundary → release. | Day and time update together; no timezone/day-offset error. |
-| MOVE-03 | Resize the bottom edge → resize the top edge → try to reduce below minimum duration. | Both handles preserve the opposite edge and enforce the minimum duration. |
+| MOVE-01 | Drag a timed event within one day by 15 minutes → include a same-ID event from another calendar → follow the reference's merge/hide flow → release. | Duplicate visibility and source selection match Notion; the write targets only that source and saved time equals preview. |
+| MOVE-02 | Drag across day columns in Week → cross the week boundary → include a same-ID event on another calendar → follow the reference's merge/hide flow. | Only the selected source moves; day and time update together without a timezone/day-offset error. |
+| MOVE-03 | Resize the bottom edge → resize the top edge with duplicate IDs present → follow the reference's merge/hide flow → try below minimum duration. | Each resize targets the selected source, preserves the opposite edge, and enforces minimum duration. |
 | MOVE-04 | Drag an event past midnight → inspect date and duration → reload. | Overnight movement uses the correct next-day date and does not create zero/negative duration. |
 | MOVE-05 | Drag across a DST transition in the event timezone and in the display timezone. | Local wall time and elapsed duration follow the reference’s DST policy; ambiguous/nonexistent time is surfaced. |
 | MOVE-06 | Drag a recurring occurrence → choose single/following/all when prompted → cancel the prompt once. | Prompt scope is correct; cancel restores original position and never sends a write. |
@@ -131,17 +154,24 @@ Current baseline on 2026-09-12:
 | MOVE-11 | Move a multi-day/all-day event from Month → move between dates → inspect its duration. | Date span and inclusive boundaries remain intact; timed events are not coerced to all-day. |
 | MOVE-12 | Release pointer while a frame update is pending → immediately navigate or open details. | Final pointer position is committed; no stale preview or accidental click remains. |
 
+## Multi-select and bulk actions
+
+| ID | Steps | Pass oracle |
+| --- | --- | --- |
+| BULK-01 | Hold Shift to select multiple events → open the context menu → inspect bulk color and calendar-blocking actions → cancel without applying. | Only selected events are included; the menu matches Notion and cancel produces no writes. |
+| BULK-02 | Hold Shift to select multiple events → Shift-drag the group → inspect each preview and duration → cancel or undo. | All and only selected events move together; each duration stays intact and one undo restores the group. |
+
 ## Recurrence, delete, undo, and RSVP
 
 | ID | Steps | Pass oracle |
 | --- | --- | --- |
-| DEL-01 | Delete a one-off event → inspect immediate grid state → undo → reload. | Event disappears immediately, undo restores it once, and persistence agrees with the server. |
+| DEL-01 | Delete a one-off event when the same account has the same provider ID on another calendar → follow the reference's merge/hide flow → undo → reload. | Only the selected source disappears; undo restores it once and leaves the duplicate untouched. |
 | DEL-02 | Delete one occurrence of a recurring series → inspect past/future instances. | Only the selected occurrence is removed. |
 | DEL-03 | Delete this and following → inspect the prior occurrence, selected occurrence, and later dates. | Prior instances remain; selected and future instances disappear. |
 | DEL-04 | Delete all recurring events → inspect several dates and search results. | Entire series disappears from every cached range and search surface. |
 | DEL-05 | Open delete confirmation → choose cancel, notify guests, and do not notify guests in separate runs. | Cancel performs no write; confirmation text and notification scope match the selected action. |
 | DEL-06 | Delete, then force a server failure → observe the event and retry. | Rollback restores only affected missing events, preserves newer unrelated cache changes, and reports failure. |
-| RSVP-01 | Open an invitation → accept, tentatively accept, and decline in separate runs. | Response and self-attendee status agree in grid, details, and provider after sync. |
+| RSVP-01 | Open an invitation when the same account has the same provider ID on another calendar → follow the reference's merge/hide flow → accept, tentatively accept, and decline separately. | Only the selected source response and self-attendee status change in grid, details, and provider after sync. |
 | RSVP-02 | Decline with a note → clear the note → change response again. | Note is editable/removed; another attendee's RSVP metadata is untouched. |
 | RSVP-03 | Respond to one recurring invitation → choose scope → inspect past/future occurrence statuses. | Scope boundaries match the provider and the visible UI. |
 | RSVP-04 | RSVP while offline/slow → retry after the first request settles. | No duplicate response is sent; error and pending states are distinguishable. |
@@ -193,3 +223,19 @@ as passed based on code inspection alone.
 | 2026-09-12 · automated | MOVE-01, MOVE-06, MOVE-08 | Live drag behavior not available without sign-in. | PASS: async drag preview remains through pending completion; 15-minute snapping and final time are covered by the hook regression test. |
 | 2026-09-12 · automated | DEL-02, DEL-03, DEL-04, DEL-06 | Live recurring-delete behavior not available without sign-in. | PASS: single/all/this-and-following filtering, unrelated series preservation, and partial rollback are covered by cache tests. |
 | 2026-09-12 · desktop · Notion 817×767 / Calendar 1125×720 · PDT | NAV-02, NAV-05 | PASS signed-in reference: Today → previous week → next twice → Day lands on Sun, Sep 13. | Initial result landed on Sat, Sep 19. Fixed week navigation to use the configured week start; repeated the same sequence and it now lands on Sun, Sep 13. Google is disconnected locally; no event writes or invitations. |
+| 2026-09-13 · automated / serial slot | EDIT-01, EDIT-02, MOVE-01–03, DEL-01, RSVP-01 | Not run: signed-in Notion comparison still required. | PASS: source-identity regressions in the full Calendar suite (90 files / 673 tests); all 73 repository guards; Calendar typecheck exits 0. Typecheck also prints production-config diagnostics for missing deploy auth/database settings. Live provider reproduction remains blocked. |
+| 2026-09-13 · docs/source review / awaiting serial slot | CAL-08, BULK-01–02 | Official guide documents same-ID event merging and Shift-based bulk color/blocking and group drag. | Source review finds calendar-scoped event IDs and no multi-select handler. These are likely parity gaps, not live-confirmed; no events were changed. |
+| 2026-09-13 · live UI inspection · Sep 13 · PDT · Chrome 100% / Notion Actual Size | NAV-05 | Signed-in Notion desktop was observed in Day for Sun, Sep 13, 2026; view switching was not run there. Notion web in Chrome is signed out. | PARTIAL local check: Month → Week → Day → Week preserves Sep 13, and sidebar collapse works. Visual parity is not verified: local workspace is empty, Calendar labels its zone PT, and captured viewport sizes differ (Calendar 1200×960; Notion 1225×768); no paired screenshots were saved. |
+| 2026-09-13 · live provider gate | CAL-01, CREATE-02, EDIT-02, DEL-01, SYNC-01 | Not exercised against an app-connected provider. | BLOCKED outside the repo: the app uses the request origin plus `/_agent-native/google/callback`; its read-only health probe reports the managed OAuth pair present but `redirectUriStatus: mismatched` for the configured `http://localhost:3000/_agent-native/google/callback`. Running Calendar at that configured origin generates the same URI and Google returns `redirect_uri_mismatch`. The earlier 8081 run generated a different unregistered URI. Hosted Calendar opens sign-in. No provider-backed list/search/read, event writes, invites, or deletes were performed. |
+
+## Visual discrepancy ledger
+
+Append one row for each observed visual mismatch. Record the exact UI state and
+repro steps, the Notion reference as expected behavior, Calendar's actual result,
+and paired screenshot filenames captured at the same viewport/state. After a
+fix, add the commit and paired re-test screenshots; do not claim a state matches
+unless both screenshots show it.
+
+| ID | Date / scenario / exact state | Notion screenshot | Calendar screenshot | Expected (Notion) | Actual (Calendar) | Exact repro | Fix / commit | Screenshot verification |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| — | — | — | — | — | — | — | — | — |

@@ -1,6 +1,8 @@
 import type { CalendarEvent } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
+import { getCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
+
 import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
@@ -499,6 +501,78 @@ describe("calendar event list cache helpers", () => {
       otherAccount,
       target,
     ]);
+  });
+
+  it("targets the selected calendar when one account has duplicate event IDs", () => {
+    const firstCalendar = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      sourceId: "google-connection",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+      calendarId: "calendar-one-id",
+      title: "First calendar",
+      responseStatus: "accepted",
+    });
+    const selected = calendarEvent({
+      id: firstCalendar.id,
+      source: "google",
+      sourceId: "google-connection",
+      accountEmail: "ME@example.com",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
+      title: "Selected calendar",
+      responseStatus: "accepted",
+    });
+    const events = [firstCalendar, selected];
+    const identity = getCalendarEventSourceIdentity(selected)!;
+    expect(
+      findCalendarEventById(events, selected.id, selected.accountEmail),
+    ).toBeUndefined();
+    const target = findCalendarEventById(events, selected.id, identity);
+
+    expect(target).toBe(selected);
+    expect(
+      reconcileUpdatedEventList(
+        events,
+        selected.id,
+        { id: selected.id, title: "Updated selected calendar" },
+        selected.accountEmail,
+        identity,
+      ),
+    ).toEqual([
+      firstCalendar,
+      { ...selected, title: "Updated selected calendar" },
+    ]);
+
+    expect(
+      applyCalendarEventRsvp(
+        events,
+        selected.id,
+        "declined",
+        "single",
+        selected.accountEmail,
+        undefined,
+        identity,
+      ),
+    ).toEqual([
+      firstCalendar,
+      {
+        ...selected,
+        responseStatus: "declined",
+        updatedAt: expect.any(String),
+      },
+    ]);
+
+    expect(
+      removeCalendarEventsForScope(
+        events,
+        selected.id,
+        "single",
+        target,
+        selected.accountEmail,
+      ),
+    ).toEqual([firstCalendar]);
   });
 
   it("optimistically updates the event and self attendee RSVP status", () => {
