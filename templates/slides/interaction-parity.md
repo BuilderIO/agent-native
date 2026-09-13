@@ -5,7 +5,7 @@ Google Slides interaction-parity effort. It records observed contracts and
 reproduction targets; it does not claim that an area is 1:1 until a focused
 test and a browser/editor check both pass.
 
-Last audited: 2026-09-12
+Last audited: 2026-09-13
 
 ## Reference contract
 
@@ -34,26 +34,26 @@ of scope where the Slides app intentionally uses Agent-Native equivalents.
 
 ## Coverage matrix
 
-| Surface                        | Google contract to exercise                                                                  | Current disposition       | Evidence / next action                                                                                                                                                                        |
-| ------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canvas selection               | Click selects; Shift/Cmd/Ctrl toggles; marquee selects; whitespace clears                    | Partial                   | Existing pointer/marquee paths. A Shift/Meta-click attempt did not visibly multi-select, but modifier delivery was inconclusive; rerun toggle, overlap, clear, and reload checks with a live editor     |
-| Object keyboard                | Duplicate, delete, nudge, Tab/Shift+Tab traversal, select-all                                | Partially implemented     | Browser: Cmd+D creates a third shape; Cmd+Z removes it, Cmd+Shift+Z restores it, and reload keeps it. Tab traversal, select-all, delete focus, and nudge remain open                             |
-| Clipboard                      | Copy, cut, paste, duplicate with object and slide focus                                      | Partial                   | Duplicate shortcut verified separately; native copy/cut/paste, external clipboard formats, focus routing, and undo/reload remain open                                                         |
-| Resize and rotate              | Eight resize handles; aspect-ratio modifier; circular rotate handle; Shift rotation snapping | Partially implemented     | Browser: southeast-handle drag by 28 px grows the shape by about 28 px per axis with fixed left/top; same-tab reload preserves exact CSS geometry. Other handles, modifiers, rotate, and group resize remain open |
-| Snapping and guides            | Object/canvas snapping; rulers, guides, grid toggle, modifier bypass                         | Partial                   | Snapping/bypass paths exist; ruler, guide, grid preferences, and modifier muscle memory remain open                                                                                           |
-| Align and distribute           | Align 2+ objects; distribute 3+ objects                                                      | Implemented in code/tests | Geometry and toolbar callback coverage; browser verify dimensions, selection persistence, and undo/redo                                                                                       |
-| Grouping                       | Group selected objects; group acts as one object; ungroup restores members                   | Partially verified        | Browser verified for a two-shape group: single-group selection, child click, group reload, ungroup reload, undo, and redo. Multi-object geometry, nested groups, stack-order tie behavior, and rotated ungroup in-browser remain open |
+| Surface                        | Google contract to exercise                                                                  | Current disposition       | Evidence / next action                                                                                                                                                                                                                                            |
+| ------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canvas selection               | Click selects; Shift/Cmd/Ctrl toggles; marquee selects; whitespace clears                    | Partial                   | Existing pointer/marquee paths. A Shift/Meta-click attempt did not visibly multi-select, but modifier delivery was inconclusive; rerun toggle, overlap, clear, and reload checks with a live editor                                                               |
+| Object keyboard                | Duplicate, delete, nudge, Tab/Shift+Tab traversal, select-all                                | Partially implemented     | Browser: Cmd+D creates a third shape; Cmd+Z removes it, Cmd+Shift+Z restores it, and reload keeps it. Tab traversal, select-all, delete focus, and nudge remain open                                                                                              |
+| Clipboard                      | Copy, cut, paste, duplicate with object and slide focus                                      | Partial                   | Duplicate shortcut verified separately; native copy/cut/paste, external clipboard formats, focus routing, and undo/reload remain open                                                                                                                             |
+| Resize and rotate              | Eight resize handles; aspect-ratio modifier; circular rotate handle; Shift rotation snapping | Partially implemented     | Browser: southeast-handle drag by 28 px grows the shape by about 28 px per axis with fixed left/top; same-tab reload preserves exact CSS geometry. Other handles, modifiers, rotate, and group resize remain open                                                 |
+| Snapping and guides            | Object/canvas snapping; rulers, guides, grid toggle, modifier bypass                         | Partial                   | Snapping/bypass paths exist; ruler, guide, grid preferences, and modifier muscle memory remain open                                                                                                                                                               |
+| Align and distribute           | Align 2+ objects; distribute 3+ objects                                                      | Implemented in code/tests | Geometry and toolbar callback coverage; browser verify dimensions, selection persistence, and undo/redo                                                                                                                                                           |
+| Grouping                       | Group selected objects; group acts as one object; ungroup restores members                   | Partially verified        | Browser verified for a two-shape group: single-group selection, child click, group reload, ungroup reload, undo, and redo. Multi-object geometry, nested groups, stack-order tie behavior, and rotated ungroup in-browser remain open                             |
 | Z-order                        | Bring/send front/back and one-step forward/backward                                          | Partially verified        | Browser: toolbar “Send to back” moved the overlapping duplicate to z-index 0 behind the original (1); Cmd+Z cleared the order, Cmd+Shift+Z restored it, and reload retained 0/1/2. Bring/front, one-step, pixels, equal-z peers, and keyboard/context remain open |
-| Text editing                   | Single/double click entry, selection formatting, lists, Escape ownership                     | Partial                   | Rich-text and toolbar regression tests exist; browser muscle-memory and persistence pass remains                                                                                              |
-| Images and media               | Select, replace, crop/fit, position, drag/drop, external image paste                         | Partial                   | Image overlay/drop paths exist; crop, masking, external paste, and round trips need representative fixtures                                                                                   |
-| Shapes, lines, tables, charts  | Insert, select, edit, style, move, resize, table cell actions                                | Partial                   | Shapes/tables are present; cover line endpoints, cell selection, charts, and advanced media in editor                                                                                         |
-| Slide rail                     | Insert, duplicate, multi-select, reorder, delete, skip, grid/list view                       | Partial                   | Rail actions and shortcuts exist; verify multi-slide operations, keyboard focus, and persistence in editor                                                                                    |
-| Layouts/themes/master behavior | Layout changes preserve editable objects and linked design-system tokens                     | Partial                   | Layout/design-system paths exist; Google master/theme equivalence versus intentional product behavior needs explicit disposition                                                              |
-| Comments/collaboration         | Comment pins, threads, presence, selection handoff                                           | Partial                   | Comment/presence paths exist; side-by-side two-user editing and conflict behavior remain unverified                                                                                           |
-| Undo/redo                      | Object and slide edits undo/redo without clobbering remote/local state                       | Partial                   | Browser verified group and duplicate undo/redo; duplicate redo survives reload. Slide/deck mutation classes and remote-edit interaction remain open                                          |
-| Zoom and pan                   | Zoom controls/shortcuts and canvas navigation remain selection-safe                          | Partial                   | Zoom controls exist; keyboard/pointer navigation and selection/scroll preservation remain open                                                                                                |
-| Import/export                  | PPTX/PDF/HTML/Google Slides round trips preserve objects and metadata                        | Partial                   | Existing preservation contract; use stable seeded simple/advanced fixtures and compare before/after render and metadata                                                                       |
-| Agent-Native boundaries        | Selection/app-state, shared actions, persistence, reload and collaboration                   | Partial                   | Selection is published to app state; new group/rotation state has unit serialization coverage but not live reload evidence                                                                    |
+| Text editing                   | Single/double click entry, selection formatting, lists, Escape ownership                     | Partial                   | Rich-text and toolbar regression tests exist; browser muscle-memory and persistence pass remains                                                                                                                                                                  |
+| Images and media               | Select, replace, crop/fit, position, drag/drop, external image paste                         | Partial                   | Image overlay/drop paths exist; crop, masking, external paste, and round trips need representative fixtures                                                                                                                                                       |
+| Shapes, lines, tables, charts  | Insert, select, edit, style, move, resize, table cell actions                                | Partial                   | Shapes/tables are present; cover line endpoints, cell selection, charts, and advanced media in editor                                                                                                                                                             |
+| Slide rail                     | Insert, duplicate, multi-select, reorder, delete, skip, grid/list view                       | Partial                   | Rail actions and shortcuts exist; verify multi-slide operations, keyboard focus, and persistence in editor                                                                                                                                                        |
+| Layouts/themes/master behavior | Layout changes preserve editable objects and linked design-system tokens                     | Partial                   | Layout/design-system paths exist; Google master/theme equivalence versus intentional product behavior needs explicit disposition                                                                                                                                  |
+| Comments/collaboration         | Comment pins, threads, presence, selection handoff                                           | Partial                   | Comment/presence paths exist; side-by-side two-user editing and conflict behavior remain unverified                                                                                                                                                               |
+| Undo/redo                      | Object and slide edits undo/redo without clobbering remote/local state                       | Partial                   | Browser verified group and duplicate undo/redo; duplicate redo survives reload. Slide/deck mutation classes and remote-edit interaction remain open                                                                                                               |
+| Zoom and pan                   | Zoom controls/shortcuts and canvas navigation remain selection-safe                          | Partial                   | Zoom controls exist; keyboard/pointer navigation and selection/scroll preservation remain open                                                                                                                                                                    |
+| Import/export                  | PPTX/PDF/HTML/Google Slides round trips preserve objects and metadata                        | Partial                   | Existing preservation contract; use stable seeded simple/advanced fixtures and compare before/after render and metadata                                                                                                                                           |
+| Agent-Native boundaries        | Selection/app-state, shared actions, persistence, reload and collaboration                   | Partial                   | Selection is published to app state; new group/rotation state has unit serialization coverage but not live reload evidence                                                                                                                                        |
 
 ## Exact repros, code disposition, and proof
 
@@ -165,14 +165,50 @@ evidence below are marked verified, and only for the tested cases.
     click, toolbar and keyboard group/ungroup, fresh-load persistence,
     ungroup persistence, undo, and redo for a two-shape pair.
 
-## Evidence run and remaining blocker (2026-09-12)
+## Review findings — 2026-09-13
+
+- Inline draft disposal (comment 3998157294): the normal edit-entry path seeds
+  both the initial and latest snapshots before the debounce timer starts. The
+  reported null-capture case was not reproduced through that path, but the
+  persistence helper now compares an uncaptured final draft against the
+  initial snapshot. Focused tests prove changed content persists and a true
+  no-op does not; live disposal/reload was not rerun.
+- Matrix rotation (comment 3998157295): false positive. The matrix helper
+  factors out the existing angle, preserves the residual scale/shear and
+  translation, then applies the requested absolute angle. A new 15°→30°
+  regression proves the resulting angle is 30° with scale 2 and translation
+  (10, 20) unchanged.
+- Group marquee identity (comment 3998157296): confirmed. Leaf-only hit testing
+  could return grouped members instead of their wrapper. Marquee candidates now
+  resolve to the nearest group root, hit-test its bounds, and add its single
+  builder id. Helper and editor-wiring regressions pass.
+- Rotated group bounds (comment 3998157298): confirmed. Group construction
+  previously unioned layout rectangles only. It now transforms each member's
+  corners through its planar CSS matrix and transform origin before forming the
+  wrapper bounds; a 90° member regression verifies the resulting bounds and
+  child offsets.
+- Ungroup stack position (comment 3998157299): confirmed. Ungrouping now sorts
+  members by their inner paint order and assigns them the wrapper's outer
+  stacking slot, preserving the group's position relative to siblings. A
+  bring-to-front → ungroup regression verifies the members remain above an
+  equal-z sibling.
+
+## Evidence run and remaining blocker (2026-09-13)
 
 Automated evidence collected:
 
-- Latest full Slides suite: 1,833 passed across 200 files.
+- Full Slides suite before this review round: 1,833 passed across 200 files.
 - Latest group/selection/geometry-focused run: 150 passed across three editor
   test files. The latest edit-session/render-phase run before that: 27 passed
   across two files.
+- Review-fix regressions: 128 passed across the inline-edit-session,
+  slide-object-interactions, and SlideEditor.marquee test files.
+- The required workspace prep was attempted after the review fixes. The root
+  formatter completed and Slides typecheck reported Done, but workspace tests,
+  unrelated package typechecks, and the MCP registry guard failed on missing
+  local dependency links and production-only environment configuration. The
+  Core test lane stalled amid unrelated harness errors and was interrupted;
+  the focused Slides tests above passed independently.
 - `pnpm --filter slides typecheck` exited successfully; the framework also
   printed its existing production auth/database configuration diagnostics.
 - Oxfmt completed on all 24 modified TypeScript files. Both i18n guards and
@@ -187,7 +223,7 @@ Automated evidence collected:
 Live app evidence collected:
 
 - Local fixture deck `u88BkOLitP` (`Interaction Parity — Placement
-  Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
+Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
   at those canvas coordinates after the insertion-root fix. Text created by
   drag remains after slide switching and reload; a fast final keystroke
   followed immediately by Escape also survives reload.
@@ -221,11 +257,17 @@ Live app evidence collected:
   to resolve the Nitro dev-entry module. Its PGlite directory was owned by
   another process, which was left untouched. No keyboard z-order proof or
   browser checks after that point are claimed.
+- A 2026-09-13 retry started Vite at localhost:8080, but Nitro resolved its
+  dev-entry from a different checkout and the app root returned HTTP 500. The
+  in-app browser stayed on “Dev server is restarting…”; no review-fix browser
+  interaction was claimed, and the Vite config and shared PGlite data were
+  left untouched.
 - Browser checks for selection toggling, rotation modifiers, z-order,
   multi-object alignment/distribution, native clipboard, object/media/table/
   chart editing, rail operations, themes/layouts, comments/presence, and
   import/export remain open. The local checks above are evidence for those
   specific paths only.
+
 ## Disposition rules
 
 - `Implemented, verify` means the implementation and focused unit coverage

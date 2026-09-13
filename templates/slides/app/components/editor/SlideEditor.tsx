@@ -173,6 +173,7 @@ import {
   persistSlideObjectZOrderFromDom,
   readSlideObjectZIndex,
   resolveSlideObjectContainingBlock,
+  resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
   resizeSlideObjectMembers,
   scaleSlideObjectGroupMembers,
@@ -1983,10 +1984,14 @@ export default function SlideEditor({
       const next = { slideId, content };
       const previous = inlineEditDraftRef.current;
       const initial = inlineEditInitialContentRef.current;
+      const initialForComparison =
+        initial?.slideId === slideId ? initial : next;
       if (!initial || initial.slideId !== slideId) {
         inlineEditInitialContentRef.current = next;
       }
-      if (inlineEditDraftNeedsPersistence(previous, next)) {
+      if (
+        inlineEditDraftNeedsPersistence(previous, next, initialForComparison)
+      ) {
         onUpdateSlideRef.current({ content }, slideId, {
           preserveLocalState: true,
         });
@@ -6836,6 +6841,17 @@ export default function SlideEditor({
           el.tagName === "IMG" || el.classList.contains("fmd-img-placeholder")
             ? (findPersistedImageObject(el, slideContent) ?? el)
             : el;
+        const group = resolveSlideObjectGroupRoot(selectable, slideContent);
+        if (group) {
+          const groupId = group.getAttribute("data-builder-id");
+          if (
+            groupId &&
+            rectsIntersect(marqueeRect, group.getBoundingClientRect())
+          ) {
+            hits.add(groupId);
+          }
+          return;
+        }
         const id = selectable.getAttribute("data-builder-id");
         if (!id) return;
         // Skip the slide-content root itself if it ever got stamped

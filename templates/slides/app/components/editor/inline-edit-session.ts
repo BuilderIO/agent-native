@@ -6,10 +6,11 @@ export interface InlineEditContentSnapshot {
 export function inlineEditDraftNeedsPersistence(
   captured: InlineEditContentSnapshot | null,
   next: InlineEditContentSnapshot,
+  initial: InlineEditContentSnapshot,
 ): boolean {
-  return (
-    captured?.slideId === next.slideId && captured.content !== next.content
-  );
+  if (captured && captured.slideId !== next.slideId) return false;
+  if (captured) return captured.content !== next.content;
+  return shouldPersistInlineEditContent(initial, next);
 }
 
 export function shouldPersistInlineEditContent(

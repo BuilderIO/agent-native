@@ -41,6 +41,7 @@ import {
   persistSlideObjectZOrderFromDom,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
+  resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
   restoreSlideObjectStyle,
   resizeSlideObject,
@@ -1852,6 +1853,22 @@ describe("slide object groups and rotation", () => {
     return { get, apply };
   };
 
+  it("resolves a grouped descendant to its nearest group wrapper", () => {
+    const boundary = document.createElement("div");
+    const outer = document.createElement("div");
+    outer.className = "fmd-slide-group";
+    outer.setAttribute("data-slide-group", "true");
+    const inner = outer.cloneNode(false) as HTMLElement;
+    const member = document.createElement("div");
+    outer.append(inner);
+    inner.append(member);
+    boundary.append(outer);
+
+    expect(resolveSlideObjectGroupRoot(member, boundary)).toBe(inner);
+    expect(resolveSlideObjectGroupRoot(inner, boundary)).toBe(inner);
+    expect(resolveSlideObjectGroupRoot(boundary, boundary)).toBeNull();
+  });
+
   it("groups absolute siblings into one durable wrapper and ungroups at its stack position", () => {
     const parent = document.createElement("div");
     const first = createFreeformObject("first", { zIndex: 0 });
@@ -1897,6 +1914,68 @@ describe("slide object groups and rotation", () => {
     expect(first.style.top).toBe("30px");
     expect(second.style.left).toBe("140px");
     expect(second.style.top).toBe("60px");
+  });
+
+  it("includes transformed member bounds when creating the group wrapper", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    first.style.transform = "rotate(90deg)";
+    parent.append(first, second);
+    const geometry = geometryFor([
+      [first, { x: 10, y: 10, width: 100, height: 20 }],
+      [second, { x: 90, y: 10, width: 20, height: 20 }],
+    ]);
+
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+
+    expect(group).not.toBeNull();
+    expect(group!.style.left).toBe("50px");
+    expect(group!.style.top).toBe("-30px");
+    expect(group!.style.width).toBe("60px");
+    expect(group!.style.height).toBe("100px");
+    expect(first.style.left).toBe("-40px");
+    expect(first.style.top).toBe("40px");
+    expect(second.style.left).toBe("40px");
+    expect(second.style.top).toBe("40px");
+  });
+
+  it("restores members to the wrapper stack slot when ungrouping", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first", { zIndex: 0 });
+    const second = createFreeformObject("second", { zIndex: 2 });
+    const outside = createFreeformObject("outside", { zIndex: 2 });
+    outside.setAttribute("data-builder-id", "outside");
+    parent.append(first, second, outside);
+    const geometry = geometryFor([
+      [first, { x: 0, y: 0, width: 40, height: 40 }],
+      [second, { x: 60, y: 0, width: 40, height: 40 }],
+      [outside, { x: 120, y: 0, width: 40, height: 40 }],
+    ]);
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+    expect(group).not.toBeNull();
+    expect(arrangeSlideLayerInParent(group!, "front")).toBe(true);
+    expect(group!.style.zIndex).toBe("3");
+
+    const ungrouped = ungroupSlideObject(group!, geometry.get, geometry.apply);
+
+    expect(ungrouped).toEqual([first, second]);
+    expect(first.style.zIndex).toBe("3");
+    expect(second.style.zIndex).toBe("3");
+    expect(Number(first.style.zIndex)).toBeGreaterThan(
+      Number(outside.style.zIndex),
+    );
+    expect(Number(second.style.zIndex)).toBeGreaterThan(
+      Number(outside.style.zIndex),
+    );
   });
 
   it("preserves a group's rotation when ungrouping its members", () => {
@@ -1987,9 +2066,11 @@ describe("slide object groups and rotation", () => {
     expect(readSlideObjectRotation(element)).toBe(30);
   });
 
-  it("changes a matrix rotation without dropping scale or translation", () => {
+  it("replaces a matrix rotation without dropping scale or translation", () => {
     const element = document.createElement("div");
-    element.style.transform = "matrix(2, 0, 0, 2, 10, 20)";
+    element.style.transform =
+      "matrix(1.931851652, 0.51763809, -0.51763809, 1.931851652, 10, 20)";
+    expect(readSlideObjectRotation(element)).toBe(15);
 
     setSlideObjectRotation(element, 30);
 
@@ -1999,6 +2080,9 @@ describe("slide object groups and rotation", () => {
       .map(Number);
     expect(values).toHaveLength(6);
     expect(Math.hypot(values?.[0] ?? 0, values?.[1] ?? 0)).toBeCloseTo(2);
+    expect(
+      Math.atan2(values?.[1] ?? 0, values?.[0] ?? 1) * (180 / Math.PI),
+    ).toBeCloseTo(30);
     expect(values?.[4]).toBe(10);
     expect(values?.[5]).toBe(20);
     expect(readSlideObjectRotation(element)).toBe(30);

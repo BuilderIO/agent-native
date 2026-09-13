@@ -1475,6 +1475,105 @@ export function isSlideObjectGroup(element: HTMLElement): boolean {
   );
 }
 
+export function resolveSlideObjectGroupRoot(
+  element: HTMLElement,
+  boundary?: HTMLElement,
+): HTMLElement | null {
+  let current: HTMLElement | null = element;
+  while (current) {
+    if (isSlideObjectGroup(current)) return current;
+    if (current === boundary) break;
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function transformOriginOffset(
+  token: string | undefined,
+  dimension: number,
+  axis: "x" | "y",
+): number {
+  const value = token?.trim().toLowerCase();
+  if (!value || value === "center") return dimension / 2;
+  if (value === "left") return axis === "x" ? 0 : dimension / 2;
+  if (value === "right") return axis === "x" ? dimension : dimension / 2;
+  if (value === "top") return axis === "y" ? 0 : dimension / 2;
+  if (value === "bottom") return axis === "y" ? dimension : dimension / 2;
+  if (value.endsWith("%")) {
+    const percentage = Number.parseFloat(value);
+    return Number.isFinite(percentage)
+      ? (dimension * percentage) / 100
+      : dimension / 2;
+  }
+  if (/^-?(?:\d+\.?\d*|\.\d+)(?:px)?$/.test(value)) {
+    return Number.parseFloat(value);
+  }
+  return dimension / 2;
+}
+
+function transformedSlideObjectBounds(
+  element: HTMLElement,
+  geometry: SlideObjectGeometry,
+): SlideObjectGeometry {
+  const computedStyle = window.getComputedStyle(element);
+  const computedTransform = computedStyle.transform;
+  const transform =
+    computedTransform && computedTransform !== "none"
+      ? computedTransform
+      : element.style.transform;
+  if (!transform || transform === "none") return geometry;
+
+  let parsed = parseSlideObjectMatrix2d(transform);
+  if (!parsed) {
+    const rotation = transform.match(
+      /^rotate(?:z)?\(\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*\)$/i,
+    );
+    if (!rotation) return geometry;
+    const radians = (Number(rotation[1]) * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    parsed = {
+      values: [cos, sin, -sin, cos, 0, 0],
+      indexes: [0, 1, 2, 3, 4, 5],
+    };
+  }
+
+  const [aIndex, bIndex, cIndex, dIndex, txIndex, tyIndex] = parsed.indexes;
+  const a = parsed.values[aIndex] ?? 1;
+  const b = parsed.values[bIndex] ?? 0;
+  const c = parsed.values[cIndex] ?? 0;
+  const d = parsed.values[dIndex] ?? 1;
+  const tx = parsed.values[txIndex] ?? 0;
+  const ty = parsed.values[tyIndex] ?? 0;
+  const originTokens = (
+    computedStyle.transformOrigin || element.style.transformOrigin
+  )
+    .trim()
+    .split(/\s+/);
+  const originX = transformOriginOffset(originTokens[0], geometry.width, "x");
+  const originY = transformOriginOffset(originTokens[1], geometry.height, "y");
+  const corners = [
+    [0, 0],
+    [geometry.width, 0],
+    [0, geometry.height],
+    [geometry.width, geometry.height],
+  ];
+  const points = corners.map(([x = 0, y = 0]) => ({
+    x: originX + a * (x - originX) + c * (y - originY) + tx,
+    y: originY + b * (x - originX) + d * (y - originY) + ty,
+  }));
+  const left = Math.min(...points.map((point) => point.x));
+  const top = Math.min(...points.map((point) => point.y));
+  const right = Math.max(...points.map((point) => point.x));
+  const bottom = Math.max(...points.map((point) => point.y));
+  return {
+    x: geometry.x + left,
+    y: geometry.y + top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
 export function groupSlideObjects(
   elements: readonly HTMLElement[],
   getGeometry: (element: HTMLElement) => SlideObjectGeometry,
@@ -1500,12 +1599,16 @@ export function groupSlideObjects(
       Array.prototype.indexOf.call(parent.children, left) -
       Array.prototype.indexOf.call(parent.children, right),
   );
-  const members = orderedRoots.map((element) => ({
-    element,
-    geometry: getGeometry(element),
-  }));
+  const members = orderedRoots.map((element) => {
+    const geometry = getGeometry(element);
+    return {
+      element,
+      geometry,
+      visualBounds: transformedSlideObjectBounds(element, geometry),
+    };
+  });
   const bounds = unionSlideObjectGeometries(
-    members.map((member) => member.geometry),
+    members.map((member) => member.visualBounds),
   );
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
 
@@ -1574,12 +1677,26 @@ export function ungroupSlideObject(
     x: groupGeometry.x + groupGeometry.width / 2,
     y: groupGeometry.y + groupGeometry.height / 2,
   };
-  const childGeometries = children.map((element) => ({
-    element,
-    geometry: getGeometry(element),
-  }));
+  const childOrder = new Map(
+    children.map((element, index) => [element, index]),
+  );
+  const childGeometries = [...children]
+    .sort(
+      (left, right) =>
+        (readSlideLayerZIndex(left) ?? 0) -
+          (readSlideLayerZIndex(right) ?? 0) ||
+        (childOrder.get(left) ?? 0) - (childOrder.get(right) ?? 0),
+    )
+    .map((element) => ({
+      element,
+      geometry: getGeometry(element),
+    }));
+  const groupZIndex = readSlideLayerZIndex(group);
+  // Ungrouping removes the wrapper's stacking context; move members to its
+  // outer stack slot and preserve their inner order in the DOM.
   for (const { element } of childGeometries) {
     parent.insertBefore(element, group);
+    element.style.zIndex = groupZIndex === null ? "auto" : String(groupZIndex);
   }
   for (const { element, geometry } of childGeometries) {
     const absoluteGeometry = {
@@ -1620,7 +1737,7 @@ export function ungroupSlideObject(
     }
   }
   group.remove();
-  return children;
+  return childGeometries.map(({ element }) => element);
 }
 
 export interface SlideObjectRotationMember extends SlideObjectMoveMember {
