@@ -204,10 +204,26 @@ async function dumpTrace(page: Page) {
     .catch(() => null);
 }
 
+async function lastSelectedElementSelector(page: Page): Promise<string | null> {
+  const trace = await dumpTrace(page);
+  const matches = [
+    ...(trace ?? "").matchAll(
+      /\[select:selection-changed\] \{"layers":\[[^\]]*\],"element":"((?:[^"\\]|\\.)*)"/g,
+    ),
+  ];
+  return matches[matches.length - 1]?.[1] ?? null;
+}
+
 /**
  * Click to select an element by its node id. Figma parity: a click inside a
  * group first selects the group itself; a second click drills into the
  * child (see editor-chrome.bridge.ts's descend-on-click/dblclick path).
+ *
+ * The descend's selection-changed message is an async iframe -> host
+ * postMessage round trip, not a fixed-latency one: a flat sleep here is a
+ * race against it (passes when the host is idle, flakes under load) rather
+ * than a synchronization point. Poll __designTrace for the round trip to
+ * actually land on `nodeId` instead of guessing how long it takes.
  */
 async function selectByNodeId(page: Page, nodeId: string) {
   const frame = designFrame(page);
@@ -221,9 +237,11 @@ async function selectByNodeId(page: Page, nodeId: string) {
   // parity-selection.spec.ts's working "double-click after selecting Card"
   // pattern). A no-op dblclick on an already-leaf element is harmless.
   await page.mouse.click(cx, cy);
-  await page.waitForTimeout(200);
+  await expect.poll(() => lastSelectedElementSelector(page)).not.toBeNull();
   await page.mouse.dblclick(cx, cy);
-  await page.waitForTimeout(200);
+  await expect
+    .poll(() => lastSelectedElementSelector(page), { timeout: 5_000 })
+    .toContain(nodeId);
   return box;
 }
 
