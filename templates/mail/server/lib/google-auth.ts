@@ -707,6 +707,9 @@ export async function getAuthStatus(
     shared?: boolean;
   }> = [];
   const errors: Array<{ email: string; error: string }> = [];
+  const oauthAccountEmails = new Set(
+    oauthAccounts.map((account) => account.accountId.toLowerCase()),
+  );
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     if (!tokens) continue;
@@ -762,13 +765,7 @@ export async function getAuthStatus(
     errors.push(managedResult.error);
   } else {
     const managed = managedResult.client;
-    if (
-      managed &&
-      !accounts.some(
-        (account) =>
-          account.email.toLowerCase() === managed.email.toLowerCase(),
-      )
-    ) {
+    if (managed && !oauthAccountEmails.has(managed.email.toLowerCase())) {
       accounts.push({ email: managed.email, shared: true });
     }
   }

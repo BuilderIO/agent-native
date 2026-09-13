@@ -1289,6 +1289,15 @@ describe("managed Gmail request context", () => {
 describe("getAuthStatus with unusable token records", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+    vi.mocked(getRequestContext).mockReturnValue(undefined);
+    vi.mocked(runWithRequestContext).mockImplementation(async (_context, fn) =>
+      fn(),
+    );
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: false,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReset();
   });
 
   it("does not report decrypt-failed OAuth rows as connected", async () => {
@@ -1311,6 +1320,50 @@ describe("getAuthStatus with unusable token records", () => {
       ],
     });
     expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a failed OAuth identity with a same-address managed account", async () => {
+    const ownerEmail = "owner@example.com";
+    const accountEmail = "same@example.com";
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: accountEmail,
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: ownerEmail,
+    } as any);
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: true,
+    } as any);
+    vi.mocked(createOAuth2Client).mockReturnValue({
+      refreshToken: vi
+        .fn()
+        .mockRejectedValue(new Error("temporary refresh failure")),
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+        accountId: accountEmail,
+        accessToken: "managed-token",
+      }),
+    } as any);
+
+    await expect(getAuthStatus(ownerEmail)).resolves.toEqual({
+      connected: false,
+      accounts: [],
+      errors: [
+        {
+          email: accountEmail,
+          error: "temporary refresh failure",
+        },
+      ],
+    });
   });
 
   it("keeps valid accounts connected when another row is unreadable", async () => {
