@@ -1,11 +1,20 @@
 // @vitest-environment happy-dom
 
 import type { ComposeState } from "@shared/types";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
+const mockAccounts = vi.hoisted(
+  () => [] as Array<{ email: string; displayName?: string }>,
+);
 const mockToast = vi.hoisted(() =>
   Object.assign(vi.fn(), { error: vi.fn(), dismiss: vi.fn() }),
 );
@@ -47,7 +56,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 vi.mock("@/hooks/use-account-filter", () => ({
-  useAccountFilter: () => ({ allAccounts: [] }),
+  useAccountFilter: () => ({ allAccounts: mockAccounts }),
 }));
 vi.mock("@/hooks/use-aliases", () => ({
   useAliases: () => ({ data: [] }),
@@ -119,6 +128,7 @@ describe("ComposeModal scheduling", () => {
     mockScheduleEmail.mockReset();
     mockSendEmailAsync.mockReset();
     mockToast.mockClear();
+    mockAccounts.length = 0;
   });
 
   afterEach(() => {
@@ -175,6 +185,64 @@ describe("ComposeModal scheduling", () => {
         name: "mail.compose.fullScreenCompose",
       }).getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("assigns the sole connected account to a new compose draft", async () => {
+    mockAccounts.push({ email: "owner@example.com" });
+    const onUpdate = vi.fn();
+
+    render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={onUpdate}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onUpdate).toHaveBeenCalledWith(draft.id, {
+        accountEmail: "owner@example.com",
+      }),
+    );
+  });
+
+  it("does not replace an existing saved draft's account", () => {
+    mockAccounts.push({ email: "owner@example.com" });
+    const savedDraft: ComposeState = {
+      ...draft,
+      savedDraftId: "saved-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "saved@example.com",
+    };
+    const onUpdate = vi.fn();
+
+    render(
+      <ComposeModal
+        drafts={[savedDraft]}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={onUpdate}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 
   it("schedules only once when the send-later handler is invoked twice", async () => {

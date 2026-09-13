@@ -1,8 +1,6 @@
 import { emit } from "@agent-native/core/event-bus";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
-  getOAuthTokens,
-  saveOAuthTokens,
   listOAuthAccountsByOwner,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
@@ -51,7 +49,6 @@ import {
   filterLabelMessages,
 } from "../lib/gmail-query.js";
 import {
-  createOAuth2Client,
   gmailGetMessage,
   gmailGetThread,
   gmailListLabels,
@@ -67,11 +64,13 @@ import {
 } from "../lib/google-api.js";
 import {
   isConnected,
+  getConnectedAccounts,
+  getClientForConnectedAccount,
+  getClientsWithErrors,
   invalidateListCacheForOwner,
   listGmailMessages,
   gmailToEmailMessage,
   getAccountDisplayName,
-  getOAuth2Credentials,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
 import { syncInboxLabelDelta } from "../lib/inbox-store-sync.js";
@@ -176,60 +175,15 @@ async function getCachedLabelMap(
   return labelMap;
 }
 
-// ---------------------------------------------------------------------------
-// Token helper — get a valid access token, refreshing if needed
-// ---------------------------------------------------------------------------
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
+async function getAccessToken(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<string | null> {
+  const client = await getClientForConnectedAccount(ownerEmail, accountEmail);
+  return client?.accessToken ?? null;
 }
 
-async function getAccessToken(accountEmail: string): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-
-  // If token expires within 5 minutes, refresh it
-  if (
-    tokens.expiry_date &&
-    tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    try {
-      const { clientId, clientSecret } =
-        await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(clientId, clientSecret, "");
-      const refreshed = await oauth.refreshToken(tokens.refresh_token);
-      const updated = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: Date.now() + refreshed.expires_in * 1000,
-      };
-      await saveOAuthTokens(
-        "google",
-        accountEmail,
-        updated as unknown as Record<string, unknown>,
-      );
-      return refreshed.access_token;
-    } catch (err: any) {
-      console.error(
-        `[getAccessToken] refresh failed for ${accountEmail}:`,
-        err.message,
-      );
-      // Fall through to use existing token
-    }
-  }
-
-  return tokens.access_token;
-}
-
-/**
- * Get access tokens for accounts owned by the given user.
- * Always requires forEmail to enforce per-user isolation.
- */
+/** Get tokens for accounts connected to this owner, including a managed grant. */
 async function getAccountTokens(
   forEmail: string,
   requestedAccountEmails?: readonly string[],
@@ -237,61 +191,78 @@ async function getAccountTokens(
   const requested = requestedAccountEmails
     ? new Set(requestedAccountEmails.map((account) => account.toLowerCase()))
     : undefined;
-  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+  const [accounts, { clients }] = await Promise.all([
+    listOAuthAccountsByOwner("google", forEmail),
+    getClientsWithErrors(
+      forEmail,
+      requestedAccountEmails ? [...requestedAccountEmails] : undefined,
+    ),
+  ]);
+  const oauthAccounts = accounts.filter(
     (account) => !requested || requested.has(account.accountId.toLowerCase()),
   );
+  const oauthAccountEmails = new Set(
+    oauthAccounts.map((account) => account.accountId.toLowerCase()),
+  );
 
-  const results: Array<{ email: string; accessToken: string }> = [];
-
-  for (const account of accounts) {
+  for (const account of oauthAccounts) {
     // Seed in-memory cache from SQL on first load
     if (account.displayName && !getAccountDisplayName(account.accountId)) {
       setAccountDisplayName(account.accountId, account.displayName);
     }
-
-    const token = await getAccessToken(account.accountId);
-    if (token) {
-      results.push({ email: account.accountId, accessToken: token });
-      // Fetch from Google if we still don't have a display name
-      if (!getAccountDisplayName(account.accountId)) {
-        // Mark as attempted immediately so concurrent requests don't re-fire
-        setAccountDisplayName(account.accountId, account.accountId);
-        googleFetch(`https://www.googleapis.com/oauth2/v2/userinfo`, token)
-          .then((profile: any) => {
-            if (profile?.name) {
-              setAccountDisplayName(account.accountId, profile.name);
-              setOAuthDisplayName(
-                "google",
-                account.accountId,
-                profile.name,
-              ).catch(() => {});
-            }
-          })
-          .catch(() => {});
-      }
-    }
   }
 
-  return results;
+  for (const client of clients) {
+    if (
+      !oauthAccountEmails.has(client.email.toLowerCase()) ||
+      getAccountDisplayName(client.email)
+    ) {
+      continue;
+    }
+    // Mark as attempted immediately so concurrent requests don't re-fire.
+    setAccountDisplayName(client.email, client.email);
+    googleFetch(
+      `https://www.googleapis.com/oauth2/v2/userinfo`,
+      client.accessToken,
+    )
+      .then((profile: any) => {
+        if (profile?.name) {
+          setAccountDisplayName(client.email, profile.name);
+          setOAuthDisplayName("google", client.email, profile.name).catch(
+            () => {},
+          );
+        }
+      })
+      .catch(() => {});
+  }
+
+  return clients.map(({ email, accessToken }) => ({ email, accessToken }));
 }
 
-/**
- * Validate that the given accountEmail is owned by the logged-in user.
- * Returns the validated account email, or the user's own email as fallback.
- */
+/** Resolve an account from this owner's connected mailbox set. */
 async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  if (!requestAccountEmail || requestAccountEmail === ownerEmail) {
-    return ownerEmail;
+  const accounts = await getConnectedAccounts(ownerEmail);
+  if (!requestAccountEmail) {
+    return (
+      accounts.find(
+        (accountEmail) =>
+          accountEmail.toLowerCase() === ownerEmail.toLowerCase(),
+      ) ??
+      accounts[0] ??
+      ownerEmail
+    );
   }
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  const isOwned = accounts.some((a) => a.accountId === requestAccountEmail);
-  if (!isOwned) {
+  const account = accounts.find(
+    (accountEmail) =>
+      accountEmail.toLowerCase() === requestAccountEmail.toLowerCase(),
+  );
+  if (!account) {
     throw new Error("Account not owned by current user");
   }
-  return requestAccountEmail;
+  return account;
 }
 
 /** Extract the logged-in user's email from the request session. */
@@ -779,7 +750,7 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
+    const accessToken = await getAccessToken(email, acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
@@ -870,7 +841,7 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
   // If Gmail is connected, create a filter to auto-delete + report spam
   if (await isConnected(email)) {
     const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
+    const accessToken = await getAccessToken(email, acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
@@ -981,7 +952,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
+    const accessToken = await getAccessToken(email, acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
@@ -1089,11 +1060,11 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   if (await isConnected(email)) {
     try {
       const accountTokens = await getAccountTokens(email);
-      let selectedToken = accountTokens[0]?.accessToken;
-      let selectedEmail =
-        (await resolveAccountEmail(accountEmail, email)) ||
-        accountTokens[0]?.email ||
-        "me";
+      let selectedEmail = await resolveAccountEmail(accountEmail, email);
+      let selectedToken = accountTokens.find(
+        (account) =>
+          account.email.toLowerCase() === selectedEmail.toLowerCase(),
+      )?.accessToken;
 
       let threadId: string | undefined;
       let inReplyTo: string | undefined;
@@ -1129,116 +1100,111 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      if (accountEmail) {
-        const match = accountTokens.find((c) => c.email === accountEmail);
-        if (match) {
-          selectedToken = match.accessToken;
-          selectedEmail = match.email;
-        }
+      if (!selectedToken) {
+        setResponseStatus(event, 401);
+        return { error: "No valid access token for account" };
       }
 
-      if (selectedToken) {
-        const senderIdentity = await resolveGoogleSenderIdentity({
-          accessToken: selectedToken,
-          email: selectedEmail,
-          fallbackName: settings.name,
-          cachedName: getAccountDisplayName(selectedEmail),
-          onResolvedDisplayName: (name) => {
-            setAccountDisplayName(selectedEmail, name);
-            void setOAuthDisplayName("google", selectedEmail, name).catch(
-              () => {},
-            );
-          },
-        });
+      const senderIdentity = await resolveGoogleSenderIdentity({
+        accessToken: selectedToken,
+        email: selectedEmail,
+        fallbackName: settings.name,
+        cachedName: getAccountDisplayName(selectedEmail),
+        onResolvedDisplayName: (name) => {
+          setAccountDisplayName(selectedEmail, name);
+          void setOAuthDisplayName("google", selectedEmail, name).catch(
+            () => {},
+          );
+        },
+      });
 
-        const tracking = buildTrackingContext(event, body || "", settings);
+      const tracking = buildTrackingContext(event, body || "", settings);
 
-        const raw = buildOutgoingRawEmail({
-          from: senderIdentity.header,
-          to: cleanedTo,
-          cc: cleanedCc,
-          bcc: cleanedBcc,
-          subject: subject || "(no subject)",
-          body: body || "",
-          inReplyTo,
-          references,
-          tracking,
-          attachments,
-        });
+      const raw = buildOutgoingRawEmail({
+        from: senderIdentity.header,
+        to: cleanedTo,
+        cc: cleanedCc,
+        bcc: cleanedBcc,
+        subject: subject || "(no subject)",
+        body: body || "",
+        inReplyTo,
+        references,
+        tracking,
+        attachments,
+      });
 
-        const sendBody: any = { raw };
-        if (threadId) sendBody.threadId = threadId;
+      const sendBody: any = { raw };
+      if (threadId) sendBody.threadId = threadId;
 
-        const sent = await googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
-          selectedToken,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(sendBody),
-          },
+      const sent = await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
+        selectedToken,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sendBody),
+        },
+      );
+
+      if (tracking && sent?.id) {
+        persistTracking({
+          pixelToken: tracking.pixelToken,
+          messageId: sent.id,
+          ownerEmail: selectedEmail,
+          sentAt: Date.now(),
+          linkTokens: tracking.linkTokens,
+        }).catch((err) =>
+          console.error("[sendEmail] persistTracking failed:", err),
         );
-
-        if (tracking && sent?.id) {
-          persistTracking({
-            pixelToken: tracking.pixelToken,
-            messageId: sent.id,
-            ownerEmail: selectedEmail,
-            sentAt: Date.now(),
-            linkTokens: tracking.linkTokens,
-          }).catch((err) =>
-            console.error("[sendEmail] persistTracking failed:", err),
-          );
-        }
-
-        // Bust the server-side thread cache so the next fetch shows the new
-        // message. Without this, replies sent within the 5-min TTL don't
-        // appear until the cache entry expires.
-        if (sent.threadId) {
-          invalidateThreadCache(email, sent.threadId);
-        }
-        invalidateListCacheForOwner(email);
-
-        // Track contact frequency for all recipients
-        const allRecipients = [to, cc, bcc]
-          .filter(Boolean)
-          .flatMap((field: string) =>
-            field.split(",").map((r: string) => {
-              const match = r.trim().match(/^(.+?)\s*<(.+?)>$/);
-              return match
-                ? { email: match[2].trim(), name: match[1].trim() }
-                : { email: r.trim() };
-            }),
-          )
-          .filter((r) => r.email);
-        incrementSendFrequency(email, allRecipients).catch(() => {});
-
-        // Emit mail.message.sent event (best-effort)
-        try {
-          emit(
-            "mail.message.sent",
-            {
-              messageId: sent.id,
-              to: to || "",
-              subject: subject || "",
-            },
-            { owner: email },
-          );
-        } catch {
-          // best-effort — never block the send response
-        }
-
-        setResponseStatus(event, 201);
-        return {
-          id: sent.id,
-          threadId: sent.threadId,
-          labelIds: sent.labelIds || ["SENT"],
-          from: {
-            name: senderIdentity.displayName || senderIdentity.email,
-            email: senderIdentity.email,
-          },
-        };
       }
+
+      // Bust the server-side thread cache so the next fetch shows the new
+      // message. Without this, replies sent within the 5-min TTL don't
+      // appear until the cache entry expires.
+      if (sent.threadId) {
+        invalidateThreadCache(email, sent.threadId);
+      }
+      invalidateListCacheForOwner(email);
+
+      // Track contact frequency for all recipients
+      const allRecipients = [to, cc, bcc]
+        .filter(Boolean)
+        .flatMap((field: string) =>
+          field.split(",").map((r: string) => {
+            const match = r.trim().match(/^(.+?)\s*<(.+?)>$/);
+            return match
+              ? { email: match[2].trim(), name: match[1].trim() }
+              : { email: r.trim() };
+          }),
+        )
+        .filter((r) => r.email);
+      incrementSendFrequency(email, allRecipients).catch(() => {});
+
+      // Emit mail.message.sent event (best-effort)
+      try {
+        emit(
+          "mail.message.sent",
+          {
+            messageId: sent.id,
+            to: to || "",
+            subject: subject || "",
+          },
+          { owner: email },
+        );
+      } catch {
+        // coercion-ok: the provider send succeeded; this secondary event is best-effort.
+      }
+
+      setResponseStatus(event, 201);
+      return {
+        id: sent.id,
+        threadId: sent.threadId,
+        labelIds: sent.labelIds || ["SENT"],
+        from: {
+          name: senderIdentity.displayName || senderIdentity.email,
+          email: senderIdentity.email,
+        },
+      };
     } catch (error: any) {
       console.error("[sendEmail] Gmail API error:", error.message);
       setResponseStatus(event, 500);
@@ -1398,7 +1364,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       return { error: "Gmail is not connected for this saved draft" };
     }
     const acct = await resolveAccountEmail(draftAccountEmail, email);
-    const accessToken = await getAccessToken(acct);
+    const accessToken = await getAccessToken(email, acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
@@ -1588,7 +1554,7 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   if (await isConnected(email)) {
     const body = await readBody(event).catch(() => ({}));
     const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
+    const accessToken = await getAccessToken(email, acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
@@ -2025,7 +1991,7 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
 
   try {
     const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
+    const accessToken = await getAccessToken(email, acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "Google account not found" };
@@ -2086,7 +2052,7 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
   }
 
   const acct = await resolveAccountEmail(body.accountEmail, email);
-  const accessToken = await getAccessToken(acct);
+  const accessToken = await getAccessToken(email, acct);
   if (!accessToken) {
     setResponseStatus(event, 401);
     return { error: "No valid access token" };

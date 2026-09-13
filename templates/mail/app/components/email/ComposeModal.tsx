@@ -258,6 +258,21 @@ export function ComposeModal({
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
 
+  useEffect(() => {
+    const [account] = allAccounts;
+    if (
+      allAccounts.length !== 1 ||
+      !activeDraft ||
+      activeDraft.mode !== "compose" ||
+      activeDraft.savedDraftId ||
+      activeDraft.queuedDraftId ||
+      activeDraft.accountEmail
+    ) {
+      return;
+    }
+    onUpdate(activeDraft.id, { accountEmail: account.email });
+  }, [activeDraft, allAccounts, onUpdate]);
+
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
     setShowCcBcc(false);

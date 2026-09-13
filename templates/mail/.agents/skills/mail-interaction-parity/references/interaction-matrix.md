@@ -60,10 +60,18 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   thread. Clear each and verify the original route/query/tab is restored.
 - SEARCH-010 — Open a thread and use in-thread search. Test next/previous,
   match count, case/phrase boundaries, Escape, thread navigation, and refresh.
-- SEARCH-011 — Select a suggestion, then close the dropdown and rapidly change
-  between matching, no-match, and different-match queries. Confirm
-  `aria-activedescendant` is absent while closed or when the selected index is
-  stale, and otherwise always resolves to a rendered option in the open list.
+- SEARCH-011 — Type a query with both contact and thread suggestions, ArrowDown
+  to one result, then rapidly replace the query with a no-match query and a
+  different-match query before pressing Enter. Confirm selection resets or
+  follows the visible result, focus stays intentional, and
+  `aria-activedescendant` is absent while closed or stale and otherwise always
+  resolves to a rendered option in the open list. Drive this in a browser and
+  assert the selection-reset rule at the smallest unit boundary available.
+- SEARCH-012 — Cache a synthetic matching message, go offline, and search once
+  for the cached match and once for a non-match; reconnect and repeat. Confirm
+  cached results remain findable, while an offline miss or incomplete remote
+  search is not presented as a complete empty result. Use browser network
+  interception for Mail and a manual Superhuman comparison while offline.
 
 ## Inbox rows, selection, and triage
 
@@ -91,7 +99,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   request failure rollback, error message, and refresh reconciliation.
 - LIST-008 — Undo archive, trash, read/unread, star, snooze, and send. Trigger
   with toast click, z, timeout boundary, another action, route change, and
-  refresh. Confirm the undo does not restore into the wrong partition.
+  refresh. At the narrow/mobile viewport, use the visible Undo affordance and
+  repeat after a second action replaces the toast; confirm only the latest
+  action is reversed. Confirm the undo does not restore into the wrong
+  partition. If the responsive Mail surface has no on-screen Undo, record the
+  exact parity gap instead of treating the keyboard shortcut as equivalent.
 - LIST-009 — Drag/reorder tabs, labels, and saved filters. Test left/right drop,
   same-item drop, cross-group drop, cancelled drag, keyboard alternative, and
   persistence after reload.
@@ -134,6 +146,26 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   message, quoted text, recipients, and draft state. Record Mail as a gap if the
   corresponding feature is absent rather than assigning the key to another
   action.
+- THREAD-012 — In a multi-message thread, select a phrase and triple-click a
+  line to exercise Quick Quote; press Enter, R, and F separately. Verify the
+  selected message, quoted text, recipients, and resulting draft for each key.
+  Repeat with touch/mobile selection and confirm whether the reference is
+  desktop-only. This is a manual side-by-side sequence; do not count ordinary
+  reply/forward coverage as Quick Quote coverage.
+- THREAD-013 — On an eligible synthetic thread, cycle all Instant Reply
+  suggestions with Tab, insert each with Enter, R, and F, edit the resulting
+  draft, and verify recipients and quoted context. Repeat with an existing
+  draft and a thread where the user sent the last message; confirm suggestions
+  are hidden or otherwise match the reference's eligibility rules. Record a
+  feature gap if Mail has no equivalent. Compare manually in both products and
+  cover any deterministic Mail eligibility state with a unit/browser test.
+- THREAD-014 — Use Ask AI/Summarize on a synthetic one-message and multi-message
+  thread with a quote, attachment, and new-message arrival. Check the exact
+  source thread, loading/cancel/error/retry states, unsupported or missing
+  context, summary refresh, and that the result does not invent recipients or
+  send anything. Compare on the same synthetic content; record a feature gap
+  when one product lacks an equivalent. Do not use unrelated private mail as
+  the prompt fixture.
 
 ## Compose, recipients, and autocomplete
 
@@ -228,6 +260,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   test message, wait for Sent, receive on the other allowed account, verify
   thread grouping, read/unread, reply, and cleanup/archive. Do not persist those
   addresses in fixtures or documentation, and do not contact anyone else.
+- SEND-008 — Force a provider send failure in a mocked browser test. Verify the
+  failure notification is discoverable, open its recovery entry point, edit or
+  discard, then read back Sent and Drafts to rule out silent loss or duplicate
+  delivery. Compare Superhuman's failed-send notification and recovery flow
+  manually; do not trigger a real failed send to an external recipient.
 
 ## Labels, folders, spam, and reminders
 
@@ -244,6 +281,48 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - ORGANIZE-005 — Compare Superhuman Auto Reminders: sent/no reply detection,
   reminder scheduling, trigger, dismiss, and cancel. Mark Mail's intentional gap
   until implemented and covered by actions/application state.
+- ORGANIZE-006 — Compare Auto Labels, Auto Archive, and Auto Drafts when the
+  reference account/plan exposes them: onboarding and enablement, existing mail
+  versus new mail, exclusions/overrides, incremental processing, draft
+  suggestions/versions/placeholders, user review, disablement, and recovery.
+  Confirm an AI draft is never sent automatically. Treat plan-gated features as
+  a documented product gap when they are unavailable, not as a failed test.
+
+## Splits, calendar, and collaboration
+
+- SPLIT-001 — Build a custom Split Inbox from From/To/Subject/Cc/Bcc criteria
+  with AND/OR and Auto Labels. Test duplicate criteria, invalid/empty names,
+  empty-result hiding, counts, more than 999 matches, Also show in Important,
+  edit/disable/delete, reorder, reload, and Add to Split Inbox from a message.
+  Verify messages are still in the underlying mailbox and account-scoped.
+- CAL-001 — Open calendar from navigation and keyboard. Compare day/week views,
+  previous/next periods, time zones, all-day/multi-day events, event details,
+  search, refresh, and the return path to the same mail thread. Test missing,
+  disconnected, and partially granted calendar access distinctly.
+- CAL-002 — Start an event from the calendar, an open message, and Ask AI.
+  Exercise generated invitees, purpose, availability, meeting link, edit,
+  save/cancel, timezone/DST, recurrence, overlap, and event read-back. Keep
+  browser tests mocked or save only a draft event; do not invite real attendees
+  without explicit authorization for those recipients.
+- TEAM-001 — Inspect Share Conversation and stop-sharing dialogs, publisher and
+  participant visibility, copied-link states, guest access, future-message
+  visibility, subthreads, risk warning after removing a recipient, and re-share
+  eligibility. Test only with a synthetic fixture and disposable test team; do
+  not publish a real conversation or send a collaboration invitation during
+  the parity pass.
+- TEAM-002 — Exercise comments, @mention autocomplete, participant list, send,
+  notification, delete-own-comment, comment-bar hide/show, mute, and mobile
+  comment affordance. Use mocked sends or a dedicated test team; never mention
+  or notify a real person without explicit authorization.
+- TEAM-003 — Share/unshare a standalone or reply draft; test real-time peer
+  edits, conflicts, draft labels, comments, send-after-edit, and disconnect.
+  Confirm sharing stops access as the reference specifies. Use disposable test
+  identities only; do not expose a user's live draft.
+- TEAM-004 — Compare Team Snippets, read/open statuses, teammate reply/scheduled
+  indicators, team scheduling, and CRM sidebars. Test enabled/disabled,
+  permission-denied, stale, and competing-writer states. No real mail open
+  tracking, team sharing, meeting invitation, or CRM write is part of the live
+  test without separate authorization.
 
 ## Settings, command palette, and agent parity
 
@@ -255,7 +334,8 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   keyboard alternatives and native Tab behavior.
 - SETTINGS-003 — Settings navigation/search/back/refresh. Test signature,
   drafting style, snippets, aliases, tracking, accounts, split/combine inbox,
-  filters, automations, AI filter, integrations, theme, and unsaved changes.
+  filters, automations, AI filter, Auto Labels/Archive/Drafts/Reminders,
+  integration/team permissions, theme, and unsaved changes.
 - SETTINGS-004 — Use `view-screen`, `navigate`, `get-thread`, `list-inbox-threads`,
   `list-emails`, `search-emails`, `find-contact`, `manage-draft`, and mutation
   actions against the same visible state. Read back after every write.
@@ -264,6 +344,24 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   queuedDraftId, settings section, and composeDraftId where applicable.
 - SETTINGS-006 — Test agent-created/updated draft, agent navigation, external
   refresh signal, concurrent UI edit, stale response, action error, and recovery.
+- SETTINGS-007 — Open Superhuman Command → Shortcuts from the inbox, an open
+  thread, and compose. Compare every displayed shortcut and its context, then
+  exercise it with focus in the list, thread, To/Cc/Bcc, subject, body, search,
+  and modal. Baseline captured from the live desktop reference on 2026-09-13:
+
+  | Surface | Shortcut inventory to compare and exercise |
+  | --- | --- |
+  | Global/navigation | Cmd+K Command; `/` Search; `z` Undo; `?` Ask AI; `j`/`k` next/previous conversation; `n`/`p` next/previous message; Enter Open; Esc Back; Tab/Shift+Tab next/previous Split; Left Arrow label menu; Space/Shift+Space page down/up; Cmd+Up/Down jump top/bottom; Ctrl+1–9 switch account; arrows Superhuman Focus. |
+  | Conversation | `e` Done/Archive; Shift+E not Done; `h` Remind Me; `s` Star; `u` Read/Unread; `i` Summarize; Shift+M Mute; `#` Trash; `!` Spam; Cmd+U Unsubscribe; Cmd+P Print; `x` select; Esc clear selection; Cmd+A select all from here; Cmd+Shift+A select all; Cmd+S share; `m` comment; Cmd+Delete delete comment. |
+  | Labels/messages | `v` Move; `l` Add/Remove Label; `y` Remove Label; `[`/`]` next/previous label; Shift+Y remove all labels; `c` Compose; Enter Reply All; `r` Reply; `f` Forward; Cmd+O Open Links & Attachments; Tab cycle links; `o` Expand Message; Shift+H expand header; Shift+O expand all; Shift+N show new messages; Cmd+; use snippet. |
+  | Compose | Cmd+Shift+O To; Cmd+Shift+C Cc; Cmd+Shift+B Bcc; Cmd+Shift+F From; Cmd+Shift+S Subject; Cmd+J Superhuman AI; Cmd+Shift+U Attach; Cmd+Shift+, Discard; Cmd+Shift+I Instant Intro/Bcc; Cmd+Shift+H Remind Me; Cmd+Shift+L Send Later; `;` insert snippet; `:` insert emoji; Cmd+Enter Send; Cmd+Shift+Z Send Instantly; Cmd+Shift+Enter Send + Done. |
+  | Pop-out and format | Shift+C pop out; Shift+Enter Reply All pop-out; Shift+R Reply pop-out; Shift+F Forward pop-out; Cmd+Shift+P pop in/out; Cmd+/ pop out draft and search; Cmd+D Toggle Focus; Cmd+B bold; Cmd+I italic; Cmd+U underline; Cmd+K hyperlink; Cmd+O color; Cmd+Shift+X strike; Cmd+Shift+7/8/9 numbered list/bullets/quote; Tab/Shift+Tab indent/outdent; Cmd+]/[ increase/decrease indent. |
+  | Folders/filters | G then I Inbox and Important; G then O Other; G then S Starred; G then D Drafts; G then T Sent; G then E Done; G then H Reminders; G then M Muted; G then ; Snippets; G then ! Spam; G then # Trash; G then A All Mail; G then L label; Shift+U Unread; Shift+S Starred; Shift+I Important; Shift+R No reply. Verify the live G-then-I mapping because the reference sheet displayed it for both Inbox and Important. |
+  | Window/calendar | Cmd+T new tab; Cmd+Shift+]/[ next/previous tab; Cmd+W close tab; Cmd+=/-/0 font size up/down/reset; Cmd+F find; Ctrl+/ copy private link; `0` day view; `2` week view; `-` previous day/week; `=` next day/week; Cmd+Shift+A share availability; `b` create event; Shift+B empty event. |
+
+  Confirm contextual conflicts resolve intentionally (including Enter, Tab,
+  Cmd+Shift+A, Cmd+O, Cmd+K, Shift+U, and Shift+R), native text editing is not
+  intercepted, and international keyboard layouts have usable alternatives.
 
 ## Performance and quality gates
 
@@ -283,6 +381,42 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   focused unit/action tests, typecheck/format/guards, and the complete Mail
   matrix that is available in the environment. Record skipped cases and why.
 
+## Visual and interaction-state parity
+
+Run Superhuman and Mail at the same content viewport (CSS-pixel width and
+height), zoom, theme, text scale, and matched synthetic message/draft state.
+Record the environment with each comparison; do not compare a native window's
+outer frame to a browser's outer frame. Capture both products before a change
+and again after a fix. A visual case is not verified from source inspection or
+an automated DOM assertion alone.
+
+- VIS-001 — Compare the shell and inbox at rest: navigation/header geometry,
+  density, row height, typography, color, separators, icons, account state,
+  unread/selected indicators, and scroll position.
+- VIS-002 — Compare a synthetic message row at idle, pointer hover, keyboard
+  focus, selected, unread, starred, multi-select, loading, and action-in-flight
+  states. Check that transient row actions do not shift content or steal focus.
+- VIS-003 — Compare one-message and multi-message thread states: collapsed and
+  expanded cards, sender/recipient details, quote, attachment, toolbar, body
+  typography, long lines, inline media, and bottom action placement.
+- VIS-004 — Compare blank compose, recipient query with suggestions open,
+  accepted recipient chip, Cc/Bcc open, subject/body entered, minimized,
+  expanded/fullscreen, attachment progress, send failure, and saved state.
+  Capture focus, caret, menu anchoring, and layout after each transition.
+- VIS-005 — Compare command palette, search suggestions, account selector,
+  label menu, snooze/date picker, confirmation, error, undo toast, and empty
+  state at open, keyboard-focus, hover, and dismissal transitions.
+- VIS-006 — Compare responsive layouts at 1024×768, 768×1024, and 390×844 CSS
+  pixels, including touch targets, safe areas, overflow, popover placement, and
+  whether the same primary actions remain reachable.
+- VIS-007 — For every discrepancy, record the case ID, viewport/theme/state,
+  exact key/mouse sequence, expected Superhuman appearance/behavior, actual
+  Mail appearance/behavior, before screenshot for each product, the fix, and
+  after screenshots for both products. Re-run the exact sequence after the fix.
+
+Use synthetic fixture mail only. Inbox screenshots must not capture unrelated
+personal messages; crop or obscure unrelated content before saving evidence.
+
 ## Official comparison anchors
 
 Use current official Superhuman help articles for the reference behavior and
@@ -299,3 +433,11 @@ re-open them when the product changes:
 - [Failed sends](https://help.superhuman.com/hc/en-us/articles/46005543693581-Failed-Sends)
 - [Quick Quote](https://help.superhuman.com/hc/en-us/articles/46005692763661-Quick-Quote)
 - [Instant Reply](https://help.superhuman.com/hc/en-us/articles/46005583725709-Instant-Reply)
+- [Shared Conversations and Team Comments](https://help.superhuman.com/hc/en-us/articles/46005593675917-Shared-Conversations-and-Team-Comments)
+- [Custom Split Inbox](https://help.superhuman.com/hc/en-us/articles/46005636204941-Custom-Split-Inbox)
+- [Your AI Assistant](https://help.superhuman.com/hc/en-us/articles/46005792429965-Your-AI-Assistant)
+- [Create Event](https://help.superhuman.com/hc/en-us/articles/46005621734669-Create-Event)
+- [Auto Reminders & Auto Drafts](https://help.superhuman.com/hc/en-us/articles/46005658551053-Auto-Reminders-Auto-Drafts)
+- [Shared Drafts](https://help.superhuman.com/hc/en-us/articles/46005578703885-Shared-Drafts)
+- [Team Features Overview](https://help.superhuman.com/hc/en-us/articles/46005696084109-Team-Features-Overview)
+- [Dates, Deadlines, Done](https://help.superhuman.com/hc/en-us/articles/46005854169357-Dates-Deadlines-Done)

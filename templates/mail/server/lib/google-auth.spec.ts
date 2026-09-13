@@ -25,6 +25,7 @@ import {
   getAuthUrl,
   getClient,
   getClientForConnectedAccount,
+  getConnectedAccounts,
   getClientsWithErrors,
   listGmailMessages,
   markAllUnreadReadForAccount,
@@ -873,6 +874,193 @@ describe("getClientsWithErrors parallel refresh", () => {
       },
     ]);
     expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("mixed OAuth and managed Gmail accounts", () => {
+  const OWNER = "owner@example.com";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "oauth-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        displayName: "OAuth User",
+        tokens: {
+          access_token: "oauth-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+  });
+
+  afterEach(() => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+  });
+
+  it("lists OAuth accounts first and appends the managed account", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    await expect(getConnectedAccounts(OWNER)).resolves.toEqual([
+      "oauth@example.com",
+      "managed@example.com",
+    ]);
+  });
+
+  it("returns both clients and filters the requested account before OAuth refresh", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    await expect(getClientsWithErrors(OWNER)).resolves.toEqual({
+      clients: [
+        {
+          email: "oauth@example.com",
+          accessToken: "oauth-token",
+          refreshToken: "oauth-refresh",
+        },
+        {
+          email: "managed@example.com",
+          accessToken: "managed-token",
+          refreshToken: "",
+        },
+      ],
+      errors: [],
+    });
+
+    await expect(
+      getClientsWithErrors(OWNER, ["MANAGED@example.com"]),
+    ).resolves.toEqual({
+      clients: [
+        {
+          email: "managed@example.com",
+          accessToken: "managed-token",
+          refreshToken: "",
+        },
+      ],
+      errors: [],
+    });
+    expect(createOAuth2Client).not.toHaveBeenCalled();
+  });
+
+  it("skips managed lookup when the requested OAuth account is already usable", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com"]),
+    ).resolves.toMatchObject({
+      clients: [{ email: "oauth@example.com", accessToken: "oauth-token" }],
+      errors: [],
+    });
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+  });
+
+  it("resolves the managed grant while OAuth token refresh is still pending", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "expired-access-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    let finishRefresh!: (value: {
+      access_token: string;
+      expires_in: number;
+    }) => void;
+    const refreshToken = vi.fn(
+      () =>
+        new Promise<{ access_token: string; expires_in: number }>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    const pending = getClientsWithErrors(OWNER);
+    await vi.waitFor(() =>
+      expect(getMailProviderApiRuntime).toHaveBeenCalled(),
+    );
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+
+    finishRefresh({ access_token: "refreshed-oauth-token", expires_in: 3600 });
+    await expect(pending).resolves.toMatchObject({
+      clients: [
+        { email: "oauth@example.com", accessToken: "refreshed-oauth-token" },
+        { email: "managed@example.com", accessToken: "managed-token" },
+      ],
+      errors: [],
+    });
+  });
+
+  it("keeps OAuth precedence and avoids a duplicate for a case-insensitive identity match", async () => {
+    mockManagedGrant("OAUTH@example.com", "managed-shadow-token");
+
+    await expect(getConnectedAccounts(OWNER)).resolves.toEqual([
+      "oauth@example.com",
+    ]);
+    await expect(getClientsWithErrors(OWNER)).resolves.toMatchObject({
+      clients: [
+        {
+          email: "oauth@example.com",
+          accessToken: "oauth-token",
+          refreshToken: "oauth-refresh",
+        },
+      ],
+      errors: [],
+    });
+  });
+
+  it("shows the managed account alongside OAuth in auth status", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    const { getAuthStatus } = await import("./google-auth.js");
+    await expect(getAuthStatus(OWNER)).resolves.toMatchObject({
+      connected: true,
+      accounts: [
+        { email: "oauth@example.com", displayName: "OAuth User" },
+        { email: "managed@example.com", shared: true },
+      ],
+    });
+  });
+
+  it("keeps managed lookup failures distinguishable when OAuth is also connected", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: OWNER,
+    } as any);
+    vi.mocked(resolveWorkspaceConnectionForApp).mockRejectedValue(
+      new Error("workspace lookup unavailable"),
+    );
+
+    await expect(getConnectedAccounts(OWNER)).rejects.toThrow(
+      "workspace lookup unavailable",
+    );
+    await expect(getClientsWithErrors(OWNER)).resolves.toMatchObject({
+      clients: [{ email: "oauth@example.com" }],
+      errors: [
+        {
+          email: "workspace",
+          error: "workspace lookup unavailable",
+        },
+      ],
+    });
+    const { getAuthStatus } = await import("./google-auth.js");
+    await expect(getAuthStatus(OWNER)).rejects.toThrow(
+      "workspace lookup unavailable",
+    );
   });
 });
 

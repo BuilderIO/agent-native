@@ -488,6 +488,26 @@ export async function getClientsWithErrors(
       hasGmailScope(account.tokens) &&
       (!requested || requested.has(account.accountId.toLowerCase())),
   );
+  const oauthAccountEmails = new Set(
+    accounts.map((account) => account.accountId.toLowerCase()),
+  );
+  const resolveManagedWithError = async () => {
+    try {
+      return { ok: true as const, client: await resolveManagedGmailClient() };
+    } catch (err: any) {
+      return {
+        ok: false as const,
+        error: {
+          email: "workspace",
+          error: err?.message || "Workspace Gmail connection failed",
+        },
+      };
+    }
+  };
+  const managedPromise =
+    !requested || [...requested].some((email) => !oauthAccountEmails.has(email))
+      ? resolveManagedWithError()
+      : null;
 
   const clients: Array<{
     email: string;
@@ -547,20 +567,22 @@ export async function getClientsWithErrors(
     else if (result.error) errors.push(result.error);
   }
 
-  if (clients.length === 0) {
-    try {
-      const managed = await resolveManagedGmailClient();
+  const clientEmails = new Set(
+    clients.map((client) => client.email.toLowerCase()),
+  );
+  if (!requested || [...requested].some((email) => !clientEmails.has(email))) {
+    const result = await (managedPromise ?? resolveManagedWithError());
+    if (!result.ok) {
+      errors.push(result.error);
+    } else {
+      const managed = result.client;
       if (
         managed &&
-        (!requested || requested.has(managed.email.toLowerCase()))
+        (!requested || requested.has(managed.email.toLowerCase())) &&
+        !clientEmails.has(managed.email.toLowerCase())
       ) {
         clients.push(managed);
       }
-    } catch (err: any) {
-      errors.push({
-        email: "workspace",
-        error: err?.message || "Workspace Gmail connection failed",
-      });
     }
   }
 
@@ -585,9 +607,15 @@ export async function getConnectedAccounts(
   const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
     (account) => hasGmailScope(account.tokens),
   );
-  if (accounts.length > 0) return accounts.map((a) => a.accountId);
   const managed = await resolveManagedGmailClient();
-  return managed ? [managed.email] : [];
+  const emails = accounts.map((account) => account.accountId);
+  if (
+    managed &&
+    !emails.some((email) => email.toLowerCase() === managed.email.toLowerCase())
+  ) {
+    emails.push(managed.email);
+  }
+  return emails;
 }
 
 export interface GoogleAuthStatus {
@@ -612,18 +640,12 @@ export async function getAuthStatus(
     (account) => hasGmailScope(account.tokens),
   );
 
-  if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedGmailClient();
-    return managed
-      ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
-      : { connected: false, accounts: [] };
-  }
-
   const accounts: Array<{
     email: string;
     displayName?: string;
     expiresAt?: string;
     photoUrl?: string;
+    shared?: boolean;
   }> = [];
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -668,6 +690,16 @@ export async function getAuthStatus(
         : undefined,
       photoUrl,
     });
+  }
+
+  const managed = await resolveManagedGmailClient();
+  if (
+    managed &&
+    !accounts.some(
+      (account) => account.email.toLowerCase() === managed.email.toLowerCase(),
+    )
+  ) {
+    accounts.push({ email: managed.email, shared: true });
   }
 
   return {
