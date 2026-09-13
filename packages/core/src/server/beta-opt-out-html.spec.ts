@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
@@ -91,6 +93,82 @@ describe("injectBetaOptOutPersistence", () => {
     expect(stylesheet.trimStart()).toMatch(/^[.#a-zA-Z@:*]/);
     expect(stylesheet.trimStart()).not.toMatch(/^[a-z-]+\s*:/);
     expect(stylesheet).toContain(".environment-switcher {");
+  });
+
+  it("uses Traditional Chinese copy for script-and-region locale aliases", () => {
+    const html = injectBetaOptOutPersistence(
+      '<html lang="zh-Hant-HK" data-locale="zh-Hant-HK"><head></head><body></body></html>',
+    );
+    const script = html.match(
+      /<script data-agent-native-environment-switcher-script="1">([\s\S]*?)<\/script>/,
+    )?.[1];
+    expect(script).toBeDefined();
+
+    const element = () => ({
+      hidden: true,
+      textContent: "",
+      href: "",
+      setAttribute() {},
+      addEventListener() {},
+      contains() {
+        return false;
+      },
+    });
+    const switcher = element();
+    const badge = element();
+    const popover = element();
+    const title = element();
+    const copy = element();
+    const productionLink = element();
+    const hideButton = element();
+    const elements: Record<string, ReturnType<typeof element>> = {
+      "environment-switcher": switcher,
+      "environment-badge": badge,
+      "environment-popover": popover,
+      "environment-popover-title": title,
+      "environment-production-link": productionLink,
+      "environment-hide-badge": hideButton,
+    };
+    const locale = new Map([
+      ["data-locale", "zh-Hant-HK"],
+      ["lang", "zh-Hant-HK"],
+    ]);
+    const root = {
+      getAttribute: (name: string) => locale.get(name) ?? null,
+    };
+    const document = {
+      documentElement: root,
+      getElementById: (id: string) => elements[id] ?? null,
+      querySelector: () => copy,
+      addEventListener() {},
+    };
+    const window = {
+      parent: undefined as unknown,
+      location: {
+        href: "https://beta.dispatch.agent-native.com/login",
+        hostname: "beta.dispatch.agent-native.com",
+      },
+      localStorage: { getItem: () => null },
+      sessionStorage: { setItem() {} },
+    };
+    window.parent = window;
+
+    runInNewContext(script!, {
+      window,
+      document,
+      navigator: { languages: [], language: "en-US" },
+      MutationObserver: class {
+        observe() {}
+      },
+      URL,
+    });
+
+    expect(badge.textContent).toBe(
+      ENVIRONMENT_BADGE_MESSAGES["zh-TW"].betaLabel,
+    );
+    expect(copy.textContent).toBe(
+      ENVIRONMENT_BADGE_MESSAGES["zh-TW"].continuePrompt,
+    );
   });
 
   it("does not duplicate the handoff on a second auth response pass", () => {

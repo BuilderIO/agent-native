@@ -209,6 +209,24 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
       if (locales[i].toLowerCase() === normalized) return messagesByLocale[locales[i]];
     }
     var language = normalized.split('-')[0];
+    if (language === 'zh') {
+      var parts = normalized.split('-');
+      if (
+        parts.indexOf('hant') !== -1 ||
+        parts.indexOf('tw') !== -1 ||
+        parts.indexOf('hk') !== -1 ||
+        parts.indexOf('mo') !== -1
+      ) {
+        return messagesByLocale['zh-TW'];
+      }
+      if (
+        parts.indexOf('hans') !== -1 ||
+        parts.indexOf('cn') !== -1 ||
+        parts.indexOf('sg') !== -1
+      ) {
+        return messagesByLocale['zh-CN'];
+      }
+    }
     for (var j = 0; j < locales.length; j++) {
       if (locales[j].split('-')[0].toLowerCase() === language) return messagesByLocale[locales[j]];
     }
