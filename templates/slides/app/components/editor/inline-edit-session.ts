@@ -3,6 +3,15 @@ export interface InlineEditContentSnapshot {
   content: string;
 }
 
+export function inlineEditDraftNeedsPersistence(
+  captured: InlineEditContentSnapshot | null,
+  next: InlineEditContentSnapshot,
+): boolean {
+  return (
+    captured?.slideId === next.slideId && captured.content !== next.content
+  );
+}
+
 export function shouldPersistInlineEditContent(
   initial: InlineEditContentSnapshot | null,
   current: InlineEditContentSnapshot | null,

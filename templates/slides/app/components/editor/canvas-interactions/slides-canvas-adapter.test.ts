@@ -9,6 +9,7 @@ import {
   resolveSlidesCanvasDragTarget,
   resolveSlidesCanvasNudge,
   resolveSlidesCanvasPointerIntent,
+  resolveSlidesCanvasRotation,
   SLIDES_CANVAS_EDGE_MOVE_BAND,
 } from "./slides-canvas-adapter";
 
@@ -40,8 +41,8 @@ describe("Slides canvas interaction adapter", () => {
     expect(core.capabilities.snapping).toBe(true);
     expect(core.capabilities.alignment).toBe(true);
     expect(core.capabilities.distribution).toBe(true);
-    expect(core.capabilities.grouping).toBe(false);
-    expect(core.capabilities.rotation).toBe(false);
+    expect(core.capabilities.grouping).toBe(true);
+    expect(core.capabilities.rotation).toBe(true);
   });
 
   it("uses the shared nudge and resize geometry", () => {
@@ -128,6 +129,45 @@ describe("Slides canvas interaction adapter", () => {
     expect(resolveSlidesCanvasNudge({ key: "ArrowRight", altKey: true })).toBe(
       null,
     );
+  });
+
+  it("maps Alt+Arrow to 15-degree rotation and Shift+Alt+Arrow to one degree", () => {
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowRight",
+        altKey: true,
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
+      }),
+    ).toBe(15);
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowLeft",
+        altKey: true,
+        shiftKey: true,
+        metaKey: false,
+        ctrlKey: false,
+      }),
+    ).toBe(-1);
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowRight",
+        altKey: true,
+        shiftKey: false,
+        metaKey: true,
+        ctrlKey: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowUp",
+        altKey: true,
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
+      }),
+    ).toBeNull();
   });
 
   it("reserves only a selected object's edge band for movement", () => {

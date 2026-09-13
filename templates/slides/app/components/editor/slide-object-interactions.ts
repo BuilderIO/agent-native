@@ -342,6 +342,39 @@ export function findSlideObjectById(
   );
 }
 
+function establishesSlideObjectContainingBlock(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  const position = style.position || "static";
+  const hasTransform = Boolean(style.transform && style.transform !== "none");
+  const hasPerspective = Boolean(
+    style.perspective && style.perspective !== "none",
+  );
+  const hasFilter = Boolean(style.filter && style.filter !== "none");
+  const containment = style.contain ?? "";
+  const hasContainment = ["layout", "paint", "strict", "content"].some(
+    (value) => containment.split(/\s+/).includes(value),
+  );
+
+  return (
+    position !== "static" ||
+    hasTransform ||
+    hasPerspective ||
+    hasFilter ||
+    hasContainment
+  );
+}
+
+function findSlideObjectContainingBlock(
+  ancestor: HTMLElement | null,
+  fallback: HTMLElement,
+): HTMLElement {
+  while (ancestor) {
+    if (establishesSlideObjectContainingBlock(ancestor)) return ancestor;
+    ancestor = ancestor.parentElement;
+  }
+  return fallback;
+}
+
 /**
  * Absolute offsets resolve against the nearest ancestor that establishes a
  * containing block, not necessarily the slide's autofit layer. Keep walking
@@ -351,32 +384,14 @@ export function resolveSlideObjectContainingBlock(
   element: HTMLElement,
   slideLayer: HTMLElement,
 ): HTMLElement {
-  let ancestor = element.parentElement;
-  while (ancestor) {
-    const style = window.getComputedStyle(ancestor);
-    const position = style.position || "static";
-    const hasTransform = Boolean(style.transform && style.transform !== "none");
-    const hasPerspective = Boolean(
-      style.perspective && style.perspective !== "none",
-    );
-    const hasFilter = Boolean(style.filter && style.filter !== "none");
-    const containment = style.contain ?? "";
-    const hasContainment = ["layout", "paint", "strict", "content"].some(
-      (value) => containment.split(/\s+/).includes(value),
-    );
+  return findSlideObjectContainingBlock(element.parentElement, slideLayer);
+}
 
-    if (
-      position !== "static" ||
-      hasTransform ||
-      hasPerspective ||
-      hasFilter ||
-      hasContainment
-    ) {
-      return ancestor;
-    }
-    ancestor = ancestor.parentElement;
-  }
-  return slideLayer;
+/** Resolve the CSS coordinate root for an object about to be added to a layer. */
+export function resolveSlideObjectInsertionContainingBlock(
+  positioningLayer: HTMLElement,
+): HTMLElement {
+  return findSlideObjectContainingBlock(positioningLayer, positioningLayer);
 }
 
 export interface SlideTextBoxCanvas {
@@ -955,7 +970,41 @@ export function resizeSlideObjectMembers(
   return plan;
 }
 
-export type SlideObjectZOrderTarget = "front" | "back";
+/** Scale a group's descendants in their own parent coordinate spaces. */
+interface SlideObjectGroupBounds {
+  width: number;
+  height: number;
+}
+
+export function scaleSlideObjectGroupMembers(
+  members: readonly SlideObjectMoveMember[],
+  originalGroup: SlideObjectGroupBounds,
+  nextGroup: SlideObjectGroupBounds,
+): Map<HTMLElement, SlideObjectGeometry> {
+  if (
+    originalGroup.width <= 0 ||
+    originalGroup.height <= 0 ||
+    nextGroup.width <= 0 ||
+    nextGroup.height <= 0
+  ) {
+    return new Map();
+  }
+  const scaleX = nextGroup.width / originalGroup.width;
+  const scaleY = nextGroup.height / originalGroup.height;
+  return new Map(
+    members.map(({ element, start }) => [
+      element,
+      {
+        x: start.x * scaleX,
+        y: start.y * scaleY,
+        width: start.width * scaleX,
+        height: start.height * scaleY,
+      },
+    ]),
+  );
+}
+
+export type SlideObjectZOrderTarget = "front" | "back" | "forward" | "backward";
 
 export function readSlideObjectZIndex(element: HTMLElement): number {
   const raw = element.style.zIndex || window.getComputedStyle(element).zIndex;
@@ -1110,6 +1159,42 @@ export function computeSlideObjectZOrder(
     return value === currentValue ? null : { value, shiftPeers: [] };
   }
 
+  if (target === "forward" || target === "backward") {
+    const currentOrder = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).indexOf(element);
+    const all = [
+      { element, zIndex: currentValue, order: currentOrder },
+      ...peers,
+    ].sort(
+      (left, right) => left.zIndex - right.zIndex || left.order - right.order,
+    );
+    const currentIndex = all.findIndex((peer) => peer.element === element);
+    const nextIndex = currentIndex + (target === "forward" ? 1 : -1);
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= all.length) {
+      return null;
+    }
+
+    const reordered = [...all];
+    const [moved] = reordered.splice(currentIndex, 1);
+    if (!moved) return null;
+    reordered.splice(nextIndex, 0, moved);
+
+    const change = {
+      value: nextIndex,
+      shiftPeers: reordered
+        .map((peer, index) => ({ element: peer.element, value: index }))
+        .filter(
+          (peer) =>
+            peer.element !== element &&
+            readSlideObjectZIndex(peer.element) !== peer.value,
+        ),
+    };
+    return change.value === currentValue && change.shiftPeers.length === 0
+      ? null
+      : change;
+  }
+
   const minPeer = Math.min(...peerZIndexes);
   const hasTiedPeers = new Set(peerZIndexes).size !== peers.length;
   if (minPeer - 1 >= 0 && !hasTiedPeers) {
@@ -1129,6 +1214,102 @@ export function computeSlideObjectZOrder(
       value: index + 1,
     })),
   };
+}
+
+/** Compute a stacking-order move for a multi-selection while preserving the
+ * relative order of the selected layers. */
+export function computeSlideObjectZOrderForSelection(
+  elements: readonly HTMLElement[],
+  container: HTMLElement,
+  target: SlideObjectZOrderTarget,
+): Map<HTMLElement, number> | null {
+  const roots = normalizeSlideObjectRoots([...elements]);
+  if (roots.length === 0) return null;
+  const firstContainingBlock = resolveSlideObjectContainingBlock(
+    roots[0],
+    container,
+  );
+  const firstStackingContext = resolveSlideObjectStackingContext(
+    roots[0],
+    container,
+  );
+  if (
+    roots.some(
+      (root) =>
+        !isEditableFreeformSlideObject(root) ||
+        resolveSlideObjectContainingBlock(root, container) !==
+          firstContainingBlock ||
+        resolveSlideObjectStackingContext(root, container) !==
+          firstStackingContext,
+    )
+  ) {
+    return null;
+  }
+
+  const selected = new Set(roots);
+  const peers = getSlideObjectZOrderPeers(roots[0], container).filter(
+    (peer) => !roots.some((root) => root.contains(peer.element)),
+  );
+  const domOrder = new Map(
+    Array.from(
+      container.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).map((element, index) => [element, index]),
+  );
+  const all = [
+    ...roots.map((element) => ({
+      element,
+      zIndex: readSlideObjectZIndex(element),
+      order: domOrder.get(element) ?? -1,
+    })),
+    ...peers.filter((peer) => !selected.has(peer.element)),
+  ].sort(
+    (left, right) => left.zIndex - right.zIndex || left.order - right.order,
+  );
+
+  const reordered = [...all];
+  if (target === "front" || target === "back") {
+    const selectedLayers = reordered.filter((entry) =>
+      selected.has(entry.element),
+    );
+    const unselectedLayers = reordered.filter(
+      (entry) => !selected.has(entry.element),
+    );
+    reordered.splice(
+      0,
+      reordered.length,
+      ...(target === "front"
+        ? [...unselectedLayers, ...selectedLayers]
+        : [...selectedLayers, ...unselectedLayers]),
+    );
+  } else {
+    const step = target === "forward" ? 1 : -1;
+    const selectedIndexes = reordered
+      .map((entry, index) => (selected.has(entry.element) ? index : -1))
+      .filter((index) => index >= 0);
+    const indexes =
+      step > 0 ? [...selectedIndexes].reverse() : [...selectedIndexes];
+    for (const index of indexes) {
+      const currentIndex = reordered.findIndex((entry) => entry === all[index]);
+      if (currentIndex < 0) continue;
+      const nextIndex = currentIndex + step;
+      if (
+        nextIndex < 0 ||
+        nextIndex >= reordered.length ||
+        selected.has(reordered[nextIndex]?.element)
+      ) {
+        continue;
+      }
+      const [moved] = reordered.splice(currentIndex, 1);
+      if (!moved) continue;
+      reordered.splice(nextIndex, 0, moved);
+    }
+  }
+
+  const changes = new Map<HTMLElement, number>();
+  reordered.forEach(({ element }, index) => {
+    if (readSlideObjectZIndex(element) !== index) changes.set(element, index);
+  });
+  return changes.size > 0 ? changes : null;
 }
 
 /**
@@ -1206,6 +1387,45 @@ export function arrangeSlideLayerInParent(
     return true;
   }
 
+  if (target === "forward" || target === "backward") {
+    const domOrder = new Map(
+      Array.from(parent.children).map((child, index) => [child, index]),
+    );
+    const all = [
+      {
+        element,
+        zIndex: readSlideLayerZIndex(element) ?? 0,
+        order: domOrder.get(element) ?? -1,
+      },
+      ...siblings.map((sibling) => ({
+        element: sibling,
+        zIndex: readSlideLayerZIndex(sibling) ?? 0,
+        order: domOrder.get(sibling) ?? -1,
+      })),
+    ].sort(
+      (left, right) => left.zIndex - right.zIndex || left.order - right.order,
+    );
+    const currentIndex = all.findIndex((peer) => peer.element === element);
+    const nextIndex = currentIndex + (target === "forward" ? 1 : -1);
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= all.length) {
+      return false;
+    }
+
+    const reordered = [...all];
+    const [moved] = reordered.splice(currentIndex, 1);
+    if (!moved) return false;
+    reordered.splice(nextIndex, 0, moved);
+
+    let changed = false;
+    reordered.forEach((peer, index) => {
+      if ((readSlideLayerZIndex(peer.element) ?? 0) === index) return;
+      ensureSlideLayerCanStack(peer.element, parent);
+      peer.element.style.zIndex = String(index);
+      changed = true;
+    });
+    return changed;
+  }
+
   // Reaching the back means clearing every sibling, including the ones still
   // on `auto`. Park the element at 0 and give each sibling a unique positive
   // slot in the order it already paints.
@@ -1244,6 +1464,360 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
         (candidate) => candidate !== element && candidate.contains(element),
       ),
   );
+}
+
+export const SLIDE_OBJECT_GROUP_CLASS = "fmd-slide-group";
+
+export function isSlideObjectGroup(element: HTMLElement): boolean {
+  return (
+    element.classList.contains(SLIDE_OBJECT_GROUP_CLASS) &&
+    element.getAttribute("data-slide-group") === "true"
+  );
+}
+
+export function groupSlideObjects(
+  elements: readonly HTMLElement[],
+  getGeometry: (element: HTMLElement) => SlideObjectGeometry,
+  applyGeometry: (element: HTMLElement, geometry: SlideObjectGeometry) => void,
+): HTMLElement | null {
+  const roots = normalizeSlideObjectRoots([...elements]);
+  if (roots.length < 2) return null;
+  const parent = roots[0]?.parentElement;
+  if (
+    !parent ||
+    roots.some(
+      (element) =>
+        element.parentElement !== parent ||
+        !element.getAttribute("data-slide-object-id") ||
+        !isEditableFreeformSlideObject(element),
+    )
+  ) {
+    return null;
+  }
+
+  const orderedRoots = [...roots].sort(
+    (left, right) =>
+      Array.prototype.indexOf.call(parent.children, left) -
+      Array.prototype.indexOf.call(parent.children, right),
+  );
+  const members = orderedRoots.map((element) => ({
+    element,
+    geometry: getGeometry(element),
+  }));
+  const bounds = unionSlideObjectGeometries(
+    members.map((member) => member.geometry),
+  );
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
+
+  const group = parent.ownerDocument.createElement("div");
+  group.className = SLIDE_OBJECT_GROUP_CLASS;
+  group.setAttribute("data-slide-group", "true");
+  group.setAttribute("data-slide-object-id", createSlideObjectId());
+  group.style.position = "absolute";
+  group.style.left = `${bounds.x}px`;
+  group.style.top = `${bounds.y}px`;
+  group.style.width = `${bounds.width}px`;
+  group.style.height = `${bounds.height}px`;
+  group.style.boxSizing = "border-box";
+
+  const explicitZIndexes = members
+    .map(({ element }) => element.style.zIndex)
+    .filter((value) => value !== "" && Number.isFinite(Number(value)));
+  if (explicitZIndexes.length > 0) {
+    group.style.zIndex = String(
+      Math.max(...explicitZIndexes.map((value) => Number(value) || 0)),
+    );
+  }
+
+  const topmostRoot = orderedRoots.at(-1);
+  parent.insertBefore(group, topmostRoot?.nextSibling ?? null);
+  group.append(...orderedRoots);
+  for (const { element, geometry } of members) {
+    applyGeometry(element, {
+      x: geometry.x - bounds.x,
+      y: geometry.y - bounds.y,
+      width: geometry.width,
+      height: geometry.height,
+    });
+  }
+  return group;
+}
+
+export function ungroupSlideObject(
+  group: HTMLElement,
+  getGeometry: (element: HTMLElement) => SlideObjectGeometry,
+  applyGeometry: (element: HTMLElement, geometry: SlideObjectGeometry) => void,
+): HTMLElement[] | null {
+  if (!isSlideObjectGroup(group)) return null;
+  const parent = group.parentElement;
+  const children = Array.from(group.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  if (
+    !parent ||
+    children.length < 2 ||
+    children.some(
+      (child) =>
+        !child.getAttribute("data-slide-object-id") ||
+        !isEditableFreeformSlideObject(child),
+    )
+  ) {
+    return null;
+  }
+
+  const groupGeometry = getGeometry(group);
+  const groupRotation = readSlideObjectRotation(group);
+  const groupRotationRadians = (groupRotation * Math.PI) / 180;
+  const groupRotationCos = Math.cos(groupRotationRadians);
+  const groupRotationSin = Math.sin(groupRotationRadians);
+  const groupCenter = {
+    x: groupGeometry.x + groupGeometry.width / 2,
+    y: groupGeometry.y + groupGeometry.height / 2,
+  };
+  const childGeometries = children.map((element) => ({
+    element,
+    geometry: getGeometry(element),
+  }));
+  for (const { element } of childGeometries) {
+    parent.insertBefore(element, group);
+  }
+  for (const { element, geometry } of childGeometries) {
+    const absoluteGeometry = {
+      x: groupGeometry.x + geometry.x,
+      y: groupGeometry.y + geometry.y,
+      width: geometry.width,
+      height: geometry.height,
+    };
+    const memberCenter = {
+      x: absoluteGeometry.x + absoluteGeometry.width / 2,
+      y: absoluteGeometry.y + absoluteGeometry.height / 2,
+    };
+    const offset = {
+      x: memberCenter.x - groupCenter.x,
+      y: memberCenter.y - groupCenter.y,
+    };
+    const rotatedCenter = {
+      x:
+        groupCenter.x +
+        offset.x * groupRotationCos -
+        offset.y * groupRotationSin,
+      y:
+        groupCenter.y +
+        offset.x * groupRotationSin +
+        offset.y * groupRotationCos,
+    };
+    applyGeometry(element, {
+      x: rotatedCenter.x - absoluteGeometry.width / 2,
+      y: rotatedCenter.y - absoluteGeometry.height / 2,
+      width: geometry.width,
+      height: geometry.height,
+    });
+    if (groupRotation !== 0) {
+      setSlideObjectRotation(
+        element,
+        readSlideObjectRotation(element) + groupRotation,
+      );
+    }
+  }
+  group.remove();
+  return children;
+}
+
+export interface SlideObjectRotationMember extends SlideObjectMoveMember {
+  rotation: number;
+}
+
+function formatSlideObjectRotation(rotation: number): string {
+  const value = Number(rotation.toFixed(2));
+  return `${Object.is(value, -0) ? 0 : value}deg`;
+}
+
+function parseSlideObjectMatrix2d(transform: string): {
+  values: number[];
+  indexes: [number, number, number, number, number, number];
+} | null {
+  const number = "-?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?";
+  const matrix = transform.match(
+    new RegExp(
+      `^matrix\\(\\s*(${number})(?:\\s*,\\s*(${number})){5}\\s*\\)$`,
+      "i",
+    ),
+  );
+  if (matrix) {
+    const values = matrix[0]
+      .slice(matrix[0].indexOf("(") + 1, -1)
+      .split(",")
+      .map((value) => Number(value.trim()));
+    if (values.length === 6 && values.every(Number.isFinite)) {
+      return { values, indexes: [0, 1, 2, 3, 4, 5] };
+    }
+  }
+
+  const matrix3d = transform.match(new RegExp(`^matrix3d\\((.*)\\)$`, "i"));
+  if (!matrix3d?.[1]) return null;
+  const values = matrix3d[1].split(",").map((value) => Number(value.trim()));
+  if (values.length !== 16 || !values.every(Number.isFinite)) return null;
+  const planarIndexes = new Map([
+    [2, 0],
+    [3, 0],
+    [6, 0],
+    [7, 0],
+    [8, 0],
+    [9, 0],
+    [10, 1],
+    [11, 0],
+    [14, 0],
+    [15, 1],
+  ]);
+  if (
+    Array.from(planarIndexes).some(
+      ([index, expected]) => Math.abs((values[index] ?? 0) - expected) > 1e-8,
+    )
+  ) {
+    return null;
+  }
+  return {
+    values,
+    indexes: [0, 1, 4, 5, 12, 13],
+  };
+}
+
+function rotatedSlideObjectMatrix(
+  transform: string,
+  rotation: number,
+): string | null {
+  const parsed = parseSlideObjectMatrix2d(transform);
+  if (!parsed) return null;
+  const [aIndex, bIndex, cIndex, dIndex] = parsed.indexes;
+  const a = parsed.values[aIndex] ?? 1;
+  const b = parsed.values[bIndex] ?? 0;
+  const c = parsed.values[cIndex] ?? 0;
+  const d = parsed.values[dIndex] ?? 1;
+  const currentAngle = Math.atan2(b, a);
+  const currentCos = Math.cos(currentAngle);
+  const currentSin = Math.sin(currentAngle);
+  const residualA = currentCos * a + currentSin * b;
+  const residualB = -currentSin * a + currentCos * b;
+  const residualC = currentCos * c + currentSin * d;
+  const residualD = -currentSin * c + currentCos * d;
+  const nextAngle = (rotation * Math.PI) / 180;
+  const nextCos = Math.cos(nextAngle);
+  const nextSin = Math.sin(nextAngle);
+  const nextValues = [...parsed.values];
+  nextValues[aIndex] = nextCos * residualA - nextSin * residualB;
+  nextValues[bIndex] = nextSin * residualA + nextCos * residualB;
+  nextValues[cIndex] = nextCos * residualC - nextSin * residualD;
+  nextValues[dIndex] = nextSin * residualC + nextCos * residualD;
+
+  const format = (value: number) => {
+    const rounded = Number(value.toFixed(8));
+    return String(Object.is(rounded, -0) ? 0 : rounded);
+  };
+  return `matrix${parsed.values.length === 16 ? "3d" : ""}(${nextValues.map(format).join(", ")})`;
+}
+
+export function readSlideObjectRotation(element: HTMLElement): number {
+  const transform =
+    element.style.transform || window.getComputedStyle(element).transform;
+  if (!transform || transform === "none") return 0;
+  const rotate = transform.match(
+    /rotate(?:z)?\(\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*\)/i,
+  );
+  if (rotate) return Number(rotate[1]);
+
+  const matrix = parseSlideObjectMatrix2d(transform);
+  if (matrix) {
+    const [aIndex, bIndex] = matrix.indexes;
+    return Math.round(
+      (Math.atan2(matrix.values[bIndex] ?? 0, matrix.values[aIndex] ?? 1) *
+        180) /
+        Math.PI,
+    );
+  }
+  return 0;
+}
+
+export function resolveSlideObjectRotationDelta(
+  startAngle: number,
+  center: { x: number; y: number },
+  point: { x: number; y: number },
+  snapToFifteenDegrees: boolean,
+): number {
+  let delta =
+    (Math.atan2(point.y - center.y, point.x - center.x) * 180) / Math.PI -
+    startAngle;
+  while (delta > 180) delta -= 360;
+  while (delta < -180) delta += 360;
+  return snapToFifteenDegrees ? Math.round(delta / 15) * 15 : delta;
+}
+
+export function setSlideObjectRotation(
+  element: HTMLElement,
+  rotation: number,
+): void {
+  const next = `rotate(${formatSlideObjectRotation(rotation)})`;
+  const current = element.style.transform.trim();
+  if (!current || current === "none") {
+    element.style.transform = next;
+    return;
+  }
+  if (/^matrix(?:3d)?\(/i.test(current)) {
+    const matrix = rotatedSlideObjectMatrix(current, rotation);
+    if (matrix) {
+      element.style.transform = matrix;
+      return;
+    }
+  }
+  const rotatePattern = /rotate(?:z)?\(\s*-?(?:\d+\.?\d*|\.\d+)deg\s*\)/i;
+  element.style.transform = rotatePattern.test(current)
+    ? current.replace(rotatePattern, next)
+    : `${current} ${next}`;
+}
+
+export function rotateSlideObjectMembers(
+  members: readonly SlideObjectRotationMember[],
+  deltaDegrees: number,
+): Map<string, { geometry: SlideObjectGeometry; rotation: number }> {
+  const bounds = unionSlideObjectGeometries(
+    members.map((member) => member.start),
+  );
+  if (!bounds) return new Map();
+  const center = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  const radians = (deltaDegrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const plan = new Map<
+    string,
+    { geometry: SlideObjectGeometry; rotation: number }
+  >();
+
+  for (const member of members) {
+    const memberCenter = {
+      x: member.start.x + member.start.width / 2,
+      y: member.start.y + member.start.height / 2,
+    };
+    const offset = {
+      x: memberCenter.x - center.x,
+      y: memberCenter.y - center.y,
+    };
+    const nextCenter = {
+      x: center.x + offset.x * cos - offset.y * sin,
+      y: center.y + offset.x * sin + offset.y * cos,
+    };
+    plan.set(member.objectId, {
+      geometry: {
+        x: nextCenter.x - member.start.width / 2,
+        y: nextCenter.y - member.start.height / 2,
+        width: member.start.width,
+        height: member.start.height,
+      },
+      rotation: member.rotation + deltaDegrees,
+    });
+  }
+  return plan;
 }
 
 export function isValidSlideClipboardRoot(element: HTMLElement): boolean {
