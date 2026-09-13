@@ -629,7 +629,16 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
     second.x + second.width / 2,
     second.y + second.height / 2,
   );
-  await page.waitForTimeout(1200);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as { __designTrace?: { dump(): string } }
+          ).__designTrace?.dump() ?? "",
+      ),
+    )
+    .toContain('node-id=\\"p2\\"');
   await page.mouse.move(
     second.x + second.width / 2,
     second.y + second.height / 2,
@@ -648,8 +657,9 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
   const html = await indexHtml(page, designId);
   const trace = await page.evaluate(
     () =>
-      (window as { __designTrace?: { dump(): string } }).__designTrace?.dump() ??
-      "",
+      (
+        window as { __designTrace?: { dump(): string } }
+      ).__designTrace?.dump() ?? "",
   );
   expect(
     html.indexOf("Second paragraph"),
