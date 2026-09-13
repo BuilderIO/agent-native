@@ -494,6 +494,90 @@ describe("ensureInboxFresh — managed workspace grant", () => {
       "managed@example.com",
     );
   });
+
+  it("reuses one connected-account inventory across a multi-account full sync", async () => {
+    const accountA = "acct-a@example.com";
+    const accountB = "acct-b@example.com";
+    const accounts = [accountA, accountB];
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts,
+      errors: [],
+    });
+    mocks.ensureSyncAccountRow.mockImplementation(
+      async (_owner, accountEmail) =>
+        baseRow({ accountEmail, historyId: null }),
+    );
+    mocks.claimSyncAccount.mockImplementation(async (_owner, accountEmail) => ({
+      claimId: `claim-${accountEmail}`,
+      row: baseRow({
+        accountEmail,
+        historyId: null,
+        syncClaimId: `claim-${accountEmail}`,
+      }),
+    }));
+    mocks.getClientForConnectedAccount.mockImplementation(
+      async (_owner, accountEmail) => ({
+        accessToken: accountEmail,
+        email: accountEmail,
+      }),
+    );
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "900" });
+    mocks.gmailListThreads.mockImplementation(async (accessToken: string) =>
+      accessToken === accountA
+        ? { threads: [{ id: "thread-a" }] }
+        : { threads: [] },
+    );
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "thread-a",
+        data: {
+          id: "thread-a",
+          historyId: "900",
+          snippet: "sent reply",
+          messages: [
+            {
+              id: "external-message",
+              threadId: "thread-a",
+              internalDate: "1700000000000",
+              labelIds: ["INBOX"],
+              snippet: "received message",
+              payload: {
+                headers: [
+                  { name: "From", value: "External <external@example.com>" },
+                  { name: "To", value: accountA },
+                  { name: "Subject", value: "Thread" },
+                ],
+              },
+            },
+            {
+              id: "connected-message",
+              threadId: "thread-a",
+              internalDate: "1700000001000",
+              labelIds: ["INBOX"],
+              snippet: "sent reply",
+              payload: {
+                headers: [
+                  { name: "From", value: `Account B <${accountB}>` },
+                  { name: "To", value: "external@example.com" },
+                  { name: "Subject", value: "Re: Thread" },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    ] as any);
+
+    const statuses = await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(statuses).toHaveLength(2);
+    expect(mocks.getConnectedAccountsWithErrors).toHaveBeenCalledTimes(1);
+    const upsertedRows = mocks.upsertInboxThreadRows.mock.calls.flatMap(
+      ([rows]) => rows,
+    );
+    expect(upsertedRows).toHaveLength(1);
+    expect(upsertedRows[0].fromEmail).toBe("external@example.com");
+  });
 });
 
 describe("syncInboxAccount — managed workspace grant", () => {

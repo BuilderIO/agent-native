@@ -11,6 +11,7 @@ import {
   getCredentialContext,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveSecret,
+  getRequestContext,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
@@ -100,9 +101,24 @@ async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
   };
 }
 
-async function resolveManagedGmailClientWithError(): Promise<ManagedGmailResolution> {
+async function resolveManagedGmailClientForOwner(
+  ownerEmail?: string,
+): Promise<ManagedGmailClient | null> {
+  if (!ownerEmail) return resolveManagedGmailClient();
+  return await runWithRequestContext(
+    { ...(getRequestContext() ?? {}), userEmail: ownerEmail },
+    () => resolveManagedGmailClient(),
+  );
+}
+
+async function resolveManagedGmailClientWithError(
+  ownerEmail?: string,
+): Promise<ManagedGmailResolution> {
   try {
-    return { ok: true, client: await resolveManagedGmailClient() };
+    return {
+      ok: true,
+      client: await resolveManagedGmailClientForOwner(ownerEmail),
+    };
   } catch (error) {
     return {
       ok: false,
@@ -378,7 +394,7 @@ export async function getClient(
     (account) => hasGmailScope(account.tokens),
   );
   if (accounts.length === 0) {
-    return resolveManagedGmailClient();
+    return resolveManagedGmailClientForOwner(email);
   }
 
   const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
@@ -464,9 +480,7 @@ export async function getClientForConnectedAccount(
       owner: ownerEmail,
     });
   }
-  const managed = await runWithRequestContext({ userEmail: ownerEmail }, () =>
-    resolveManagedGmailClient(),
-  );
+  const managed = await resolveManagedGmailClientForOwner(ownerEmail);
   if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
     return { accessToken: managed.accessToken, email: managed.email };
   }
@@ -524,7 +538,7 @@ export async function getClientsWithErrors(
   );
   const managedPromise =
     !requested || [...requested].some((email) => !oauthAccountEmails.has(email))
-      ? resolveManagedGmailClientWithError()
+      ? resolveManagedGmailClientWithError(forEmail)
       : null;
 
   const clients: Array<{
@@ -615,7 +629,7 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasGmailScope(account.tokens))) return true;
-  return Boolean(await resolveManagedGmailClient());
+  return Boolean(await resolveManagedGmailClientForOwner(forEmail));
 }
 
 export async function getConnectedAccounts(
@@ -644,7 +658,7 @@ export async function getConnectedAccountsWithErrors(
     listOAuthAccountsByOwner("google", forEmail).then((accounts) =>
       accounts.filter((account) => hasGmailScope(account.tokens)),
     ),
-    resolveManagedGmailClientWithError(),
+    resolveManagedGmailClientWithError(forEmail),
   ]);
   const accounts = oauthAccounts.map((account) => account.accountId);
   if (!managedResult.ok) {
@@ -743,7 +757,7 @@ export async function getAuthStatus(
     });
   }
 
-  const managedResult = await resolveManagedGmailClientWithError();
+  const managedResult = await resolveManagedGmailClientWithError(forEmail);
   if (!managedResult.ok) {
     errors.push(managedResult.error);
   } else {
@@ -2221,7 +2235,7 @@ async function getDefaultOwnedAccountAccessToken(
   if (!account) {
     // No per-user OAuth row at all — a managed-only owner has no accounts
     // here by design (see resolveManagedGmailClient).
-    const managed = await resolveManagedGmailClient();
+    const managed = await resolveManagedGmailClientForOwner(ownerEmail);
     if (managed) return managed.accessToken;
     throw new Error("No Google account connected");
   }
@@ -2244,7 +2258,7 @@ async function getOwnedAccountAccessToken(
       candidate.accountId.toLowerCase() === accountEmail.toLowerCase(),
   );
   if (!account) {
-    const managed = await resolveManagedGmailClient();
+    const managed = await resolveManagedGmailClientForOwner(ownerEmail);
     if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
       return managed.accessToken;
     }

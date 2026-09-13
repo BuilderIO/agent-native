@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
+  getRouterParam: vi.fn(),
   readBody: vi.fn(),
   readSettings: vi.fn(),
   isConnected: vi.fn(),
@@ -27,7 +28,7 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getHeader: () => undefined,
   getQuery: () => ({}),
-  getRouterParam: () => undefined,
+  getRouterParam: mocks.getRouterParam,
   setResponseHeader: vi.fn(),
   setResponseStatus: mocks.setResponseStatus,
 }));
@@ -124,7 +125,7 @@ vi.mock("../lib/sender-identity.js", () => ({
   resolveGoogleSenderIdentity: mocks.resolveGoogleSenderIdentity,
 }));
 
-const { saveDraft, sendEmail } = await import("./emails.js");
+const { deleteDraft, saveDraft, sendEmail } = await import("./emails.js");
 
 describe("saveDraft with a workspace-managed Gmail account", () => {
   const ownerEmail = "owner@example.com";
@@ -133,6 +134,7 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getSession.mockResolvedValue({ email: ownerEmail });
+    mocks.getRouterParam.mockReturnValue(undefined);
     mocks.readSettings.mockResolvedValue({ name: "Test", email: ownerEmail });
     mocks.readBody.mockResolvedValue({
       to: "recipient@example.com",
@@ -185,6 +187,52 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       backend: "gmail",
       accountEmail: managedAccountEmail,
       created: true,
+    });
+  });
+
+  it("returns a structured account error when refreshing before saving a draft fails", async () => {
+    const refreshError = new Error("invalid_grant");
+    mocks.readBody.mockResolvedValue({
+      to: "recipient@example.com",
+      subject: "Test draft",
+      body: "",
+      accountEmail: managedAccountEmail,
+    });
+    mocks.getClientForConnectedAccount.mockRejectedValue(refreshError);
+
+    const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    const accountErrors = [
+      { email: managedAccountEmail, error: "invalid_grant" },
+    ];
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mocks.googleFetch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      error: `${managedAccountEmail}: invalid_grant`,
+      accountErrors,
+    });
+  });
+
+  it("returns a structured account error when refreshing before deleting a draft fails", async () => {
+    const refreshError = new Error("invalid_grant");
+    mocks.getRouterParam.mockReturnValue("gmail-draft-id");
+    mocks.readBody.mockResolvedValue({ accountEmail: managedAccountEmail });
+    mocks.getClientForConnectedAccount.mockRejectedValue(refreshError);
+
+    const result = await (deleteDraft as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    const accountErrors = [
+      { email: managedAccountEmail, error: "invalid_grant" },
+    ];
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mocks.googleFetch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      error: `${managedAccountEmail}: invalid_grant`,
+      accountErrors,
     });
   });
 

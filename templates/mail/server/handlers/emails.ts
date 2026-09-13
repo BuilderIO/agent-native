@@ -305,9 +305,77 @@ async function resolveAccountEmail(
         data: { accountErrors: errors },
       });
     }
-    throw new Error("Account not owned by current user");
+    throw createError({
+      statusCode: 403,
+      statusMessage: "Account not owned by current user",
+    });
   }
   return account;
+}
+
+type DraftGmailAccessResult =
+  | { ok: true; accountEmail: string; accessToken: string }
+  | {
+      ok: false;
+      response: { error: string; accountErrors?: MailAccountError[] };
+    };
+
+async function resolveDraftGmailAccess(
+  event: H3Event,
+  ownerEmail: string,
+  requestedAccountEmail?: string,
+): Promise<DraftGmailAccessResult> {
+  let accountEmail: string;
+  try {
+    accountEmail = await resolveAccountEmail(requestedAccountEmail, ownerEmail);
+  } catch (error: any) {
+    setResponseStatus(event, error?.statusCode ?? 500);
+    return {
+      ok: false,
+      response: {
+        error:
+          error?.statusMessage ??
+          error?.message ??
+          "Could not resolve the Gmail account",
+        ...(error?.data?.accountErrors
+          ? { accountErrors: error.data.accountErrors }
+          : {}),
+      },
+    };
+  }
+
+  let accessToken: string | null;
+  try {
+    accessToken = await getAccessToken(ownerEmail, accountEmail);
+  } catch (error) {
+    const accountErrors = [
+      {
+        email: accountEmail,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Google credential refresh failed",
+      },
+    ];
+    setResponseStatus(event, 503);
+    return {
+      ok: false,
+      response: {
+        error: formatMailAccountErrors(accountErrors),
+        accountErrors,
+      },
+    };
+  }
+
+  if (!accessToken) {
+    setResponseStatus(event, 401);
+    return {
+      ok: false,
+      response: { error: "No valid access token for account" },
+    };
+  }
+
+  return { ok: true, accountEmail, accessToken };
 }
 
 /** Extract the logged-in user's email from the request session. */
@@ -1498,12 +1566,13 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 401);
       return { error: "Gmail is not connected for this saved draft" };
     }
-    const acct = await resolveAccountEmail(draftAccountEmail, email);
-    const accessToken = await getAccessToken(email, acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveDraftGmailAccess(
+      event,
+      email,
+      draftAccountEmail,
+    );
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const draftFrom = draftAccountEmail || "me";
       const raw = buildOutgoingRawEmail({
@@ -1688,12 +1757,13 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     const body = await readBody(event).catch(() => ({}));
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(email, acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveDraftGmailAccess(
+      event,
+      email,
+      body?.accountEmail,
+    );
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accessToken } = gmailAccess;
     try {
       await googleFetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${id}`,

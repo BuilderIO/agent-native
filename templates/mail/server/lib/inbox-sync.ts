@@ -109,8 +109,11 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
 async function connectedEmailsLower(
   ownerEmail: string,
   accountEmail: string,
+  connectedAccountEmails?: readonly string[],
 ): Promise<Set<string>> {
-  const { accounts } = await getConnectedAccountsWithErrors(ownerEmail);
+  const accounts =
+    connectedAccountEmails ??
+    (await getConnectedAccountsWithErrors(ownerEmail)).accounts;
   return new Set([
     ...accounts.map((a) => a.toLowerCase()),
     accountEmail.toLowerCase(),
@@ -298,6 +301,7 @@ async function runFullSyncStep(
   row: SyncAccountRow,
   deadline: number,
   claimId: string,
+  connectedAccountEmails?: readonly string[],
 ): Promise<InboxSyncAccountStatus> {
   let fullSyncHistoryId = row.fullSyncHistoryId;
   let fullSyncStartedAt = row.fullSyncStartedAt;
@@ -312,7 +316,11 @@ async function runFullSyncStep(
   }
 
   let pageToken: string | undefined = row.fullSyncPageToken ?? undefined;
-  const connected = await connectedEmailsLower(ownerEmail, accountEmail);
+  const connected = await connectedEmailsLower(
+    ownerEmail,
+    accountEmail,
+    connectedAccountEmails,
+  );
 
   while (Date.now() < deadline) {
     const page = await gmailListThreads(accessToken, {
@@ -374,6 +382,7 @@ async function runIncrementalSyncStep(
   row: SyncAccountRow,
   deadline: number,
   claimId: string,
+  connectedAccountEmails?: readonly string[],
 ): Promise<InboxSyncAccountStatus> {
   // Gmail's response `historyId` is the mailbox's *current* id, identical on
   // every page, so it is only a safe watermark once every page has been
@@ -416,6 +425,7 @@ async function runIncrementalSyncStep(
           freshRow,
           deadline,
           claimId,
+          connectedAccountEmails,
         );
       }
       throw err;
@@ -437,7 +447,11 @@ async function runIncrementalSyncStep(
     }
 
     if (threadIds.size > 0) {
-      const connected = await connectedEmailsLower(ownerEmail, accountEmail);
+      const connected = await connectedEmailsLower(
+        ownerEmail,
+        accountEmail,
+        connectedAccountEmails,
+      );
       await hydrateAndApply(
         accessToken,
         [...threadIds],
@@ -506,7 +520,11 @@ async function failAccount(
 export async function syncInboxAccount(
   ownerEmail: string,
   accountEmail: string,
-  opts?: { budgetMs?: number; force?: boolean },
+  opts?: {
+    budgetMs?: number;
+    force?: boolean;
+    connectedAccountEmails?: readonly string[];
+  },
 ): Promise<InboxSyncAccountStatus> {
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
   const deadline = Date.now() + budgetMs;
@@ -577,6 +595,7 @@ export async function syncInboxAccount(
             row,
             deadline,
             claim.claimId,
+            opts?.connectedAccountEmails,
           )
         : await runIncrementalSyncStep(
             ownerEmail,
@@ -585,6 +604,7 @@ export async function syncInboxAccount(
             row,
             deadline,
             claim.claimId,
+            opts?.connectedAccountEmails,
           );
 
     const dbStatus: SyncAccountRow["status"] =
@@ -641,7 +661,10 @@ export async function ensureInboxFresh(
       try {
         // Accounts run concurrently and share nothing — each has its own
         // token bucket in google-api.ts, so there's no reason to serialize.
-        return await syncInboxAccount(ownerEmail, accountEmail, { budgetMs });
+        return await syncInboxAccount(ownerEmail, accountEmail, {
+          budgetMs,
+          connectedAccountEmails: accounts,
+        });
       } catch (err) {
         // Belt-and-suspenders: syncInboxAccount already records failures on
         // the row and never throws, but a single account's bug must never

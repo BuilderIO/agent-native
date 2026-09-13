@@ -6,6 +6,8 @@ import {
 import {
   getCredentialContext,
   getOAuthAccounts,
+  getRequestContext,
+  runWithRequestContext,
 } from "@agent-native/core/server";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +30,7 @@ import {
   getConnectedAccounts,
   getConnectedAccountsWithErrors,
   getClientsWithErrors,
+  isConnected,
   listGmailMessages,
   markAllUnreadReadForAccount,
 } from "./google-auth.js";
@@ -49,6 +52,7 @@ vi.mock("@agent-native/core/server", () => ({
   },
   getOAuthAccounts: vi.fn(),
   getCredentialContext: vi.fn(() => null),
+  getRequestContext: vi.fn(() => undefined),
   isOAuthConnected: vi.fn(),
   resolveGoogleProviderCredentialCandidatesWithReader: vi.fn(
     async ({ readCredential, credentialKeyPairs }) => {
@@ -1217,6 +1221,68 @@ describe("mixed OAuth and managed Gmail accounts", () => {
         },
       ],
     });
+  });
+});
+
+describe("managed Gmail request context", () => {
+  const ownerEmail = "owner@example.com";
+  const ambientContext = {
+    userEmail: "ambient@example.com",
+    orgId: "ambient-org",
+    mcpRequestId: "ambient-request",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
+    vi.mocked(getRequestContext).mockReturnValue(ambientContext as any);
+    vi.mocked(runWithRequestContext).mockImplementation(async (context, fn) => {
+      vi.mocked(getCredentialContext).mockReturnValueOnce({
+        userEmail: context.userEmail,
+        orgId: context.orgId ?? null,
+      } as any);
+      return await fn();
+    });
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: true,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+        accountId: "managed@example.com",
+        accessToken: "managed-token",
+      }),
+    } as any);
+  });
+
+  afterEach(() => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+    vi.mocked(getRequestContext).mockReturnValue(undefined);
+    vi.mocked(runWithRequestContext).mockImplementation(async (_context, fn) =>
+      fn(),
+    );
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: false,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReset();
+  });
+
+  it("resolves managed mailboxes in the owner's context while retaining ambient fields", async () => {
+    await expect(getClientsWithErrors(ownerEmail)).resolves.toMatchObject({
+      clients: [{ email: "managed@example.com", accessToken: "managed-token" }],
+      errors: [],
+    });
+    await expect(getConnectedAccountsWithErrors(ownerEmail)).resolves.toEqual({
+      accounts: ["managed@example.com"],
+      errors: [],
+    });
+    await expect(isConnected(ownerEmail)).resolves.toBe(true);
+
+    const expectedContext = { ...ambientContext, userEmail: ownerEmail };
+    expect(runWithRequestContext).toHaveBeenCalledTimes(3);
+    for (const [context] of vi.mocked(runWithRequestContext).mock.calls) {
+      expect(context).toEqual(expectedContext);
+    }
   });
 });
 
