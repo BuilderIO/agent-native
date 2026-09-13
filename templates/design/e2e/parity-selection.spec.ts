@@ -752,118 +752,116 @@ async function selectByTextDeepInScreen(
   await page.waitForTimeout(100);
 }
 
-test.describe.serial(
-  "overview screen selection vs stale layer selection (Cmd+A)",
-  () => {
-    let designId: string;
-    let screen1Id: string;
+test.describe
+  .serial("overview screen selection vs stale layer selection (Cmd+A)", () => {
+  let designId: string;
+  let screen1Id: string;
 
-    test.beforeEach(async ({ page }) => {
-      designId = await newTwoScreenDesign(page);
-      screen1Id = await fileIdFor(page, designId, "index.html");
-      await gotoEditor(page, designId);
-      await expect(page.locator("[data-screen-card]").first()).toBeVisible({
-        timeout: 20_000,
-      });
+  test.beforeEach(async ({ page }) => {
+    designId = await newTwoScreenDesign(page);
+    screen1Id = await fileIdFor(page, designId, "index.html");
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible({
+      timeout: 20_000,
     });
+  });
 
-    test("click-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
-      page,
-    }) => {
-      await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
-      await expandAllLayers(page);
-      await expect
-        .poll(async () => (await selectedLayerNames(page)).length, {
-          message: "precondition: the button click must select one layer row",
-        })
-        .toBe(1);
+  test("click-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
+    page,
+  }) => {
+    await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
+    await expandAllLayers(page);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).length, {
+        message: "precondition: the button click must select one layer row",
+      })
+      .toBe(1);
 
-      // Click Screen 2's name label (chrome above the card, never overlapping
-      // its content) WITHOUT deselecting the nested element first — clicking
-      // inside the card's rendered content selects the content element under
-      // the pointer instead, same as any other overview element click.
-      await page
-        .locator('[data-frame-title][title="page-two.html"]')
-        .click({ force: true });
-      await page.waitForTimeout(200);
+    // Click Screen 2's name label (chrome above the card, never overlapping
+    // its content) WITHOUT deselecting the nested element first — clicking
+    // inside the card's rendered content selects the content element under
+    // the pointer instead, same as any other overview element click.
+    await page
+      .locator('[data-frame-title][title="page-two.html"]')
+      .click({ force: true });
+    await page.waitForTimeout(200);
 
-      await page.keyboard.press(`${MOD}+a`);
-      await page.waitForTimeout(300);
+    await page.keyboard.press(`${MOD}+a`);
+    await page.waitForTimeout(300);
 
-      const names = (await selectedLayerNames(page)).slice().sort();
-      expect(
-        names,
-        "Cmd+A after clicking a Screen card must select exactly the two " +
-          `Screens ("Home" and "Two"), not the previously-selected element's ` +
-          `siblings from a different screen; got ${JSON.stringify(names)}`,
-      ).toEqual(["Home", "Two"]);
+    const names = (await selectedLayerNames(page)).slice().sort();
+    expect(
+      names,
+      "Cmd+A after clicking a Screen card must select exactly the two " +
+        `Screens ("Home" and "Two"), not the previously-selected element's ` +
+        `siblings from a different screen; got ${JSON.stringify(names)}`,
+    ).toEqual(["Home", "Two"]);
 
-      await expect(
-        page.locator("[data-frame-selection-box]"),
-        "Cmd+A after clicking a Screen card must produce a screen-level selection box",
-      ).not.toHaveCount(0);
-    });
+    await expect(
+      page.locator("[data-frame-selection-box]"),
+      "Cmd+A after clicking a Screen card must produce a screen-level selection box",
+    ).not.toHaveCount(0);
+  });
 
-    test("marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
-      page,
-    }) => {
-      // The two screens stack with only a few px of gap between Screen 1's
-      // card and Screen 2's full frame (label included), so a marquee that
-      // fully encloses Screen 2's frame unavoidably clips into Screen 1's
-      // card too. Drag Screen 2 far away first — a real, independent gesture
-      // — so the marquee below can fully enclose it with generous padding on
-      // every side and unambiguously test screen-marquee selection alone.
-      const label = page.locator('[data-frame-title][title="page-two.html"]');
-      const labelBox = (await label.boundingBox())!;
-      await page.mouse.move(
-        labelBox.x + labelBox.width / 2,
-        labelBox.y + labelBox.height / 2,
-      );
-      await page.mouse.down();
-      await page.mouse.move(
-        labelBox.x + labelBox.width / 2 + 500,
-        labelBox.y + labelBox.height / 2 + 50,
-        { steps: 12 },
-      );
-      await page.mouse.up();
-      await page.waitForTimeout(300);
+  test("marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
+    page,
+  }) => {
+    // The two screens stack with only a few px of gap between Screen 1's
+    // card and Screen 2's full frame (label included), so a marquee that
+    // fully encloses Screen 2's frame unavoidably clips into Screen 1's
+    // card too. Drag Screen 2 far away first — a real, independent gesture
+    // — so the marquee below can fully enclose it with generous padding on
+    // every side and unambiguously test screen-marquee selection alone.
+    const label = page.locator('[data-frame-title][title="page-two.html"]');
+    const labelBox = (await label.boundingBox())!;
+    await page.mouse.move(
+      labelBox.x + labelBox.width / 2,
+      labelBox.y + labelBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      labelBox.x + labelBox.width / 2 + 500,
+      labelBox.y + labelBox.height / 2 + 50,
+      { steps: 12 },
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(300);
 
-      // Re-establish the repro precondition after the reposition above (which
-      // itself selects Screen 2 as a side effect of the drag).
-      await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
-      await expandAllLayers(page);
-      await expect
-        .poll(async () => (await selectedLayerNames(page)).length, {
-          message: "precondition: the button click must select one layer row",
-        })
-        .toBe(1);
+    // Re-establish the repro precondition after the reposition above (which
+    // itself selects Screen 2 as a side effect of the drag).
+    await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
+    await expandAllLayers(page);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).length, {
+        message: "precondition: the button click must select one layer row",
+      })
+      .toBe(1);
 
-      const card2 = (await screenCard(page, 1).boundingBox())!;
-      await page.mouse.move(card2.x - 60, card2.y - 60);
-      await page.mouse.down();
-      await page.mouse.move(
-        card2.x + card2.width + 60,
-        card2.y + card2.height + 60,
-        { steps: 8 },
-      );
-      await page.mouse.up();
-      await page.waitForTimeout(300);
+    const card2 = (await screenCard(page, 1).boundingBox())!;
+    await page.mouse.move(card2.x - 60, card2.y - 60);
+    await page.mouse.down();
+    await page.mouse.move(
+      card2.x + card2.width + 60,
+      card2.y + card2.height + 60,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(300);
 
-      await page.keyboard.press(`${MOD}+a`);
-      await page.waitForTimeout(300);
+    await page.keyboard.press(`${MOD}+a`);
+    await page.waitForTimeout(300);
 
-      const names = (await selectedLayerNames(page)).slice().sort();
-      expect(
-        names,
-        "Cmd+A after marquee-selecting a Screen card must select exactly " +
-          `the two Screens ("Home" and "Two"), not the previously-selected ` +
-          `element's siblings from a different screen; got ${JSON.stringify(names)}`,
-      ).toEqual(["Home", "Two"]);
+    const names = (await selectedLayerNames(page)).slice().sort();
+    expect(
+      names,
+      "Cmd+A after marquee-selecting a Screen card must select exactly " +
+        `the two Screens ("Home" and "Two"), not the previously-selected ` +
+        `element's siblings from a different screen; got ${JSON.stringify(names)}`,
+    ).toEqual(["Home", "Two"]);
 
-      await expect(
-        page.locator("[data-frame-selection-box]"),
-        "Cmd+A after marquee-selecting a Screen card must produce a screen-level selection box",
-      ).not.toHaveCount(0);
-    });
-  },
-);
+    await expect(
+      page.locator("[data-frame-selection-box]"),
+      "Cmd+A after marquee-selecting a Screen card must produce a screen-level selection box",
+    ).not.toHaveCount(0);
+  });
+});

@@ -271,6 +271,7 @@ test.describe.serial("rare-but-real unique paths", () => {
     const sectionBox = (await (
       await frameNode(page, "Fixture Card Title")
     ).boundingBox())!;
+    const beforeHtml = await getFileHtml(page);
 
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
@@ -309,6 +310,22 @@ test.describe.serial("rare-but-real unique paths", () => {
         sectionCloseIdx > 0 &&
         alphaIdx > sectionCloseIdx,
       "Alpha Button must not land inside the section while Space is held during the drag",
+    ).toBe(true);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await page.waitForTimeout(200);
+    const undoneHtml = await getFileHtml(page);
+    expect(
+      undoneHtml,
+      "one undo after a Space-held drag must restore the original document (parent and position), not just deselect",
+    ).toBe(beforeHtml);
+    const restoredBox = (await (
+      await frameNode(page, "Alpha Button")
+    ).boundingBox())!;
+    expect(
+      Math.abs(restoredBox.x - box.x) < 1 &&
+        Math.abs(restoredBox.y - box.y) < 1,
+      `one undo must restore Alpha Button's live position; before=(${box.x},${box.y}) after-undo=(${restoredBox.x},${restoredBox.y})`,
     ).toBe(true);
   });
 
