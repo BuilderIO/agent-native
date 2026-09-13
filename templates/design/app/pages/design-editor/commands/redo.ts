@@ -56,6 +56,7 @@ import {
   findLastContentHistoryChangeIndex,
   partitionContentHistoryEntry,
   contentHistoryEntryFromChanges,
+  pruneSelectionHistoryStackIds,
   readYjsRedoSelection,
   removeRecentUndoRedoOrderKinds,
   restoreFileContentHistoryOrderToken,
@@ -1101,6 +1102,18 @@ export function runRedo({
             ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
             "file-deleted",
           ];
+          // Unlike undo's recreate (remapSelectionHistoryStackIds), redo
+          // re-deletes these screens under their ORIGINAL ids — no new id to
+          // remap to, so a stale pure-selection entry naming them is pruned
+          // instead.
+          selectionUndoStackRef.current = pruneSelectionHistoryStackIds(
+            selectionUndoStackRef.current,
+            deletedIds,
+          );
+          selectionRedoStackRef.current = pruneSelectionHistoryStackIds(
+            selectionRedoStackRef.current,
+            deletedIds,
+          );
         }
         if (failedFiles.length > 0) {
           const failedIds = new Set(failedFiles.map((file) => file.id));

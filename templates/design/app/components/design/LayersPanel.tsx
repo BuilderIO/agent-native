@@ -326,6 +326,26 @@ let activeDropIntent: LayersPanelMoveIntent | null = null;
 let activeIconToggleDrag: { kind: "hidden" | "locked"; value: boolean } | null =
   null;
 
+// Arms the drag above and clears it on whichever end signal fires first. A
+// plain mouseup only fires when the button releases over this window — if
+// the pointer leaves the window first (dragged out past the edge, or the
+// window loses focus mid-gesture) neither the row nor the window ever sees
+// it, so blur and pointercancel are armed alongside it; otherwise the state
+// stays "on" and the next hover over an unrelated icon applies a stale
+// toggle.
+function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
+  activeIconToggleDrag = { kind, value };
+  const clear = () => {
+    activeIconToggleDrag = null;
+    window.removeEventListener("mouseup", clear);
+    window.removeEventListener("blur", clear);
+    window.removeEventListener("pointercancel", clear);
+  };
+  window.addEventListener("mouseup", clear, { once: true });
+  window.addEventListener("blur", clear, { once: true });
+  window.addEventListener("pointercancel", clear, { once: true });
+}
+
 // Every level is represented by a real flex child instead of arithmetic
 // padding. Keeping the hierarchy in the DOM makes the icon-width indent and
 // baseline-unit inter-indent gap inspectable and prevents node variants from
@@ -2422,17 +2442,7 @@ const LayerRow = memo(function LayerRow({
                           event.stopPropagation();
                           const nextLocked = !node.locked;
                           onToggleLocked?.(node.id, nextLocked);
-                          activeIconToggleDrag = {
-                            kind: "locked",
-                            value: nextLocked,
-                          };
-                          window.addEventListener(
-                            "mouseup",
-                            () => {
-                              activeIconToggleDrag = null;
-                            },
-                            { once: true },
-                          );
+                          beginIconToggleDrag("locked", nextLocked);
                         }}
                         onClick={(event) => {
                           // detail === 0 is a keyboard/synthetic activation
@@ -2499,17 +2509,7 @@ const LayerRow = memo(function LayerRow({
                           event.stopPropagation();
                           const nextHidden = !node.hidden;
                           onToggleHidden?.(node.id, nextHidden);
-                          activeIconToggleDrag = {
-                            kind: "hidden",
-                            value: nextHidden,
-                          };
-                          window.addEventListener(
-                            "mouseup",
-                            () => {
-                              activeIconToggleDrag = null;
-                            },
-                            { once: true },
-                          );
+                          beginIconToggleDrag("hidden", nextHidden);
                         }}
                         onClick={(event) => {
                           // detail === 0 is a keyboard/synthetic activation

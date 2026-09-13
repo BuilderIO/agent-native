@@ -6,6 +6,8 @@ import type * as Y from "yjs";
 
 import type { ElementInfo } from "@/components/design/types";
 
+import { selectionHistorySnapshotsEqual } from "./selection-state";
+
 export const MAX_DESIGN_UNDO_STACK = 50;
 
 /**
@@ -226,6 +228,45 @@ export function remapSelectionHistoryStackIds(
     before: remapSelection(entry.before),
     after: remapSelection(entry.after),
   }));
+}
+
+/** Redoing a file deletion re-deletes the same screens under their ORIGINAL
+ * ids (unlike undo, there is no new id to remap to — see
+ * `remapSelectionHistoryStackIds`), so a stale pure-selection entry must drop
+ * those ids instead. Mirrors `pruneGeometryHistoryEntryForDeletedFiles`'s own
+ * selection pruning: layer ids are scoped to the active file, so once that
+ * file is deleted the ids are meaningless and are cleared rather than
+ * filtered individually. */
+export function pruneSelectionHistoryStackIds(
+  stack: readonly SelectionHistoryEntry[],
+  deletedIds: ReadonlySet<string>,
+): SelectionHistoryEntry[] {
+  if (deletedIds.size === 0) return [...stack];
+  const pruneSelection = (
+    selection: GeometryHistorySelection,
+  ): GeometryHistorySelection => {
+    const activeFileDeleted =
+      !!selection.activeFileId && deletedIds.has(selection.activeFileId);
+    return {
+      overviewSelectedScreenIds: selection.overviewSelectedScreenIds.filter(
+        (fileId) => !deletedIds.has(fileId),
+      ),
+      selectedLayerIds: activeFileDeleted
+        ? []
+        : selection.selectedLayerIds.filter((id) => !deletedIds.has(id)),
+      activeFileId: activeFileDeleted ? null : selection.activeFileId,
+    };
+  };
+  return stack.flatMap((entry) => {
+    const before = pruneSelection(entry.before);
+    const after = pruneSelection(entry.after);
+    // Mirrors pushSelectionHistoryEntry's own no-op skip: once deletion
+    // prunes both sides down to the same selection, the entry no longer
+    // records a change and would just be a silent no-op undo/redo step.
+    return selectionHistorySnapshotsEqual(before, after)
+      ? []
+      : [{ before, after }];
+  });
 }
 
 export function pruneFileCreationHistoryStack(

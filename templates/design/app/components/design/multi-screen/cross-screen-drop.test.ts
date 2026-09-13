@@ -11,14 +11,13 @@ import {
 import { SURFACE_PADDING } from "./overview-layout";
 
 describe("isPointerInsideSourceIframe", () => {
-  it("treats a pointer past the screen's real frame as OUTSIDE even though it is still inside the iframe's own inflated viewport", () => {
-    // The bridge's iframe is rendered wider than the screen's visible frame
-    // (1280) — a drag 200px past the visible edge (to 1480) must engage the
-    // cross-screen mechanism, not read as still "inside" against the
-    // iframe's own inflated 1600px window.innerWidth.
+  it("treats a pointer past the iframe's own reported viewport as OUTSIDE", () => {
+    // 1480 is past viewportW (1600) is impossible by construction, so use a
+    // pointer that has genuinely left the iframe's own internal viewport —
+    // the one boundary that is always in iframeX/iframeY's own space.
     expect(
       isPointerInsideSourceIframe({
-        iframeX: 1480,
+        iframeX: 1650,
         iframeY: 100,
         viewportW: 1600,
         viewportH: 900,
@@ -50,6 +49,39 @@ describe("isPointerInsideSourceIframe", () => {
         viewportH: 900,
       }),
     ).toBe(true);
+  });
+
+  // HIGH-severity review finding: iframeX/iframeY are always reported in the
+  // iframe's own unscaled viewport (viewportW/viewportH), but frameWidth/
+  // frameHeight are the rendered board-space card size, which a scaled-down
+  // overview card (zoom 0.5: a 1280-wide screen rendered as a 640-wide card)
+  // shrinks independently of that viewport. An ordinary drag still well
+  // inside the artboard's real content must not be misread as having left
+  // the smaller rendered card.
+  it("does not classify a pointer near the content's real edge as outside a 0.5x-scaled card", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1200,
+        iframeY: 100,
+        viewportW: 1280,
+        viewportH: 2560,
+        frameWidth: 640,
+        frameHeight: 1280,
+      }),
+    ).toBe(true);
+  });
+
+  it("still classifies a pointer past the content's real edge as outside a 0.5x-scaled card", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1300,
+        iframeY: 100,
+        viewportW: 1280,
+        viewportH: 2560,
+        frameWidth: 640,
+        frameHeight: 1280,
+      }),
+    ).toBe(false);
   });
 });
 
