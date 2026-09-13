@@ -1144,6 +1144,8 @@ const enUS = {
     keepLocalDraft: "Keep my version",
     previewDraftRecovery: "Unsaved page draft",
     restorePreviewDraft: "Restore draft",
+    previewDraftConflict:
+      "This draft conflicts with a newer page version. It was not restored.",
     pageSaveBeforeNavigationFailed:
       "Your latest page edits could not be saved. Try again before leaving this page.",
     discardPreviewDraft: "Discard draft",
@@ -1615,6 +1617,23 @@ const removeLinkMessagesByLocale = {
   "hi-IN": "लिंक हटाएँ",
   "ar-SA": "إزالة الرابط",
 };
+const previewDraftConflictMessagesByLocale = {
+  "zh-CN": "此草稿与较新的页面版本冲突，因此未恢复。",
+  "zh-TW": "此草稿與較新的頁面版本衝突，因此未還原。",
+  "es-ES":
+    "Este borrador entra en conflicto con una versión más reciente de la página. No se restauró.",
+  "fr-FR":
+    "Ce brouillon est en conflit avec une version plus récente de la page. Il n’a pas été restauré.",
+  "de-DE":
+    "Dieser Entwurf steht im Konflikt mit einer neueren Seitenversion. Er wurde nicht wiederhergestellt.",
+  "ja-JP":
+    "この下書きは新しいページのバージョンと競合しているため、復元されませんでした。",
+  "ko-KR": "이 초안은 더 최신 페이지 버전과 충돌하여 복원되지 않았습니다.",
+  "pt-BR":
+    "Este rascunho está em conflito com uma versão mais recente da página. Ele não foi restaurado.",
+  "hi-IN": "यह ड्राफ़्ट पेज के नए वर्शन से मेल नहीं खाता। इसे बहाल नहीं किया गया।",
+  "ar-SA": "تتعارض هذه المسودة مع إصدار أحدث من الصفحة، لذلك لم تتم استعادتها.",
+};
 
 export interface ContentLocaleBundle {
   rawLiterals: PartialMessages;
@@ -2036,6 +2055,7 @@ function mergeMessagesForLocale(
       suggestionFormattingBaselineUnsupported:
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
+      previewDraftConflict: previewDraftConflictMessagesByLocale[locale],
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {

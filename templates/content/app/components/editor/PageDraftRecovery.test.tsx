@@ -16,9 +16,16 @@ const state = vi.hoisted(() => ({
   update: vi.fn(),
   remove: vi.fn(),
   refetch: vi.fn(),
+  writeClipboardText: vi.fn(),
+}));
+vi.mock("@agent-native/core/client/clipboard", () => ({
+  writeClipboardText: state.writeClipboardText,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: state.refetch }),
@@ -72,6 +79,7 @@ describe("Page draft recovery", () => {
       loadedContentWasEmpty: 1,
     };
     state.refetch.mockResolvedValue(undefined);
+    state.writeClipboardText.mockResolvedValue(true);
     state.update.mockResolvedValue({ title: "Draft", content: "Draft body" });
     state.remove.mockResolvedValue({ status: "deleted" });
     container = document.createElement("div");
@@ -83,7 +91,15 @@ describe("Page draft recovery", () => {
     container.remove();
   });
   it("keeps a conflicting restoration visible and never deletes its draft", async () => {
-    state.update.mockResolvedValue({ conflict: true });
+    state.update.mockResolvedValue({
+      conflict: true,
+      document: {
+        ...page,
+        title: "Someone else's newer title",
+        content: "Someone else's newer body",
+        updatedAt: "v2",
+      },
+    });
     act(render);
     await act(async () =>
       container.querySelector<HTMLButtonElement>("button")!.click(),
@@ -96,9 +112,44 @@ describe("Page draft recovery", () => {
       }),
     );
     expect(state.remove).not.toHaveBeenCalled();
-    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "editor.previewDraftConflict",
+    );
     expect(container.textContent).toContain("Draft body");
+    expect(container.textContent).not.toContain("Someone else's newer body");
+    expect(container.textContent).not.toContain("editor.restorePreviewDraft");
+    const copyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.copyUnsavedText",
+    );
+    await act(async () => copyButton!.click());
+    expect(state.writeClipboardText).toHaveBeenCalledWith("Draft body");
+
+    const discardButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.discardPreviewDraft",
+    );
+    await act(async () => discardButton!.click());
+    expect(state.update).toHaveBeenCalledTimes(1);
+    expect(state.remove).toHaveBeenCalledWith({
+      operation: "delete",
+      documentId: "page",
+      expectedVersion: 3,
+      expectedTitle: "Draft",
+      expectedContent: "Draft body",
+    });
     expect(container.querySelector("textarea")).toBeNull();
+  });
+  it("keeps generic restore failures distinct and allows another restore attempt", async () => {
+    state.update.mockRejectedValue(new Error("network unavailable"));
+    act(render);
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "empty.genericError",
+    );
+    expect(container.textContent).toContain("editor.restorePreviewDraft");
+    expect(container.textContent).not.toContain("editor.copyUnsavedText");
+    expect(state.remove).not.toHaveBeenCalled();
   });
   it("retains a draft with an unknown original version without overwriting the Page", async () => {
     state.draft!.baseDocumentUpdatedAt = null;

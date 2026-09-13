@@ -1,7 +1,9 @@
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,8 @@ import { isDocumentCreationPending } from "@/lib/optimistic-document";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
+
+type DraftRecoveryFailure = "conflict" | "error";
 
 export function PageDraftRecovery({
   document,
@@ -46,13 +50,13 @@ export function PageDraftRecovery({
     if (drafts.data?.draft === null) setReleasedDocumentId(document.id);
   }, [document.id, drafts.data]);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<DraftRecoveryFailure | null>(null);
   const draft = drafts.data?.draft;
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
     setBusy(true);
-    setFailed(false);
+    setFailure(null);
     try {
       if (
         restore &&
@@ -69,11 +73,11 @@ export function PageDraftRecovery({
           loadedUpdatedAt: draft.baseDocumentUpdatedAt,
           loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
         });
-        if (
-          isDocumentUpdateConflict(saved) ||
-          saved.content !== draft.content ||
-          saved.title !== draft.title
-        ) {
+        if (isDocumentUpdateConflict(saved)) {
+          setFailure("conflict");
+          return;
+        }
+        if (saved.content !== draft.content || saved.title !== draft.title) {
           throw new Error("Draft restoration was not confirmed.");
         }
       }
@@ -91,7 +95,7 @@ export function PageDraftRecovery({
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
     } catch {
-      setFailed(true);
+      setFailure("error");
       await drafts.refetch();
     } finally {
       setBusy(false);
@@ -119,20 +123,42 @@ export function PageDraftRecovery({
           {draft.content}
         </pre>
       </div>
-      {failed ? (
+      {failure ? (
         <p role="alert" className="text-sm text-destructive">
-          {t("empty.genericError")}
+          {failure === "conflict"
+            ? t("editor.previewDraftConflict")
+            : t("empty.genericError")}
         </p>
       ) : null}
       <div className="flex flex-wrap gap-2">
+        {failure === "conflict" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              void writeClipboardText(draft.content).then((copied) => {
+                if (copied) toast.success(t("editor.unsavedTextCopied"));
+                else
+                  toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+              });
+            }}
+          >
+            {t("editor.copyUnsavedText")}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || documentBodyHydrationIsPending(document)}
+            onClick={() => void settleDraft(true)}
+          >
+            {t("editor.restorePreviewDraft")}
+          </Button>
+        )}
         <Button
-          size="sm"
-          disabled={busy || documentBodyHydrationIsPending(document)}
-          onClick={() => void settleDraft(true)}
-        >
-          {t("editor.restorePreviewDraft")}
-        </Button>
-        <Button
+          type="button"
           size="sm"
           variant="outline"
           disabled={busy}

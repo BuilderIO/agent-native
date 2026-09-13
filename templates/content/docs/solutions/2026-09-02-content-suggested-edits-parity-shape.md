@@ -9,6 +9,43 @@ governingArtifactRevision: content-suggested-edits-shape-r5
 
 # Content Suggested Edits parity
 
+## September 12 beta repair plan
+
+This follow-up repairs the five failures in the cumulative September 12 beta QA
+checkpoint against current main. It preserves A01–A10/R01–R44, the accepted
+Escape focus behavior, and the separately triaged code-block limitation. The
+lane is `contract_repair` for `content.feature.review-changes-in-place`,
+`content.revision.suggestions`, and `content.diff.in-place`; it does not promote
+their broader generic contracts.
+
+- **B01 — supported representation:** native hard breaks and Underline save as
+  reviewable proposals and survive reload, Accept, and Reject without allowing
+  unrelated unsupported structures.
+- **B02 — whole-paragraph text deletion:** deleting exactly a paragraph's text
+  retains its empty structural location and exact comparison through save,
+  reload, Accept, and Reject. Paragraph-boundary deletion remains distinct.
+- **B03 — actual-agent contract:** the documented typed agent action creates an
+  attributable pending suggestion on its first valid attempt, with canonical
+  isolation and idempotency. Current main's `suggest-document-edit` is the
+  candidate repair and must be verified rather than duplicated.
+- **B04 — warm-peer convergence:** Accept and Reject remove pending controls in
+  two already-open clients without reload; accepted text appears once and a
+  later ordinary peer edit persists. Current main's targeted action-query
+  invalidation is the candidate repair and must be verified rather than
+  replaced with polling.
+- **B05 — conflict recovery:** a stale draft restore presents the typed revision
+  conflict explicitly, retains and allows copying the exact draft, and permits
+  explicit discard without silently rebasing over newer canonical content.
+
+Start with focused regressions, then run affected Content adapter/database,
+editor, shared Action, synchronization and recovery suites plus typecheck,
+build, guards, product-impact checks, localization guards and an independent
+technical review. Final owning-task human QA uses a disposable page, an actual
+agent, two warm peers, desktop/mobile keyboard paths, reload and recovery. A
+ready follow-up PR requires B01–B05 on its final revision. Beta is fixed only
+after an authorized merge/deploy and a separate replay on the verified build;
+local proof or deployment smoke alone is not beta acceptance.
+
 ## September 10 landing decision
 
 Alice tested the integrated editor, accepted the current behavior, and explicitly authorized landing and merging this PR. She separately accepted the known saved code-block preview/anchor failure for this release and confirmed that its follow-up is already triaged in the vault. Do not reopen that repair as part of landing. This supersedes the September 9 no-merge instruction and H8's code-block merge gate, not the recorded failure or the broader product contract.

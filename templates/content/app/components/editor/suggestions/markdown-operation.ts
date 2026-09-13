@@ -21,6 +21,7 @@ export type MarkdownSuggestionOperation = {
 
 const MAX_DOCUMENT_LENGTH = 64_000;
 const MAX_EDIT_DISTANCE = 1_024;
+const EMPTY_BLOCK = "<empty-block/>";
 
 type DiffPart = { type: "equal" | "insert" | "delete"; text: string };
 
@@ -62,6 +63,31 @@ function operationForChange(
       suffix: before.slice(to, to + 32),
     },
     schemaVersion: 1,
+  };
+}
+
+function clearedTextBlockOperation(
+  before: string,
+  after: string,
+): MarkdownSuggestionOperation | null {
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  if (beforeLines.length !== afterLines.length) return null;
+
+  const changed = beforeLines.flatMap((line, index) =>
+    line === afterLines[index] ? [] : [index],
+  );
+  if (changed.length !== 1) return null;
+  const index = changed[0]!;
+  const removed = beforeLines[index]!;
+  if (!removed || afterLines[index] !== EMPTY_BLOCK) return null;
+
+  const from = beforeLines
+    .slice(0, index)
+    .reduce((offset, line) => offset + line.length + 1, 0);
+  return {
+    ...operationForChange(before, from, from + removed.length, EMPTY_BLOCK, 0),
+    kind: "delete_text",
   };
 }
 
@@ -369,6 +395,8 @@ export function markdownSuggestionOperations(
   after: string,
 ): MarkdownSuggestionOperation[] {
   if (before === after) return [];
+  const clearedTextBlock = clearedTextBlockOperation(before, after);
+  if (clearedTextBlock) return [clearedTextBlock];
   const beforeMarked = suggestionMarkedSourceRanges(before);
   const afterMarked = suggestionMarkedSourceRanges(after);
   const formatting = suggestionFormattingChanges(before, after);
@@ -500,6 +528,14 @@ export function markdownSuggestionOperationsForReplacements(input: {
   if (operations.length === 0 || replacements.length === 0) return operations;
   if (replacements.length === 1) {
     const [{ from, to }] = replacements;
+    if (
+      operations.length === 1 &&
+      operations[0]!.anchor.from === from &&
+      operations[0]!.anchor.to === to &&
+      operations[0]!.after.markdown === after
+    ) {
+      return operations;
+    }
     const prefix = before.slice(0, from);
     const suffix = before.slice(to);
     if (
