@@ -27,7 +27,10 @@ import {
 
 import {
   applyCalendarEventRsvp,
+  calendarEventIsInScope,
   calendarEventOverlapsListParams,
+  findCalendarEventById,
+  getRemovedCalendarEvents,
   mergeCalendarEventIntoList,
   removeCalendarEventsForScope,
   removeOptimisticCalendarEventFromList,
@@ -498,7 +501,14 @@ export function useUpdateEvent() {
         queryClient.setQueriesData<CalendarEvent[]>(
           { queryKey: ["action", "list-events"] },
           (old) => {
-            const target = old?.find((event) => event.id === optimisticData.id);
+            const target = old
+              ? findCalendarEventById(
+                  old,
+                  optimisticData.id,
+                  optimisticData.accountEmail,
+                )
+              : undefined;
+            if (!target) return old;
             // A working-location change can alter the visual grouping of several
             // days. Keep the editor mounted until Google confirms the write so a
             // rejected request does not appear to save and then snap back.
@@ -507,11 +517,11 @@ export function useUpdateEvent() {
             )
               return old;
             return old?.map((e) => {
-              const matchesScope =
-                e.id === optimisticData.id ||
-                (scope === "all" &&
-                  !!target?.recurringEventId &&
-                  e.recurringEventId === target.recurringEventId);
+              const matchesScope = calendarEventIsInScope(
+                e,
+                target,
+                scope ?? "single",
+              );
               if (!matchesScope) return e;
               const nextWorkingLocationType =
                 workingLocationType ?? getWorkingLocationType(e);
@@ -547,7 +557,13 @@ export function useUpdateEvent() {
         if (!eventPatch?.id) return;
         queryClient.setQueriesData<CalendarEvent[]>(
           { queryKey: ["action", "list-events"] },
-          (old) => reconcileUpdatedEventList(old, input.id, eventPatch),
+          (old) =>
+            reconcileUpdatedEventList(
+              old,
+              input.id,
+              eventPatch,
+              input.accountEmail,
+            ),
         );
       },
       onError: (_err, _newData, context) => {
@@ -572,6 +588,7 @@ export function reconcileUpdatedEventList(
   events: CalendarEvent[] | undefined,
   originalId: string,
   result: UpdateEventResult,
+  accountEmail?: string,
 ): CalendarEvent[] | undefined {
   if (!result.id) return events;
   const {
@@ -583,9 +600,13 @@ export function reconcileUpdatedEventList(
     ...eventPatch
   } = result;
   const targetId = replacedId ?? originalId;
+  const target = events
+    ? findCalendarEventById(events, targetId, accountEmail)
+    : undefined;
+  if (!target) return events;
 
   return events?.map((event) => {
-    if (event.id !== targetId) return event;
+    if (!calendarEventIsInScope(event, target, "single")) return event;
     const idChanged = event.id !== eventPatch.id;
     return {
       ...event,
@@ -598,10 +619,9 @@ export function reconcileUpdatedEventList(
 export function findEventByCurrentOrReplacedId(
   events: CalendarEvent[],
   eventId: string,
+  accountEmail?: string,
 ): CalendarEvent | undefined {
-  return events.find(
-    (event) => event.id === eventId || event._replacedId === eventId,
-  );
+  return findCalendarEventById(events, eventId, accountEmail);
 }
 
 export function useDeleteEvent() {
@@ -629,23 +649,21 @@ export function useDeleteEvent() {
         queryKey: ["action", "list-events"],
       });
       const cachedEvents = previous.flatMap(([, events]) => events ?? []);
-      const matchingEvents = cachedEvents.filter(
+      const targetEvent = findCalendarEventById(cachedEvents, id, accountEmail);
+      const hasMatchingEvents = cachedEvents.some(
         (event) => event.id === id || event._replacedId === id,
       );
-      const normalizedAccountEmail = accountEmail?.trim().toLowerCase();
-      const targetEvent = normalizedAccountEmail
-        ? matchingEvents.find(
-            (event) =>
-              event.accountEmail?.trim().toLowerCase() ===
-              normalizedAccountEmail,
-          )
-        : findEventByCurrentOrReplacedId(cachedEvents, id);
+      if (hasMatchingEvents && !targetEvent) return { removedByQuery: [] };
       const removedByQuery: Array<[QueryKey, CalendarEvent[]]> = [];
       for (const [key, old] of previous) {
-        const next = removeCalendarEventsForScope(old, id, scope, targetEvent);
-        const retainedIds = new Set(next?.map((event) => event.id) ?? []);
-        const removed =
-          old?.filter((event) => !retainedIds.has(event.id)) ?? [];
+        const next = removeCalendarEventsForScope(
+          old,
+          id,
+          scope,
+          targetEvent,
+          accountEmail,
+        );
+        const removed = getRemovedCalendarEvents(old, next);
         if (removed.length > 0) removedByQuery.push([key, removed]);
         if (next !== old) queryClient.setQueryData(key, next);
       }

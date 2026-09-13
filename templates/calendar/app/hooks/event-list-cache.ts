@@ -41,7 +41,10 @@ export function mergeCalendarEventIntoList(
     const matchesOptimistic =
       optimisticId &&
       (existing.id === optimisticId || existing._tempId === optimisticId);
-    if (existing.id === event.id || matchesOptimistic) {
+    if (
+      (existing.id === event.id && sameCalendarSource(existing, event)) ||
+      matchesOptimistic
+    ) {
       replaced = true;
       return nextEvent;
     }
@@ -99,6 +102,49 @@ function sameCalendarSource(event: CalendarEvent, target: CalendarEvent) {
   return true;
 }
 
+function matchesCalendarEventId(event: CalendarEvent, eventId: string) {
+  return event.id === eventId || event._replacedId === eventId;
+}
+
+export function findCalendarEventById(
+  events: CalendarEvent[],
+  eventId: string,
+  accountEmail?: string,
+) {
+  const requestedEmail = normalizedEmail(accountEmail);
+  const candidates = events.filter(
+    (event) =>
+      matchesCalendarEventId(event, eventId) &&
+      (!requestedEmail ||
+        normalizedEmail(event.accountEmail) === requestedEmail),
+  );
+  const first = candidates[0];
+  if (!first || candidates.some((event) => !sameCalendarSource(event, first))) {
+    return undefined;
+  }
+
+  return candidates.find((event) => event.id === eventId) ?? first;
+}
+
+export function getRemovedCalendarEvents(
+  previous: CalendarEvent[] | undefined,
+  next: CalendarEvent[] | undefined,
+) {
+  if (!previous) return [];
+
+  const retainedCounts = new Map<CalendarEvent, number>();
+  for (const event of next ?? []) {
+    retainedCounts.set(event, (retainedCounts.get(event) ?? 0) + 1);
+  }
+
+  return previous.filter((event) => {
+    const retainedCount = retainedCounts.get(event) ?? 0;
+    if (retainedCount === 0) return true;
+    retainedCounts.set(event, retainedCount - 1);
+    return false;
+  });
+}
+
 function hasRecurringSourceIdentity(
   event: CalendarEvent,
   target: CalendarEvent,
@@ -146,7 +192,7 @@ function sameRecurringSeries(event: CalendarEvent, target: CalendarEvent) {
   );
 }
 
-function shouldApplyToEventInScope(
+export function calendarEventIsInScope(
   event: CalendarEvent,
   target: CalendarEvent,
   scope: RsvpScope,
@@ -168,18 +214,14 @@ export function removeCalendarEventsForScope(
   targetId: string,
   scope: RsvpScope = "single",
   targetEvent?: CalendarEvent,
+  accountEmail?: string,
 ) {
   if (!old) return old;
   const target =
-    targetEvent ??
-    old.find(
-      (event) => event.id === targetId || event._replacedId === targetId,
-    );
+    targetEvent ?? findCalendarEventById(old, targetId, accountEmail);
   if (!target) return old;
 
-  return old.filter(
-    (event) => !shouldApplyToEventInScope(event, target, scope),
-  );
+  return old.filter((event) => !calendarEventIsInScope(event, target, scope));
 }
 
 export function restoreMissingCalendarEvents(
@@ -188,8 +230,14 @@ export function restoreMissingCalendarEvents(
 ) {
   if (removed.length === 0) return current;
   if (!current) return sortCalendarEvents(removed);
-  const currentIds = new Set(current.map((event) => event.id));
-  const missing = removed.filter((event) => !currentIds.has(event.id));
+  const missing = removed.filter(
+    (removedEvent) =>
+      !current.some(
+        (event) =>
+          matchesCalendarEventId(event, removedEvent.id) &&
+          sameCalendarSource(event, removedEvent),
+      ),
+  );
   return missing.length > 0
     ? sortCalendarEvents([...current, ...missing])
     : current;
@@ -238,11 +286,11 @@ export function applyCalendarEventRsvp(
 ) {
   if (!old) return old;
 
-  const target = old.find((event) => event.id === targetId);
+  const target = findCalendarEventById(old, targetId, accountEmail);
   if (!target) return old;
 
   return old.map((event) =>
-    shouldApplyToEventInScope(event, target, scope)
+    calendarEventIsInScope(event, target, scope)
       ? applyRsvpStatus(event, status, accountEmail, note)
       : event,
   );

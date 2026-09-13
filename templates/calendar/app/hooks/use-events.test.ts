@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
+  findCalendarEventById,
+  getRemovedCalendarEvents,
   mergeCalendarEventIntoList,
   removeCalendarEventsForScope,
   removeOptimisticCalendarEventFromList,
@@ -109,6 +111,26 @@ describe("calendar event list cache helpers", () => {
     ]);
     expect(next[1]?._tempId).toBe(optimisticId);
     expect(next[1]?.title).toBe("Created");
+  });
+
+  it("does not replace a same-ID event from another Google account", () => {
+    const otherAccount = calendarEvent({
+      id: "shared-provider-id",
+      title: "Other account",
+      source: "google",
+      accountEmail: "other@example.com",
+    });
+    const created = calendarEvent({
+      id: otherAccount.id,
+      title: "Created here",
+      source: "google",
+      accountEmail: "me@example.com",
+    });
+
+    expect(mergeCalendarEventIntoList([otherAccount], created)).toEqual([
+      otherAccount,
+      created,
+    ]);
   });
 
   it("removes a failed optimistic event", () => {
@@ -253,6 +275,7 @@ describe("calendar event list cache helpers", () => {
     const selected = findEventByCurrentOrReplacedId(
       cachedRanges.flat(),
       target.id,
+      target.accountEmail,
     );
 
     expect(selected).toBe(target);
@@ -445,6 +468,40 @@ describe("calendar event list cache helpers", () => {
     ]);
   });
 
+  it("tracks delete rollback by event occurrence when account IDs collide", () => {
+    const target = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "me@example.com",
+    });
+    const otherAccount = calendarEvent({
+      id: target.id,
+      source: "google",
+      accountEmail: "other@example.com",
+    });
+    const selected = findCalendarEventById(
+      [target, otherAccount],
+      target.id,
+      " ME@example.com ",
+    );
+    const remaining = removeCalendarEventsForScope(
+      [target, otherAccount],
+      target.id,
+      "single",
+      selected,
+      target.accountEmail,
+    );
+    const removed = getRemovedCalendarEvents([target, otherAccount], remaining);
+
+    expect(selected).toBe(target);
+    expect(remaining).toEqual([otherAccount]);
+    expect(removed).toEqual([target]);
+    expect(restoreMissingCalendarEvents(remaining, removed)).toEqual([
+      otherAccount,
+      target,
+    ]);
+  });
+
   it("optimistically updates the event and self attendee RSVP status", () => {
     const event = calendarEvent({
       source: "google",
@@ -480,6 +537,51 @@ describe("calendar event list cache helpers", () => {
       comment: "I have a conflict",
     });
     expect(next?.[0]?.attendees?.[0]?.responseStatus).toBe("accepted");
+  });
+
+  it("scopes optimistic RSVP updates to the selected account when IDs collide", () => {
+    const otherAccountTarget = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const otherAccountFuture = calendarEvent({
+      id: "other-future",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const target = calendarEvent({
+      id: otherAccountTarget.id,
+      source: "google",
+      accountEmail: "me@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const future = calendarEvent({
+      id: "future",
+      source: "google",
+      accountEmail: "me@example.com",
+      recurringEventId: "shared-series",
+      responseStatus: "accepted",
+    });
+    const events = [otherAccountTarget, otherAccountFuture, target, future];
+
+    expect(
+      applyCalendarEventRsvp(
+        events,
+        target.id,
+        "declined",
+        "all",
+        " ME@example.com ",
+      )?.map((event) => event.responseStatus),
+    ).toEqual(["accepted", "accepted", "declined", "declined"]);
+    expect(applyCalendarEventRsvp(events, target.id, "declined", "all")).toBe(
+      events,
+    );
   });
 
   it("optimistically clears a self attendee RSVP note", () => {
@@ -751,5 +853,29 @@ describe("reconcileUpdatedEventList", () => {
     expect(
       findEventByCurrentOrReplacedId(reconciled ?? [], original.id),
     ).toMatchObject({ id: "google-working-location-override" });
+  });
+
+  it("reconciles only the selected account when provider event IDs collide", () => {
+    const otherAccount = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "other@example.com",
+      title: "Other account",
+    });
+    const target = calendarEvent({
+      id: otherAccount.id,
+      source: "google",
+      accountEmail: "me@example.com",
+      title: "Before update",
+    });
+
+    expect(
+      reconcileUpdatedEventList(
+        [otherAccount, target],
+        target.id,
+        { id: target.id, title: "After update" },
+        target.accountEmail,
+      ),
+    ).toEqual([otherAccount, { ...target, title: "After update" }]);
   });
 });
