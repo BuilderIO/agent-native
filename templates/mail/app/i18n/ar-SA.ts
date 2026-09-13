@@ -280,6 +280,8 @@ const messages = {
       moveFailed: "فشل النقل. تمت استعادة المحادثة.",
       movePartialFailed:
         "تم نقل {{succeeded}} من أصل {{total}} محادثة؛ فشل {{failed}}.",
+      moveSucceeded: "تم النقل إلى {{label}}.",
+      moveManySucceeded: "تم نقل {{count}} من المحادثات إلى {{label}}.",
       trashed: "تم النقل إلى المهملات.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "تم إرسال البريد المجدول.",

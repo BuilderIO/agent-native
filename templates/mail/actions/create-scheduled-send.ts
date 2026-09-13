@@ -4,7 +4,10 @@ import { z } from "zod";
 
 import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import { isValidAddressList } from "../server/lib/email-address-validation.js";
-import { createScheduledJobRecord } from "../server/lib/jobs.js";
+import {
+  createScheduledJobRecord,
+  resolveScheduledSendAccountEmail,
+} from "../server/lib/jobs.js";
 
 export default defineAction({
   description:
@@ -56,16 +59,32 @@ export default defineAction({
       );
     }
 
+    const requestedAccount = [
+      args.accountEmail,
+      args.payload?.accountEmail,
+      args.payload?.from,
+    ].find((value) => value !== undefined && value !== null && value !== "");
+    if (
+      requestedAccount !== undefined &&
+      typeof requestedAccount !== "string"
+    ) {
+      throw new Error("Selected Gmail account must be an email address.");
+    }
+    const accountEmail = await resolveScheduledSendAccountEmail(
+      ownerEmail,
+      requestedAccount as string | undefined,
+    );
+    const payload = args.payload
+      ? { ...args.payload, accountEmail }
+      : undefined;
+
     return createScheduledJobRecord({
       type: "send_later",
       ownerEmail,
       emailId: args.emailId ?? null,
       threadId: args.threadId ?? null,
-      accountEmail:
-        args.accountEmail ??
-        (args.payload?.accountEmail as string | undefined) ??
-        null,
-      payload: args.payload,
+      accountEmail: accountEmail ?? null,
+      payload,
       runAt: args.runAt,
     });
   },

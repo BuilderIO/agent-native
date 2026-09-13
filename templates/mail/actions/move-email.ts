@@ -145,7 +145,7 @@ export default defineAction({
       } satisfies MoveEmailResult;
     }
 
-    const accounts = await getAccessTokens();
+    const accounts = await getAccessTokens(ownerEmail);
     if (accounts.length === 0) throw new Error("No Google account connected.");
 
     const results: { id: string; success: boolean; error?: string }[] = [];

@@ -1056,8 +1056,11 @@ export function EmailList({
         setSelectedIds(new Set());
         toast(
           targets.length > 1
-            ? `Moved ${result.succeeded.length} conversations to ${labelName}.`
-            : `Moved to ${labelName}.`,
+            ? t("mail.toasts.moveManySucceeded", {
+                count: result.succeeded.length,
+                label: labelName,
+              })
+            : t("mail.toasts.moveSucceeded", { label: labelName }),
         );
       } catch (error) {
         if (error instanceof MoveEmailPartialFailure) {

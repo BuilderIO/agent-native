@@ -281,6 +281,9 @@ const messages = {
       moveFailed: "移動に失敗しました。スレッドを復元しました。",
       movePartialFailed:
         "{{total}} 件中 {{succeeded}} 件を移動しました（{{failed}} 件失敗）。",
+      moveSucceeded: "「{{label}}」に移動しました。",
+      moveManySucceeded:
+        "{{count}} 件のスレッドを「{{label}}」に移動しました。",
       trashed: "ゴミ箱へ移動しました。",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "予約メールを送信しました。",

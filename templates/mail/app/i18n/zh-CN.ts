@@ -280,6 +280,8 @@ const messages = {
       moveFailed: "移动失败。会话已恢复。",
       movePartialFailed:
         "已移动 {{total}} 个会话中的 {{succeeded}} 个；{{failed}} 个失败。",
+      moveSucceeded: "已移至 {{label}}。",
+      moveManySucceeded: "已将 {{count}} 个会话移至 {{label}}。",
       trashed: "已移到垃圾箱。",
       trashedMany: "已将 {{count}} 个会话移到垃圾箱。",
       scheduledSent: "定时邮件已发送。",

@@ -280,6 +280,9 @@ const messages = {
       moveFailed: "Échec du déplacement. La conversation a été restaurée.",
       movePartialFailed:
         "{{succeeded}} conversations sur {{total}} déplacées ; {{failed}} échec(s).",
+      moveSucceeded: "Déplacement vers {{label}} terminé.",
+      moveManySucceeded:
+        "Déplacement de {{count}} conversations vers {{label}} terminé.",
       trashed: "Déplacé vers la corbeille.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programmé envoyé.",

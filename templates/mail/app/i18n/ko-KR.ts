@@ -280,6 +280,8 @@ const messages = {
       moveFailed: "이동에 실패했습니다. 대화가 복원되었습니다.",
       movePartialFailed:
         "{{total}}개 중 {{succeeded}}개의 대화를 이동했고 {{failed}}개가 실패했습니다.",
+      moveSucceeded: "{{label}}(으)로 이동했습니다.",
+      moveManySucceeded: "{{count}}개의 대화를 {{label}}(으)로 이동했습니다.",
       trashed: "휴지통으로 이동했습니다.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "예약 이메일을 보냈습니다.",

@@ -7,8 +7,13 @@ const mocks = vi.hoisted(() => ({
   listOAuthAccountsByOwner: vi.fn(),
   setOAuthDisplayName: vi.fn(),
   isConnected: vi.fn(),
+  getClientForConnectedAccount: vi.fn(),
+  getClientsWithErrors: vi.fn(),
+  getConnectedAccountsWithErrors: vi.fn(),
+  insertScheduledJob: vi.fn(),
   createOAuth2Client: vi.fn(),
   getOAuth2Credentials: vi.fn(),
+  gmailGetMessage: vi.fn(),
   googleFetch: vi.fn(),
   resolveComposeAttachments: vi.fn(),
   buildRawEmail: vi.fn(),
@@ -27,13 +32,13 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 }));
 
 vi.mock("../db/index.js", () => ({
-  db: {},
-  schema: {},
+  db: { insert: vi.fn(() => ({ values: mocks.insertScheduledJob })) },
+  schema: { scheduledJobs: "scheduled_jobs" },
 }));
 
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: mocks.createOAuth2Client,
-  gmailGetMessage: vi.fn(),
+  gmailGetMessage: mocks.gmailGetMessage,
   gmailGetThread: vi.fn(),
   gmailListLabels: vi.fn(),
   gmailModifyMessage: vi.fn(),
@@ -44,6 +49,9 @@ vi.mock("./google-api.js", () => ({
 vi.mock("./google-auth.js", () => ({
   getAccountDisplayName: vi.fn(() => undefined),
   isConnected: mocks.isConnected,
+  getClientForConnectedAccount: mocks.getClientForConnectedAccount,
+  getClientsWithErrors: mocks.getClientsWithErrors,
+  getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
   gmailToEmailMessage: vi.fn(),
   getOAuth2Credentials: mocks.getOAuth2Credentials,
   setAccountDisplayName: vi.fn(),
@@ -65,16 +73,25 @@ vi.mock("./sender-identity.js", () => ({
   resolveGoogleSenderIdentity: mocks.resolveGoogleSenderIdentity,
 }));
 
-import { sendScheduledEmail } from "./jobs.js";
+import { scheduleEmailSend, sendScheduledEmail } from "./jobs.js";
 
 const OWNER = "owner@example.com";
 const SELECTED = "selected@example.com";
 const OTHER = "other@example.com";
 
-describe("sendScheduledEmail account selection", () => {
+describe("scheduled send account selection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.isConnected.mockResolvedValue(true);
+    mocks.getClientForConnectedAccount.mockResolvedValue(null);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ email: OTHER, accessToken: "other-token", refreshToken: "" }],
+      errors: [],
+    });
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [SELECTED],
+      errors: [],
+    });
+    mocks.insertScheduledJob.mockResolvedValue(undefined);
     mocks.listOAuthAccountsByOwner.mockResolvedValue([{ accountId: OTHER }]);
     mocks.getOAuthTokens.mockImplementation(async (_provider, email) => {
       if (email === OTHER) return { access_token: "other-token" };
@@ -82,6 +99,7 @@ describe("sendScheduledEmail account selection", () => {
     });
     mocks.resolveComposeAttachments.mockResolvedValue([]);
     mocks.buildRawEmail.mockReturnValue("raw-message");
+    mocks.gmailGetMessage.mockResolvedValue({ payload: { headers: [] } });
     mocks.resolveGoogleSenderIdentity.mockResolvedValue({
       header: "Owner <owner@example.com>",
     });
@@ -91,6 +109,56 @@ describe("sendScheduledEmail account selection", () => {
     );
     mocks.readLocalEmails.mockResolvedValue([]);
     mocks.writeLocalEmails.mockResolvedValue(undefined);
+  });
+
+  it("validates and stores the canonical selected account before persisting", async () => {
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["Selected@example.com"],
+      errors: [],
+    });
+
+    const job = await scheduleEmailSend({
+      ownerEmail: OWNER,
+      runAt: Date.now() + 60_000,
+      payload: {
+        to: "recipient@example.com",
+        subject: "Scheduled",
+        body: "body",
+        accountEmail: SELECTED,
+      },
+    });
+
+    expect(mocks.getConnectedAccountsWithErrors).toHaveBeenCalledWith(OWNER);
+    expect(job.accountEmail).toBe("Selected@example.com");
+    expect(JSON.parse(job.payload).accountEmail).toBe("Selected@example.com");
+    expect(mocks.insertScheduledJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: OWNER,
+        accountEmail: "Selected@example.com",
+      }),
+    );
+  });
+
+  it("rejects a sender account not owned by the scheduled job owner", async () => {
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [OTHER],
+      errors: [],
+    });
+
+    await expect(
+      scheduleEmailSend({
+        ownerEmail: OWNER,
+        runAt: Date.now() + 60_000,
+        payload: {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+          accountEmail: SELECTED,
+        },
+      }),
+    ).rejects.toThrow("Selected Gmail account is not connected to this user");
+
+    expect(mocks.insertScheduledJob).not.toHaveBeenCalled();
   });
 
   it("does not send through another account when the selected account has no token", async () => {
@@ -108,16 +176,16 @@ describe("sendScheduledEmail account selection", () => {
       `No valid access token for selected Gmail account ${SELECTED}`,
     );
 
-    expect(mocks.getOAuthTokens).toHaveBeenCalledTimes(1);
-    expect(mocks.getOAuthTokens).toHaveBeenCalledWith("google", SELECTED);
-    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      OWNER,
+      SELECTED,
+    );
+    expect(mocks.getClientsWithErrors).not.toHaveBeenCalled();
     expect(mocks.googleFetch).not.toHaveBeenCalled();
     expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
   });
 
   it("does not write a local synthetic send when an explicit account is disconnected", async () => {
-    mocks.isConnected.mockResolvedValue(false);
-
     await expect(
       sendScheduledEmail(
         {
@@ -132,6 +200,64 @@ describe("sendScheduledEmail account selection", () => {
       `No valid access token for selected Gmail account ${SELECTED}`,
     );
 
+    expect(mocks.googleFetch).not.toHaveBeenCalled();
+    expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+  });
+
+  it("routes an explicitly selected managed account through the owner-scoped resolver", async () => {
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      email: SELECTED,
+      accessToken: "managed-token",
+    });
+
+    await expect(
+      sendScheduledEmail(
+        {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+        },
+        SELECTED,
+        OWNER,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      OWNER,
+      SELECTED,
+    );
+    expect(mocks.googleFetch).toHaveBeenCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      "managed-token",
+      expect.any(Object),
+    );
+  });
+
+  it("does not send a reply when its original message headers cannot be read", async () => {
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      email: SELECTED,
+      accessToken: "selected-token",
+    });
+    mocks.gmailGetMessage.mockRejectedValue(new Error("metadata unavailable"));
+
+    await expect(
+      sendScheduledEmail(
+        {
+          to: "recipient@example.com",
+          subject: "Reply",
+          body: "body",
+          replyToId: "original-message-id",
+        },
+        SELECTED,
+        OWNER,
+      ),
+    ).rejects.toThrow("metadata unavailable");
+
+    expect(mocks.gmailGetMessage).toHaveBeenCalledWith(
+      "selected-token",
+      "original-message-id",
+      "metadata",
+    );
     expect(mocks.googleFetch).not.toHaveBeenCalled();
     expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
   });
@@ -152,25 +278,19 @@ describe("sendScheduledEmail account selection", () => {
       `No valid access token for selected Gmail account ${SELECTED}`,
     );
 
-    expect(mocks.getOAuthTokens).toHaveBeenCalledWith("google", SELECTED);
-    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      OWNER,
+      SELECTED,
+    );
+    expect(mocks.getClientsWithErrors).not.toHaveBeenCalled();
     expect(mocks.googleFetch).not.toHaveBeenCalled();
     expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
   });
 
   it("does not use a stale selected token after refresh fails", async () => {
-    mocks.getOAuthTokens.mockResolvedValue({
-      access_token: "expired-token",
-      refresh_token: "refresh-token",
-      expiry_date: Date.now() - 1,
-    });
-    mocks.getOAuth2Credentials.mockResolvedValue({
-      clientId: "client-id",
-      clientSecret: "client-secret",
-    });
-    mocks.createOAuth2Client.mockReturnValue({
-      refreshToken: vi.fn().mockRejectedValue(new Error("refresh failed")),
-    });
+    mocks.getClientForConnectedAccount.mockRejectedValue(
+      new Error("refresh failed"),
+    );
 
     await expect(
       sendScheduledEmail(
@@ -182,21 +302,14 @@ describe("sendScheduledEmail account selection", () => {
         SELECTED,
         OWNER,
       ),
-    ).rejects.toThrow(
-      `No valid access token for selected Gmail account ${SELECTED}`,
-    );
+    ).rejects.toThrow("refresh failed");
 
-    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(mocks.getClientsWithErrors).not.toHaveBeenCalled();
     expect(mocks.googleFetch).not.toHaveBeenCalled();
     expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
   });
 
-  it("does not use an expired selected token that has no refresh token", async () => {
-    mocks.getOAuthTokens.mockResolvedValue({
-      access_token: "expired-token",
-      expiry_date: Date.now() - 1,
-    });
-
+  it("does not fall back to an account ID when the scheduled owner is missing", async () => {
     await expect(
       sendScheduledEmail(
         {
@@ -205,17 +318,19 @@ describe("sendScheduledEmail account selection", () => {
           body: "body",
         },
         SELECTED,
-        OWNER,
       ),
-    ).rejects.toThrow(
-      `No valid access token for selected Gmail account ${SELECTED}`,
-    );
+    ).rejects.toThrow("Scheduled send is missing its owner account context");
 
-    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
     expect(mocks.googleFetch).not.toHaveBeenCalled();
   });
 
-  it("retains account fallback when no sender account was selected", async () => {
+  it("uses the next usable owner account when the default account refresh fails", async () => {
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ email: OTHER, accessToken: "other-token", refreshToken: "" }],
+      errors: [{ email: SELECTED, error: "refresh failed" }],
+    });
+
     await expect(
       sendScheduledEmail(
         {
@@ -228,16 +343,35 @@ describe("sendScheduledEmail account selection", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalledWith(
-      "google",
-      OWNER,
-    );
-    expect(mocks.getOAuthTokens).toHaveBeenCalledWith("google", OTHER);
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(OWNER);
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
     expect(mocks.googleFetch).toHaveBeenCalledTimes(1);
     expect(mocks.googleFetch).toHaveBeenCalledWith(
       "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
       "other-token",
       expect.any(Object),
     );
+  });
+
+  it("does not fall back to a local send when all connected-account refreshes fail", async () => {
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [{ email: SELECTED, error: "refresh failed" }],
+    });
+
+    await expect(
+      sendScheduledEmail(
+        {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+        },
+        undefined,
+        OWNER,
+      ),
+    ).rejects.toThrow("No usable connected Gmail account for scheduled send");
+
+    expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+    expect(mocks.googleFetch).not.toHaveBeenCalled();
   });
 });

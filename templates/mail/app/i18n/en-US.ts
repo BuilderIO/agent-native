@@ -278,6 +278,8 @@ const messages = {
       moveFailed: "Move failed. The conversation was restored.",
       movePartialFailed:
         "Moved {{succeeded}} of {{total}} conversations; {{failed}} failed.",
+      moveSucceeded: "Moved to {{label}}.",
+      moveManySucceeded: "Moved {{count}} conversations to {{label}}.",
       trashed: "Moved to Trash.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Scheduled email sent.",

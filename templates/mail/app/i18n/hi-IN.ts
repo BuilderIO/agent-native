@@ -280,6 +280,8 @@ const messages = {
       moveFailed: "स्थानांतरित नहीं हो सका। बातचीत बहाल कर दी गई।",
       movePartialFailed:
         "{{total}} में से {{succeeded}} बातचीत स्थानांतरित हुई; {{failed}} विफल हुईं।",
+      moveSucceeded: "{{label}} में ले जाया गया।",
+      moveManySucceeded: "{{count}} बातचीत को {{label}} में ले जाया गया।",
       trashed: "कूड़ेदान में ले जाया गया।",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "शेड्यूल ईमेल भेजा गया।",

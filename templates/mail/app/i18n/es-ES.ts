@@ -281,6 +281,8 @@ const messages = {
       moveFailed: "No se pudo mover. La conversación se restauró.",
       movePartialFailed:
         "Se movieron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
+      moveSucceeded: "Movido a {{label}}.",
+      moveManySucceeded: "Se movieron {{count}} conversaciones a {{label}}.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",

@@ -92,6 +92,42 @@ describe("move-email action", () => {
       "refresh-signal",
       expect.objectContaining({ ts: expect.any(Number) }),
     );
+    expect(mocks.getAccessTokens).toHaveBeenCalledWith("owner@example.com");
+  });
+
+  it("tries the managed mailbox after OAuth and preserves its account provenance", async () => {
+    mocks.getAccessTokens.mockResolvedValue([
+      { email: "oauth@example.com", accessToken: "oauth-token" },
+      { email: "managed@example.com", accessToken: "managed-token" },
+    ]);
+    mocks.gmailGetMessage.mockImplementation(async (token, id) => {
+      if (token === "oauth-token") throw new Error("message not found");
+      return { id, threadId: "managed-thread" };
+    });
+
+    const result = await action.run({
+      id: "managed-message",
+      label: "Project",
+    });
+
+    expect(result).toMatchObject({
+      status: "complete",
+      succeeded: ["managed-message"],
+      failed: [],
+    });
+    expect(mocks.getAccessTokens).toHaveBeenCalledWith("owner@example.com");
+    expect(mocks.gmailModifyThread).toHaveBeenCalledWith(
+      "managed-token",
+      "managed-thread",
+      ["Label_1"],
+      ["INBOX"],
+    );
+    expect(mocks.syncInboxLabelDelta).toHaveBeenCalledWith(
+      "owner@example.com",
+      "managed@example.com",
+      ["managed-thread"],
+      { add: ["Label_1"], remove: ["INBOX"] },
+    );
   });
 
   it("throws a typed action failure when every provider attempt fails", async () => {

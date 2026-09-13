@@ -283,6 +283,8 @@ const messages = {
         "Verschieben fehlgeschlagen. Die Unterhaltung wurde wiederhergestellt.",
       movePartialFailed:
         "{{succeeded}} von {{total}} Unterhaltungen verschoben; {{failed}} fehlgeschlagen.",
+      moveSucceeded: "Nach {{label}} verschoben.",
+      moveManySucceeded: "{{count}} Unterhaltungen nach {{label}} verschoben.",
       trashed: "In den Papierkorb verschoben.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",

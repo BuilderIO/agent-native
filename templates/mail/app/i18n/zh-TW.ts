@@ -278,6 +278,8 @@ const messages = {
       moveFailed: "移動失敗。工作階段已恢復。",
       movePartialFailed:
         "已移動 {{total}} 個工作階段中的 {{succeeded}} 個；{{failed}} 個失敗。",
+      moveSucceeded: "已移至「{{label}}」。",
+      moveManySucceeded: "已將 {{count}} 個對話移至「{{label}}」。",
       trashed: "已移到垃圾桶。",
       trashedMany: "已將 {{count}} 個工作階段移到垃圾桶。",
       scheduledSent: "定時郵件已傳送。",
