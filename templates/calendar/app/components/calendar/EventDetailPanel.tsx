@@ -35,7 +35,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { withCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
+import {
+  getCalendarEventRenderKey,
+  withCalendarEventSourceIdentity,
+} from "@/lib/calendar-event-identity";
 import { getDisplayDateInTimezone } from "@/lib/calendar-timezone";
 import { getEditableEventTitle } from "@/lib/event-form-utils";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
@@ -182,6 +185,7 @@ export function EventDetailPanel({
     () => (event ? buildEventDetailSlotContext(event) : null),
     [event],
   );
+  const eventRenderKey = event ? getCalendarEventRenderKey(event) : null;
 
   // Reset editing state when event changes
   useEffect(() => {
@@ -189,7 +193,7 @@ export function EventDetailPanel({
     setIsEditingDescription(false);
     setEditDescription(event?.description || "");
     lastSavedDescriptionRef.current = event?.description || "";
-  }, [event?.id]);
+  }, [eventRenderKey]);
 
   useEffect(() => {
     setSelectedAccountEmail(event?.accountEmail);
