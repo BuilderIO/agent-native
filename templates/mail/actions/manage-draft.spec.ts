@@ -172,6 +172,48 @@ describe("manage-draft saved mailbox deletion", () => {
     ]);
     expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
   });
+
+  it("uses saved mailbox metadata when deleting a compose draft", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.deleteAppState.mockResolvedValue(true);
+    appState.set("compose-1", {
+      id: "1",
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "secondary@example.com",
+      accountEmail: "default@example.com",
+    });
+
+    await action.run({ action: "delete", id: "1" });
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "secondary@example.com",
+      draftId: "gmail-draft-1",
+    });
+  });
+
+  it("uses saved mailbox metadata when deleting all compose drafts", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.listAppState.mockResolvedValue([
+      {
+        value: {
+          savedDraftId: "gmail-draft-1",
+          savedDraftBackend: "gmail",
+          savedDraftAccountEmail: "secondary@example.com",
+          accountEmail: "default@example.com",
+        },
+      },
+    ]);
+
+    await action.run({ action: "delete-all" });
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "secondary@example.com",
+      draftId: "gmail-draft-1",
+    });
+  });
 });
 
 describe("manage-draft local fallback", () => {

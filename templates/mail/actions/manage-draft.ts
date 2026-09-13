@@ -186,9 +186,11 @@ export default defineAction({
               ? value.savedDraftBackend
               : undefined,
           accountEmail:
-            typeof value.accountEmail === "string"
-              ? value.accountEmail
-              : undefined,
+            typeof value.savedDraftAccountEmail === "string"
+              ? value.savedDraftAccountEmail
+              : typeof value.accountEmail === "string"
+                ? value.accountEmail
+                : undefined,
         });
       }
       const count = await deleteAppStateByPrefix("compose-");
@@ -220,9 +222,11 @@ export default defineAction({
               ? storedDraft.savedDraftBackend
               : undefined,
           accountEmail:
-            typeof storedDraft.accountEmail === "string"
-              ? storedDraft.accountEmail
-              : undefined,
+            typeof storedDraft.savedDraftAccountEmail === "string"
+              ? storedDraft.savedDraftAccountEmail
+              : typeof storedDraft.accountEmail === "string"
+                ? storedDraft.accountEmail
+                : undefined,
         });
       }
       const deleted = await deleteAppState(`compose-${safeId}`);

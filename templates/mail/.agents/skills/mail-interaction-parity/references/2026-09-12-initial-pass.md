@@ -47,19 +47,35 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 
 ## Validation
 
-- Mail initial pass: 87 test files, 690 tests passed. The PR review follow-up
-  raised that suite to 698 passing tests across 87 files, including regression
-  coverage for provider failure after compose unmount, exact-account Gmail draft
-  deletion, local fallback deletion, close-time save ordering, and recipient-only
-  close recovery.
-- Repository: all 73 guards and both i18n guards passed after the PR review
+- Mail initial pass: 87 test files, 690 tests passed. The first review follow-up
+  raised that to 698 passing tests across 87 files. The latest Mail run passes
+  712 tests across 89 files; the 36 focused draft regressions also pass alone.
+- Repository: all 73 guards and both i18n guards pass after the latest review
   follow-up.
 - `oxfmt --check`, `git diff --check`, and direct Mail TypeScript checking
-  (`tsc --noEmit -p tsconfig.json`) passed, including after the PR review
-  follow-up.
+  (`tsc --noEmit -p tsconfig.json`) pass after the latest review follow-up.
+- Repository-wide `pnpm run prep` was attempted but is not a clean gate in this
+  checkout: all 73 guards completed, while workspace typechecking reports
+  missing unrelated package/type dependencies. The Core suite reported 14,939
+  passing tests and two failures because `katex` is unavailable; further
+  workspace tests also hit missing Vitest package links and were stopped after
+  those environment failures. This does not replace the passing full Mail suite.
 - `agent-native typecheck` reported that this checkout lacks production
   `BETTER_AUTH_SECRET` and persistent database configuration; no production
   build or connected-mail runtime check was performed.
+
+## Draft lifecycle review follow-up — 2026-09-12
+
+A fresh review found five concrete mailbox/persistence gaps: reopening a saved
+draft did not preserve its selected sender account; delete and delete-all could
+use the default instead of saved mailbox metadata; local saved drafts could be
+re-routed to Gmail after connection state changed; autosave and close could race
+and create/overwrite the wrong draft; and discard could leave a late autosave
+behind. The implementation now carries backend/account metadata through open,
+save, and delete; serializes saves and compose-state deletion; and waits for an
+in-flight save before deleting its resulting mailbox copy. COMPOSE-014 through
+COMPOSE-017 were added to the matrix. These are automated contract/regression
+checks; they do not count as the still-missing rendered side-by-side cases.
 
 ## Remaining work
 
@@ -68,6 +84,8 @@ drag paths; command and keyboard coverage across each view; failure/rollback,
 offline and partial-account states; real autosave/reopen/delete; and a live
 round-trip through only the current user's explicitly approved addresses.
 That round trip is pending because Mail has no Google account connected here.
+COMPOSE-014 through COMPOSE-017 have automated regression coverage but still
+need the matrix's rendered side-by-side steps when both products are available.
 
 The audit also identified larger product gaps that this initial bug-fix tranche
 does not close: Superhuman-style inline word/phrase autocomplete, offline cached

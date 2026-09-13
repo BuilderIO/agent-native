@@ -36,6 +36,18 @@ describe("emails handler saved-draft metadata", () => {
     expect(source).toContain("accountEmail: acct");
     expect(source).toContain('backend: "local" as const');
   });
+
+  it("keeps an existing saved draft on its recorded backend", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain(
+      "parseSavedDraftBackend(reqBody.savedDraftBackend)",
+    );
+    expect(source).toContain(
+      "resolveSavedDraftBackend(\n    requestedBackend,\n    gmailConnected,\n  )",
+    );
+    expect(source).toContain('if (draftBackend === "gmail")');
+  });
 });
 
 describe("emails handler Gmail label listing", () => {

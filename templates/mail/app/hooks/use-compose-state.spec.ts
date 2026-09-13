@@ -3,9 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyDraftSaveResult,
+  enqueueDraftMutation,
+  enqueueDraftSave,
   filterRemovedDrafts,
   newestUnseenPopoutDraftId,
   saveDraftToEmailsBestEffort,
+  type DraftSaveResult,
+  type DraftSaveQueueResult,
 } from "./use-compose-state";
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -89,6 +93,37 @@ describe("saveDraftToEmailsBestEffort", () => {
     });
   });
 
+  it("sends the owning backend and mailbox when updating a saved draft", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            draftId: "gmail-draft-1",
+            backend: "gmail",
+            accountEmail: "secondary@example.com",
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await saveDraftToEmailsBestEffort({
+      ...draft("compose-1"),
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "secondary@example.com",
+      accountEmail: "default@example.com",
+      body: "Updated",
+    });
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      draftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      accountEmail: "secondary@example.com",
+    });
+  });
+
   it("does not accept a save response without backend/account metadata", async () => {
     vi.stubGlobal(
       "fetch",
@@ -157,5 +192,149 @@ describe("applyDraftSaveResult", () => {
       savedDraftBackend: "gmail",
       savedDraftAccountEmail: "secondary@example.com",
     });
+  });
+});
+
+describe("enqueueDraftSave", () => {
+  it("serializes close-time persistence behind autosave and carries the returned ID forward", async () => {
+    const pending = new Map<string, Promise<DraftSaveQueueResult>>();
+    let resolveFirst!: (result: DraftSaveResult) => void;
+    const firstResult = new Promise<DraftSaveResult>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const snapshots: ComposeState[] = [];
+    const save = vi.fn(async (value: ComposeState) => {
+      snapshots.push(value);
+      if (snapshots.length === 1) return firstResult;
+      return {
+        status: "saved",
+        draftId: "gmail-draft-1",
+        backend: "gmail",
+        accountEmail: "secondary@example.com",
+      } as const;
+    });
+    let current = { ...draft("compose-1"), body: "First version" };
+    const isRemoved = () => false;
+
+    const autosave = enqueueDraftSave(
+      pending,
+      current,
+      () => current,
+      isRemoved,
+      save,
+    );
+    current = { ...current, body: "Final version" };
+    const closeSave = enqueueDraftSave(
+      pending,
+      current,
+      () => undefined,
+      isRemoved,
+      save,
+      true,
+    );
+
+    expect(save).toHaveBeenCalledOnce();
+    resolveFirst({
+      status: "saved",
+      draftId: "gmail-draft-1",
+      backend: "gmail",
+      accountEmail: "secondary@example.com",
+    });
+    await autosave;
+    await closeSave;
+
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[1]).toMatchObject({
+      body: "Final version",
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "secondary@example.com",
+    });
+  });
+
+  it("does not start a queued autosave after discard and returns the last saved ID for deletion", async () => {
+    const pending = new Map<string, Promise<DraftSaveQueueResult>>();
+    let resolveFirst!: (result: DraftSaveResult) => void;
+    const firstResult = new Promise<DraftSaveResult>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const save = vi.fn(async () => firstResult);
+    let removed = false;
+    const value = { ...draft("compose-1"), body: "Draft body" };
+    const isRemoved = () => removed;
+    const first = enqueueDraftSave(
+      pending,
+      value,
+      () => value,
+      isRemoved,
+      save,
+    );
+    const queued = enqueueDraftSave(
+      pending,
+      value,
+      () => undefined,
+      isRemoved,
+      save,
+    );
+    removed = true;
+
+    resolveFirst({
+      status: "saved",
+      draftId: "gmail-draft-1",
+      backend: "gmail",
+      accountEmail: "secondary@example.com",
+    });
+    await first;
+    await expect(queued).resolves.toEqual({
+      status: "cancelled",
+      savedDraft: {
+        draftId: "gmail-draft-1",
+        backend: "gmail",
+        accountEmail: "secondary@example.com",
+      },
+    });
+    expect(save).toHaveBeenCalledOnce();
+  });
+});
+
+describe("enqueueDraftMutation", () => {
+  it("runs local compose deletion after any pending state write", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    const order: string[] = [];
+    let finishWrite!: () => void;
+    const write = new Promise<void>((resolve) => {
+      finishWrite = resolve;
+    });
+
+    const put = enqueueDraftMutation(pending, "compose-1", async () => {
+      order.push("put-start");
+      await write;
+      order.push("put-end");
+    });
+    const remove = enqueueDraftMutation(pending, "compose-1", async () => {
+      order.push("delete");
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(["put-start"]);
+    finishWrite();
+    await Promise.all([put, remove]);
+    expect(order).toEqual(["put-start", "put-end", "delete"]);
+  });
+
+  it("continues to delete after a failed preceding app-state write", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    const write = enqueueDraftMutation(pending, "compose-1", async () => {
+      throw new Error("write failed");
+    });
+    const remove = enqueueDraftMutation(
+      pending,
+      "compose-1",
+      async () => "deleted",
+    );
+
+    await expect(write).rejects.toThrow("write failed");
+    await expect(remove).resolves.toBe("deleted");
   });
 });

@@ -36,6 +36,10 @@ import {
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
 import {
+  parseSavedDraftBackend,
+  resolveSavedDraftBackend,
+} from "../lib/draft-backend.js";
+import {
   collectLinks,
   newClickToken,
   newPixelToken,
@@ -1317,6 +1321,13 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     accountEmail,
   } = reqBody;
 
+  let requestedBackend: ReturnType<typeof parseSavedDraftBackend>;
+  try {
+    requestedBackend = parseSavedDraftBackend(reqBody.savedDraftBackend);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft backend" };
+  }
   // Validate header values after stripCrlf — same protection as sendEmail.
   // Drafts go through the same buildRawEmail path so they need the same
   // header-injection guard.
@@ -1341,8 +1352,19 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "One or more attachments could not be read" };
   }
 
-  // If Gmail is connected, create/update a Gmail draft
-  if (await isConnected(email)) {
+  const gmailConnected =
+    requestedBackend === "local" ? false : await isConnected(email);
+  const draftBackend = resolveSavedDraftBackend(
+    requestedBackend,
+    gmailConnected,
+  );
+
+  // Keep existing drafts on their owning backend when connection state changes.
+  if (draftBackend === "gmail") {
+    if (!gmailConnected) {
+      setResponseStatus(event, 401);
+      return { error: "Gmail is not connected for this saved draft" };
+    }
     const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {

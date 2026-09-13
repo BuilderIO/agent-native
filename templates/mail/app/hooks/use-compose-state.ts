@@ -89,9 +89,10 @@ async function saveDraftToEmails(
       subject: draft.subject,
       body: draft.body,
       draftId: draft.savedDraftId,
+      savedDraftBackend: draft.savedDraftBackend,
       replyToId: draft.replyToId,
       replyToThreadId: draft.replyToThreadId,
-      accountEmail: draft.accountEmail,
+      accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
       attachments: draft.attachments,
     }),
   });
@@ -115,6 +116,70 @@ export type DraftSaveResult =
   | ({ status: "saved" } & SavedDraftMetadata)
   | { status: "unavailable" }
   | { status: "failed"; error: unknown };
+
+export type DraftSaveQueueResult =
+  | DraftSaveResult
+  | { status: "cancelled"; savedDraft?: SavedDraftMetadata };
+
+export function enqueueDraftSave(
+  pending: Map<string, Promise<DraftSaveQueueResult>>,
+  draft: ComposeState,
+  getLatestDraft: () => ComposeState | undefined,
+  isRemoved: () => boolean,
+  save: (draft: ComposeState) => Promise<DraftSaveResult>,
+  allowRemoved = false,
+): Promise<DraftSaveQueueResult> {
+  const previous = pending.get(draft.id);
+  const next = (async () => {
+    const previousResult = previous ? await previous : undefined;
+    const savedDraft =
+      previousResult?.status === "saved"
+        ? {
+            draftId: previousResult.draftId,
+            backend: previousResult.backend,
+            ...(previousResult.accountEmail
+              ? { accountEmail: previousResult.accountEmail }
+              : {}),
+          }
+        : previousResult?.status === "cancelled"
+          ? previousResult.savedDraft
+          : undefined;
+
+    if (!allowRemoved && isRemoved()) {
+      return {
+        status: "cancelled",
+        ...(savedDraft ? { savedDraft } : {}),
+      } as const;
+    }
+
+    const latest = getLatestDraft() ?? draft;
+    const nextDraft = savedDraft
+      ? applyDraftSaveResult(latest, { status: "saved", ...savedDraft })
+      : latest;
+    return save(nextDraft);
+  })();
+  pending.set(draft.id, next);
+  const clear = () => {
+    if (pending.get(draft.id) === next) pending.delete(draft.id);
+  };
+  void next.then(clear, clear);
+  return next;
+}
+
+export function enqueueDraftMutation<T>(
+  pending: Map<string, Promise<unknown>>,
+  id: string,
+  mutate: () => Promise<T>,
+): Promise<T> {
+  const previous = pending.get(id) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(mutate);
+  pending.set(id, next);
+  const clear = () => {
+    if (pending.get(id) === next) pending.delete(id);
+  };
+  void next.then(clear, clear);
+  return next;
+}
 
 export function applyDraftSaveResult(
   draft: ComposeState,
@@ -151,6 +216,10 @@ export function useComposeState() {
   const gmailSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
   );
+  const pendingDraftSavesRef = useRef(
+    new Map<string, Promise<DraftSaveQueueResult>>(),
+  );
+  const pendingDraftMutationsRef = useRef(new Map<string, Promise<unknown>>());
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
   const removedDraftIdsRef = useRef<Record<string, number>>({});
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
@@ -259,6 +328,7 @@ export function useComposeState() {
       apiFetch(`/_agent-native/application-state/compose/${id}`, {
         method: "DELETE",
       }),
+    onError: () => window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT)),
   });
 
   const deleteAllMutation = useMutation({
@@ -266,6 +336,7 @@ export function useComposeState() {
       apiFetch("/_agent-native/application-state/compose", {
         method: "DELETE",
       }),
+    onError: () => window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT)),
   });
 
   const deleteSavedDraftMutation = useActionMutation("manage-draft", {
@@ -322,7 +393,13 @@ export function useComposeState() {
       setActiveId(id);
 
       // Persist to server
-      putMutation.mutate(draft);
+      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+        putMutation.mutateAsync(draft),
+      ).catch(() =>
+        window.dispatchEvent(
+          new CustomEvent(DRAFT_SAVE_FAILED_EVENT, { detail: { draftId: id } }),
+        ),
+      );
 
       return id;
     },
@@ -337,19 +414,45 @@ export function useComposeState() {
       ).find((d) => d.id === id);
       if (!current || !hasDraftContent(current)) return;
 
-      void saveDraftToEmailsBestEffort(current).then((result) => {
+      void enqueueDraftSave(
+        pendingDraftSavesRef.current,
+        current,
+        () =>
+          (qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []).find(
+            (draft) => draft.id === id,
+          ),
+        () => removedDraftIdsRef.current[id] !== undefined,
+        saveDraftToEmailsBestEffort,
+      ).then((result) => {
+        if (result.status === "cancelled") return;
         reportDraftSaveResult(current, result);
+        if (result.status !== "saved" || removedDraftIdsRef.current[id]) return;
+
+        const latest = (
+          qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+        ).find((draft) => draft.id === id);
+        if (!latest) return;
+
         if (
-          result.status === "saved" &&
-          (result.draftId !== current.savedDraftId ||
-            result.backend !== current.savedDraftBackend ||
-            result.accountEmail !== current.savedDraftAccountEmail)
+          result.draftId !== latest.savedDraftId ||
+          result.backend !== latest.savedDraftBackend ||
+          result.accountEmail !== latest.savedDraftAccountEmail
         ) {
-          const updatedDraft = applyDraftSaveResult(current, result);
+          const updatedDraft = applyDraftSaveResult(latest, result);
           qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
-            (old ?? []).map((d) => (d.id === id ? updatedDraft : d)),
+            (old ?? []).map((draft) =>
+              draft.id === id ? updatedDraft : draft,
+            ),
           );
-          putMutation.mutate(updatedDraft);
+          void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+            putMutation.mutateAsync(updatedDraft),
+          ).catch(() =>
+            window.dispatchEvent(
+              new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
+                detail: { draftId: id },
+              }),
+            ),
+          );
         }
       });
     },
@@ -359,6 +462,7 @@ export function useComposeState() {
   /** Update a specific draft (debounced 300ms for app-state, 3s for Gmail). */
   const update = useCallback(
     (id: string, partial: Partial<ComposeState>) => {
+      if (removedDraftIdsRef.current[id] !== undefined) return;
       dirtyRef.current[id] = true;
       draftSaveFailuresRef.current.delete(id);
       const version = (versionRef.current[id] ?? 0) + 1;
@@ -376,13 +480,21 @@ export function useComposeState() {
           qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
         ).find((d) => d.id === id);
         if (current) {
-          putMutation.mutate(current, {
-            onSettled: () => {
+          void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+            putMutation.mutateAsync(current),
+          ).then(
+            () => {
               if (versionRef.current[id] === version) {
                 dirtyRef.current[id] = false;
               }
             },
-          });
+            () =>
+              window.dispatchEvent(
+                new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
+                  detail: { draftId: id },
+                }),
+              ),
+          );
         }
       }, 300);
 
@@ -418,7 +530,20 @@ export function useComposeState() {
       // Keep the save result available to close-toast actions that reopen or delete it.
       const savePromise =
         draft && hasDraftContent(draft)
-          ? saveDraftToEmailsBestEffort(draft).then((result) => {
+          ? enqueueDraftSave(
+              pendingDraftSavesRef.current,
+              draft,
+              () =>
+                (
+                  qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+                ).find((current) => current.id === id),
+              () => removedDraftIdsRef.current[id] !== undefined,
+              saveDraftToEmailsBestEffort,
+              true,
+            ).then((result) => {
+              if (result.status === "cancelled") {
+                throw new Error("Closed draft save was cancelled");
+              }
               reportDraftSaveResult(draft, result);
               if (result.status === "saved") {
                 void qc.invalidateQueries({ queryKey: ["emails"] });
@@ -436,7 +561,9 @@ export function useComposeState() {
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
 
       // Delete compose file
-      deleteMutation.mutate(id);
+      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+        deleteMutation.mutateAsync(id),
+      ).catch(() => undefined);
       return savePromise;
     },
     [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult],
@@ -458,18 +585,33 @@ export function useComposeState() {
       const currentDrafts =
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
       const draft = currentDrafts.find((d) => d.id === id);
+      const pendingSave = pendingDraftSavesRef.current.get(id);
       const idx = currentDrafts.findIndex((d) => d.id === id);
       const remaining = currentDrafts.filter((d) => d.id !== id);
 
-      // Delete the saved mailbox draft without losing its account scope.
-      if (draft?.savedDraftId) {
-        deleteSavedDraftMutation.mutate({
-          action: "delete-saved",
-          savedDraftId: draft.savedDraftId,
-          savedDraftBackend: draft.savedDraftBackend,
-          accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
-        });
-      }
+      const deleteSavedCopy = async () => {
+        if (!draft) return;
+        let savedDraft = draft;
+        if (pendingSave) {
+          const result = await pendingSave;
+          const metadata =
+            result.status === "saved"
+              ? result
+              : result.status === "cancelled"
+                ? result.savedDraft
+                : undefined;
+          if (metadata) {
+            savedDraft = applyDraftSaveResult(savedDraft, {
+              status: "saved",
+              ...metadata,
+            });
+          }
+        }
+        await deleteSavedDraft(savedDraft);
+      };
+      void deleteSavedCopy().catch(() =>
+        window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT)),
+      );
 
       if (id === resolvedActiveId) {
         const nextDraft = remaining[Math.min(idx, remaining.length - 1)];
@@ -477,9 +619,11 @@ export function useComposeState() {
       }
 
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
-      deleteMutation.mutate(id);
+      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+        deleteMutation.mutateAsync(id),
+      ).catch(() => undefined);
     },
-    [qc, deleteMutation, deleteSavedDraftMutation, resolvedActiveId],
+    [qc, deleteMutation, deleteSavedDraft, resolvedActiveId],
   );
 
   /** Close all drafts — auto-saves any with content. */
@@ -495,12 +639,28 @@ export function useComposeState() {
     // Save all drafts with content
     for (const draft of currentDrafts) {
       if (hasDraftContent(draft)) {
-        void saveDraftToEmailsBestEffort(draft).then((result) => {
-          reportDraftSaveResult(draft, result);
-          if (result.status === "saved") {
-            void qc.invalidateQueries({ queryKey: ["emails"] });
-          }
-        });
+        void enqueueDraftSave(
+          pendingDraftSavesRef.current,
+          draft,
+          () => undefined,
+          () => removedDraftIdsRef.current[draft.id] !== undefined,
+          saveDraftToEmailsBestEffort,
+          true,
+        ).then(
+          (result) => {
+            if (result.status === "cancelled") return;
+            reportDraftSaveResult(draft, result);
+            if (result.status === "saved") {
+              void qc.invalidateQueries({ queryKey: ["emails"] });
+            }
+          },
+          () =>
+            window.dispatchEvent(
+              new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
+                detail: { draftId: draft.id },
+              }),
+            ),
+        );
       }
     }
 
@@ -514,7 +674,10 @@ export function useComposeState() {
 
     setActiveId(null);
     qc.setQueryData<ComposeState[]>(["compose-drafts"], []);
-    deleteAllMutation.mutate();
+    const pendingWrites = [...pendingDraftMutationsRef.current.values()];
+    void Promise.all(pendingWrites.map((write) => write.catch(() => undefined)))
+      .then(() => deleteAllMutation.mutateAsync())
+      .catch(() => undefined);
   }, [qc, deleteAllMutation, reportDraftSaveResult]);
 
   /** Flush a specific draft immediately (for Generate button). */
@@ -530,7 +693,9 @@ export function useComposeState() {
         versionRef.current[id] = versionRef.current[id] ?? 0;
         // Also trigger Gmail save immediately
         if (hasDraftContent(current)) autoSaveToGmail(id);
-        return putMutation.mutateAsync(current);
+        return enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+          putMutation.mutateAsync(current),
+        );
       }
     },
     [qc, putMutation, autoSaveToGmail],
