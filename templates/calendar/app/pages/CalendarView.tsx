@@ -89,6 +89,7 @@ import {
   buildWorkingLocationDraft,
   resolveDraftWorkingLocation,
 } from "@/lib/calendar-drafts";
+import { navigateCalendarDate } from "@/lib/calendar-navigation";
 import {
   addCalendarDays,
   dateKeyToDate,
@@ -1078,11 +1079,9 @@ export default function CalendarView() {
       direction,
       view_type: viewMode,
     });
-    const fns =
-      direction === "next"
-        ? { month: addMonths, week: addWeeks, day: addDays }
-        : { month: subMonths, week: subWeeks, day: subDays };
-    setSelectedDate(fns[viewMode](selectedDate, 1));
+    setSelectedDate(
+      navigateCalendarDate(viewMode, selectedDate, direction, weekStartsOn),
+    );
   }
 
   function handleToday() {
