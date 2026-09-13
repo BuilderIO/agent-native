@@ -73,6 +73,59 @@ export function readYjsUndoSelection(
     | undefined;
 }
 
+/**
+ * Figma parity: redo must land on the RESULT of the original gesture (the
+ * new group, the pasted copy, the duplicate), not the selection that gesture
+ * started from — `stampYjsUndoSelection`'s "before" snapshot is for undo
+ * only. Stamped on the exact same stack item as "before" (same
+ * `previousTop` capture), under a separate meta key, so one item carries
+ * both directions.
+ */
+export const YJS_REDO_SELECTION_META_KEY = "design-editor-selection-after";
+
+export function stampYjsUndoSelectionAfter(
+  undoManager: Y.UndoManager | null | undefined,
+  previousTop: YjsUndoStackTop,
+  snapshot: YjsUndoSelectionSnapshot,
+): void {
+  const stack = undoManager?.undoStack;
+  const top = stack?.[stack.length - 1];
+  if (!top || top === previousTop) return;
+  top.meta.set(YJS_REDO_SELECTION_META_KEY, snapshot);
+}
+
+/** Read back a snapshot stamped by `stampYjsUndoSelectionAfter`. See
+ * `readYjsUndoSelection`'s doc comment for the structural-type rationale. */
+export function readYjsRedoSelection(
+  stackItem: { meta: Map<unknown, unknown> } | null | undefined,
+): YjsUndoSelectionSnapshot | undefined {
+  return stackItem?.meta.get(YJS_REDO_SELECTION_META_KEY) as
+    | YjsUndoSelectionSnapshot
+    | undefined;
+}
+
+/**
+ * Yjs's own undo/redo NEVER reuses a `StackItem` across a round trip: undoing
+ * an item pops it off `undoStack` and (per `editor-chrome.bridge.ts`'s
+ * upstream, `yjs`'s `UndoManager`) pushes a freshly-constructed item onto
+ * `redoStack` for the transaction's inverse — the popped item's `meta` is
+ * discarded, not carried over. Without forwarding it by hand here, a
+ * selection stamped once would work for exactly one undo and vanish on the
+ * matching redo (and on every undo/redo after that). Call this from a
+ * `stack-item-popped` listener: `stackItem` is the item just popped,
+ * `newTopItem` is the fresh item the same transaction just pushed onto the
+ * OPPOSITE stack (`redoStack` when undoing, `undoStack` when redoing).
+ */
+export function forwardYjsUndoStackItemMeta(
+  stackItem: { meta: Map<unknown, unknown> } | null | undefined,
+  newTopItem: { meta: Map<unknown, unknown> } | null | undefined,
+): void {
+  if (!stackItem || !newTopItem || stackItem === newTopItem) return;
+  for (const [key, value] of stackItem.meta) {
+    newTopItem.meta.set(key, value);
+  }
+}
+
 export interface GeometryHistorySelection {
   overviewSelectedScreenIds: string[];
   selectedLayerIds: string[];
@@ -261,6 +314,59 @@ export interface ContentHistoryGroup {
 }
 
 export type ContentHistoryEntry = ContentHistoryChange | ContentHistoryGroup;
+
+/** Figma-parity redo selection restore for the OVERVIEW content-history
+ * stack (`contentUndoStackRef`/`contentUndoSelectionStackRef`) — the same
+ * need `stampYjsUndoSelectionAfter` fills for the single-screen Yjs stack,
+ * for a group/frame/duplicate/paste gesture that instead lands on this plain
+ * array while `viewMode === "overview"`. `contentUndoSelectionStackRef` is
+ * index-aligned with `contentUndoStackRef` and shared with file-deletion
+ * pruning (`delete-files.ts`, outside this module's ownership boundary),
+ * which rebuilds both by index and — for a multi-file GROUPED entry —
+ * allocates a brand-new `{changes}` object even when nothing was actually
+ * removed from it. A second index-aligned array here would silently drift
+ * out of sync the first time that pruning runs after this stack has any
+ * entries in it. Keying by the `ContentHistoryEntry` object itself in a
+ * `WeakMap` sidesteps that entirely: pruning that keeps the exact same
+ * object keeps its stamp, pruning that reallocates one loses it (falling
+ * back to `before`, this feature's pre-existing behavior) instead of
+ * silently attaching to the wrong entry, and a fully-removed entry is
+ * reclaimed for free. */
+export type ContentHistorySelectionAfterMap = WeakMap<
+  ContentHistoryEntry,
+  GeometryHistorySelection
+>;
+
+/** Snapshot of "whichever entry was on top of `contentUndoStackRef` before a
+ * gesture's write" — capture immediately before the write, pass the result
+ * to `stampContentHistorySelectionAfter` after it. Mirrors
+ * `captureYjsUndoStackTop`'s identity-check idiom: coalescing or a no-op
+ * write leaves the SAME entry on top rather than pushing a new one. */
+export type ContentUndoStackTop = ContentHistoryEntry | undefined;
+
+export function captureContentUndoStackTop(
+  stack: readonly ContentHistoryEntry[],
+): ContentUndoStackTop {
+  return stack[stack.length - 1];
+}
+
+/** Call right after a gesture's own write through `applyLocalContentUpdate`/
+ * `applyFileContentUpdate` while `viewMode === "overview"`, passing the
+ * `captureContentUndoStackTop` result from immediately BEFORE that write.
+ * Stamps only when a NEW entry was actually pushed (a different reference
+ * from `previousTop`) — never touching an older entry's stamp when the
+ * write coalesced or wrote nothing, and a no-op when nothing landed on this
+ * stack (e.g. the write went to the Yjs stack instead). */
+export function stampContentHistorySelectionAfter(
+  stack: readonly ContentHistoryEntry[],
+  afterMap: ContentHistorySelectionAfterMap,
+  previousTop: ContentUndoStackTop,
+  after: GeometryHistorySelection,
+): void {
+  const top = stack[stack.length - 1];
+  if (!top || top === previousTop) return;
+  afterMap.set(top, after);
+}
 
 export interface PendingTextCreationHistory {
   fileId: string;

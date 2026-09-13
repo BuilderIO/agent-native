@@ -81,9 +81,12 @@ async function getDesignFiles(
   );
   if (!res.ok()) throw new Error(`get-design failed: ${res.status()}`);
   const payload = await res.json();
-  const design = [payload, payload?.result, payload?.design, payload?.data].find(
-    (candidate) => Array.isArray(candidate?.files),
-  );
+  const design = [
+    payload,
+    payload?.result,
+    payload?.design,
+    payload?.data,
+  ].find((candidate) => Array.isArray(candidate?.files));
   return design?.files ?? [];
 }
 
@@ -237,7 +240,8 @@ async function renameLayerViaPanel(
   await row.click({ force: true });
   await page.waitForTimeout(300);
   const rowBox = await row.boundingBox();
-  if (!rowBox) throw new Error(`layer row "${currentName}" has no bounding box`);
+  if (!rowBox)
+    throw new Error(`layer row "${currentName}" has no bounding box`);
   const rx = rowBox.x + 24;
   const ry = rowBox.y + rowBox.height / 2;
   await page.mouse.click(rx, ry);
@@ -254,7 +258,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Icon Frame");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "E2E Tutorial 5 Icon Frame",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -286,7 +293,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       "e2e-audit-focus-button",
     ];
     const newIds = allIds.filter((id) => !knownSeedIds.includes(id));
-    expect(newIds.length, "expected the Frame tool to add a new node").toBeGreaterThan(0);
+    expect(
+      newIds.length,
+      "expected the Frame tool to add a new node",
+    ).toBeGreaterThan(0);
     const frameId = newIds[newIds.length - 1]!;
     const style = styleOf(html, frameId);
 
@@ -310,7 +320,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Rect In Frame");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "E2E Tutorial 5 Rect In Frame",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -363,7 +376,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     const rectId = allIds
       .filter((id) => !knownSeedIds.has(id) && id !== frameId)
       .pop();
-    expect(rectId, "expected the Rectangle tool to add a new node").toBeTruthy();
+    expect(
+      rectId,
+      "expected the Rectangle tool to add a new node",
+    ).toBeTruthy();
     const parentId = parentIdOf(html, rectId!);
     expect(
       parentId,
@@ -407,7 +423,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Vector Edit");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "E2E Tutorial 5 Vector Edit",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -516,7 +535,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Slash Rename");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "E2E Tutorial 5 Slash Rename",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -551,7 +573,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Alt Drag Icon");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "E2E Tutorial 5 Alt Drag Icon",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -635,9 +660,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
 
     html = await fileContent(page, "index.html");
     // The original icon frame must still exist untouched (alt-drag copies).
-    expect(hasNode(html, iconFrameId), "alt-drag must leave the original in place").toBe(
-      true,
-    );
+    expect(
+      hasNode(html, iconFrameId),
+      "alt-drag must leave the original in place",
+    ).toBe(true);
     const allIds = [
       ...new Set(
         [...html.matchAll(/data-agent-native-node-id="([^"]+)"/g)].map(
@@ -652,7 +678,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       type: "alt-drag-copy-id",
       description: String(copyId),
     });
-    expect(copyId, "expected an alt-drag copy named identically ('icon')").toBeTruthy();
+    expect(
+      copyId,
+      "expected an alt-drag copy named identically ('icon')",
+    ).toBeTruthy();
     expect(
       parentIdOf(html, copyId!),
       "expected the copy to be reparented into the button frame it was dropped on",
@@ -678,9 +707,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       type: "gap-applied",
       description: String(gapApplied),
     });
-    expect(gapApplied, "auto-layout gap 12 was not applied to the button frame").toBe(
-      true,
-    );
+    expect(
+      gapApplied,
+      "auto-layout gap 12 was not applied to the button frame",
+    ).toBe(true);
 
     // One undo should remove exactly the copy (alt-drag = one undo step).
     const primary = process.platform === "darwin" ? "Meta" : "Control";
@@ -729,11 +759,16 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
 
     await selectByText(page, "Variant CTA");
     await page.waitForTimeout(300);
-    await page
+    const target = page
       .locator(`[data-agent-native-node-id="e2e-component-button"]`)
-      .first()
-      .click({ force: true, button: "right" })
-      .catch(() => {});
+      .first();
+    await expect(
+      target,
+      "e2e-component-button must be rendered to right-click it",
+    ).toBeVisible({
+      timeout: 10_000,
+    });
+    await target.click({ force: true, button: "right" });
     const menuItem = page.getByRole("menuitem", { name: /variant/i });
     expect(await menuItem.count()).toBe(0);
   });
@@ -785,7 +820,10 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Board Frame");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "E2E Tutorial 5 Board Frame",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -802,10 +840,10 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.waitForTimeout(400);
 
     const boardObject = page.locator("[data-board-object-id]").first();
-    if ((await boardObject.count()) === 0) {
-      test.skip(true, "harness could not locate the created board frame");
-      return;
-    }
+    await expect(
+      boardObject,
+      "board-object-camera-and-click: harness could not locate the created board frame",
+    ).toHaveCount(1, { timeout: 10_000 });
     await expect(boardObject).toBeVisible();
   });
 
@@ -813,7 +851,10 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 5 Board Alt Drag");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "E2E Tutorial 5 Board Alt Drag",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -827,14 +868,23 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.waitForTimeout(400);
 
     const shape = page.locator("[data-board-object-id]").first();
-    const before = await shape.boundingBox();
+    let before = await shape.boundingBox();
     if (!before) {
-      test.skip(true, "harness could not locate the created board shape");
-      return;
+      await expect
+        .poll(() => shape.boundingBox(), {
+          timeout: 10_000,
+          message:
+            "board-object-camera-and-click: harness could not locate the created board shape",
+        })
+        .not.toBeNull();
+      before = (await shape.boundingBox())!;
     }
     const countBefore = await page.locator("[data-board-object-id]").count();
 
-    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.move(
+      before.x + before.width / 2,
+      before.y + before.height / 2,
+    );
     await page.mouse.down();
     await page.keyboard.down("Alt");
     await page.mouse.move(before.x + 100, before.y + 40, { steps: 10 });
@@ -866,10 +916,20 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await placeText(page, card, "Save");
     const textIds = await textPrimitiveNodeIds(page, "index.html", "Save");
     const textId = textIds[0]!;
+    // tutorial5-10 (test-authoring bug, fixed): this pressed "Shift+A", which
+    // is not bound to anything — Frame selection's real shortcut is Figma's
+    // Cmd+Alt+G (useDesignHotkeys.ts's onFrameSelection, gated on
+    // event.altKey), matching every other Frame-selection e2e in this suite
+    // (parity-group-frame.spec.ts, parity-tutorial-8.spec.ts). The wrong
+    // shortcut silently no-opped, so `buttonFrameId` below resolved to the
+    // text's actual DOM parent (the screen's own <body>) instead of a real
+    // wrapper frame, and "dragging the button frame out of the screen" was
+    // actually dragging the screen's own root — which can never leave it.
     // The just-placed text stays selected after placeText commits, so
-    // Shift+A applies directly without a redundant reselect (re-clicking
+    // Cmd+Alt+G applies directly without a redundant reselect (re-clicking
     // an already-selected node does not always refire element-select).
-    await page.keyboard.press("Shift+A");
+    const primary = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${primary}+Alt+g`);
     await page.waitForTimeout(400);
     let html = await fileContent(page, "index.html");
     const buttonFrameId = parentIdOf(html, textId)!;
@@ -914,7 +974,8 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
       .locator(`[data-agent-native-node-id="${buttonFrameId}"]`)
       .first();
     const boardBox = await boardNode.boundingBox();
-    if (!boardBox) throw new Error("could not find board node after reparent-out");
+    if (!boardBox)
+      throw new Error("could not find board node after reparent-out");
     const backX = card.x + card.width * 0.5;
     const backY = card.y + card.height * 0.5;
     await page.mouse.move(

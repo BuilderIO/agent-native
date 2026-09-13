@@ -104,7 +104,25 @@ async function openOverview(page: Page, designId: string) {
       timeout: 40_000,
     })
     .toBeGreaterThan(0);
-  await page.waitForTimeout(2500);
+  // The initial zoom-to-fit is a CSS transition with no completion event —
+  // poll the world transform until two consecutive reads agree.
+  let last: { x: number; y: number; scale: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const t = await worldTransform(page);
+        const stable =
+          t !== null &&
+          last !== null &&
+          Math.abs(t.x - last.x) < 0.5 &&
+          Math.abs(t.y - last.y) < 0.5 &&
+          Math.abs(t.scale - last.scale) < 0.005;
+        last = t;
+        return stable;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 }
 
 /** Centre of the live screen preview content — where gestures were reported
@@ -119,11 +137,13 @@ async function screenContentPoint(page: Page) {
 }
 
 /** A point definitely off every screen card but still over the canvas
- *  surface — to the right of the card, never under the left sidebar. */
+ *  surface — below the card, never under the left layers panel or the right
+ *  inspector rail (which, at 1600px viewport width, leaves less gap to the
+ *  card's right than a fixed +150px offset assumed). */
 async function emptyCanvasPoint(page: Page) {
   const box = await page.locator("[data-screen-card]").first().boundingBox();
   if (!box) throw new Error("no screen card rendered");
-  return { x: box.x + box.width + 150, y: box.y + 80 };
+  return { x: box.x + box.width / 2, y: box.y + box.height + 100 };
 }
 
 function selectedLayerRowCount(page: Page) {
@@ -260,7 +280,6 @@ test("middle-mouse drag pans smoothly with 1:1 deltas over empty canvas", async 
     const start = await emptyCanvasPoint(page);
     const before = await worldTransform(page);
     expect(before).not.toBeNull();
-
     await page.mouse.move(start.x, start.y);
     await page.mouse.down({ button: "middle" });
     const dx = 137;

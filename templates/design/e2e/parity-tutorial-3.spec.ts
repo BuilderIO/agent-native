@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { expandAllLayers } from "./helpers";
+import { expandAllLayers, gotoEditor } from "./helpers";
 
 /**
  * Parity spec for Figma Learn Tutorial 3: FD4B "Create the navigation bar
@@ -164,17 +164,12 @@ async function dump(page: Page) {
   return page.evaluate(() => (window as any).__designTrace?.dump?.() ?? null);
 }
 
-async function openEditor(page: Page, id: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${id}`, { waitUntil: "domcontentloaded" });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
+async function openEditorAndExpandLayers(
+  page: Page,
+  id: string,
+): Promise<void> {
+  await gotoEditor(page, id);
   await expandAllLayers(page);
-  await page.waitForTimeout(800);
 }
 
 /** Frame/Screen options dropdown -- the trigger's label follows the active mode. */
@@ -235,7 +230,6 @@ async function drawFrameTool(
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
-  await page.waitForTimeout(2500);
 }
 
 /** A specific screen's own iframe, found by its file id (stamped onto
@@ -355,7 +349,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     page,
   }) => {
     designId = await newDesign(page);
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
     const before = await designFiles(page, designId);
 
     const empty = await emptyBoardPoint(page);
@@ -369,12 +363,21 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       y: empty.y + 20,
     });
 
-    const after = await designFiles(page, designId);
-    expect(
-      after.length,
-      "Figma: the Frame tool with a top-level artboard creates a new frame; " +
-        "in Design, drawing a Screen on the empty board must create a new screen file.",
-    ).toBe(before.length + 1);
+    let after: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          after = await designFiles(page, designId);
+          return after.length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "Figma: the Frame tool with a top-level artboard creates a new frame; " +
+            "in Design, drawing a Screen on the empty board must create a new screen file.",
+        },
+      )
+      .toBe(before.length + 1);
     navFilename = after.find((f) => !before.includes(f))!;
     expect(
       navFilename,
@@ -398,7 +401,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   test("step 1b [overview, outside any screen]: renaming the new screen's root layer updates its filename and overview title", async ({
     page,
   }) => {
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
     const designFilesBefore = await designFiles(page, designId);
 
     // Select the new screen's root row -- identified by its CURRENT default
@@ -414,11 +417,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     ).toHaveCount(1);
     await rootRow.dblclick({ force: true });
     const input = rootRow.locator("input");
-    const hasInlineRename = await input.isVisible().catch(() => false);
-    test.skip(
-      !hasInlineRename,
-      "harness-blocked: no inline rename input appeared on the screen root row",
-    );
+    await expect(
+      input,
+      "no inline rename input appeared on the screen root row",
+    ).toBeVisible({ timeout: 5_000 });
     await input.fill("Navigation");
     await input.press("Enter");
     await page.waitForTimeout(800);
@@ -447,7 +449,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   test("step 2 [in-screen]: wordmark text dragged to the left edge snaps near x=0", async ({
     page,
   }) => {
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
     const navFileId = await fileIdByName(page, designId, navFilename);
     await addTextInScreen(page, navFileId, { x: 700, y: 40 }, "Acme");
 
@@ -460,10 +462,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       html = await fileContentByName(page, designId, navFilename);
       ids = textPrimitiveNodeIds(html, "Acme");
     }
-    test.skip(
-      ids.length === 0,
-      "harness-blocked: the Text tool did not commit a node in this run",
-    );
+    expect(
+      ids.length,
+      "draft-commit-stability: the Text tool did not commit a node in this run",
+    ).toBeGreaterThan(0);
     const wordmarkId = ids[0]!;
 
     // Escape after typing leaves "Text" as the active tool -- switch to
@@ -513,7 +515,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   test("step 3-4 [in-screen]: alt-drag duplicates twice then Cmd+D once yields 4 same-named Link texts, each inserted directly above the source", async ({
     page,
   }) => {
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
     const navFileId = await fileIdByName(page, designId, navFilename);
     await addTextInScreen(page, navFileId, { x: 1100, y: 40 }, "Link");
 
@@ -610,7 +612,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   test("step 5 [in-screen, NON-FIGMA equivalence]: Design has no auto-layout primitive; Cmd+G group is the closest equivalent for gathering the Link texts", async ({
     page,
   }) => {
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
     const navFileId = await fileIdByName(page, designId, navFilename);
     const html = await fileContentByName(page, designId, navFilename);
     const linkIds = textPrimitiveNodeIds(html, "Link");
@@ -669,7 +671,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   test("step 10 [overview, outside any screen + crosses the screen boundary]: Cmd+D on the Navigation screen creates a Footer screen, then a Link text is moved across screens", async ({
     page,
   }) => {
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
     const before = await designFiles(page, designId);
 
     // Select the Navigation screen at the overview level (click its frame
@@ -681,14 +683,22 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     await navCard.click({ force: true });
     await page.waitForTimeout(300);
     await page.keyboard.press(`${MOD}+d`);
-    await page.waitForTimeout(1200);
 
-    const afterDup = await designFiles(page, designId);
-    expect(
-      afterDup.length,
-      "Figma: Cmd+D on a top-level frame duplicates the whole frame as a " +
-        "new sibling frame -- Design must create one new screen file",
-    ).toBe(before.length + 1);
+    let afterDup: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          afterDup = await designFiles(page, designId);
+          return afterDup.length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "Figma: Cmd+D on a top-level frame duplicates the whole frame as a " +
+            "new sibling frame -- Design must create one new screen file",
+        },
+      )
+      .toBe(before.length + 1);
     const footerFilename = afterDup.find((f) => !before.includes(f))!;
     expect(
       footerFilename,
@@ -800,21 +810,29 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     );
     await page.waitForTimeout(150);
     await page.mouse.up();
-    await page.waitForTimeout(1000);
 
     const otherFilename = "index.html";
-    const targetHtml = await fileContentByName(page, designId, otherFilename);
-    const sourceHtmlAfter = await fileContentByName(
-      page,
-      designId,
-      footerFilename,
-    );
-    expect(
-      targetHtml.includes(`data-agent-native-node-id="${movingId}"`),
-      `Figma: dragging an element across a frame boundary reparents it into ` +
-        `the frame it's dropped on. The moved Link node must now appear in ` +
-        `${otherFilename}. ${JSON.stringify(await dump(page)).slice(0, 400)}`,
-    ).toBe(true);
+    let targetHtml = "";
+    let sourceHtmlAfter = "";
+    await expect
+      .poll(
+        async () => {
+          targetHtml = await fileContentByName(page, designId, otherFilename);
+          sourceHtmlAfter = await fileContentByName(
+            page,
+            designId,
+            footerFilename,
+          );
+          return targetHtml.includes(`data-agent-native-node-id="${movingId}"`);
+        },
+        {
+          timeout: 10_000,
+          message:
+            `Figma: dragging an element across a frame boundary reparents it into ` +
+            `the frame it's dropped on. The moved Link node must now appear in ${otherFilename}.`,
+        },
+      )
+      .toBe(true);
     expect(
       sourceHtmlAfter.includes(`data-agent-native-node-id="${movingId}"`),
       `the moved node must be REMOVED from its original screen ${footerFilename}, ` +

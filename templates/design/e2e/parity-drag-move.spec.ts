@@ -111,8 +111,26 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
     timeout: 30_000,
   });
-  await expect(page.locator("[data-screen-card]").first()).toBeVisible();
-  await page.waitForTimeout(1500);
+  const firstCard = page.locator("[data-screen-card]").first();
+  await expect(firstCard).toBeVisible();
+  // Overview layout settles asynchronously after mount with no discrete
+  // event — poll the first card's box until two consecutive reads agree.
+  let lastBox: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const box = await firstCard.boundingBox();
+        const stable =
+          box !== null &&
+          lastBox !== null &&
+          Math.abs(box.x - lastBox.x) < 1 &&
+          Math.abs(box.y - lastBox.y) < 1;
+        lastBox = box;
+        return stable;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 }
 
 async function canvasScale(page: Page): Promise<number> {
@@ -358,6 +376,91 @@ test("in-screen: Escape after a completed drag does NOT revert it (host focus an
   ).not.toEqual([beforeB.left, beforeB.top]);
 });
 
+test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B once B has started", async ({
+  page,
+}) => {
+  // Round-2 fix: cancelActiveBridgeDragOrPendingCommit used to cancel
+  // whatever gesture was active BEFORE checking whether the Escape it was
+  // handling even predated that gesture. So a real Escape pressed during
+  // gesture A, whose cancel message is still in flight when gesture A
+  // releases (and B starts), could reach the iframe late and cancel B
+  // instead of finding nothing left of A to cancel.
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  await selectViaTree(page, "Box A");
+  const beforeA = await geom(page, id, "box-a");
+  const boxA = (await node(page, "box-a").boundingBox())!;
+  await page.mouse.move(boxA.x + boxA.width / 2, boxA.y + boxA.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    boxA.x + boxA.width / 2 + 200,
+    boxA.y + boxA.height / 2 + 100,
+    { steps: 16 },
+  );
+  await page.waitForTimeout(350);
+  // Stamp A's stale Escape now, mid-drag, exactly as the host's real keydown
+  // handler would — then let A release and commit before the cancel message
+  // (sent below, once B is under way) ever reaches the iframe.
+  const stalePressedAt = await page.evaluate(() => Date.now());
+  await page.mouse.up();
+  await expect
+    .poll(() => geom(page, id, "box-a"), {
+      timeout: 15_000,
+      message: "gesture A must have moved and committed",
+    })
+    .not.toEqual(beforeA);
+  const afterA = await geom(page, id, "box-a");
+
+  // Gesture B starts on a different element, strictly after A's stale
+  // pressedAt, and is still actively dragging (no mouseup yet) when A's
+  // delayed cancel arrives.
+  await selectViaTree(page, "Box B");
+  const beforeB = await geom(page, id, "box-b");
+  const boxB = (await node(page, "box-b").boundingBox())!;
+  await page.mouse.move(boxB.x + boxB.width / 2, boxB.y + boxB.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    boxB.x + boxB.width / 2 + 200,
+    boxB.y + boxB.height / 2 + 100,
+    { steps: 16 },
+  );
+  await page.waitForTimeout(350);
+
+  // A's cancel finally arrives — the exact message the host's Escape handler
+  // sends, posted directly the way cancelActiveEditorDrag does, so this
+  // exercises the real bridge in the real iframe without needing the host's
+  // Escape keydown to itself be delayed.
+  await page.evaluate((pressedAt) => {
+    document
+      .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+      .forEach((iframe) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt },
+          "*",
+        );
+      });
+  }, stalePressedAt);
+  await page.waitForTimeout(100);
+
+  // B must still be live: releasing it now commits B's dragged-to position,
+  // not a reversion to B's own start (which A's stale cancel would produce
+  // by wrongly cancelling B) and not a change to A.
+  await page.mouse.up();
+  await expect
+    .poll(() => geom(page, id, "box-b"), {
+      timeout: 15_000,
+      message:
+        "B must have moved and committed; A's stale cancel must not have cancelled B",
+    })
+    .not.toEqual(beforeB);
+  const afterAFinal = await geom(page, id, "box-a");
+  expect(
+    afterAFinal,
+    "A must remain exactly where its own drag committed it",
+  ).toEqual(afterA);
+});
+
 test("overview: Escape mid-drag cancels a screen-frame drag and restores its original position", async ({
   page,
   request,
@@ -407,7 +510,15 @@ test("in-screen: smart guides disappear once the drop commits", async ({
     /snap-guide|measurement/.test(k),
   ).length;
   await page.mouse.up();
-  await page.waitForTimeout(1200);
+  await expect
+    .poll(
+      async () =>
+        (await activeOverlays(page)).filter((k) =>
+          /snap-guide|measurement/.test(k),
+        ).length,
+      { timeout: 10_000 },
+    )
+    .toBe(0);
   const afterDrop = (await activeOverlays(page)).filter((k) =>
     /snap-guide|measurement/.test(k),
   ).length;

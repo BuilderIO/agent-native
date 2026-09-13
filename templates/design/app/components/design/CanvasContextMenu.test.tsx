@@ -441,9 +441,10 @@ describe("CanvasContextMenu focus/hover token", () => {
     // --design-editor-selection-color is a translucent tint meant for canvas
     // selection overlays over arbitrary content. Composited over the menu's
     // opaque white/dark panel it is nearly invisible in light mode, making
-    // the `focus:text-white` item label unreadable. Hover/focus rows need
-    // the solid --design-editor-accent-hover-color instead (plain
-    // accent-color's ~2.93:1 contrast against white text misses WCAG's 3:1
+    // the `focus:text-[var(--design-editor-accent-contrast-color)]` item
+    // label unreadable. Hover/focus rows need the solid
+    // --design-editor-accent-hover-color instead (plain accent-color's
+    // ~2.93:1 contrast against the contrast-color text misses WCAG's 3:1
     // floor for large/UI text).
     expect(itemClass).not.toContain(
       "focus:bg-[var(--design-editor-selection-color)]",

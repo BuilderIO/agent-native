@@ -347,8 +347,8 @@ async function installRecorder(page: Page): Promise<void> {
                   ? doc.defaultView.getComputedStyle(body).backgroundColor
                   : null,
                 htmlClass: docEl.className,
-                colorScheme: doc.defaultView.getComputedStyle(docEl)
-                  .colorScheme,
+                colorScheme:
+                  doc.defaultView.getComputedStyle(docEl).colorScheme,
                 bridgeInstalled: !!doc.querySelector(
                   '[data-agent-native-edit-overlay="shield"]',
                 ),
@@ -540,7 +540,11 @@ async function runInstrumentedGesture(
     nextFrameId,
   );
   await gesture();
-  await page.waitForTimeout(1500);
+  // Fixed sampling window for frame-capture instrumentation, not a wait for
+  // settled state — a transient flash can occur after the gesture's own
+  // state settles, so polling a proxy condition would defeat the point of
+  // this spec.
+  await page.waitForTimeout(1500); // e2e-harness-ignore fixed frame-capture sampling window, see comment above
   stop.done = true;
   const { pixels, frameSamples } = await externalPromise;
   const canvasFrames = await stopRecorder(page);
@@ -614,7 +618,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         );
         await page.waitForTimeout(300);
         await page.mouse.up();
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(2000); // e2e-harness-ignore fixed frame-capture sampling window (see runInstrumentedGesture doc comment)
         {
           const frames = await stopRecorder(page);
           allResults["drag-into-container"] = {
@@ -629,7 +633,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
       {
         await startRecorder(page, "undo-1");
         await page.keyboard.press("ControlOrMeta+z");
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(2000); // e2e-harness-ignore fixed frame-capture sampling window (see runInstrumentedGesture doc comment)
         {
           const frames = await stopRecorder(page);
           allResults["undo-1"] = {
@@ -644,7 +648,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
       {
         await startRecorder(page, "undo-2");
         await page.keyboard.press("ControlOrMeta+z");
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(2000); // e2e-harness-ignore fixed frame-capture sampling window (see runInstrumentedGesture doc comment)
         {
           const frames = await stopRecorder(page);
           allResults["undo-2"] = {
@@ -680,7 +684,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         await page.waitForTimeout(300);
         await page.mouse.up();
         await page.keyboard.up("Alt");
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(2000); // e2e-harness-ignore fixed frame-capture sampling window (see runInstrumentedGesture doc comment)
         {
           const frames = await stopRecorder(page);
           allResults["alt-drag-out"] = {
@@ -705,7 +709,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         await page.mouse.down();
         await page.mouse.move(drawAt.x + 100, drawAt.y + 80, { steps: 12 });
         await page.mouse.up();
-        await page.waitForTimeout(1500);
+        await page.waitForTimeout(1500); // e2e-harness-ignore fixed frame-capture sampling window (see runInstrumentedGesture doc comment)
         {
           const frames = await stopRecorder(page);
           allResults["draw-first-shape"] = {
@@ -1345,7 +1349,7 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
       );
       // Is it STUCK white (Steve's "have to refresh to undo that") or does it
       // recover on its own after more time?
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(3000); // e2e-harness-ignore fixed frame-capture sampling window (see runInstrumentedGesture doc comment)
       console.log(
         `[script-flash] DIAG 3s later (still stuck?): ${JSON.stringify(await screenDocState(page, screenOneId))}`,
       );

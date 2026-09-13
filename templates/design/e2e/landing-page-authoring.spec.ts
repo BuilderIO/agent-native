@@ -399,10 +399,12 @@ test("8:09 — enabling auto layout keeps the container's children", async ({
   await page.waitForTimeout(2500);
 
   const after = await indexHtml(page, designId);
-  test.skip(
-    after === before,
-    "Shift+A did not apply auto layout, so there is nothing to drop — see the 2:35 test",
-  );
+  // peer PR (hotkeys) owns Shift+A applying auto layout (see the 2:35 test);
+  // observed: html unchanged when this fails.
+  expect(
+    after,
+    "Shift+A must apply auto layout before there is anything to drop",
+  ).not.toBe(before);
   expect(
     primitiveStyles(after, "text").length,
     `Auto layout dropped text children: ${textsBefore} before, ` +

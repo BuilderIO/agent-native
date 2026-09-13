@@ -5,9 +5,53 @@ import {
   COMPACT_CROSS_SCREEN_GHOST_PX,
   captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenGhostStyle,
+  isPointerInsideSourceIframe,
   validateCrossScreenSourceHtmlSnapshot,
 } from "./cross-screen-drop";
 import { SURFACE_PADDING } from "./overview-layout";
+
+describe("isPointerInsideSourceIframe", () => {
+  it("treats a pointer past the screen's real frame as OUTSIDE even though it is still inside the iframe's own inflated viewport", () => {
+    // The bridge's iframe is rendered wider than the screen's visible frame
+    // (1280) — a drag 200px past the visible edge (to 1480) must engage the
+    // cross-screen mechanism, not read as still "inside" against the
+    // iframe's own inflated 1600px window.innerWidth.
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1480,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+        frameWidth: 1280,
+        frameHeight: 900,
+      }),
+    ).toBe(false);
+  });
+
+  it("stays inside for a pointer within the real frame", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1000,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+        frameWidth: 1280,
+        frameHeight: 900,
+      }),
+    ).toBe(true);
+  });
+
+  it("falls back to the bridge-reported viewport when no rendered geometry is known yet", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1480,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("cross-screen source HTML snapshots", () => {
   it("captures the complete board root subtree from the host-verified document", () => {

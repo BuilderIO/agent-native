@@ -147,12 +147,7 @@ test.describe("element resize — one axis vs both", () => {
     expect(
       [after.width - before.width, after.height, after.top, after.left],
       `E-edge drag must touch width only (before ${before.width}x${before.height} @ ${before.left},${before.top})`,
-    ).toEqual([
-      expect.closeTo(60, -1),
-      before.height,
-      before.top,
-      before.left,
-    ]);
+    ).toEqual([expect.closeTo(60, -1), before.height, before.top, before.left]);
   });
 
   test("dragging the SE corner handle changes both width and height", async ({
@@ -232,7 +227,7 @@ test("selection outline tracks the pointer live during a resize drag", async ({
   const id = await newDesign(page);
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
-  const boundsDuring: (Awaited<ReturnType<typeof chromeBounds>>)[] = [];
+  const boundsDuring: Awaited<ReturnType<typeof chromeBounds>>[] = [];
 
   const se = await handlePoint(page, "data-agent-native-edit-handle", "se");
   expect(se).not.toBeNull();
@@ -245,7 +240,6 @@ test("selection outline tracks the pointer live during a resize drag", async ({
     boundsDuring.push(await chromeBounds(page));
   }
   await page.mouse.up();
-  await page.waitForTimeout(1500);
 
   expect(before, "no selection outline before the drag").not.toBeNull();
   expect(boundsDuring.every((b) => b !== null)).toBe(true);
@@ -287,12 +281,14 @@ test("the inspector W/H fields update live while dragging a corner handle", asyn
   const wMid = parseFloat(await wField.inputValue());
   const hMid = parseFloat(await hField.inputValue());
   await page.mouse.up();
-  await page.waitForTimeout(1500);
 
   expect(
     [wMid, hMid],
     `inspector should reflect the in-progress size (${wBefore}x${hBefore} -> mid ${wMid}x${hMid})`,
-  ).toEqual([expect.closeTo(wBefore + 70, -1), expect.closeTo(hBefore + 50, -1)]);
+  ).toEqual([
+    expect.closeTo(wBefore + 70, -1),
+    expect.closeTo(hBefore + 50, -1),
+  ]);
 });
 
 test("one resize gesture is exactly one undo step", async ({ page }) => {
@@ -310,8 +306,20 @@ test("one resize gesture is exactly one undo step", async ({ page }) => {
   expect(resized.width).not.toBe(before.width);
 
   await page.keyboard.press(`${MOD}+z`);
-  await page.waitForTimeout(1500);
-  const undone = await geom(page, id, "box-a");
+  let undone = before;
+  await expect
+    .poll(
+      async () => {
+        undone = await geom(page, id, "box-a");
+        return undone.width;
+      },
+      {
+        timeout: 10_000,
+        message:
+          "a single undo after one resize gesture must fully restore the pre-drag width",
+      },
+    )
+    .toBe(before.width);
   expect(
     [undone.width, undone.height, undone.left, undone.top],
     "a single undo after one resize gesture must fully restore the pre-drag geometry",
@@ -383,18 +391,20 @@ test("[codex] resizing a screen from its left edge changes width only, not heigh
   await page.mouse.down();
   await page.mouse.move(hx - 60, hy, { steps: 10 });
   await page.mouse.up();
-  await page.waitForTimeout(1500);
 
-  const cardBoxAfter = (await card.boundingBox())!;
+  let cardBoxAfter = cardBoxBefore;
+  await expect
+    .poll(
+      async () => {
+        cardBoxAfter = (await card.boundingBox())!;
+        return cardBoxAfter.width;
+      },
+      { timeout: 10_000 },
+    )
+    .not.toBeCloseTo(cardBoxBefore.width, 0);
   expect(
     cardBoxAfter.height,
     `dragging the screen's LEFT edge must not change height (was ${cardBoxBefore.height}, now ${cardBoxAfter.height}) — owned by codex, see feedback.md`,
   ).toBeCloseTo(cardBoxBefore.height, 0);
   expect(cardBoxAfter.width).not.toBeCloseTo(cardBoxBefore.width, 0);
 });
-
-
-
-
-
-

@@ -150,21 +150,18 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       const seenInOrder = texts.filter((label) =>
         expectedOrder.includes(label),
       );
-      expect(
-        seenInOrder,
-        `menu items were: ${JSON.stringify(texts)}`,
-      ).toEqual(expectedOrder);
+      expect(seenInOrder, `menu items were: ${JSON.stringify(texts)}`).toEqual(
+        expectedOrder,
+      );
 
       // Functional: Bring to front on "a" (currently painted BEHIND "b" in
       // DOM order) must move it after "b" in DOM order, and undo restores.
       const frame = designFrame(page);
-      const beforeOrder = await frame
-        .locator("body")
-        .evaluate((body) =>
-          Array.from(body.children)
-            .map((el) => el.getAttribute("data-agent-native-node-id"))
-            .filter(Boolean),
-        );
+      const beforeOrder = await frame.locator("body").evaluate((body) =>
+        Array.from(body.children)
+          .map((el) => el.getAttribute("data-agent-native-node-id"))
+          .filter(Boolean),
+      );
       expect(beforeOrder.indexOf("a")).toBeLessThan(beforeOrder.indexOf("b"));
 
       await menu.getByText("Bring to front", { exact: true }).click();
@@ -176,16 +173,12 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
               .filter(Boolean),
           ),
         )
-        .toEqual(
-          expect.arrayContaining(["a", "b"]),
-        );
-      const afterOrder = await frame
-        .locator("body")
-        .evaluate((body) =>
-          Array.from(body.children)
-            .map((el) => el.getAttribute("data-agent-native-node-id"))
-            .filter(Boolean),
-        );
+        .toEqual(expect.arrayContaining(["a", "b"]));
+      const afterOrder = await frame.locator("body").evaluate((body) =>
+        Array.from(body.children)
+          .map((el) => el.getAttribute("data-agent-native-node-id"))
+          .filter(Boolean),
+      );
       expect(afterOrder.indexOf("a")).toBeGreaterThan(afterOrder.indexOf("b"));
 
       await page.keyboard.press(
@@ -201,14 +194,12 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
           ),
         )
         .toBeLessThan(
-          await frame
-            .locator("body")
-            .evaluate((body) =>
-              Array.from(body.children)
-                .map((el) => el.getAttribute("data-agent-native-node-id"))
-                .filter(Boolean)
-                .indexOf("b"),
-            ),
+          await frame.locator("body").evaluate((body) =>
+            Array.from(body.children)
+              .map((el) => el.getAttribute("data-agent-native-node-id"))
+              .filter(Boolean)
+              .indexOf("b"),
+          ),
         );
     } finally {
       await postAction(request, "delete-design", { id: designId }).catch(
@@ -235,9 +226,7 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       // `canRename` default (`selectedCount === 1`) is written for, and the
       // DesignEditor.tsx call site passes a real onRename that starts the
       // layers-panel inline editor. It should render.
-      await expect(
-        menu.getByText("Rename", { exact: true }),
-      ).toBeVisible();
+      await expect(menu.getByText("Rename", { exact: true })).toBeVisible();
     } finally {
       await postAction(request, "delete-design", { id: designId }).catch(
         () => {},
@@ -371,9 +360,7 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
           const v = c / 255;
           return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
         };
-        return (
-          0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-        );
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
       }
 
       // The item text is white (rgb(255,255,255)) on focus per MENU_ITEM_CLASS
@@ -512,10 +499,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       await boxA.click({ force: true });
       await boxB.click({ force: true, modifiers: ["Shift"] });
 
-      const beforeCount = await frame
-        .locator("body")
-        .evaluate((body) => body.children.length);
-
       await rightClickNode(page, "b");
       const menu = page.getByRole("menu").last();
       const groupItem = menu.getByText("Group selection", { exact: true });
@@ -526,18 +509,40 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       // direct child of <body>.
       await expect
         .poll(() =>
-          frame
-            .locator('body > [data-agent-native-node-id="a"]')
-            .count(),
+          frame.locator('body > [data-agent-native-node-id="a"]').count(),
         )
         .toBe(0);
 
       await page.keyboard.press(
         process.platform === "darwin" ? "Meta+z" : "Control+z",
       );
+
+      // One undo restores the exact prior (ungrouped) structure: both boxes
+      // back as direct siblings of <body>, not still nested in the wrapper.
+      // (Deliberately not asserting body.children.length here — the bridge
+      // injects its own <script>/<style> tags into <body> independently of
+      // this edit, so a raw child count is flaky signal for the group/ungroup
+      // structural change under test.)
       await expect
-        .poll(() => frame.locator("body").evaluate((body) => body.children.length))
-        .toBe(beforeCount);
+        .poll(() =>
+          frame
+            .locator(
+              'body > [data-agent-native-node-id="a"], body > [data-agent-native-node-id="b"]',
+            )
+            .count(),
+        )
+        .toBe(2);
+
+      // The exact prior selection comes back too, not just the document
+      // shape: both boxes, re-selected as siblings again.
+      const lastSelection = await page.evaluate(() => {
+        const entries = (window as any).__designTrace?.entries?.() ?? [];
+        const selects = entries.filter(
+          (entry: { area: string }) => entry.area === "select",
+        );
+        return selects[selects.length - 1]?.data ?? null;
+      });
+      expect(lastSelection?.layers?.length).toBe(2);
     } finally {
       await postAction(request, "delete-design", { id: designId }).catch(
         () => {},

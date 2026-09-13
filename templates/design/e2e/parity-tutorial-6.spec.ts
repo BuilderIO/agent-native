@@ -1,4 +1,9 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import { appPath, expandAllLayers } from "./helpers";
@@ -44,7 +49,9 @@ async function action(
     headers: { "Content-Type": "application/json" },
   });
   if (!res.ok())
-    throw new Error(`${name}: ${res.status()} ${(await res.text()).slice(0, 300)}`);
+    throw new Error(
+      `${name}: ${res.status()} ${(await res.text()).slice(0, 300)}`,
+    );
   return res.json();
 }
 
@@ -70,12 +77,21 @@ async function getDesign(request: APIRequestContext, id: string): Promise<any> {
     .then((r) => r.json());
 }
 
-async function indexHtml(request: APIRequestContext, id: string): Promise<string> {
+async function indexHtml(
+  request: APIRequestContext,
+  id: string,
+): Promise<string> {
   const record = await getDesign(request, id);
-  return (record.files ?? []).find((f: any) => f.filename === "index.html")?.content ?? "";
+  return (
+    (record.files ?? []).find((f: any) => f.filename === "index.html")
+      ?.content ?? ""
+  );
 }
 
-async function boardObjects(request: APIRequestContext, id: string): Promise<Record<string, any>> {
+async function boardObjects(
+  request: APIRequestContext,
+  id: string,
+): Promise<Record<string, any>> {
   const record = await getDesign(request, id);
   return record?.data?.boardObjects ?? record?.boardObjects ?? {};
 }
@@ -89,7 +105,9 @@ function layersTree(page: Page) {
 }
 
 function layerRowById(page: Page, nodeId: string) {
-  return layersTree(page).locator(`[data-layer-row-button][data-layer-node-id="${nodeId}"]`);
+  return layersTree(page).locator(
+    `[data-layer-row-button][data-layer-node-id="${nodeId}"]`,
+  );
 }
 
 async function selectLayerRowById(page: Page, nodeId: string): Promise<void> {
@@ -99,7 +117,11 @@ async function selectLayerRowById(page: Page, nodeId: string): Promise<void> {
   await page.waitForTimeout(300);
 }
 
-async function renameLayerRowById(page: Page, nodeId: string, to: string): Promise<void> {
+async function renameLayerRowById(
+  page: Page,
+  nodeId: string,
+  to: string,
+): Promise<void> {
   const row = layerRowById(page, nodeId);
   await expect(row).toBeVisible({ timeout: 10_000 });
   await row.dblclick({ force: true });
@@ -115,13 +137,23 @@ async function useTool(page: Page, name: string): Promise<void> {
   await page.waitForTimeout(250);
 }
 
-async function openEditor(page: Page, id: string): Promise<void> {
-  if (!id) throw new Error("openEditor called with no designId (a prior step must have thrown)");
-  await page.goto(appPath(`/design/${id}?view=overview`), { waitUntil: "domcontentloaded" });
+async function openTutorialStep(page: Page, id: string): Promise<void> {
+  if (!id)
+    throw new Error(
+      "openTutorialStep called with no designId (a prior step must have thrown)",
+    );
+  await page.goto(appPath(`/design/${id}?view=overview`), {
+    waitUntil: "domcontentloaded",
+  });
   // The first navigation against a cold dev server can exceed 45s (cold Vite
   // compile of the editor bundle); give it more room than a warm request needs.
-  await toolbar(page).locator('button[aria-label="Move"]').waitFor({ timeout: 75_000 });
-  await page.locator("iframe[data-design-preview-iframe]").first().waitFor({ timeout: 30_000 });
+  await toolbar(page)
+    .locator('button[aria-label="Move"]')
+    .waitFor({ timeout: 75_000 });
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .waitFor({ timeout: 30_000 });
   await expandAllLayers(page);
   await page.waitForTimeout(800);
 }
@@ -139,7 +171,11 @@ async function screenBox(page: Page) {
   return { ...box, scale: box.width / contentWidth };
 }
 
-function toScreenPoint(box: { x: number; y: number; scale: number }, x: number, y: number) {
+function toScreenPoint(
+  box: { x: number; y: number; scale: number },
+  x: number,
+  y: number,
+) {
   return { x: box.x + x * box.scale, y: box.y + y * box.scale };
 }
 
@@ -150,14 +186,18 @@ async function emptyBoardPoint(page: Page) {
     const surface = (world?.parentElement ?? world) as HTMLElement | null;
     if (!surface) return null;
     const r = surface.getBoundingClientRect();
-    const cards = Array.from(document.querySelectorAll("[data-screen-iframe-id]")).map((el) =>
-      el.getBoundingClientRect(),
-    );
+    const cards = Array.from(
+      document.querySelectorAll("[data-screen-iframe-id]"),
+    ).map((el) => el.getBoundingClientRect());
     for (let y = r.top + 60; y < r.bottom - 60; y += 40) {
       for (let x = r.left + 60; x < r.right - 60; x += 40) {
         if (
           cards.some(
-            (c) => x >= c.left - 24 && x <= c.right + 24 && y >= c.top - 24 && y <= c.bottom + 24,
+            (c) =>
+              x >= c.left - 24 &&
+              x <= c.right + 24 &&
+              y >= c.top - 24 &&
+              y <= c.bottom + 24,
           )
         )
           continue;
@@ -185,12 +225,17 @@ function primitiveNodeIds(html: string, primitive: string): string[] {
 
 function styleOf(html: string, id: string): string {
   return (
-    new RegExp(`data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`, "i").exec(html)?.[1] ?? ""
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? ""
   );
 }
 
 function styleNum(style: string, prop: string): number {
-  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(style);
+  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
+    style,
+  );
   return m ? Number(m[1]) : NaN;
 }
 
@@ -234,11 +279,19 @@ async function dump(page: Page) {
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
+  // Steps share one design across the whole tutorial walkthrough (step 2
+  // builds on step 1's frame, etc.), so a failed step leaves every later step
+  // with no designId to open. Serial mode makes that ONE reported failure
+  // instead of N confusing "no designId" cascades — Playwright marks the
+  // remaining steps skipped-by-serial rather than running (and failing) them.
+  test.describe.configure({ mode: "serial" });
+
   let designId = "";
   let frameId = "";
 
   test.afterAll(async ({ request }) => {
-    if (designId) await action(request, "delete-design", { id: designId }).catch(() => {});
+    if (designId)
+      await action(request, "delete-design", { id: designId }).catch(() => {});
   });
 
   test("step 1 [in-screen]: F + Shift-drag inside the screen draws a square Icon-grid frame nested in the screen (not a new file)", async ({
@@ -246,9 +299,11 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     request,
   }) => {
     designId = await createDesign(request);
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     const filesBefore = (await getDesign(request, designId)).files?.length ?? 0;
-    const before = new Set(primitiveNodeIds(await indexHtml(request, designId), "frame"));
+    const before = new Set(
+      primitiveNodeIds(await indexHtml(request, designId), "frame"),
+    );
 
     const box = await screenBox(page);
     const from = toScreenPoint(box, 40, 40);
@@ -263,7 +318,6 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await page.mouse.move(to.x, to.y, { steps: 16 });
     await page.mouse.up();
     await page.keyboard.up("Shift");
-    await page.waitForTimeout(1500);
 
     const filesAfter = (await getDesign(request, designId)).files?.length ?? 0;
     expect(
@@ -293,14 +347,18 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     expect(
       renamedHtml,
       'renaming the frame via the layers panel must persist the name "Icon grid" onto the node',
-    ).toMatch(new RegExp(`data-agent-native-node-id="${frameId}"[^>]*data-agent-native-layer-name="Icon grid"`));
+    ).toMatch(
+      new RegExp(
+        `data-agent-native-node-id="${frameId}"[^>]*data-agent-native-layer-name="Icon grid"`,
+      ),
+    );
   });
 
   test("step 2 [in-screen, codex]: Layout grid section accepts a grid size of 1 on the selected frame", async ({
     page,
     request,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     await selectLayerRowById(page, frameId);
 
     const addGrid = page.getByRole("button", { name: /add grid/i });
@@ -335,7 +393,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     await selectLayerRowById(page, frameId);
     const before = styleOf(await indexHtml(request, designId), frameId);
     const leftBefore = styleNum(before, "left");
@@ -357,7 +415,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     const box = await screenBox(page);
     const p1 = toScreenPoint(box, 45, 45);
     const p2 = toScreenPoint(box, 45 + 100, 45 + 100);
@@ -372,9 +430,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await penClick(page, p1.x, p1.y);
     await penClick(page, p2.x, p2.y);
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(1500);
 
-    const html = await indexHtml(request, designId);
     const added = await waitForAdded(
       async () =>
         primitiveNodeIds(await indexHtml(request, designId), "path").concat(
@@ -382,7 +438,10 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
         ),
       before,
     );
-    expect(added, `pen tool must commit a vector/line node; dump: ${JSON.stringify(await dump(page))}`).toHaveLength(1);
+    expect(
+      added,
+      `pen tool must commit a vector/line node; dump: ${JSON.stringify(await dump(page))}`,
+    ).toHaveLength(1);
     const lineId = added[0]!;
     (test.info() as any).__lineId = lineId;
 
@@ -391,20 +450,26 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
       .locator("section")
       .filter({ has: page.getByRole("heading", { name: /^stroke$/i }) })
       .first();
-    const hasStrokeSection = await strokeSection.isVisible({ timeout: 3000 }).catch(() => false);
+    const hasStrokeSection = await strokeSection
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
     expect(
       hasStrokeSection,
       `finding: no Stroke section found in the inspector for a freshly drawn line/path node ` +
         `(ownedBy codex); dump: ${JSON.stringify(await dump(page))}`,
     ).toBeTruthy();
     if (hasStrokeSection) {
-      const addStroke = strokeSection.getByRole("button", { name: /add stroke/i });
+      const addStroke = strokeSection.getByRole("button", {
+        name: /add stroke/i,
+      });
       if (await addStroke.isVisible({ timeout: 2000 }).catch(() => false)) {
         await addStroke.click();
         await page.waitForTimeout(400);
       }
       const weightInput = page.locator('input[aria-label="Weight" i]').first();
-      const hasWeight = await weightInput.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasWeight = await weightInput
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
       expect(
         hasWeight,
         `finding: Stroke section has no Weight input to set the guide's 0.2 stroke weight ` +
@@ -422,10 +487,15 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     const html0 = await indexHtml(request, designId);
-    const linesBefore = primitiveNodeIds(html0, "path").concat(primitiveNodeIds(html0, "line"));
-    expect(linesBefore.length, "precondition: step 4's line must exist").toBeGreaterThan(0);
+    const linesBefore = primitiveNodeIds(html0, "path").concat(
+      primitiveNodeIds(html0, "line"),
+    );
+    expect(
+      linesBefore.length,
+      "precondition: step 4's line must exist",
+    ).toBeGreaterThan(0);
     const originalId = linesBefore[0]!;
 
     await selectLayerRowById(page, originalId);
@@ -433,7 +503,9 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await page.waitForTimeout(600);
 
     const html1 = await indexHtml(request, designId);
-    const linesAfterDup = primitiveNodeIds(html1, "path").concat(primitiveNodeIds(html1, "line"));
+    const linesAfterDup = primitiveNodeIds(html1, "path").concat(
+      primitiveNodeIds(html1, "line"),
+    );
     expect(
       linesAfterDup.length,
       `Cmd+D must duplicate the selected line. Had ${linesBefore.length}, now ${linesAfterDup.length}`,
@@ -459,9 +531,11 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     const box = await screenBox(page);
-    const before = new Set(primitiveNodeIds(await indexHtml(request, designId), "ellipse"));
+    const before = new Set(
+      primitiveNodeIds(await indexHtml(request, designId), "ellipse"),
+    );
 
     await useTool(page, "Ellipse");
     const p1 = toScreenPoint(box, 60, 60);
@@ -470,13 +544,16 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await page.mouse.down();
     await page.mouse.move(p2.x, p2.y, { steps: 10 });
     await page.mouse.up();
-    await page.waitForTimeout(1200);
 
     const added = await waitForAdded(
-      async () => primitiveNodeIds(await indexHtml(request, designId), "ellipse"),
+      async () =>
+        primitiveNodeIds(await indexHtml(request, designId), "ellipse"),
       before,
     );
-    expect(added, `Ellipse tool must commit a new ellipse node; dump: ${JSON.stringify(await dump(page))}`).toHaveLength(1);
+    expect(
+      added,
+      `Ellipse tool must commit a new ellipse node; dump: ${JSON.stringify(await dump(page))}`,
+    ).toHaveLength(1);
     const html = await indexHtml(request, designId);
     const style = styleOf(html, added[0]!);
     expect(
@@ -489,7 +566,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     const before = await boardObjects(request, designId);
 
     const origin = await emptyBoardPoint(page);
@@ -498,11 +575,24 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await page.mouse.down();
     await page.mouse.move(origin.x + 16, origin.y + 20, { steps: 8 });
     await page.mouse.up();
-    await page.waitForTimeout(1500);
 
-    const afterDraw = await boardObjects(request, designId);
-    const newIds = Object.keys(afterDraw).filter((id) => !(id in before) && !id.startsWith("draft-"));
-    expect(newIds, `Rectangle tool must create one board object outside the screen; dump: ${JSON.stringify(await dump(page))}`).toHaveLength(1);
+    let newIds: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          const afterDraw = await boardObjects(request, designId);
+          newIds = Object.keys(afterDraw).filter(
+            (id) => !(id in before) && !id.startsWith("draft-"),
+          );
+          return newIds.length;
+        },
+        {
+          timeout: 12_000,
+          message:
+            "Rectangle tool must create one board object outside the screen",
+        },
+      )
+      .toBe(1);
     const rectId = newIds[0]!;
     (test.info() as any).__rectId = rectId;
 
@@ -513,7 +603,10 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await radiusInput.press("Enter");
     await page.waitForTimeout(400);
     const afterRadius = await boardObjects(request, designId);
-    expect(afterRadius[rectId]?.radius, "corner radius 1 must persist on the board rectangle").toBe(1);
+    expect(
+      afterRadius[rectId]?.radius,
+      "corner radius 1 must persist on the board rectangle",
+    ).toBe(1);
 
     await page.keyboard.press(`${MOD}+d`);
     await page.waitForTimeout(600);
@@ -532,7 +625,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
   test("step 8 [no equivalent -> closest: manual stroke match]: Design has no copy/paste-style command; matching the stroke via the inspector is the closest equivalent", async ({
     page,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     // Documentation-only step: no context-menu item for copy/paste-style
     // exists anywhere in the design surface (checked against the same
     // context-menu catalog exercised by parity-context-menu.spec.ts).
@@ -549,12 +642,15 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     const objectsBefore = await boardObjects(request, designId);
     const rectId = Object.keys(objectsBefore).find(
       (id) => objectsBefore[id]?.kind === "rectangle",
     );
-    expect(rectId, "precondition: step 7's board rectangle must still exist").toBeTruthy();
+    expect(
+      rectId,
+      "precondition: step 7's board rectangle must still exist",
+    ).toBeTruthy();
     const preDrag = objectsBefore[rectId!];
 
     await useTool(page, "Move");
@@ -563,34 +659,49 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     // `data-design-preview-iframe` marker as a screen, but with no
     // `data-screen-iframe-id`) -- see pen-board-commit.spec.ts's allVectors().
     const boardIframe = page
-      .locator("iframe[data-design-preview-iframe]:not([data-screen-iframe-id])")
+      .locator(
+        "iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
+      )
       .first();
     const rectLocator = boardIframe
       .contentFrame()
       .locator(`[data-agent-native-node-id="${rectId}"]`)
       .first();
-    const rectBox = await rectLocator.boundingBox().catch(() => null);
-    test.skip(!rectBox, "harness-blocked: could not locate the board rectangle's on-canvas box to drag");
-    if (!rectBox) return;
+    const rectBox = await rectLocator.boundingBox();
+    if (!rectBox) {
+      throw new Error(
+        "board-object-camera-and-click: could not locate the board rectangle's on-canvas box to drag",
+      );
+    }
 
     const screenTarget = toScreenPoint(await screenBox(page), 150, 150);
-    await page.mouse.move(rectBox!.x + rectBox!.width / 2, rectBox!.y + rectBox!.height / 2);
+    await page.mouse.move(
+      rectBox.x + rectBox.width / 2,
+      rectBox.y + rectBox.height / 2,
+    );
     await page.mouse.down();
     await page.mouse.move(screenTarget.x, screenTarget.y, { steps: 20 });
     await page.waitForTimeout(200);
     await page.mouse.up();
-    await page.waitForTimeout(1000);
 
-    const html = await indexHtml(request, designId);
-    const reparented = html.includes(`data-agent-native-node-id="${rectId}"`);
-    const objectsAfterDrag = await boardObjects(request, designId);
-    const stillBoardObject = rectId! in objectsAfterDrag;
-    expect(
-      reparented || !stillBoardObject,
-      `dragging a board object into the screen must reparent it into the screen's code layer ` +
-        `(or at least remove it from boardObjects). reparented=${reparented} stillBoardObject=${stillBoardObject}; ` +
-        `dump: ${JSON.stringify(await dump(page))}`,
-    ).toBeTruthy();
+    let reparented = false;
+    let stillBoardObject = true;
+    await expect
+      .poll(
+        async () => {
+          const html = await indexHtml(request, designId);
+          reparented = html.includes(`data-agent-native-node-id="${rectId}"`);
+          const objectsAfterDrag = await boardObjects(request, designId);
+          stillBoardObject = rectId! in objectsAfterDrag;
+          return reparented || !stillBoardObject;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "dragging a board object into the screen must reparent it into the screen's code layer (or at least remove it from boardObjects)",
+        },
+      )
+      .toBeTruthy();
 
     await page.keyboard.press(`${MOD}+z`);
     await page.waitForTimeout(800);
@@ -609,7 +720,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
   test("step 10 [no equivalent]: Design has no boolean path operations (Union selection) and no components/variants system", async ({
     page,
   }) => {
-    await openEditor(page, designId);
+    await openTutorialStep(page, designId);
     await selectLayerRowById(page, frameId);
     await page.keyboard.press("Enter");
     await page.waitForTimeout(400);
@@ -617,11 +728,12 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await page.keyboard.press("ArrowDown");
     await page.keyboard.up("Shift");
     await page.mouse.click(5, 5); // dismiss any transient focus state
-    const hasUnion = await page.getByRole("button", { name: /union selection/i }).isVisible().catch(() => false);
+    const hasUnion = await page
+      .getByRole("button", { name: /union selection/i })
+      .isVisible();
     const hasCreateComponent = await page
       .getByRole("button", { name: /create component/i })
-      .isVisible()
-      .catch(() => false);
+      .isVisible();
     expect(
       hasUnion,
       "finding: no 'Union selection' boolean-path-operation control exists anywhere in the toolbar/inspector " +

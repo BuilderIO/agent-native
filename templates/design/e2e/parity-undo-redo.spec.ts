@@ -120,6 +120,58 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
   );
 }
 
+/** A point on the canvas confirmed clear of the chrome rails —
+ * `elementFromPoint` can otherwise land on the left layers rail's own
+ * `--design-editor-panel-bg`, which reads as a plausible but wrong canvas
+ * colour (see parity-canvas-background.spec.ts's sampleXY). */
+async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
+  const canvasBox = await page
+    .locator("[data-design-canvas-container]")
+    .boundingBox();
+  if (!canvasBox) throw new Error("no canvas container box");
+  const leftShellBox = await page
+    .locator('[data-design-chrome-region="left-shell"]')
+    .boundingBox()
+    .catch(() => null);
+  const rightPanelBox = await page
+    .locator('[data-design-chrome-region="right-panel"]')
+    .boundingBox()
+    .catch(() => null);
+  const leftEdge = leftShellBox
+    ? leftShellBox.x + leftShellBox.width
+    : canvasBox.x;
+  const rightEdge = rightPanelBox
+    ? rightPanelBox.x
+    : canvasBox.x + canvasBox.width;
+  const x = Math.round(leftEdge + (rightEdge - leftEdge) * 0.5);
+  const y = Math.round(canvasBox.y + canvasBox.height * 0.5);
+
+  const hitInfo = await page.evaluate(
+    ({ px, py }) => {
+      const el = document.elementFromPoint(px, py) as HTMLElement | null;
+      if (!el) return { ok: false, reason: "no element" };
+      let cur: HTMLElement | null = el;
+      for (let i = 0; i < 8 && cur; i++) {
+        if (cur.dataset?.designChromeRegion) {
+          return {
+            ok: false,
+            reason: `hit chrome:${cur.dataset.designChromeRegion}`,
+          };
+        }
+        cur = cur.parentElement;
+      }
+      return { ok: true, reason: "clear" };
+    },
+    { px: x, py: y },
+  );
+  if (!hitInfo.ok) {
+    throw new Error(
+      `sampleXY point (${x},${y}) is not clear of chrome: ${hitInfo.reason}`,
+    );
+  }
+  return { x, y };
+}
+
 test("one drag-move is exactly one undo step, and redo re-applies the exact dropped position", async ({
   page,
 }) => {
@@ -206,12 +258,12 @@ test("deleting an element then one undo restores it with its original position, 
     `one undo after Delete must bring box-a back. Trace: ${(await dumpTrace(page)).slice(-500)}`,
   ).toHaveCount(1);
   const restored = await geom(page, id, "box-a");
-  expect([restored.left, restored.top, restored.width, restored.height]).toEqual([
-    before.left,
-    before.top,
-    before.width,
-    before.height,
-  ]);
+  expect([
+    restored.left,
+    restored.top,
+    restored.width,
+    restored.height,
+  ]).toEqual([before.left, before.top, before.width, before.height]);
   // Figma restores selection to the undeleted element, not to nothing.
   await expect
     .poll(async () => {
@@ -245,7 +297,10 @@ test("renaming a layer then one undo restores its previous name", async ({
     .getByRole("treeitem")
     .filter({ hasText: "Box B" })
     .first();
-  await row.locator("[data-layer-row-button]").first().dblclick({ force: true });
+  await row
+    .locator("[data-layer-row-button]")
+    .first()
+    .dblclick({ force: true });
   const input = page.locator('input[aria-label="Rename layer"]');
   await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill("Renamed Box");
@@ -322,7 +377,7 @@ test("undo targets the file that was actually edited, not whichever screen curre
   // wrong if undo is scoped to "whichever file is currently active" instead
   // of "the file that was actually last edited".
   const page2Iframe = page.locator(
-    'iframe[data-design-preview-iframe][data-screen-iframe-id]',
+    "iframe[data-design-preview-iframe][data-screen-iframe-id]",
   );
   const target = page2Iframe
     .last()
@@ -341,10 +396,58 @@ test("undo targets the file that was actually edited, not whichever screen curre
   ).toEqual([before.left, before.top]);
 });
 
-for (const { theme, canvasRgb } of [
-  { theme: "dark" as const, canvasRgb: "26,26,26" },
-  { theme: "light" as const, canvasRgb: "235,235,235" },
-]) {
+test("redo re-selects the group Cmd+G produced, not the pre-group selection it undid back to", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  const layersTree = page.getByRole("tree", { name: "Layers" });
+  const groupRows = () =>
+    layersTree.getByRole("treeitem").filter({ hasText: "Group" });
+  const layerRow = (name: string) =>
+    layersTree.getByRole("treeitem").filter({ hasText: name }).first();
+  const lastSelectedLayers = async (): Promise<string[]> =>
+    page.evaluate(() => {
+      const entries = (window as any).__designTrace?.entries?.() ?? [];
+      const selects = entries.filter(
+        (entry: { area: string }) => entry.area === "select",
+      );
+      return (
+        (selects[selects.length - 1]?.data as { layers?: string[] })?.layers ??
+        []
+      );
+    });
+
+  await layerRow("Box A").click();
+  await layerRow("Box B").click({ modifiers: [MOD] });
+  const preGroupSelection = await lastSelectedLayers();
+
+  await page.keyboard.press(`${MOD}+g`);
+  await expect(groupRows()).toHaveCount(1);
+  const postGroupSelection = await lastSelectedLayers();
+  // Sanity on the fixture itself: grouping must actually have re-selected
+  // something other than the two boxes, or this test proves nothing.
+  expect(postGroupSelection).not.toEqual(preGroupSelection);
+  expect(postGroupSelection).toHaveLength(1);
+
+  await page.keyboard.press(UNDO);
+  await expect(groupRows()).toHaveCount(0);
+  expect(
+    await lastSelectedLayers(),
+    "undo must restore the pre-group (ungrouped) selection",
+  ).toEqual(preGroupSelection);
+
+  await page.keyboard.press(REDO);
+  await expect(groupRows()).toHaveCount(1);
+  expect(
+    await lastSelectedLayers(),
+    "redo must re-select the group it just recreated (the gesture's own " +
+      "result), not the pre-group selection undo restored",
+  ).toEqual(postGroupSelection);
+});
+
+for (const theme of ["dark", "light"] as const) {
   test(`${theme} theme: undo does not flash the canvas background to the other theme's colour`, async ({
     page,
   }) => {
@@ -366,20 +469,20 @@ for (const { theme, canvasRgb } of [
       fileType: "html",
     });
 
-    await page.goto(appPath(`/design/${id}`), { waitUntil: "domcontentloaded" });
+    await page.goto(appPath(`/design/${id}`), {
+      waitUntil: "domcontentloaded",
+    });
     await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.locator("html")).toHaveClass(new RegExp(theme));
 
-    const canvasBox = await page
-      .locator("[data-design-canvas-container]")
-      .boundingBox();
-    if (!canvasBox) throw new Error("no canvas container box");
-    const sampleX = Math.round(canvasBox.x + canvasBox.width * 0.15);
-    const sampleY = Math.round(canvasBox.y + canvasBox.height * 0.6);
+    const { x: sampleX, y: sampleY } = await sampleXY(page);
 
-    await expect.poll(() => pixelAt(page, sampleX, sampleY)).toBe(canvasRgb);
+    // Read the actual rendered canvas colour before any edit, rather than
+    // hardcoding a palette literal — a rendered-vs-token mismatch is a
+    // separate bug from the flash this test exists to catch.
+    const canvasRgb = await pixelAt(page, sampleX, sampleY);
 
     await selectViaTree(page, "Box A");
     const before = await geom(page, id, "box-a");

@@ -117,8 +117,26 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
     timeout: 30_000,
   });
-  await expect(page.locator("[data-screen-card]").first()).toBeVisible();
-  await page.waitForTimeout(1500);
+  const firstCard = page.locator("[data-screen-card]").first();
+  await expect(firstCard).toBeVisible();
+  // Overview layout settles asynchronously after mount with no discrete
+  // event — poll the first card's box until two consecutive reads agree.
+  let lastBox: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const box = await firstCard.boundingBox();
+        const stable =
+          box !== null &&
+          lastBox !== null &&
+          Math.abs(box.x - lastBox.x) < 1 &&
+          Math.abs(box.y - lastBox.y) < 1;
+        lastBox = box;
+        return stable;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 }
 
 // Excludes aria-level="1" rows: those are the screen/frame roots (e.g.
@@ -171,7 +189,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       await page.mouse.move(startX + dx, startY + dy, { steps: 16 });
       await page.mouse.up();
       await page.keyboard.up("Alt");
-      await page.waitForTimeout(1200);
 
       const nodes = frame.locator("body > [data-agent-native-node-id]");
       await expect(nodes).toHaveCount(2, { timeout: 10_000 });
@@ -277,7 +294,11 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       );
       await page.mouse.up();
       await page.keyboard.up("Alt");
-      await page.waitForTimeout(1200);
+      await expect
+        .poll(async () => (await layerNames(page)).length, {
+          timeout: 10_000,
+        })
+        .toBe(2);
 
       const namesAfter = await layerNames(page);
       if (
@@ -335,13 +356,12 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       );
       await page.mouse.up();
       await page.keyboard.up("Alt");
-      await page.waitForTimeout(1200);
+      const bodyLocator = frame.locator("body > [data-agent-native-node-id]");
+      await expect.poll(() => bodyLocator.count(), { timeout: 10_000 }).toBe(3);
 
-      const bodyOrder = await frame
-        .locator("body > [data-agent-native-node-id]")
-        .evaluateAll((els) =>
-          els.map((el) => el.getAttribute("data-agent-native-node-id")),
-        );
+      const bodyOrder = await bodyLocator.evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-agent-native-node-id")),
+      );
       const rectIndex = bodyOrder.indexOf("rect");
       const otherIndex = bodyOrder.indexOf("other");
       expect(rectIndex).toBeGreaterThan(-1);
@@ -407,7 +427,6 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       );
       await page.mouse.up();
       await page.keyboard.up("Alt");
-      await page.waitForTimeout(1200);
       await expect(
         frame.locator("body > [data-agent-native-node-id]"),
       ).toHaveCount(2);
@@ -477,38 +496,50 @@ test.describe("alt-drag duplicate (overview)", () => {
       await page.waitForTimeout(300);
       await page.mouse.up();
       await page.keyboard.up("Alt");
-      await page.waitForTimeout(1500);
 
-      const insideScreenDump = await page.evaluate(() => {
-        const frame = document.querySelector<HTMLIFrameElement>(
-          "iframe[data-screen-iframe-id]",
-        );
-        return Array.from(
-          frame?.contentDocument?.querySelectorAll(
-            "body > [data-agent-native-node-id]",
-          ) ?? [],
-        ).map((el) => ({
-          id: el.getAttribute("data-agent-native-node-id"),
-          left: (el as HTMLElement).style.left,
-          top: (el as HTMLElement).style.top,
-        }));
-      });
-      const boardCopyCount = await page.evaluate(() => {
-        const boardIframe = document.querySelector<HTMLIFrameElement>(
-          "[data-board-surface-layer] iframe",
-        );
-        return (
-          boardIframe?.contentDocument?.querySelectorAll(
-            "body > [data-agent-native-node-id]",
-          ).length ?? -1
-        );
-      });
-      const insideScreenCount = insideScreenDump.length;
+      const readInsideScreen = () =>
+        page.evaluate(() => {
+          const frame = document.querySelector<HTMLIFrameElement>(
+            "iframe[data-screen-iframe-id]",
+          );
+          return Array.from(
+            frame?.contentDocument?.querySelectorAll(
+              "body > [data-agent-native-node-id]",
+            ) ?? [],
+          ).map((el) => ({
+            id: el.getAttribute("data-agent-native-node-id"),
+            left: (el as HTMLElement).style.left,
+            top: (el as HTMLElement).style.top,
+          }));
+        });
+      const readBoardCopyCount = () =>
+        page.evaluate(() => {
+          const boardIframe = document.querySelector<HTMLIFrameElement>(
+            "[data-board-surface-layer] iframe",
+          );
+          return (
+            boardIframe?.contentDocument?.querySelectorAll(
+              "body > [data-agent-native-node-id]",
+            ).length ?? -1
+          );
+        });
+
+      let insideScreenCount = -1;
+      let boardCopyCount = -1;
+      await expect
+        .poll(
+          async () => {
+            insideScreenCount = (await readInsideScreen()).length;
+            boardCopyCount = await readBoardCopyCount();
+            return insideScreenCount === 1 && boardCopyCount > 0;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
       const warningVisible = await page
         .locator("text=/can.?t (reorder|duplicate|drop)/i")
         .first()
-        .isVisible()
-        .catch(() => false);
+        .isVisible();
 
       if (insideScreenCount !== 1 || warningVisible) {
         const trace = await dumpTrace(page);
@@ -572,7 +603,6 @@ test.describe("alt-drag duplicate (overview)", () => {
       ).toBeVisible();
       await page.mouse.up();
       await page.keyboard.up("Alt");
-      await page.waitForTimeout(1000);
 
       await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
         timeout: 20_000,

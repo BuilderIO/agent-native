@@ -161,7 +161,6 @@ async function drawWithTool(
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
-  await page.waitForTimeout(1500);
 }
 
 /**
@@ -268,7 +267,6 @@ async function drawInScreenFrame(
     steps: 16,
   });
   await page.mouse.up();
-  await page.waitForTimeout(3000);
 }
 
 function layerTree(page: Page) {
@@ -351,7 +349,25 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         timeout: 40_000,
       })
       .toBeGreaterThan(0);
-    await page.waitForTimeout(2000);
+    // Overview layout settles asynchronously after mount with no discrete
+    // event — poll the screen card's box until two consecutive reads agree.
+    const card = page.locator("[data-screen-card]").first();
+    let lastCardBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await card.boundingBox();
+          const stable =
+            box !== null &&
+            lastCardBox !== null &&
+            Math.abs(box.x - lastCardBox.x) < 1 &&
+            Math.abs(box.y - lastCardBox.y) < 1;
+          lastCardBox = box;
+          return stable;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
 
     const before = await boardObjects(request, designId);
     expect(Object.keys(before)).toHaveLength(0);
@@ -422,7 +438,27 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         timeout: 40_000,
       })
       .toBeGreaterThan(0);
-    await page.waitForTimeout(2000);
+    // Overview layout settles asynchronously after mount with no discrete
+    // event — poll the screen card's box until two consecutive reads agree.
+    {
+      const card = page.locator("[data-screen-card]").first();
+      let lastCardBox: { x: number; y: number } | null = null;
+      await expect
+        .poll(
+          async () => {
+            const box = await card.boundingBox();
+            const stable =
+              box !== null &&
+              lastCardBox !== null &&
+              Math.abs(box.x - lastCardBox.x) < 1 &&
+              Math.abs(box.y - lastCardBox.y) < 1;
+            lastCardBox = box;
+            return stable;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+    }
 
     // Figma's step 2 draws a 16x16 triangle with the Polygon tool inside the
     // frame. Design has no polygon/star/triangle tool in its tool shortcuts
@@ -432,9 +468,10 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     const polygonButton = page.locator(
       '[data-design-bottom-toolbar] button[aria-label*="Polygon" i], [data-design-bottom-toolbar] button[aria-label*="Triangle" i]',
     );
-    await expect(polygonButton, "no polygon/triangle tool button exists").toHaveCount(
-      0,
-    );
+    await expect(
+      polygonButton,
+      "no polygon/triangle tool button exists",
+    ).toHaveCount(0);
 
     const frameId = await drawBoardShapeAndWaitStable(
       page,
@@ -486,14 +523,30 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         timeout: 40_000,
       })
       .toBeGreaterThan(0);
-    await page.waitForTimeout(2500);
+    // Overview layout settles asynchronously after mount with no discrete
+    // event — poll the screen card's box until two consecutive reads agree.
+    {
+      const card = page.locator("[data-screen-card]").first();
+      let lastCardBox: { x: number; y: number } | null = null;
+      await expect
+        .poll(
+          async () => {
+            const box = await card.boundingBox();
+            const stable =
+              box !== null &&
+              lastCardBox !== null &&
+              Math.abs(box.x - lastCardBox.x) < 1 &&
+              Math.abs(box.y - lastCardBox.y) < 1;
+            lastCardBox = box;
+            return stable;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+    }
 
     // Step 3: press F, draw a 360x240 "album-art" frame INSIDE the screen.
     await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 220, y: 200 });
-    let html = await fileContent(request, designId);
-    expect(html, "step 3 must add a frame inside the screen, not a new screen file").toMatch(
-      /data-an-primitive="frame"/,
-    );
 
     const albumArtId = await waitForStableNodeId(async () => {
       const current = await fileContent(request, designId);
@@ -503,6 +556,11 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         );
       return match ? [match[1]] : [];
     });
+    let html = await fileContent(request, designId);
+    expect(
+      html,
+      "step 3 must add a frame inside the screen, not a new screen file",
+    ).toMatch(/data-an-primitive="frame"/);
     await expandAllLayers(page);
     await renameLayerRowById(page, albumArtId, "album-art");
 
@@ -540,7 +598,22 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     await page.mouse.move(dropTarget.x, dropTarget.y, { steps: 20 });
     await page.mouse.up();
     await page.keyboard.up("Alt");
-    await page.waitForTimeout(2000);
+
+    let albumArtChildren: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          html = await fileContent(request, designId);
+          albumArtChildren = albumArtId ? childNodeIds(html, albumArtId) : [];
+          return albumArtChildren.length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "alt-drag across the screen boundary must drop a new child into album-art",
+        },
+      )
+      .toBeGreaterThan(0);
 
     // Original board object must still exist (alt-drag duplicates, not
     // moves) and a new code-layer node must now be a child of album-art.
@@ -549,13 +622,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       Object.keys(boardAfter),
       "alt-drag must leave the original board frame in place",
     ).toContain(sourceId);
-
-    html = await fileContent(request, designId);
-    const albumArtChildren = albumArtId ? childNodeIds(html, albumArtId) : [];
-    expect(
-      albumArtChildren.length,
-      `alt-drag across the screen boundary must drop a new child into album-art; album-art inner html:\n${elementInner(html, albumArtId!)}`,
-    ).toBeGreaterThan(0);
 
     // Option+Arrow nudge 16px on the newly-dropped copy.
     const newChildId = albumArtChildren[albumArtChildren.length - 1];

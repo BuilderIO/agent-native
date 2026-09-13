@@ -164,7 +164,13 @@ async function primitiveStyle(
   page: Page,
   filename: string,
   kind: string,
-): Promise<{ left: number; top: number; width: number; height: number; style: string } | null> {
+): Promise<{
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  style: string;
+} | null> {
   const content = await fileContent(page, filename);
   return page.evaluate(
     ({ html, primitiveKind }) => {
@@ -241,7 +247,10 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       "aria-pressed",
       "true",
     );
-    const start = { x: card.x + card.width * 0.6, y: card.y + card.height * 0.08 };
+    const start = {
+      x: card.x + card.width * 0.6,
+      y: card.y + card.height * 0.08,
+    };
     await dragBetween(
       page,
       start,
@@ -254,7 +263,10 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       })
       .toBe(1);
     const ellipse = await primitiveStyle(page, "index.html", "ellipse");
-    expect(ellipse, "ellipse primitive must exist after the drag").not.toBeNull();
+    expect(
+      ellipse,
+      "ellipse primitive must exist after the drag",
+    ).not.toBeNull();
     // Shift constrains the drag to a 1:1 aspect ratio — this is the concrete
     // property that must change; a click-only drag (no shift) would also
     // create a shape, but not necessarily a square one.
@@ -276,9 +288,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await hField.press("Enter");
     await expect
       .poll(async () => primitiveStyle(page, "index.html", "ellipse"))
-      .toEqual(
-        expect.objectContaining({ width: 16, height: 16 }),
-      );
+      .toEqual(expect.objectContaining({ width: 16, height: 16 }));
   });
 
   // Step 2: Add stroke weight 2, remove fill.
@@ -290,24 +300,19 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await weightField.fill("2");
     await weightField.press("Enter");
 
-    // FINDING (search-icon-2): a freshly drawn shape carries no explicit
-    // Fill layer at all (PanelSection's `hasContent` is false, so there is
-    // no expand arrow and no "Remove layer" row) even though it visually
-    // renders filled from a CSS default — Figma's equivalent always
-    // instantiates one removable solid fill layer on shape creation. The
-    // closest equivalent to Figma's "− in Fill section" is: click "Add
-    // fill" (+) to materialize an explicit layer, then "Remove layer" on
-    // that layer, which does produce a genuinely fill-less shape.
+    // search-icon-2 (fixed): a freshly drawn shape's committed `background`
+    // shorthand wasn't recognized as `backgroundColor` once the inspector's
+    // selection was refreshed from source (cssStyleAliases only aliased
+    // hyphenated longhands, never expanded a shorthand) — see
+    // code-layer-state.ts's cssStyleAliases. The inspector read no fill at
+    // all, so there was no removable row to match Figma's always-present
+    // solid fill layer on a new shape.
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(
       fillSection.locator('button[aria-label="Remove layer"]'),
-      "a freshly drawn shape must start with no removable Fill layer row (see search-icon-2 finding)",
-    ).toHaveCount(0);
-    await fillSection.getByRole("button", { name: "Add fill" }).click();
-    await fillSection
-      .locator('button[aria-label="Remove layer"]')
-      .first()
-      .click();
+      "a freshly drawn shape must start with one removable Fill layer row, matching Figma",
+    ).toHaveCount(1);
+    await fillSection.locator('button[aria-label="Remove layer"]').click();
 
     await expect
       .poll(async () => {
@@ -332,7 +337,10 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       "true",
     );
     await page.waitForTimeout(150);
-    const anchor = { x: card.x + card.width * 0.58, y: card.y + card.height * 0.1 };
+    const anchor = {
+      x: card.x + card.width * 0.58,
+      y: card.y + card.height * 0.1,
+    };
     await page.mouse.click(anchor.x, anchor.y);
     await page.mouse.click(anchor.x, anchor.y + 4);
     await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
@@ -355,7 +363,8 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         return page.evaluate((html) => {
           const doc = new DOMParser().parseFromString(html, "text/html");
           return (
-            doc.querySelector('svg[data-agent-native-layer-name="Vector"]')
+            doc
+              .querySelector('svg[data-agent-native-layer-name="Vector"]')
               ?.getAttribute("style") ?? ""
           );
         }, content);
@@ -398,8 +407,8 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     const childCount = await page.evaluate((html) => {
       const doc = new DOMParser().parseFromString(html, "text/html");
       return (
-        doc.querySelector('[data-agent-native-layer-name="Group"]')
-          ?.children.length ?? 0
+        doc.querySelector('[data-agent-native-layer-name="Group"]')?.children
+          .length ?? 0
       );
     }, content);
     expect(childCount).toBe(2);
@@ -475,11 +484,13 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     // centers now coincide (Figma's "align vertical centers" on a
     // multi-selection). Before the click they generally do not.
     const beforeCenterDelta = Math.abs(
-      (beforeEllipse!.top + beforeEllipse!.height / 2) -
+      beforeEllipse!.top +
+        beforeEllipse!.height / 2 -
         (beforeVector!.top + beforeVector!.height / 2),
     );
     const afterCenterDelta = Math.abs(
-      (afterEllipse!.top + afterEllipse!.height / 2) -
+      afterEllipse!.top +
+        afterEllipse!.height / 2 -
         (afterVector!.top + afterVector!.height / 2),
     );
     expect(
@@ -513,15 +524,18 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await expect(renameInput(page)).toHaveCount(0);
     await expect(layerRowButton(page, "search-icon")).toBeVisible();
     await expect
-      .poll(async () => {
-        const content = await fileContent(page, "index.html");
-        return page.evaluate((html) => {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          return Boolean(
-            doc.querySelector('[data-agent-native-layer-name="search-icon"]'),
-          );
-        }, content);
-      }, { timeout: 10_000 })
+      .poll(
+        async () => {
+          const content = await fileContent(page, "index.html");
+          return page.evaluate((html) => {
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            return Boolean(
+              doc.querySelector('[data-agent-native-layer-name="search-icon"]'),
+            );
+          }, content);
+        },
+        { timeout: 10_000 },
+      )
       .toBe(true);
   });
 });
@@ -547,7 +561,10 @@ test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged in
     await dragBetween(
       page,
       boardStart,
-      { x: boardStart.x + 70, y: boardStart.x - boardStart.x + boardStart.y + 111 },
+      {
+        x: boardStart.x + 70,
+        y: boardStart.x - boardStart.x + boardStart.y + 111,
+      },
       { shift: true },
     );
     await expect
@@ -594,7 +611,10 @@ test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged in
       x: rectBox.x + rectBox.width / 2,
       y: rectBox.y + rectBox.height / 2,
     };
-    const to = { x: cardBox.x + cardBox.width * 0.3, y: cardBox.y + cardBox.height * 0.3 };
+    const to = {
+      x: cardBox.x + cardBox.width * 0.3,
+      y: cardBox.y + cardBox.height * 0.3,
+    };
     await dragBetween(page, from, to);
 
     await expect

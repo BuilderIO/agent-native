@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { expandAllLayers } from "./helpers";
+import { expandAllLayers, gotoEditor } from "./helpers";
 
 /**
  * Group / Frame / Ungroup parity against Figma, per figma-ground-truth.md
@@ -95,10 +95,6 @@ function styleNum(style: string, prop: string): number {
   return m ? Number(m[1]) : NaN;
 }
 
-function toolbar(page: Page) {
-  return page.locator("[data-design-bottom-toolbar]");
-}
-
 function layersTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -125,19 +121,12 @@ async function dump(page: Page) {
   return page.evaluate(() => (window as any).__designTrace?.dump?.() ?? null);
 }
 
-async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
+async function openEditorAndExpandLayers(
+  page: Page,
+  designId: string,
+): Promise<void> {
+  await gotoEditor(page, designId);
   await expandAllLayers(page);
-  await page.waitForTimeout(500);
 }
 
 async function multiSelect(page: Page, names: string[]): Promise<void> {
@@ -168,10 +157,9 @@ test.describe("Cmd+G group", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await multiSelect(page, ["Red", "Green"]);
     await page.keyboard.press(`${MOD}+g`);
-    await page.waitForTimeout(2000);
 
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
@@ -198,7 +186,6 @@ test.describe("Cmd+G group", () => {
 
     // One undo fully reverses the group back to the exact prior siblings.
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(1500);
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
       "one undo did not remove the Group layer",
@@ -218,13 +205,15 @@ test.describe("Cmd+G group", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     // Red (bottom) + Blue (top), skipping Green (middle). Figma places the
     // resulting group at Blue's stacking position, so Green ends up BELOW
     // the group, not above it.
     await multiSelect(page, ["Red", "Blue"]);
     await page.keyboard.press(`${MOD}+g`);
-    await page.waitForTimeout(2000);
+    await expect(
+      layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
+    ).toHaveCount(1);
 
     const html = await indexHtml(page, id);
     const groupMatch = /data-agent-native-layer-name="Group"/.exec(html);
@@ -252,11 +241,10 @@ test.describe("Cmd+G group", () => {
     // Figma — see figma-ground-truth.md). This is not the 2+ requirement an
     // earlier version of this test wrongly assumed.
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await layerRow(page, "Solo").click();
     await page.waitForTimeout(800);
     await page.keyboard.press(`${MOD}+g`);
-    await page.waitForTimeout(1500);
 
     const groupRow = layersTree(page)
       .getByRole("treeitem")
@@ -285,7 +273,6 @@ test.describe("Cmd+G group", () => {
 
     // One undo removes the group and restores Solo as a top-level sibling.
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(1500);
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
       "one undo did not remove the Group layer",
@@ -305,12 +292,10 @@ test.describe("Cmd+G group", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await multiSelect(page, ["Red", "Green"]);
     await page.keyboard.press(`${MOD}+g`);
-    await page.waitForTimeout(2000);
     await layerRow(page, "Group").click();
-    await page.waitForTimeout(1000);
 
     const fillHeading = page.getByRole("heading", {
       name: "Fill",
@@ -327,15 +312,17 @@ test.describe("Cmd+G group", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await multiSelect(page, ["Red", "Green"]);
     await page.keyboard.press(`${MOD}+g`);
-    await page.waitForTimeout(2000);
-
-    const bg = await previewFrame(page)
+    const groupEl = previewFrame(page)
       .locator('[data-agent-native-layer-name="Group"]')
-      .first()
-      .evaluate((el) => getComputedStyle(el).backgroundColor);
+      .first();
+    await expect(groupEl).toBeVisible();
+
+    const bg = await groupEl.evaluate(
+      (el) => getComputedStyle(el).backgroundColor,
+    );
     expect(
       ["rgba(0, 0, 0, 0)", "transparent"],
       `Figma: a Group has no fill; the gap between its children (e.g. the notch between ` +
@@ -349,10 +336,9 @@ test.describe("Cmd+Opt+G frame selection", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await multiSelect(page, ["Red", "Green"]);
     await page.keyboard.press(`${MOD}+Alt+g`);
-    await page.waitForTimeout(2000);
 
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Frame" }),
@@ -382,11 +368,10 @@ test.describe("Cmd+Opt+G frame selection", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await layerRow(page, "Solo").click();
     await page.waitForTimeout(800);
     await page.keyboard.press(`${MOD}+Alt+g`);
-    await page.waitForTimeout(1500);
 
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Frame" }),
@@ -398,12 +383,10 @@ test.describe("Cmd+Opt+G frame selection", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await multiSelect(page, ["Red", "Green"]);
     await page.keyboard.press(`${MOD}+Alt+g`);
-    await page.waitForTimeout(2000);
     await layerRow(page, "Frame").click();
-    await page.waitForTimeout(1000);
 
     const fillSection = page
       .locator("section")
@@ -414,7 +397,6 @@ test.describe("Cmd+Opt+G frame selection", () => {
       "a Frame should expose a Fill section (unlike a Group)",
     ).toBeVisible();
     await fillSection.getByRole("button", { name: "Add fill" }).click();
-    await page.waitForTimeout(1000);
 
     const frame = previewFrame(page)
       .locator('[data-agent-native-layer-name="Frame"]')
@@ -441,15 +423,16 @@ test.describe("Cmd+Shift+G ungroup", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await multiSelect(page, ["Red", "Green"]);
     await page.keyboard.press(`${MOD}+g`);
-    await page.waitForTimeout(2000);
     await layerRow(page, "Group").click();
-    await page.waitForTimeout(1000);
+    await expect(layerRow(page, "Group")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
 
     await page.keyboard.press(`${MOD}+Shift+g`);
-    await page.waitForTimeout(2000);
 
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
@@ -485,17 +468,20 @@ test.describe("Cmd+Shift+G ungroup", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     await multiSelect(page, ["Red", "Green"]);
     await page.keyboard.press(`${MOD}+g`);
-    await page.waitForTimeout(2000);
     await layerRow(page, "Group").click();
-    await page.waitForTimeout(1000);
+    await expect(layerRow(page, "Group")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await page.keyboard.press(`${MOD}+Shift+g`);
-    await page.waitForTimeout(2000);
+    await expect(
+      layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
+    ).toHaveCount(0);
 
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(1500);
 
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),

@@ -122,7 +122,11 @@ function layerRowButton(page: Page, name: string): Locator {
     .first();
 }
 
-async function selectLayerByName(page: Page, name: string, opts?: { shift?: boolean }) {
+async function selectLayerByName(
+  page: Page,
+  name: string,
+  opts?: { shift?: boolean },
+) {
   await layerRowButton(page, name).click({
     force: true,
     modifiers: opts?.shift ? ["Shift"] : undefined,
@@ -190,12 +194,16 @@ async function drawBoardFrame(
   from: { x: number; y: number },
   to: { x: number; y: number },
 ) {
+  const boardObjects = page.locator("[data-board-object-id]");
+  const countBefore = await boardObjects.count();
   await pickFrameMode(page, "Frame");
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
-  await page.waitForTimeout(1000);
+  await expect
+    .poll(() => boardObjects.count(), { timeout: 10_000 })
+    .toBeGreaterThan(countBefore);
 }
 
 async function boardHtml(request: APIRequestContext, designId: string) {
@@ -341,9 +349,12 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const before = await boardHtml(request, designId);
     // The remove-layer control only renders on row hover; hover the fill
     // row first so the button mounts before clicking it.
-    const fillRow = fillSection.locator("[data-fill-row], li, div").filter({
-      has: page.locator('button[aria-label="Remove layer"]'),
-    }).first();
+    const fillRow = fillSection
+      .locator("[data-fill-row], li, div")
+      .filter({
+        has: page.locator('button[aria-label="Remove layer"]'),
+      })
+      .first();
     const hasHoverRow = (await fillRow.count()) > 0;
     if (hasHoverRow) await fillRow.hover();
     else await fillSection.hover();
@@ -379,42 +390,93 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     // Lay both screens out side by side so a cross-screen drag has real
     // screen-space geometry (mirrors overview-alt-drag-element-copy.spec.ts).
     const record = await designRecord(request, designId);
-    const homeFileId = record.files.find((f: any) => f.filename === "index.html").id;
-    const navFileId = record.files.find((f: any) => f.filename === "nav.html").id;
+    const homeFileId = record.files.find(
+      (f: any) => f.filename === "index.html",
+    ).id;
+    const navFileId = record.files.find(
+      (f: any) => f.filename === "nav.html",
+    ).id;
     await action(request, "update-design", {
       id: designId,
       dataOperations: [
-        { op: "set", path: ["canvasFrames", homeFileId], value: { x: 0, y: 0, width: 1440, height: 900, z: 0 } },
-        { op: "set", path: ["canvasFrames", navFileId], value: { x: 1800, y: 0, width: 1440, height: 400, z: 1 } },
-        { op: "set", path: ["screenMetadata", homeFileId], value: { sourceType: "inline", width: 1440, height: 900 } },
-        { op: "set", path: ["screenMetadata", navFileId], value: { sourceType: "inline", width: 1440, height: 400 } },
+        {
+          op: "set",
+          path: ["canvasFrames", homeFileId],
+          value: { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", navFileId],
+          value: { x: 1800, y: 0, width: 1440, height: 400, z: 1 },
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", homeFileId],
+          value: { sourceType: "inline", width: 1440, height: 900 },
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", navFileId],
+          value: { sourceType: "inline", width: 1440, height: 400 },
+        },
       ],
     });
 
-    await page.goto(
-      `${BASE_URL}/design/${designId}?view=overview&zoom=25`,
-      { waitUntil: "domcontentloaded" },
-    );
+    await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=25`, {
+      waitUntil: "domcontentloaded",
+    });
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
       timeout: 40_000,
     });
-    await page.waitForTimeout(2500);
 
-    const sourceFrame = page.locator(`iframe[data-screen-iframe-id="${navFileId}"]`);
-    const targetFrame = page.locator(`iframe[data-screen-iframe-id="${homeFileId}"]`);
-    const sourceEl = sourceFrame.contentFrame().locator('[data-agent-native-node-id="nav-root"]');
+    const sourceFrame = page.locator(
+      `iframe[data-screen-iframe-id="${navFileId}"]`,
+    );
+    const targetFrame = page.locator(
+      `iframe[data-screen-iframe-id="${homeFileId}"]`,
+    );
+    const sourceEl = sourceFrame
+      .contentFrame()
+      .locator('[data-agent-native-node-id="nav-root"]');
     await expect(sourceEl).toBeVisible();
+    // Overview layout settles asynchronously with no discrete event — poll
+    // the source box until two consecutive reads agree.
+    let lastSourceBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await sourceEl.boundingBox();
+          const stable =
+            box !== null &&
+            lastSourceBox !== null &&
+            Math.abs(box.x - lastSourceBox.x) < 1 &&
+            Math.abs(box.y - lastSourceBox.y) < 1;
+          lastSourceBox = box;
+          return stable;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
     const sourceBox = (await sourceEl.boundingBox())!;
     const targetBox = (await targetFrame.boundingBox())!;
 
     // Drill in (Figma-style: first click selects the screen root, so we
     // double-click to reach the nested nav element), then Alt-drag a copy
     // of the "Navigation instance" onto the Home page.
-    await page.mouse.dblclick(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.dblclick(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
     await page.waitForTimeout(500);
-    await page.mouse.click(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.click(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
     await page.waitForTimeout(800);
-    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
     await page.keyboard.down("Alt");
     await page.mouse.down();
     await page.mouse.move(
@@ -422,7 +484,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       sourceBox.y + sourceBox.height / 2 + 20,
       { steps: 6 },
     );
-    await page.mouse.move(targetBox.x + targetBox.width * 0.5, targetBox.y + targetBox.height * 0.2, { steps: 20 });
+    await page.mouse.move(
+      targetBox.x + targetBox.width * 0.5,
+      targetBox.y + targetBox.height * 0.2,
+      { steps: 20 },
+    );
     await page.waitForTimeout(300);
     const ghost = page.locator("[data-cross-screen-drag-ghost]");
     const ghostAppeared = await ghost
@@ -431,19 +497,32 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .catch(() => false);
     await page.mouse.up();
     await page.keyboard.up("Alt");
-    await page.waitForTimeout(3000);
     expect(
       ghostAppeared,
       `alt-dragging the Navigation instance toward the Home screen should show the cross-screen drag ghost — trace: ${JSON.stringify(await dump(page))}`,
     ).toBe(true);
 
-    let homeHtml = await fileContent(request, designId, "index.html");
-    expect(
-      (homeHtml.match(/data-agent-native-component="Navigation"/g) ?? []).length,
-      `alt-dragging the Navigation instance onto Home should copy it in, leaving the source screen untouched — home html: ${homeHtml.slice(0, 400)}`,
-    ).toBe(1);
+    let homeHtml = "";
+    await expect
+      .poll(
+        async () => {
+          homeHtml = await fileContent(request, designId, "index.html");
+          return (
+            homeHtml.match(/data-agent-native-component="Navigation"/g) ?? []
+          ).length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "alt-dragging the Navigation instance onto Home should copy it in, leaving the source screen untouched",
+        },
+      )
+      .toBe(1);
     const navHtmlAfter = await fileContent(request, designId, "nav.html");
-    expect((navHtmlAfter.match(/data-agent-native-component="Navigation"/g) ?? []).length).toBe(1);
+    expect(
+      (navHtmlAfter.match(/data-agent-native-component="Navigation"/g) ?? [])
+        .length,
+    ).toBe(1);
 
     // Rest of step 4: Shift+A wraps the (single, in this fixture) dropped
     // instance into one auto-layout page frame with a background + fixed
@@ -473,21 +552,50 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(1, { timeout: 40_000 });
-    await page.waitForTimeout(2000);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
+      timeout: 40_000,
+    });
+    const card = page.locator("[data-screen-card]").first();
+    await expect(card).toBeVisible();
+    // Overview layout settles asynchronously with no discrete event — poll
+    // the card's box until two consecutive reads agree before force-clicking
+    // its current position.
+    let lastCardBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await card.boundingBox();
+          const stable =
+            box !== null &&
+            lastCardBox !== null &&
+            Math.abs(box.x - lastCardBox.x) < 1 &&
+            Math.abs(box.y - lastCardBox.y) < 1;
+          lastCardBox = box;
+          return stable;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
     const filesBefore = await fileList(request, designId);
 
-    const card = page.locator("[data-screen-card]").first();
     await card.click({ force: true });
     await page.waitForTimeout(400);
     await focusCanvas(page);
     await page.keyboard.press(`${MOD}+d`);
-    await page.waitForTimeout(2000);
-    let filesAfter = await fileList(request, designId);
-    expect(
-      filesAfter.length,
-      `Cmd+D on a selected screen should duplicate it as a new screen file (screens are top-level frames) — files: ${JSON.stringify(filesAfter)}`,
-    ).toBe(filesBefore.length + 1);
+    let filesAfter: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          filesAfter = await fileList(request, designId);
+          return filesAfter.length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "Cmd+D on a selected screen should duplicate it as a new screen file (screens are top-level frames)",
+        },
+      )
+      .toBe(filesBefore.length + 1);
     const dup1 = filesAfter.find((f) => !filesBefore.includes(f));
     expect(dup1, "duplicated screen file should exist").toBeTruthy();
     // Duplicating a screen regenerates every node id (like paste), so assert
@@ -499,7 +607,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     // A second Cmd+D on the original produces a second independent copy —
     // "Home" and "Case study" in the tutorial.
     await page
-      .locator('[data-screen-shell]')
+      .locator("[data-screen-shell]")
       .first()
       .locator("[data-screen-card]")
       .first()
@@ -507,18 +615,32 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await page.waitForTimeout(400);
     await focusCanvas(page);
     await page.keyboard.press(`${MOD}+d`);
-    await page.waitForTimeout(2000);
-    filesAfter = await fileList(request, designId);
-    expect(filesAfter.length).toBe(filesBefore.length + 2);
+    await expect
+      .poll(
+        async () => {
+          filesAfter = await fileList(request, designId);
+          return filesAfter.length;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(filesBefore.length + 2);
 
     // One undo removes the most recent duplicate only.
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(1500);
-    const filesAfterUndo = await fileList(request, designId);
-    expect(
-      filesAfterUndo.length,
-      `one undo after duplicating a screen should remove exactly that duplicate — before undo: ${JSON.stringify(filesAfter)}, after: ${JSON.stringify(filesAfterUndo)}`,
-    ).toBe(filesBefore.length + 1);
+    let filesAfterUndo: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          filesAfterUndo = await fileList(request, designId);
+          return filesAfterUndo.length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "one undo after duplicating a screen should remove exactly that duplicate",
+        },
+      )
+      .toBe(filesBefore.length + 1);
   });
 
   test("step 6 [in-screen]: dragging a new element into the assembled page reorders it between existing children via the layers panel", async ({
@@ -555,17 +677,29 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await bioRow.dragTo(skillsRow, {
       targetPosition: { x: 10, y: skillsRowBox.height - 2 },
     });
-    await page.waitForTimeout(1500);
 
-    const html = await fileContent(request, designId);
-    const order = ["hero", "skills", "bio"]
-      .map((id) => ({ id, index: html.indexOf(`data-agent-native-node-id="${id}"`) }))
-      .sort((a, b) => a.index - b.index)
-      .map((e) => e.id);
-    expect(
-      order,
-      `dragging Bio above Skills in the layers panel should reorder the DOM — got ${JSON.stringify(order)}, html: ${html}`,
-    ).toEqual(["hero", "bio", "skills"]);
+    const computeOrder = (html: string) =>
+      ["hero", "skills", "bio"]
+        .map((id) => ({
+          id,
+          index: html.indexOf(`data-agent-native-node-id="${id}"`),
+        }))
+        .sort((a, b) => a.index - b.index)
+        .map((e) => e.id);
+    let html = "";
+    await expect
+      .poll(
+        async () => {
+          html = await fileContent(request, designId);
+          return computeOrder(html);
+        },
+        {
+          timeout: 10_000,
+          message:
+            "dragging Bio above Skills in the layers panel should reorder the DOM",
+        },
+      )
+      .toEqual(["hero", "bio", "skills"]);
 
     // Enter selects all children of the frame body; check the sizing control
     // exists to set Fill-container per child (peer-owned inspector control,
@@ -606,18 +740,23 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     if (exists) {
       const urlBefore = page.url();
       await goToMainButton.first().click({ force: true });
-      await page.waitForTimeout(1000);
       // Degrade gracefully: either a toast/inline message appears, or (at
       // minimum) the click must not navigate away from the editor / throw.
-      const toastVisible = await page
-        .getByText(/unavailable|only known instance|could not|not found|no source/i)
-        .first()
-        .isVisible()
-        .catch(() => false);
-      expect(
-        toastVisible || page.url() === urlBefore,
-        "clicking 'Go to main component' on a prototype-only instance (no real source) should stay on the editor (toast preferred, silent no-nav acceptable) rather than crash or navigate away",
-      ).toBe(true);
+      const toastLocator = page.getByText(
+        /unavailable|only known instance|could not|not found|no source/i,
+      );
+      await expect
+        .poll(
+          async () =>
+            (await toastLocator.first().isVisible()) ||
+            page.url() === urlBefore,
+          {
+            timeout: 10_000,
+            message:
+              "clicking 'Go to main component' on a prototype-only instance (no real source) should stay on the editor (toast preferred, silent no-nav acceptable) rather than crash or navigate away",
+          },
+        )
+        .toBe(true);
     }
 
     // Step 7's "Reset all changes" (revert an instance's drifted overrides)

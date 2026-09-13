@@ -2865,10 +2865,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
     }
-    function collectSelectableElements() {
+    function collectSelectableElements(deep) {
       var nodes = Array.prototype.slice.call(
         document.body ? document.body.querySelectorAll("*") : []
       );
+      var scope = null;
+      if (!deep) {
+        scope = selectionContainerScope;
+        if (!scope || !document.documentElement.contains(scope)) {
+          scope = document.body;
+        }
+      }
       var seen = /* @__PURE__ */ new Set();
       var elements = [];
       nodes.forEach(function(node) {
@@ -2876,6 +2883,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var target = selectionTargetForHit(node);
+        if (target && scope && scope.contains(target)) {
+          target = containerScopeAncestor(target, scope);
+        }
         if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
           return;
         }
@@ -2892,8 +2902,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "none" || cs.visibility === "hidden";
     }
-    function collectSelectableElementInfos() {
-      return collectSelectableElements().map(function(target) {
+    function collectSelectableElementInfos(deep) {
+      return collectSelectableElements(deep).map(function(target) {
         return getElementInfo(target);
       });
     }
@@ -3300,6 +3310,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var spacingHatchNodesByKey = {};
     var spacingOverlayRenderKey = "";
     var activeDragCancel = null;
+    var activeDragStartedAt = null;
     var bridgeSpaceKeyPressed = false;
     var bridgeSpaceKeyConsumedByDrag = false;
     var activeCrossScreenStyleSnapshot = void 0;
@@ -3329,14 +3340,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
-    function setActiveDragCancel(cancel) {
+    function setActiveDragCancel(cancel, startedAt) {
       activeDragCancel = cancel;
+      activeDragStartedAt = typeof startedAt === "number" ? startedAt : Date.now();
       postEditorDragState(true);
     }
     function clearActiveDragCancel(cancel) {
       if (cancel && activeDragCancel !== cancel) return;
       if (!activeDragCancel) return;
       activeDragCancel = null;
+      activeDragStartedAt = null;
       postEditorDragState(false);
     }
     function cancelActiveBridgeDrag() {
@@ -3349,13 +3362,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     var MOVE_CANCEL_RACE_GRACE_MS = 200;
     var dragGestureSequence = 0;
     var pendingMoveCommitRevert = null;
-    function armPostCommitCancelGrace(gestureId, revert) {
+    function armPostCommitCancelGrace(gestureId, releasedAt, revert) {
       pendingMoveCommitRevert = {
         gestureId,
-        // Date.now, not performance.now: the host stamps the Escape keydown
-        // with Date.now too, and the two documents' performance.now clocks
-        // have different origins, so only a shared wall clock can order them.
-        releasedAt: Date.now(),
+        releasedAt,
         revert
       };
       window.setTimeout(function() {
@@ -3365,8 +3375,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }, MOVE_CANCEL_RACE_GRACE_MS);
     }
     function cancelActiveBridgeDragOrPendingCommit(pressedAt) {
-      if (cancelActiveBridgeDrag()) return true;
-      if (pendingMoveCommitRevert && typeof pressedAt === "number" && pressedAt <= pendingMoveCommitRevert.releasedAt) {
+      if (activeDragCancel && (typeof pressedAt !== "number" || activeDragStartedAt === null || activeDragStartedAt <= pressedAt)) {
+        if (cancelActiveBridgeDrag()) return true;
+      }
+      if (pendingMoveCommitRevert && typeof pressedAt === "number" && // Strict: a tie (same-tick release and Escape) is not "Escape predates
+      // the release" and must not revert an already-committed drag.
+      pressedAt < pendingMoveCommitRevert.releasedAt) {
         var pending = pendingMoveCommitRevert;
         pendingMoveCommitRevert = null;
         pending.revert();
@@ -3697,12 +3711,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       styleDeclarations(previousSource).forEach(function(entry) {
         previousOwned[entry[0]] = entry[1];
       });
+      var nextDeclarations = styleDeclarations(nextSource);
       var nextOwned = {};
-      styleDeclarations(nextSource).forEach(function(entry) {
+      nextDeclarations.forEach(function(entry) {
         nextOwned[entry[0]] = true;
       });
       var target = document.createElement("div");
-      target.style.cssText = nextSource || "";
+      target.style.cssText = live.getAttribute("style") ?? "";
+      nextDeclarations.forEach(function(entry) {
+        var wasSource = Object.prototype.hasOwnProperty.call(
+          previousOwned,
+          entry[0]
+        );
+        if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+        target.style.setProperty(entry[0], entry[1], entry[2]);
+      });
       styleDeclarations(live.getAttribute("style") ?? "").forEach(
         function(entry) {
           if (nextOwned[entry[0]]) return;
@@ -3710,8 +3733,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             previousOwned,
             entry[0]
           );
-          if (wasSource && previousOwned[entry[0]] === entry[1]) return;
-          target.style.setProperty(entry[0], entry[1], entry[2]);
+          if (wasSource && previousOwned[entry[0]] === entry[1]) {
+            target.style.removeProperty(entry[0]);
+          }
         }
       );
       var value = target.style.cssText;
@@ -5928,7 +5952,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
       if (!activeMarqueeSelection.candidates) {
-        activeMarqueeSelection.candidates = collectSelectableElements();
+        activeMarqueeSelection.candidates = collectSelectableElements(
+          activeMarqueeSelection.deep
+        );
       }
       var hitElements = activeMarqueeSelection.candidates.filter(function(el) {
         var bounds = selectableBounds(el);
@@ -5988,6 +6014,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         startX: e.clientX,
         startY: e.clientY,
         additive,
+        deep: Boolean(e && (e.metaKey || e.ctrlKey)),
         moved: false,
         pointerId: e.pointerId,
         move: events.move,
@@ -8912,6 +8939,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
       var moveGestureId = ++dragGestureSequence;
+      var gestureStartedAt = performance.timeOrigin + e.timeStamp;
       var events = dragEventNames(e);
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
@@ -9862,41 +9890,48 @@ export const editorChromeBridgeScript: string = `"use strict";
               "*"
             );
           });
-          armPostCommitCancelGrace(moveGestureId, function() {
-            memberStates.forEach(function(state) {
-              state.el.style.position = state.originalPosition;
-              state.el.style.left = state.originalLeft;
-              state.el.style.top = state.originalTop;
-              var revertStyles = {
-                position: state.originalPosition,
-                left: state.originalLeft,
-                top: state.originalTop
-              };
-              window.parent.postMessage(
-                {
-                  type: "visual-style-change",
-                  selector: getSelector(state.el),
-                  styles: revertStyles,
-                  originalStyles: originalInlineStylesForPatch(
-                    state.el,
-                    revertStyles
-                  ),
-                  payload: getElementInfo(state.el)
-                },
-                "*"
-              );
-            });
-            selectedEl = originalSelectedEl;
-            positionOverlay(selectionOverlay, selectedEl);
-            refreshOverlays();
-          });
+          armPostCommitCancelGrace(
+            moveGestureId,
+            // Real creation time of the mouseup, not of this handler running —
+            // any synchronous work above (auto-layout resolution, DOM writes)
+            // would otherwise inflate the apparent release time.
+            performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
+            function() {
+              memberStates.forEach(function(state) {
+                state.el.style.position = state.originalPosition;
+                state.el.style.left = state.originalLeft;
+                state.el.style.top = state.originalTop;
+                var revertStyles = {
+                  position: state.originalPosition,
+                  left: state.originalLeft,
+                  top: state.originalTop
+                };
+                window.parent.postMessage(
+                  {
+                    type: "visual-style-change",
+                    selector: getSelector(state.el),
+                    styles: revertStyles,
+                    originalStyles: originalInlineStylesForPatch(
+                      state.el,
+                      revertStyles
+                    ),
+                    payload: getElementInfo(state.el)
+                  },
+                  "*"
+                );
+              });
+              selectedEl = originalSelectedEl;
+              positionOverlay(selectionOverlay, selectedEl);
+              refreshOverlays();
+            }
+          );
           if (!isGroupDrag) postCrossScreenDrag("cancel");
         }
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onMoveKeyDown, true);
-      setActiveDragCancel(cancelMoveDrag);
+      setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
     }
     function collectScaleFontTargets(root) {
       var targets = [];
@@ -11448,11 +11483,52 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    var lastHoverClientPoint = null;
+    function resolveHoverTarget(clientX, clientY, deepSelect) {
+      var rawHit = elementFromEditorPoint(clientX, clientY);
+      return deepSelect ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
+    }
+    function reresolveHoverAtLastPoint(deepSelect) {
+      if (!lastHoverClientPoint) return;
+      hoveredEl = resolveHoverTarget(
+        lastHoverClientPoint.x,
+        lastHoverClientPoint.y,
+        deepSelect
+      );
+      if (!hoveredEl || hoveredEl === selectedEl) {
+        highlightOverlay.style.display = "none";
+      } else {
+        positionOverlay(highlightOverlay, hoveredEl);
+      }
+    }
+    document.addEventListener(
+      "keydown",
+      function(e) {
+        if (e.key === "Meta" || e.key === "Control") {
+          reresolveHoverAtLastPoint(true);
+        }
+      },
+      true
+    );
+    document.addEventListener(
+      "keyup",
+      function(e) {
+        if (e.key === "Meta" || e.key === "Control") {
+          reresolveHoverAtLastPoint(false);
+        }
+      },
+      true
+    );
     shieldOverlay.addEventListener(
       "pointermove",
       function(e) {
         stopNativeInteraction(e);
-        hoveredEl = elementFromEditorPoint(e.clientX, e.clientY);
+        lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+        hoveredEl = resolveHoverTarget(
+          e.clientX,
+          e.clientY,
+          e.metaKey || e.ctrlKey
+        );
         if (!hoveredEl) {
           highlightOverlay.style.display = "none";
           if (!spacingDrag) {
@@ -11791,7 +11867,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           {
             type: "agent-native:selectable-rects-result",
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
-            payload: collectSelectableElementInfos()
+            payload: collectSelectableElementInfos(Boolean(e.data.deep))
           },
           "*"
         );

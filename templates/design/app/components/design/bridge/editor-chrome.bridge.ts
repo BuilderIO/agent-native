@@ -2941,10 +2941,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // Every element the click path can reach, not just the id-bearing ones: an id
   // attribute is a persistence detail, and generated markup routinely has none,
   // so keying selectability off it made a marquee miss what a click hits.
-  function collectSelectableElements(): Element[] {
+  // Figma parity: a marquee selects objects at the CURRENT container scope
+  // (the screen root by default, or the container last drilled into) — the
+  // same scope containerFirstSelectionTarget resolves clicks against — never
+  // reaching into a candidate's nested descendants unless Cmd/Ctrl is held
+  // (`deep`), matching Cmd/Ctrl+click's own deep-select.
+  function collectSelectableElements(deep?: boolean): Element[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
+    var scope: Element | null = null;
+    if (!deep) {
+      scope = selectionContainerScope;
+      if (!scope || !document.documentElement.contains(scope)) {
+        scope = document.body;
+      }
+    }
     var seen = new Set<Element>();
     var elements: Element[] = [];
     nodes.forEach(function (node) {
@@ -2952,6 +2964,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var target = selectionTargetForHit(node);
+      if (target && scope && scope.contains(target)) {
+        target = containerScopeAncestor(target, scope);
+      }
       if (
         !target ||
         isDocumentRootElement(target) ||
@@ -2986,8 +3001,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cs.display === "none" || cs.visibility === "hidden";
   }
 
-  function collectSelectableElementInfos(): unknown[] {
-    return collectSelectableElements().map(function (target) {
+  function collectSelectableElementInfos(deep: boolean): unknown[] {
+    // This answers agent-native:collect-selectable-rects, which the overview
+    // host uses for BOTH the overview marquee (scoped: direct children of
+    // the current container, like the in-iframe marquee) and double-click
+    // drill-in/click-to-pick (deep: needs every descendant to walk one level
+    // further per repeat click) — the caller says which via `deep`.
+    return collectSelectableElements(deep).map(function (target) {
       return getElementInfo(target);
     });
   }
@@ -3527,6 +3547,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     startX: number;
     startY: number;
     additive: boolean;
+    deep: boolean;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
@@ -3716,6 +3737,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var spacingHatchNodesByKey: Record<string, Element> = {};
   var spacingOverlayRenderKey = "";
   var activeDragCancel: (() => boolean) | null = null;
+  // Wall-clock (epoch ms) moment the currently-active gesture became active,
+  // so a delayed cancel meant for an earlier gesture can be told apart from
+  // one meant for whatever is active now — see cancelActiveBridgeDragOrPendingCommit.
+  var activeDragStartedAt: number | null = null;
   var bridgeSpaceKeyPressed = false;
   var bridgeSpaceKeyConsumedByDrag = false;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
@@ -3760,8 +3785,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function setActiveDragCancel(cancel: () => boolean): void {
+  // `startedAt` should be performance.timeOrigin + <the originating pointer
+  // event>.timeStamp when that event is on hand (real creation time, immune
+  // to any synchronous work done before this call), falling back to Date.now()
+  // for gestures that don't thread the originating event through. Both are the
+  // same epoch-ms wall clock the host's Escape handler stamps its pressedAt
+  // with, so either is comparable against it.
+  function setActiveDragCancel(
+    cancel: () => boolean,
+    startedAt?: number,
+  ): void {
     activeDragCancel = cancel;
+    activeDragStartedAt =
+      typeof startedAt === "number" ? startedAt : Date.now();
     postEditorDragState(true);
   }
 
@@ -3769,6 +3805,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (cancel && activeDragCancel !== cancel) return;
     if (!activeDragCancel) return;
     activeDragCancel = null;
+    activeDragStartedAt = null;
     postEditorDragState(false);
   }
 
@@ -3812,14 +3849,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   } | null = null;
   function armPostCommitCancelGrace(
     gestureId: number,
+    releasedAt: number,
     revert: () => void,
   ): void {
     pendingMoveCommitRevert = {
       gestureId: gestureId,
-      // Date.now, not performance.now: the host stamps the Escape keydown
-      // with Date.now too, and the two documents' performance.now clocks
-      // have different origins, so only a shared wall clock can order them.
-      releasedAt: Date.now(),
+      releasedAt: releasedAt,
       revert: revert,
     };
     window.setTimeout(function () {
@@ -3837,19 +3872,38 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // path (which keeps calling cancelActiveBridgeDrag directly, touching only
   // a genuinely live gesture).
   //
-  // `pressedAt` is the host's Date.now() at the moment Escape was actually
-  // pressed, not at message-delivery time — the postMessage round trip means
-  // "cancel arrived after the commit" is true for BOTH an Escape that predates
-  // the mouseup (the race this grace window exists to fix) and one pressed
-  // genuinely after the drag already finished (which must NOT revert it).
-  // Comparing the two Date.now() stamps — a clock shared across documents —
-  // is the only way to tell those apart; message arrival order alone cannot.
+  // `pressedAt` is the moment Escape was actually pressed (the host computes
+  // it as performance.timeOrigin + the keydown event's timeStamp — real event
+  // creation time, not message-delivery time), never message-arrival time —
+  // the postMessage round trip means "cancel arrived after the commit" is
+  // true for BOTH an Escape that predates the mouseup (the race this grace
+  // window exists to fix) and one pressed genuinely after the drag already
+  // finished (which must NOT revert it). Per MDN, event creation time is
+  // comparable across browsing contexts as performance.timeOrigin +
+  // event.timeStamp, so both this document's releasedAt/activeDragStartedAt
+  // and the host's pressedAt sit on the same epoch-ms wall clock even though
+  // they're stamped in different documents; only comparing those creation
+  // times — never message arrival order — can tell the two cases apart.
+  //
+  // Gesture identity comes first, before touching the active gesture at all:
+  // an Escape stamped before the CURRENTLY active gesture began belongs to
+  // some earlier gesture (already finished or itself already cancelled) and
+  // must not reach in and cancel whatever the user has since started.
   function cancelActiveBridgeDragOrPendingCommit(pressedAt?: number): boolean {
-    if (cancelActiveBridgeDrag()) return true;
+    if (
+      activeDragCancel &&
+      (typeof pressedAt !== "number" ||
+        activeDragStartedAt === null ||
+        activeDragStartedAt <= pressedAt)
+    ) {
+      if (cancelActiveBridgeDrag()) return true;
+    }
     if (
       pendingMoveCommitRevert &&
       typeof pressedAt === "number" &&
-      pressedAt <= pendingMoveCommitRevert.releasedAt
+      // Strict: a tie (same-tick release and Escape) is not "Escape predates
+      // the release" and must not revert an already-committed drag.
+      pressedAt < pendingMoveCommitRevert.releasedAt
     ) {
       var pending = pendingMoveCommitRevert;
       pendingMoveCommitRevert = null;
@@ -4372,7 +4426,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   /** Property-level counterpart to applyClassAttribute: a property the source
-   *  never declared belongs to the runtime (x-show writes display). */
+   *  never declared belongs to the runtime (x-show writes display). Ownership
+   *  is tracked by VALUE, not just name — a property the source has always
+   *  declared can still belong to the runtime for one particular morph if a
+   *  script (a theme toggle, Tailwind's CDN build) set it AFTER the source
+   *  last rendered. Only a source value that is new or has actually changed
+   *  since the previous render may overwrite the live value; an unchanged
+   *  source declaration always defers to whatever is live. */
   function applyStyleAttribute(
     live: Element,
     previousSource: string,
@@ -4382,12 +4442,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     styleDeclarations(previousSource).forEach(function (entry) {
       previousOwned[entry[0]] = entry[1];
     });
+    var nextDeclarations = styleDeclarations(nextSource);
     var nextOwned: Record<string, true> = {};
-    styleDeclarations(nextSource).forEach(function (entry) {
+    nextDeclarations.forEach(function (entry) {
       nextOwned[entry[0]] = true;
     });
     var target = document.createElement("div");
-    target.style.cssText = nextSource || "";
+    // Start from the live value, not the next source: a runtime-set value
+    // this morph doesn't touch must survive by default. Only the two loops
+    // below move it off of that default.
+    target.style.cssText = live.getAttribute("style") ?? "";
+    nextDeclarations.forEach(function (entry) {
+      var wasSource = Object.prototype.hasOwnProperty.call(
+        previousOwned,
+        entry[0],
+      );
+      // Source didn't change this property since last render — leave the
+      // live value (author's or the runtime's) alone rather than resetting
+      // it to the source's own, unchanged value.
+      if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+      target.style.setProperty(entry[0], entry[1], entry[2]);
+    });
     styleDeclarations(live.getAttribute("style") ?? "").forEach(
       function (entry) {
         if (nextOwned[entry[0]]) return;
@@ -4399,8 +4474,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // it is the source's to drop. A live value that has diverged is the
         // runtime's — x-show writing display over an authored one — and
         // dropping it un-hides the element.
-        if (wasSource && previousOwned[entry[0]] === entry[1]) return;
-        target.style.setProperty(entry[0], entry[1], entry[2]);
+        if (wasSource && previousOwned[entry[0]] === entry[1]) {
+          target.style.removeProperty(entry[0]);
+        }
       },
     );
     var value = target.style.cssText;
@@ -7674,7 +7750,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Collected once per gesture: this runs on every pointermove, and a
     // generated screen can hold thousands of nodes.
     if (!activeMarqueeSelection.candidates) {
-      activeMarqueeSelection.candidates = collectSelectableElements();
+      activeMarqueeSelection.candidates = collectSelectableElements(
+        activeMarqueeSelection.deep,
+      );
     }
     var hitElements = activeMarqueeSelection.candidates.filter(function (el) {
       var bounds = selectableBounds(el);
@@ -7748,6 +7826,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       startX: e.clientX,
       startY: e.clientY,
       additive: additive,
+      deep: Boolean(e && (e.metaKey || e.ctrlKey)),
       moved: false,
       pointerId: e.pointerId,
       move: events.move,
@@ -12381,6 +12460,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     var moveGestureId = ++dragGestureSequence;
+    // Real creation time of the mousedown that started this gesture, not the
+    // moment this handler happened to run — see cancelActiveBridgeDragOrPendingCommit.
+    var gestureStartedAt = performance.timeOrigin + e.timeStamp;
     var events = dragEventNames(e);
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
@@ -13726,41 +13808,48 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             "*",
           );
         });
-        armPostCommitCancelGrace(moveGestureId, function () {
-          memberStates.forEach(function (state) {
-            state.el.style.position = state.originalPosition;
-            state.el.style.left = state.originalLeft;
-            state.el.style.top = state.originalTop;
-            var revertStyles = {
-              position: state.originalPosition,
-              left: state.originalLeft,
-              top: state.originalTop,
-            };
-            (window.parent as Window).postMessage(
-              {
-                type: "visual-style-change",
-                selector: getSelector(state.el),
-                styles: revertStyles,
-                originalStyles: originalInlineStylesForPatch(
-                  state.el,
-                  revertStyles,
-                ),
-                payload: getElementInfo(state.el),
-              },
-              "*",
-            );
-          });
-          selectedEl = originalSelectedEl;
-          positionOverlay(selectionOverlay, selectedEl);
-          refreshOverlays();
-        });
+        armPostCommitCancelGrace(
+          moveGestureId,
+          // Real creation time of the mouseup, not of this handler running —
+          // any synchronous work above (auto-layout resolution, DOM writes)
+          // would otherwise inflate the apparent release time.
+          performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
+          function () {
+            memberStates.forEach(function (state) {
+              state.el.style.position = state.originalPosition;
+              state.el.style.left = state.originalLeft;
+              state.el.style.top = state.originalTop;
+              var revertStyles = {
+                position: state.originalPosition,
+                left: state.originalLeft,
+                top: state.originalTop,
+              };
+              (window.parent as Window).postMessage(
+                {
+                  type: "visual-style-change",
+                  selector: getSelector(state.el),
+                  styles: revertStyles,
+                  originalStyles: originalInlineStylesForPatch(
+                    state.el,
+                    revertStyles,
+                  ),
+                  payload: getElementInfo(state.el),
+                },
+                "*",
+              );
+            });
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            refreshOverlays();
+          },
+        );
         if (!isGroupDrag) postCrossScreenDrag("cancel");
       }
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onMoveKeyDown, true);
-    setActiveDragCancel(cancelMoveDrag);
+    setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
   }
 
   /**
@@ -15913,11 +16002,63 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
 
+  // Meta/Ctrl held while hovering previews Cmd-click's deep-select: the
+  // outline jumps to the innermost object under the pointer instead of its
+  // container. Re-resolved on modifier keydown/keyup too (see below), so
+  // pressing/releasing the key while the pointer sits still still updates
+  // the outline without requiring a move.
+  var lastHoverClientPoint: { x: number; y: number } | null = null;
+  function resolveHoverTarget(
+    clientX: number,
+    clientY: number,
+    deepSelect: boolean,
+  ): Element | null {
+    var rawHit = elementFromEditorPoint(clientX, clientY);
+    return deepSelect
+      ? selectionTargetForHit(rawHit)
+      : containerFirstSelectionTarget(rawHit);
+  }
+  function reresolveHoverAtLastPoint(deepSelect: boolean): void {
+    if (!lastHoverClientPoint) return;
+    hoveredEl = resolveHoverTarget(
+      lastHoverClientPoint.x,
+      lastHoverClientPoint.y,
+      deepSelect,
+    );
+    if (!hoveredEl || hoveredEl === selectedEl) {
+      highlightOverlay.style.display = "none";
+    } else {
+      positionOverlay(highlightOverlay, hoveredEl);
+    }
+  }
+  document.addEventListener(
+    "keydown",
+    function (e) {
+      if (e.key === "Meta" || e.key === "Control") {
+        reresolveHoverAtLastPoint(true);
+      }
+    },
+    true,
+  );
+  document.addEventListener(
+    "keyup",
+    function (e) {
+      if (e.key === "Meta" || e.key === "Control") {
+        reresolveHoverAtLastPoint(false);
+      }
+    },
+    true,
+  );
   shieldOverlay.addEventListener(
     "pointermove",
     function (e) {
       stopNativeInteraction(e);
-      hoveredEl = elementFromEditorPoint(e.clientX, e.clientY);
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+      hoveredEl = resolveHoverTarget(
+        e.clientX,
+        e.clientY,
+        e.metaKey || e.ctrlKey,
+      );
       if (!hoveredEl) {
         highlightOverlay.style.display = "none";
         if (!spacingDrag) {
@@ -16392,7 +16533,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             typeof e.data.correlationId === "string"
               ? e.data.correlationId
               : "",
-          payload: collectSelectableElementInfos(),
+          payload: collectSelectableElementInfos(Boolean(e.data.deep)),
         },
         "*",
       );

@@ -335,6 +335,7 @@ import {
   isCrossScreenDropPlacement,
   isCrossScreenHitTestAnchorRect,
   isFinitePoint,
+  isPointerInsideSourceIframe,
   isPortableStyleSnapshot,
 } from "./multi-screen/cross-screen-drop";
 import {
@@ -1769,7 +1770,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       return;
     }
-    if (!surfaceRef.current || renderedScreens.length === 0) return;
+    // A board-only design (no screens yet) still has content worth framing:
+    // fall back to the board's own object bounds instead of bailing, or the
+    // camera never moves off its untouched default and every board object
+    // renders wherever that default happens to leave it — unclickable,
+    // un-marquee-able, off camera.
+    if (
+      !surfaceRef.current ||
+      (renderedScreens.length === 0 && !boardSurfaceContentBounds)
+    ) {
+      return;
+    }
     const rect = surfaceRef.current.getBoundingClientRect();
     const scale = zoomRef.current / 100;
     const frames = renderedScreens.map((screen) => {
@@ -1784,10 +1795,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       });
     });
     const bounds = getFrameGroupBounds(
-      frames.map((geometry, index) => ({
-        id: renderedScreens[index]?.id ?? String(index),
-        geometry,
-      })),
+      frames
+        .map((geometry, index) => ({
+          id: renderedScreens[index]?.id ?? String(index),
+          geometry,
+        }))
+        .concat(
+          // Only substitutes for a genuinely empty lineup — a design that
+          // already has screens keeps framing exactly those, so an existing
+          // multi-screen design's camera never jumps toward a stray board
+          // doodle it wasn't already fitting.
+          renderedScreens.length === 0 && boardSurfaceContentBounds
+            ? [
+                {
+                  id: boardFileId ?? "__board__",
+                  geometry: boardSurfaceContentBounds,
+                },
+              ]
+            : [],
+        ),
     );
     const totalWidth = bounds?.width ?? SCREEN_WIDTH;
     const totalHeight = bounds?.height ?? SCREEN_CARD_HEIGHT;
@@ -3059,11 +3085,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             styleSnapshot ?? crossScreenDragMsgRef.current?.styleSnapshot,
         };
 
-        const pointerInsideSourceIframe =
-          iframeX >= 0 &&
-          iframeY >= 0 &&
-          iframeX <= viewportW &&
-          iframeY <= viewportH;
+        // The host renders the source iframe element itself larger than the
+        // screen's visible frame (see isPointerInsideSourceIframe's doc), so
+        // the bridge's own window.innerWidth/innerHeight always reads back
+        // "inside" well past the visible edge — use the frame's real
+        // rendered geometry as the boundary instead.
+        const sourceRenderedGeometry =
+          renderedFrameGeometryRef.current[sourceScreenId] ??
+          frameGeometryRef.current[sourceScreenId];
+        const pointerInsideSourceIframe = isPointerInsideSourceIframe({
+          iframeX,
+          iframeY,
+          viewportW,
+          viewportH,
+          frameWidth: sourceRenderedGeometry?.width,
+          frameHeight: sourceRenderedGeometry?.height,
+        });
         const sourceIsBoard = sourceScreenId === boardFileId;
         // Regular screen iframes are finite artboards, so an in-bounds pointer
         // means the source bridge should keep handling the drag. The board
@@ -3320,7 +3357,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     | { status: "unanswered"; reason: "no-iframe" | "timeout" };
 
   const requestSelectableElementInfos = useCallback(
-    (screenId: string): Promise<SelectableRectsReply> => {
+    (screenId: string, deep: boolean): Promise<SelectableRectsReply> => {
       const targetScreen = screensRef.current.find((s) => s.id === screenId);
       const iframeId = targetScreen
         ? getActiveScreenIframeId(targetScreen)
@@ -3378,7 +3415,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         window.addEventListener("message", listener);
         targetContentWindow.postMessage(
-          { type: "agent-native:collect-selectable-rects", correlationId },
+          {
+            type: "agent-native:collect-selectable-rects",
+            correlationId,
+            deep,
+          },
           "*",
         );
       });
@@ -3393,9 +3434,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  which the marquee rect will never touch. `screenIds`, when given, scopes
    *  collection to just those frame entries (plus the board, which spans the
    *  whole surface so it's included whenever explicitly requested); omit it
-   *  to collect every screen. */
+   *  to collect every screen.
+   *
+   *  `deep` mirrors the in-iframe marquee/click's own Cmd/Ctrl semantics
+   *  (container-first-selection.bridge.spec.ts, marquee-container-first.bridge.spec.ts):
+   *  false collects only the direct children of each screen's current
+   *  selection-container scope (matching Figma's plain marquee), true
+   *  reaches into nested descendants. Double-click drill-in and click-to-pick
+   *  (`drillIntoScreenAtPoint`) always pass true — they need the full
+   *  descendant list to walk one level deeper per repeat click/click. */
   const collectLayerMarqueeCandidates = useCallback(
-    async (screenIds?: Set<string>) => {
+    async (screenIds?: Set<string>, deep = false) => {
       const unanswered: Array<{
         screenId: string;
         reason: "no-iframe" | "timeout";
@@ -3415,7 +3464,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const metadata = getResolvedMetadata(screen);
           const viewportWidth = iframe?.clientWidth || metadata.width;
           const viewportHeight = iframe?.clientHeight || metadata.height;
-          const reply = await requestSelectableElementInfos(entry.id);
+          const reply = await requestSelectableElementInfos(entry.id, deep);
           if (reply.status !== "ok") {
             unanswered.push({ screenId: entry.id, reason: reply.reason });
             return [] as CanvasLayerMarqueeCandidate[];
@@ -3451,7 +3500,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         boardSurfaceRenderGeometry &&
         (!screenIds || screenIds.has(boardFileId))
           ? await (async () => {
-              const reply = await requestSelectableElementInfos(boardFileId);
+              const reply = await requestSelectableElementInfos(
+                boardFileId,
+                deep,
+              );
               if (reply.status !== "ok") {
                 unanswered.push({
                   screenId: boardFileId,
@@ -3513,7 +3565,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           : null;
       const requestId = drillInRequestRef.current + 1;
       drillInRequestRef.current = requestId;
-      void collectLayerMarqueeCandidates(new Set([id])).then((result) => {
+      // Deep: drill-in/pick must see nested descendants to walk one level
+      // further per repeat click — unlike a marquee, which stops at the
+      // current container scope's direct children by default.
+      void collectLayerMarqueeCandidates(new Set([id]), true).then((result) => {
         if (drillInRequestRef.current !== requestId) return;
         if (result.unanswered.length > 0) {
           // The screen never answered, so "nothing under the pointer" is not
@@ -4025,6 +4080,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // gesture's selection (see drillInRequestRef).
       drillInRequestRef.current += 1;
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
+      // Cmd/Ctrl-held marquee reaches into nested descendants, mirroring the
+      // in-iframe marquee's own deep-select modifier (marquee-container-first
+      // finding) — a plain marquee stops at each screen's current container
+      // scope's direct children.
+      const deepSelect = e.metaKey || e.ctrlKey;
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
       let lastLayerSelectionSignature: string | null = null;
@@ -4100,21 +4160,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (newIds.length === 0) return;
         const requestIds = new Set(newIds);
         newIds.forEach((id) => collectingScreenIds.add(id));
-        void collectLayerMarqueeCandidates(requestIds).then((result) => {
-          const unanswered = new Set(
-            result.unanswered.map((entry) => entry.screenId),
-          );
-          newIds.forEach((id) => {
-            collectingScreenIds.delete(id);
-            // A screen that never answered is not "collected" — leave it out
-            // so growing the rect over it asks again instead of treating the
-            // silence as an empty screen for the rest of the gesture.
-            if (!unanswered.has(id)) collectedScreenIds.add(id);
-          });
-          if (dragState.current !== marqueeState) return;
-          layerCandidates = [...layerCandidates, ...result.candidates];
-          reportLayerSelection(latestRect);
-        });
+        void collectLayerMarqueeCandidates(requestIds, deepSelect).then(
+          (result) => {
+            const unanswered = new Set(
+              result.unanswered.map((entry) => entry.screenId),
+            );
+            newIds.forEach((id) => {
+              collectingScreenIds.delete(id);
+              // A screen that never answered is not "collected" — leave it out
+              // so growing the rect over it asks again instead of treating the
+              // silence as an empty screen for the rest of the gesture.
+              if (!unanswered.has(id)) collectedScreenIds.add(id);
+            });
+            if (dragState.current !== marqueeState) return;
+            layerCandidates = [...layerCandidates, ...result.candidates];
+            reportLayerSelection(latestRect);
+          },
+        );
       };
       dragState.current = marqueeState;
       setMarquee({ ...originCanvas, width: 0, height: 0 });

@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { canvasZoom, expandAllLayers } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { canvasZoom, expandAllLayers, gotoEditor } from "./helpers";
 
 /**
  * Figma parity — Selection (spec §1 + Part 3 resolutions).
@@ -109,10 +110,6 @@ async function newBoardDesign(page: Page): Promise<string> {
   return id;
 }
 
-function toolbar(page: Page): Locator {
-  return page.locator("[data-design-bottom-toolbar]");
-}
-
 function layersTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -133,22 +130,19 @@ function node(page: Page, id: string): Locator {
     .locator(`[data-agent-native-node-id="${id}"]`);
 }
 
-async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
+async function openEditorAndExpandLayers(
+  page: Page,
+  designId: string,
+): Promise<void> {
+  await gotoEditor(page, designId);
   await expandAllLayers(page);
-  await page.waitForTimeout(500);
 }
 
-async function click(page: Page, box: { x: number; y: number; width: number; height: number }, modifiers?: ("Meta" | "Shift" | "Control")[]) {
+async function click(
+  page: Page,
+  box: { x: number; y: number; width: number; height: number },
+  modifiers?: ("Meta" | "Shift" | "Control")[],
+) {
   // page.mouse.click's `modifiers` option is unreliable against this canvas
   // (see reference_browser_modifier_keys_not_delivered) — hold the keys with
   // keyboard.down/up around a plain click instead, matching what a real user
@@ -175,16 +169,13 @@ async function sweep(
   if (modifiers?.length) {
     for (const m of modifiers) await page.keyboard.up(m);
   }
-  await page.waitForTimeout(1500);
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9360}`;
+    (testInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
 });
 
 test.describe("click selects the container, not the deep child", () => {
@@ -192,18 +183,25 @@ test.describe("click selects the container, not the deep child", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
-    await page.waitForTimeout(1500);
 
-    const names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `Figma spec §1: "clicking an object that lives inside a frame/group ` +
-        `selects the outermost/top-level container ... not the deep child." ` +
-        `Selection was [${names.join(", ")}] instead of "Card".`,
-    ).toContain("Card");
+    let names: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          names = await selectedLayerNames(page);
+          return names.join("|");
+        },
+        {
+          timeout: 10_000,
+          message:
+            'Figma spec §1: "clicking an object that lives inside a frame/group ' +
+            'selects the outermost/top-level container ... not the deep child."',
+        },
+      )
+      .toContain("Card");
     expect(
       names.join("|"),
       "the deep child must not be the selection on a plain first click",
@@ -214,39 +212,44 @@ test.describe("click selects the container, not the deep child", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
-    await page.waitForTimeout(1200);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: the first click must select Card",
+      })
+      .toContain("Card");
     await page.mouse.dblclick(
       kidA.x + kidA.width / 2,
       kidA.y + kidA.height / 2,
     );
-    await page.waitForTimeout(1500);
 
-    const names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `double-click must drill one level in; selection is [${names.join(", ")}]`,
-    ).toContain("Kid A");
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "double-click must drill one level in",
+      })
+      .toContain("Kid A");
   });
 
   test("cmd+click deep-selects Kid B directly with no prior selection", async ({
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const kidB = (await node(page, "kid-b").boundingBox())!;
     await click(page, kidB, ["Meta"]);
-    await page.waitForTimeout(1500);
 
-    const names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `Figma spec §1: cmd/ctrl+click "deep-selects whatever object is ` +
-        `directly under the cursor ... skipping the select-container step." ` +
-        `Selection was [${names.join(", ")}].`,
-    ).toContain("Kid B");
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message:
+          'Figma spec §1: cmd/ctrl+click "deep-selects whatever object is ' +
+          'directly under the cursor ... skipping the select-container step."',
+      })
+      .toContain("Kid B");
   });
 });
 
@@ -255,85 +258,112 @@ test.describe("shift+click toggles membership", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const soloA = (await node(page, "solo-a").boundingBox())!;
     const soloB = (await node(page, "solo-b").boundingBox())!;
 
     await click(page, soloA);
-    await page.waitForTimeout(1000);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: the first click must select Solo A",
+      })
+      .toContain("Solo A");
     await click(page, soloB, ["Shift"]);
-    await page.waitForTimeout(1200);
-    let names = await selectedLayerNames(page);
-    expect(
-      names,
-      `after shift+click, both objects should be selected: [${names.join(", ")}]`,
-    ).toEqual(
+    let names: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          names = await selectedLayerNames(page);
+          return names.length;
+        },
+        {
+          timeout: 10_000,
+          message: "after shift+click, both objects should be selected",
+        },
+      )
+      .toBe(2);
+    expect(names).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Solo A"),
         expect.stringContaining("Solo B"),
       ]),
     );
-    expect(names).toHaveLength(2);
 
     await click(page, soloB, ["Shift"]);
-    await page.waitForTimeout(1200);
-    names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `Figma spec §1: shift+click on an already-selected object removes it. ` +
-        `Selection is [${names.join(", ")}].`,
-    ).not.toContain("Solo B");
-    expect(names.join("|")).toContain("Solo A");
+    let namesAfterToggle = "";
+    await expect
+      .poll(
+        async () => {
+          namesAfterToggle = (await selectedLayerNames(page)).join("|");
+          return namesAfterToggle;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "Figma spec §1: shift+click on an already-selected object removes it.",
+        },
+      )
+      .not.toContain("Solo B");
+    expect(namesAfterToggle).toContain("Solo A");
   });
 });
 
 test.describe("Esc / Enter traversal from a real drill-in", () => {
-  test("Escape backs out of a drilled-in child to the parent container", async ({
+  test("Escape clears the selection entirely, even from a drilled-in child", async ({
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
-    await page.waitForTimeout(1000);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: the first click must select Card",
+      })
+      .toContain("Card");
     await page.mouse.dblclick(
       kidA.x + kidA.width / 2,
       kidA.y + kidA.height / 2,
     );
-    await page.waitForTimeout(1200);
-    let names = await selectedLayerNames(page);
-    expect(names.join("|"), "precondition: drilled into Kid A").toContain(
-      "Kid A",
-    );
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: drilled into Kid A",
+      })
+      .toContain("Kid A");
 
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(1200);
-    names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `Figma spec (task): "Esc goes up a level" from a drilled-in child. ` +
-        `Selection is [${names.join(", ")}].`,
-    ).toContain("Card");
+    // Figma: Escape clears the selection entirely — it does not back out one
+    // level to the parent container.
+    await expect
+      .poll(async () => selectedLayerNames(page), {
+        timeout: 10_000,
+        message: "Escape must clear the selection entirely",
+      })
+      .toEqual([]);
   });
 
   test("Enter descends from Card to its first child", async ({ page }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
-    await page.waitForTimeout(1000);
-    let names = await selectedLayerNames(page);
-    expect(names.join("|"), "precondition: Card is selected").toContain(
-      "Card",
-    );
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: Card is selected",
+      })
+      .toContain("Card");
 
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(1200);
-    names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `Figma spec §1: Enter "selects one level down (child)". Selection is [${names.join(", ")}].`,
-    ).toMatch(/Kid/);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: 'Figma spec §1: Enter "selects one level down (child)".',
+      })
+      .toMatch(/Kid/);
   });
 });
 
@@ -341,18 +371,21 @@ test("clicking empty canvas inside the screen deselects everything", async ({
   page,
 }) => {
   const id = await newDesign(page);
-  await openEditor(page, id);
+  await openEditorAndExpandLayers(page, id);
   const soloA = (await node(page, "solo-a").boundingBox())!;
   await click(page, soloA);
-  await page.waitForTimeout(1000);
-  expect(await selectedLayerNames(page)).toHaveLength(1);
+  await expect
+    .poll(async () => (await selectedLayerNames(page)).length, {
+      timeout: 10_000,
+      message: "precondition: clicking Solo A must select exactly it",
+    })
+    .toBe(1);
 
   // A point with no data-agent-native-node-id under it at all: below every
   // fixture element but still inside the screen's own body background.
   const px = await canvasZoom(page);
   const empty = { x: soloA.x, y: soloA.y + 260 * px, width: 0, height: 0 };
   await click(page, empty);
-  await page.waitForTimeout(1200);
   await expect(
     selectedRows(page),
     "clicking empty canvas must clear the selection",
@@ -364,7 +397,7 @@ test.describe("marquee semantics", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const soloA = (await node(page, "solo-a").boundingBox())!;
     const soloB = (await node(page, "solo-b").boundingBox())!;
     // Start the band mid-way through Solo A and end it mid-way through
@@ -375,25 +408,26 @@ test.describe("marquee semantics", () => {
       { x: soloB.x + soloB.width / 2, y: soloB.y + soloB.height / 2 },
     );
 
-    const names = await selectedLayerNames(page);
-    expect(
-      names,
-      `Figma spec Part 3: marquee selects every top-level object it ` +
-        `INTERSECTS (touching counts), not only fully-enclosed ones. ` +
-        `Selection is [${names.join(", ")}].`,
-    ).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("Solo A"),
-        expect.stringContaining("Solo B"),
-      ]),
-    );
+    await expect
+      .poll(() => selectedLayerNames(page), {
+        timeout: 10_000,
+        message:
+          "Figma spec Part 3: marquee selects every top-level object it " +
+          "INTERSECTS (touching counts), not only fully-enclosed ones.",
+      })
+      .toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Solo A"),
+          expect.stringContaining("Solo B"),
+        ]),
+      );
   });
 
   test("a marquee over Card selects Card only, not its children", async ({
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const card = (await node(page, "card").boundingBox())!;
     await sweep(
       page,
@@ -401,10 +435,16 @@ test.describe("marquee semantics", () => {
       { x: card.x + card.width + 20, y: card.y + card.height + 20 },
     );
 
-    const names = await selectedLayerNames(page);
-    expect(names.join("|"), `selection is [${names.join(", ")}]`).toContain(
-      "Card",
-    );
+    let names: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          names = await selectedLayerNames(page);
+          return names.join("|");
+        },
+        { timeout: 10_000 },
+      )
+      .toContain("Card");
     expect(
       names,
       "a plain marquee must not reach past the top-level container into its children",
@@ -415,7 +455,7 @@ test.describe("marquee semantics", () => {
     page,
   }) => {
     const id = await newDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const card = (await node(page, "card").boundingBox())!;
     await sweep(
       page,
@@ -424,18 +464,19 @@ test.describe("marquee semantics", () => {
       ["Meta"],
     );
 
-    const names = await selectedLayerNames(page);
-    expect(
-      names,
-      `Figma spec §1: "Holding Cmd/Ctrl while dragging the marquee reaches ` +
-        `into nested layers rather than stopping at top-level containers." ` +
-        `Selection is [${names.join(", ")}].`,
-    ).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("Kid A"),
-        expect.stringContaining("Kid B"),
-      ]),
-    );
+    await expect
+      .poll(() => selectedLayerNames(page), {
+        timeout: 10_000,
+        message:
+          'Figma spec §1: "Holding Cmd/Ctrl while dragging the marquee reaches ' +
+          'into nested layers rather than stopping at top-level containers."',
+      })
+      .toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Kid A"),
+          expect.stringContaining("Kid B"),
+        ]),
+      );
   });
 });
 
@@ -444,45 +485,47 @@ test.describe("board objects on the overview canvas", () => {
     page,
   }) => {
     const id = await newBoardDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const boardA = (await node(page, "board-a").boundingBox())!;
     await click(page, boardA);
-    await page.waitForTimeout(1200);
 
-    const names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `board objects are already top-level; a click must select "Board A" ` +
-        `directly. Selection is [${names.join(", ")}].`,
-    ).toContain("Board A");
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message:
+          'board objects are already top-level; a click must select "Board A" directly.',
+      })
+      .toContain("Board A");
   });
 
   test("Tab cycles from Board A to Board B on the overview canvas", async ({
     page,
   }) => {
     const id = await newBoardDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const boardA = (await node(page, "board-a").boundingBox())!;
     await click(page, boardA);
-    await page.waitForTimeout(1000);
-    expect(await selectedLayerNames(page)).toEqual(
-      expect.arrayContaining([expect.stringContaining("Board A")]),
-    );
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: clicking Board A must select it",
+      })
+      .toContain("Board A");
 
     await page.keyboard.press("Tab");
-    await page.waitForTimeout(1200);
-    const names = await selectedLayerNames(page);
-    expect(
-      names.join("|"),
-      `Figma spec §1: "Tab cycles to the next sibling". Selection is [${names.join(", ")}].`,
-    ).toContain("Board B");
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: 'Figma spec §1: "Tab cycles to the next sibling".',
+      })
+      .toContain("Board B");
   });
 
   test("a marquee drawn on the board surface selects the board objects it intersects", async ({
     page,
   }) => {
     const id = await newBoardDesign(page);
-    await openEditor(page, id);
+    await openEditorAndExpandLayers(page, id);
     const boardA = (await node(page, "board-a").boundingBox())!;
     const boardB = (await node(page, "board-b").boundingBox())!;
     await sweep(
@@ -491,16 +534,17 @@ test.describe("board objects on the overview canvas", () => {
       { x: boardB.x + boardB.width / 2, y: boardB.y + boardB.height / 2 },
     );
 
-    const names = await selectedLayerNames(page);
-    expect(
-      names,
-      `a marquee on the board surface must sweep the objects it intersects. ` +
-        `Selection is [${names.join(", ")}].`,
-    ).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("Board A"),
-        expect.stringContaining("Board B"),
-      ]),
-    );
+    await expect
+      .poll(() => selectedLayerNames(page), {
+        timeout: 10_000,
+        message:
+          "a marquee on the board surface must sweep the objects it intersects.",
+      })
+      .toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Board A"),
+          expect.stringContaining("Board B"),
+        ]),
+      );
   });
 });

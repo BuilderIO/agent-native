@@ -102,10 +102,12 @@ async function newDesignWithBoard(page: Page): Promise<string> {
   return id;
 }
 
-async function openEditor(page: Page, designId: string): Promise<void> {
+async function openEditorAndExpandLayers(
+  page: Page,
+  designId: string,
+): Promise<void> {
   await gotoEditor(page, designId);
   await expandAllLayers(page);
-  await page.waitForTimeout(500);
 }
 
 function layerTree(page: Page): Locator {
@@ -186,7 +188,7 @@ test.describe("Figma parity — layers panel", () => {
     designId = testInfo.title.includes("board")
       ? await newDesignWithBoard(page)
       : await newDesign(page);
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
   });
 
   test("top row is topmost-rendered, matching DOM order (Steve's footer-above-header report)", async ({
@@ -532,13 +534,10 @@ test.describe("Figma parity — layers panel", () => {
     // index.html -> "Home"), which per L19 in can-move-layer.ts appends into
     // the screen body.
     const screenFileRowButton = layerRowButton(page, "Home");
-    const screenRowVisible = await screenFileRowButton
-      .isVisible()
-      .catch(() => false);
-    test.skip(
-      !screenRowVisible,
-      "harness-blocked: no visible screen/file row to drop onto in this panel layout",
-    );
+    await expect(
+      screenFileRowButton,
+      "the screen's own layer row must be visible to drop a board object onto it",
+    ).toBeVisible({ timeout: 10_000 });
     const screenFileRow = layerRow(page, "Home");
     const screenFileBox = await screenFileRow.boundingBox();
     if (!screenFileBox) throw new Error("screen file row has no bounding box");

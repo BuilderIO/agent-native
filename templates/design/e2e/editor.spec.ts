@@ -343,21 +343,21 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 });
 
-test("hides the gated secondary panels and Assets picker when disabled", async ({
-  page,
-}) => {
-  test.skip(
-    process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0",
-    "The default E2E profile keeps advanced panels enabled for their existing coverage.",
-  );
-
-  for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
-    await expect(
-      page.getByRole("button", { name: label, exact: true }),
-    ).toHaveCount(0);
-  }
-  await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
-});
+// Only registered against the profile that actually disables the gated
+// panels — the default E2E profile keeps them enabled for their own coverage,
+// so a runtime test.skip here would count as a permanent conditional skip.
+if (process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS === "0") {
+  test("hides the gated secondary panels and Assets picker when disabled", async ({
+    page,
+  }) => {
+    for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
+      await expect(
+        page.getByRole("button", { name: label, exact: true }),
+      ).toHaveCount(0);
+    }
+    await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
+  });
+}
 
 test("clicking an element selects it and populates the inspector", async ({
   page,

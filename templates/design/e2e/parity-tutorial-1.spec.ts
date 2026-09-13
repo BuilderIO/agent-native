@@ -692,10 +692,16 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     // A click (no drag) with a shape tool creates a default 100x100 shape
     // (figma-interaction-spec Part 3). Locate it and drag it.
     const boardShape = page.locator("[data-board-object-id]").first();
-    const before = await boardShape.boundingBox();
+    let before = await boardShape.boundingBox();
     if (!before) {
-      test.skip(true, "harness could not locate the created board shape");
-      return;
+      await expect
+        .poll(() => boardShape.boundingBox(), {
+          timeout: 10_000,
+          message:
+            "board-object-camera-and-click: harness could not locate the created board shape",
+        })
+        .not.toBeNull();
+      before = (await boardShape.boundingBox())!;
     }
     await page.mouse.move(
       before.x + before.width / 2,

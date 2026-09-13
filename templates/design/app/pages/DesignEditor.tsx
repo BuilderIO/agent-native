@@ -718,11 +718,13 @@ import {
 import {
   type ContentHistoryChange,
   type ContentHistoryEntry,
+  type ContentHistorySelectionAfterMap,
   type FileCreationHistoryEntry,
   type FileDeletionHistoryEntry,
   finalizeTextCreationHistory,
   findLastContentHistoryChangeIndex,
   contentHistoryScopeForViewMode,
+  forwardYjsUndoStackItemMeta,
   getContentHistoryChanges,
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
@@ -2146,6 +2148,13 @@ function DesignEditor() {
   const contentRedoSelectionStackRef = useRef<
     (GeometryHistorySelection | undefined)[]
   >([]);
+  // Figma-parity redo selection restore for this stack — see
+  // ContentHistorySelectionAfterMap's doc comment for why this is a WeakMap
+  // keyed by entry object rather than a second index-aligned array. Never
+  // cleared explicitly: entries fall out on their own once nothing in
+  // contentUndoStackRef/contentRedoStackRef references them any more.
+  const contentHistorySelectionAfterRef =
+    useRef<ContentHistorySelectionAfterMap>(new WeakMap());
   const localContentUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const localContentRedoStackRef = useRef<ContentHistoryChange[]>([]);
   const activeFileIdForUndoRef = useRef<string | null>(null);
@@ -2321,7 +2330,11 @@ function DesignEditor() {
         changes.length === 1 ? changes[0] : { changes },
       ];
       // Figma-parity undo/redo selection restore: index-aligned with the push
-      // just above — see contentUndoSelectionStackRef's doc comment.
+      // just above — see contentUndoSelectionStackRef's doc comment. A
+      // gesture that knows its own result (group, frame, duplicate, paste)
+      // separately stamps contentHistorySelectionAfterRef for redo once this
+      // call returns — see ContentHistorySelectionAfterMap's doc comment for
+      // why that isn't a second slot right here.
       contentUndoSelectionStackRef.current = [
         ...contentUndoSelectionStackRef.current.slice(
           -(MAX_DESIGN_UNDO_STACK - 1),
@@ -5684,9 +5697,29 @@ function DesignEditor() {
       clearRedoStacks();
       syncUndoRedoState();
     };
+    // Figma-parity redo selection restore: yjs never reuses a StackItem
+    // across a round trip — undoing pops one off undoStack and pushes a
+    // FRESH item (blank meta) onto redoStack for the inverse transaction,
+    // and vice versa on redo (see forwardYjsUndoStackItemMeta's doc
+    // comment). Without this, a selection stamped by stampYjsUndoSelection /
+    // stampYjsUndoSelectionAfter would work for exactly one undo and vanish
+    // on the matching redo. This fires after yjs has already pushed the new
+    // item, so it's on top of the opposite stack here.
+    const handleStackItemPopped = (event: {
+      stackItem: { meta: Map<unknown, unknown> };
+      type?: "undo" | "redo";
+    }) => {
+      const oppositeStack =
+        event.type === "undo" ? um.redoStack : um.undoStack;
+      forwardYjsUndoStackItemMeta(
+        event.stackItem,
+        oppositeStack[oppositeStack.length - 1],
+      );
+      syncUndoRedoState();
+    };
     um.on("stack-item-added", handleStackItemAdded);
     um.on("stack-item-updated", syncState);
-    um.on("stack-item-popped", syncState);
+    um.on("stack-item-popped", handleStackItemPopped);
     um.on("stack-cleared", syncState);
 
     undoManagerRef.current = um;
@@ -5695,7 +5728,7 @@ function DesignEditor() {
     return () => {
       um.off("stack-item-added", handleStackItemAdded);
       um.off("stack-item-updated", syncState);
-      um.off("stack-item-popped", syncState);
+      um.off("stack-item-popped", handleStackItemPopped);
       um.off("stack-cleared", syncState);
       um.destroy();
       undoManagerRef.current = null;
@@ -11561,13 +11594,17 @@ function DesignEditor() {
         applyLocalContentUpdate,
         canEditDesign,
         codeLayerOwnerByNodeIdRef,
+        contentHistorySelectionAfterRef,
+        contentUndoStackRef,
         files,
         getFreshActiveContent,
+        overviewSelectedScreenIds,
         selectedLayerIdsState,
         sendRuntimeLayerSemanticHandoff,
         setSelectedElement,
         setSelectedLayerIdsState,
         t,
+        undoManagerRef,
       }),
     [
       activeFile,
@@ -11575,6 +11612,7 @@ function DesignEditor() {
       canEditDesign,
       files,
       getFreshActiveContent,
+      overviewSelectedScreenIds,
       selectedLayerIdsState,
       sendRuntimeLayerSemanticHandoff,
       t,
@@ -11597,12 +11635,16 @@ function DesignEditor() {
         activeFile,
         applyLocalContentUpdate,
         canEditDesign,
+        contentHistorySelectionAfterRef,
+        contentUndoStackRef,
         files,
         getFreshActiveContent,
+        overviewSelectedScreenIds,
         selectedLayerIdsState,
         setSelectedElement,
         setSelectedLayerIdsState,
         t,
+        undoManagerRef,
       }),
     [
       activeFile,
@@ -11610,6 +11652,7 @@ function DesignEditor() {
       canEditDesign,
       files,
       getFreshActiveContent,
+      overviewSelectedScreenIds,
       selectedLayerIdsState,
       t,
     ],
@@ -13159,6 +13202,7 @@ function DesignEditor() {
         canEditDesign,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
+        contentHistorySelectionAfterRef,
         contentRedoSelectionStackRef,
         contentRedoStackRef,
         contentUndoSelectionStackRef,
@@ -17837,9 +17881,14 @@ function DesignEditor() {
       selectedRuntimeLayerOwners.every(
         (owner) => owner?.fileId === selectedRuntimeLayerOwners[0]?.fileId,
       ));
+  // Figma parity: grouping doesn't care which canvas mode you're looking at
+  // it from — Cmd+G (handleGroupSelection wired unconditionally at
+  // canEditDesign in useDesignHotkeys) already works from overview, so
+  // gating just the context-menu item to viewMode === "single" only made
+  // the two entry points disagree about the same command.
+  // runGroupSelection itself has no viewMode dependency either.
   const canGroup =
     canEditDesign &&
-    viewMode === "single" &&
     Boolean(activeFile) &&
     selectedDomLayerIds.length >= 1 &&
     selectedLayersUseCompatibleSourceBackend;

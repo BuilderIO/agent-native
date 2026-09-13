@@ -149,9 +149,10 @@ function parentOf(html: string, nodeId: string): string | null {
 
 function styleOf(html: string, id: string): string {
   return (
-    new RegExp(`data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`, "i").exec(
-      html,
-    )?.[1] ?? ""
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? ""
   );
 }
 
@@ -254,19 +255,24 @@ test.describe("drag reparent parity", () => {
     const trace1 = await dumpTrace(page);
 
     await page.mouse.up();
-    await page.waitForTimeout(2000);
-
-    const html = await fileContent(page, id, "index.html");
-    const parent = parentOf(html, "widget");
 
     expect(
       guideBox && guideBox.width > footer.width * 0.5,
       `expected the footer to visibly highlight while hovering before drop; got guideBox=${JSON.stringify(guideBox)}. Trace: ${trace1.slice(-800)}`,
     ).toBe(true);
-    expect(
-      parent,
-      `dragging Widget onto Footer must nest it into the footer (Steve: "could not drop into a footer"). Got parent=${parent}. HTML: ${html.slice(0, 400)}`,
-    ).toBe("footer");
+
+    await expect
+      .poll(
+        async () => {
+          const html = await fileContent(page, id, "index.html");
+          return parentOf(html, "widget");
+        },
+        {
+          timeout: 10_000,
+          message: `dragging Widget onto Footer must nest it into the footer (Steve: "could not drop into a footer")`,
+        },
+      )
+      .toBe("footer");
   });
 
   test("dragging an element out of the footer to the screen root reparents it to the root", async ({
@@ -296,18 +302,23 @@ test.describe("drag reparent parity", () => {
     );
     await page.waitForTimeout(400);
     await page.mouse.up();
-    await page.waitForTimeout(2000);
 
-    const html = await fileContent(page, id, "index.html");
-    const parent = parentOf(html, "footer-item");
-    const stillInFooter = /<footer[\s\S]*?footer-item[\s\S]*?<\/footer>/i.test(
-      html,
-    );
-
-    expect(
-      parent === null && !stillInFooter,
-      `dragging FooterItem to the root gap must reparent it to the screen root, not leave it in footer. parent=${parent}. HTML: ${html.slice(0, 600)}`,
-    ).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const html = await fileContent(page, id, "index.html");
+          const parent = parentOf(html, "footer-item");
+          const stillInFooter =
+            /<footer[\s\S]*?footer-item[\s\S]*?<\/footer>/i.test(html);
+          return parent === null && !stillInFooter;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "dragging FooterItem to the root gap must reparent it to the screen root, not leave it in footer",
+        },
+      )
+      .toBe(true);
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({
@@ -334,13 +345,27 @@ test.describe("drag reparent parity", () => {
     await page.waitForTimeout(500);
     const trace = await dumpTrace(page);
     await page.mouse.up();
-    await page.waitForTimeout(2500);
 
-    const indexHtml = await fileContent(page, id, "index.html");
-    const boardHtml = await fileContent(page, id, "__board__.html").catch(
-      () => "",
-    );
-
+    let indexHtml = "";
+    let boardHtml = "";
+    await expect
+      .poll(
+        async () => {
+          indexHtml = await fileContent(page, id, "index.html");
+          boardHtml = await fileContent(page, id, "__board__.html").catch(
+            () => "",
+          );
+          return (
+            !indexHtml.includes('data-agent-native-node-id="widget"') &&
+            boardHtml.length > 0
+          );
+        },
+        {
+          timeout: 10_000,
+          message: `Widget dropped on the empty board must leave the screen document and become a board object. Trace: ${trace.slice(-800)}`,
+        },
+      )
+      .toBe(true);
     expect(
       indexHtml.includes('data-agent-native-node-id="widget"'),
       `Widget must leave the screen document once dropped outside it on the board. Trace: ${trace.slice(-800)}`,
@@ -370,15 +395,17 @@ test.describe("drag reparent parity", () => {
       steps: 12,
     });
     await page.mouse.up();
-    await page.waitForTimeout(1500);
 
-    const boardHtmlBefore = await fileContent(page, id, "__board__.html").catch(
-      () => "",
-    );
-    expect(
-      boardHtmlBefore,
-      "precondition: the rectangle tool must place a rectangle on the board",
-    ).toContain('data-an-primitive="rectangle"');
+    await expect
+      .poll(
+        async () => fileContent(page, id, "__board__.html").catch(() => ""),
+        {
+          timeout: 10_000,
+          message:
+            "precondition: the rectangle tool must place a rectangle on the board",
+        },
+      )
+      .toContain('data-an-primitive="rectangle"');
 
     const rectLocator = page
       .locator("[data-board-surface-layer] iframe")
@@ -403,28 +430,33 @@ test.describe("drag reparent parity", () => {
       rectBox.y + rectBox.height / 2,
       { steps: 4 },
     );
-    await page.mouse.move(
-      main.x + main.width / 2,
-      main.y + main.height / 2,
-      { steps: 24 },
-    );
+    await page.mouse.move(main.x + main.width / 2, main.y + main.height / 2, {
+      steps: 24,
+    });
     await page.waitForTimeout(400);
     await page.mouse.up();
-    await page.waitForTimeout(2500);
 
-    const indexHtmlAfter = await fileContent(page, id, "index.html");
-    const boardHtmlAfter = await fileContent(page, id, "__board__.html").catch(
-      () => "",
-    );
-
-    expect(
-      indexHtmlAfter.includes('data-an-primitive="rectangle"'),
-      `dragging the board rectangle into the screen's Main must insert it into that screen. HTML: ${indexHtmlAfter.slice(0, 500)}`,
-    ).toBe(true);
-    expect(
-      boardHtmlAfter.includes('data-an-primitive="rectangle"'),
-      "the rectangle must be removed from the board once it moves into a screen",
-    ).toBe(false);
+    let indexHtmlAfter = "";
+    let boardHtmlAfter = "";
+    await expect
+      .poll(
+        async () => {
+          indexHtmlAfter = await fileContent(page, id, "index.html");
+          boardHtmlAfter = await fileContent(page, id, "__board__.html").catch(
+            () => "",
+          );
+          return (
+            indexHtmlAfter.includes('data-an-primitive="rectangle"') &&
+            !boardHtmlAfter.includes('data-an-primitive="rectangle"')
+          );
+        },
+        {
+          timeout: 10_000,
+          message:
+            "dragging the board rectangle into the screen's Main must insert it into that screen and remove it from the board",
+        },
+      )
+      .toBe(true);
   });
 
   test("holding Space while dragging into the footer keeps the element in its current parent", async ({
@@ -468,15 +500,20 @@ test.describe("drag reparent parity", () => {
     await page.waitForTimeout(400);
     await page.mouse.up();
     await spaceKey("keyup");
-    await page.waitForTimeout(2000);
 
-    const html = await fileContent(page, id, "index.html");
-    const parent = parentOf(html, "widget");
-
-    expect(
-      parent,
-      `Figma: holding Space while dragging must keep the object in its current parent even while hovering a frame. Got parent=${parent}`,
-    ).toBe("main");
+    await expect
+      .poll(
+        async () => {
+          const html = await fileContent(page, id, "index.html");
+          return parentOf(html, "widget");
+        },
+        {
+          timeout: 10_000,
+          message:
+            "Figma: holding Space while dragging must keep the object in its current parent even while hovering a frame",
+        },
+      )
+      .toBe("main");
   });
 
   test("one undo after nesting an element into the footer restores both its parent and its position", async ({
@@ -511,30 +548,44 @@ test.describe("drag reparent parity", () => {
     );
     await page.waitForTimeout(400);
     await page.mouse.up();
-    await page.waitForTimeout(2000);
 
-    const afterDragHtml = await fileContent(page, id, "index.html");
-    expect(
-      parentOf(afterDragHtml, "widget"),
-      "precondition: the drag must actually nest Widget into Footer before testing undo",
-    ).toBe("footer");
+    await expect
+      .poll(
+        async () => {
+          const afterDragHtml = await fileContent(page, id, "index.html");
+          return parentOf(afterDragHtml, "widget");
+        },
+        {
+          timeout: 10_000,
+          message:
+            "precondition: the drag must actually nest Widget into Footer before testing undo",
+        },
+      )
+      .toBe("footer");
 
     await page.keyboard.press("ControlOrMeta+z");
-    await page.waitForTimeout(1500);
 
-    const afterUndoHtml = await fileContent(page, id, "index.html");
-    const parentAfterUndo = parentOf(afterUndoHtml, "widget");
-    const styleAfterUndo = styleOf(afterUndoHtml, "widget");
-    const leftAfterUndo = styleNum(styleAfterUndo, "left");
-    const topAfterUndo = styleNum(styleAfterUndo, "top");
-
-    expect(
-      parentAfterUndo,
-      `ONE undo after a reparent drag must restore the original parent (Widget started inside Main). Got parent=${parentAfterUndo}`,
-    ).toBe("main");
+    let leftAfterUndo = NaN;
+    let topAfterUndo = NaN;
+    await expect
+      .poll(
+        async () => {
+          const afterUndoHtml = await fileContent(page, id, "index.html");
+          const styleAfterUndo = styleOf(afterUndoHtml, "widget");
+          leftAfterUndo = styleNum(styleAfterUndo, "left");
+          topAfterUndo = styleNum(styleAfterUndo, "top");
+          return parentOf(afterUndoHtml, "widget");
+        },
+        {
+          timeout: 10_000,
+          message:
+            "ONE undo after a reparent drag must restore the original parent (Widget started inside Main)",
+        },
+      )
+      .toBe("main");
     expect(
       leftAfterUndo === beforeLeft && topAfterUndo === beforeTop,
-      "Steve: \"currently only half reverts\" — ONE undo must also restore the " +
+      'Steve: "currently only half reverts" — ONE undo must also restore the ' +
         `original position, not just the parent. before=(${beforeLeft},${beforeTop}) after-undo=(${leftAfterUndo},${topAfterUndo})`,
     ).toBe(true);
   });
@@ -567,26 +618,45 @@ test.describe("drag reparent parity", () => {
     await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
     await page.waitForTimeout(400);
     await page.mouse.up();
-    await page.waitForTimeout(2500);
 
-    const afterDragHtml = await fileContent(page, id, "index.html");
-    test.skip(
-      afterDragHtml.includes('data-agent-native-node-id="widget"'),
-      "precondition failed: Widget never left the screen, covered by the dedicated board-drop test",
-    );
+    // Precondition is the same screen-to-board drag exercised (and asserted)
+    // by "dragging an element from inside a screen onto the empty board..."
+    // above; not skipped here — if that drag is broken this fails for the
+    // real reason instead of silently passing an untested undo.
+    await expect
+      .poll(
+        async () => {
+          const afterDragHtml = await fileContent(page, id, "index.html");
+          return afterDragHtml.includes('data-agent-native-node-id="widget"');
+        },
+        {
+          timeout: 10_000,
+          message:
+            "precondition: Widget must leave the screen once dropped on the board before testing undo",
+        },
+      )
+      .toBe(false);
 
     await page.keyboard.press("ControlOrMeta+z");
-    await page.waitForTimeout(1500);
 
-    const afterUndoHtml = await fileContent(page, id, "index.html");
-    const styleAfterUndo = styleOf(afterUndoHtml, "widget");
-    const leftAfterUndo = styleNum(styleAfterUndo, "left");
-    const topAfterUndo = styleNum(styleAfterUndo, "top");
-
-    expect(
-      afterUndoHtml.includes('data-agent-native-node-id="widget"'),
-      "ONE undo after a screen-to-board drag must restore Widget back inside the screen",
-    ).toBe(true);
+    let leftAfterUndo = NaN;
+    let topAfterUndo = NaN;
+    await expect
+      .poll(
+        async () => {
+          const afterUndoHtml = await fileContent(page, id, "index.html");
+          const styleAfterUndo = styleOf(afterUndoHtml, "widget");
+          leftAfterUndo = styleNum(styleAfterUndo, "left");
+          topAfterUndo = styleNum(styleAfterUndo, "top");
+          return afterUndoHtml.includes('data-agent-native-node-id="widget"');
+        },
+        {
+          timeout: 10_000,
+          message:
+            "ONE undo after a screen-to-board drag must restore Widget back inside the screen",
+        },
+      )
+      .toBe(true);
     expect(
       leftAfterUndo === beforeLeft && topAfterUndo === beforeTop,
       `ONE undo must restore the exact original position too. before=(${beforeLeft},${beforeTop}) after-undo=(${leftAfterUndo},${topAfterUndo})`,
@@ -602,9 +672,27 @@ test.describe("drag reparent parity", () => {
     // the second screen is placed well below the first by default. Zoom-fit
     // needs canvas focus, not e.g. a panel that swallows the keystroke.
     await page.keyboard.press("Shift+1");
-    await page.waitForTimeout(1000);
     const screenOneId = await fileIdFor(page, id, "index.html");
     const screenTwoId = await fileIdFor(page, id, "page-two.html");
+
+    // Shift+1 (zoom-to-fit) is a CSS transition with no completion event —
+    // poll the target's own box until two consecutive reads agree, so the
+    // drag below computes coordinates against the settled layout.
+    let lastTargetBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await boxFor(page, screenTwoId, "page2-target");
+          const stable =
+            lastTargetBox !== null &&
+            Math.abs(box.x - lastTargetBox.x) < 1 &&
+            Math.abs(box.y - lastTargetBox.y) < 1;
+          lastTargetBox = box;
+          return stable;
+        },
+        { timeout: 5_000, message: "zoom-to-fit never settled" },
+      )
+      .toBe(true);
 
     const widget = await boxFor(page, screenOneId, "widget");
     const target = await boxFor(page, screenTwoId, "page2-target");
@@ -627,18 +715,24 @@ test.describe("drag reparent parity", () => {
     await page.waitForTimeout(500);
     const trace = await dumpTrace(page);
     await page.mouse.up();
-    await page.waitForTimeout(2500);
 
-    const screenOneHtml = await fileContent(page, id, "index.html");
-    const screenTwoHtml = await fileContent(page, id, "page-two.html");
-
-    expect(
-      screenOneHtml.includes('data-agent-native-node-id="widget"'),
-      `Widget must leave screen one once dropped into screen two. Trace: ${trace.slice(-800)}`,
-    ).toBe(false);
-    expect(
-      screenTwoHtml.includes('data-agent-native-node-id="widget"'),
-      "Widget must land inside screen two's document after the cross-screen drop",
-    ).toBe(true);
+    let screenOneHtml = "";
+    let screenTwoHtml = "";
+    await expect
+      .poll(
+        async () => {
+          screenOneHtml = await fileContent(page, id, "index.html");
+          screenTwoHtml = await fileContent(page, id, "page-two.html");
+          return (
+            !screenOneHtml.includes('data-agent-native-node-id="widget"') &&
+            screenTwoHtml.includes('data-agent-native-node-id="widget"')
+          );
+        },
+        {
+          timeout: 10_000,
+          message: `Widget must leave screen one and land inside screen two after the cross-screen drop. Trace: ${trace.slice(-800)}`,
+        },
+      )
+      .toBe(true);
   });
 });

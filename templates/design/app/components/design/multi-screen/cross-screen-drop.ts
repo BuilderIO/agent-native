@@ -14,6 +14,35 @@ import type {
   Point,
 } from "./types";
 
+/**
+ * Whether a cross-screen drag's pointer is still inside the SOURCE screen's
+ * own visible frame. The bridge reports `viewportW`/`viewportH` from the
+ * iframe's own `window.innerWidth`/`innerHeight` — the host renders that
+ * iframe element larger than the screen's actual visible frame, so trusting
+ * it here means dragging well past the visible edge still reads as "inside"
+ * and the cross-screen reparent mechanism never engages. The screen's
+ * rendered frame geometry is in the same content-pixel space `iframeX`/
+ * `iframeY` are reported in, and is the true boundary; fall back to the
+ * bridge-reported viewport only when no rendered geometry is known yet.
+ */
+export function isPointerInsideSourceIframe(args: {
+  iframeX: number;
+  iframeY: number;
+  viewportW: number;
+  viewportH: number;
+  frameWidth?: number;
+  frameHeight?: number;
+}): boolean {
+  const width = args.frameWidth ?? args.viewportW;
+  const height = args.frameHeight ?? args.viewportH;
+  return (
+    args.iframeX >= 0 &&
+    args.iframeY >= 0 &&
+    args.iframeX <= width &&
+    args.iframeY <= height
+  );
+}
+
 export function isFinitePoint(value: unknown): value is Point {
   if (!value || typeof value !== "object") return false;
   const point = value as Record<string, unknown>;

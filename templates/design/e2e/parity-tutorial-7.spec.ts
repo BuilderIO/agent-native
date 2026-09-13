@@ -105,9 +105,10 @@ async function indexHtml(
 
 function styleOf(html: string, id: string): string {
   return (
-    new RegExp(`data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`, "i").exec(
-      html,
-    )?.[1] ?? ""
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? ""
   );
 }
 
@@ -145,13 +146,19 @@ async function multiSelect(page: Page, names: string[]): Promise<void> {
   await layerRowButton(page, names[0]).click({ force: true });
   await page.waitForTimeout(600);
   for (const name of names.slice(1)) {
-    await layerRowButton(page, name).click({ force: true, modifiers: ["Shift"] });
+    await layerRowButton(page, name).click({
+      force: true,
+      modifiers: ["Shift"],
+    });
     await page.waitForTimeout(600);
   }
 }
 
 function previewFrame(page: Page) {
-  return page.locator("iframe[data-design-preview-iframe]").first().contentFrame();
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame();
 }
 
 function node(page: Page, id: string): Locator {
@@ -162,10 +169,12 @@ async function dump(page: Page) {
   return page.evaluate(() => (window as any).__designTrace?.dump?.() ?? null);
 }
 
-async function openEditor(page: Page, designId: string): Promise<void> {
+async function openEditorAndExpandLayers(
+  page: Page,
+  designId: string,
+): Promise<void> {
   await gotoEditor(page, designId);
   await expandAllLayers(page);
-  await page.waitForTimeout(500);
 }
 
 /** All rendered preview iframes (screens + the board), each as a FrameLocator. */
@@ -185,10 +194,7 @@ async function allPreviewFrames(page: Page) {
  * `data-agent-native-layer-name`, wherever it currently lives (board or a
  * screen). The layers panel's own `data-layer-node-id` is a different,
  * composite id scheme and must not be used for this. */
-async function domNodeIdByLayerName(
-  page: Page,
-  name: string,
-): Promise<string> {
+async function domNodeIdByLayerName(page: Page, name: string): Promise<string> {
   for (const frame of await allPreviewFrames(page)) {
     const id = await frame
       .locator(`[data-agent-native-layer-name="${name}"]`)
@@ -272,7 +278,7 @@ test.describe("tutorial 7 — card and container system", () => {
     request,
   }) => {
     designId = await newDesign(request);
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
 
     // Select on the CANVAS (not the layers panel): layer-panel selection did
     // not consistently arm the structural hotkeys in earlier runs of this
@@ -284,14 +290,21 @@ test.describe("tutorial 7 — card and container system", () => {
     );
     await page.waitForTimeout(500);
     await page.keyboard.press(`${MOD}+d`);
-    await page.waitForTimeout(1200);
 
-    const html = await indexHtml(request, designId);
+    let html = "";
+    await expect
+      .poll(
+        async () => {
+          html = await indexHtml(request, designId);
+          return tagsWithLayerName(html, "Project title").length;
+        },
+        {
+          timeout: 10_000,
+          message: `Cmd+D should produce a second "Project title" node — trace: ${JSON.stringify(await dump(page))}`,
+        },
+      )
+      .toBe(2);
     const occurrences = tagsWithLayerName(html, "Project title");
-    expect(
-      occurrences,
-      `Cmd+D should produce a second "Project title" node — trace: ${JSON.stringify(await dump(page))}`,
-    ).toHaveLength(2);
     const originalStyle = styleOf(html, "title");
     const copy = occurrences.find((o) => o.id !== "title");
     expect(copy, "could not find the copy's node id").toBeTruthy();
@@ -309,12 +322,14 @@ test.describe("tutorial 7 — card and container system", () => {
     ).toBeGreaterThan(original.index);
 
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(1000);
-    const afterUndo = await indexHtml(request, designId);
-    expect(
-      tagsWithLayerName(afterUndo, "Project title"),
-      "one undo did not remove the duplicate",
-    ).toHaveLength(1);
+    await expect
+      .poll(
+        async () =>
+          tagsWithLayerName(await indexHtml(request, designId), "Project title")
+            .length,
+        { timeout: 10_000, message: "one undo did not remove the duplicate" },
+      )
+      .toBe(1);
   });
 
   test("step 2 [in-screen]: alt-drag duplicates the button below the description, copy keeps the name, one undo restores", async ({
@@ -322,7 +337,7 @@ test.describe("tutorial 7 — card and container system", () => {
     request,
   }) => {
     designId = await newDesign(request);
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
 
     const before = await node(page, "btn").boundingBox();
     if (!before) throw new Error("button not rendered");
@@ -338,14 +353,21 @@ test.describe("tutorial 7 — card and container system", () => {
     await page.mouse.move(cx, cy + 120, { steps: 6 });
     await page.mouse.up();
     await page.keyboard.up("Alt");
-    await page.waitForTimeout(1200);
 
-    const html = await indexHtml(request, designId);
+    let html = "";
+    await expect
+      .poll(
+        async () => {
+          html = await indexHtml(request, designId);
+          return tagsWithLayerName(html, "View project").length;
+        },
+        {
+          timeout: 10_000,
+          message: `alt-drag should produce a second "View project" button — trace: ${JSON.stringify(await dump(page))}`,
+        },
+      )
+      .toBe(2);
     const occurrences = tagsWithLayerName(html, "View project");
-    expect(
-      occurrences,
-      `alt-drag should produce a second "View project" button — trace: ${JSON.stringify(await dump(page))}`,
-    ).toHaveLength(2);
     // Original stays put at its source position.
     expect(styleNum(styleOf(html, "btn"), "top")).toBe(220);
     const original = occurrences.find((o) => o.id === "btn")!;
@@ -355,12 +377,17 @@ test.describe("tutorial 7 — card and container system", () => {
     expect(copy.index).toBeGreaterThan(original.index);
 
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(1000);
-    const afterUndo = await indexHtml(request, designId);
-    expect(
-      tagsWithLayerName(afterUndo, "View project"),
-      "one undo did not remove the alt-drag copy",
-    ).toHaveLength(1);
+    await expect
+      .poll(
+        async () =>
+          tagsWithLayerName(await indexHtml(request, designId), "View project")
+            .length,
+        {
+          timeout: 10_000,
+          message: "one undo did not remove the alt-drag copy",
+        },
+      )
+      .toBe(1);
   });
 
   test("step 3 [overview, outside the screen -> crosses into the screen]: draw a Thumbnail rectangle on the board, rename it, drag it inside the screen", async ({
@@ -368,11 +395,14 @@ test.describe("tutorial 7 — card and container system", () => {
     request,
   }) => {
     designId = await newDesign(request);
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
 
     // Locate an empty point on the board surface, to the right of the screen
     // card, per the tutorial's "draw a rectangle beside the text".
-    const screenBox = await page.locator("[data-screen-card]").first().boundingBox();
+    const screenBox = await page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox();
     if (!screenBox) throw new Error("no screen card");
     const boardX = screenBox.x + screenBox.width + 120;
     const boardY = screenBox.y + 100;
@@ -392,7 +422,12 @@ test.describe("tutorial 7 — card and container system", () => {
     await page.mouse.down();
     await page.mouse.move(boardX + 220, boardY + 350, { steps: 16 });
     await page.mouse.up();
-    await page.waitForTimeout(1500);
+    await expect
+      .poll(async () => (await visibleLayerNames(page)).length, {
+        timeout: 10_000,
+        message: "drawing the rectangle must add a new layer row",
+      })
+      .toBeGreaterThan(namesBefore.length);
 
     // Drawing outside the screen must create a board object, NOT a new
     // screen/file.
@@ -411,20 +446,31 @@ test.describe("tutorial 7 — card and container system", () => {
     // the draw — a hardcoded exclude list would wrongly pick the screen's
     // own root row.
     const names = await visibleLayerNames(page);
-    const rectName = names.find((n) => !namesBefore.includes(n) && n.length > 0);
-    expect(rectName, `no new rectangle layer row found among: ${names}`).toBeTruthy();
+    const rectName = names.find(
+      (n) => !namesBefore.includes(n) && n.length > 0,
+    );
+    expect(
+      rectName,
+      `no new rectangle layer row found among: ${names}`,
+    ).toBeTruthy();
     await renameLayer(page, rectName!, "Thumbnail");
 
     // Now drag it from the board into the screen, beside the existing text —
     // crossing the screen boundary.
     const rectBox = await boxByLayerName(page, "Thumbnail");
-    const screenBox2 = await page.locator("[data-screen-card]").first().boundingBox();
+    const screenBox2 = await page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox();
     if (!rectBox || !screenBox2) throw new Error("missing box for drag");
     // Drop well inside the visible screen card, away from any edge that
     // might sit under the inspector panel or off-viewport.
     const dropX = screenBox2.x + Math.min(200, screenBox2.width / 2);
     const dropY = screenBox2.y + Math.min(300, screenBox2.height / 2);
-    await page.mouse.move(rectBox.x + rectBox.width / 2, rectBox.y + rectBox.height / 2);
+    await page.mouse.move(
+      rectBox.x + rectBox.width / 2,
+      rectBox.y + rectBox.height / 2,
+    );
     await page.mouse.down();
     await page.mouse.move(
       rectBox.x + (dropX - rectBox.x) / 2,
@@ -433,21 +479,22 @@ test.describe("tutorial 7 — card and container system", () => {
     );
     await page.mouse.move(dropX, dropY, { steps: 10 });
     await page.mouse.up();
-    await page.waitForTimeout(1500);
 
-    const html = await indexHtml(request, designId);
-    expect(
-      html,
-      `Thumbnail must be a code-layer node inside the screen after the drag — trace: ${JSON.stringify(await dump(page))}`,
-    ).toMatch(/data-agent-native-layer-name="Thumbnail"/);
+    await expect
+      .poll(async () => indexHtml(request, designId), {
+        timeout: 10_000,
+        message: `Thumbnail must be a code-layer node inside the screen after the drag — trace: ${JSON.stringify(await dump(page))}`,
+      })
+      .toMatch(/data-agent-native-layer-name="Thumbnail"/);
 
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(1200);
-    const afterUndo = await indexHtml(request, designId);
-    expect(
-      afterUndo,
-      "one undo did not remove Thumbnail from the screen (should restore it to the board)",
-    ).not.toMatch(/data-agent-native-layer-name="Thumbnail"/);
+    await expect
+      .poll(async () => indexHtml(request, designId), {
+        timeout: 10_000,
+        message:
+          "one undo did not remove Thumbnail from the screen (should restore it to the board)",
+      })
+      .not.toMatch(/data-agent-native-layer-name="Thumbnail"/);
   });
 
   test("steps 4-5 [in-screen]: Shift+A twice builds nested auto-layout frames — Description, then Content wrapping Description", async ({
@@ -455,7 +502,7 @@ test.describe("tutorial 7 — card and container system", () => {
     request,
   }) => {
     designId = await newDesign(request, CARD_HTML_WITH_THUMB);
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
 
     // Fixture already has title + button; simulate the duplicated
     // description line as a plain third text node for this structural test
@@ -463,14 +510,21 @@ test.describe("tutorial 7 — card and container system", () => {
     await multiSelect(page, ["Project title", "View project"]);
     const before = await visibleLayerNames(page);
     await page.keyboard.press("Shift+A");
-    await page.waitForTimeout(1200);
 
-    const after = await visibleLayerNames(page);
-    const newNames = after.filter((n) => !before.includes(n));
-    expect(
-      newNames.length,
-      `Shift+A (add auto layout) should introduce exactly one new wrapper row — trace: ${JSON.stringify(await dump(page))}`,
-    ).toBe(1);
+    let newNames: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          const after = await visibleLayerNames(page);
+          newNames = after.filter((n) => !before.includes(n));
+          return newNames.length;
+        },
+        {
+          timeout: 10_000,
+          message: `Shift+A (add auto layout) should introduce exactly one new wrapper row — trace: ${JSON.stringify(await dump(page))}`,
+        },
+      )
+      .toBe(1);
     await renameLayer(page, newNames[0], "Description");
 
     const html = await indexHtml(request, designId);
@@ -494,13 +548,20 @@ test.describe("tutorial 7 — card and container system", () => {
     await multiSelect(page, ["Description", "Thumbnail"]);
     const beforeContent = await visibleLayerNames(page);
     await page.keyboard.press("Shift+A");
-    await page.waitForTimeout(1200);
-    const afterContent = await visibleLayerNames(page);
-    const contentNew = afterContent.filter((n) => !beforeContent.includes(n));
-    expect(
-      contentNew.length,
-      `Shift+A on Description+Thumbnail should introduce exactly one new wrapper — trace: ${JSON.stringify(await dump(page))}`,
-    ).toBe(1);
+    let contentNew: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          const afterContent = await visibleLayerNames(page);
+          contentNew = afterContent.filter((n) => !beforeContent.includes(n));
+          return contentNew.length;
+        },
+        {
+          timeout: 10_000,
+          message: `Shift+A on Description+Thumbnail should introduce exactly one new wrapper — trace: ${JSON.stringify(await dump(page))}`,
+        },
+      )
+      .toBe(1);
     await renameLayer(page, contentNew[0], "Content");
 
     const html2 = await indexHtml(request, designId);
@@ -531,23 +592,32 @@ test.describe("tutorial 7 — card and container system", () => {
     request,
   }) => {
     designId = await newDesign(request);
-    await openEditor(page, designId);
+    await openEditorAndExpandLayers(page, designId);
     const rootNames = await visibleLayerNames(page);
     await multiSelect(page, ["Project title", "View project"]);
     await page.keyboard.press("Shift+A");
-    await page.waitForTimeout(1000);
-    const names = await visibleLayerNames(page);
+    let names: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          names = await visibleLayerNames(page);
+          return names.length;
+        },
+        { timeout: 10_000, message: "Shift+A produced no new wrapper row" },
+      )
+      .toBeGreaterThan(rootNames.length);
     // Diff against the rows visible BEFORE the wrap (which already include
     // the screen's own root row) rather than a hardcoded exclude list — a
     // hardcoded list wrongly treats the pre-existing root as "new" once the
     // wrap collapses Title/Button under the fresh wrapper.
-    const wrapperName = names.find((n) => !rootNames.includes(n) && n.length > 0);
-    if (!wrapperName) throw new Error("Shift+A produced no wrapper to build on");
+    const wrapperName = names.find(
+      (n) => !rootNames.includes(n) && n.length > 0,
+    );
+    if (!wrapperName)
+      throw new Error("Shift+A produced no wrapper to build on");
     await renameLayer(page, wrapperName, "Content");
-    await page.waitForTimeout(1000);
 
-    const contentId = await domNodeIdByLayerName(page, "Content");
-    const contentBox = await node(page, contentId).boundingBox();
+    const contentBox = await boxByLayerName(page, "Content");
     if (!contentBox) throw new Error("Content not rendered");
 
     await page.keyboard.press("f");
@@ -560,10 +630,30 @@ test.describe("tutorial 7 — card and container system", () => {
       { steps: 16 },
     );
     await page.mouse.up();
-    await page.waitForTimeout(1500);
+
+    // Either outcome below is a valid finding (see comment), so there is no
+    // single target state to poll toward — wait for the layers panel to stop
+    // changing instead of a fixed sleep.
+    let lastNames: string[] | null = null;
+    await expect
+      .poll(
+        async () => {
+          const current = await visibleLayerNames(page);
+          const stable =
+            lastNames !== null &&
+            current.length === lastNames.length &&
+            current.every((n, i) => n === lastNames![i]);
+          lastNames = current;
+          return stable;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
 
     const namesAfter = await visibleLayerNames(page);
-    const frameName = namesAfter.find((n) => !names.includes(n) && n !== "Content");
+    const frameName = namesAfter.find(
+      (n) => !names.includes(n) && n !== "Content",
+    );
     // The tutorial expects "Frame tool around Content" to WRAP the existing
     // Content layer (matching real Figma: drawing a frame over a selection
     // does not auto-wrap it — Figma actually requires selecting Content and
@@ -588,7 +678,7 @@ test.describe("tutorial 7 — card and container system", () => {
         "drawn over an existing selection does not wrap it either (a real " +
         "Frame Selection command is required), so this is closest-equivalent " +
         "behavior, not a regression, but it means the tutorial's literal " +
-        "\"Frame tool around Content\" step has no direct one-gesture parity.",
+        '"Frame tool around Content" step has no direct one-gesture parity.',
     ).toEqual(["Content"]);
   });
 
@@ -597,8 +687,11 @@ test.describe("tutorial 7 — card and container system", () => {
     request,
   }) => {
     designId = await newDesign(request);
-    await openEditor(page, designId);
-    await layerRowButton(page, "Project title").click({ force: true, button: "right" });
+    await openEditorAndExpandLayers(page, designId);
+    await layerRowButton(page, "Project title").click({
+      force: true,
+      button: "right",
+    });
     await page.waitForTimeout(500);
     const menu = page.getByRole("menu").first();
     if (await menu.count()) {

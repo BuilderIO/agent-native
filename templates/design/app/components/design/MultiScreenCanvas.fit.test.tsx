@@ -134,12 +134,57 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     // screen at the default overview viewport (alt-drag-duplicate-2).
     const chromeInsetLeft = 344;
     const chromeInsetRight = 60;
-    const view = await renderScreens([200], { chromeInsetLeft, chromeInsetRight });
+    const view = await renderScreens([200], {
+      chromeInsetLeft,
+      chromeInsetRight,
+    });
     // The single screen sits at geometry.x = 0, so its on-screen left edge
     // is exactly the world pan's x plus the padded-world offset.
     const frameScreenLeft = view.x + SURFACE_PADDING * view.scale;
     const frameScreenRight = frameScreenLeft + 200 * view.scale;
     expect(frameScreenLeft).toBeGreaterThanOrEqual(chromeInsetLeft);
-    expect(frameScreenRight).toBeLessThanOrEqual(SURFACE_WIDTH - chromeInsetRight);
+    expect(frameScreenRight).toBeLessThanOrEqual(
+      SURFACE_WIDTH - chromeInsetRight,
+    );
+  });
+
+  it("fits the initial camera to board objects when the design has no screens", async () => {
+    // A board-only design (no screens) skipped the lineup-recenter fit
+    // entirely (it bailed out on renderedScreens.length === 0), leaving the
+    // camera at its untouched default while the board's objects sat far from
+    // the origin — clicks, marquee, and Tab-cycling all missed them.
+    const boardObjectLeft = 4000;
+    const boardObjectTop = 3000;
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          activeTool="move"
+          geometryById={{}}
+          onPick={() => {}}
+          boardFileId="__board__"
+          boardFileContent={`<!doctype html><html><body><div data-agent-native-node-id="board-rect" style="position:absolute;left:${boardObjectLeft}px;top:${boardObjectTop}px;width:200px;height:120px"></div></body></html>`}
+          boardFrameGeometry={{
+            x: -65536,
+            y: -65536,
+            width: 131072,
+            height: 131072,
+          }}
+        />,
+      );
+    });
+    const view = readView(container);
+    // The board object's on-screen centre must land inside the visible
+    // surface — proof the camera actually fit to it, not just that some
+    // transform was applied.
+    const centreX =
+      view.x + (SURFACE_PADDING + boardObjectLeft + 100) * view.scale;
+    const centreY =
+      view.y + (SURFACE_PADDING + boardObjectTop + 60) * view.scale;
+    expect(centreX).toBeGreaterThanOrEqual(0);
+    expect(centreX).toBeLessThanOrEqual(SURFACE_WIDTH);
+    expect(centreY).toBeGreaterThanOrEqual(0);
+    expect(centreY).toBeLessThanOrEqual(SURFACE_HEIGHT);
   });
 });

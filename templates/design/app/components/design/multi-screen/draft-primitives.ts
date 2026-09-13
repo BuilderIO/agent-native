@@ -222,6 +222,17 @@ function createDraftId(tool: DraftCreationTool) {
     .slice(2, 8)}`;
 }
 
+/** Same id-generation contract as the host's uniqueLayerId (crypto.randomUUID,
+ *  falling back to a timestamp+random string) — kept local to avoid a
+ *  multi-screen/ -> pages/design-editor/ import for one generator. Never
+ *  "draft-…"-prefixed: this is the id that ends up permanently in the saved
+ *  document, not the ephemeral bookkeeping id createDraftId mints above. */
+function createStableInsertId(kind: string): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `${kind}-${crypto.randomUUID()}`
+    : `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export function cloneDraftPrimitive(draft: DraftPrimitive): DraftPrimitive {
   return {
     ...draft,
@@ -293,7 +304,13 @@ export function draftPrimitiveToInsert(
       };
   return {
     kind: draft.kind,
-    nodeId: draft.id,
+    // Never the draft's own bookkeeping id: createDraftPrimitive's id is
+    // "draft-<tool>-…" for the host's own in-flight tracking (the overlay's
+    // data-draft-id, selectedDraftIds, …) and was previously written
+    // straight into the committed document as its permanent
+    // data-agent-native-node-id — every drawn shape stayed "draft-" prefixed
+    // forever instead of getting a real stable id the moment it commits.
+    nodeId: createStableInsertId(draft.kind),
     geometry: localGeometry,
     points: draft.points?.map(toLocalPoint),
     pathData: scaledPenPath ? serializePenPath(scaledPenPath) : undefined,

@@ -358,4 +358,153 @@ describe("Escape mid-drag cancels an in-screen move even when it loses the postM
       await browser.close();
     }
   });
+
+  it("a same-tick release and Escape (equal timestamps) does not revert", async () => {
+    // Strict "<" only: a tie means Escape did not predate the release, so it
+    // must not revert an already-committed drag.
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      // A window-level capture listener runs BEFORE the bridge's own
+      // document-level capture listener (capture propagates window→document→
+      // …→target), so this observes the SAME mouseup event object the bridge
+      // uses for its releasedAt stamp, letting the test reconstruct an exact
+      // tie without reaching into bridge internals.
+      await page.evaluate(() => {
+        // The gesture may be tracked as "mouseup" or "pointerup" depending on
+        // which event type initiated it (see dragEventNames) — capture
+        // whichever actually fires so this observes the real event the
+        // bridge used, not an assumption about its name.
+        var capture = (e: Event) => {
+          (window as any).__capturedReleaseTimeStamp = e.timeStamp;
+        };
+        window.addEventListener("mouseup", capture, true);
+        window.addEventListener("pointerup", capture, true);
+      });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="box-a"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(290, 420, { steps: 8 });
+      await page.waitForTimeout(30);
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const afterCommit = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => el.style.left);
+      expect(afterCommit).not.toBe("30px");
+
+      // The exact same event creation time the bridge stamped releasedAt
+      // with — a genuine tie, not an approximation.
+      const tiedPressedAt = await page.evaluate(
+        () =>
+          performance.timeOrigin + (window as any).__capturedReleaseTimeStamp,
+      );
+      expect(typeof tiedPressedAt).toBe("number");
+      expect(Number.isNaN(tiedPressedAt)).toBe(false);
+      await page.evaluate((stamp) => {
+        window.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt: stamp },
+          "*",
+        );
+      }, tiedPressedAt);
+      await page.waitForTimeout(30);
+
+      const domPosition = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => ({ left: el.style.left }));
+      expect(
+        domPosition.left,
+        "a tied pressedAt/releasedAt must not revert the commit",
+      ).not.toBe("30px");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("a delayed cancel for gesture A arriving after gesture B has already started does not cancel B", async () => {
+    // The round-2 identity guard: cancelActiveBridgeDragOrPendingCommit must
+    // check the ACTIVE gesture's own start time against pressedAt before
+    // touching it — otherwise a stale cancel meant for A, delivered late,
+    // cancels whatever gesture B is active by the time it arrives.
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="box-a"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      // Gesture A: mid-drag (not yet released) when its stale Escape is
+      // pressed.
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(150, 350, { steps: 4 });
+      await page.waitForTimeout(20);
+      const staleAPressedAt = await page.evaluate(() => Date.now());
+      // A releases and commits before its own stale cancel message arrives.
+      await page.mouse.up();
+      await page.waitForTimeout(20);
+      const afterA = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => el.style.left);
+      expect(afterA, "gesture A must have moved the box").not.toBe("30px");
+
+      // Gesture B starts (a new, independent drag) strictly after A's stale
+      // Escape was pressed, and is still ACTIVELY dragging (no mouseup yet)
+      // when A's cancel finally arrives.
+      await page.mouse.move(150, 350);
+      await page.mouse.down();
+      await page.mouse.move(250, 400, { steps: 6 });
+      await page.waitForTimeout(20);
+      const duringB = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => el.style.left);
+      expect(duringB, "gesture B must be actively dragging").not.toBe(afterA);
+
+      // A's delayed cancel finally arrives while B is still active.
+      await page.evaluate((stamp) => {
+        window.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt: stamp },
+          "*",
+        );
+      }, staleAPressedAt);
+      await page.waitForTimeout(20);
+
+      // B must still be live and draggable — not cancelled out from under
+      // the user — so releasing it now must commit B's own position, not
+      // revert to A's.
+      await page.mouse.up();
+      await page.waitForTimeout(20);
+      const afterB = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => el.style.left);
+      expect(
+        afterB,
+        "A's stale, delayed cancel must not cancel gesture B",
+      ).toBe(duringB);
+    } finally {
+      await browser.close();
+    }
+  });
 });

@@ -2,6 +2,7 @@ import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
+import type * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
 import type { ElementInfo } from "@/components/design/types";
@@ -10,6 +11,16 @@ import {
   codeLayerPatchMessage,
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
+import {
+  captureContentUndoStackTop,
+  captureYjsUndoStackTop,
+  type ContentHistoryEntry,
+  type ContentHistorySelectionAfterMap,
+  stampContentHistorySelectionAfter,
+  stampYjsUndoSelection,
+  stampYjsUndoSelectionAfter,
+  type YjsUndoSelectionSnapshot,
+} from "@/pages/design-editor/history";
 import { buildActiveFileNodeIdSet } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -27,6 +38,7 @@ export interface GroupSelectionArgs {
       historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      selectionBefore?: YjsUndoSelectionSnapshot;
     },
   ) => void;
   canEditDesign: boolean;
@@ -41,8 +53,11 @@ export interface GroupSelectionArgs {
       }
     >
   >;
+  contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
+  contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
   files: DesignFile[];
   getFreshActiveContent: () => string;
+  overviewSelectedScreenIds: string[];
   selectedLayerIdsState: string[];
   sendRuntimeLayerSemanticHandoff: (
     operation: "group" | "ungroup" | "auto-layout",
@@ -56,6 +71,7 @@ export interface GroupSelectionArgs {
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   t: (key: string, options?: Record<string, unknown>) => string;
+  undoManagerRef: RefObject<Y.UndoManager | null>;
 }
 
 export function runGroupSelection({
@@ -63,13 +79,17 @@ export function runGroupSelection({
   applyLocalContentUpdate,
   canEditDesign,
   codeLayerOwnerByNodeIdRef,
+  contentHistorySelectionAfterRef,
+  contentUndoStackRef,
   files,
   getFreshActiveContent,
+  overviewSelectedScreenIds,
   selectedLayerIdsState,
   sendRuntimeLayerSemanticHandoff,
   setSelectedElement,
   setSelectedLayerIdsState,
   t,
+  undoManagerRef,
 }: GroupSelectionArgs) {
   trace("structure", "group", { layers: selectedLayerIdsState.length });
   if (!canEditDesign || !activeFile) return;
@@ -111,7 +131,30 @@ export function runGroupSelection({
     );
     return;
   }
-  applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
+  // Figma-parity undo/redo selection restore: capture the ORIGINAL (ungrouped)
+  // selection before the write so undo can hand it back — group is a
+  // multi-select gesture with no single canonical element, so
+  // selectedElement stays null the same way an aggregate/mixed inspector
+  // selection would. See history.ts's YjsUndoSelectionSnapshot doc comment.
+  const selectionBeforeGroup = {
+    selectedElement: null,
+    selectedLayerIds: nodeIds,
+  };
+  const undoStackTopBeforeGroup = captureYjsUndoStackTop(
+    undoManagerRef.current,
+  );
+  const contentUndoStackTopBeforeGroup = captureContentUndoStackTop(
+    contentUndoStackRef.current,
+  );
+  applyLocalContentUpdate(patch.content, {
+    forcePreviewFullDocument: true,
+    selectionBefore: selectionBeforeGroup,
+  });
+  stampYjsUndoSelection(
+    undoManagerRef.current,
+    undoStackTopBeforeGroup,
+    selectionBeforeGroup,
+  );
   // Select the new wrapper node if the substrate reported its id.
   const wrapperId = patch.result.wrapperNodeId;
   if (wrapperId) {
@@ -122,6 +165,25 @@ export function runGroupSelection({
     if (wrapperNode) {
       setSelectedLayerIdsState([wrapperNode.id]);
       setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
+      // Figma parity: redo re-selects the group this gesture produced, not
+      // the pre-group selection undo restores. The write lands on whichever
+      // of the two stacks is actually tracking it (Yjs in single-screen
+      // mode, the plain content-history stack in overview mode); both
+      // stamps are harmless no-ops on the stack that didn't receive it.
+      stampYjsUndoSelectionAfter(undoManagerRef.current, undoStackTopBeforeGroup, {
+        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+        selectedLayerIds: [wrapperNode.id],
+      });
+      stampContentHistorySelectionAfter(
+        contentUndoStackRef.current,
+        contentHistorySelectionAfterRef.current,
+        contentUndoStackTopBeforeGroup,
+        {
+          overviewSelectedScreenIds,
+          selectedLayerIds: [wrapperNode.id],
+          activeFileId: activeFile.id,
+        },
+      );
     }
   }
 }

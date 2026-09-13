@@ -150,7 +150,52 @@ async function gotoEditorZoomed(page: Page, designId: string): Promise<void> {
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(1000);
+  // The zoom=100 param resets pan async — poll the first screen card's box
+  // until two consecutive reads agree, so callers below click real
+  // coordinates instead of a mid-reset layout.
+  let lastBox: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const box = await page
+          .locator("[data-screen-card]")
+          .first()
+          .boundingBox();
+        const stable =
+          box !== null &&
+          lastBox !== null &&
+          Math.abs(box.x - lastBox.x) < 1 &&
+          Math.abs(box.y - lastBox.y) < 1;
+        lastBox = box;
+        return stable;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+}
+
+/** Poll a locator's boundingBox until two consecutive reads agree — used
+ * after a navigation/layout change with no discrete "settled" event. */
+async function stableBox(
+  locator: ReturnType<Page["locator"]>,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  let last: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const box = await locator.boundingBox();
+        const stable =
+          box !== null &&
+          last !== null &&
+          Math.abs(box.x - last.x) < 1 &&
+          Math.abs(box.y - last.y) < 1;
+        last = box;
+        return stable;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+  return (await locator.boundingBox())!;
 }
 
 async function dumpTrace(page: Page) {
@@ -170,9 +215,14 @@ async function selectByNodeId(page: Page, nodeId: string) {
   const box = (await el.boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
+  // A plain click selects the direct child of the screen (the container, for
+  // a nested element); an actual double-click — not two spaced single clicks
+  // — is the gesture that drills into the clicked child from there (matches
+  // parity-selection.spec.ts's working "double-click after selecting Card"
+  // pattern). A no-op dblclick on an already-leaf element is harmless.
   await page.mouse.click(cx, cy);
   await page.waitForTimeout(200);
-  await page.mouse.click(cx, cy);
+  await page.mouse.dblclick(cx, cy);
   await page.waitForTimeout(200);
   return box;
 }
@@ -193,15 +243,16 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.keyboard.press("Escape");
       await page.waitForTimeout(200);
       await page.keyboard.press("ControlOrMeta+v");
-      await page.waitForTimeout(1200);
 
-      const groupChildIds = await frame
-        .locator(
-          '[data-agent-native-node-id="group"] > [data-agent-native-node-id]',
-        )
-        .evaluateAll((els) =>
-          els.map((el) => el.getAttribute("data-agent-native-node-id")),
-        );
+      const groupChildrenLocator = frame.locator(
+        '[data-agent-native-node-id="group"] > [data-agent-native-node-id]',
+      );
+      await expect
+        .poll(() => groupChildrenLocator.count(), { timeout: 10_000 })
+        .toBeGreaterThan(2);
+      const groupChildIds = await groupChildrenLocator.evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-agent-native-node-id")),
+      );
       const copyId = groupChildIds.find(
         (id) => id !== "original" && id !== "sibling",
       );
@@ -249,20 +300,21 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.waitForTimeout(300);
       await selectByNodeId(page, "container");
       await page.keyboard.press("ControlOrMeta+v");
-      await page.waitForTimeout(1200);
 
       const containerChildren = frame.locator(
         '[data-agent-native-node-id="container"] > [data-agent-native-node-id]',
       );
-      if ((await containerChildren.count()) !== 1) {
+      try {
+        await expect(containerChildren).toHaveCount(1, { timeout: 10_000 });
+      } catch (error) {
         const trace = await dumpTrace(page);
         console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ trace }),
         });
+        throw error;
       }
-      await expect(containerChildren).toHaveCount(1, { timeout: 10_000 });
       const names = await layerNames(page);
       expect(names.filter((n) => n === "Source")).toHaveLength(2);
     } finally {
@@ -280,15 +332,16 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       const frame = designFrame(page);
       const before = await selectByNodeId(page, "original");
       await page.keyboard.press("ControlOrMeta+d");
-      await page.waitForTimeout(1000);
 
-      const groupChildIds = await frame
-        .locator(
-          '[data-agent-native-node-id="group"] > [data-agent-native-node-id]',
-        )
-        .evaluateAll((els) =>
-          els.map((el) => el.getAttribute("data-agent-native-node-id")),
-        );
+      const groupChildrenLocator = frame.locator(
+        '[data-agent-native-node-id="group"] > [data-agent-native-node-id]',
+      );
+      await expect
+        .poll(() => groupChildrenLocator.count(), { timeout: 10_000 })
+        .toBeGreaterThan(2);
+      const groupChildIds = await groupChildrenLocator.evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-agent-native-node-id")),
+      );
       const copyId = groupChildIds.find(
         (id) => id !== "original" && id !== "sibling",
       );
@@ -347,7 +400,11 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       const originalName = namesBefore[0]!;
 
       await page.keyboard.press("ControlOrMeta+d");
-      await page.waitForTimeout(1000);
+      await expect
+        .poll(async () => (await layerNames(page)).length, {
+          timeout: 10_000,
+        })
+        .toBe(2);
 
       const namesAfter = await layerNames(page);
       if (
@@ -386,25 +443,24 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       // Paste-to-replace is Cmd+Shift+R here: Cmd+Shift+V is "paste over
       // selection" instead (useDesignHotkeys.ts; Figma spec Part 3 note).
       await page.keyboard.press("ControlOrMeta+Shift+r");
-      await page.waitForTimeout(1200);
 
-      const containerGone = await frame
-        .locator('[data-agent-native-node-id="container"]')
-        .count();
-      const clonesOfSource = await frame
-        .locator('[data-agent-native-layer-name="Source"]')
-        .count();
-      if (containerGone !== 0 || clonesOfSource !== 2) {
+      try {
+        // The original container node is gone, replaced by a clone of Source.
+        await expect(
+          frame.locator('[data-agent-native-node-id="container"]'),
+        ).toHaveCount(0, { timeout: 10_000 });
+        await expect(
+          frame.locator('[data-agent-native-layer-name="Source"]'),
+        ).toHaveCount(2, { timeout: 10_000 });
+      } catch (error) {
         const trace = await dumpTrace(page);
         console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
-          description: JSON.stringify({ containerGone, clonesOfSource, trace }),
+          description: JSON.stringify({ trace }),
         });
+        throw error;
       }
-      // The original container node is gone, replaced by a clone of Source.
-      expect(containerGone).toBe(0);
-      expect(clonesOfSource).toBe(2);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
@@ -456,7 +512,6 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
 
       // Duplicate: one undo step.
       await page.keyboard.press("ControlOrMeta+d");
-      await page.waitForTimeout(1000);
       await expect(
         frame.locator(
           '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
@@ -475,21 +530,20 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.keyboard.press("ControlOrMeta+c");
       await page.waitForTimeout(300);
       await page.keyboard.press("ControlOrMeta+v");
-      await page.waitForTimeout(1200);
-      const afterPasteCount = await frame
-        .locator(
-          '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
-        )
-        .count();
-      if (afterPasteCount !== 2) {
+      const afterPasteLocator = frame.locator(
+        '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
+      );
+      try {
+        await expect(afterPasteLocator).toHaveCount(2, { timeout: 10_000 });
+      } catch (error) {
         const trace = await dumpTrace(page);
         console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
-          description: JSON.stringify({ afterPasteCount, trace }),
+          description: JSON.stringify({ trace }),
         });
+        throw error;
       }
-      expect(afterPasteCount).toBe(2);
       await page.keyboard.press("ControlOrMeta+z");
       await page.waitForTimeout(800);
       await expect(
@@ -527,12 +581,11 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
         page.getByRole("button", { name: "Move", exact: true }),
       ).toBeVisible({ timeout: 30_000 });
       await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
-      await page.waitForTimeout(1000);
 
       const frameA = designFrame(page, fileIds[0]);
-      const rectBox = (await frameA
-        .locator('[data-agent-native-node-id="rect"]')
-        .boundingBox())!;
+      const rectBox = await stableBox(
+        frameA.locator('[data-agent-native-node-id="rect"]'),
+      );
       await page.mouse.click(
         rectBox.x + rectBox.width / 2,
         rectBox.y + rectBox.height / 2,
@@ -547,23 +600,23 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
         { waitUntil: "domcontentloaded" },
       );
       await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
-      await page.waitForTimeout(1000);
       await page.keyboard.press("ControlOrMeta+v");
-      await page.waitForTimeout(1200);
 
       const screenBFrame = designFrame(page, fileIds[1]);
       const pasted = screenBFrame.locator(
         '[data-agent-native-layer-name="Widget"]',
       );
-      if ((await pasted.count()) !== 1) {
+      try {
+        await expect(pasted).toHaveCount(1, { timeout: 10_000 });
+      } catch (error) {
         const trace = await dumpTrace(page);
         console.log("TRACE_DEBUG", JSON.stringify(trace));
         test.info().annotations.push({
           type: "trace",
           description: JSON.stringify({ trace }),
         });
+        throw error;
       }
-      await expect(pasted).toHaveCount(1, { timeout: 10_000 });
 
       // Screen A keeps its own original untouched.
       const screenAFrame = designFrame(page, fileIds[0]);
@@ -590,49 +643,46 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
       await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
         timeout: 30_000,
       });
-      await page.waitForTimeout(1000);
 
-      const before = await page.evaluate(() =>
-        Object.fromEntries(
-          Array.from(
-            document.querySelectorAll<HTMLElement>("[data-frame-id]"),
-          ).map((node) => [
-            node.getAttribute("data-frame-id")!,
-            {
-              left: Number.parseFloat(node.style.left),
-              top: Number.parseFloat(node.style.top),
-            },
-          ]),
-        ),
-      );
-      expect(Object.keys(before)).toHaveLength(1);
+      const readFramePositions = () =>
+        page.evaluate(() =>
+          Object.fromEntries(
+            Array.from(
+              document.querySelectorAll<HTMLElement>("[data-frame-id]"),
+            ).map((node) => [
+              node.getAttribute("data-frame-id")!,
+              {
+                left: Number.parseFloat(node.style.left),
+                top: Number.parseFloat(node.style.top),
+              },
+            ]),
+          ),
+        );
+      let before: Record<string, { left: number; top: number }> = {};
+      await expect
+        .poll(
+          async () => {
+            before = await readFramePositions();
+            return Object.keys(before).length;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(1);
 
       await page.locator("[data-frame-label]").first().click({ force: true });
       await page.waitForTimeout(300);
       await page.keyboard.press("ControlOrMeta+d");
-      await page.waitForTimeout(1500);
 
-      const after = await page.evaluate(() =>
-        Object.fromEntries(
-          Array.from(
-            document.querySelectorAll<HTMLElement>("[data-frame-id]"),
-          ).map((node) => [
-            node.getAttribute("data-frame-id")!,
-            {
-              left: Number.parseFloat(node.style.left),
-              top: Number.parseFloat(node.style.top),
-            },
-          ]),
-        ),
-      );
-      if (Object.keys(after).length !== 2) {
-        const trace = await dumpTrace(page);
-        console.log("TRACE_DEBUG", JSON.stringify(trace));
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({ before, after, trace }),
-        });
-      }
+      let after: Record<string, { left: number; top: number }> = {};
+      await expect
+        .poll(
+          async () => {
+            after = await readFramePositions();
+            return Object.keys(after).length;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(2);
       // A second screen/frame now exists.
       expect(Object.keys(after)).toHaveLength(2);
       const originalId = fileIds[0];
