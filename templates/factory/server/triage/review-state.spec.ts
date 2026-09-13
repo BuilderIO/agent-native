@@ -21,6 +21,12 @@ describe("triage review state", () => {
     ).toBe("shadow_decided");
   });
 
+  it("keeps a manually resolved item resolved even when source evidence changes", () => {
+    expect(statusAfterTriageSourceUpdate("resolved", true, "received")).toBe(
+      "resolved",
+    );
+  });
+
   it("reopens an item when the source evidence changes", () => {
     const snapshot = {
       title: "Issue",

@@ -97,6 +97,7 @@ const messages = {
       pr_observed: "PR observado",
       auto_approved: "Aprovado automaticamente",
       merged: "Mesclado",
+      resolved: "Resolvido",
     },
     refresh: "Atualizar",
     queueError: "Não foi possível carregar a fila de observação.",
@@ -232,6 +233,11 @@ const messages = {
     inboxTitle: "Caixa de entrada de observações",
     inboxTab: "Caixa de entrada",
     inboxBackToList: "Voltar à caixa de entrada",
+    inboxRowActions: "Ações de {{title}}",
+    inboxMarkResolved: "Marcar como resolvido",
+    inboxSendBackToAutomation: "Devolver para a automação",
+    inboxOutcomeUpdated: "Status atualizado",
+    inboxOutcomeFailed: "Não foi possível atualizar o status",
     inboxDescription:
       "Evidências entrando na fábrica antes do trabalho autônomo.",
     selectObservation:
