@@ -126,6 +126,57 @@ describe("ComposeModal scheduling", () => {
     cleanup();
   });
 
+  it("opens a new-message draft expanded in the main workspace", () => {
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    expect(
+      getByRole("button", {
+        name: "mail.compose.restoreComposeSize",
+      }).getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("keeps reply drafts in their current compact compose mode", () => {
+    const replyDraft: ComposeState = { ...draft, mode: "reply" };
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    expect(
+      getByRole("button", {
+        name: "mail.compose.fullScreenCompose",
+      }).getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
   it("schedules only once when the send-later handler is invoked twice", async () => {
     let resolveSchedule!: (value: unknown) => void;
     mockScheduleEmail.mockReturnValue(

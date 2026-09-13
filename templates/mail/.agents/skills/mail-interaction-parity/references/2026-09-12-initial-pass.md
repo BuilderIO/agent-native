@@ -7,9 +7,11 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 - Compared against the installed Superhuman desktop app and its in-app keyboard
   reference. The app build/version was not exposed in the UI.
 - The Mail working tree was based on `2f1c3f6927519873151c322a352b89cb891bb88e`.
-- Did not open or inspect message content, create a live draft, or send/receive
-  email. The local Mail app showed Google as disconnected. Per-run approved
-  addresses are intentionally not copied into this report or test fixtures.
+- Did not open or inspect message content or send/receive email. Opened an empty
+  Superhuman compose only to compare layout, then discarded it and verified the
+  discard toast. The local Mail app showed Google as disconnected; a temporary
+  local compose smoke draft was also discarded. Per-run approved addresses are
+  intentionally not copied into this report or test fixtures.
 
 ## Executed cases
 
@@ -47,8 +49,9 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 
 ## Validation
 
-- The latest complete Mail run passes 733 tests across 92 files. The focused
-  draft/send regressions pass 61 tests across 8 files.
+- The latest complete Mail run passes 735 tests across 92 files. The focused
+  `ComposeModal` suite passes all 6 tests, including expanded new-message and
+  unchanged compact-reply defaults.
 - Repository: all 73 guards and both i18n guards pass after the latest review
   follow-up.
 - `oxfmt --check`, `git diff --check`, and direct Mail TypeScript checking
@@ -98,6 +101,31 @@ checking passes. The close-all race, saved-draft ownership, local agent update,
 and Send Undo lifecycle still need the rendered side-by-side browser cases
 described in COMPOSE-014–016; the connected preview remains at sign-in pending
 explicit OAuth approval.
+
+## Rendered compose smoke — 2026-09-12
+
+- **Superhuman / COMPOSE-001 (partial):** clicking Compose opened a new-message
+  workspace with To focused and a draft-specific route. No recipient, subject,
+  or body was entered; Discard draft returned to the inbox and showed a
+  “Draft discarded” confirmation.
+- **Mail / COMPOSE-001, COMPOSE-003 (partial):** on local `/inbox` with Google
+  disconnected, Compose opened with the To combobox focused. Enter committed a
+  reserved synthetic recipient as a chip; Cc/Bcc revealed separate fields and
+  focus remained in the recipient controls. No contact suggestions were
+  available in the empty local mailbox. The test draft was discarded; Send was
+  never activated.
+- The first rendered Mail pass showed a bottom-right 540×520 compose window,
+  unlike Superhuman's main-workspace new-message flow. Mail now opens a new
+  compose draft expanded by default. The browser smoke verified the expanded
+  state and that Mail stays on `/inbox`; Superhuman changes to a draft route.
+  Exact size parity remains partial because the native Superhuman window and
+  local browser could not be held at the same viewport. The reference build
+  and browser dimensions were not available as stable metadata.
+- COMPOSE-001 is therefore still partial: Mail's draft state stays over the
+  inbox route, and width/centering were not verified at a matched viewport.
+- This smoke did not inspect message content, send or receive mail, or authorize
+  Google OAuth. It does not cover reply/forward, autocomplete ordering, keyboard
+  compose shortcuts, or the send-validation path.
 
 ## Remaining work
 

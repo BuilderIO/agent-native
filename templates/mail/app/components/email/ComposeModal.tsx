@@ -210,7 +210,9 @@ export function ComposeModal({
   const t = useT();
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(
+    initialExpanded || activeDraft?.mode === "compose",
+  );
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);

@@ -139,7 +139,8 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 
 - COMPOSE-001 — Open compose with button, c, Command/Ctrl+K → Compose, reply,
   reply-all, forward, draft row, queued draft, and agent navigation. Confirm
-  focus target, size, title, route/state, and account.
+  focus target, size, title, route/state, and account. New-message compose opens
+  in the main workspace by default; minimize and restore remain reversible.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation.
