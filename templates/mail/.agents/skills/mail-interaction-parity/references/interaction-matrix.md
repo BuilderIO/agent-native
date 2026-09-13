@@ -182,14 +182,22 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   or close all. Confirm saves serialize, the final body wins, and the close save
   updates the ID returned by the first save instead of creating another draft.
   Repeat with existing Gmail and local draft IDs and reversed network timing.
+  While close-all waits on a captured draft write, open another compose tab and
+  confirm it survives the close-all deletion and refresh.
 - COMPOSE-015 — Hold an autosave request open, then discard, send, or schedule
   the draft from popout and inline compose. Resolve success and failure after
   removal. Confirm any resulting saved copy is deleted, app state stays removed,
-  and no stale query result resurrects the compose tab.
+  and no stale query result resurrects the compose tab. For deferred popout
+  Send, keep the saved copy untouched through Undo; delete it only after provider
+  success, and restore the same compose draft on failure.
 - COMPOSE-016 — Reopen a local-fallback saved draft after Gmail connects, then
   edit, autosave, close, and reopen it. Confirm it stays local and does not
-  create a Gmail duplicate. Disconnect Gmail for a saved Gmail draft and confirm
-  an explicit error instead of silently switching to local.
+  create a Gmail duplicate. Repeat with legacy draft rows lacking backend
+  metadata: identify ownership from the exact local/Gmail draft record, keep a
+  verified legacy Gmail draft on its owning account, and reject unknown ownership
+  without creating or deleting a replacement. Disconnect Gmail for a saved
+  Gmail draft and confirm an explicit error instead of silently switching to
+  local.
 - COMPOSE-017 — Trace the owning mailbox through Drafts-row open, sender state,
   autosave, close-toast Reopen/Delete, discard, and manage-draft delete/delete-all.
   Repeat on primary and secondary accounts; confirm mutations use the saved

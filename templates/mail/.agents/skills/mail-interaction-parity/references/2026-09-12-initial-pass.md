@@ -47,9 +47,8 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 
 ## Validation
 
-- Mail initial pass: 87 test files, 690 tests passed. The first review follow-up
-  raised that to 698 passing tests across 87 files. The latest Mail run passes
-  715 tests across 90 files; the 36 focused draft regressions also pass alone.
+- The latest complete Mail run passes 733 tests across 92 files. The focused
+  draft/send regressions pass 61 tests across 8 files.
 - Repository: all 73 guards and both i18n guards pass after the latest review
   follow-up.
 - `oxfmt --check`, `git diff --check`, and direct Mail TypeScript checking
@@ -79,6 +78,26 @@ save, and delete; serializes saves and compose-state deletion; and waits for an
 in-flight save before deleting its resulting mailbox copy. COMPOSE-014 through
 COMPOSE-017 were added to the matrix. These are automated contract/regression
 checks; they do not count as the still-missing rendered side-by-side cases.
+
+## Draft ownership, close-all, and Send Undo follow-up — 2026-09-12
+
+A fresh review found five additional lifecycle gaps: legacy drafts without
+backend metadata could be routed according to current Gmail connection state;
+agent updates did not honor an explicitly local saved draft; close-all could
+delete a compose tab opened while its writes were pending; and Send Undo could
+lose the saved mailbox copy while asynchronous discard was still running. The
+HTTP and agent paths now verify legacy ownership against the exact local draft
+or a Gmail draft lookup, and fail without mutating when ownership is unknown.
+Local agent updates stay in the local mailbox under its mutation lock. Close-all
+queues deletion for only the IDs it captured. Deferred Send hides its compose
+tab during Undo, keeps both copies intact until provider success, then discards;
+Undo and provider failure restore the same draft.
+
+The focused regressions and complete Mail suite pass, and Mail TypeScript
+checking passes. The close-all race, saved-draft ownership, local agent update,
+and Send Undo lifecycle still need the rendered side-by-side browser cases
+described in COMPOSE-014–016; the connected preview remains at sign-in pending
+explicit OAuth approval.
 
 ## Remaining work
 

@@ -184,9 +184,10 @@ interface ComposeModalProps {
   onClose: (id: string) => void;
   onCloseAll: () => void;
   onDiscard: (id: string) => void;
+  onStageForSend: (id: string) => void;
+  onRestoreAfterSend: (id: string) => void;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
-  onReopen: (state: Omit<ComposeState, "id">) => void;
   onInitialExpandedConsumed?: () => void;
 }
 
@@ -200,9 +201,10 @@ export function ComposeModal({
   onClose,
   onCloseAll,
   onDiscard,
+  onStageForSend,
+  onRestoreAfterSend,
   onNewDraft,
   onFlush,
-  onReopen,
   onInitialExpandedConsumed,
 }: ComposeModalProps) {
   const t = useT();
@@ -287,8 +289,8 @@ export function ComposeModal({
     // Snapshot draft data for potential undo
     const draftSnapshot = { ...activeDraft };
 
-    // Close composer immediately
-    onDiscard(activeId);
+    // Hide it during the undo window without deleting either draft copy.
+    onStageForSend(activeId);
 
     // Show optimistic reply in the thread immediately (for replies)
     const undoOptimistic = draftSnapshot.replyToId
@@ -314,9 +316,7 @@ export function ComposeModal({
       clearTimeout(sendTimer);
       toast.dismiss(toastId);
       undoOptimistic?.();
-      // Reopen composer with the saved draft
-      const { id: _id, ...reopenData } = draftSnapshot;
-      onReopen(reopenData);
+      onRestoreAfterSend(sendingId);
     };
 
     // Keep undo available only while the provider call is still deferred.
@@ -352,6 +352,7 @@ export function ComposeModal({
             id: sendingToastId,
             duration: 3_000,
           });
+          onDiscard(sendingId);
           if (draftSnapshot.queuedDraftId) {
             updateQueuedDraft.mutate({
               id: draftSnapshot.queuedDraftId,
@@ -363,9 +364,7 @@ export function ComposeModal({
         .catch(() => {
           toast.dismiss(sendingToastId);
           toast.error(t("mail.toasts.failedToSendEmail"));
-          // Reopen composer on failure
-          const { id: _id, ...reopenData } = draftSnapshot;
-          onReopen(reopenData);
+          onRestoreAfterSend(sendingId);
         });
     }, SEND_UNDO_WINDOW_MS);
   };

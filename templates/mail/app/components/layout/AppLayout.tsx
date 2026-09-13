@@ -2136,9 +2136,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               }
             }}
             onDiscard={compose.discard}
+            onStageForSend={compose.stageForSend}
+            onRestoreAfterSend={compose.restoreAfterSend}
             onNewDraft={handleCompose}
             onFlush={compose.flush}
-            onReopen={compose.open}
             onInitialExpandedConsumed={clearComposeInitialExpanded}
           />
         );

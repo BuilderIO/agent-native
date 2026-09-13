@@ -181,6 +181,21 @@ export function enqueueDraftMutation<T>(
   return next;
 }
 
+export function enqueueCapturedDraftDeletions(
+  pending: Map<string, Promise<unknown>>,
+  ids: string[],
+  remove: (id: string) => Promise<unknown>,
+): Promise<void> {
+  return Promise.all(
+    ids.map((id) =>
+      enqueueDraftMutation(pending, id, () => remove(id)).then(
+        () => undefined,
+        () => undefined,
+      ),
+    ),
+  ).then(() => undefined);
+}
+
 export function applyDraftSaveResult(
   draft: ComposeState,
   result: DraftSaveResult | undefined,
@@ -210,6 +225,9 @@ export async function saveDraftToEmailsBestEffort(
 export function useComposeState() {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [stagedSendIds, setStagedSendIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const dirtyRef = useRef<Record<string, boolean>>({});
   const versionRef = useRef<Record<string, number>>({});
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -282,12 +300,21 @@ export function useComposeState() {
     refetchOnWindowFocus: true,
   });
 
-  const drafts = query.data ?? [];
+  const allDrafts = query.data ?? [];
+  const drafts = allDrafts.filter((draft) => !stagedSendIds.has(draft.id));
 
   useEffect(() => {
     const handleFocusDraft = (event: Event) => {
       const id = (event as CustomEvent<{ id?: unknown }>).detail?.id;
-      if (typeof id === "string" && id.trim()) setActiveId(id);
+      if (typeof id === "string" && id.trim()) {
+        setStagedSendIds((current) => {
+          if (!current.has(id)) return current;
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+        setActiveId(id);
+      }
     };
     window.addEventListener(FOCUS_COMPOSE_DRAFT_EVENT, handleFocusDraft);
     return () =>
@@ -297,13 +324,13 @@ export function useComposeState() {
   useEffect(() => {
     if (!query.isSuccess) return;
     const previousIds = knownDraftIdsRef.current;
-    const currentIds = new Set(drafts.map((draft) => draft.id));
+    const currentIds = new Set(allDrafts.map((draft) => draft.id));
     knownDraftIdsRef.current = currentIds;
     if (!previousIds) return;
 
-    const newActiveId = newestUnseenPopoutDraftId(previousIds, drafts);
+    const newActiveId = newestUnseenPopoutDraftId(previousIds, allDrafts);
     if (newActiveId) setActiveId(newActiveId);
-  }, [drafts, query.isSuccess]);
+  }, [allDrafts, query.isSuccess]);
 
   // Resolve activeId: use current if valid, else last draft, else null
   const resolvedActiveId =
@@ -326,14 +353,6 @@ export function useComposeState() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/_agent-native/application-state/compose/${id}`, {
-        method: "DELETE",
-      }),
-    onError: () => window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT)),
-  });
-
-  const deleteAllMutation = useMutation({
-    mutationFn: () =>
-      apiFetch("/_agent-native/application-state/compose", {
         method: "DELETE",
       }),
     onError: () => window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT)),
@@ -573,6 +592,12 @@ export function useComposeState() {
    *  If a Gmail draft was already created by auto-save, delete it. */
   const discard = useCallback(
     (id: string) => {
+      setStagedSendIds((current) => {
+        if (!current.has(id)) return current;
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
       removedDraftIdsRef.current[id] = Date.now();
       void qc.cancelQueries({ queryKey: ["compose-drafts"] });
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
@@ -626,10 +651,40 @@ export function useComposeState() {
     [qc, deleteMutation, deleteSavedDraft, resolvedActiveId],
   );
 
+  const stageForSend = useCallback(
+    (id: string) => {
+      if (
+        !(qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []).some(
+          (draft) => draft.id === id,
+        )
+      ) {
+        return;
+      }
+      setStagedSendIds((current) => new Set(current).add(id));
+      setActiveId((current) => (current === id ? null : current));
+    },
+    [qc],
+  );
+
+  const restoreAfterSend = useCallback((id: string) => {
+    setStagedSendIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setActiveId(id);
+  }, []);
+
   /** Close all drafts — auto-saves any with content. */
   const closeAll = useCallback(() => {
-    const currentDrafts =
-      qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+    const allDrafts = qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+    const stagedDrafts = allDrafts.filter((draft) =>
+      stagedSendIds.has(draft.id),
+    );
+    const currentDrafts = allDrafts.filter(
+      (draft) => !stagedSendIds.has(draft.id),
+    );
     const removedAt = Date.now();
     for (const draft of currentDrafts) {
       removedDraftIdsRef.current[draft.id] = removedAt;
@@ -664,21 +719,24 @@ export function useComposeState() {
       }
     }
 
-    for (const timer of Object.values(debounceRef.current)) clearTimeout(timer);
-    for (const timer of Object.values(gmailSaveRef.current))
-      clearTimeout(timer);
-    debounceRef.current = {};
-    gmailSaveRef.current = {};
-    dirtyRef.current = {};
-    versionRef.current = {};
+    for (const draft of currentDrafts) {
+      const id = draft.id;
+      if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
+      if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
+      delete debounceRef.current[id];
+      delete gmailSaveRef.current[id];
+      delete dirtyRef.current[id];
+      delete versionRef.current[id];
+    }
 
     setActiveId(null);
-    qc.setQueryData<ComposeState[]>(["compose-drafts"], []);
-    const pendingWrites = [...pendingDraftMutationsRef.current.values()];
-    void Promise.all(pendingWrites.map((write) => write.catch(() => undefined)))
-      .then(() => deleteAllMutation.mutateAsync())
-      .catch(() => undefined);
-  }, [qc, deleteAllMutation, reportDraftSaveResult]);
+    qc.setQueryData<ComposeState[]>(["compose-drafts"], stagedDrafts);
+    void enqueueCapturedDraftDeletions(
+      pendingDraftMutationsRef.current,
+      currentDrafts.map((draft) => draft.id),
+      (id) => deleteMutation.mutateAsync(id),
+    );
+  }, [qc, deleteMutation, reportDraftSaveResult, stagedSendIds]);
 
   /** Flush a specific draft immediately (for Generate button). */
   const flush = useCallback(
@@ -711,6 +769,8 @@ export function useComposeState() {
     close,
     closeAll,
     discard,
+    stageForSend,
+    restoreAfterSend,
     deleteSavedDraft,
     setActiveId,
     flush,

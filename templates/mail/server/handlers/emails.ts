@@ -89,6 +89,10 @@ import {
   resolveComposeAttachments,
   splitReplyQuote,
 } from "../lib/outgoing-email.js";
+import {
+  resolveExistingSavedDraftOwnership,
+  SavedDraftOwnershipError,
+} from "../lib/saved-draft-ownership.js";
 import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
 // State-change operations (archive/unarchive/star/trash/untrash/markRead) have
 // been migrated to the action surface; their handlers have been removed. The
@@ -1352,27 +1356,55 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "One or more attachments could not be read" };
   }
 
-  const gmailConnected =
-    requestedBackend === "local" ? false : await isConnected(email);
-  const draftBackend = resolveSavedDraftBackend(
-    requestedBackend,
-    gmailConnected,
-  );
+  if (
+    draftId !== undefined &&
+    draftId !== null &&
+    typeof draftId !== "string"
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft ID" };
+  }
+  const savedDraftId =
+    typeof draftId === "string" && draftId ? draftId : undefined;
+
+  let draftBackend: "gmail" | "local";
+  let gmailConnected: boolean | undefined;
+  let draftAccountEmail = accountEmail as string | undefined;
+  try {
+    if (savedDraftId) {
+      const ownership = await resolveExistingSavedDraftOwnership({
+        ownerEmail: email,
+        savedDraftId,
+        savedDraftBackend: requestedBackend,
+        accountEmail: draftAccountEmail,
+      });
+      draftBackend = ownership.backend;
+      draftAccountEmail = ownership.accountEmail ?? draftAccountEmail;
+    } else {
+      gmailConnected =
+        requestedBackend === "local" ? false : await isConnected(email);
+      draftBackend = resolveSavedDraftBackend(requestedBackend, gmailConnected);
+    }
+  } catch (error) {
+    if (!(error instanceof SavedDraftOwnershipError)) throw error;
+    setResponseStatus(event, 409);
+    return { error: error.message };
+  }
 
   // Keep existing drafts on their owning backend when connection state changes.
   if (draftBackend === "gmail") {
-    if (!gmailConnected) {
+    if (!(gmailConnected ?? (await isConnected(email)))) {
       setResponseStatus(event, 401);
       return { error: "Gmail is not connected for this saved draft" };
     }
-    const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
+    const acct = await resolveAccountEmail(draftAccountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
     }
     try {
-      const draftFrom = accountEmail || "me";
+      const draftFrom = draftAccountEmail || "me";
       const raw = buildOutgoingRawEmail({
         from: draftFrom,
         to: to || "",
@@ -1383,11 +1415,11 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         attachments,
       });
 
-      if (draftId) {
+      if (savedDraftId) {
         // Update existing Gmail draft
         try {
           const updated = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(savedDraftId)}`,
             accessToken,
             {
               method: "PUT",
@@ -1401,8 +1433,11 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
             accountEmail: acct,
             updated: true,
           };
-        } catch {
-          // Draft may have been deleted; create new
+        } catch (error) {
+          if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
+            throw error;
+          }
+          // A deleted Gmail draft is safe to replace with a new one.
         }
       }
       // Create new Gmail draft
@@ -1431,8 +1466,8 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   // Local fallback: save as EmailMessage with isDraft=true
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
-    const existingIdx = draftId
-      ? emails.findIndex((e) => e.id === draftId && e.isDraft)
+    const existingIdx = savedDraftId
+      ? emails.findIndex((e) => e.id === savedDraftId && e.isDraft)
       : -1;
 
     const draftEmail: EmailMessage = {

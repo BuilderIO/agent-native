@@ -13,11 +13,17 @@ describe("send feedback contract", () => {
     expect(source).toContain("const SEND_UNDO_WINDOW_MS = 10_000;");
     expect(source).toContain("if (cancelled || dispatchStarted) return;");
     expect(source).toContain("dispatchStarted = true;");
+    expect(source).toContain("onStageForSend(activeId);");
+    expect(source).toContain("onRestoreAfterSend(sendingId);");
+    expect(source).toContain("onDiscard(sendingId);");
     expect(source).toContain('action: { label: t("mail.actions.undo")');
     expect(source).toMatch(
       /toast\(t\("mail\.toasts\.messageSent"\), \{\s+id: sendingToastId,/,
     );
     expect(source).not.toContain('toast("Message sent."');
+    expect(source.indexOf("onDiscard(sendingId);")).toBeGreaterThan(
+      source.indexOf(".then((result) => {"),
+    );
   });
 
   it("applies the same provider-confirmed state to inline replies", () => {

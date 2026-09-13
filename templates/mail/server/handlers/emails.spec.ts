@@ -43,10 +43,19 @@ describe("emails handler saved-draft metadata", () => {
     expect(source).toContain(
       "parseSavedDraftBackend(reqBody.savedDraftBackend)",
     );
-    expect(source).toContain(
-      "resolveSavedDraftBackend(\n    requestedBackend,\n    gmailConnected,\n  )",
-    );
+    expect(source).toContain("resolveSavedDraftBackend(");
+    expect(source).toContain("requestedBackend");
+    expect(source).toContain("gmailConnected");
     expect(source).toContain('if (draftBackend === "gmail")');
+  });
+
+  it("verifies legacy saved-draft ownership instead of choosing from connection state", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain("resolveExistingSavedDraftOwnership({");
+    expect(source).toContain("SavedDraftOwnershipError");
+    expect(source).toContain("setResponseStatus(event, 409)");
+    expect(source).toContain("encodeURIComponent(savedDraftId)");
   });
 });
 

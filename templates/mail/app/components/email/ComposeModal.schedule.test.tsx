@@ -145,9 +145,10 @@ describe("ComposeModal scheduling", () => {
         onClose={vi.fn()}
         onCloseAll={vi.fn()}
         onDiscard={onDiscard}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
         onNewDraft={vi.fn()}
         onFlush={vi.fn()}
-        onReopen={vi.fn()}
       />,
     );
 
@@ -170,7 +171,8 @@ describe("ComposeModal scheduling", () => {
       }),
     );
     const onDiscard = vi.fn();
-    const onReopen = vi.fn();
+    const onStageForSend = vi.fn();
+    const onRestoreAfterSend = vi.fn();
     const { getByRole } = render(
       <ComposeModal
         drafts={[draft]}
@@ -181,9 +183,10 @@ describe("ComposeModal scheduling", () => {
         onClose={vi.fn()}
         onCloseAll={vi.fn()}
         onDiscard={onDiscard}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={onRestoreAfterSend}
         onNewDraft={vi.fn()}
         onFlush={vi.fn()}
-        onReopen={onReopen}
       />,
     );
 
@@ -196,7 +199,8 @@ describe("ComposeModal scheduling", () => {
     const undo = (undoToast[1] as { action: { onClick: () => void } }).action
       .onClick;
 
-    expect(onDiscard).toHaveBeenCalledOnce();
+    expect(onStageForSend).toHaveBeenCalledWith(draft.id);
+    expect(onDiscard).not.toHaveBeenCalled();
     expect(mockSendEmailAsync).not.toHaveBeenCalled();
     expect(
       mockToast.mock.calls.some(
@@ -210,7 +214,8 @@ describe("ComposeModal scheduling", () => {
 
     expect(mockSendEmailAsync).toHaveBeenCalledOnce();
     undo();
-    expect(onReopen).not.toHaveBeenCalled();
+    expect(onRestoreAfterSend).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
     expect(
       mockToast.mock.calls.some(
         ([message]) => message === "mail.toasts.messageSent",
@@ -222,6 +227,7 @@ describe("ComposeModal scheduling", () => {
       await Promise.resolve();
     });
 
+    expect(onDiscard).toHaveBeenCalledWith(draft.id);
     expect(mockToast).toHaveBeenCalledWith(
       "mail.toasts.messageSent",
       expect.objectContaining({ duration: 3_000 }),
@@ -236,7 +242,9 @@ describe("ComposeModal scheduling", () => {
         rejectSend = reject;
       }),
     );
-    const onReopen = vi.fn();
+    const onStageForSend = vi.fn();
+    const onRestoreAfterSend = vi.fn();
+    const onDiscard = vi.fn();
     const { getByRole, unmount } = render(
       <ComposeModal
         drafts={[draft]}
@@ -246,10 +254,11 @@ describe("ComposeModal scheduling", () => {
         onUpdate={vi.fn()}
         onClose={vi.fn()}
         onCloseAll={vi.fn()}
-        onDiscard={vi.fn()}
+        onDiscard={onDiscard}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={onRestoreAfterSend}
         onNewDraft={vi.fn()}
         onFlush={vi.fn()}
-        onReopen={onReopen}
       />,
     );
 
@@ -267,15 +276,15 @@ describe("ComposeModal scheduling", () => {
     expect(mockToast.error).toHaveBeenCalledWith(
       "mail.toasts.failedToSendEmail",
     );
-    expect(onReopen).toHaveBeenCalledWith(
-      expect.objectContaining({ to: draft.to, subject: draft.subject }),
-    );
+    expect(onDiscard).not.toHaveBeenCalled();
+    expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
   });
 
   it("cancels a deferred send and restores its draft when Undo is selected", async () => {
     vi.useFakeTimers();
     const onDiscard = vi.fn();
-    const onReopen = vi.fn();
+    const onStageForSend = vi.fn();
+    const onRestoreAfterSend = vi.fn();
     const { getByRole } = render(
       <ComposeModal
         drafts={[draft]}
@@ -286,9 +295,10 @@ describe("ComposeModal scheduling", () => {
         onClose={vi.fn()}
         onCloseAll={vi.fn()}
         onDiscard={onDiscard}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={onRestoreAfterSend}
         onNewDraft={vi.fn()}
         onFlush={vi.fn()}
-        onReopen={onReopen}
       />,
     );
 
@@ -303,9 +313,8 @@ describe("ComposeModal scheduling", () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     expect(mockSendEmailAsync).not.toHaveBeenCalled();
-    expect(onDiscard).toHaveBeenCalledOnce();
-    expect(onReopen).toHaveBeenCalledWith(
-      expect.objectContaining({ to: draft.to, subject: draft.subject }),
-    );
+    expect(onStageForSend).toHaveBeenCalledWith(draft.id);
+    expect(onDiscard).not.toHaveBeenCalled();
+    expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
   });
 });

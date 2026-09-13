@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   listAppState: vi.fn(),
   saveGmailDraft: vi.fn(),
   deleteGmailDraft: vi.fn(),
+  findGmailDraftAccount: vi.fn(),
+  updateLocalSavedDraft: vi.fn(),
   isConnected: vi.fn(),
   readLocalEmails: vi.fn(),
   withLocalEmailMutationLock: vi.fn(),
@@ -52,10 +54,11 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("../server/lib/gmail-drafts.js", () => ({
   saveGmailDraft: mocks.saveGmailDraft,
   deleteGmailDraft: mocks.deleteGmailDraft,
+  findGmailDraftAccount: mocks.findGmailDraftAccount,
 }));
 
-vi.mock("../server/lib/google-auth.js", () => ({
-  isConnected: mocks.isConnected,
+vi.mock("../server/lib/local-email-drafts.js", () => ({
+  updateLocalSavedDraft: mocks.updateLocalSavedDraft,
 }));
 
 vi.mock("../server/lib/local-email-store.js", () => ({
@@ -80,6 +83,8 @@ beforeEach(() => {
   mocks.appendSignatureToBody.mockImplementation((body: string) => body);
   mocks.buildDeepLink.mockReturnValue("/mail");
   mocks.saveGmailDraft.mockResolvedValue(null);
+  mocks.findGmailDraftAccount.mockResolvedValue(null);
+  mocks.updateLocalSavedDraft.mockResolvedValue(undefined);
   mocks.isConnected.mockResolvedValue(false);
   mocks.readLocalEmails.mockResolvedValue([]);
   mocks.withLocalEmailMutationLock.mockImplementation(
@@ -193,6 +198,53 @@ describe("manage-draft saved mailbox deletion", () => {
     });
   });
 
+  it("deletes a legacy local saved draft even after Gmail is connected", async () => {
+    const otherEmail = { id: "sent-1", isDraft: false };
+    mocks.readLocalEmails.mockResolvedValue([
+      { id: "legacy-local-1", isDraft: true },
+      otherEmail,
+    ]);
+
+    await action.run({
+      action: "delete-saved",
+      savedDraftId: "legacy-local-1",
+      accountEmail: "owner@example.com",
+    });
+
+    expect(mocks.writeLocalEmails).toHaveBeenCalledWith("owner@example.com", [
+      otherEmail,
+    ]);
+    expect(mocks.findGmailDraftAccount).not.toHaveBeenCalled();
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("deletes a legacy Gmail draft only from the account that contains that ID", async () => {
+    mocks.findGmailDraftAccount.mockResolvedValue("secondary@example.com");
+
+    await action.run({
+      action: "delete-saved",
+      savedDraftId: "legacy-gmail-1",
+    });
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "secondary@example.com",
+      draftId: "legacy-gmail-1",
+    });
+  });
+
+  it("fails closed when a legacy saved draft has no verifiable owner", async () => {
+    await expect(
+      action.run({
+        action: "delete-saved",
+        savedDraftId: "unknown-draft",
+        accountEmail: "owner@example.com",
+      }),
+    ).rejects.toThrow("Could not verify the backend");
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+  });
+
   it("uses saved mailbox metadata when deleting all compose drafts", async () => {
     mocks.isConnected.mockResolvedValue(true);
     mocks.listAppState.mockResolvedValue([
@@ -248,6 +300,8 @@ describe("manage-draft local fallback", () => {
     appState.set("compose-gmail-draft", {
       id: "gmail-draft",
       savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "old@example.com",
       accountEmail: "old@example.com",
       to: "recipient@example.com",
       subject: "Hello",
@@ -263,6 +317,115 @@ describe("manage-draft local fallback", () => {
       }),
     ).rejects.toMatchObject({ errorCode: "draft_account_change" });
     expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("updates a saved local draft locally after Gmail connects", async () => {
+    appState.set("compose-local-draft", {
+      id: "local-draft",
+      savedDraftId: "local-draft-1",
+      savedDraftBackend: "local",
+      to: "old@example.com",
+      subject: "Old",
+      body: "Old body",
+      mode: "compose",
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "local-draft",
+      body: "Updated body",
+    });
+
+    expect(mocks.updateLocalSavedDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        draftId: "local-draft-1",
+        body: "Updated body",
+      }),
+    );
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(result.draft).toMatchObject({
+      savedDraftId: "local-draft-1",
+      savedDraftBackend: "local",
+    });
+  });
+
+  it("resolves a legacy local draft by mailbox row before updating it", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      { id: "legacy-local-1", isDraft: true },
+    ]);
+    appState.set("compose-legacy-local", {
+      id: "legacy-local",
+      savedDraftId: "legacy-local-1",
+      to: "old@example.com",
+      subject: "Old",
+      body: "Old body",
+      mode: "compose",
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "legacy-local",
+      body: "Updated body",
+    });
+
+    expect(mocks.updateLocalSavedDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftId: "legacy-local-1",
+        body: "Updated body",
+      }),
+    );
+    expect(mocks.findGmailDraftAccount).not.toHaveBeenCalled();
+    expect(result.draft.savedDraftBackend).toBe("local");
+  });
+
+  it("honors the mailbox containing a legacy Gmail draft during agent updates", async () => {
+    mocks.findGmailDraftAccount.mockResolvedValue("secondary@example.com");
+    mocks.saveGmailDraft.mockResolvedValue({
+      draftId: "legacy-gmail-1",
+      accountEmail: "secondary@example.com",
+      created: false,
+      updated: true,
+    });
+    appState.set("compose-legacy-gmail", {
+      id: "legacy-gmail",
+      savedDraftId: "legacy-gmail-1",
+      to: "old@example.com",
+      subject: "Old",
+      body: "Old body",
+      mode: "compose",
+    });
+
+    await action.run({
+      action: "update",
+      id: "legacy-gmail",
+      body: "Updated body",
+    });
+
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountEmail: "secondary@example.com",
+        draftId: "legacy-gmail-1",
+        body: "Updated body",
+      }),
+    );
+  });
+
+  it("does not create a replacement for an unverified legacy saved draft", async () => {
+    appState.set("compose-unknown", {
+      id: "unknown",
+      savedDraftId: "unknown-draft",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+      mode: "compose",
+    });
+
+    await expect(
+      action.run({ action: "update", id: "unknown", body: "Changed" }),
+    ).rejects.toThrow("Could not verify the backend");
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.updateLocalSavedDraft).not.toHaveBeenCalled();
   });
 });
 

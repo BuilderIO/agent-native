@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyDraftSaveResult,
   enqueueDraftMutation,
+  enqueueCapturedDraftDeletions,
   enqueueDraftSave,
   filterRemovedDrafts,
   newestUnseenPopoutDraftId,
@@ -336,5 +337,40 @@ describe("enqueueDraftMutation", () => {
 
     await expect(write).rejects.toThrow("write failed");
     await expect(remove).resolves.toBe("deleted");
+  });
+
+  it("deletes only the draft IDs captured before a new tab opens", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    const removed: string[] = [];
+    let finishOldWrite!: () => void;
+    const oldWrite = enqueueDraftMutation(
+      pending,
+      "old-tab",
+      () =>
+        new Promise<void>((resolve) => {
+          finishOldWrite = resolve;
+        }),
+    );
+    const closeAll = enqueueCapturedDraftDeletions(
+      pending,
+      ["old-tab"],
+      async (id) => {
+        removed.push(id);
+      },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    const newTabWrite = enqueueDraftMutation(pending, "new-tab", async () => {
+      return "saved";
+    });
+    await newTabWrite;
+    expect(removed).toEqual([]);
+
+    finishOldWrite();
+    await oldWrite;
+    await closeAll;
+
+    expect(removed).toEqual(["old-tab"]);
   });
 });
