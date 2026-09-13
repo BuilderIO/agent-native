@@ -1703,29 +1703,49 @@ export function ungroupSlideObject(
       element,
       geometry: getGeometry(element),
     }));
-  const transformCenters = new Map<HTMLElement, { x: number; y: number }>();
+  const transforms = new Map<
+    HTMLElement,
+    {
+      nextTransform: string;
+      currentCenterOffset: { x: number; y: number };
+      nextCenterOffset: { x: number; y: number };
+    }
+  >();
   if (groupRotation !== 0) {
     for (const { element, geometry } of childGeometries) {
-      const translation = readSlideObjectTransformTranslation(
+      const computedTransform = window.getComputedStyle(element).transform;
+      const currentTransform =
+        computedTransform && computedTransform !== "none"
+          ? computedTransform
+          : element.style.transform;
+      const currentMatrix = readSlideObjectTransformMatrix(
+        geometry,
+        currentTransform,
+      );
+      if (!currentMatrix) return null;
+      const currentCenterOffset = slideObjectTransformCenterOffset(
         element,
         geometry,
+        currentMatrix,
       );
-      if (!translation) return null;
-      const originTokens = (
-        window.getComputedStyle(element).transformOrigin ||
-        element.style.transformOrigin
-      )
-        .trim()
-        .split(/\s+/);
-      transformCenters.set(element, {
-        x:
-          translation.x +
-          transformOriginOffset(originTokens[0], geometry.width, "x") -
-          geometry.width / 2,
-        y:
-          translation.y +
-          transformOriginOffset(originTokens[1], geometry.height, "y") -
-          geometry.height / 2,
+      const currentRotation =
+        (Math.atan2(currentMatrix[1], currentMatrix[0]) * 180) / Math.PI;
+      const nextTransform = rotatedSlideObjectMatrix(
+        slideObjectMatrix2dString(currentMatrix),
+        currentRotation + groupRotation,
+      );
+      if (!nextTransform) return null;
+      const nextParsed = parseSlideObjectMatrix2d(nextTransform);
+      if (!nextParsed) return null;
+      const nextCenterOffset = slideObjectTransformCenterOffset(
+        element,
+        geometry,
+        slideObjectMatrix2dValues(nextParsed),
+      );
+      transforms.set(element, {
+        nextTransform,
+        currentCenterOffset,
+        nextCenterOffset,
       });
     }
   }
@@ -1761,18 +1781,17 @@ export function ungroupSlideObject(
         offset.x * groupRotationSin +
         offset.y * groupRotationCos,
     };
-    const transformCenter = transformCenters.get(element);
-    // The removed wrapper rotated the child's transformed center, not just its layout box.
-    const transformCorrection = transformCenter
+    const transform = transforms.get(element);
+    const transformCorrection = transform
       ? {
           x:
-            transformCenter.x * groupRotationCos -
-            transformCenter.y * groupRotationSin -
-            transformCenter.x,
+            transform.currentCenterOffset.x * groupRotationCos -
+            transform.currentCenterOffset.y * groupRotationSin -
+            transform.nextCenterOffset.x,
           y:
-            transformCenter.x * groupRotationSin +
-            transformCenter.y * groupRotationCos -
-            transformCenter.y,
+            transform.currentCenterOffset.x * groupRotationSin +
+            transform.currentCenterOffset.y * groupRotationCos -
+            transform.nextCenterOffset.y,
         }
       : { x: 0, y: 0 };
     applyGeometry(element, {
@@ -1781,12 +1800,7 @@ export function ungroupSlideObject(
       width: geometry.width,
       height: geometry.height,
     });
-    if (groupRotation !== 0) {
-      setSlideObjectRotation(
-        element,
-        readSlideObjectRotation(element) + groupRotation,
-      );
-    }
+    if (transform) element.style.transform = transform.nextTransform;
   }
   group.remove();
   return childGeometries.map(({ element }) => element);
@@ -1873,74 +1887,108 @@ function parseSlideObjectMatrix2d(transform: string): {
   };
 }
 
-function readSlideObjectTransformTranslation(
+type SlideObjectTransformMatrix2d = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+];
+
+function slideObjectMatrix2dValues(parsed: {
+  values: number[];
+  indexes: [number, number, number, number, number, number];
+}): SlideObjectTransformMatrix2d {
+  const [aIndex, bIndex, cIndex, dIndex, txIndex, tyIndex] = parsed.indexes;
+  return [
+    parsed.values[aIndex] ?? 1,
+    parsed.values[bIndex] ?? 0,
+    parsed.values[cIndex] ?? 0,
+    parsed.values[dIndex] ?? 1,
+    parsed.values[txIndex] ?? 0,
+    parsed.values[tyIndex] ?? 0,
+  ];
+}
+
+function slideObjectMatrix2dString(
+  matrix: SlideObjectTransformMatrix2d,
+): string {
+  return `matrix(${matrix.join(", ")})`;
+}
+
+function readSlideObjectTransformMatrix(
+  geometry: SlideObjectGeometry,
+  transform: string,
+): SlideObjectTransformMatrix2d | null {
+  if (!transform || transform.trim() === "none") {
+    return [1, 0, 0, 1, 0, 0];
+  }
+  const parsed = parseSlideObjectMatrix2d(transform);
+  if (parsed) return slideObjectMatrix2dValues(parsed);
+
+  const rotation = transform.match(
+    /^rotate(?:z)?\(\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*\)$/i,
+  );
+  if (rotation) {
+    const radians = (Number(rotation[1]) * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    return [cos, sin, -sin, cos, 0, 0];
+  }
+
+  const translate = transform.match(/^translate(?:3d|x|y)?\(([^()]*)\)$/i);
+  if (!translate) return null;
+  const kind = transform.match(/^translate(?:3d|x|y)?/i)?.[0]?.toLowerCase();
+  const values = translate[1]?.split(/[\s,]+/).filter(Boolean) ?? [];
+  const parseLength = (value: string | undefined, dimension: number) => {
+    if (!value) return 0;
+    if (!/^-?(?:\d+\.?\d*|\.\d+)(?:px|%)?$/i.test(value)) return null;
+    const number = Number.parseFloat(value);
+    return value.endsWith("%") ? (number * dimension) / 100 : number;
+  };
+  const x = kind === "translatey" ? 0 : parseLength(values[0], geometry.width);
+  const y =
+    kind === "translatex"
+      ? 0
+      : parseLength(
+          kind === "translatey" ? values[0] : values[1],
+          geometry.height,
+        );
+  const z = kind === "translate3d" ? parseLength(values[2], 0) : 0;
+  return x !== null && y !== null && z === 0 ? [1, 0, 0, 1, x, y] : null;
+}
+
+function slideObjectTransformCenterOffset(
   element: HTMLElement,
   geometry: SlideObjectGeometry,
-): { x: number; y: number } | null {
-  const candidates = [
-    window.getComputedStyle(element).transform,
-    element.style.transform,
-  ];
-  let sawTransform = false;
-  for (const candidate of candidates) {
-    if (!candidate || candidate.trim() === "none") continue;
-    sawTransform = true;
-    const parsedMatrix = parseSlideObjectMatrix2d(candidate);
-    if (parsedMatrix) {
-      const [, , , , eIndex, fIndex] = parsedMatrix.indexes;
-      return {
-        x: parsedMatrix.values[eIndex] ?? 0,
-        y: parsedMatrix.values[fIndex] ?? 0,
-      };
-    }
-    const translate = candidate.match(/^translate(?:3d|x|y)?\(([^()]*)\)$/i);
-    if (translate) {
-      const kind = candidate
-        .match(/^translate(?:3d|x|y)?/i)?.[0]
-        ?.toLowerCase();
-      const values = translate[1]?.split(/[\s,]+/).filter(Boolean) ?? [];
-      const parseLength = (value: string | undefined, dimension: number) => {
-        if (!value) return 0;
-        if (!/^-?(?:\d+\.?\d*|\.\d+)(?:px|%)?$/i.test(value)) return null;
-        const number = Number.parseFloat(value);
-        return value.endsWith("%") ? (number * dimension) / 100 : number;
-      };
-      const x =
-        kind === "translatey" ? 0 : parseLength(values[0], geometry.width);
-      const y =
-        kind === "translatex"
-          ? 0
-          : parseLength(
-              kind === "translatey" ? values[0] : values[1],
-              geometry.height,
-            );
-      const z = kind === "translate3d" ? parseLength(values[2], 0) : 0;
-      if (x !== null && y !== null && z === 0) return { x, y };
-      return null;
-    }
-
-    const functions = [...candidate.matchAll(/([a-z][a-z0-9-]*)\([^()]*\)/gi)];
-    const noTranslation = new Set([
-      "rotate",
-      "rotatez",
-      "scale",
-      "scalex",
-      "scaley",
-      "skew",
-      "skewx",
-      "skewy",
-    ]);
-    if (
-      functions.length > 0 &&
-      !candidate.replace(/([a-z][a-z0-9-]*)\([^()]*\)/gi, "").trim() &&
-      functions.every((match) =>
-        noTranslation.has(match[1]?.toLowerCase() ?? ""),
-      )
-    ) {
-      return { x: 0, y: 0 };
-    }
-  }
-  return sawTransform ? null : { x: 0, y: 0 };
+  matrix: SlideObjectTransformMatrix2d,
+): { x: number; y: number } {
+  const originTokens = (
+    window.getComputedStyle(element).transformOrigin ||
+    element.style.transformOrigin
+  )
+    .trim()
+    .split(/\s+/);
+  const originX = transformOriginOffset(originTokens[0], geometry.width, "x");
+  const originY = transformOriginOffset(originTokens[1], geometry.height, "y");
+  const centerX = geometry.width / 2;
+  const centerY = geometry.height / 2;
+  const [a, b, c, d, tx, ty] = matrix;
+  return {
+    x:
+      a * (centerX - originX) +
+      c * (centerY - originY) +
+      tx +
+      originX -
+      centerX,
+    y:
+      b * (centerX - originX) +
+      d * (centerY - originY) +
+      ty +
+      originY -
+      centerY,
+  };
 }
 
 function rotatedSlideObjectMatrix(
@@ -1989,10 +2037,10 @@ export function readSlideObjectRotation(element: HTMLElement): number {
   const matrix = parseSlideObjectMatrix2d(transform);
   if (matrix) {
     const [aIndex, bIndex] = matrix.indexes;
-    return Math.round(
+    return (
       (Math.atan2(matrix.values[bIndex] ?? 0, matrix.values[aIndex] ?? 1) *
         180) /
-        Math.PI,
+      Math.PI
     );
   }
   return 0;

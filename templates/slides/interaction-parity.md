@@ -289,13 +289,13 @@ Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
 
 ### Latest review-fix verification (2026-09-13)
 
-- The matrix/translate rotation repro now passes in the 127-test focused
+- The matrix/translate rotation repro now passes in the 130-test focused
   interaction + marquee run. Standalone Slides TypeScript checking and
   `guard:no-silent-coercion` pass.
 - The Builder review summary on the previous head also listed west/north group
   resize drift, translated-child loss when ungrouping a rotated group, and
   contiguous-selection one-step ordering as remaining findings. Current-head
-  dispositions, all passing in that same 127-test run:
+  dispositions, all passing in that same 130-test run:
   - Group resize applies the resized wrapper rect before scaling descendants in
     their local coordinates; the west/north regression compares resulting
     world positions against the fixed opposite edges. No additional geometry
@@ -313,6 +313,16 @@ Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
   `https://pr-4887--agent-native-slides.netlify.app` loads the Slides sign-in
   screen. No credentials were available or entered, so no authenticated editor
   interaction was verified from that preview.
+- A review follow-up reproduced two related matrix cases: a scaled/sheared
+  child with a 14.5° matrix angle and a `25% 75%` transform origin, inside a
+  200×100 group rotated 90°, had an expected visual-center x of `227.4924` but
+  landed at `227.3342`; separately, a matrix angle of `12.5°` read back as
+  `13°`. Root boundary: `readSlideObjectRotation` rounded `atan2` before
+  ungroup composed the child's matrix. Code disposition: matrix angles retain
+  fractional precision, and ungrouping now computes center offsets from the
+  complete current and next planar matrices. Focused regressions cover both
+  15°/14.5° scaled-shear centers and 12.5° angle preservation; all pass in the
+  130-test run.
 - The full local guard sweep still cannot complete because the worktree lacks
   the root `ajv` link required by `guard:mcp-registry`. CI also timed out once
   in the unrelated `generate-image-api` test; the exact test passed when run

@@ -2126,6 +2126,97 @@ describe("slide object groups and rotation", () => {
     },
   );
 
+  it.each([15, 14.5])(
+    "preserves a scaled and sheared child's visual center through rotated ungroup (%s°)",
+    (childAngle) => {
+      const parent = document.createElement("div");
+      const group = document.createElement("div");
+      group.className = "fmd-slide-group";
+      group.setAttribute("data-slide-group", "true");
+      group.style.position = "absolute";
+      const first = createFreeformObject("first");
+      const second = createFreeformObject("second");
+      const radians = (childAngle * Math.PI) / 180;
+      const matrix = [
+        2 * Math.cos(radians),
+        2 * Math.sin(radians),
+        0.25,
+        1.5,
+        20,
+        -10,
+      ];
+      first.style.transform = `matrix(${matrix.join(", ")})`;
+      first.style.transformOrigin = "25% 75%";
+      group.append(first, second);
+      parent.append(group);
+      document.body.append(parent);
+      const firstGeometry = { x: 20, y: 20, width: 40, height: 20 };
+      const groupGeometry = { x: 100, y: 100, width: 200, height: 100 };
+      const geometry = geometryFor([
+        [group, groupGeometry],
+        [first, firstGeometry],
+        [second, { x: 120, y: 50, width: 30, height: 20 }],
+      ]);
+      const origin = { x: 10, y: 15 };
+      const center = { x: 20, y: 10 };
+      const transformOffset = {
+        x:
+          matrix[0]! * (center.x - origin.x) +
+          matrix[2]! * (center.y - origin.y) +
+          matrix[4]! +
+          origin.x -
+          center.x,
+        y:
+          matrix[1]! * (center.x - origin.x) +
+          matrix[3]! * (center.y - origin.y) +
+          matrix[5]! +
+          origin.y -
+          center.y,
+      };
+      const originalVisualCenter = {
+        x: groupGeometry.x + firstGeometry.x + center.x + transformOffset.x,
+        y: groupGeometry.y + firstGeometry.y + center.y + transformOffset.y,
+      };
+      const groupCenter = { x: 200, y: 150 };
+      const expectedVisualCenter = {
+        x: groupCenter.x - (originalVisualCenter.y - groupCenter.y),
+        y: groupCenter.y + (originalVisualCenter.x - groupCenter.x),
+      };
+      setSlideObjectRotation(group, 90);
+
+      ungroupSlideObject(group, geometry.get, geometry.apply);
+
+      const nextGeometry = geometry.get(first);
+      const nextMatrix = first.style.transform
+        .match(/^matrix\((.+)\)$/)?.[1]
+        ?.split(",")
+        .map(Number);
+      expect(nextMatrix).toHaveLength(6);
+      const nextTransformOffset = {
+        x:
+          (nextMatrix?.[0] ?? 1) * (center.x - origin.x) +
+          (nextMatrix?.[2] ?? 0) * (center.y - origin.y) +
+          (nextMatrix?.[4] ?? 0) +
+          origin.x -
+          center.x,
+        y:
+          (nextMatrix?.[1] ?? 0) * (center.x - origin.x) +
+          (nextMatrix?.[3] ?? 1) * (center.y - origin.y) +
+          (nextMatrix?.[5] ?? 0) +
+          origin.y -
+          center.y,
+      };
+      expect(nextGeometry.x + center.x + nextTransformOffset.x).toBeCloseTo(
+        expectedVisualCenter.x,
+        3,
+      );
+      expect(nextGeometry.y + center.y + nextTransformOffset.y).toBeCloseTo(
+        expectedVisualCenter.y,
+        3,
+      );
+    },
+  );
+
   it("keeps auto stacking implicit when grouping auto-z siblings", () => {
     const parent = document.createElement("div");
     const first = createFreeformObject("first");
@@ -2228,7 +2319,7 @@ describe("slide object groups and rotation", () => {
     const element = document.createElement("div");
     element.style.transform =
       "matrix(1.931851652, 0.51763809, -0.51763809, 1.931851652, 10, 20)";
-    expect(readSlideObjectRotation(element)).toBe(15);
+    expect(readSlideObjectRotation(element)).toBeCloseTo(15);
 
     setSlideObjectRotation(element, 30);
 
@@ -2243,7 +2334,25 @@ describe("slide object groups and rotation", () => {
     ).toBeCloseTo(30);
     expect(values?.[4]).toBe(10);
     expect(values?.[5]).toBe(20);
-    expect(readSlideObjectRotation(element)).toBe(30);
+    expect(readSlideObjectRotation(element)).toBeCloseTo(30);
+  });
+
+  it("preserves fractional rotation when reading a matrix-backed transform", () => {
+    const element = document.createElement("div");
+    const angle = 12.5;
+    const radians = (angle * Math.PI) / 180;
+    element.style.transform = `matrix(${[
+      Math.cos(radians),
+      Math.sin(radians),
+      -Math.sin(radians),
+      Math.cos(radians),
+      10,
+      20,
+    ].join(", ")})`;
+
+    expect(readSlideObjectRotation(element)).toBeCloseTo(angle);
+    setSlideObjectRotation(element, readSlideObjectRotation(element) + 15);
+    expect(readSlideObjectRotation(element)).toBeCloseTo(angle + 15);
   });
 
   it("normalizes pointer rotation across the angle boundary and snaps only with Shift", () => {
