@@ -48,7 +48,7 @@ vi.mock("@/components/calendar/EventDescription", () => ({
     description,
     onClick,
   }: {
-    description: string;
+    description?: string;
     onClick?: () => void;
   }) => (
     <div data-testid="event-description" onClick={onClick}>
