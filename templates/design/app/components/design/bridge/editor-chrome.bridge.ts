@@ -2189,6 +2189,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return containerScopeAncestor(resolved, scope);
   }
 
+  // Figma "click through": with a container selected, a plain click on one
+  // of its descendants selects the container's child under the pointer, one
+  // level per click, and the scope follows so later clicks stay inside it.
+  // The second click of a double-click is not a click-through: the dblclick
+  // handler drills that one level itself.
+  function clickThroughSelectionTarget(
+    hit: Element | null,
+    ev: MouseEvent,
+  ): Element | null {
+    if (ev.detail > 1) return null;
+    if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+      return null;
+    }
+    if (collectMoveGroupMembers(selectedEl).length > 1) return null;
+    var resolved = selectionTargetForHit(hit);
+    if (
+      !resolved ||
+      resolved === selectedEl ||
+      !selectedEl.contains(resolved)
+    ) {
+      return null;
+    }
+    selectionContainerScope = selectedEl;
+    return containerScopeAncestor(resolved, selectedEl);
+  }
+
   function freshRuntimeNodeId(prefix: string): string {
     var random = "";
     try {
@@ -15183,14 +15209,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl.contains &&
       selectedEl.contains(hitRaw)
     ) {
-      // Figma parity: a mousedown inside the currently selected container
-      // targets THAT CONTAINER'S OWN CHILD under the pointer (container-first's
-      // "click inside an already-selected container selects its child" rule),
-      // not the container itself — only a hit on the container's own
-      // background (hitEl === selectedEl) drags the container.
-      return hitEl === selectedEl
-        ? selectedEl
-        : containerScopeAncestor(hitEl, selectedEl);
+      // Figma: a drag that starts inside the selected container moves the
+      // container; a child only drags once a click has selected it.
+      return selectedEl;
     }
     if (args.preferSelected && selectedEl && selectedAlive) {
       var r = args.selectedRect;
@@ -15426,7 +15447,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? selectionTargetForHit(hit)
-          : containerFirstSelectionTarget(hit);
+          : (!readOnly && !e.shiftKey
+              ? clickThroughSelectionTarget(hit, ev)
+              : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
         selectTarget(cycledEl, undefined, true);
       } else {

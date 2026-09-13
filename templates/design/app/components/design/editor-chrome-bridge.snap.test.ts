@@ -201,11 +201,9 @@ describe("editor-chrome bridge — dragTargetForPointerDown", () => {
     height: 50,
   };
 
-  it("resolves to the container's direct child when the hit is its descendant (legacy rule, flag off)", () => {
+  it("keeps the selected element when the hit is its descendant (legacy rule, flag off)", () => {
     const hitRaw = { tag: "child" };
     const selectedEl = { tag: "sel", contains: (x: unknown) => x === hitRaw };
-    // No parentElement chain modeled, so containerScopeAncestor's walk stops
-    // immediately — hitEl already IS the selected container's direct child.
     const hitEl = { tag: "hitTarget" };
     expect(
       dragTargetForPointerDown({
@@ -217,7 +215,7 @@ describe("editor-chrome bridge — dragTargetForPointerDown", () => {
         point: { x: 0, y: 0 },
         preferSelected: false,
       }),
-    ).toBe(hitEl);
+    ).toBe(selectedEl);
   });
 
   it("keeps the container when the hit is its own background", () => {

@@ -2285,6 +2285,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return containerScopeAncestor(resolved, scope);
     }
+    function clickThroughSelectionTarget(hit, ev) {
+      if (ev.detail > 1) return null;
+      if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+        return null;
+      }
+      if (collectMoveGroupMembers(selectedEl).length > 1) return null;
+      var resolved = selectionTargetForHit(hit);
+      if (!resolved || resolved === selectedEl || !selectedEl.contains(resolved)) {
+        return null;
+      }
+      selectionContainerScope = selectedEl;
+      return containerScopeAncestor(resolved, selectedEl);
+    }
     function freshRuntimeNodeId(prefix) {
       var random = "";
       try {
@@ -10964,7 +10977,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var hitRaw = args.hitRaw || hitEl;
       var selectedAlive = !!args.selectedAlive;
       if (selectedEl2 && selectedAlive && selectedEl2.contains && selectedEl2.contains(hitRaw)) {
-        return hitEl === selectedEl2 ? selectedEl2 : containerScopeAncestor(hitEl, selectedEl2);
+        return selectedEl2;
       }
       if (args.preferSelected && selectedEl2 && selectedAlive) {
         var r = args.selectedRect;
@@ -11091,7 +11104,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
         if (cycledEl) {
           selectTarget(cycledEl, void 0, true);
         } else {

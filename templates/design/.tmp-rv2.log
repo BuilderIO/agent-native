@@ -1,0 +1,91 @@
+
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 6:11:44 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 6:11:44 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 6:11:50 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+[e2e] seeded design as_bTFRuXdSfSPBHL0me- for e2e+autoz@local.test
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+
+[WebServer] 6:12:17 AM [vite] (client) [console.error] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:9472/app/components/design/code-workbench/CodeWorkbench.tsx
+[WebServer] 
+[WebServer] The above error occurred in one of your React components.
+[WebServer] 
+[WebServer] React will try to recreate this component tree from scratch using the error boundary you provided, CodeWorkbenchLoadErrorBoundary.
+[WebServer] 
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+[e2e] editor warm
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas
+  1) [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas 
+
+    Error: Dragging "Second paragraph" above "First paragraph" on the canvas did not reorder the document. Clip 5:07 "why can't I simply drag and drop a text just above a text I want? I need to use this left panel".
+
+    expect(received).toBeLessThan(expected)
+
+    Expected: < 606
+    Received:   818
+
+      652 |       `reorder the document. Clip 5:07 "why can't I simply drag and drop a text ` +
+      653 |       `just above a text I want? I need to use this left panel".`,
+    > 654 |   ).toBeLessThan(html.indexOf("First paragraph"));
+          |     ^
+      655 | });
+      656 |
+      657 | test("5:30 — dragging does not repaint the canvas background", async ({
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/landing-page-authoring.spec.ts:654:5
+
+    Error Context: test-results/landing-page-authoring-5-0-ef845-y-dragging-it-on-the-canvas-chromium/error-context.md
+
+
+  1 failed
+    [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas 
