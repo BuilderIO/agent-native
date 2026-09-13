@@ -115,8 +115,12 @@ async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
     .locator('[data-design-chrome-region="right-panel"]')
     .boundingBox()
     .catch(() => null);
-  const leftEdge = leftShellBox ? leftShellBox.x + leftShellBox.width : canvasBox.x;
-  const rightEdge = rightPanelBox ? rightPanelBox.x : canvasBox.x + canvasBox.width;
+  const leftEdge = leftShellBox
+    ? leftShellBox.x + leftShellBox.width
+    : canvasBox.x;
+  const rightEdge = rightPanelBox
+    ? rightPanelBox.x
+    : canvasBox.x + canvasBox.width;
   const x = Math.round(leftEdge + (rightEdge - leftEdge) * 0.5);
   const y = Math.round(canvasBox.y + canvasBox.height * 0.5);
 
@@ -127,7 +131,10 @@ async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
       let cur: HTMLElement | null = el;
       for (let i = 0; i < 8 && cur; i++) {
         if (cur.dataset?.designChromeRegion) {
-          return { ok: false, reason: `hit chrome:${cur.dataset.designChromeRegion}` };
+          return {
+            ok: false,
+            reason: `hit chrome:${cur.dataset.designChromeRegion}`,
+          };
         }
         cur = cur.parentElement;
       }

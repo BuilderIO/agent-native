@@ -95,7 +95,9 @@ describe("LayersPanel lock/hide toggles", () => {
         candidate.getAttribute("aria-label") === "layersPanel.hide",
     )!;
     await act(async () => {
-      button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+      button.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, detail: 0 }),
+      );
     });
     expect(panel.onToggleHidden.mock.calls).toEqual([["n1", true]]);
     panel.root.unmount();

@@ -170,10 +170,14 @@ export function runGroupSelection({
       // of the two stacks is actually tracking it (Yjs in single-screen
       // mode, the plain content-history stack in overview mode); both
       // stamps are harmless no-ops on the stack that didn't receive it.
-      stampYjsUndoSelectionAfter(undoManagerRef.current, undoStackTopBeforeGroup, {
-        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
-        selectedLayerIds: [wrapperNode.id],
-      });
+      stampYjsUndoSelectionAfter(
+        undoManagerRef.current,
+        undoStackTopBeforeGroup,
+        {
+          selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+          selectedLayerIds: [wrapperNode.id],
+        },
+      );
       stampContentHistorySelectionAfter(
         contentUndoStackRef.current,
         contentHistorySelectionAfterRef.current,

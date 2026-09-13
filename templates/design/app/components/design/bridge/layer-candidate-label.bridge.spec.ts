@@ -36,7 +36,9 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
 async function contextMenuLayerCandidates(clientX: number, clientY: number) {
   const browser = await chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage({ viewport: { width: 600, height: 500 } });
+    const page = await browser.newPage({
+      viewport: { width: 600, height: 500 },
+    });
     await page.setContent(FIXTURE);
     await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');

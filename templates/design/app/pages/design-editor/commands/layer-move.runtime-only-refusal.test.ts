@@ -1,4 +1,7 @@
-import { buildCodeLayerProjection, buildCodeLayerTree } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -36,9 +39,18 @@ function buildArgs() {
   // never contains.
   const runtimeOnlyId = "runtime-fake-clone-id";
   const codeLayerOwnerByNodeId = new Map([
-    [regularNode.id, { fileId: "index.html", node: regularNode, tree, runtimeOnly: false }],
-    [targetNode.id, { fileId: "index.html", node: targetNode, tree, runtimeOnly: false }],
-    [runtimeOnlyId, { fileId: "index.html", node: regularNode, tree, runtimeOnly: true }],
+    [
+      regularNode.id,
+      { fileId: "index.html", node: regularNode, tree, runtimeOnly: false },
+    ],
+    [
+      targetNode.id,
+      { fileId: "index.html", node: targetNode, tree, runtimeOnly: false },
+    ],
+    [
+      runtimeOnlyId,
+      { fileId: "index.html", node: regularNode, tree, runtimeOnly: true },
+    ],
   ]);
 
   const activeFile: DesignFile = {
@@ -77,12 +89,19 @@ function buildArgs() {
     viewModeRef: { current: "single" },
     visualScreenFileIds: new Set(),
   };
-  return { args, regularNode, targetNode, runtimeOnlyId, isApplied: () => applyCalled };
+  return {
+    args,
+    regularNode,
+    targetNode,
+    runtimeOnlyId,
+    isApplied: () => applyCalled,
+  };
 }
 
 describe("runLayerMove: runtime-only id in a multi-select drag", () => {
   it("refuses with plain-language copy instead of a raw node-id error, and still moves the regular item", () => {
-    const { args, regularNode, targetNode, runtimeOnlyId, isApplied } = buildArgs();
+    const { args, regularNode, targetNode, runtimeOnlyId, isApplied } =
+      buildArgs();
     (toast.error as ReturnType<typeof vi.fn>).mockClear();
 
     runLayerMove(args, {
@@ -98,6 +117,8 @@ describe("runLayerMove: runtime-only id in a multi-select drag", () => {
       expect(message).not.toMatch(runtimeOnlyId);
     }
     // The regular item in the same gesture must still move.
-    expect(isApplied(), "the non-runtime dragged item should still move").toBe(true);
+    expect(isApplied(), "the non-runtime dragged item should still move").toBe(
+      true,
+    );
   });
 });

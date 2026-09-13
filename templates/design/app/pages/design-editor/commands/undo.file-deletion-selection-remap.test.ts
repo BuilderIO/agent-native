@@ -19,10 +19,12 @@ import { runUndo } from "./undo";
  */
 function sharedRefs() {
   return {
-    historyOrderRef: { current: ["selection", "file-deleted"] as (
-      | "selection"
-      | "file-deleted"
-    )[] },
+    historyOrderRef: {
+      current: ["selection", "file-deleted"] as (
+        | "selection"
+        | "file-deleted"
+      )[],
+    },
     redoOrderRef: { current: [] as ("selection" | "file-deleted")[] },
     fileDeletionUndoStackRef: {
       current: [

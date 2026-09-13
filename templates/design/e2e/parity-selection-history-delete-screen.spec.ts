@@ -99,8 +99,7 @@ async function lastSelectedLayers(page: Page): Promise<string[]> {
       (entry: { area: string }) => entry.area === "select",
     );
     return (
-      (selects[selects.length - 1]?.data as { layers?: string[] })?.layers ??
-      []
+      (selects[selects.length - 1]?.data as { layers?: string[] })?.layers ?? []
     );
   });
 }
@@ -162,9 +161,7 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
   // exact snapshot recorded while the dead id was still live. Without the
   // fix this restores the dead pre-deletion id instead of the recreated one.
   await page.keyboard.press(UNDO);
-  await expect
-    .poll(() => lastSelectedLayers(page))
-    .toEqual([homeIdAfterUndo]);
+  await expect.poll(() => lastSelectedLayers(page)).toEqual([homeIdAfterUndo]);
   await expect(
     layerRow(page, "Home"),
     "the recreated Home screen's own layer row must show as selected",
@@ -175,13 +172,8 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
   await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
 
   await page.keyboard.press(REDO);
-  await expect
-    .poll(() => lastSelectedLayers(page))
-    .toEqual([homeIdAfterUndo]);
-  await expect(layerRow(page, "Home")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await expect.poll(() => lastSelectedLayers(page)).toEqual([homeIdAfterUndo]);
+  await expect(layerRow(page, "Home")).toHaveAttribute("aria-selected", "true");
 
   expect(
     consoleErrors,
