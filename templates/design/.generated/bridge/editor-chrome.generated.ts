@@ -4029,7 +4029,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (!nextInTemplate && currentMatch && currentMatch !== document.body && currentMatch !== document.documentElement && !isOverlayElement(currentMatch)) {
           if (nextMatch) {
-            currentMatch.replaceWith(document.importNode(nextMatch, true));
+            if (isSourceOwned(currentMatch) && currentMatch.nodeName === nextMatch.nodeName && currentMatch.namespaceURI === nextMatch.namespaceURI && !scopeDirectiveChanged(currentMatch, nextMatch)) {
+              morphElement(
+                currentMatch,
+                nextMatch,
+                scopedMorphContext(currentMatch, nextMatch)
+              );
+            } else {
+              var replacement = document.importNode(nextMatch, true);
+              currentMatch.replaceWith(replacement);
+              recordSourceSubtree(replacement);
+            }
           } else if (currentMatch !== document.body && currentMatch !== document.documentElement) {
             if (currentMatch.parentNode && currentMatch.parentNode.contains(currentMatch)) {
               currentMatch.remove();

@@ -4959,7 +4959,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         !isOverlayElement(currentMatch)
       ) {
         if (nextMatch) {
-          currentMatch.replaceWith(document.importNode(nextMatch, true));
+          if (
+            isSourceOwned(currentMatch) &&
+            currentMatch.nodeName === nextMatch.nodeName &&
+            currentMatch.namespaceURI === nextMatch.namespaceURI &&
+            !scopeDirectiveChanged(currentMatch, nextMatch)
+          ) {
+            morphElement(
+              currentMatch,
+              nextMatch,
+              scopedMorphContext(currentMatch, nextMatch),
+            );
+          } else {
+            var replacement = document.importNode(nextMatch, true);
+            currentMatch.replaceWith(replacement);
+            recordSourceSubtree(replacement);
+          }
         } else if (
           currentMatch !== document.body &&
           currentMatch !== document.documentElement
