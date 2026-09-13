@@ -5918,7 +5918,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rectsIntersect(a, b) {
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
-    function postElementMarqueeSelect(elements, additive, e) {
+    function postElementMarqueeSelect(elements, additive, e, final) {
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
@@ -5932,13 +5932,18 @@ export const editorChromeBridgeScript: string = `"use strict";
             source: "marquee",
             shiftKey: Boolean(e && e.shiftKey),
             metaKey: Boolean(e && e.metaKey),
-            ctrlKey: Boolean(e && e.ctrlKey)
+            ctrlKey: Boolean(e && e.ctrlKey),
+            // A live drag reports a changed hit-set on every mousemove tick;
+            // only the mouseup report (see beginMarqueeSelection's onUp) sets
+            // this, so the host records ONE selection-history entry per
+            // gesture instead of one per tick (coalesceMarqueeSelectionHistory).
+            final: final === true
           }
         },
         "*"
       );
     }
-    function updateMarqueeSelection(e) {
+    function updateMarqueeSelection(e, final) {
       if (!activeMarqueeSelection) return;
       var rect = marqueeRectFromPoints(
         activeMarqueeSelection.startX,
@@ -5977,7 +5982,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSelectionOverlay();
       }
       setPassiveSelectionElements(hitElements);
-      postElementMarqueeSelect(hitElements, activeMarqueeSelection.additive, e);
+      postElementMarqueeSelect(
+        hitElements,
+        activeMarqueeSelection.additive,
+        e,
+        final
+      );
     }
     function beginMarqueeSelection(e) {
       if (e.button !== 0) return;
@@ -6004,7 +6014,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var didMove = Boolean(activeMarqueeSelection?.moved);
         if (didMove) {
           stopNativeInteraction(ev);
-          updateMarqueeSelection(ev);
+          updateMarqueeSelection(ev, true);
           suppressNextShieldClickBriefly();
         }
         marqueeSelectionOverlay.style.display = "none";
@@ -9243,7 +9253,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var dx = cx - reorderPointerStart.clientX;
           var dy = cy - reorderPointerStart.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
-          if (!isGroupDrag) {
+          if (!isGroupDrag && !reorderIgnoresAutoLayout) {
             postCrossScreenDrag(
               "move",
               reorderEl,
@@ -9341,10 +9351,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           var vh = window.innerHeight;
           var cx = ev.clientX;
           var cy = ev.clientY;
-          var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh || // Claimed by the host: committing here too would write the node
-          // twice, from two different ideas of where it landed.
-          crossScreenClaimedByHost;
-          if (!isGroupDrag) {
+          var outsideOnDrop = (
+            // A ctrl/cmd auto-layout-override drag never arms the host (see
+            // onReorderMove/reorderIgnoresAutoLayout above), so the numeric
+            // outside-the-iframe check below — which exists only to defer to
+            // the host's cross-screen drop — must not apply to it either, or
+            // the in-iframe commit below is skipped with nothing to take its
+            // place.
+            !reorderIgnoresAutoLayout && (cx < 0 || cy < 0 || cx > vw || cy > vh) || // Claimed by the host: committing here too would write the node
+            // twice, from two different ideas of where it landed.
+            crossScreenClaimedByHost
+          );
+          if (!isGroupDrag && !reorderIgnoresAutoLayout) {
             postCrossScreenDrag(
               "end",
               reorderEl,
@@ -9460,19 +9478,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reorderGestureStartRect = reorderEl.getBoundingClientRect();
         var reorderLastTargetKey = null;
         var keepCurrentFlowParent = bridgeSpaceKeyPressed;
+        var reorderIgnoresAutoLayout = Boolean(e.ctrlKey);
         var currentTarget = flowMoveTargetForPoint(
           reorderEl,
           e.clientX,
           e.clientY,
           groupOthers,
           keepCurrentFlowParent,
-          Boolean(e.ctrlKey)
+          reorderIgnoresAutoLayout
         );
         showInsertionGuideFor(currentTarget);
         dndLog("start:reorder", {
           el: getSelector(reorderEl),
           isGroup: isGroupDrag,
-          ctrl: Boolean(e.ctrlKey),
+          ctrl: reorderIgnoresAutoLayout,
           target: dndTarget(currentTarget)
         });
         crossScreenClaimedByHost = false;
@@ -9483,7 +9502,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: reorderPointerStart.clientX - reorderRect.left,
           y: reorderPointerStart.clientY - reorderRect.top
         };
-        if (!isGroupDrag) {
+        if (!isGroupDrag && !reorderIgnoresAutoLayout) {
           postCrossScreenDrag("start", reorderEl, reorderPointerStart, {
             duplicate: duplicatedForDrag,
             elementRect: {
@@ -10732,7 +10751,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       }
-      if (!readOnly && !e.altKey) {
+      var suppressCrossScreenStartForCtrlReorder = Boolean(e.ctrlKey || e.metaKey) && isFlowReorderCandidate(dragTarget);
+      if (!readOnly && !e.altKey && !suppressCrossScreenStartForCtrlReorder) {
         postCrossScreenDrag("start", dragTarget, e);
       }
       var startX = e.clientX;

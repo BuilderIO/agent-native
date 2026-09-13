@@ -295,7 +295,11 @@ export interface MultiScreenCanvasProps {
   onSelectionChange?: (selectedIds: string[]) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
-    intent: ElementSelectionIntent,
+    // `final` is true only for the one report each marquee gesture sends at
+    // mouseup (every mousemove tick omits it) — see
+    // coalesceMarqueeSelectionHistory's doc comment for why the host needs
+    // it to record one undo step per drag instead of one per tick.
+    intent: ElementSelectionIntent & { final?: boolean },
   ) => void;
   selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
   /**

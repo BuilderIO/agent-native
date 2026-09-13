@@ -162,3 +162,31 @@ export function runLayerMarqueeSelectionChange(
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
 }
+
+/**
+ * A live marquee drag reports a changed hit-set on every mousemove tick (see
+ * the PF10 dedup comment above), so recording a selection-history entry
+ * around every call it drives would record one undo step per tick instead
+ * of Figma's "one drag = one undo step". `pendingBefore` mirrors "what was
+ * selected before this gesture's first tick" across the whole live drag —
+ * call this once per tick with the gesture's own `final` flag (true only
+ * for the mouseup-driven report the canvas sends once the drag ends) and
+ * the selection snapshots captured immediately before/after this tick's own
+ * selection-changing work ran. Returns the {before, after} pair to record
+ * on the final tick only; every earlier tick returns null (nothing to
+ * record yet, but `pendingBefore` now remembers the gesture's start).
+ */
+export function coalesceMarqueeSelectionHistory<T>(
+  pendingBefore: { current: T | null },
+  isFinal: boolean,
+  beforeThisTick: T,
+  afterThisTick: T,
+): { before: T; after: T } | null {
+  if (pendingBefore.current === null) {
+    pendingBefore.current = beforeThisTick;
+  }
+  if (!isFinal) return null;
+  const before = pendingBefore.current;
+  pendingBefore.current = null;
+  return { before, after: afterThisTick };
+}

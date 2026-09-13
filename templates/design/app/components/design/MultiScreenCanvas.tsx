@@ -265,6 +265,7 @@ import {
 } from "./multi-screen/handle-hit-zones";
 import {
   findCanvasIframeForScreen,
+  frameCommandTargetIds,
   getActiveScreenIframeId,
   getBreakpointIframeId,
   isBreakpointSelectionTarget,
@@ -844,6 +845,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
   }, [boardFileId, boardSurfaceRenderGeometry]);
   const selectedIdsRef = useRef(selectedIds);
+  const selectedElementScreenIdRef = useRef(selectedElementScreenId);
+  useEffect(() => {
+    selectedElementScreenIdRef.current = selectedElementScreenId;
+  }, [selectedElementScreenId]);
   const dragState = useRef<DragState | null>(null);
   const dragCleanup = useRef<(() => void) | null>(null);
   const duplicateCleanup = useRef<(() => void) | null>(null);
@@ -4114,7 +4119,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // in flight or done.
       const collectedScreenIds = new Set<string>();
       const collectingScreenIds = new Set<string>();
-      const reportLayerSelection = (rect: MarqueeRect) => {
+      // Figma parity: one marquee drag is one undo step. Every tick below
+      // reports its hit-set as it changes, but the host only records
+      // selection history for the report tagged `final` — see
+      // coalesceMarqueeSelectionHistory's doc comment. `final` bypasses the
+      // signature dedup below: the mouseup report must always reach the
+      // host even when it matches the last tick's set, or the gesture never
+      // gets its history entry at all.
+      const reportLayerSelection = (rect: MarqueeRect, final?: boolean) => {
         const state = dragState.current;
         // Async selectable-rect replies from a previous marquee can arrive
         // after a new marquee has already begun. Type alone is insufficient —
@@ -4146,12 +4158,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               `${item.screenId}:${item.info.sourceId ?? item.info.pendingNodeId ?? item.info.selector ?? item.info.id ?? ""}`,
           )
           .join("|");
-        if (signature === lastLayerSelectionSignature) return;
+        if (!final && signature === lastLayerSelectionSignature) return;
         lastLayerSelectionSignature = signature;
         onLayerMarqueeSelectionChange?.(selection, {
           source: "marquee",
           additive: state.additive,
           shiftKey: state.additive,
+          final: final === true,
         });
       };
       const collectForIntersectedScreens = (hitIds: string[]) => {
@@ -4290,17 +4303,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       const handleMouseUp = () => {
         const state = dragState.current;
-        if (
-          state?.type === "marquee" &&
-          shouldClearSelectionOnEmptyCanvasClick(state)
-        ) {
-          updateSelectedIds(() => []);
-          updateSelectedDraftIds(() => []);
-          onLayerMarqueeSelectionChange?.([], {
-            source: "marquee",
-            additive: false,
-            shiftKey: false,
-          });
+        // Exactly one `final` report per gesture, on every exit path
+        // (cleared, dragged, or a no-op additive click) — the host's
+        // pendingBefore only clears on a final report (see
+        // coalesceMarqueeSelectionHistory), so skipping it on some paths
+        // would leak the NEXT gesture's "before" into this one's.
+        if (state?.type === "marquee") {
+          if (shouldClearSelectionOnEmptyCanvasClick(state)) {
+            updateSelectedIds(() => []);
+            updateSelectedDraftIds(() => []);
+            onLayerMarqueeSelectionChange?.([], {
+              source: "marquee",
+              additive: false,
+              shiftKey: false,
+              final: true,
+            });
+          } else {
+            reportLayerSelection(latestRect, true);
+          }
         }
         finishDrag();
       };
@@ -7985,9 +8005,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       ) {
         return;
       }
-      // Only act on frame IDs — filter out canvas primitives (sub-elements).
-      const frameIds = selectedIdsRef.current.filter(
-        (id) => frameGeometryRef.current[id],
+      // Only act on frame IDs — filter out canvas primitives (sub-elements)
+      // and a screen id that is only present because a Layers-panel/canvas
+      // element selection inside it is active (frameCommandTargetIds), or
+      // Cmd+D on a selected element duplicates its whole screen instead.
+      const frameIds = frameCommandTargetIds(
+        selectedIdsRef.current,
+        (id) => Boolean(frameGeometryRef.current[id]),
+        selectedElementScreenIdRef.current,
       );
       // Claim the event only once a frame will really be duplicated — the
       // global hotkey hook skips anything already defaultPrevented, and it

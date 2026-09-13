@@ -678,8 +678,13 @@ async function frameNode(page: Page, text: string): Promise<Locator> {
       bestIndex = index;
     }
   }
+  if (count === 0) {
+    throw new Error(
+      `frameNode: no element found matching text ${JSON.stringify(text)}`,
+    );
+  }
   const node = candidates.nth(bestIndex);
-  await node.scrollIntoViewIfNeeded().catch(() => {});
+  await node.scrollIntoViewIfNeeded();
   return node;
 }
 

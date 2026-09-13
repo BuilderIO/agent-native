@@ -219,7 +219,6 @@ async function drawFrameTool(
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
-  await page.waitForTimeout(2000);
 }
 
 /** A point on the board that is not over any screen card. */
@@ -286,7 +285,16 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
         y: empty.y + 700,
       });
 
-      const record = await getDesign(page, designId);
+      let record: any;
+      await expect
+        .poll(
+          async () => {
+            record = await getDesign(page, designId);
+            return record.files.length;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(filesBefore.length + 1);
       const filesAfter: string[] = record.files.map((f: any) => f.filename);
       expect(
         filesAfter.length,
@@ -341,9 +349,11 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
       }
 
       const html = await fileContent(page, designId, "index.html");
-      const cardIds = [...html.matchAll(/data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="Card"/g)].map(
-        (m) => m[1],
-      );
+      const cardIds = [
+        ...html.matchAll(
+          /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="Card"/g,
+        ),
+      ].map((m) => m[1]);
       expect(cardIds, `trace: ${await dumpTrace(page)}`).toHaveLength(4);
       // Directly above the previous each time == DOM order is newest-first
       // among the Card siblings (each Cmd+D inserts immediately above the
@@ -353,9 +363,10 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
       ].map((m) => m[1]);
       const cardPositions = cardIds.map((id) => bodyOrder.indexOf(id));
       const sorted = [...cardPositions].sort((a, b) => a - b);
-      expect(cardPositions, "newest copy must sit directly above the one it duplicated").toEqual(
-        sorted,
-      );
+      expect(
+        cardPositions,
+        "newest copy must sit directly above the one it duplicated",
+      ).toEqual(sorted);
 
       // Selection ended on the last (4th) copy, not the original.
       const selectedRow = layerTree(page).locator(
@@ -398,7 +409,7 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
       await expect(titleRows).toHaveCount(2, { timeout: 10_000 });
       const duplicateTitleButton = titleRows
         .nth(0)
-        .locator('xpath=ancestor::button[@data-layer-row-button][1]');
+        .locator("xpath=ancestor::button[@data-layer-row-button][1]");
       await duplicateTitleButton.dblclick({ force: true });
       const renameInput = layerTree(page).locator("input").first();
       await expect(renameInput).toBeVisible();
@@ -406,7 +417,9 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
       await renameInput.press("Enter");
 
       await expect(
-        layerTree(page).locator('[data-layer-row-button] span[title="Green Bowl"]'),
+        layerTree(page).locator(
+          '[data-layer-row-button] span[title="Green Bowl"]',
+        ),
       ).toHaveCount(1, { timeout: 10_000 });
       await expect(
         layerTree(page).locator(
@@ -496,7 +509,7 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
 });
 
 test.describe("YT #2 (landing page tutorial)", () => {
-  test("step 18: alt-dragging HeroImage duplicates it (original stays put, copy moves, copy is selected); one undo (\"undo the nudge\") removes the copy and restores the original selection", async ({
+  test('step 18: alt-dragging HeroImage duplicates it (original stays put, copy moves, copy is selected); one undo ("undo the nudge") removes the copy and restores the original selection', async ({
     page,
     request,
   }) => {
@@ -504,7 +517,9 @@ test.describe("YT #2 (landing page tutorial)", () => {
     try {
       await gotoEditor(page, designId);
       const frame = designFrame(page);
-      const heroImage = frame.locator('[data-agent-native-node-id="heroimage"]');
+      const heroImage = frame.locator(
+        '[data-agent-native-node-id="heroimage"]',
+      );
       await expect(heroImage).toBeVisible();
       const before = (await heroImage.boundingBox())!;
 
@@ -648,7 +663,9 @@ test.describe("YT #2 (landing page tutorial)", () => {
         ...html.matchAll(/data-agent-native-node-id="([^"]+)"/g),
       ].map((m) => m[1]);
       const copyId = navbarIds.find((id) => id !== "navbar")!;
-      expect(bodyOrder.indexOf(copyId)).toBeLessThan(bodyOrder.indexOf("navbar"));
+      expect(bodyOrder.indexOf(copyId)).toBeLessThan(
+        bodyOrder.indexOf("navbar"),
+      );
 
       const selectedRow = layerTree(page).locator(
         '[role="treeitem"][aria-selected="true"]',

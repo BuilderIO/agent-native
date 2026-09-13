@@ -252,7 +252,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
-  it("reports an unchanged empty layer marquee selection once per drag", async () => {
+  it("dedupes an unchanged empty layer marquee selection across ticks, then always sends one final report at mouseup", async () => {
     const onLayerMarqueeSelectionChange = vi.fn();
     await act(async () => {
       root.render(
@@ -275,10 +275,26 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       dispatchMouse(window, "mouseup", 180, 180);
     });
 
-    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(1);
-    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledWith(
+    // Figma parity: one drag = one selection-history entry. The two
+    // unchanged in-drag ticks dedupe to a single report, but the host must
+    // still be told the gesture actually ENDED (`final: true`) — otherwise
+    // it can never record that one entry (coalesceMarqueeSelectionHistory) —
+    // so mouseup always sends one more report even when nothing changed.
+    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(2);
+    // Call 1 is the mousedown-time "clear whatever was selected" report;
+    // every later in-drag tick reporting the same empty set dedupes away.
+    expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
+      1,
       [],
       expect.objectContaining({ source: "marquee" }),
+    );
+    // Call 2 is the mouseup-forced final report — required even though the
+    // set never changed, or the gesture would never close out its history
+    // entry (coalesceMarqueeSelectionHistory).
+    expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
+      2,
+      [],
+      expect.objectContaining({ source: "marquee", final: true }),
     );
   });
 

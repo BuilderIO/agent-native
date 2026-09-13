@@ -655,3 +655,71 @@ test("Escape (deselect to nothing) is its own undo step (ground-truth Round 4, P
     "undoing a deselect-to-nothing re-selects what was selected before it",
   ).toHaveAttribute("aria-selected", "true");
 });
+
+test("a marquee drag selecting Box A + Box B is exactly one undo step, not one per mousemove tick", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  // Undo step #1: click-select Box A.
+  await selectViaTree(page, "Box A");
+  await expect(layerRow(page, "Box A")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  // Undo step #2 (if the fix holds): one real marquee drag, dispatched as
+  // many raw mousemove ticks, enclosing both Box A and Box B.
+  const boxA = await box(page, "box-a");
+  const boxB = await box(page, "box-b");
+  const from = { x: boxA.x - 20, y: boxA.y - 20 };
+  const to = {
+    x: boxB.x + boxB.width + 20,
+    y: boxB.y + boxB.height + 20,
+  };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  // Many small steps so a per-tick regression would record many entries
+  // instead of Figma's "one drag = one undo step".
+  await page.mouse.move(to.x, to.y, { steps: 24 });
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+
+  await expect(
+    layerRow(page, "Box A"),
+    "marquee must keep Box A selected",
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    layerRow(page, "Box B"),
+    "marquee must add Box B to the selection",
+  ).toHaveAttribute("aria-selected", "true");
+
+  // Exactly two undos must fully unwind BOTH steps back to nothing selected.
+  // A per-tick regression leaves extra history entries queued from the
+  // drag's intermediate hit-sets, so two undos would land on some
+  // partial/intermediate selection instead of empty.
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(300);
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(300);
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]'),
+    "two undos (one per real step: the marquee, then the click) must reach an empty selection",
+  ).toHaveCount(0);
+
+  // Redo replays the same two steps forward, ending on Box A + Box B.
+  await page.keyboard.press(REDO);
+  await page.waitForTimeout(300);
+  await page.keyboard.press(REDO);
+  await page.waitForTimeout(300);
+  await expect(layerRow(page, "Box A")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(layerRow(page, "Box B")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});

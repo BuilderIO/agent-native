@@ -561,7 +561,10 @@ import { runGetSelectedLayerSnapshots } from "./design-editor/commands/get-selec
 import { runGroupSelection } from "./design-editor/commands/group-selection";
 import { runIframeContextMenu } from "./design-editor/commands/iframe-context-menu";
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
-import { runLayerMarqueeSelectionChange } from "./design-editor/commands/layer-marquee-selection-change";
+import {
+  coalesceMarqueeSelectionHistory,
+  runLayerMarqueeSelectionChange,
+} from "./design-editor/commands/layer-marquee-selection-change";
 import { runLayerMove } from "./design-editor/commands/layer-move";
 import { runLayerMoveToScreen } from "./design-editor/commands/layer-move-to-screen";
 import { runLayerRename } from "./design-editor/commands/layer-rename";
@@ -2328,22 +2331,8 @@ function DesignEditor() {
   // "selection" entry for the same gesture would make every such edit cost
   // two undo steps instead of one.
   //
-  // ponytail: a marquee drag reports a new hit-set on every mousemove tick
-  // (see layer-marquee-selection-change.ts), so a live marquee currently
-  // records one entry per tick instead of one per gesture — Figma's "one
-  // drag = one undo step" is not yet true for marquee selection specifically.
-  // Coalescing needs a gesture start/end boundary from MultiScreenCanvas
-  // (outside this file group's ownership) to do correctly; the three
-  // ground-truth click-based scenarios this fixes don't exercise it.
-  const recordSelectionHistoryAroundChange = useCallback(
-    (run: () => void) => {
-      if (viewModeRef.current !== "overview") {
-        run();
-        return;
-      }
-      const before = captureCurrentSelection();
-      flushSync(run);
-      const after = captureCurrentSelection();
+  const pushSelectionHistoryEntry = useCallback(
+    (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
       if (selectionHistorySnapshotsEqual(before, after)) return;
       selectionUndoStackRef.current = [
         ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -2357,6 +2346,56 @@ function DesignEditor() {
       syncUndoRedoState();
     },
     [clearRedoStacks, syncUndoRedoState],
+  );
+  const recordSelectionHistoryAroundChange = useCallback(
+    (run: () => void) => {
+      if (viewModeRef.current !== "overview") {
+        run();
+        return;
+      }
+      const before = captureCurrentSelection();
+      flushSync(run);
+      const after = captureCurrentSelection();
+      pushSelectionHistoryEntry(before, after);
+    },
+    [pushSelectionHistoryEntry],
+  );
+  // A live marquee drag reports a changed hit-set on every mousemove tick
+  // (see layer-marquee-selection-change.ts's PF10 dedup comment), so
+  // wrapping every one of those calls in recordSelectionHistoryAroundChange
+  // recorded one undo step per tick instead of Figma's "one drag = one undo
+  // step". MultiScreenCanvas.tsx's marquee now tags exactly one call per
+  // gesture `final: true` (the mouseup report); coalesceMarqueeSelectionHistory
+  // remembers the selection from the gesture's FIRST tick and only the final
+  // tick actually pushes a history entry, spanning the whole drag.
+  const marqueeSelectionHistoryBeforeRef =
+    useRef<GeometryHistorySelection | null>(null);
+  const recordMarqueeSelectionHistoryAroundChange = useCallback(
+    (run: () => void, intent: { source?: string; final?: boolean }) => {
+      // Only an actual marquee drag spans multiple calls needing
+      // coalescing (see coalesceMarqueeSelectionHistory's doc comment); a
+      // drill-in/pick click (source: "pointer") reported through this same
+      // handler is one complete change like any other selection command.
+      if (intent.source !== "marquee") {
+        recordSelectionHistoryAroundChange(run);
+        return;
+      }
+      if (viewModeRef.current !== "overview") {
+        run();
+        return;
+      }
+      const before = captureCurrentSelection();
+      flushSync(run);
+      const after = captureCurrentSelection();
+      const entry = coalesceMarqueeSelectionHistory(
+        marqueeSelectionHistoryBeforeRef,
+        intent.final === true,
+        before,
+        after,
+      );
+      if (entry) pushSelectionHistoryEntry(entry.before, entry.after);
+    },
+    [pushSelectionHistoryEntry, recordSelectionHistoryAroundChange],
   );
   useEffect(() => {
     pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
@@ -18263,35 +18302,42 @@ function DesignEditor() {
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
     ) =>
-      recordSelectionHistoryAroundChange(() =>
-        runLayerMarqueeSelectionChange(
-          {
-            clearPendingOverviewLayerSelectionTimer,
-            focusDesignInspectorForSelection,
-            getCodeLayerProjectionForScreen,
-            hasActiveSelectionRef,
-            lastMarqueeSelectionSignatureRef,
-            pendingOverviewLayerSelectionRef,
-            pendingOverviewScreenSelectionRef,
-            setActiveFileId,
-            setActiveTool,
-            setCreatedOverviewLayerSelection,
-            setMode,
-            setOverviewClearSelectionRequest,
-            setOverviewSelectedScreenIds,
-            setSelectedElement,
-            setSelectedLayerIdsState,
-            viewModeRef,
-          },
-          selection,
-          intent,
-        ),
+      // A marquee gesture spans many calls (one per mousemove tick, plus one
+      // mouseup "final" report — see coalesceMarqueeSelectionHistory's doc
+      // comment); every other caller of this handler is a single, complete
+      // selection change. Route on `intent.final`, a marquee-only field the
+      // shared ElementSelectionIntent type doesn't declare.
+      recordMarqueeSelectionHistoryAroundChange(
+        () =>
+          runLayerMarqueeSelectionChange(
+            {
+              clearPendingOverviewLayerSelectionTimer,
+              focusDesignInspectorForSelection,
+              getCodeLayerProjectionForScreen,
+              hasActiveSelectionRef,
+              lastMarqueeSelectionSignatureRef,
+              pendingOverviewLayerSelectionRef,
+              pendingOverviewScreenSelectionRef,
+              setActiveFileId,
+              setActiveTool,
+              setCreatedOverviewLayerSelection,
+              setMode,
+              setOverviewClearSelectionRequest,
+              setOverviewSelectedScreenIds,
+              setSelectedElement,
+              setSelectedLayerIdsState,
+              viewModeRef,
+            },
+            selection,
+            intent,
+          ),
+        intent as { source?: string; final?: boolean },
       ),
     [
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
-      recordSelectionHistoryAroundChange,
+      recordMarqueeSelectionHistoryAroundChange,
     ],
   );
 

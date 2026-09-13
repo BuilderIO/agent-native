@@ -7712,6 +7712,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     elements: Element[],
     additive: boolean,
     e,
+    final?: boolean,
   ): void {
     (window.parent as Window).postMessage(
       {
@@ -7727,13 +7728,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           shiftKey: Boolean(e && e.shiftKey),
           metaKey: Boolean(e && e.metaKey),
           ctrlKey: Boolean(e && e.ctrlKey),
+          // A live drag reports a changed hit-set on every mousemove tick;
+          // only the mouseup report (see beginMarqueeSelection's onUp) sets
+          // this, so the host records ONE selection-history entry per
+          // gesture instead of one per tick (coalesceMarqueeSelectionHistory).
+          final: final === true,
         },
       },
       "*",
     );
   }
 
-  function updateMarqueeSelection(e): void {
+  function updateMarqueeSelection(e, final?: boolean): void {
     if (!activeMarqueeSelection) return;
     var rect = marqueeRectFromPoints(
       activeMarqueeSelection.startX,
@@ -7783,7 +7789,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
-    postElementMarqueeSelect(hitElements, activeMarqueeSelection.additive, e);
+    postElementMarqueeSelect(
+      hitElements,
+      activeMarqueeSelection.additive,
+      e,
+      final,
+    );
   }
 
   function beginMarqueeSelection(e): void {
@@ -7816,7 +7827,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var didMove = Boolean(activeMarqueeSelection?.moved);
       if (didMove) {
         stopNativeInteraction(ev);
-        updateMarqueeSelection(ev);
+        updateMarqueeSelection(ev, true);
         suppressNextShieldClickBriefly();
       }
       marqueeSelectionOverlay.style.display = "none";
@@ -12590,19 +12601,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reorderGestureStartRect = reorderEl.getBoundingClientRect();
       var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
+      // Ctrl/Cmd overrides auto-layout drag resistance for the WHOLE
+      // gesture (unique-paths-5): captured once here, not re-read per move
+      // tick, so releasing the modifier mid-drag can't hand the gesture to
+      // the host's cross-screen tracking partway through. Held, this skips
+      // every postCrossScreenDrag below so the host never installs its
+      // own board-level pointer listeners for this drag at all — those
+      // listeners have no ctrl-awareness and reparent the element onto the
+      // board the moment the pointer crosses the screen's rendered edge,
+      // stealing the gesture from the (already-correct) in-iframe free-move
+      // path below before it can ever run.
+      var reorderIgnoresAutoLayout = Boolean(e.ctrlKey);
       var currentTarget = flowMoveTargetForPoint(
         reorderEl,
         e.clientX,
         e.clientY,
         groupOthers,
         keepCurrentFlowParent,
-        Boolean(e.ctrlKey),
+        reorderIgnoresAutoLayout,
       );
       showInsertionGuideFor(currentTarget);
       dndLog("start:reorder", {
         el: getSelector(reorderEl),
         isGroup: isGroupDrag,
-        ctrl: Boolean(e.ctrlKey),
+        ctrl: reorderIgnoresAutoLayout,
         target: dndTarget(currentTarget),
       });
       crossScreenClaimedByHost = false;
@@ -12613,7 +12635,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         x: reorderPointerStart.clientX - reorderRect.left,
         y: reorderPointerStart.clientY - reorderRect.top,
       };
-      if (!isGroupDrag) {
+      if (!isGroupDrag && !reorderIgnoresAutoLayout) {
         postCrossScreenDrag("start", reorderEl, reorderPointerStart, {
           duplicate: duplicatedForDrag,
           elementRect: {
@@ -12979,8 +13001,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Always notify the host frame so it can track the cursor position,
         // render the ghost, and highlight the target screen. Group drags stay
         // in-iframe (the host's cross-screen drop moves a single element and
-        // would tear the group apart), so they never arm the host.
-        if (!isGroupDrag) {
+        // would tear the group apart), so they never arm the host. Same for
+        // a ctrl/cmd auto-layout-override drag (see reorderIgnoresAutoLayout
+        // above): the host's board-level listeners have no ctrl-awareness.
+        if (!isGroupDrag && !reorderIgnoresAutoLayout) {
           postCrossScreenDrag(
             "move",
             reorderEl,
@@ -13119,17 +13143,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var cx = ev.clientX;
         var cy = ev.clientY;
         var outsideOnDrop =
-          cx < 0 ||
-          cy < 0 ||
-          cx > vw ||
-          cy > vh ||
+          // A ctrl/cmd auto-layout-override drag never arms the host (see
+          // onReorderMove/reorderIgnoresAutoLayout above), so the numeric
+          // outside-the-iframe check below — which exists only to defer to
+          // the host's cross-screen drop — must not apply to it either, or
+          // the in-iframe commit below is skipped with nothing to take its
+          // place.
+          (!reorderIgnoresAutoLayout &&
+            (cx < 0 || cy < 0 || cx > vw || cy > vh)) ||
           // Claimed by the host: committing here too would write the node
           // twice, from two different ideas of where it landed.
           crossScreenClaimedByHost;
         // Post the end message so the host can finalize a cross-screen drop.
         // Group drags never armed the host (see onReorderMove), so posting
         // end here would trigger a bogus single-element cross-screen move.
-        if (!isGroupDrag) {
+        // Same for a ctrl/cmd auto-layout-override drag (unique-paths-5).
+        if (!isGroupDrag && !reorderIgnoresAutoLayout) {
           postCrossScreenDrag(
             "end",
             reorderEl,
@@ -14884,7 +14913,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shieldOverlay.setPointerCapture(e.pointerId);
       } catch (_err) {}
     }
-    if (!readOnly && !e.altKey) {
+    // unique-paths-5: a ctrl/cmd-held drag on a flow-reorder candidate
+    // (isFlowReorderCandidate) is about to be routed to the ctrl-aware
+    // auto-layout-override path below (reorderIgnoresAutoLayout) — arming
+    // the host's cross-screen tracking here, before that routing decision
+    // even runs, would let its ctrl-unaware board-level listeners steal the
+    // gesture the moment the pointer crosses the screen's rendered edge.
+    // Every other drag (no ctrl, or ctrl on an already-absolute element,
+    // where ctrl carries no auto-layout meaning) arms the host exactly as
+    // before.
+    var suppressCrossScreenStartForCtrlReorder =
+      Boolean(e.ctrlKey || e.metaKey) && isFlowReorderCandidate(dragTarget);
+    if (!readOnly && !e.altKey && !suppressCrossScreenStartForCtrlReorder) {
       postCrossScreenDrag("start", dragTarget, e);
     }
     var startX = e.clientX;

@@ -226,7 +226,7 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
       await expect(titleRows).toHaveCount(2, { timeout: 10_000 });
       const duplicateTitleButton = titleRows
         .nth(0)
-        .locator('xpath=ancestor::button[@data-layer-row-button][1]');
+        .locator("xpath=ancestor::button[@data-layer-row-button][1]");
       await duplicateTitleButton.dblclick({ force: true });
       const renameInput = layerTree(page).locator("input").first();
       await expect(renameInput).toBeVisible();
@@ -246,7 +246,9 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
       ).toHaveCount(1);
 
       const html = await fileContent(page, designId, "index.html");
-      expect(html).toContain('data-agent-native-layer-name="Wireless Headphones"');
+      expect(html).toContain(
+        'data-agent-native-layer-name="Wireless Headphones"',
+      );
       expect(html).toContain(
         'data-agent-native-layer-name="Bluetooth Speaker Title"',
       );
@@ -274,10 +276,13 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
       });
 
       await expect
-        .poll(async () => {
-          const html = await fileContent(page, designId, "index.html");
-          return html.indexOf('id="price"') < html.indexOf('id="statustag"');
-        }, { timeout: 10_000, message: `trace: ${await dumpTrace(page)}` })
+        .poll(
+          async () => {
+            const html = await fileContent(page, designId, "index.html");
+            return html.indexOf('id="price"') < html.indexOf('id="statustag"');
+          },
+          { timeout: 10_000, message: `trace: ${await dumpTrace(page)}` },
+        )
         .toBe(true);
 
       await gotoEditor(page, designId);
@@ -309,33 +314,38 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
       await page.keyboard.press(`${MOD}+g`);
 
       await expect
-        .poll(async () => {
-          const html = await fileContent(page, designId, "index.html");
-          return /data-agent-native-layer-name="Group"/i.test(html);
-        }, { timeout: 10_000, message: `trace: ${await dumpTrace(page)}` })
+        .poll(
+          async () => {
+            const html = await fileContent(page, designId, "index.html");
+            return /data-agent-native-layer-name="Group"/i.test(html);
+          },
+          { timeout: 10_000, message: `trace: ${await dumpTrace(page)}` },
+        )
         .toBe(true);
 
       const grouped = await fileContent(page, designId, "index.html");
       // Plain group, not a frame: Figma ground truth says ⌘G has no
       // clip/fill of its own — the group must not introduce a new
       // overflow:hidden/background on the wrapper it inserts.
-      const groupOpenTag = /<[a-z0-9]+[^>]*data-agent-native-layer-name="Group"[^>]*>/i.exec(
-        grouped,
-      )?.[0];
+      const groupOpenTag =
+        /<[a-z0-9]+[^>]*data-agent-native-layer-name="Group"[^>]*>/i.exec(
+          grouped,
+        )?.[0];
       expect(groupOpenTag, "group wrapper tag not found").toBeTruthy();
       expect(groupOpenTag).not.toMatch(/overflow:\s*hidden/i);
 
       await page.keyboard.press(`${MOD}+z`);
       await expect
-        .poll(async () => {
-          const html = await fileContent(page, designId, "index.html");
-          return !/data-agent-native-layer-name="Group"/i.test(html);
-        }, { timeout: 10_000 })
+        .poll(
+          async () => {
+            const html = await fileContent(page, designId, "index.html");
+            return !/data-agent-native-layer-name="Group"/i.test(html);
+          },
+          { timeout: 10_000 },
+        )
         .toBe(true);
       const restored = await fileContent(page, designId, "index.html");
-      expect(restored.includes('data-agent-native-node-id="image"')).toBe(
-        true,
-      );
+      expect(restored.includes('data-agent-native-node-id="image"')).toBe(true);
       expect(restored.includes('data-agent-native-node-id="cardbody"')).toBe(
         true,
       );
@@ -385,6 +395,30 @@ async function createIconScreensDesign(request: APIRequestContext) {
   return { designId, fileIds };
 }
 
+/** Poll a locator's boundingBox until two consecutive reads agree — used
+ * after a navigation/layout change with no discrete "settled" event. */
+async function stableBox(
+  locator: Locator,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  let last: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        const box = await locator.boundingBox();
+        const stable =
+          box !== null &&
+          last !== null &&
+          Math.abs(box.x - last.x) < 1 &&
+          Math.abs(box.y - last.y) < 1;
+        last = box;
+        return stable;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+  return (await locator.boundingBox())!;
+}
+
 async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
@@ -392,7 +426,7 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
     timeout: 30_000,
   });
-  await page.waitForTimeout(1000);
+  await stableBox(page.locator("[data-screen-card]").first());
 }
 
 test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom", () => {
@@ -411,7 +445,8 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
       await expect
         .poll(
           () =>
-            page.locator("[data-frame-label][data-frame-selected='true']")
+            page
+              .locator("[data-frame-label][data-frame-selected='true']")
               .count()
               .catch(() => -1),
           { timeout: 5_000 },
@@ -451,9 +486,10 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
     const { designId } = await createIconScreensDesign(request);
     try {
       await openOverview(page, designId, 3);
-      const homeCard = (
-        await page.locator("[data-screen-card]").first().boundingBox()
-      )!;
+      const homeCard = (await page
+        .locator("[data-screen-card]")
+        .first()
+        .boundingBox())!;
 
       // Marquee that only clips the right edge of the Home screen — must NOT
       // select it (shapes need only intersection; top-level frames need full
@@ -465,9 +501,10 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
       });
       await page.mouse.up();
       await page.waitForTimeout(300);
-      let selected = await page.evaluate(() =>
-        document.querySelectorAll("[data-frame-label][aria-selected='true']")
-          .length,
+      let selected = await page.evaluate(
+        () =>
+          document.querySelectorAll("[data-frame-label][aria-selected='true']")
+            .length,
       );
       expect(
         selected,
@@ -484,9 +521,10 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
       );
       await page.mouse.up();
       await page.waitForTimeout(300);
-      selected = await page.evaluate(() =>
-        document.querySelectorAll("[data-frame-label][aria-selected='true']")
-          .length,
+      selected = await page.evaluate(
+        () =>
+          document.querySelectorAll("[data-frame-label][aria-selected='true']")
+            .length,
       );
       expect(
         selected,
@@ -510,8 +548,10 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
         );
         return world ? getComputedStyle(world).transform : null;
       });
-      expect(worldBefore, "no canvas world element to read a zoom transform from")
-        .toBeTruthy();
+      expect(
+        worldBefore,
+        "no canvas world element to read a zoom transform from",
+      ).toBeTruthy();
 
       const centre = page.viewportSize()!;
       await page.mouse.move(centre.width / 2, centre.height / 2);
@@ -549,11 +589,10 @@ test.describe("crossing the screen boundary", () => {
       await expect(page.locator("[data-screen-card]").first()).toBeVisible({
         timeout: 30_000,
       });
-      await page.waitForTimeout(1000);
 
-      const priceBox = await designFrame(page)
-        .locator('[data-agent-native-node-id="price"]')
-        .boundingBox();
+      const priceBox = await stableBox(
+        designFrame(page).locator('[data-agent-native-node-id="price"]'),
+      );
       expect(priceBox, `trace: ${await dumpTrace(page)}`).toBeTruthy();
 
       const boardPoint = await page.evaluate(() => {
@@ -608,9 +647,11 @@ test.describe("crossing the screen boundary", () => {
         .poll(
           async () => {
             indexHtml = await fileContent(page, designId, "index.html");
-            boardHtml = await fileContent(page, designId, "__board__.html").catch(
-              () => "",
-            );
+            boardHtml = await fileContent(
+              page,
+              designId,
+              "__board__.html",
+            ).catch(() => "");
             return (
               !indexHtml.includes('data-agent-native-node-id="price"') &&
               boardHtml.length > 0
@@ -625,10 +666,13 @@ test.describe("crossing the screen boundary", () => {
 
       await page.keyboard.press(`${MOD}+z`);
       await expect
-        .poll(async () => {
-          indexHtml = await fileContent(page, designId, "index.html");
-          return indexHtml.includes('data-agent-native-node-id="price"');
-        }, { timeout: 10_000 })
+        .poll(
+          async () => {
+            indexHtml = await fileContent(page, designId, "index.html");
+            return indexHtml.includes('data-agent-native-node-id="price"');
+          },
+          { timeout: 10_000 },
+        )
         .toBe(true);
       expect(
         childNodeIds(indexHtml, "cardbody"),
