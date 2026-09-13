@@ -69,6 +69,15 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
     );
+    expect(html).toMatch(
+      /\.auth-marketing-home\.has-product-screenshot \.form-panel\s*{[^}]*align-items:\s*center;/,
+    );
+    expect(html).toMatch(
+      /\[data-agent-native-starfield\]\s*{[^}]*opacity:\s*0\.35;/,
+    );
+    expect(html).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\[data-agent-native-starfield\]\s*{\s*opacity:\s*0\.18;/,
+    );
     // the auth canvas stays crisp and fully visible behind the card
     expect(html).toMatch(
       /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;[^}]*opacity:\s*0\.15;/,

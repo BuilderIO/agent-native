@@ -1296,12 +1296,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.15;
+    opacity: 0.35;
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    [data-agent-native-starfield] { opacity: 0.15; }
+    [data-agent-native-starfield] { opacity: 0.18; }
   }
   .split {
     position: relative;
@@ -2350,7 +2350,7 @@ ${marketingStyles}
     inset: 0;
     z-index: 1;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: flex-start;
     width: 100%;
     min-width: 0;
