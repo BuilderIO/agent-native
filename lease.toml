@@ -1,7 +1,7 @@
 pr=4909
 owner_thread_id=01a09897-e972-7813-9b83-cb55c88914c5
-version=26
-expires_at=2026-09-14T00:30:00Z
+version=27
+expires_at=2026-09-14T00:35:00Z
 state=active
 observed_legacy_heartbeat_name=babysit-pr-4909
 observed_legacy_heartbeat_version=absent
