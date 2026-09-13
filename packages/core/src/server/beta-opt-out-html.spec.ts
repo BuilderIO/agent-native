@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
 import { SSR_BETA_REDIRECT_MARKER } from "../shared/ssr-beta-redirect.js";
 import {
   BETA_OPT_OUT_PERSISTENCE_MARKER,
@@ -31,14 +32,27 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-switcher"');
     expect(html).toContain('id="environment-badge" aria-expanded="false"');
-    expect(html).toContain(">beta</button>");
-    expect(html).toContain("You're on Agent-Native Beta");
     expect(html).toContain('id="environment-production-link"');
     expect(html).toContain('id="environment-hide-badge"');
     expect(html).toContain("__anInitEnvironmentBadge");
     expect(html).toContain("agent-native:force-production");
     expect(html).toContain("switcher.hidden = true");
     expect(html).toContain("betaHosts");
+    expect(html).toContain(
+      "document.documentElement.getAttribute('data-locale')",
+    );
+    expect(html).toContain(
+      `var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};`,
+    );
+    expect(html).toContain("button.textContent = messages.betaLabel");
+    expect(html).toContain(
+      "titleNode.textContent = messages.betaTitle.replace(",
+    );
+    expect(html).toContain("copyNode.textContent = messages.continuePrompt");
+    expect(html).toContain(
+      "productionLink.textContent = messages.switchToProduction",
+    );
+    expect(html).toContain("hideButton.textContent = messages.hideBadge");
     expect(html).toContain("agent-native-environment-switcher-style");
     expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
     expect(html).toContain("left: 0;");

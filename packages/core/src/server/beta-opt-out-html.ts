@@ -1,3 +1,4 @@
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
 import {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
@@ -49,12 +50,12 @@ function betaRedirectBasePath(requestPath?: string): string {
 }
 
 const environmentSwitcherMarkup = `<div class="environment-switcher" id="environment-switcher" ${ENVIRONMENT_SWITCHER_MARKER} hidden>
-  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
+  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover"></button>
   <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Beta</div>
-    <div class="environment-popover-copy">Choose where you want to continue.</div>
-    <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
-    <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>
+    <div class="environment-popover-title" id="environment-popover-title"></div>
+    <div class="environment-popover-copy"></div>
+    <a class="environment-production-link" id="environment-production-link" href=""></a>
+    <button type="button" class="environment-hide-badge" id="environment-hide-badge"></button>
   </div>
 </div>`;
 
@@ -156,9 +157,11 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
   var switcher = document.getElementById('environment-switcher');
   var button = document.getElementById('environment-badge');
   var popover = document.getElementById('environment-popover');
+  var titleNode = document.getElementById('environment-popover-title');
+  var copyNode = document.querySelector('.environment-popover-copy');
   var productionLink = document.getElementById('environment-production-link');
   var hideButton = document.getElementById('environment-hide-badge');
-  if (!switcher || !button || !popover || !productionLink || !hideButton) return;
+  if (!switcher || !button || !popover || !titleNode || !copyNode || !productionLink || !hideButton) return;
   if (window.parent !== window) return;
 
   try {
@@ -194,6 +197,20 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
     popover.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
   }
+
+  var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};
+  var locale = document.documentElement.getAttribute('data-locale') || 'en-US';
+  var messages = Object.prototype.hasOwnProperty.call(messagesByLocale, locale)
+    ? messagesByLocale[locale]
+    : messagesByLocale['en-US'];
+  button.textContent = messages.betaLabel;
+  titleNode.textContent = messages.betaTitle.replace(
+    '{{label}}',
+    messages.betaLabel.charAt(0).toUpperCase() + messages.betaLabel.slice(1),
+  );
+  copyNode.textContent = messages.continuePrompt;
+  productionLink.textContent = messages.switchToProduction;
+  hideButton.textContent = messages.hideBadge;
 
   switcher.hidden = false;
   button.addEventListener('click', function() {

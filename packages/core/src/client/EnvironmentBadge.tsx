@@ -25,6 +25,7 @@ import {
 } from "../shared/environment-lanes.js";
 import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { useT } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
@@ -214,6 +215,7 @@ function EnvironmentBadgeContent({
   collapsed: boolean;
   className?: string;
 }) {
+  const t = useT();
   const [isHidden, setIsHidden] = useState(false);
   const { session } = useSession();
   const isBuilder = isBuilderIoEmployee(session?.email);
@@ -232,8 +234,10 @@ function EnvironmentBadgeContent({
   const label = badgeText ?? "alpha";
   const title =
     environment === "beta"
-      ? `You're on Agent-Native ${label.charAt(0).toUpperCase() + label.slice(1)}`
-      : "You're on Agent-Native Production";
+      ? t("environmentBadge.betaTitle", {
+          label: label.charAt(0).toUpperCase() + label.slice(1),
+        })
+      : t("environmentBadge.productionTitle");
 
   const badgeClasses = cn(
     environmentBadgePlacementClasses[placement],
@@ -266,7 +270,7 @@ function EnvironmentBadgeContent({
     <Popover>
       <PopoverTrigger asChild>
         <Button
-          aria-label={`Open ${title.toLowerCase()} switcher`}
+          aria-label={t("environmentBadge.openSwitcher", { title })}
           className={badgeClasses}
           size="sm"
           variant={environment === "beta" ? "default" : "outline"}
@@ -282,16 +286,19 @@ function EnvironmentBadgeContent({
       >
         <div className="mb-1 text-sm font-semibold leading-5">{title}</div>
         <div className="mb-4 text-sm text-muted-foreground">
-          Choose where you want to continue.
+          {t("environmentBadge.continuePrompt")}
         </div>
         <div className="grid gap-2">
           {environment === "beta" ? (
             <EnvironmentLink
               href={productionHref!}
-              label="Switch to production"
+              label={t("environmentBadge.switchToProduction")}
             />
           ) : (
-            <EnvironmentLink href={betaHref!} label="Go to beta" />
+            <EnvironmentLink
+              href={betaHref!}
+              label={t("environmentBadge.goToBeta")}
+            />
           )}
           <Button
             className="mt-2 -mb-2 w-full justify-center text-muted-foreground"
@@ -300,7 +307,7 @@ function EnvironmentBadgeContent({
             type="button"
             variant="ghost"
           >
-            Hide badge
+            {t("environmentBadge.hideBadge")}
           </Button>
         </div>
       </PopoverContent>
@@ -319,9 +326,10 @@ function LocalEnvironmentBadge({
   collapsed: boolean;
   className?: string;
 }) {
+  const t = useT();
   return (
     <div
-      aria-label="Local development environment"
+      aria-label={t("environmentBadge.localDevelopment")}
       className={cn(
         environmentBadgePlacementClasses[placement],
         environmentBadgeFontClass(badgeText, collapsed),
@@ -421,6 +429,7 @@ export function EnvironmentBadge({
   collapsed,
   className,
 }: EnvironmentBadgeProps = {}) {
+  const t = useT();
   const [hydrated, setHydrated] = useState(false);
   const sidebar = useAppSidebar();
   const config = useMemo(injectedAgentNativeConfig, []);
@@ -459,7 +468,7 @@ export function EnvironmentBadge({
   if (!targets) {
     return (
       <div
-        aria-label="Development environment"
+        aria-label={t("environmentBadge.development")}
         className={cn(
           environmentBadgePlacementClasses[placement],
           environmentBadgeFontClass(resolvedBadgeText, effectiveCollapsed),
