@@ -1691,6 +1691,32 @@ export function ungroupSlideObject(
       element,
       geometry: getGeometry(element),
     }));
+  const transformCenters = new Map<HTMLElement, { x: number; y: number }>();
+  if (groupRotation !== 0) {
+    for (const { element, geometry } of childGeometries) {
+      const translation = readSlideObjectTransformTranslation(
+        element,
+        geometry,
+      );
+      if (!translation) return null;
+      const originTokens = (
+        window.getComputedStyle(element).transformOrigin ||
+        element.style.transformOrigin
+      )
+        .trim()
+        .split(/\s+/);
+      transformCenters.set(element, {
+        x:
+          translation.x +
+          transformOriginOffset(originTokens[0], geometry.width, "x") -
+          geometry.width / 2,
+        y:
+          translation.y +
+          transformOriginOffset(originTokens[1], geometry.height, "y") -
+          geometry.height / 2,
+      });
+    }
+  }
   const groupZIndex = readSlideLayerZIndex(group);
   // Ungrouping removes the wrapper's stacking context; move members to its
   // outer stack slot and preserve their inner order in the DOM.
@@ -1723,9 +1749,23 @@ export function ungroupSlideObject(
         offset.x * groupRotationSin +
         offset.y * groupRotationCos,
     };
+    const transformCenter = transformCenters.get(element);
+    // The removed wrapper rotated the child's transformed center, not just its layout box.
+    const transformCorrection = transformCenter
+      ? {
+          x:
+            transformCenter.x * groupRotationCos -
+            transformCenter.y * groupRotationSin -
+            transformCenter.x,
+          y:
+            transformCenter.x * groupRotationSin +
+            transformCenter.y * groupRotationCos -
+            transformCenter.y,
+        }
+      : { x: 0, y: 0 };
     applyGeometry(element, {
-      x: rotatedCenter.x - absoluteGeometry.width / 2,
-      y: rotatedCenter.y - absoluteGeometry.height / 2,
+      x: rotatedCenter.x - absoluteGeometry.width / 2 + transformCorrection.x,
+      y: rotatedCenter.y - absoluteGeometry.height / 2 + transformCorrection.y,
       width: geometry.width,
       height: geometry.height,
     });
@@ -1797,6 +1837,85 @@ function parseSlideObjectMatrix2d(transform: string): {
     values,
     indexes: [0, 1, 4, 5, 12, 13],
   };
+}
+
+function readSlideObjectTransformTranslation(
+  element: HTMLElement,
+  geometry: SlideObjectGeometry,
+): { x: number; y: number } | null {
+  const candidates = [
+    window.getComputedStyle(element).transform,
+    element.style.transform,
+  ];
+  let sawTransform = false;
+  for (const candidate of candidates) {
+    if (!candidate || candidate.trim() === "none") continue;
+    sawTransform = true;
+    const parsedMatrix = parseSlideObjectMatrix2d(candidate);
+    if (parsedMatrix) {
+      const [, , , , eIndex, fIndex] = parsedMatrix.indexes;
+      return {
+        x: parsedMatrix.values[eIndex] ?? 0,
+        y: parsedMatrix.values[fIndex] ?? 0,
+      };
+    }
+    if (typeof DOMMatrixReadOnly !== "undefined") {
+      try {
+        const matrix = new DOMMatrixReadOnly(candidate);
+        if (matrix.is2D) return { x: matrix.e, y: matrix.f };
+      } catch {
+        // Unsupported transform syntax continues to the explicit fallbacks.
+      }
+    }
+
+    const translate = candidate.match(/^translate(?:3d|x|y)?\(([^()]*)\)$/i);
+    if (translate) {
+      const kind = candidate
+        .match(/^translate(?:3d|x|y)?/i)?.[0]
+        ?.toLowerCase();
+      const values = translate[1]?.split(/[\s,]+/).filter(Boolean) ?? [];
+      const parseLength = (value: string | undefined, dimension: number) => {
+        if (!value) return 0;
+        if (!/^-?(?:\d+\.?\d*|\.\d+)(?:px|%)?$/i.test(value)) return null;
+        const number = Number.parseFloat(value);
+        return value.endsWith("%") ? (number * dimension) / 100 : number;
+      };
+      const x =
+        kind === "translatey" ? 0 : parseLength(values[0], geometry.width);
+      const y =
+        kind === "translatex"
+          ? 0
+          : parseLength(
+              kind === "translatey" ? values[0] : values[1],
+              geometry.height,
+            );
+      const z = kind === "translate3d" ? parseLength(values[2], 0) : 0;
+      if (x !== null && y !== null && z === 0) return { x, y };
+      return null;
+    }
+
+    const functions = [...candidate.matchAll(/([a-z][a-z0-9-]*)\([^()]*\)/gi)];
+    const noTranslation = new Set([
+      "rotate",
+      "rotatez",
+      "scale",
+      "scalex",
+      "scaley",
+      "skew",
+      "skewx",
+      "skewy",
+    ]);
+    if (
+      functions.length > 0 &&
+      !candidate.replace(/([a-z][a-z0-9-]*)\([^()]*\)/gi, "").trim() &&
+      functions.every((match) =>
+        noTranslation.has(match[1]?.toLowerCase() ?? ""),
+      )
+    ) {
+      return { x: 0, y: 0 };
+    }
+  }
+  return sawTransform ? null : { x: 0, y: 0 };
 }
 
 function rotatedSlideObjectMatrix(
