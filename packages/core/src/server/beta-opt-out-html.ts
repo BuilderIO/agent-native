@@ -1,4 +1,5 @@
 import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
@@ -199,18 +200,51 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
   }
 
   var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};
-  var locale = document.documentElement.getAttribute('data-locale') || 'en-US';
-  var messages = Object.prototype.hasOwnProperty.call(messagesByLocale, locale)
-    ? messagesByLocale[locale]
-    : messagesByLocale['en-US'];
-  button.textContent = messages.betaLabel;
-  titleNode.textContent = messages.betaTitle.replace(
-    '{{label}}',
-    messages.betaLabel.charAt(0).toUpperCase() + messages.betaLabel.slice(1),
-  );
-  copyNode.textContent = messages.continuePrompt;
-  productionLink.textContent = messages.switchToProduction;
-  hideButton.textContent = messages.hideBadge;
+  var root = document.documentElement;
+  function messagesForLocale(locale) {
+    if (typeof locale !== 'string' || !locale || locale === 'system') return null;
+    var normalized = locale.trim().replace(/_/g, '-').toLowerCase();
+    var locales = Object.keys(messagesByLocale);
+    for (var i = 0; i < locales.length; i++) {
+      if (locales[i].toLowerCase() === normalized) return messagesByLocale[locales[i]];
+    }
+    var language = normalized.split('-')[0];
+    for (var j = 0; j < locales.length; j++) {
+      if (locales[j].split('-')[0].toLowerCase() === language) return messagesByLocale[locales[j]];
+    }
+    return null;
+  }
+  function updateCopy() {
+    var candidates = [root.getAttribute('data-locale')];
+    try {
+      candidates.push(window.localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)}));
+    } catch (error) {
+      void error;
+    }
+    candidates.push(root.getAttribute('lang'));
+    var browserLocales = navigator.languages && navigator.languages.length
+      ? navigator.languages
+      : [navigator.language];
+    candidates = candidates.concat(browserLocales);
+    var messages = null;
+    for (var i = 0; i < candidates.length && !messages; i++) {
+      messages = messagesForLocale(candidates[i]);
+    }
+    messages = messages || messagesByLocale['en-US'];
+    button.textContent = messages.betaLabel;
+    titleNode.textContent = messages.betaTitle.replace(
+      '{{label}}',
+      messages.betaLabel.charAt(0).toUpperCase() + messages.betaLabel.slice(1),
+    );
+    copyNode.textContent = messages.continuePrompt;
+    productionLink.textContent = messages.switchToProduction;
+    hideButton.textContent = messages.hideBadge;
+  }
+  updateCopy();
+  new MutationObserver(updateCopy).observe(root, {
+    attributes: true,
+    attributeFilter: ['data-locale', 'lang'],
+  });
 
   switcher.hidden = false;
   button.addEventListener('click', function() {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import { SSR_BETA_REDIRECT_MARKER } from "../shared/ssr-beta-redirect.js";
 import {
   BETA_OPT_OUT_PERSISTENCE_MARKER,
@@ -38,9 +39,13 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("agent-native:force-production");
     expect(html).toContain("switcher.hidden = true");
     expect(html).toContain("betaHosts");
+    expect(html).toContain("root.getAttribute('data-locale')");
     expect(html).toContain(
-      "document.documentElement.getAttribute('data-locale')",
+      `window.localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)})`,
     );
+    expect(html).toContain("root.getAttribute('lang')");
+    expect(html).toContain("new MutationObserver(updateCopy).observe(root");
+    expect(html).toContain("attributeFilter: ['data-locale', 'lang']");
     expect(html).toContain(
       `var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};`,
     );
