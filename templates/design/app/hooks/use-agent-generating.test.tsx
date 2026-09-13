@@ -80,15 +80,15 @@ describe("useAgentGenerating", () => {
       .mockResolvedValueOnce({ ok: false })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ active: true }),
+        json: async () => ({ active: true, status: "running" }),
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ active: false }),
+        json: async () => ({ active: false, status: "idle" }),
       });
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ active: false }),
+      json: async () => ({ active: false, status: "idle" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -126,6 +126,81 @@ describe("useAgentGenerating", () => {
     expect(latest!.generating).toBe(false);
     expect(onComplete).toHaveBeenCalledWith("design-tab");
     expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it.each(["completed", "errored", "aborted", "truncated"])(
+    "recovers after two terminal %s snapshots without an active snapshot",
+    async (status) => {
+      const onComplete = vi.fn();
+      const onStopped = vi.fn();
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ active: true, status }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(<Probe onComplete={onComplete} onStopped={onStopped} />);
+      });
+      await act(async () => {
+        latest!.submit("Make a landing page", "Design id: design-1");
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+      expect(latest!.generating).toBe(true);
+      expect(onComplete).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(latest!.generating).toBe(false);
+      expect(onComplete).toHaveBeenCalledWith("design-tab");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  );
+
+  it("recovers after two idle snapshots before observing an active run", async () => {
+    const onComplete = vi.fn();
+    const onStopped = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ active: false, status: "idle" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<Probe onComplete={onComplete} onStopped={onStopped} />);
+    });
+    await act(async () => {
+      latest!.submit("Make a landing page", "Design id: design-1");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design-tab");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     await act(async () => root.unmount());
     container.remove();

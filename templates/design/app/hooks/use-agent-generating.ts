@@ -11,6 +11,12 @@ const GENERATION_ORPHAN_TIMEOUT_MS = 30 * 60_000;
 const GENERATION_STATUS_POLL_START_DELAY_MS = 3_000;
 const GENERATION_STATUS_POLL_INTERVAL_MS = 5_000;
 const GENERATION_STATUS_IDLE_CONFIRMATIONS = 2;
+const TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "errored",
+  "aborted",
+  "truncated",
+]);
 // Auto-continue briefly sets isRunning=false between gateway continuations.
 // Debounce stop handling so we do not flash "generation complete" mid-turn.
 const CHAT_STOP_DEBOUNCE_MS = 4_000;
@@ -36,7 +42,6 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   const timeoutRef = useRef<number | null>(null);
   const statusPollTimeoutRef = useRef<number | null>(null);
   const statusPollGenerationRef = useRef(0);
-  const generationSeenActiveRef = useRef(false);
   const generationIdlePollCountRef = useRef(0);
   const stopDebounceRef = useRef<number | null>(null);
   const callbacksRef = useRef(options);
@@ -69,7 +74,6 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     clearStatusPollTimeout();
     clearStopDebounce();
     activeTabIdRef.current = null;
-    generationSeenActiveRef.current = false;
     generationIdlePollCountRef.current = 0;
     setGenerating(false);
   }, [clearGenerationTimeout, clearStatusPollTimeout, clearStopDebounce]);
@@ -91,7 +95,6 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     (tabId: string) => {
       clearStatusPollTimeout();
       const generation = ++statusPollGenerationRef.current;
-      generationSeenActiveRef.current = false;
       generationIdlePollCountRef.current = 0;
       const poll = async () => {
         if (
@@ -109,8 +112,14 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             },
           );
           if (!response.ok) throw new Error("Could not read agent run state");
-          const state = (await response.json()) as { active?: unknown };
-          if (typeof state.active !== "boolean") {
+          const state = (await response.json()) as {
+            active?: unknown;
+            status?: unknown;
+          };
+          if (
+            typeof state.active !== "boolean" ||
+            typeof state.status !== "string"
+          ) {
             throw new Error("Agent run state was incomplete");
           }
           if (
@@ -119,16 +128,20 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           ) {
             return;
           }
-          if (state.active) {
-            generationSeenActiveRef.current = true;
+          const isRunning = state.active && state.status === "running";
+          const isIdle = !state.active && state.status === "idle";
+          const isTerminal = TERMINAL_RUN_STATUSES.has(state.status);
+          if (!isRunning && !isIdle && !isTerminal) {
+            throw new Error("Agent run state was unrecognized");
+          }
+          if (isRunning) {
             generationIdlePollCountRef.current = 0;
-          } else if (generationSeenActiveRef.current) {
+          } else {
             generationIdlePollCountRef.current += 1;
           }
           if (
-            generationSeenActiveRef.current &&
             generationIdlePollCountRef.current >=
-              GENERATION_STATUS_IDLE_CONFIRMATIONS
+            GENERATION_STATUS_IDLE_CONFIRMATIONS
           ) {
             callbacksRef.current.onComplete?.(tabId);
             reset();
