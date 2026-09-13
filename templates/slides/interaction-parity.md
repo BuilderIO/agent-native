@@ -292,6 +292,27 @@ Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
 - The matrix/translate rotation repro now passes in the 127-test focused
   interaction + marquee run. Standalone Slides TypeScript checking and
   `guard:no-silent-coercion` pass.
+- The Builder review summary on the previous head also listed west/north group
+  resize drift, translated-child loss when ungrouping a rotated group, and
+  contiguous-selection one-step ordering as remaining findings. Current-head
+  dispositions, all passing in that same 127-test run:
+  - Group resize applies the resized wrapper rect before scaling descendants in
+    their local coordinates; the west/north regression compares resulting
+    world positions against the fixed opposite edges. No additional geometry
+    change was indicated by the helper and editor call path.
+  - Rotated ungrouping now rotates each translated child's visual center around
+    the wrapper center and adjusts its layout origin; matrix and `translate()`
+    regressions check the resulting center and retained angle.
+  - One-step multi-selection ordering swaps the selected block past exactly
+    one adjacent unselected layer; forward and backward contiguous-selection
+    regressions check the resulting layer indices.
+  These are code/test dispositions, not live-browser proof; grouped resize,
+  rotated ungroup, and multi-selection ordering remain open in the interaction
+  matrix until exercised in the editor.
+- The deployed PR preview at
+  `https://pr-4887--agent-native-slides.netlify.app` loads the Slides sign-in
+  screen. No credentials were available or entered, so no authenticated editor
+  interaction was verified from that preview.
 - The full local guard sweep still cannot complete because the worktree lacks
   the root `ajv` link required by `guard:mcp-registry`. CI also timed out once
   in the unrelated `generate-image-api` test; the exact test passed when run
