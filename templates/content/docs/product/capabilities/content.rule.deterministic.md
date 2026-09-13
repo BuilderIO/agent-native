@@ -44,7 +44,7 @@ A Rule makes an operational promise visible: one committed event, one typed cond
 
 ## Example workflow
 
-A Database update emits a committed Event, a versioned Rule evaluates a typed condition, and an Action assigns a follow-up property once. The receipt identifies the event, Rule version, authority, and outcome.
+A Collection update emits a committed Event, a versioned Rule evaluates a typed condition, and an Action assigns a follow-up property once. The receipt identifies the event, Rule version, authority, and outcome.
 
 ## Product contract
 

@@ -20,17 +20,17 @@ No Feature is marked Available yet. Existing foundations are useful, but the com
 
 ## Chapter 1: A durable home for your thinking
 
-Chapter 1 gives people and agents a dependable place to create, organize, find, reshape, and recover their work. Pages and Databases remain understandable after an interruption, important material can be reused without drifting copies, and every authorized collaborator can return to the same durable context. The following Features establish that foundation.
+Chapter 1 gives people and agents a dependable place to create, organize, find, reshape, and recover their work. Pages and Collections remain understandable after an interruption, important material can be reused without drifting copies, and every authorized collaborator can return to the same durable context. The following Features establish that foundation.
 
 ### Feature 1: Durable foundations
 
-Pages, Blocks, Databases, Search, history, and recovery form one trustworthy material loop.
+Pages, Blocks, Collections, Search, history, and recovery form one trustworthy material loop.
 
 **Status:** In validation
 
-**Example workflow:** A teammate creates a project brief, turns its action items into Database records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context.
+**Example workflow:** A teammate creates a project brief, turns its action items into Collection records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context.
 
-**What works today:** Content already has SQL-backed Pages, rich Blocks, Databases, Search, document snapshots, and a broad agent Action surface. People and agents can perform much of the ordinary creation and editing loop on the same durable objects.
+**What works today:** Content already has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. People and agents can perform much of the ordinary creation and editing loop on the same durable objects.
 
 **What remains:** Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation.
 
@@ -38,13 +38,13 @@ Pages, Blocks, Databases, Search, history, and recovery form one trustworthy mat
 
 - **Pages:** Hold durable identity, access, properties, rich content, and the context required to resume work.
 - **Blocks:** Give every editable rich-content body the same composable grammar, whether it belongs to a Page, Property, Comment, or message.
-- **Databases:** Govern writable collections, membership, typed Properties, validation, defaults, Rules, and the canonical path for creating records.
+- **Collections:** Govern writable collections, membership, typed Properties, validation, defaults, Rules, and the canonical path for creating records.
 - **Search:** Finds only what the current person can access and opens the exact object or context they were looking for.
 - **History:** Records attributable committed Events and logical Revisions without turning every keystroke into a fake milestone.
 - **Recovery:** Restores deleted or changed work without discarding the history that explains what happened.
 - **Agent parity:** Lets agents perform the same authorized operations through the same Action surface rather than a second, weaker API.
 
-**Required capability records:** [Pages](capabilities/content.object.page.md), [Blocks](capabilities/content.object.block.md), [Blocks fields](capabilities/content.object.blocks-field.md), [Databases](capabilities/content.object.database.md), [Search](capabilities/content.knowledge.search.md), [Committed Events](capabilities/content.event.committed.md), [History](capabilities/content.history.queryable.md), [Agent and UI parity](capabilities/content.agent.action-parity.md)
+**Required capability records:** [Pages](capabilities/content.object.page.md), [Blocks](capabilities/content.object.block.md), [Blocks fields](capabilities/content.object.blocks-field.md), [Collections](capabilities/content.object.database.md), [Search](capabilities/content.knowledge.search.md), [Committed Events](capabilities/content.event.committed.md), [History](capabilities/content.history.queryable.md), [Agent and UI parity](capabilities/content.agent.action-parity.md)
 
 **Enhancing capability records:** [Blocks-field revision history](capabilities/content.version.field-history.md), [Actor properties](capabilities/content.property.actor.md), [Document editor](capabilities/content.author.document-editor.md)
 
@@ -54,7 +54,7 @@ Content makes arrival, navigation, and resumption feel dependable instead of ask
 
 **Status:** Partially implemented
 
-**Example workflow:** A new teammate follows an invitation, lands in the correct organization and Workspace, pins the project they care about, and later returns directly to the exact Database View they were using.
+**Example workflow:** A new teammate follows an invitation, lands in the correct organization and Workspace, pins the project they care about, and later returns directly to the exact Collection View they were using.
 
 **What works today:** Content has Personal and organization-backed spaces, Workspace navigation, invitations, sidebar structure, and saved location state in varying degrees of maturity.
 
@@ -63,8 +63,8 @@ Content makes arrival, navigation, and resumption feel dependable instead of ask
 **What this Feature includes:**
 
 - **Home:** Gives each person a top-level view across the Personal and organization contexts they can access.
-- **Workspaces:** Organize Pages and Databases beneath Personal or an Organization without becoming the permission model themselves.
-- **Sidebar:** Pins important Pages, Databases, and Queries while allowing dynamic sections such as Recent and Shared with me.
+- **Workspaces:** Organize Pages and Collections beneath Personal or an Organization without becoming the permission model themselves.
+- **Sidebar:** Pins important Pages, Collections, and Queries while allowing dynamic sections such as Recent and Shared with me.
 - **Recent work:** Restores the objects and views a person was actually using, scoped by current access.
 - **Known links and invitations:** Land on the intended object with an honest access-denied state when permission is missing.
 - **Session resumption:** Reopens enough navigation and View state to pick up the work without reconstructing the route manually.
@@ -81,7 +81,7 @@ Reuse canonical Pages and Blocks without producing copies that quietly drift apa
 
 **Example workflow:** The Docs team maintains one canonical product-description Block that appears across several guides and blog posts, edits it from any occurrence, and sees every authorized location update without copy and paste.
 
-**What works today:** Content can reference Pages, embed ordinary Database Views, and preserve multi-membership without copying canonical records. Existing reference Blocks and source-aware identities provide useful substrate.
+**What works today:** Content can reference Pages, embed ordinary Collection Views, and preserve multi-membership without copying canonical records. Existing reference Blocks and source-aware identities provide useful substrate.
 
 **What remains:** Stable Block references, editable Synced Blocks, canonical Page embeds, a complete Connections surface, and typed relationship behavior still need to converge.
 
@@ -91,7 +91,7 @@ Reuse canonical Pages and Blocks without producing copies that quietly drift apa
 - **Synced Blocks:** Render one canonical Block in several places and allow authorized edits from any occurrence.
 - **Embedded Pages:** Place a canonical Page inside another surface while preserving its identity and access.
 - **Backlinks and forward links:** Show where an object is mentioned and what it intentionally references through Info → Connections.
-- **Typed Relationships:** Give important connections explicit meaning that Databases, Queries, Graphs, and agents can use.
+- **Typed Relationships:** Give important connections explicit meaning that Collections, Queries, Graphs, and agents can use.
 - **Graceful degradation:** Omit inaccessible references and preserve understandable broken or deleted-reference states.
 
 **Required capability records:** [References](capabilities/content.object.reference.md), [Synced Blocks and live embeds](capabilities/content.object.transclusion.md), [Links and backlinks](capabilities/content.knowledge.links.md), [Typed Relationships](capabilities/content.relationship.edge.md)
@@ -104,9 +104,9 @@ Personal arrangements and private Views reshape shared work without changing it 
 
 **Status:** Partially implemented
 
-**Example workflow:** A sales leader privately filters and groups the shared customer Database around this quarter's accounts, saves that arrangement as an Only-me View, and never changes what the rest of the company sees.
+**Example workflow:** A sales leader privately filters and groups the shared customer Collection around this quarter's accounts, saves that arrangement as an Only-me View, and never changes what the rest of the company sees.
 
-**What works today:** Saved Database Views already support filtering, sorting, grouping, density, and several renderers, while the data model supports Pages belonging to multiple Databases.
+**What works today:** Saved Collection Views already support filtering, sorting, grouping, density, and several renderers, while the data model supports Pages belonging to multiple Collections.
 
 **What remains:** Automatic personal overrides, named Only-me Views, reusable typed Queries, and predictable pinning and sharing behavior need complete product surfaces.
 
@@ -116,20 +116,20 @@ Personal arrangements and private Views reshape shared work without changing it 
 - **Only-me Views:** Save named private Views over shared records without forking their data.
 - **Shared Views:** Give collaborators a dependable starting presentation while preserving personal exploration.
 - **Saved Queries:** Turn reusable selection and output logic into durable Content objects that can be linked and embedded.
-- **Multiple Database memberships:** Let one Page participate in several collections without gaining a primary Database identity.
+- **Multiple Collection memberships:** Let one Page participate in several collections without gaining a primary Collection identity.
 - **Pinned navigation:** Let each person choose the working set that deserves persistent space in the sidebar.
 
-**Required capability records:** [Database and Query Views](capabilities/content.view.query.md), [Reusable Query objects](capabilities/content.query.object.md), [Personal View state](capabilities/content.view.personal-state.md), [Shared Views](capabilities/content.share.views.md), [Multiple Database memberships](capabilities/content.object.multi-membership.md)
+**Required capability records:** [Collection and Query Views](capabilities/content.view.query.md), [Reusable Query objects](capabilities/content.query.object.md), [Personal View state](capabilities/content.view.personal-state.md), [Shared Views](capabilities/content.share.views.md), [Multiple Collection memberships](capabilities/content.object.multi-membership.md)
 
 **Enhancing capability records:** [Personal sidebar](capabilities/content.navigation.sidebar.md), [Typed expression language](capabilities/content.expression.language.md)
 
 ### Feature 5: See your information your way
 
-Move among compatible Database and Query Views without changing the records underneath.
+Move among compatible Collection and Query Views without changing the records underneath.
 
 **Status:** In validation
 
-**Example workflow:** A marketing team edits its editorial Database as a Table, plans work on a Board and Calendar, then gives executives a compact List of the same canonical articles.
+**Example workflow:** A marketing team edits its editorial Collection as a Table, plans work on a Board and Calendar, then gives executives a compact List of the same canonical articles.
 
 **What works today:** Table, List, Board, Gallery, Calendar, Timeline, and Form renderers already exist, along with shared filters, sorts, grouping, calculations, and visible-field controls.
 
@@ -140,22 +140,22 @@ Move among compatible Database and Query Views without changing the records unde
 - **Table and List:** Support fast scanning, keyboard navigation, inline editing, and flexible visible fields.
 - **Board and Gallery:** Arrange records by workflow state or visual identity while preserving canonical records.
 - **Calendar and Timeline:** Place records across dates and ranges through the same typed time Properties.
-- **Form:** Collect new records through a saved presentation of the Database's schema and validation.
+- **Form:** Collect new records through a saved presentation of the Collection's schema and validation.
 - **View controls:** Filter, sort, group, format, and conditionally style each presentation.
 - **Density:** Adjust compact, cozy, or comfortable spacing and secondary information without creating another View type.
 - **Renderer conformance:** Gives every View the same permissions, Actions, agent context, accessibility, persistence, and recovery contract.
 
-**Required capability records:** [Typed renderers](capabilities/content.renderer.typed.md), [Database and Query Views](capabilities/content.view.query.md), [View renderer conformance](capabilities/content.view.renderer-conformance.md), [Large Database performance](capabilities/content.view.scale.md)
+**Required capability records:** [Typed renderers](capabilities/content.renderer.typed.md), [Collection and Query Views](capabilities/content.view.query.md), [View renderer conformance](capabilities/content.view.renderer-conformance.md), [Large Collection performance](capabilities/content.view.scale.md)
 
 **Enhancing capability records:** [Fast keyboard capture](capabilities/content.view.fast-capture.md), [Grouping and aggregation](capabilities/content.view.grouping-aggregation.md), [Timeline View](capabilities/content.view.timeline.md)
 
 ## Chapter 2: Come to consensus without losing the evidence
 
-Chapter 2 keeps collaboration attached to the work being shaped. People and agents can discuss a Page or Database, leave precise feedback, review attributable changes, explore alternatives, and preserve how the team reached its conclusion without rescuing the useful parts from a separate chat afterward. The following Features create that collaboration loop.
+Chapter 2 keeps collaboration attached to the work being shaped. People and agents can discuss a Page or Collection, leave precise feedback, review attributable changes, explore alternatives, and preserve how the team reached its conclusion without rescuing the useful parts from a separate chat afterward. The following Features create that collaboration loop.
 
 ### Feature 6: Collaborate in context
 
-Comments, Discussion, messages, notifications, and history stay anchored to the Page or Database being shaped.
+Comments, Discussion, messages, notifications, and history stay anchored to the Page or Collection being shaped.
 
 **Status:** Partially implemented
 
@@ -163,12 +163,12 @@ Comments, Discussion, messages, notifications, and history stay anchored to the 
 
 **What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, and document history. These already keep precise feedback closer to the artifact than an external chat can.
 
-**What remains:** Every Page and Database needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions.
+**What remains:** Every Page and Collection needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions.
 
 **What this Feature includes:**
 
 - **Comments:** Attach precise feedback to text, Blocks, media, or other exact material and preserve the historical target if that material changes.
-- **Discussion:** Gives every Page and Database one continuing channel for collaboration about the whole artifact.
+- **Discussion:** Gives every Page and Collection one continuing channel for collaboration about the whole artifact.
 - **Rich messages:** Use Blocks fields so messages and Comments can contain the same references, embeds, Expressions, and structured content as Pages.
 - **Threads and replies:** Keep focused sub-conversations understandable without infinite nesting.
 - **Permalinks:** Make every message and Comment addressable from Content, Slack, or another Page.
@@ -185,9 +185,9 @@ Polls and explicit outcome state deepen the same Discussion rather than creating
 
 **Status:** Planned
 
-**Example workflow:** A team posts a Poll in the Database Discussion, allows each person to choose up to two priorities, closes voting on Friday, records the outcome, and links directly to that result from the resulting plan.
+**Example workflow:** A team posts a Poll in the Collection Discussion, allows each person to choose up to two priorities, closes voting on Friday, records the outcome, and links directly to that result from the resulting plan.
 
-**What works today:** Comments, reactions, rich content, Database Views, and permission-aware collaboration provide pieces of the eventual interaction.
+**What works today:** Comments, reactions, rich content, Collection Views, and permission-aware collaboration provide pieces of the eventual interaction.
 
 **What remains:** Poll messages, bounded multi-select, stable options, closing behavior, access-safe aggregates, featured Poll rendering, and superseding outcomes still need implementation.
 
@@ -260,7 +260,7 @@ Choose governed native and provider Sources, preserve their identity, and compos
 
 **Example workflow:** A content lead connects Builder blog articles and resources, aligns their compatible fields in one Query, and works from a shared editorial View without losing which provider owns each record.
 
-**What works today:** Content already models source-backed Databases, source fields and rows, provenance, multi-source composition, and adapters for Builder, Notion, and local material.
+**What works today:** Content already models source-backed Collections, source fields and rows, provenance, multi-source composition, and adapters for Builder, Notion, and local material.
 
 **What remains:** Sources need one governed catalog, Queries need to replace the confusing multi-source configuration surface, and field alignment, write routing, and access behavior need end-to-end proof.
 
@@ -269,7 +269,7 @@ Choose governed native and provider Sources, preserve their identity, and compos
 - **Sources catalog:** Lists approved personal, workspace, and organization connections with their capabilities and policy.
 - **Provider adapters:** Give Builder, Notion, Drive, Agent-Native apps, and later providers one shared contract with independent certification.
 - **Item binding:** Maps each provider item to one stable Content identity without turning the provider into the Page's owner.
-- **Typed Queries:** Combine Databases, Sources, and other Queries through one visual selection and alignment model.
+- **Typed Queries:** Combine Collections, Sources, and other Queries through one visual selection and alignment model.
 - **Provenance:** Shows where each value or representation came from and which system owns changes to it.
 - **Access-safe results:** Evaluate every result and aggregate with the current viewer's authority rather than the Query owner's.
 
@@ -355,7 +355,7 @@ Open a folder or repository through the same Source model while keeping device a
 
 ## Chapter 4: Shape your own working system
 
-Chapter 4 turns flexible Pages and Databases into working systems a team can trust. People with the right expertise can shape data, Views, Templates, Rules, Skills, and agent workflows for everyone else, while validation, governance, and safe evolution keep that flexibility from becoming organizational confetti. The following Features provide those building blocks.
+Chapter 4 turns flexible Pages and Collections into working systems a team can trust. People with the right expertise can shape data, Views, Templates, Rules, Skills, and agent workflows for everyone else, while validation, governance, and safe evolution keep that flexibility from becoming organizational confetti. The following Features provide those building blocks.
 
 ### Feature 13: Data that keeps itself right
 
@@ -363,7 +363,7 @@ Use typed defaults, formulas, validation, and rendering so ordinary data stays c
 
 **Status:** Partially implemented
 
-**Example workflow:** An operations lead creates a request Database whose defaults fill the creator and timestamp, formulas calculate cost, validation rejects an impossible quantity, and a guarded budget change explains its consequences before committing.
+**Example workflow:** An operations lead creates a request Collection whose defaults fill the creator and timestamp, formulas calculate cost, validation rejects an impossible quantity, and a guarded budget change explains its consequences before committing.
 
 **What works today:** Content has a broad typed Property system, formulas and computed fields, editable values, form-required fields, audit fields, and several useful validation donors.
 
@@ -397,14 +397,14 @@ Govern reusable Templates, Properties, Expressions, and Custom Blocks without ta
 
 **What this Feature includes:**
 
-- **Templates:** Package Pages, Databases, Views, Properties, Rules, and content into reusable starting systems.
+- **Templates:** Package Pages, Collections, Views, Properties, Rules, and content into reusable starting systems.
 - **Custom Properties:** Offer approved reusable field definitions without making every ordinary local column secretly global.
 - **Expressions:** Store reusable typed logic with personal, workspace, or organization scope.
 - **Catalog discovery:** Uses consistent names, descriptions, aliases, ownership, compatibility, and previews.
 - **Adoption:** Lets someone inspect a governed building block before binding it into their local system.
 - **Detachment:** Preserves the current data and behavior as a faithful local copy when someone leaves the shared lineage.
 
-**Required capability records:** [Multi-object Templates](capabilities/content.template.graph.md), [Template governance](capabilities/content.template.governance.md), [Database item Templates](capabilities/content.template.item-body.md)
+**Required capability records:** [Multi-object Templates](capabilities/content.template.graph.md), [Template governance](capabilities/content.template.governance.md), [Collection item Templates](capabilities/content.template.item-body.md)
 
 **Enhancing capability records:** [Custom Properties](capabilities/content.property.catalog.md), [Organization teams](capabilities/content.organization.teams.md)
 
@@ -423,7 +423,7 @@ Govern reusable Skills so the agent offers the right instructions for the curren
 **What this Feature includes:**
 
 - **Skills catalog:** Stores governed instructions with personal, workspace, organization, or public-core scope.
-- **Compatibility:** Surfaces only Skills that apply to the current selection, Block, Page, Database, Property, or View.
+- **Compatibility:** Surfaces only Skills that apply to the current selection, Block, Page, Collection, Property, or View.
 - **Scope precedence:** Ranks the most relevant allowed instruction without flooding the interface with the entire catalog.
 - **Declared effects:** Explains whether invocation proposes edits, replaces content, adds a Comment, or acts elsewhere.
 - **Shared invocation:** Lets people and agents use the same Skill through the ordinary Agent chat and Action fabric.
@@ -439,7 +439,7 @@ Review upstream changes to adopted systems, keep local work intact, and choose w
 
 **Status:** Planned
 
-**Example workflow:** A new version of the editorial Template adds one Property and changes a Rule; each Database owner sees the impact, accepts the Property, declines the Rule, preserves local changes, and stops seeing the same declined update.
+**Example workflow:** A new version of the editorial Template adds one Property and changes a Rule; each Collection owner sees the impact, accepts the Property, declines the Rule, preserves local changes, and stops seeing the same declined update.
 
 **What works today:** Version history, diff donors, stable identifiers, Templates, and source change-review machinery provide the pieces needed to compare evolving systems.
 
@@ -448,7 +448,7 @@ Review upstream changes to adopted systems, keep local work intact, and choose w
 **What this Feature includes:**
 
 - **Version pinning:** Keeps each adopted Template or Custom Property on the version its owner trusts.
-- **Impact preview:** Shows affected Databases, Views, Queries, formulas, Rules, Templates, and agent workflows before publication.
+- **Impact preview:** Shows affected Collections, Views, Queries, formulas, Rules, Templates, and agent workflows before publication.
 - **Three-way comparison:** Distinguishes the old shared definition, the proposed update, and local changes.
 - **Selective adoption:** Lets each owner accept compatible changes, decline others, or apply a safe batch.
 - **Quiet decline memory:** Avoids repeatedly demanding review until the upstream change materially differs.
@@ -464,7 +464,7 @@ React to committed Events with visible, governed Actions, retries, notifications
 
 **Status:** Partially implemented
 
-**Example workflow:** When a qualified lead enters a Database, a Rule assigns the owner, asks an agent for a bounded summary, sends the right notification, and leaves one receipt showing every action and retry.
+**Example workflow:** When a qualified lead enters a Collection, a Rule assigns the owner, asks an agent for a bounded summary, sends the right notification, and leaves one receipt showing every action and retry.
 
 **What works today:** Shared Actions, audit history, a framework scheduler, notifications, Automations, provider effects, and active Event and Rule work already cover much of the execution substrate.
 
@@ -492,7 +492,7 @@ Use an editable Task and Project system built from ordinary Content rather than 
 
 **Example workflow:** A product team installs the blessed project Template, captures tasks from the keyboard, assigns owners, links subtasks and dependencies, and uses My Tasks while every task remains an ordinary editable Page.
 
-**What works today:** Pages, Databases, status and person Properties, relations, Board and Calendar Views, Templates, Comments, and agent Actions already let teams assemble useful project systems.
+**What works today:** Pages, Collections, status and person Properties, relations, Board and Calendar Views, Templates, Comments, and agent Actions already let teams assemble useful project systems.
 
 **What remains:** The blessed Template needs fast capture, polished defaults, task and subtask Views, My Tasks, activity, dependencies, permissions, and end-to-end Builder dogfooding without introducing a separate task engine.
 
@@ -504,7 +504,7 @@ Use an editable Task and Project system built from ordinary Content rather than 
 - **Subtasks and dependencies:** Store hierarchy and blocking relationships through typed Relations with cycle protection.
 - **My Tasks:** Queries assigned work across authorized memberships without inventing a private task datastore.
 - **Project status:** Combines explicit owner judgment with useful rollups rather than pretending a formula can manage the project.
-- **Ordinary Pages:** Lets every Task retain rich content, Properties, Discussion, Versions, and the ability to join other Databases.
+- **Ordinary Pages:** Lets every Task retain rich content, Properties, Discussion, Versions, and the ability to join other Collections.
 
 **Required capability records:** [Blessed Task and Project Template](capabilities/content.system.task-project.md), [My Tasks](capabilities/content.system.my-tasks.md), [Task dependencies](capabilities/content.system.dependencies.md), [Project status](capabilities/content.system.project-status.md)
 
@@ -562,22 +562,22 @@ Create a one-off artifact, then promote it into a governed reusable Custom Block
 
 ### Feature 21: Collect structured input
 
-Build Forms over the same schema, validation, and submission Actions as the Database they populate.
+Build Forms over the same schema, validation, and submission Actions as the Collection they populate.
 
 **Status:** In validation
 
-**Example workflow:** A research team publishes an intake Form that validates required fields, lets an external participant submit without reading the Database, creates exactly one record, and triggers the Database's enrichment Rule.
+**Example workflow:** A research team publishes an intake Form that validates required fields, lets an external participant submit without reading the Collection, creates exactly one record, and triggers the Collection's enrichment Rule.
 
-**What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Database record.
+**What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record.
 
 **What remains:** Content and Agent-Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff.
 
 **What this Feature includes:**
 
-- **Form View:** Saves field selection, order, presentation, and submission behavior over one Database.
+- **Form View:** Saves field selection, order, presentation, and submission behavior over one Collection.
 - **Shared schema:** Reuses the same Property types and validation as Agent-Native Forms and ordinary record editing.
 - **Conditional fields:** Shows or requires inputs through the typed expression language rather than custom form-only logic.
-- **Submission grants:** Allow a person to submit without silently granting broad access to the underlying Database.
+- **Submission grants:** Allow a person to submit without silently granting broad access to the underlying Collection.
 - **Idempotent submission:** Prevents duplicate records when a request retries or returns ambiguously.
 - **Receipts:** Records the submitted values, actor, resulting Page, and downstream Actions the submitter may inspect.
 
@@ -593,7 +593,7 @@ Use Charts, Pivots, grouping, measures, and drill-down without creating a separa
 
 **Example workflow:** A marketing analyst groups campaigns by channel, compares spend and conversions in a Chart and Pivot, then drills into one surprising aggregate to inspect the canonical campaigns behind it.
 
-**What works today:** Database calculations, grouping, rollup foundations, and chart tooling elsewhere in the Agent-Native framework provide useful implementation donors.
+**What works today:** Collection calculations, grouping, rollup foundations, and chart tooling elsewhere in the Agent-Native framework provide useful implementation donors.
 
 **What remains:** Content needs typed aggregations, multi-dimensional grouping, Pivot, a shared Chart specification and renderer library, saved Chart Views, embeddable Chart Blocks, and drill-down to canonical records.
 
@@ -609,7 +609,7 @@ Use Charts, Pivots, grouping, measures, and drill-down without creating a separa
 
 **Required capability records:** [Grouping and aggregation](capabilities/content.view.grouping-aggregation.md), [Pivot View](capabilities/content.view.pivot.md), [Chart View](capabilities/content.view.chart.md), [Access-safe computation](capabilities/content.access.safe-aggregate.md)
 
-**Enhancing capability records:** [Typed renderers](capabilities/content.renderer.typed.md), [Database and Query Views](capabilities/content.view.query.md)
+**Enhancing capability records:** [Typed renderers](capabilities/content.renderer.typed.md), [Collection and Query Views](capabilities/content.view.query.md)
 
 ### Feature 23: Build living dashboards
 
@@ -619,7 +619,7 @@ Compose responsive Views, Charts, expressions, controls, and prose into durable 
 
 **Example workflow:** A go-to-market lead assembles a responsive Page with pipeline Charts, filtered account Views, explanatory prose, and personal controls so people and agents can inspect the same operating picture and discuss it in context.
 
-**What works today:** Pages can already combine prose, Blocks, references, expressions, and embedded Database Views, while saved Views provide reusable filtered presentations.
+**What works today:** Pages can already combine prose, Blocks, references, expressions, and embedded Collection Views, while saved Views provide reusable filtered presentations.
 
 **What remains:** Responsive Page columns, resizable View and Chart Blocks, dashboard controls, chart conformance, personal interaction state, presentation behavior, and export fidelity still need implementation.
 
@@ -642,23 +642,23 @@ Chapter 5 turns the things people encounter into research they can keep using. M
 
 ### Feature 24: Capture into action
 
-Resolve or create one canonical Page in the chosen Database, preserve provenance, and hand it to that Database's Rules and agents.
+Resolve or create one canonical Page in the chosen Collection, preserve provenance, and hand it to that Collection's Rules and agents.
 
 **Status:** Partially implemented
 
-**Example workflow:** Someone shares a customer interview URL from their phone to the Research Database; Content reuses the canonical Source Page, preserves the transcript and provenance, and lets the Database's Rules extract companies and open questions.
+**Example workflow:** Someone shares a customer interview URL from their phone to the Research Collection; Content reuses the canonical Source Page, preserves the transcript and provenance, and lets the Collection's Rules extract companies and open questions.
 
-**What works today:** Content can already import or create Pages from files, URLs, providers, local Sources, and Agent Actions, with useful provenance and Database destinations in several paths.
+**What works today:** Content can already import or create Pages from files, URLs, providers, local Sources, and Agent Actions, with useful provenance and Collection destinations in several paths.
 
 **What remains:** Every entrance needs one Capture contract with remembered destination, canonical deduplication, idempotency, snapshot handling, Template application, receipts, and clean downstream enrichment.
 
 **What this Feature includes:**
 
 - **Many entrances:** Accepts browser capture, share sheets, Clips, URLs, files, email, identifiers, providers, and Agent Actions through one contract.
-- **Remembered destination:** Defaults to the last Database used for that entrance while keeping the destination easy to change.
+- **Remembered destination:** Defaults to the last Collection used for that entrance while keeping the destination easy to change.
 - **Idempotent resolution:** Finds an existing canonical Page or creates exactly one, with a deliberate-copy escape hatch.
 - **Provenance:** Preserves the original URL, identifier, provider identity, capture time, snapshot, and available representations.
-- **Database handoff:** Applies the destination's Template, defaults, memberships, validation, and permissions.
+- **Collection handoff:** Applies the destination's Template, defaults, memberships, validation, and permissions.
 - **Downstream enrichment:** Lets target-owned Rules and agents summarize, classify, extract, or route the record without making Capture wait for them.
 - **Receipts and repair:** Reports what Capture created or reused and allows failed later enrichment to retry independently.
 
@@ -814,7 +814,7 @@ Import or migrate a foreign corpus with resumable progress, provenance, repair, 
 
 **What this Feature includes:**
 
-- **Canonical import model:** Maps Pages, Databases, Properties, Blocks, relationships, files, and metadata into stable Content objects.
+- **Canonical import model:** Maps Pages, Collections, Properties, Blocks, relationships, files, and metadata into stable Content objects.
 - **Provider-specific adapters:** Interpret Notion, local vaults, Builder, Drive, and later formats without making any provider's dialect the core model.
 - **Checkpoint and resume:** Continues large migrations after interruption without duplicating already accepted records.
 - **Identity and deduplication:** Preserves stable source IDs and makes repeated imports repair or update the intended objects.

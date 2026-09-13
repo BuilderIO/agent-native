@@ -19,7 +19,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
     .string()
     .min(1)
     .describe(
-      "Exact database membership row ID from the selected item's id in a fresh get-content-database read; never use the row page document ID here",
+      "Exact collection membership row ID from the selected item's id in a fresh get-content-database read; never use the row page document ID here",
     ),
   documentId: z
     .string()
@@ -44,7 +44,7 @@ const agentSchema = schema
 
 export default defineAction({
   description:
-    "Sparsely update one exact Content database row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt.",
+    "Sparsely update one exact Content collection row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
