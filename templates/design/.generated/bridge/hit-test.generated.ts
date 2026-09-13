@@ -241,6 +241,10 @@ export const hitTestBridgeScript: string = `"use strict";
       if (!el) return "";
       return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.id || "";
     }
+    function layerNameForElement(el) {
+      if (!el || !el.getAttribute) return "";
+      return el.getAttribute("data-agent-native-layer-name") || el.getAttribute("data-layer-name") || "";
+    }
     function isTemplateCloneElement(el) {
       var node = el;
       while (node && node !== document.documentElement) {
@@ -599,7 +603,7 @@ export const hitTestBridgeScript: string = `"use strict";
           // Not minted here: a whole-document sweep must stay read-only, and the
           // host resolves an id-less node through this structural selector.
           selector: nodeId ? void 0 : buildSourceEquivalentSelector(node) || void 0,
-          layerName: node.getAttribute("data-agent-native-layer-name") || void 0,
+          layerName: layerNameForElement(node) || void 0,
           boundingRect: {
             x: rect.left - padX,
             y: rect.top - padY,
@@ -631,9 +635,7 @@ export const hitTestBridgeScript: string = `"use strict";
               correlationId: reviewPointCorrelationId,
               nodeId: reviewPointNodeId || void 0,
               targetSelector: reviewPointSelector || void 0,
-              layerName: reviewPointElement?.getAttribute(
-                "data-agent-native-layer-name"
-              ) || void 0,
+              layerName: layerNameForElement(reviewPointElement) || void 0,
               tagName: reviewPointElement?.tagName?.toLowerCase() || void 0
             },
             "*"

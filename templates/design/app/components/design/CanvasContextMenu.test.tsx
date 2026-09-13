@@ -36,21 +36,31 @@ vi.mock("@/components/ui/context-menu", () => {
   };
   const Item = ({
     children,
+    className,
     disabled,
     onSelect,
   }: {
     children?: React.ReactNode;
+    className?: string;
     disabled?: boolean;
     onSelect?: (event: Event) => void;
   }) => (
     <button
       type="button"
+      className={className}
       disabled={disabled}
       onClick={(event) => onSelect?.(event.nativeEvent)}
     >
       {children}
     </button>
   );
+  const SubTrigger = ({
+    children,
+    className,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => <button className={className}>{children}</button>;
   return {
     ContextMenu: Container,
     ContextMenuContent: Content,
@@ -60,7 +70,7 @@ vi.mock("@/components/ui/context-menu", () => {
     ContextMenuShortcut: Container,
     ContextMenuSub: Container,
     ContextMenuSubContent: Container,
-    ContextMenuSubTrigger: Container,
+    ContextMenuSubTrigger: SubTrigger,
     ContextMenuTrigger: Container,
   };
 });
@@ -265,6 +275,57 @@ describe("CanvasContextMenu edit with AI", () => {
     );
     await view.cleanup();
   });
+
+  it("reprompts the exact candidate when the hit stack has one layer", async () => {
+    const onReprompt = vi.fn();
+    const onRepromptLayer = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onReprompt,
+      onRepromptLayer,
+    });
+
+    await act(async () => view.findButton("Edit with AI")?.click());
+    expect(onRepromptLayer).toHaveBeenCalledWith(
+      candidate,
+      expect.objectContaining({ action: "reprompt" }),
+    );
+    expect(onReprompt).not.toHaveBeenCalled();
+    await view.cleanup();
+  });
+
+  it("uses the theme-aware layer hover token for items and submenu triggers", async () => {
+    const directView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const directItem = directView.findButton("Edit with AI");
+    expect(directItem?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(directItem?.className).not.toContain("focus:bg-accent");
+    await directView.cleanup();
+
+    const stackedView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate, { ...candidate, key: "parent" }],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const submenuTrigger = stackedView.findButton("Edit with AI");
+    expect(submenuTrigger?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).toContain(
+      "data-[state=open]:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).not.toContain("focus:bg-accent");
+    await stackedView.cleanup();
+  });
 });
 
 describe("CanvasContextMenu rotation", () => {
@@ -416,53 +477,5 @@ describe("CanvasContextMenu shortcut hints", () => {
     expect(view.container.textContent).not.toContain("⇧");
 
     await view.cleanup();
-  });
-});
-
-describe("CanvasContextMenu focus/hover token", () => {
-  it("uses the solid accent color, not the translucent selection tint, for item focus/hover background", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const source = fs.readFileSync(
-      path.join(import.meta.dirname, "CanvasContextMenu.tsx"),
-      "utf-8",
-    );
-    const itemClassMatch = source.match(
-      /const MENU_ITEM_CLASS =\s*\n\s*"([^"]+)"/,
-    );
-    const subTriggerClassMatch = source.match(
-      /const MENU_SUB_TRIGGER_CLASS =\s*\n\s*"([^"]+)"/,
-    );
-    expect(itemClassMatch).not.toBeNull();
-    expect(subTriggerClassMatch).not.toBeNull();
-    const itemClass = itemClassMatch![1];
-    const subTriggerClass = subTriggerClassMatch![1];
-
-    // --design-editor-selection-color is a translucent tint meant for canvas
-    // selection overlays over arbitrary content. Composited over the menu's
-    // opaque white/dark panel it is nearly invisible in light mode, making
-    // the `focus:text-[var(--design-editor-accent-contrast-color)]` item
-    // label unreadable. Hover/focus rows need the solid
-    // --design-editor-accent-hover-color instead (plain accent-color's
-    // ~2.93:1 contrast against the contrast-color text misses WCAG's 3:1
-    // floor for large/UI text).
-    expect(itemClass).not.toContain(
-      "focus:bg-[var(--design-editor-selection-color)]",
-    );
-    expect(itemClass).toContain(
-      "focus:bg-[var(--design-editor-accent-hover-color)]",
-    );
-    expect(subTriggerClass).not.toContain(
-      "focus:bg-[var(--design-editor-selection-color)]",
-    );
-    expect(subTriggerClass).not.toContain(
-      "data-[state=open]:bg-[var(--design-editor-selection-color)]",
-    );
-    expect(subTriggerClass).toContain(
-      "focus:bg-[var(--design-editor-accent-hover-color)]",
-    );
-    expect(subTriggerClass).toContain(
-      "data-[state=open]:bg-[var(--design-editor-accent-hover-color)]",
-    );
   });
 });

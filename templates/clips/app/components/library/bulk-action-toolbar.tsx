@@ -82,7 +82,7 @@ export function BulkActionToolbar({
         onClick={onArchive}
         disabled={isPending}
       >
-        <IconArchive className="h-3.5 w-3.5" /> {t("navigation.archive")}
+        <IconArchive className="h-3.5 w-3.5" /> {t("libraryGrid.archiveAction")}
       </Button>
       {canMove && (
         <DropdownMenu>
@@ -140,7 +140,8 @@ export function BulkActionToolbar({
         onClick={onTrash}
         disabled={isPending}
       >
-        <IconTrash className="h-3.5 w-3.5" /> {t("navigation.trash")}
+        <IconTrash className="h-3.5 w-3.5" />{" "}
+        {t("libraryGrid.moveToTrashAction")}
       </Button>
       <div className="mx-1 h-5 w-px bg-background/20 dark:bg-foreground/20" />
       <Button

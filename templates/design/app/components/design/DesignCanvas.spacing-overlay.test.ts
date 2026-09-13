@@ -96,6 +96,7 @@ describe("DesignCanvas spacing overlay bridge", () => {
     expect(source).toMatch(
       /selectTarget\(\s*primaryClickTarget \|\| dragTarget\s*,\s*ev\s*,\s*true\s*\)/,
     );
+    expect(source).not.toContain("selectTextChild");
     expect(source).toMatch(/selectTarget\(\s*dragTarget\s*,\s*ev\s*\)/);
   });
 });

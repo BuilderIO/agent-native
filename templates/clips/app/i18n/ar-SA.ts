@@ -964,6 +964,8 @@ const messages = {
     renameFailed: "فشلت إعادة تسمية المقطع",
     renameClip: "إعادة تسمية المقطع",
     clipTitle: "عنوان المقطع",
+    archiveAction: "أرشفة",
+    moveToTrashAction: "نقل إلى سلة المهملات",
     movedToTrash: "تم النقل إلى المهملات",
     restoredFromArchive: "تمت الاستعادة من الأرشيف",
     archived: "تمت الأرشفة",

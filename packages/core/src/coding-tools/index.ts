@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { AgentFileMutationProof } from "../agent/types.js";
 
 export interface CodingCommandResult {
   code: number | null;
@@ -130,6 +132,16 @@ export function createCodingToolRegistry(
   const maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
   const maxFileReadChars =
     options.maxFileReadChars ?? DEFAULT_MAX_FILE_READ_CHARS;
+  const fileMutationProofs = new WeakMap<object, AgentFileMutationProof>();
+  const recordFileMutation = (
+    args: object,
+    filePath: string,
+    content: string,
+  ) =>
+    fileMutationProofs.set(args, {
+      path: (path.relative(cwd, filePath) || filePath).replaceAll("\\", "/"),
+      contentSha256: createHash("sha256").update(content).digest("hex"),
+    });
 
   return {
     bash: {
@@ -296,6 +308,10 @@ export function createCodingToolRegistry(
       },
     },
     edit: {
+      fileMutationProof: (args) =>
+        typeof args === "object" && args !== null
+          ? fileMutationProofs.get(args)
+          : undefined,
       tool: {
         description:
           "Edit an existing UTF-8 text file by replacing exact text. Prefer this over write for changes to existing files. Read the file first so oldText matches byte-for-byte, including whitespace and indentation. oldText must occur EXACTLY ONCE in the file: include enough surrounding context to make it unique. The edit fails (and the file is left unchanged) if oldText is not found or matches more than once, unless replaceAll is true, which replaces every occurrence. To apply several edits to one file in a single call, pass edits as a JSON array of {oldText, newText, replaceAll} objects; they apply in order, and any failure aborts the whole call.",
@@ -381,6 +397,7 @@ export function createCodingToolRegistry(
           }
 
           fs.writeFileSync(filePath, content, "utf8");
+          recordFileMutation(args, filePath, content);
 
           // Emit structured diff metadata so the UI can render a real diff.
           const truncated =
@@ -399,6 +416,10 @@ export function createCodingToolRegistry(
       },
     },
     write: {
+      fileMutationProof: (args) =>
+        typeof args === "object" && args !== null
+          ? fileMutationProofs.get(args)
+          : undefined,
       tool: {
         description:
           "Create a new UTF-8 text file, or fully overwrite an existing one with the given content. Missing parent directories are created. For changes to an existing file, prefer edit; only use write when you intend to replace the entire file. Default to ASCII content unless the file already uses other characters or there is a clear reason not to.",
@@ -440,6 +461,7 @@ export function createCodingToolRegistry(
           fs.mkdirSync(path.dirname(filePath), { recursive: true });
           const existed = fs.existsSync(filePath);
           fs.writeFileSync(filePath, content, "utf8");
+          recordFileMutation(args, filePath, content);
           const bytes = Buffer.byteLength(content, "utf8");
           const lines = content.split("\n").length;
 

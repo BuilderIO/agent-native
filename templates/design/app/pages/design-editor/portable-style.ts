@@ -106,7 +106,23 @@ export function applyPortableStyleSnapshotToHtml(
       appliedAny = true;
     });
     if (appliedAny) {
+      const layerName =
+        root.getAttribute("data-agent-native-layer-name") ||
+        root.getAttribute("data-layer-name") ||
+        "";
+      const nodeId = root.getAttribute("data-agent-native-node-id") || "";
+      const legacyGeneratedGroup =
+        /^an-[a-z0-9]+$/i.test(nodeId) &&
+        /^group(?: \d+)?$/i.test(layerName.trim()) &&
+        root.getAttribute("data-agent-native-preserve-styles") === "true" &&
+        root.getAttribute("data-agent-native-clone-root") !== "true";
       root.setAttribute("data-agent-native-preserve-styles", "true");
+      if (
+        root.getAttribute("data-agent-native-group-wrapper") !== "true" &&
+        !legacyGeneratedGroup
+      ) {
+        root.setAttribute("data-agent-native-clone-root", "true");
+      }
     }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {

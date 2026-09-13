@@ -13,6 +13,19 @@ function appLayoutSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'aria-current={tab.isActive ? "page" : undefined}',
+    );
+    expect(source).toContain(
+      "rounded-md px-3 py-1.5 text-[13px] transition-colors",
+    );
+    expect(source).toContain('"bg-accent text-foreground font-semibold"');
+    expect(source).toContain("hover:bg-accent/50 hover:text-foreground/80");
+  });
+
   it("reads the whole-mailbox unread count off the synced label list, not loaded rows", () => {
     const source = appLayoutSource();
 

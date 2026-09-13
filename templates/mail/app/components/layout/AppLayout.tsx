@@ -1260,7 +1260,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               </nav>
             ) : (
               <nav
-                className="hidden sm:flex flex-nowrap min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                className="hidden sm:flex flex-nowrap min-w-0 items-center gap-1 overflow-x-auto hide-scrollbar"
                 data-mail-tab-list
               >
                 {topBarTabs.map((tab, tabIndex) => {
@@ -1280,16 +1280,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   const link = (
                     <Link
                       to={tab.href}
+                      aria-current={tab.isActive ? "page" : undefined}
                       draggable={canDrag}
                       onDragStart={(e) =>
                         dragItemForTab && handleTabDragStart(e, dragItemForTab)
                       }
                       onDragEnd={handleTabDragEnd}
                       className={cn(
-                        "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px]",
+                        "flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] transition-colors",
                         tab.isActive
-                          ? "text-foreground font-semibold"
-                          : "text-muted-foreground font-medium hover:text-foreground/80",
+                          ? "bg-accent text-foreground font-semibold"
+                          : "text-muted-foreground font-medium hover:bg-accent/50 hover:text-foreground/80",
                       )}
                     >
                       {tab.color && (

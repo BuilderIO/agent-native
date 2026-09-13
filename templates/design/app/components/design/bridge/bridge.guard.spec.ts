@@ -37,6 +37,7 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
+import { isTextElement } from "../edit-panel/element-classification";
 
 declare global {
   interface Window {
@@ -716,6 +717,7 @@ it(
         "move",
         "end",
       ]);
+      expect(panMessages[1]).toMatchObject({ movementX: 32, movementY: 18 });
       expect(
         messages.filter((message) => message.type === "design-hotkey"),
       ).toHaveLength(1);
@@ -2183,6 +2185,219 @@ it(
       );
       expect(stillNotTextEditing).toBe(true);
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps a generated group selected on click and edits its text child on double-click",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #headline { position: absolute; left: 100px; top: 100px; width: 300px; height: 120px; background: #f5f5f5; }
+      #headline > span { position: absolute; left: 20px; display: block; font-size: 24px; }
+      #headline > span:first-child { top: 20px; }
+      #production-ui { top: 60px; }
+    </style>
+  </head>
+  <body>
+    <div id="headline" data-agent-native-node-id="headline" data-agent-native-layer-name="Headline" data-agent-native-group-wrapper="true">
+      <span data-an-primitive="text">Your prompt</span>
+      <span id="production-ui" data-agent-native-node-id="production-ui" data-an-primitive="text">Production UI</span>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-text-editing-enabled", enabled: true },
+          "*",
+        );
+        (window as any).__elementSelectPayloads = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__elementSelectPayloads.push(event.data.payload);
+          }
+        });
+      });
+
+      const prompt = page.locator("#headline > span").first();
+      const box = await prompt.boundingBox();
+      if (!box) throw new Error("Prompt text was not rendered");
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 0,
+      );
+      const firstSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(firstSelection.sourceId).toBe("headline");
+
+      await page.waitForTimeout(500);
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 1,
+      );
+      const repeatedSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      expect(repeatedSelection.sourceId).toBe("headline");
+
+      await page.mouse.dblclick(point.x, point.y);
+      await page.waitForFunction(() =>
+        Boolean(
+          document.querySelector<HTMLElement>(
+            '[data-agent-native-text-editing="true"]',
+          ),
+        ),
+      );
+      const textSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      expect(textSelection.tagName).toBe("span");
+      expect(textSelection.primitiveKind).toBe("text");
+      expect(textSelection.hasOwnText).toBe(true);
+      expect(textSelection.pendingNodeId).toBeTruthy();
+      expect(isTextElement(textSelection)).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge promotes generated groups, but not authored or copied Group layers",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .group { position: absolute; width: 180px; height: 120px; background: #f5f5f5; }
+      .child { position: absolute; left: 20px; top: 20px; width: 60px; height: 60px; background: #6366f1; }
+      #authored-group { left: 100px; top: 100px; }
+      #generated-group { left: 400px; top: 100px; }
+      #legacy-group { left: 700px; top: 100px; }
+      #cloned-group { left: 100px; top: 300px; }
+    </style>
+  </head>
+  <body>
+    <div id="authored-group" class="group" data-agent-native-node-id="authored-group" data-agent-native-layer-name="Group">
+      <div id="authored-child" class="child" data-agent-native-node-id="authored-child"></div>
+    </div>
+    <div id="generated-group" class="group" data-agent-native-node-id="generated-group" data-agent-native-layer-name="Renamed section" data-agent-native-group-wrapper="true">
+      <div id="generated-child" class="child" data-agent-native-node-id="generated-child"></div>
+    </div>
+    <div id="legacy-group" class="group" data-agent-native-node-id="an-legacygroup" data-agent-native-layer-name="Group 2" data-agent-native-preserve-styles="true">
+      <div id="legacy-child" class="child" data-agent-native-node-id="legacy-child"></div>
+    </div>
+    <div id="cloned-group" class="group" data-agent-native-node-id="copy-cloned-group" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true" data-agent-native-clone-root="true" data-agent-native-preserve-styles="true">
+      <div id="cloned-child" class="child" data-agent-native-node-id="cloned-child"></div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page
+        .waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+          timeout: 2_000,
+        })
+        .catch((error) => {
+          throw new Error(
+            `Editor overlay did not initialize: ${pageErrors.join("; ") || error.message}`,
+          );
+        });
+      await page.evaluate(() => {
+        (window as any).__selectedIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectedIds.push(event.data.payload?.sourceId);
+          }
+        });
+      });
+
+      // Cmd/Ctrl+click deep-selects the raw hit and skips the container-first
+      // outermost-child-of-scope step (spec Part 3), so it's the path that
+      // exercises selectionTargetForHit's generated-vs-authored group-wrapper
+      // marker check below. A plain click would always resolve to the
+      // outermost child of the current scope regardless of that marker.
+      await page.keyboard.down("Meta");
+
+      await page.mouse.click(140, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 1,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const authoredSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(authoredSelection).toBe("authored-child");
+
+      await page.mouse.click(440, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 2,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const generatedSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(generatedSelection).toBe("generated-group");
+
+      await page.mouse.click(740, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 3,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const legacySelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(legacySelection).toBe("an-legacygroup");
+
+      await page.mouse.click(140, 340);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 4,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const clonedSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(clonedSelection).toBe("cloned-child");
+
+      await page.keyboard.up("Meta");
     } finally {
       await browser.close();
     }
@@ -4145,6 +4360,91 @@ describe("editor chrome bridge — text editing session", () => {
           () => !!document.querySelector("[data-agent-native-text-editing]"),
         );
         expect(editingAfterEscape).toBe(false);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "clears the native selection when a text edit blurs",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          target.focus();
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          (
+            document.querySelector(
+              "[data-agent-native-text-editing]",
+            ) as HTMLElement
+          ).blur();
+        });
+        await page.waitForTimeout(30);
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(false);
+        expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "clears the native selection when the host deselects the text element",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          window.postMessage({ type: "clear-selection" }, "*");
+        });
+        await page.waitForFunction(
+          () => window.getSelection()?.rangeCount === 0,
+        );
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(true);
+        expect(state.rangeCount).toBe(0);
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();

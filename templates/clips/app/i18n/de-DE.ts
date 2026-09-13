@@ -983,6 +983,8 @@ const messages = {
     renameFailed: "Clip konnte nicht umbenannt werden",
     renameClip: "Clip umbenennen",
     clipTitle: "Clip-Titel",
+    archiveAction: "Archivieren",
+    moveToTrashAction: "In den Papierkorb verschieben",
     movedToTrash: "In den Papierkorb verschoben",
     restoredFromArchive: "Aus dem Archiv wiederhergestellt",
     archived: "Archiviert",

@@ -2350,12 +2350,12 @@ ${marketingStyles}
     inset: 0;
     z-index: 1;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: flex-start;
     width: 100%;
     min-width: 0;
     max-width: none;
-    padding: 1rem;
+    padding: 1rem clamp(1rem, 4vw, 4rem);
     overflow-y: auto;
   }
   .auth-marketing-home.has-product-screenshot .form-panel > .card {
@@ -2380,6 +2380,7 @@ ${marketingStyles}
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
+      align-items: center;
       padding: 1rem;
     }
   }

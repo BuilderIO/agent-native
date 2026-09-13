@@ -10,18 +10,17 @@
  * names for backward compatibility with its existing spec/imports.
  */
 
+import { randomUUID } from "node:crypto";
+
 export type PlaywrightModule = {
   chromium: import("@playwright/test").BrowserType;
 };
 
 /**
- * Dynamic import of a real Chromium-capable Playwright package. Tries the bare
- * `"playwright"` package first (supplied as an optional dependency of
- * `@agent-native/creative-context`), then falls back to `@playwright/test` (a
- * direct devDependency of this template, used by its own e2e suite, which
- * re-exports the same chromium/Browser API). Loaded via a non-literal
- * specifier so bundlers don't try to statically resolve/include it — it's
- * optional and can be entirely absent (e.g. in a hosted deploy).
+ * Dynamic import of the runtime `playwright` dependency. Falls back to
+ * `@playwright/test` for local development setups that only install the test
+ * runner. Loaded via a non-literal specifier so bundlers don't include browser
+ * binaries; the runtime package remains available to server-side actions.
  *
  * When both are absent the FIRST error is what callers need: reporting the
  * fallback's "Cannot find package '@playwright/test'" names a package the user
@@ -57,9 +56,28 @@ export function isMissingBrowserError(err: unknown): boolean {
   );
 }
 
-/** Launches Chromium, falling back to a system Chrome/Chromium binary when
- *  Playwright's bundled browser isn't installed (hosted/serverless deploys). */
-export async function launchChromium(
+async function connectBuilderBrowser(
+  chromium: import("@playwright/test").BrowserType,
+): Promise<import("@playwright/test").Browser> {
+  const server = (await import("@agent-native/core/server")) as unknown as {
+    requestBuilderBrowserConnection?: (input: {
+      sessionId: string;
+    }) => Promise<Record<string, unknown>>;
+  };
+  if (!server.requestBuilderBrowserConnection) {
+    throw new Error(
+      "@agent-native/core/server does not export requestBuilderBrowserConnection.",
+    );
+  }
+  const connection = await server.requestBuilderBrowserConnection({
+    sessionId: `design-render-${randomUUID()}`,
+  });
+  const wsUrl = typeof connection.wsUrl === "string" ? connection.wsUrl : "";
+  if (!wsUrl.trim()) throw new Error("Builder Browser did not return wsUrl.");
+  return chromium.connectOverCDP(wsUrl);
+}
+
+async function launchLocalChromium(
   chromium: import("@playwright/test").BrowserType,
 ): Promise<import("@playwright/test").Browser> {
   const launchOptions = { args: ["--no-sandbox"] };
@@ -77,6 +95,28 @@ export async function launchChromium(
       }
     }
     throw err;
+  }
+}
+
+/** Connects to Builder Browser first, then falls back to local/system Chrome. */
+export async function launchChromium(
+  chromium: import("@playwright/test").BrowserType,
+): Promise<import("@playwright/test").Browser> {
+  let hostedError: unknown;
+  try {
+    return await connectBuilderBrowser(chromium);
+  } catch (error) {
+    hostedError = error;
+  }
+
+  try {
+    return await launchLocalChromium(chromium);
+  } catch (localError) {
+    const describe = (error: unknown) =>
+      error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Builder Browser unavailable: ${describe(hostedError)}; local Chromium unavailable: ${describe(localError)}.`,
+    );
   }
 }
 

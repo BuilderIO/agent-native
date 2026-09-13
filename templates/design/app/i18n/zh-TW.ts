@@ -1281,6 +1281,8 @@ const messages = {
     untitledDesign: "無標題Design",
     createFirstDesign: "建立您的第一個設計",
     pickStartingPoint: "選取一個起點或編寫您自己的提示。",
+    searchNoResultsTitle: "找不到符合此搜尋的設計",
+    searchNoResultsDescription: "請嘗試其他搜尋。",
     starterSaas: "SaaS 到達頁面",
     starterDashboard: "儀表板",
     starterPricing: "定價頁面",

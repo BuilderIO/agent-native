@@ -75,6 +75,8 @@ vi.mock("./panel-primitives", async (importOriginal) => {
       backgroundSize?: string;
       backgroundRepeat?: string;
       backgroundPosition?: string;
+      supportsLayeredFills?: boolean;
+      supportedPaintTypes?: string[];
     }) =>
       createElement("div", {
         "data-testid": "base-fill-color-input",
@@ -83,6 +85,11 @@ vi.mock("./panel-primitives", async (importOriginal) => {
         "data-background-size": props.backgroundSize ?? "",
         "data-background-repeat": props.backgroundRepeat ?? "",
         "data-background-position": props.backgroundPosition ?? "",
+        "data-supports-layered-fills": String(
+          props.supportsLayeredFills ?? false,
+        ),
+        "data-supported-paint-types":
+          props.supportedPaintTypes?.join(",") ?? "",
       }),
   };
 });
@@ -120,7 +127,26 @@ describe("baseFillLayerSourceProps", () => {
     });
   });
 
-  it("collapses every value to empty for a text fill (color can't hold a layered paint)", () => {
+  it("sources text gradient layers and their sibling properties", () => {
+    expect(
+      baseFillLayerSourceProps(
+        {
+          backgroundImage: "linear-gradient(red, blue)",
+          backgroundSize: "100% 100%",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center",
+        },
+        false,
+      ),
+    ).toEqual({
+      backgroundImage: "linear-gradient(red, blue)",
+      backgroundSize: "100% 100%",
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center",
+    });
+  });
+
+  it("keeps SVG shape fills solid-only", () => {
     expect(
       baseFillLayerSourceProps(
         {
@@ -141,6 +167,25 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("keeps the base picker mounted after converting a box fill to a gradient", () => {
+    const el = element({
+      computedStyles: {
+        backgroundColor: "rgba(255, 0, 0, 0)",
+        backgroundImage: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-testid="base-fill-color-input"');
+  });
+
   it("wires backgroundSize/backgroundRepeat/backgroundPosition onto the base row's ColorInput, not just backgroundImage", () => {
     const el = element({
       computedStyles: {
@@ -170,11 +215,15 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-position="center, 0% 0%"');
   });
 
-  it("leaves every layer prop empty for a text fill selection", () => {
+  it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",
       computedStyles: {
         color: "#000000",
+        backgroundImage: "linear-gradient(red, blue)",
+        backgroundSize: "100% 100%",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
       },
     });
 
@@ -186,9 +235,36 @@ describe("FillProperties base row — image layer prop wiring", () => {
       }),
     );
 
-    expect(markup).toContain('data-background-image=""');
-    expect(markup).toContain('data-background-size=""');
-    expect(markup).toContain('data-background-repeat=""');
-    expect(markup).toContain('data-background-position=""');
+    expect(markup).toContain(
+      'data-background-image="linear-gradient(red, blue)"',
+    );
+    expect(markup).toContain('data-background-size="100% 100%"');
+    expect(markup).toContain('data-background-repeat="no-repeat"');
+    expect(markup).toContain('data-background-position="center"');
+    expect(markup).toContain('data-supports-layered-fills="true"');
+    expect(markup).toContain(
+      'data-supported-paint-types="solid,linear,radial,angular,diamond"',
+    );
+    expect(markup).not.toContain('aria-label="editPanel.labels.addFill"');
+  });
+
+  it("keeps the replace action for mixed text fills", () => {
+    const el = element({
+      tagName: "span",
+      computedStyles: {
+        color: "Mixed",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('aria-label="editPanel.labels.addFill"');
+    expect(markup).toContain("Click + to replace mixed content");
   });
 });

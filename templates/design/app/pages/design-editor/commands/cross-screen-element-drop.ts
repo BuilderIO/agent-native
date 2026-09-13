@@ -292,6 +292,7 @@ export function runCrossScreenElementDrop(
                 {
                   x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
                   y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                  space: "visual",
                 },
               ]
             : undefined,
@@ -363,6 +364,7 @@ export function runCrossScreenElementDrop(
               {
                 x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
                 y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                space: "visual",
               },
             ]
           : undefined,

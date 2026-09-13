@@ -59,6 +59,7 @@ export interface LayerMoveToScreenArgs {
   effectiveCodeLayerState: EffectiveCodeLayerState;
   files: DesignFile[];
   getFreshActiveContent: () => string;
+  getScreenContent: (screenId: string) => string;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryEntry: (change: ContentHistoryChange) => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
@@ -83,6 +84,7 @@ export function runLayerMoveToScreen(
     effectiveCodeLayerState,
     files,
     getFreshActiveContent,
+    getScreenContent,
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
     runtimeStructureInsertRevisionRef,
@@ -101,7 +103,9 @@ export function runLayerMoveToScreen(
   const destContent =
     targetFileId === activeFile?.id
       ? freshActiveContent
-      : (destFile?.content ?? "");
+      : destFile
+        ? getScreenContent(targetFileId)
+        : "";
   if (!destContent) return;
 
   if (isStandaloneHttpUrl(destContent)) {
@@ -131,12 +135,11 @@ export function runLayerMoveToScreen(
       });
       return;
     }
-    const sourceFile = files.find((file) => file.id === draggedOwner.fileId);
     const sourceContent = getLayerMoveSourceContent({
       sourceFileId: draggedOwner.fileId,
       activeFileId: activeFile?.id,
       activeContent: freshActiveContent,
-      sourceFileContent: sourceFile?.content,
+      sourceFileContent: getScreenContent(draggedOwner.fileId),
       sourceContentMap: new Map(),
     });
     const nodeId =
@@ -242,7 +245,7 @@ export function runLayerMoveToScreen(
       sourceFileId,
       activeFileId: activeFile?.id,
       activeContent: freshActiveContent,
-      sourceFileContent: srcFile.content,
+      sourceFileContent: getScreenContent(sourceFileId),
       sourceContentMap,
     });
     if (!sourceOriginalContentMap.has(sourceFileId)) {

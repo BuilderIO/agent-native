@@ -2072,7 +2072,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (isDocumentRootElement(el)) return true;
       if (el.parentElement !== document.body) return false;
       var sourceId = (getSourceId(el) || "").toLowerCase();
-      var layerName = (el.getAttribute && el.getAttribute("data-agent-native-layer-name") || "").toLowerCase();
+      var layerName = layerNameForElement(el).toLowerCase();
       return sourceId === "body" || layerName === "body" || layerName === "<body>";
     }
     function closestStableSourceElement(el) {
@@ -2244,15 +2244,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return siblings.length > 0 ? siblings : [el];
     }
-    function selectionTargetForHit(hit) {
+    function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return svgRoot;
+      var target = hit;
       if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
         var textOwner = hit.parentElement;
-        if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+        if (textOwner && !isDocumentRootElement(textOwner)) target = textOwner;
       }
-      return hit;
+      if (!descendIntoGroup) {
+        var group = target;
+        while (group && !isDocumentRootElement(group)) {
+          var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
+          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+          var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
+          var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+          if (generatedGroupMarker || legacyGeneratedGroup) {
+            return group;
+          }
+          group = group.parentElement;
+        }
+      }
+      return target;
     }
     function containerScopeAncestor(el, scope) {
       var node = el;
@@ -2261,8 +2275,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return node;
     }
-    function containerFirstSelectionTarget(hit) {
-      var resolved = selectionTargetForHit(hit);
+    function containerFirstSelectionTarget(hit, descendIntoGroup) {
+      var resolved = selectionTargetForHit(hit, descendIntoGroup);
       if (!resolved || isDocumentRootElement(resolved)) return resolved;
       var scope = selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
@@ -2327,6 +2341,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var raw = el && el.getAttribute && el.getAttribute("data-agent-native-component");
       return raw && raw.trim ? raw.trim() : "";
     }
+    function layerNameForElement(el) {
+      if (!el || !el.getAttribute) return "";
+      var canonical = el.getAttribute("data-agent-native-layer-name");
+      if (canonical && canonical.trim) {
+        var trimmedCanonical = canonical.trim();
+        if (trimmedCanonical) return trimmedCanonical;
+      }
+      var legacy = el.getAttribute("data-layer-name");
+      return legacy && legacy.trim ? legacy.trim() : "";
+    }
     function elementLooksLikeComponent(el) {
       if (!el || !el.getAttribute || !el.tagName) return false;
       if (explicitComponentNameForElement(el)) return true;
@@ -2337,8 +2361,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var explicit = explicitComponentNameForElement(el);
       if (explicit) return explicit;
       if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
-      var layerName = el.getAttribute("data-agent-native-layer-name");
-      return layerName && layerName.trim ? layerName.trim() : "";
+      return layerNameForElement(el);
     }
     function isAutoLayoutDisplay(display) {
       return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -2599,7 +2622,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function getElementInfo(el) {
       var cs = window.getComputedStyle(el);
-      var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
+      var paintTarget = vectorPaintTarget(el) || el;
+      var strokeTarget = vectorStrokeTarget(el) || paintTarget;
+      var paintCs = window.getComputedStyle(paintTarget);
+      var strokeCs = window.getComputedStyle(strokeTarget);
+      var strokeOverlay = strokeTarget.hasAttribute(
+        "data-an-vector-stroke-overlay"
+      );
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
@@ -2747,9 +2776,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           // the \`<svg>\` wrapper itself is never painted.
           fill: paintCs.fill,
           fillOpacity: paintCs.fillOpacity,
-          stroke: paintCs.stroke,
-          strokeWidth: paintCs.strokeWidth,
-          strokeOpacity: paintCs.strokeOpacity,
+          stroke: strokeCs.stroke,
+          strokeWidth: strokeOverlay ? strokeTarget.getAttribute("data-an-vector-logical-width") || strokeCs.strokeWidth : strokeCs.strokeWidth,
+          strokeOpacity: strokeCs.strokeOpacity,
+          strokeDasharray: strokeCs.strokeDasharray,
+          strokeDashoffset: strokeCs.strokeDashoffset,
+          strokeLinecap: strokeCs.strokeLinecap,
+          strokeLinejoin: strokeCs.strokeLinejoin,
+          strokeMiterlimit: strokeCs.strokeMiterlimit,
+          vectorOpacity: paintCs.opacity,
+          vectorTransform: paintCs.transform,
+          vectorTransformOrigin: paintCs.transformOrigin,
+          vectorTransformBox: paintCs.transformBox,
+          "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || "",
           // Text glyph outline (Figma-parity text "Stroke") — CSS has no
           // unprefixed alias, so this is read via the vendor-prefixed
           // longhands directly. See applyStyleEdit/normalizeStyleProperty in
@@ -2773,6 +2812,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         },
         inlineStyles: collectInlineStyles(el),
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
+        vectorStrokeCanAlign: vectorStrokeCanAlign(el),
         portableStyleSnapshot: collectPortableStyleSnapshot(el),
         boundingRect: {
           x: rect.x + (window.scrollX || window.pageXOffset || 0),
@@ -3319,6 +3359,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var hiddenSelectors = [];
     var lastEditorPointWasBlocked = false;
     function clearRuntimeSelection() {
+      window.getSelection?.()?.removeAllRanges();
       selectedEl = null;
       selectionContainerScope = null;
       clearHoverGate();
@@ -5088,7 +5129,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     function frameLabelText(frame) {
-      var name = frame.getAttribute("data-agent-native-layer-name") || frame.getAttribute("aria-label") || "";
+      var name = layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
       return name.trim() || "Frame";
     }
     function selectFrameFromLabel(frame, e) {
@@ -5827,11 +5868,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!hit || hit.nodeType !== 1 || hit === document.body || hit === document.documentElement)
         return null;
       var selectedContainsHit = selectedEl && selectedEl.contains && selectedEl.contains(hit);
-      if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl))
+      var selectedGroupOwnsHit = !!(selectedContainsHit && selectionTargetForHit(hit) === selectedEl && selectionTargetForHit(hit, true) !== selectedEl);
+      if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl) && !selectedGroupOwnsHit)
         return selectedEl;
       var candidate = null;
       var node = hit;
       while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement) {
+        if (selectedGroupOwnsHit && node === selectedEl) break;
         if (hasOnlyInlineEditableChildren(node)) {
           candidate = node;
         }
@@ -6122,7 +6165,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function layerCandidateLabelFor(candidate, candidateInfo) {
-      var explicitLabel = candidate.getAttribute && candidate.getAttribute("data-agent-native-layer-name") || "";
+      var explicitLabel = layerNameForElement(candidate);
       if (explicitLabel) return explicitLabel;
       if (candidateInfo.componentName) return candidateInfo.componentName;
       for (var i = 0; i < LAYER_LABEL_SEMANTIC_ATTRIBUTES.length; i += 1) {
@@ -7084,12 +7127,211 @@ export const editorChromeBridgeScript: string = `"use strict";
     function vectorPaintTarget(el) {
       if (!el || el.tagName.toLowerCase() !== "svg") return null;
       var kind = el.getAttribute("data-an-primitive") || "";
-      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star") {
+      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star" && kind !== "rect" && kind !== "rectangle" && kind !== "ellipse" && kind !== "circle") {
         return null;
       }
       return el.querySelector(
-        ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline"
+        ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline"
       );
+    }
+    function vectorStrokeTarget(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return null;
+      return el.querySelector(":scope > use[data-an-vector-stroke-overlay]") || vectorPaintTarget(el);
+    }
+    function vectorStrokeCanAlign(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return false;
+      var kind = el.getAttribute("data-an-primitive") || "";
+      var shape = vectorPaintTarget(el);
+      if (!shape) return false;
+      var shapeTag = shape.tagName.toLowerCase();
+      if ((kind === "rect" || kind === "rectangle") && shapeTag === "rect") {
+        return true;
+      }
+      if ((kind === "ellipse" || kind === "circle") && (shapeTag === "ellipse" || shapeTag === "circle")) {
+        return true;
+      }
+      if (kind === "polygon" || kind === "star") {
+        return shapeTag === "polygon" || shapeTag === "path" && /z/i.test(shape.getAttribute("d") || "");
+      }
+      if (kind !== "path") return false;
+      return !!(shape && shapeTag === "path" && /z/i.test(shape.getAttribute("d") || ""));
+    }
+    function scaledVectorStrokeWidth(value, scale) {
+      var match = value.trim().match(/^([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))([a-z%]*)$/i);
+      if (!match) return scale === 1 ? value : "";
+      return String(Number(match[1]) * scale) + match[2];
+    }
+    function applyVectorStrokePosition(el, position) {
+      if (!["inside", "center", "outside"].includes(position) || !vectorStrokeCanAlign(el)) {
+        return false;
+      }
+      var shape = vectorPaintTarget(el);
+      if (!shape) return false;
+      var oldOverlay = vectorStrokeTarget(el);
+      var oldIsOverlay = oldOverlay && oldOverlay.hasAttribute("data-an-vector-stroke-overlay");
+      var shapeStyle = window.getComputedStyle(shape);
+      var paintStyle = oldIsOverlay ? window.getComputedStyle(oldOverlay) : shapeStyle;
+      var overlayOpacity = oldIsOverlay ? oldOverlay.style.getPropertyValue("opacity") || oldOverlay.getAttribute("opacity") : "";
+      var logicalWidth = oldIsOverlay ? oldOverlay.getAttribute("data-an-vector-logical-width") || paintStyle.strokeWidth : paintStyle.strokeWidth;
+      var paint = {
+        opacity: overlayOpacity ? paintStyle.opacity : shapeStyle.opacity,
+        stroke: paintStyle.stroke,
+        strokeOpacity: paintStyle.strokeOpacity,
+        strokeDasharray: paintStyle.strokeDasharray,
+        strokeDashoffset: paintStyle.strokeDashoffset,
+        strokeLinecap: paintStyle.strokeLinecap,
+        strokeLinejoin: paintStyle.strokeLinejoin,
+        strokeMiterlimit: paintStyle.strokeMiterlimit
+      };
+      var actualWidth = scaledVectorStrokeWidth(
+        logicalWidth,
+        position === "center" ? 1 : 2
+      );
+      if (!actualWidth) return false;
+      var viewBox = (el.getAttribute("viewBox") || "0 0 300 150").trim().split(/[\\s,]+/).map(Number);
+      if (viewBox.length !== 4 || !viewBox.every(Number.isFinite) || viewBox[2] <= 0 || viewBox[3] <= 0) {
+        return false;
+      }
+      var wrapperStyle = el.style;
+      var savedOverflow = el.getAttribute(
+        "data-an-vector-stroke-original-overflow"
+      );
+      if (position === "outside") {
+        if (savedOverflow === null) {
+          el.setAttribute(
+            "data-an-vector-stroke-original-overflow",
+            wrapperStyle.getPropertyValue("overflow")
+          );
+          el.setAttribute(
+            "data-an-vector-stroke-original-overflow-priority",
+            wrapperStyle.getPropertyPriority("overflow")
+          );
+        }
+        wrapperStyle.setProperty("overflow", "visible", "important");
+      } else if (savedOverflow !== null) {
+        var overflowPriority = el.getAttribute("data-an-vector-stroke-original-overflow-priority") || "";
+        if (savedOverflow) {
+          wrapperStyle.setProperty("overflow", savedOverflow, overflowPriority);
+        } else {
+          wrapperStyle.removeProperty("overflow");
+        }
+        el.removeAttribute("data-an-vector-stroke-original-overflow");
+        el.removeAttribute("data-an-vector-stroke-original-overflow-priority");
+      }
+      var miterlimit = Math.max(parseFloat(paint.strokeMiterlimit) || 4, 1);
+      var pad = Math.max((parseFloat(actualWidth) || 0) * miterlimit / 2, 1);
+      var x = viewBox[0] - pad;
+      var y = viewBox[1] - pad;
+      var width = viewBox[2] + pad * 2;
+      var height = viewBox[3] + pad * 2;
+      var svgNs = "http://www.w3.org/2000/svg";
+      Array.from(
+        el.querySelectorAll(":scope > defs[data-an-vector-stroke-defs]")
+      ).forEach(function(generatedDefs) {
+        generatedDefs.remove();
+      });
+      Array.from(
+        el.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]")
+      ).forEach(function(generatedOverlay) {
+        generatedOverlay.remove();
+      });
+      var id = freshRuntimeNodeId("vector-stroke");
+      while (document.getElementById(id + "-geometry")) {
+        id = freshRuntimeNodeId("vector-stroke");
+      }
+      var geometryId = id + "-geometry";
+      var clipId = id + "-inside";
+      var maskId = id + "-outside";
+      var geometry = shape.cloneNode(false);
+      Array.from(geometry.attributes).forEach(function(attribute) {
+        if (![
+          "d",
+          "points",
+          "x",
+          "y",
+          "width",
+          "height",
+          "rx",
+          "ry",
+          "cx",
+          "cy",
+          "r",
+          "fill-rule",
+          "clip-rule"
+        ].includes(attribute.name.toLowerCase())) {
+          geometry.removeAttribute(attribute.name);
+        }
+      });
+      var geometryStyle = window.getComputedStyle(shape);
+      if (geometryStyle.transform !== "none") {
+        geometry.style.setProperty("transform", geometryStyle.transform);
+      }
+      geometry.style.setProperty(
+        "transform-origin",
+        geometryStyle.transformOrigin
+      );
+      geometry.style.setProperty("transform-box", geometryStyle.transformBox);
+      geometry.setAttribute("id", geometryId);
+      geometry.setAttribute("data-an-vector-stroke-geometry", "");
+      var defs = document.createElementNS(svgNs, "defs");
+      defs.setAttribute("data-an-vector-stroke-defs", "");
+      defs.appendChild(geometry);
+      var clip = document.createElementNS(svgNs, "clipPath");
+      clip.setAttribute("id", clipId);
+      clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+      var clipUse = document.createElementNS(svgNs, "use");
+      clipUse.setAttribute("href", "#" + geometryId);
+      clip.appendChild(clipUse);
+      defs.appendChild(clip);
+      var mask = document.createElementNS(svgNs, "mask");
+      mask.setAttribute("id", maskId);
+      mask.setAttribute("maskUnits", "userSpaceOnUse");
+      mask.setAttribute("maskContentUnits", "userSpaceOnUse");
+      mask.setAttribute("mask-type", "luminance");
+      mask.setAttribute("x", String(x));
+      mask.setAttribute("y", String(y));
+      mask.setAttribute("width", String(width));
+      mask.setAttribute("height", String(height));
+      var maskRect = document.createElementNS(svgNs, "rect");
+      maskRect.setAttribute("x", String(x));
+      maskRect.setAttribute("y", String(y));
+      maskRect.setAttribute("width", String(width));
+      maskRect.setAttribute("height", String(height));
+      maskRect.setAttribute("fill", "white");
+      var maskUse = document.createElementNS(svgNs, "use");
+      maskUse.setAttribute("href", "#" + geometryId);
+      maskUse.setAttribute("fill", "black");
+      mask.appendChild(maskRect);
+      mask.appendChild(maskUse);
+      defs.appendChild(mask);
+      var overlay = document.createElementNS(svgNs, "use");
+      overlay.setAttribute("href", "#" + geometryId);
+      overlay.setAttribute("data-an-vector-stroke-overlay", "");
+      overlay.setAttribute("data-an-vector-logical-width", logicalWidth);
+      overlay.setAttribute("pointer-events", "none");
+      overlay.setAttribute("aria-hidden", "true");
+      var overlayStyle = overlay.style;
+      overlayStyle.setProperty("fill", "none");
+      overlayStyle.setProperty("opacity", paint.opacity);
+      overlayStyle.setProperty("stroke", paint.stroke);
+      overlayStyle.setProperty("stroke-width", actualWidth);
+      overlayStyle.setProperty("stroke-opacity", paint.strokeOpacity);
+      overlayStyle.setProperty("stroke-dasharray", paint.strokeDasharray);
+      overlayStyle.setProperty("stroke-dashoffset", paint.strokeDashoffset);
+      overlayStyle.setProperty("stroke-linecap", paint.strokeLinecap);
+      overlayStyle.setProperty("stroke-linejoin", paint.strokeLinejoin);
+      overlayStyle.setProperty("stroke-miterlimit", paint.strokeMiterlimit);
+      if (position === "inside") {
+        overlayStyle.setProperty("clip-path", "url(#" + clipId + ")");
+      } else if (position === "outside") {
+        overlayStyle.setProperty("mask", "url(#" + maskId + ")");
+      }
+      var nextSibling = shape.nextSibling;
+      el.insertBefore(defs, nextSibling);
+      el.insertBefore(overlay, defs.nextSibling);
+      shape.style.setProperty("stroke", "none");
+      el.setAttribute("data-an-vector-stroke-position", position);
+      return true;
     }
     function isVectorPaintProperty(cssProperty) {
       return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0;
@@ -7113,15 +7355,40 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
+      if (cssProperty === "--an-vector-stroke-position") {
+        return applyVectorStrokePosition(el, String(value));
+      }
       var target = el;
+      var strokeOverlay = null;
+      var useOverlay = false;
       if (isVectorPaintProperty(cssProperty)) {
         var shape = vectorPaintTarget(el);
         if (shape) {
-          target = shape;
+          strokeOverlay = vectorStrokeTarget(el);
+          useOverlay = cssProperty.indexOf("stroke") === 0 && !!strokeOverlay && strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
+          target = useOverlay ? strokeOverlay : shape;
           clearVectorWrapperPaint(el);
+          if (useOverlay && cssProperty === "stroke-width") {
+            var logicalWidth = String(value);
+            var position = el.getAttribute("data-an-vector-stroke-position") || "center";
+            var actualWidth = scaledVectorStrokeWidth(
+              logicalWidth,
+              position === "center" ? 1 : 2
+            );
+            if (!actualWidth) return false;
+            strokeOverlay.setAttribute(
+              "data-an-vector-logical-width",
+              logicalWidth
+            );
+            value = actualWidth;
+          }
         }
       }
       target.style.setProperty(cssProperty, String(value));
+      var strokePosition = el.getAttribute("data-an-vector-stroke-position");
+      if (useOverlay && (cssProperty === "stroke-width" || cssProperty === "stroke-miterlimit" && strokePosition === "outside")) {
+        return applyVectorStrokePosition(el, strokePosition || "center");
+      }
       return true;
     }
     function exactCoverSpanForRange(range) {
@@ -10712,8 +10979,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (idx === -1) return null;
       return candidateKeys[(idx + 1) % candidateKeys.length];
     }
-    function isContainerBackgroundHit(el) {
+    function isContainerBackgroundHit(el, rawHit = null) {
       if (!el || el === selectedEl) return false;
+      if (rawHit && rawHit !== el) return false;
       if (isDocumentRootElement(el)) return false;
       if (outermostSvgAncestor(el) === el) return false;
       return Boolean(el.firstElementChild);
@@ -10727,7 +10995,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget)) {
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget, hit)) {
         beginMarqueeSelection(e);
         return;
       }
@@ -11218,7 +11486,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (previousSelectedElForDescend && document.documentElement.contains(previousSelectedElForDescend) && previousSelectedElForDescend.contains(descendHit)) {
               selectionContainerScope = previousSelectedElForDescend;
             }
-            var descendTarget = containerFirstSelectionTarget(descendHit);
+            var descendTarget = containerFirstSelectionTarget(descendHit, true);
             if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
               selectedEl = descendTarget;
               positionOverlay(selectionOverlay, selectedEl);
@@ -11315,6 +11583,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.borderColor = originalBorderColor;
         setTextEditingPointerPassthrough(false);
         setSelectionOverlayResizeChromeVisible(true);
+        var nativeSelection = window.getSelection ? window.getSelection() : null;
+        if (nativeSelection) nativeSelection.removeAllRanges();
         if (activeTextEditEl === target) activeTextEditEl = null;
         if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
         postTextEditingState(target, false);
@@ -12513,6 +12783,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "class",
           "data-agent-native-component",
           "data-agent-native-layer-name",
+          "data-layer-name",
           "data-an-primitive",
           "data-component-name",
           "data-source-column",
@@ -12545,6 +12816,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         attributes: true,
         attributeFilter: [
           "data-agent-native-layer-name",
+          "data-layer-name",
           "data-an-primitive",
           "class",
           "style"

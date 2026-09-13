@@ -62,6 +62,7 @@ function buildArgs() {
     effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
     files: [activeFile],
     getFreshActiveContent: () => CONTENT,
+    getScreenContent: () => CONTENT,
     handleLayerMoveToScreen: () => {},
     handleScreenLayerMove: () => {},
     recordContentHistoryEntry: () => {},
