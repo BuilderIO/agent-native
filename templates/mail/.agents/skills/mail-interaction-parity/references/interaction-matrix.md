@@ -67,11 +67,15 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   `aria-activedescendant` is absent while closed or stale and otherwise always
   resolves to a rendered option in the open list. Drive this in a browser and
   assert the selection-reset rule at the smallest unit boundary available.
-- SEARCH-012 — Cache a synthetic matching message, go offline, and search once
-  for the cached match and once for a non-match; reconnect and repeat. Confirm
-  cached results remain findable, while an offline miss or incomplete remote
-  search is not presented as a complete empty result. Use browser network
-  interception for Mail and a manual Superhuman comparison while offline.
+- SEARCH-012 — Compare offline cache eligibility with synthetic messages that
+  were received, opened, or searched within the last 30 days, plus older items.
+  Include an attachment and more than 1,250 messages in a Split; record which
+  messages remain available without assuming the eviction order, and verify
+  the per-Split cache limit. Search for a cached match and an offline miss, then
+  reconnect and repeat. Confirm an incomplete offline search is not presented
+  as a complete empty result; verify the “Connecting…” notice and sync count.
+  Use network interception for Mail and the same fixture in Superhuman; do not
+  send provider email in this case.
 
 ## Inbox rows, selection, and triage
 
@@ -149,16 +153,22 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - THREAD-012 — In a multi-message thread, select a phrase and triple-click a
   line to exercise Quick Quote; press Enter, R, and F separately. Verify the
   selected message, quoted text, recipients, and resulting draft for each key.
-  Repeat with touch/mobile selection and confirm whether the reference is
-  desktop-only. This is a manual side-by-side sequence; do not count ordinary
+  On mobile, confirm Quick Quote is absent (the reference documents it as
+  desktop-only). This is a manual side-by-side sequence; do not count ordinary
   reply/forward coverage as Quick Quote coverage.
 - THREAD-013 — On an eligible synthetic thread, cycle all Instant Reply
-  suggestions with Tab, insert each with Enter, R, and F, edit the resulting
-  draft, and verify recipients and quoted context. Repeat with an existing
-  draft and a thread where the user sent the last message; confirm suggestions
-  are hidden or otherwise match the reference's eligibility rules. Record a
-  feature gap if Mail has no equivalent. Compare manually in both products and
-  cover any deterministic Mail eligibility state with a unit/browser test.
+  suggestions with Tab and verify there are three previews at the latest
+  received message; insert each with Enter (Reply All), R (Reply), and F
+  (Forward), then edit the draft and verify its recipient scope and body. Also
+  test mobile chip switching and opening a suggestion for editing. With one
+  exclusion changed at a time, confirm suggestions are absent for calendar
+  invites, Social/Promotion, SendGrid, financial-institution mail, messages
+  never delivered to Inbox (Done/Auto Archived), Spam/Trash, mail dated before
+  the feature release, threads where the user replied last, any existing draft,
+  and bodies over roughly 20,000 words/80 pages. Activate Superhuman AI for the
+  reference only; use synthetic fixtures, never send the generated drafts, and
+  record a feature gap if Mail has no equivalent. Cover deterministic Mail
+  eligibility with unit/browser tests.
 - THREAD-014 — Use Ask AI/Summarize on a synthetic one-message and multi-message
   thread with a quote, attachment, and new-message arrival. Check the exact
   source thread, loading/cancel/error/retry states, unsupported or missing
@@ -187,11 +197,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,
   bold/italic/strike/code/quote/lists, paste plain/rich HTML, undo/redo, select
-  all, keyboard navigation, and contenteditable focus transitions.
+  all, keyboard navigation, and contenteditable focus transitions. If
+  autocorrect changes a word, use Cmd/Ctrl+Z to undo that correction, then test
+  the offered “Learn word” action without losing adjacent draft text.
 - COMPOSE-007 — Test Superhuman-style word/phrase autocomplete reference states:
-  suggestion off, inline gray suggestion, accept with Tab/Right Arrow, dismiss
-  with Escape, continue typing, mobile unavailable, and settings toggle. Mark
-  Mail as gap until it has an intentional equivalent.
+  enable it in Settings and disable it from Settings and Command; verify a
+  gray inline suggestion in the current draft, accept with Tab or Right Arrow,
+  dismiss with Escape or continued typing, and confirm no suggestion when the
+  feature is off. The reference is desktop-only, English-only, and uses the
+  current draft plus a common-phrase library rather than learning from prior
+  emails or drafts; record Mail as a gap until it has an intentional equivalent.
 - COMPOSE-008 — Use slash menu, snippets, generate/agent handoff, code block
   language picker, link dialog, image paste/drop/upload/failure, and toolbar
   button focus/tooltip states.
@@ -244,14 +259,18 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - SEND-002 — Test Send click, Cmd/Ctrl+Enter, command palette, queued draft send,
   and visible send button. Verify approval/confirmation boundary and no duplicate
   sends from double click, key repeat, retry, or rerender.
-- SEND-003 — Test optimistic send, undo within window, undo at boundary, after
-  toast change, after navigation, and after refresh. Never call a message
-  “sent” before the provider result is authoritative.
+- SEND-003 — Test optimistic send, `Z` Undo within the reference’s 10-second
+  window and at the boundary, after toast change, after navigation, and after
+  refresh. Never call a message “sent” before the provider result is
+  authoritative.
 - SEND-004 — Delay/deny the provider. Verify sending, delayed, failed, edit,
   retry, discard, rollback of optimistic reply, exact error, and preserved draft.
 - SEND-005 — Send Later presets, custom date/time, natural language, timezone,
   past/minimum date, daylight saving transition, picker cancel, slow parse,
   parse failure, schedule success/failure, scheduled list, send-now, and cancel.
+  With a mocked provider, verify an email scheduled before going offline still
+  sends at its scheduled time, while a send/schedule queued offline waits for
+  connectivity and syncs after reconnect; never use a real send for this case.
 - SEND-006 — Test Smart Send reference states: activity recommendation,
   recipient timezone, multiple recipients, disabled/no data, scheduled override,
   and manual send. Mark Mail's intentional gap explicitly.
@@ -425,6 +444,7 @@ re-open them when the product changes:
 - [Keyboard shortcuts](https://help.superhuman.com/hc/en-us/articles/46005701270541-Keyboard-Shortcuts-in-Superhuman-Mail)
 - [Autocomplete](https://help.superhuman.com/hc/en-us/articles/46005685782669-Autocomplete)
 - [Search](https://help.superhuman.com/hc/en-us/articles/46005672652301-Search)
+- [Offline Access](https://help.superhuman.com/hc/en-us/articles/46005499629325-Offline-Access)
 - [Undo](https://help.superhuman.com/hc/en-us/articles/46005666743309-Undo)
 - [Mark Done](https://help.superhuman.com/hc/en-us/articles/47439134613773-Mark-Done)
 - [Attachments](https://help.superhuman.com/hc/en-us/articles/46005568142989-Attachments)

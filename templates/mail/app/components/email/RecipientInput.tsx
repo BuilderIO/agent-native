@@ -602,9 +602,13 @@ export function RecipientInput({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Clamp selected index when filtered list changes (preserves position when possible)
-  useEffect(() => {
-    setSelectedIndex((prev) => Math.min(prev, allSuggestions.length - 1));
+  // Keep a visible suggestion active when results return, preserving its
+  // position when possible and clamping it to the new list.
+  useLayoutEffect(() => {
+    if (allSuggestions.length === 0) return;
+    setSelectedIndex((prev) =>
+      Math.min(Math.max(prev, 0), allSuggestions.length - 1),
+    );
   }, [allSuggestions.length]);
 
   const dropdown =
