@@ -371,7 +371,7 @@ function claimClonedNodeId(
   return previousId;
 }
 
-function prepareClonedHtmlLayer(
+export function prepareClonedHtmlLayer(
   doc: Document,
   layerHtml: string,
   styleSnapshot?: PortableStyleSnapshot,

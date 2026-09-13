@@ -193,6 +193,15 @@ export function runDeleteSelection({
       applyLocalContentUpdate(edit.content, {
         forcePreviewFullDocument: true,
       });
+      // Figma-parity undo selection restore, same as every other branch
+      // below — without this stamp, undoing a repeat-row delete restores
+      // the row's content but leaves selection wherever the delete left it
+      // (cleared), instead of back on the row.
+      stampYjsUndoSelection(
+        undoManagerRef.current,
+        undoStackTopBeforeDelete,
+        selectionBeforeDelete,
+      );
       setSelectedElement(null);
       setSelectedLayerIdsState([]);
       return;

@@ -116,4 +116,46 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     expect(undoManagerRef.current.undoStack).toHaveLength(1);
     expect(readYjsUndoSelection(priorItem)).toBe("earlier-gesture");
   });
+
+  it("also stamps the pre-delete selection for a repeat-row delete", () => {
+    const TODOS = `<body x-data="app()">
+      <ul>
+        <template x-for="t in todos" :key="t.text">
+          <li><span x-text="t.text"></span></li>
+        </template>
+      </ul>
+      <script>
+        function app() {
+          return { todos: [{text:'Walk dog'},{text:'Buy milk'}] };
+        }
+      </script>
+    </body>`;
+    const priorItem = { meta: new Map<unknown, unknown>() };
+    const undoManagerRef = {
+      current: { stopCapturing: vi.fn(), undoStack: [priorItem] },
+    };
+    const applyLocalContentUpdate = vi.fn(() => {
+      undoManagerRef.current.undoStack.push({ meta: new Map() });
+    });
+    const { selectedElement, args } = baseDeleteArgs({
+      undoManagerRef,
+      applyLocalContentUpdate,
+    });
+    const repeatSelectedElement = {
+      ...selectedElement,
+      repeat: { xFor: "t in todos", itemIndex: 0 },
+    } as unknown as ElementInfo;
+
+    runDeleteSelection({
+      ...args,
+      getFreshActiveContent: () => TODOS,
+      selectedElement: repeatSelectedElement,
+    });
+
+    const newItem = undoManagerRef.current.undoStack[1]!;
+    expect(readYjsUndoSelection(newItem)).toEqual({
+      selectedElement: repeatSelectedElement,
+      selectedLayerIds: ["box-a"],
+    });
+  });
 });

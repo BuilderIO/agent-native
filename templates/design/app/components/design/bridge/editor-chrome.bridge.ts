@@ -13009,7 +13009,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // board the moment the pointer crosses the screen's rendered edge,
       // stealing the gesture from the (already-correct) in-iframe free-move
       // path below before it can ever run.
-      var reorderIgnoresAutoLayout = Boolean(e.ctrlKey);
+      var reorderIgnoresAutoLayout = Boolean(e.ctrlKey || e.metaKey);
       var currentTarget = flowMoveTargetForPoint(
         reorderEl,
         e.clientX,

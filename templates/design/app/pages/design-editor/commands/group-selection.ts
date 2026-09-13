@@ -109,9 +109,8 @@ export function runGroupSelection({
   // cause wrapNodes to return "conflict" even for a valid same-file
   // selection.
   const fileIds = new Set(files.map((f) => f.id));
-  const activeNodeIdSet = buildActiveFileNodeIdSet(
-    buildCodeLayerProjection(baseContent),
-  );
+  const baseProjection = buildCodeLayerProjection(baseContent);
+  const activeNodeIdSet = buildActiveFileNodeIdSet(baseProjection);
   const nodeIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
@@ -132,12 +131,21 @@ export function runGroupSelection({
     return;
   }
   // Figma-parity undo/redo selection restore: capture the ORIGINAL (ungrouped)
-  // selection before the write so undo can hand it back — group is a
-  // multi-select gesture with no single canonical element, so
-  // selectedElement stays null the same way an aggregate/mixed inspector
-  // selection would. See history.ts's YjsUndoSelectionSnapshot doc comment.
+  // selection before the write so undo can hand it back. Figma groups a
+  // single object too (see canGroup in DesignEditor.tsx), and undoing THAT
+  // must restore the one element that was selected, not clear selection —
+  // only an actual multi-select gesture has no single canonical element.
+  // See history.ts's YjsUndoSelectionSnapshot doc comment.
   const selectionBeforeGroup = {
-    selectedElement: null,
+    selectedElement:
+      nodeIds.length === 1
+        ? (() => {
+            const soleNode = baseProjection.nodes.find(
+              (node) => node.id === nodeIds[0],
+            );
+            return soleNode ? elementInfoFromCodeLayerNode(soleNode) : null;
+          })()
+        : null,
     selectedLayerIds: nodeIds,
   };
   const undoStackTopBeforeGroup = captureYjsUndoStackTop(

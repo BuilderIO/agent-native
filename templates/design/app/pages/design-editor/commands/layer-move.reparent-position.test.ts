@@ -74,6 +74,7 @@ function buildArgs(content: string): {
     handleScreenLayerMove: () => {},
     recordContentHistoryEntry: () => {},
     recordLocalContentHistoryEntry: () => {},
+    remapMotionTracksForClone: () => {},
     runtimeStructureMoveRevisionRef: { current: 0 },
     sendRuntimeLayerMoveSemanticHandoff: () => false,
     setExpandedLayerIds: () => {},

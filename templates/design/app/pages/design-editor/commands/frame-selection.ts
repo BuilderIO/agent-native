@@ -71,9 +71,8 @@ export function runFrameSelection({
   if (!canEditDesign || !activeFile) return;
   const baseContent = getFreshActiveContent();
   const fileIds = new Set(files.map((f) => f.id));
-  const activeNodeIdSet = buildActiveFileNodeIdSet(
-    buildCodeLayerProjection(baseContent),
-  );
+  const baseProjection = buildCodeLayerProjection(baseContent);
+  const activeNodeIdSet = buildActiveFileNodeIdSet(baseProjection);
   const nodeIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
@@ -133,10 +132,18 @@ export function runFrameSelection({
       ) ?? wrapperNode;
   }
   // Figma-parity undo/redo selection restore: see the identical comment in
-  // group-selection.ts — same multi-select gesture, same YjsUndoSelection-
-  // Snapshot shape.
+  // group-selection.ts. Frame allows a SINGLE selected layer too, so undo
+  // must restore that one element rather than clear selection.
   const selectionBeforeFrame = {
-    selectedElement: null,
+    selectedElement:
+      nodeIds.length === 1
+        ? (() => {
+            const soleNode = baseProjection.nodes.find(
+              (node) => node.id === nodeIds[0],
+            );
+            return soleNode ? elementInfoFromCodeLayerNode(soleNode) : null;
+          })()
+        : null,
     selectedLayerIds: nodeIds,
   };
   const undoStackTopBeforeFrame = captureYjsUndoStackTop(

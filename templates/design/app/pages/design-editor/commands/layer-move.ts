@@ -15,6 +15,7 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { prepareClonedHtmlLayer } from "@/pages/design-editor/clone-and-pen-edit";
 import type { EffectiveCodeLayerState } from "@/pages/design-editor/code-layer-state";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -76,6 +77,10 @@ export interface LayerMoveArgs {
   handleScreenLayerMove: (intent: LayersPanelMoveIntent) => void;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryEntry: (change: ContentHistoryChange) => void;
+  remapMotionTracksForClone: (
+    nodeIdMap: Map<string, string>,
+    targetFileId: string,
+  ) => void;
   runtimeStructureMoveRevisionRef: RefObject<number>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
@@ -101,49 +106,53 @@ export interface LayerMoveArgs {
  * run ahead of runLayerMove's codeLayerOwnerByNodeId-keyed branches, which
  * don't know about the freshly-minted clone until the next render.
  *
+ * Clone generation reuses `prepareClonedHtmlLayer` — the same DOM-based
+ * remapping the canvas alt-drag/duplicate/paste paths use — so authored
+ * `id="…"` attributes are re-keyed (not just `data-agent-native-node-id`)
+ * and the returned `nodeIdMap` lets the caller carry motion tracks over to
+ * the clone, instead of a bespoke regex that only touched one attribute.
+ *
  * Returns null when the drop doesn't fit this single-node, same-document
- * fast path (target missing, or the move step reports anything but
- * "applied") — callers fall back to a plain, non-duplicating move rather
- * than fail the gesture outright.
+ * fast path (target missing, no `document` to clone through, or the move
+ * step reports anything but "applied") — callers must refuse the gesture
+ * rather than fall back to a plain, non-duplicating move of the original.
  */
 export function duplicateNodeForPanelDrop(
   content: string,
   draggedNodeId: string,
   anchorNodeId: string,
   placement: LayersPanelMoveIntent["placement"],
-): { content: string; duplicatedNodeId: string } | null {
+): {
+  content: string;
+  duplicatedNodeId: string;
+  nodeIdMap: Map<string, string>;
+} | null {
+  if (typeof document === "undefined") return null;
   const projection = buildCodeLayerProjection(content);
   const source = projection.nodes.find((node) => node.id === draggedNodeId);
   if (!source?.source) return null;
   const fragment = content.slice(source.source.start, source.source.end);
-  let rootId = "";
-  const clonedFragment = fragment.replace(
-    /data-agent-native-node-id="[^"]*"/g,
-    () => {
-      // The dragged node's own opening tag is always the first match — its
-      // descendants' opening tags only appear later in source order.
-      const id = `copy-${
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-      }`;
-      if (!rootId) rootId = id;
-      return `data-agent-native-node-id="${id}"`;
-    },
+  const prepared = prepareClonedHtmlLayer(
+    document.implementation.createHTMLDocument(""),
+    fragment,
   );
-  if (!rootId) return null;
+  if (!prepared) return null;
   const withClone =
     content.slice(0, source.source.end) +
-    clonedFragment +
+    prepared.element.outerHTML +
     content.slice(source.source.end);
   const movePatch = applyVisualEdit(withClone, {
     kind: "moveNode",
-    target: { nodeId: rootId },
+    target: { nodeId: prepared.rootNodeId },
     anchor: { nodeId: anchorNodeId },
     placement,
   });
   if (movePatch.result.status !== "applied") return null;
-  return { content: movePatch.content, duplicatedNodeId: rootId };
+  return {
+    content: movePatch.content,
+    duplicatedNodeId: prepared.rootNodeId,
+    nodeIdMap: prepared.nodeIdMap,
+  };
 }
 
 type CodeLayerOwner = NonNullable<
@@ -166,6 +175,7 @@ function tryDuplicateOnPanelDrop(
     effectiveCodeLayerState,
     files,
     getFreshActiveContent,
+    remapMotionTracksForClone,
     setSelectedElement,
     setSelectedLayerIdsState,
   }: Pick<
@@ -176,6 +186,7 @@ function tryDuplicateOnPanelDrop(
     | "effectiveCodeLayerState"
     | "files"
     | "getFreshActiveContent"
+    | "remapMotionTracksForClone"
     | "setSelectedElement"
     | "setSelectedLayerIdsState"
   >,
@@ -207,6 +218,7 @@ function tryDuplicateOnPanelDrop(
     recordHistory: true,
     refreshPreview: false,
   });
+  remapMotionTracksForClone(duplicated.nodeIdMap, targetOwner.fileId);
   const finalNode = buildCodeLayerProjection(duplicated.content).nodes.find(
     (node) =>
       node.dataAttributes["data-agent-native-node-id"] ===
@@ -236,6 +248,7 @@ export function runLayerMove(
     handleScreenLayerMove,
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
+    remapMotionTracksForClone,
     runtimeStructureMoveRevisionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setExpandedLayerIds,
@@ -265,20 +278,28 @@ export function runLayerMove(
     }
     return;
   }
-  if (intent.duplicate && intent.draggedIds.length === 1) {
-    const outcome = tryDuplicateOnPanelDrop(intent, targetOwner, {
-      activeFile,
-      applyFileContentUpdate,
-      codeLayerOwnerByNodeId,
-      effectiveCodeLayerState,
-      files,
-      getFreshActiveContent,
-      setSelectedElement,
-      setSelectedLayerIdsState,
-    });
+  if (intent.duplicate) {
+    const outcome =
+      intent.draggedIds.length === 1
+        ? tryDuplicateOnPanelDrop(intent, targetOwner, {
+            activeFile,
+            applyFileContentUpdate,
+            codeLayerOwnerByNodeId,
+            effectiveCodeLayerState,
+            files,
+            getFreshActiveContent,
+            remapMotionTracksForClone,
+            setSelectedElement,
+            setSelectedLayerIdsState,
+          })
+        : "skip";
     if (outcome === "handled") return;
-    // Falls through to the plain (non-duplicating) move below when the fast
-    // path doesn't apply — e.g. cross-file, runtime-only, or locked source.
+    // A duplicate drop that can't be honoured (multi-selection, cross-file,
+    // runtime-only, or a locked source) must refuse rather than fall
+    // through to the plain move below, which would silently move — not
+    // copy — the original.
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
   }
   const runtimeDraggedOwner =
     intent.draggedIds.length === 1

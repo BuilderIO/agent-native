@@ -1,7 +1,24 @@
-import { buildCodeLayerProjection } from "@shared/code-layer";
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+//
+// duplicateNodeForPanelDrop now clones through prepareClonedHtmlLayer (see
+// clone-and-pen-edit.ts), which needs a real `document` to build the clone
+// through — the default node test environment has none.
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
+import { describe, expect, it, vi } from "vitest";
 
-import { duplicateNodeForPanelDrop } from "./layer-move";
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+import { toast } from "sonner";
+
+import type { DesignFile } from "@/pages/design-editor/types";
+
+import {
+  duplicateNodeForPanelDrop,
+  runLayerMove,
+  type LayerMoveArgs,
+} from "./layer-move";
 
 /**
  * unique-paths-1: Alt-drag inside the Layers panel must duplicate the
@@ -50,5 +67,152 @@ describe("duplicateNodeForPanelDrop", () => {
     expect(
       duplicateNodeForPanelDrop(html, "not-a-real-id", betaId, "after"),
     ).toBeNull();
+  });
+
+  it("re-keys an authored id attribute on the clone and reports it in nodeIdMap", () => {
+    const authoredHtml = `<!doctype html><html><body>
+      <div id="card" data-agent-native-node-id="alpha" data-agent-native-layer-name="Card">Alpha</div>
+      <div data-agent-native-node-id="beta" data-agent-native-layer-name="Beta Button">Beta</div>
+    </body></html>`;
+    const alphaId = idOf(authoredHtml, "alpha");
+    const betaId = idOf(authoredHtml, "beta");
+
+    const result = duplicateNodeForPanelDrop(
+      authoredHtml,
+      alphaId,
+      betaId,
+      "after",
+    );
+    expect(result).not.toBeNull();
+    const { content, nodeIdMap } = result!;
+
+    // The authored id must not be duplicated in the DOM.
+    expect(content.match(/id="card"/g)).toHaveLength(1);
+    expect(nodeIdMap.get("alpha")).toBeTruthy();
+    expect(nodeIdMap.get("alpha")).not.toBe("alpha");
+  });
+
+  it("carries a motion track on the clone via the reported nodeIdMap", () => {
+    const alphaId = idOf(html, "alpha");
+    const betaId = idOf(html, "beta");
+
+    const result = duplicateNodeForPanelDrop(html, alphaId, betaId, "after");
+    expect(result).not.toBeNull();
+    const { nodeIdMap, duplicatedNodeId } = result!;
+
+    // Mirrors DesignEditor.tsx's remapMotionTracksForClone: a track keyed
+    // to the original node id gets a cloned entry retargeted to the copy.
+    const motionTracks = [{ targetNodeId: "alpha", property: "opacity" }];
+    const remapped = motionTracks
+      .filter((track) => nodeIdMap.has(track.targetNodeId))
+      .map((track) => ({
+        ...track,
+        targetNodeId: nodeIdMap.get(track.targetNodeId)!,
+      }));
+    expect(remapped).toEqual([
+      { targetNodeId: duplicatedNodeId, property: "opacity" },
+    ]);
+  });
+});
+
+/**
+ * unique-paths-2: an Alt-drag duplicate that cannot be honoured (multi-
+ * selection, cross-file, runtime-only, or a locked source) must refuse
+ * instead of silently falling through to a destructive move of the
+ * original.
+ */
+describe("runLayerMove: duplicate intent that can't be honoured", () => {
+  const CONTENT = `<body>
+    <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha">Alpha</div>
+    <div data-agent-native-node-id="beta" data-agent-native-layer-name="Beta">Beta</div>
+    <div data-agent-native-node-id="target"></div>
+  </body>`;
+
+  function buildArgs() {
+    const projection = buildCodeLayerProjection(CONTENT);
+    const tree = buildCodeLayerTree(projection);
+    const codeLayerOwnerByNodeId = new Map(
+      projection.nodes.map((node) => [
+        node.id,
+        { fileId: "index.html", node, tree, runtimeOnly: false },
+      ]),
+    );
+    const nodeId = (authoredId: string) =>
+      projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] === authoredId,
+      )!.id;
+    const activeFile: DesignFile = {
+      id: "index.html",
+      filename: "index.html",
+      fileType: "html",
+      content: CONTENT,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const applyFileContentUpdate = vi.fn();
+    const args: LayerMoveArgs = {
+      activeFile,
+      applyFileContentUpdate,
+      canEditDesign: true,
+      canMoveLayer: () => true,
+      codeLayerOwnerByNodeId,
+      effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
+      files: [activeFile],
+      getFreshActiveContent: () => CONTENT,
+      getScreenContent: () => CONTENT,
+      handleLayerMoveToScreen: () => {},
+      handleScreenLayerMove: () => {},
+      recordContentHistoryEntry: () => {},
+      recordLocalContentHistoryEntry: () => {},
+      remapMotionTracksForClone: () => {},
+      runtimeStructureMoveRevisionRef: { current: 0 },
+      sendRuntimeLayerMoveSemanticHandoff: () => false,
+      setExpandedLayerIds: () => {},
+      setRuntimeStructureMoveRequest: () => {},
+      setSelectedElement: () => {},
+      setSelectedLayerIdsState: () => {},
+      t: (key: string) => key,
+      viewModeRef: { current: "single" },
+      visualScreenFileIds: new Set(),
+    };
+    return { args, nodeId, applyFileContentUpdate };
+  }
+
+  it("refuses a multi-selection duplicate drop without moving the originals", () => {
+    const { args, nodeId, applyFileContentUpdate } = buildArgs();
+    (toast.error as ReturnType<typeof vi.fn>).mockClear();
+
+    runLayerMove(args, {
+      draggedIds: [nodeId("alpha"), nodeId("beta")],
+      targetId: nodeId("target"),
+      placement: "inside",
+      duplicate: true,
+    });
+
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalled();
+  });
+
+  it("refuses (rather than moves) when the single-node fast path can't apply, e.g. a locked source", () => {
+    const { args, nodeId, applyFileContentUpdate } = buildArgs();
+    (toast.error as ReturnType<typeof vi.fn>).mockClear();
+    const lockedArgs: LayerMoveArgs = {
+      ...args,
+      effectiveCodeLayerState: {
+        lockedIds: new Set([nodeId("alpha")]),
+        hiddenIds: new Set(),
+      },
+    };
+
+    runLayerMove(lockedArgs, {
+      draggedIds: [nodeId("alpha")],
+      targetId: nodeId("target"),
+      placement: "inside",
+      duplicate: true,
+    });
+
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalled();
   });
 });

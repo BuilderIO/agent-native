@@ -9769,7 +9769,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reorderGestureStartRect = reorderEl.getBoundingClientRect();
         var reorderLastTargetKey = null;
         var keepCurrentFlowParent = bridgeSpaceKeyPressed;
-        var reorderIgnoresAutoLayout = Boolean(e.ctrlKey);
+        var reorderIgnoresAutoLayout = Boolean(e.ctrlKey || e.metaKey);
         var currentTarget = flowMoveTargetForPoint(
           reorderEl,
           e.clientX,
