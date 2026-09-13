@@ -380,6 +380,7 @@ const messages: AgentChatTranslation = {
   "composer.connectAbove":
     "Connectez un fournisseur d’IA ci-dessus pour continuer...",
   "composer.connectBuilder": "Connecter Builder.io",
+  "composer.connectKeys": "Connecter des clés",
   "composer.connectingBuilder": "Connexion à Builder.io…",
   "composer.costHigher": "Coût plus élevé",
   "composer.costLower": "Coût inférieur",

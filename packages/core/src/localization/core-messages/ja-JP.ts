@@ -174,6 +174,7 @@ const messages: AgentChatTranslation = {
     "Anthropic、OpenAI、または別のプロバイダーを設定",
   "composer.connectAbove": "続行するには上で AI に接続してください...",
   "composer.connectBuilder": "Builder.io に接続",
+  "composer.connectKeys": "キーを接続",
   "composer.connectingBuilder": "Builder.io に接続中…",
   "composer.costHigher": "高コスト",
   "composer.costLower": "低コスト",

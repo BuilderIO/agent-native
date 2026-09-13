@@ -3124,6 +3124,8 @@ export function findServerlessBrowserRuntimeConsumer(
   const manifest = readPackageManifest(projectCwd);
   for (const packageName of [
     ...SERVERLESS_BROWSER_RUNTIME_PACKAGES,
+    // A Playwright declaration signals usage; only playwright-core is copied.
+    "playwright",
     SERVERLESS_BROWSER_RUNTIME_CONSUMER,
   ]) {
     if (manifestDeclaresDependency(manifest, packageName)) return packageName;

@@ -167,6 +167,7 @@ const messages: AgentChatTranslation = {
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
   "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
   "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",

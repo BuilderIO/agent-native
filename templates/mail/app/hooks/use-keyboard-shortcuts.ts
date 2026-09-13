@@ -2,6 +2,41 @@ import { useEffect, useCallback, useRef } from "react";
 
 type ShortcutHandler = (e: KeyboardEvent) => void;
 
+const INTERACTIVE_TARGET_SELECTOR = [
+  "button",
+  "a",
+  "input",
+  "textarea",
+  "select",
+  "summary",
+  '[contenteditable="true"]',
+  '[role="button"]',
+  '[role="combobox"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="option"]',
+  '[role="tab"]',
+].join(",");
+
+/**
+ * Global shortcuts should not steal a key from a control the user is operating.
+ * Keep this as one boundary so row-level handlers and window-level shortcuts
+ * agree about which surface owns the event.
+ */
+export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  if (!element) return false;
+  return (
+    (element instanceof HTMLElement && element.isContentEditable) ||
+    element.closest(INTERACTIVE_TARGET_SELECTOR) !== null
+  );
+}
+
 interface Shortcut {
   key: string;
   meta?: boolean;
@@ -21,19 +56,11 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!enabled) return;
+      if (e.defaultPrevented) return;
 
       for (const shortcut of shortcutsRef.current) {
         if (shortcut.skipInInput !== false) {
-          const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-          const isEditable = (e.target as HTMLElement)?.isContentEditable;
-          if (
-            tag === "input" ||
-            tag === "textarea" ||
-            isEditable ||
-            (e.target instanceof HTMLElement &&
-              e.target.closest("[contenteditable]") != null)
-          )
-            continue;
+          if (isKeyboardShortcutTarget(e.target)) continue;
         }
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
@@ -75,12 +102,7 @@ export function useSequenceShortcuts(
     if (!enabled) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      const isEditable =
-        (e.target as HTMLElement)?.isContentEditable ||
-        (e.target instanceof HTMLElement &&
-          e.target.closest("[contenteditable]") != null);
-      if (tag === "input" || tag === "textarea" || isEditable) return;
+      if (e.defaultPrevented || isKeyboardShortcutTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       clearTimeout(timerRef.current);

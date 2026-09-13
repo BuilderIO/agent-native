@@ -1605,6 +1605,8 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
+      nameConflict:
+        "A design system with this name already exists. Choose a different name and try again.",
       chooseDesignMd: "Please choose a Markdown (.md or .mdx) file.",
       readDesignMd: "Could not read that Markdown file.",
       designMdTooLarge: "The Markdown file must be 2 MB or smaller.",
@@ -2106,6 +2108,7 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
+        nameConflict: "已存在同名设计系统。请更改名称后重试。",
         chooseDesignMd: "请选择 Markdown（.md 或 .mdx）文件。",
         readDesignMd: "无法读取该 Markdown 文件。",
         designMdTooLarge: "Markdown 文件必须不超过 2 MB。",
@@ -2559,6 +2562,8 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
+        nameConflict:
+          "Ya existe un sistema de diseño con este nombre. Elige otro nombre e inténtalo de nuevo.",
         chooseDesignMd: "Elija un archivo Markdown (.md o .mdx).",
         readDesignMd: "No se pudo leer ese archivo Markdown.",
         designMdTooLarge:
@@ -3028,6 +3033,8 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
+        nameConflict:
+          "Un système de design porte déjà ce nom. Choisissez un autre nom, puis réessayez.",
         chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
         readDesignMd: "Impossible de lire ce fichier Markdown.",
         designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
@@ -3497,6 +3504,8 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
+        nameConflict:
+          "Ein Designsystem mit diesem Namen existiert bereits. Wähle einen anderen Namen und versuche es erneut.",
         chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
         readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
         designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
@@ -3962,6 +3971,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
+        nameConflict:
+          "この名前のデザインシステムは既に存在します。別の名前に変更して再試行してください。",
         chooseDesignMd:
           "Markdown（.md または .mdx）ファイルを選択してください。",
         readDesignMd: "その Markdown ファイルを読み込めませんでした。",
@@ -4420,6 +4431,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
+        nameConflict:
+          "이 이름의 디자인 시스템이 이미 있습니다. 다른 이름으로 변경한 뒤 다시 시도하세요.",
         chooseDesignMd: "Markdown(.md 또는 .mdx) 파일을 선택하세요.",
         readDesignMd: "해당 Markdown 파일을 읽을 수 없습니다.",
         designMdTooLarge: "Markdown 파일은 2MB 이하여야 합니다.",
@@ -4878,6 +4891,8 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
+        nameConflict:
+          "Já existe um sistema de design com esse nome. Escolha outro nome e tente novamente.",
         chooseDesignMd: "Escolha um arquivo Markdown (.md ou .mdx).",
         readDesignMd: "Não foi possível ler esse arquivo Markdown.",
         designMdTooLarge: "O arquivo Markdown deve ter no máximo 2 MB.",
@@ -5334,6 +5349,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
+        nameConflict:
+          "इस नाम का डिज़ाइन सिस्टम पहले से मौजूद है। कोई दूसरा नाम चुनकर फिर कोशिश करें।",
         chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
         readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
         designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
@@ -5785,6 +5802,8 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
+        nameConflict:
+          "يوجد بالفعل نظام تصميم بهذا الاسم. اختر اسمًا آخر ثم أعد المحاولة.",
         chooseDesignMd: "يرجى اختيار ملف Markdown (.md أو .mdx).",
         readDesignMd: "تعذر قراءة ملف Markdown هذا.",
         designMdTooLarge: "يجب ألا يتجاوز حجم ملف Markdown ‏2 ميغابايت.",

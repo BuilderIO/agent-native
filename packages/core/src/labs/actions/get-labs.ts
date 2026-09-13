@@ -5,7 +5,7 @@ import { getUserLabs } from "../store.js";
 
 export default defineAction({
   description:
-    "Return every user lab registered by this app and whether the current user has opted in. Labs default to false.",
+    "Return every registered lab and the current user's enabled state. Unset preferences use each lab's app-defined default.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async (_args, ctx) => {

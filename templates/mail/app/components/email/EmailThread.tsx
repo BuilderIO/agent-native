@@ -52,7 +52,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  applyDraftSaveResult,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -1167,6 +1170,46 @@ export function EmailThread({
     }
   }, [t, unsubscribeInfo]);
 
+  const handleCloseInlineDraft = (id: string) => {
+    const draft = compose.drafts.find((item) => item.id === id);
+    const hasContent = !!(
+      draft?.to?.trim() ||
+      draft?.cc?.trim() ||
+      draft?.bcc?.trim() ||
+      draft?.subject?.trim() ||
+      draft?.body?.trim()
+    );
+    const snapshot = draft ? { ...draft } : null;
+    const savePromise = compose.close(id);
+    if (!hasContent || !snapshot) return;
+
+    toast(t("mail.toasts.draftClosed"), {
+      action: {
+        label: t("mail.compose.reopenDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          const { id: _id, ...reopenData } = savedSnapshot;
+          compose.open({ ...reopenData, inline: true });
+        },
+      },
+      cancel: {
+        label: t("mail.compose.deleteDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          if (savedSnapshot.savedDraftId) {
+            await compose.deleteSavedDraft(savedSnapshot);
+          }
+        },
+      },
+    });
+  };
+
   if (!threadId) return null;
 
   if (!email) {
@@ -1501,45 +1544,7 @@ export function EmailThread({
                       messages={messages}
                       onUpdate={compose.update}
                       onDiscard={compose.discard}
-                      onClose={(id) => {
-                        const drafts = compose.drafts ?? [];
-                        const draft = drafts.find((d: any) => d.id === id);
-                        const hasContent = !!(
-                          draft?.to?.trim() ||
-                          draft?.cc?.trim() ||
-                          draft?.bcc?.trim() ||
-                          draft?.subject?.trim() ||
-                          draft?.body?.trim()
-                        );
-                        const snapshot = draft ? { ...draft } : null;
-                        compose.close(id);
-                        if (hasContent && snapshot) {
-                          toast("Draft saved.", {
-                            action: {
-                              label: "REOPEN",
-                              onClick: () => {
-                                const { id: _id, ...reopenData } = snapshot;
-                                compose.open({ ...reopenData, inline: true });
-                              },
-                            },
-                            cancel: {
-                              label: "DELETE DRAFT",
-                              onClick: () => {
-                                if (snapshot.savedDraftId) {
-                                  void fetch(
-                                    appApiPath(
-                                      `/api/emails/${snapshot.savedDraftId}`,
-                                    ),
-                                    {
-                                      method: "DELETE",
-                                    },
-                                  );
-                                }
-                              },
-                            },
-                          });
-                        }
-                      }}
+                      onClose={handleCloseInlineDraft}
                       onPopOut={(id) => compose.update(id, { inline: false })}
                       onFlush={compose.flush}
                       onReopen={(state) =>
@@ -1562,45 +1567,7 @@ export function EmailThread({
                   messages={messages}
                   onUpdate={compose.update}
                   onDiscard={compose.discard}
-                  onClose={(id) => {
-                    const drafts = compose.drafts ?? [];
-                    const draft = drafts.find((d: any) => d.id === id);
-                    const hasContent = !!(
-                      draft?.to?.trim() ||
-                      draft?.cc?.trim() ||
-                      draft?.bcc?.trim() ||
-                      draft?.subject?.trim() ||
-                      draft?.body?.trim()
-                    );
-                    const snapshot = draft ? { ...draft } : null;
-                    compose.close(id);
-                    if (hasContent && snapshot) {
-                      toast("Draft saved.", {
-                        action: {
-                          label: "REOPEN",
-                          onClick: () => {
-                            const { id: _id, ...reopenData } = snapshot;
-                            compose.open({ ...reopenData, inline: true });
-                          },
-                        },
-                        cancel: {
-                          label: "DELETE DRAFT",
-                          onClick: () => {
-                            if (snapshot.savedDraftId) {
-                              void fetch(
-                                appApiPath(
-                                  `/api/emails/${snapshot.savedDraftId}`,
-                                ),
-                                {
-                                  method: "DELETE",
-                                },
-                              );
-                            }
-                          },
-                        },
-                      });
-                    }
-                  }}
+                  onClose={handleCloseInlineDraft}
                   onPopOut={(id) => compose.update(id, { inline: false })}
                   onFlush={compose.flush}
                   onReopen={(state) => compose.open({ ...state, inline: true })}

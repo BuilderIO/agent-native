@@ -69,10 +69,12 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     widths: number[],
     {
       height = 800,
+      zoom = 100,
       chromeInsetLeft = 0,
       chromeInsetRight = 0,
     }: {
       height?: number;
+      zoom?: number;
       chromeInsetLeft?: number;
       chromeInsetRight?: number;
     } = {},
@@ -94,7 +96,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       root.render(
         <MultiScreenCanvas
           screens={screens}
-          zoom={100}
+          zoom={zoom}
           activeTool="move"
           geometryById={geometryById}
           onPick={() => {}}
@@ -186,5 +188,34 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     expect(centreX).toBeLessThanOrEqual(SURFACE_WIDTH);
     expect(centreY).toBeGreaterThanOrEqual(0);
     expect(centreY).toBeLessThanOrEqual(SURFACE_HEIGHT);
+  });
+
+  it("preserves a manually panned camera when a late tall screen arrives", async () => {
+    const initial = await renderScreens([400], { height: 800, zoom: 60 });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+    const wheel = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 96,
+      deltaMode: 0,
+    });
+    Object.defineProperty(wheel, "isTrusted", { value: true });
+    await act(async () => {
+      surface!.dispatchEvent(wheel);
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    });
+    const afterPan = readView(container);
+    expect(afterPan.y).not.toBeCloseTo(initial.y, 6);
+
+    const afterLateScreen = await renderScreens([400, 400], {
+      height: 3334,
+      zoom: 60,
+    });
+    expect(afterLateScreen.scale).toBeCloseTo(afterPan.scale, 6);
+    expect(afterLateScreen.x).toBeCloseTo(afterPan.x, 6);
+    expect(afterLateScreen.y).toBeCloseTo(afterPan.y, 6);
   });
 });

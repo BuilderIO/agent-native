@@ -12,31 +12,39 @@
 
 import { randomUUID } from "node:crypto";
 
+import {
+  chromiumPackUrl,
+  loadOptionalServerlessChromium,
+} from "@agent-native/creative-context/connectors/serverless-chromium";
+
 export type PlaywrightModule = {
   chromium: import("@playwright/test").BrowserType;
 };
 
 /**
- * Dynamic import of the runtime `playwright` dependency. Falls back to
+ * Dynamic import of the runtime `playwright` dependency. Falls back to the
+ * `playwright-core` package copied into serverless functions, then to
  * `@playwright/test` for local development setups that only install the test
- * runner. Loaded via a non-literal specifier so bundlers don't include browser
- * binaries; the runtime package remains available to server-side actions.
+ * runner. Non-literal specifiers keep bundlers from including browser binaries.
  *
- * When both are absent the FIRST error is what callers need: reporting the
- * fallback's "Cannot find package '@playwright/test'" names a package the user
- * never asked for and sends them installing the wrong thing.
+ * When no package is available, the first error names the runtime dependency
+ * instead of telling users to install the test runner.
  */
-export async function importPlaywright(): Promise<PlaywrightModule> {
+export async function importPlaywright(
+  loadModule: (specifier: string) => Promise<unknown> = (specifier) =>
+    import(/* @vite-ignore */ specifier),
+): Promise<PlaywrightModule> {
   try {
-    const specifier = "playwright";
-    return (await import(
-      /* @vite-ignore */ specifier
-    )) as unknown as PlaywrightModule;
+    return (await loadModule("playwright")) as PlaywrightModule;
   } catch (playwrightErr) {
     try {
-      return (await import("@playwright/test")) as unknown as PlaywrightModule;
+      return (await loadModule("playwright-core")) as PlaywrightModule;
     } catch {
-      throw playwrightErr;
+      try {
+        return (await loadModule("@playwright/test")) as PlaywrightModule;
+      } catch {
+        throw playwrightErr;
+      }
     }
   }
 }
@@ -81,21 +89,41 @@ async function launchLocalChromium(
   chromium: import("@playwright/test").BrowserType,
 ): Promise<import("@playwright/test").Browser> {
   const launchOptions = { args: ["--no-sandbox"] };
+  let missingBrowserError: unknown;
   try {
     return await chromium.launch(launchOptions);
   } catch (err) {
     if (!isMissingBrowserError(err)) throw err;
-    const { existsSync } = await import("node:fs");
-    for (const executablePath of SYSTEM_CHROME_EXECUTABLES) {
-      if (!existsSync(executablePath)) continue;
-      try {
-        return await chromium.launch({ ...launchOptions, executablePath });
-      } catch {
-        // Try the next candidate; the original error is rethrown below.
-      }
-    }
-    throw err;
+    missingBrowserError = err;
   }
+
+  const serverlessChromium = await loadOptionalServerlessChromium();
+  if (serverlessChromium) {
+    try {
+      const executablePath =
+        await serverlessChromium.executablePath(chromiumPackUrl());
+      if (executablePath) {
+        return await chromium.launch({
+          ...launchOptions,
+          args: [...launchOptions.args, ...(serverlessChromium.args ?? [])],
+          executablePath,
+        });
+      }
+    } catch (err) {
+      missingBrowserError = err;
+    }
+  }
+
+  const { existsSync } = await import("node:fs");
+  for (const executablePath of SYSTEM_CHROME_EXECUTABLES) {
+    if (!existsSync(executablePath)) continue;
+    try {
+      return await chromium.launch({ ...launchOptions, executablePath });
+    } catch (err) {
+      missingBrowserError = err;
+    }
+  }
+  throw missingBrowserError;
 }
 
 /** Connects to Builder Browser first, then falls back to local/system Chrome. */

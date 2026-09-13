@@ -32,6 +32,7 @@ import {
   type Contact,
   type InfiniteEmails,
 } from "@/hooks/use-emails";
+import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -244,7 +245,7 @@ export function SearchBar({
   // Scroll selected item into view
   useEffect(() => {
     if (selectedIndex < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll("[data-contact-item]");
+    const items = listRef.current.querySelectorAll("[data-search-item]");
     items[selectedIndex]?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
@@ -310,6 +311,17 @@ export function SearchBar({
         <input
           ref={inputRef}
           id="mail-search"
+          data-mail-search
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls={showDropdown ? "mail-search-suggestions" : undefined}
+          aria-expanded={showDropdown}
+          aria-activedescendant={getActiveDescendantId(
+            "mail-search-suggestion-",
+            showDropdown,
+            selectedIndex,
+            combinedMatchCount,
+          )}
           autoFocus={autoFocus}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -374,6 +386,8 @@ export function SearchBar({
       {showDropdown && (
         <div
           data-search-dropdown
+          id="mail-search-suggestions"
+          role="listbox"
           ref={listRef}
           className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
         >
@@ -381,6 +395,10 @@ export function SearchBar({
             <button
               key={contact.email}
               data-contact-item
+              data-search-item
+              id={`mail-search-suggestion-${i}`}
+              role="option"
+              aria-selected={i === selectedIndex}
               type="button"
               tabIndex={-1}
               onMouseDown={(e) => {
@@ -420,7 +438,10 @@ export function SearchBar({
                 return (
                   <button
                     key={email.threadId || email.id}
-                    data-contact-item
+                    data-search-item
+                    id={`mail-search-suggestion-${combinedIndex}`}
+                    role="option"
+                    aria-selected={combinedIndex === selectedIndex}
                     type="button"
                     tabIndex={-1}
                     onMouseDown={(e) => {

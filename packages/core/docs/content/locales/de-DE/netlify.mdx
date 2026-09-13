@@ -13,9 +13,12 @@ export default defineConfig({
 });
 ```
 
-Neue Scaffolds können die importierte Funktion `agentNativePlugins` nennen und
-ihr Ergebnis verteilen, damit die Vite-Pakettypen übereinstimmen. Es ist dasselbe
-`agentNative`-Plugin und akzeptiert dieselben Optionen.
+Im generierten Chat-Scaffold heißt der Import weiterhin `agentNative`. Die Konfiguration weist
+ihn mit einer Typumwandlung dem lokalen Alias `agentNativePlugins` zu und verteilt anschließend
+das zurückgegebene Plugin-Array, damit die Vite-Pakettypen übereinstimmen. Der Alias akzeptiert
+dieselben Optionen wie das obige `agentNative`-Beispiel. Füge `nitro: { preset: "netlify" }`
+zu den Optionen dieses bestehenden `agentNativePlugins({ ... })`-Aufrufs hinzu. Lass die übrigen
+Chat-spezifischen Plugins, Optionen und Aliase unverändert.
 
 … oder legen Sie `NITRO_PRESET=netlify` zur Build-Zeit fest.
 
