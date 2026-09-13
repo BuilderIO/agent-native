@@ -1,6 +1,12 @@
 import type { BlocksFieldIdentity } from "./blocks-field-identity.js";
 import { matchInlineMathAt } from "./inline-math.js";
 import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
+import {
+  matchNfmExportBlock,
+  NFM_EXPORT_PRINT_STYLES,
+  NFM_EXPORT_STYLES,
+  startsNfmExportBlock,
+} from "./nfm-export-html.js";
 
 export type DocumentExportFormat = "pdf" | "markdown" | "html";
 
@@ -415,6 +421,12 @@ function isEmptyBlockLine(trimmed: string): boolean {
   return /^<empty-block\b[^>]*\/>$/.test(trimmed);
 }
 
+const exportRenderers = {
+  renderBlocks: (markdown: string) => markdownToHtml(markdown),
+  renderInline: (text: string) => inlineMarkdownToHtml(text),
+  escapeHtml,
+};
+
 function markdownToHtml(markdown: string): string {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const blocks: string[] = [];
@@ -529,6 +541,13 @@ function markdownToHtml(markdown: string): string {
       continue;
     }
 
+    const nfmBlock = matchNfmExportBlock(lines, index, exportRenderers);
+    if (nfmBlock) {
+      blocks.push(nfmBlock.html);
+      index = nfmBlock.nextIndex;
+      continue;
+    }
+
     const paragraph: string[] = [line];
     index++;
     while (
@@ -540,7 +559,8 @@ function markdownToHtml(markdown: string): string {
       !/^```/.test(lines[index].trim()) &&
       !/^>\s?/.test(lines[index].trim()) &&
       !/^\s*[-*+]\s+/.test(lines[index]) &&
-      !/^\s*\d+[.)]\s+/.test(lines[index])
+      !/^\s*\d+[.)]\s+/.test(lines[index]) &&
+      !startsNfmExportBlock(lines, index)
     ) {
       paragraph.push(lines[index]);
       index++;
@@ -658,11 +678,13 @@ function buildHtmlDocument(input: {
       border-top: 1px solid #e5e5e5;
       margin: 28px 0;
     }
+${NFM_EXPORT_STYLES}
     @media print {
       @page { margin: 0.65in; }
       main { max-width: none; padding: 0; }
       a { color: inherit; text-decoration: underline; }
       pre, blockquote, img { break-inside: avoid; }
+${NFM_EXPORT_PRINT_STYLES}
     }
   </style>
 </head>
