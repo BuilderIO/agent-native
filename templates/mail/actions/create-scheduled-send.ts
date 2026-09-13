@@ -3,6 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
+import { isValidAddressList } from "../server/lib/email-address-validation.js";
 import { createScheduledJobRecord } from "../server/lib/jobs.js";
 
 export default defineAction({
@@ -31,6 +32,20 @@ export default defineAction({
     if (!ownerEmail) throw new Error("Unauthenticated");
     if (!Number.isFinite(args.runAt) || args.runAt <= Date.now()) {
       throw new Error("runAt must be a future timestamp");
+    }
+    if (args.payload) {
+      const { to, cc, bcc } = args.payload;
+      if (
+        typeof to !== "string" ||
+        !to.trim() ||
+        !isValidAddressList(to) ||
+        (cc !== undefined &&
+          (typeof cc !== "string" || !isValidAddressList(cc))) ||
+        (bcc !== undefined &&
+          (typeof bcc !== "string" || !isValidAddressList(bcc)))
+      ) {
+        throw new Error("Invalid recipient address");
+      }
     }
     if (
       ctx?.caller === "automation" &&

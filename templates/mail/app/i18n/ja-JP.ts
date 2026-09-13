@@ -278,6 +278,9 @@ const messages = {
       archived: "アーカイブしました。",
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed: "アーカイブに失敗しました。会話を復元しました。",
+      moveFailed: "移動に失敗しました。スレッドを復元しました。",
+      movePartialFailed:
+        "{{total}} 件中 {{succeeded}} 件を移動しました（{{failed}} 件失敗）。",
       trashed: "ゴミ箱へ移動しました。",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "予約メールを送信しました。",

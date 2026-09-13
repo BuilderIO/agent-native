@@ -277,6 +277,9 @@ const messages = {
       archived: "आर्काइव किया गया।",
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed: "आर्काइव विफल हुआ। बातचीत बहाल कर दी गई।",
+      moveFailed: "स्थानांतरित नहीं हो सका। बातचीत बहाल कर दी गई।",
+      movePartialFailed:
+        "{{total}} में से {{succeeded}} बातचीत स्थानांतरित हुई; {{failed}} विफल हुईं।",
       trashed: "कूड़ेदान में ले जाया गया।",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "शेड्यूल ईमेल भेजा गया।",

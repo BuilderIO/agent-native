@@ -45,6 +45,8 @@ import {
 } from "@/lib/thread-cache";
 import { bodyToHtml } from "@/lib/utils";
 
+import type { MoveEmailResult } from "../../actions/move-email";
+
 const EMAIL_PAGE_SIZE = 25;
 const EMAIL_PREFETCH_TIMEOUT_MS = 15_000;
 
@@ -1639,7 +1641,7 @@ export function useBulkMarkRead() {
 export function useMoveEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       label,
       removeLabel,
@@ -1647,26 +1649,68 @@ export function useMoveEmail() {
       id: string;
       label: string;
       removeLabel?: string;
-    }) => callAction("move-email", { id, label, removeLabel }),
+    }) => {
+      const result = await callAction("move-email", {
+        id,
+        label,
+        removeLabel,
+      });
+      if (result.status === "partial")
+        throw new MoveEmailPartialFailure(result);
+      return result;
+    },
     onMutate: async ({ id }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
-      const target = previous
-        .flatMap(([, data]) => flattenInfiniteEmails(data))
-        .find((e) => e.id === id);
-      const threadId = target?.threadId || id;
-      invalidateCachedThread(threadId);
+      const ids = id
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const threadIdsByEmailId: Record<string, string> = {};
+      const targetEmails = previous.flatMap(([, data]) =>
+        flattenInfiniteEmails(data),
+      );
+      for (const emailId of ids) {
+        const target = targetEmails.find((email) => email.id === emailId);
+        threadIdsByEmailId[emailId] = target?.threadId || emailId;
+      }
+      const threadIds = new Set(Object.values(threadIdsByEmailId));
+      for (const threadId of threadIds) invalidateCachedThread(threadId);
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
         mapInfiniteEmails(old, (emails) =>
-          emails.filter((e) => (e.threadId || e.id) !== threadId),
+          emails.filter((email) => !threadIds.has(email.threadId || email.id)),
         ),
       );
-      return { previous };
+      const inboxSnapshot = snapshotInboxThreads(qc);
+      removeInboxThreadsOptimistic(qc, threadIds);
+      return { previous, inboxSnapshot, threadIdsByEmailId };
     },
-    onError: (_err, _vars, context) => {
-      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    onError: (error, _vars, context) => {
+      if (!context) return;
+      if (error instanceof MoveEmailPartialFailure) {
+        const succeededThreadIds = new Set(
+          error.result.succeeded.map(
+            (id) => context.threadIdsByEmailId[id] || id,
+          ),
+        );
+        context.previous.forEach(([key, data]) =>
+          qc.setQueryData(
+            key,
+            mapInfiniteEmails(data, (emails) =>
+              emails.filter(
+                (email) => !succeededThreadIds.has(email.threadId || email.id),
+              ),
+            ),
+          ),
+        );
+        restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
+        removeInboxThreadsOptimistic(qc, succeededThreadIds);
+        return;
+      }
+      context.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      restoreInboxThreadsOptimistic(qc, context.inboxSnapshot);
     },
     onSettled: () =>
       delayedInvalidate(qc, [
@@ -1675,6 +1719,13 @@ export function useMoveEmail() {
         INBOX_THREADS_QUERY_KEY,
       ]),
   });
+}
+
+export class MoveEmailPartialFailure extends Error {
+  constructor(readonly result: MoveEmailResult) {
+    super("Some email threads could not be moved");
+    this.name = "MoveEmailPartialFailure";
+  }
 }
 
 export function useSaveDraft() {

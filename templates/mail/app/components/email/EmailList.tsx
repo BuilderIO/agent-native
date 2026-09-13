@@ -1,4 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import type { EmailMessage, Label } from "@shared/types";
@@ -56,6 +57,7 @@ import {
   useLabels,
   EMPTY_LABELS,
   useMoveEmail,
+  MoveEmailPartialFailure,
   unsuppressThread,
   type AccountError,
 } from "@/hooks/use-emails";
@@ -1041,23 +1043,35 @@ export function EmailList({
   ]);
 
   const moveFocusedToLabel = useCallback(
-    (labelId: string, labelName: string) => {
+    async (labelId: string, labelName: string) => {
       const keys = getActionThreadKeys();
       if (keys.length === 0) return;
       const targets = resolveTargets(keys);
-      for (const t of targets) {
-        moveEmail.mutate({
-          id: t.latestMessage.id,
+      try {
+        const result = await moveEmail.mutateAsync({
+          id: targets.map((target) => target.latestMessage.id).join(","),
           label: labelId,
           removeLabel: labelParam || undefined,
         });
+        setSelectedIds(new Set());
+        toast(
+          targets.length > 1
+            ? `Moved ${result.succeeded.length} conversations to ${labelName}.`
+            : `Moved to ${labelName}.`,
+        );
+      } catch (error) {
+        if (error instanceof MoveEmailPartialFailure) {
+          toast.error(
+            t("mail.toasts.movePartialFailed", {
+              succeeded: error.result.succeeded.length,
+              total: error.result.requested.length,
+              failed: error.result.failed.length,
+            }),
+          );
+        } else {
+          toast.error(actionErrorMessage(error) ?? t("mail.toasts.moveFailed"));
+        }
       }
-      setSelectedIds(new Set());
-      toast(
-        targets.length > 1
-          ? `Moved ${targets.length} conversations to ${labelName}.`
-          : `Moved to ${labelName}.`,
-      );
     },
     [
       getActionThreadKeys,
@@ -1065,6 +1079,7 @@ export function EmailList({
       moveEmail,
       labelParam,
       setSelectedIds,
+      t,
     ],
   );
 

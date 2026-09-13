@@ -78,11 +78,23 @@ export interface ScheduledJobRecord {
   createdAt: number;
 }
 
-async function getAccessToken(accountEmail: string): Promise<string | null> {
+async function getAccessToken(
+  accountEmail: string,
+  requireFreshToken = false,
+): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
     | StoredTokens
     | undefined;
   if (!tokens?.access_token) return null;
+
+  if (
+    requireFreshToken &&
+    tokens.expiry_date &&
+    !tokens.refresh_token &&
+    tokens.expiry_date < Date.now() + 5 * 60 * 1000
+  ) {
+    return null;
+  }
 
   if (
     tokens.expiry_date &&
@@ -110,6 +122,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
         `[getAccessToken] refresh failed for ${accountEmail}:`,
         err.message,
       );
+      if (requireFreshToken) return null;
     }
   }
 
@@ -119,10 +132,12 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 async function getFirstAccountToken(
   preferEmail?: string,
   ownerEmail?: string,
+  strictPreference = false,
 ): Promise<{ email: string; accessToken: string } | null> {
   if (preferEmail) {
-    const token = await getAccessToken(preferEmail);
+    const token = await getAccessToken(preferEmail, strictPreference);
     if (token) return { email: preferEmail, accessToken: token };
+    if (strictPreference) return null;
   }
 
   // Only return accounts owned by the given owner
@@ -605,8 +620,19 @@ export async function sendScheduledEmail(
   accountEmail?: string,
   ownerEmail?: string,
 ): Promise<void> {
-  const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
-  const effectiveOwner = ownerEmail || accountEmail || from;
+  const {
+    to,
+    cc,
+    bcc,
+    subject,
+    body,
+    from,
+    accountEmail: payloadAccountEmail,
+    replyToId,
+    threadId,
+  } = payload;
+  const selectedAccountEmail = accountEmail || payloadAccountEmail || from;
+  const effectiveOwner = ownerEmail || selectedAccountEmail;
   const attachments = await resolveComposeAttachments(
     payload.attachments,
     effectiveOwner,
@@ -614,8 +640,9 @@ export async function sendScheduledEmail(
 
   if (await isConnected(effectiveOwner)) {
     const account = await getFirstAccountToken(
-      accountEmail || from,
+      selectedAccountEmail,
       effectiveOwner,
+      Boolean(selectedAccountEmail),
     );
     if (account) {
       let inReplyTo: string | undefined;
@@ -676,6 +703,12 @@ export async function sendScheduledEmail(
       );
       return;
     }
+  }
+
+  if (selectedAccountEmail) {
+    throw new Error(
+      `No valid access token for selected Gmail account ${selectedAccountEmail}`,
+    );
   }
 
   const fallbackOwner = ownerEmail || from || accountEmail;

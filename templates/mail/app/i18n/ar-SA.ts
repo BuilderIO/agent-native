@@ -277,6 +277,9 @@ const messages = {
       archived: "تمت الأرشفة.",
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed: "فشلت الأرشفة. تمت استعادة المحادثة.",
+      moveFailed: "فشل النقل. تمت استعادة المحادثة.",
+      movePartialFailed:
+        "تم نقل {{succeeded}} من أصل {{total}} محادثة؛ فشل {{failed}}.",
       trashed: "تم النقل إلى المهملات.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "تم إرسال البريد المجدول.",

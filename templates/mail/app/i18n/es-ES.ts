@@ -278,6 +278,9 @@ const messages = {
       archived: "Archivado.",
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed: "No se pudo archivar. La conversación se restauró.",
+      moveFailed: "No se pudo mover. La conversación se restauró.",
+      movePartialFailed:
+        "Se movieron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",

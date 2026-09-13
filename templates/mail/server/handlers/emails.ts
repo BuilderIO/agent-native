@@ -37,6 +37,7 @@ import {
   parseSavedDraftBackend,
   resolveSavedDraftBackend,
 } from "../lib/draft-backend.js";
+import { isValidAddressList } from "../lib/email-address-validation.js";
 import {
   collectLinks,
   newClickToken,
@@ -113,25 +114,6 @@ import {
  */
 function stripCrlf(s: string): string {
   return s.replace(/[\r\n]+/g, " ").trim();
-}
-
-/**
- * Loose validator for an RFC 2822 address-list header value (To/Cc/Bcc).
- * Accepts comma-separated addresses optionally wrapped in `Display Name <addr>`
- * form. Empty input is allowed (caller guards on required-vs-optional). Real
- * full-spec validation is intractable in regex; this catches the common
- * "subject: foo\r\nBcc: …" / "garbage" cases after the CRLF strip and lets
- * Gmail's server-side validation do the rest.
- */
-function isValidAddressList(value: string): boolean {
-  if (!value) return true;
-  const stripped = value.trim();
-  if (!stripped) return true;
-  // Address regex: must have something@something.something (no whitespace
-  // inside the local-or-domain). Display-name + angle-addr form is allowed.
-  const ADDR = /(?:[^,<>]*<\s*\S+@\S+\.\S+\s*>|\s*\S+@\S+\.\S+\s*)/;
-  const parts = stripped.split(",");
-  return parts.every((p) => ADDR.test(p.trim()));
 }
 
 // ---------------------------------------------------------------------------
@@ -313,18 +295,18 @@ async function resolveAccountEmail(
   return account;
 }
 
-type DraftGmailAccessResult =
+type GmailAccessResult =
   | { ok: true; accountEmail: string; accessToken: string }
   | {
       ok: false;
       response: { error: string; accountErrors?: MailAccountError[] };
     };
 
-async function resolveDraftGmailAccess(
+async function resolveGmailAccess(
   event: H3Event,
   ownerEmail: string,
   requestedAccountEmail?: string,
-): Promise<DraftGmailAccessResult> {
+): Promise<GmailAccessResult> {
   let accountEmail: string;
   try {
     accountEmail = await resolveAccountEmail(requestedAccountEmail, ownerEmail);
@@ -919,12 +901,9 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
   const { accountEmail, threadId: bodyThreadId } = body;
 
   if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(email, acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const id = getRouterParam(event, "id") as string;
       // Get the threadId from the message if not provided
@@ -1010,12 +989,9 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
 
   // If Gmail is connected, create a filter to auto-delete + report spam
   if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(email, acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const id = getRouterParam(event, "id") as string;
 
@@ -1121,12 +1097,9 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   const { accountEmail } = body;
 
   if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(email, acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const threadId = getRouterParam(event, "threadId") as string;
       // Gmail "mute" = remove from inbox; future replies also skip inbox
@@ -1566,7 +1539,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 401);
       return { error: "Gmail is not connected for this saved draft" };
     }
-    const gmailAccess = await resolveDraftGmailAccess(
+    const gmailAccess = await resolveGmailAccess(
       event,
       email,
       draftAccountEmail,
@@ -1757,7 +1730,7 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     const body = await readBody(event).catch(() => ({}));
-    const gmailAccess = await resolveDraftGmailAccess(
+    const gmailAccess = await resolveGmailAccess(
       event,
       email,
       body?.accountEmail,
@@ -2080,9 +2053,9 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         }
       >();
       let successfulAccountReads = 0;
-      let failedAccountReads = tokenErrors.filter(
-        (error) => error.email !== "workspace",
-      ).length;
+      // A workspace lookup failure can hide a managed mailbox from this
+      // unfiltered inventory just as an OAuth refresh failure can.
+      let failedAccountReads = tokenErrors.length;
       // Fetch labels from each account sequentially to avoid race conditions on the shared map
       for (const { accessToken } of accountTokens) {
         try {
@@ -2215,14 +2188,11 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
     return { error: "No Google account connected" };
   }
 
-  try {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(email, acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "Google account not found" };
-    }
+  const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+  if (!gmailAccess.ok) return gmailAccess.response;
+  const { accessToken } = gmailAccess;
 
+  try {
     const calId = calendarId || "primary";
 
     // Get the event first to preserve existing data
@@ -2277,12 +2247,9 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
     return { error: "No connected account" };
   }
 
-  const acct = await resolveAccountEmail(body.accountEmail, email);
-  const accessToken = await getAccessToken(email, acct);
-  if (!accessToken) {
-    setResponseStatus(event, 401);
-    return { error: "No valid access token" };
-  }
+  const gmailAccess = await resolveGmailAccess(event, email, body.accountEmail);
+  if (!gmailAccess.ok) return gmailAccess.response;
+  const { accessToken } = gmailAccess;
 
   try {
     const id = getRouterParam(event, "id") as string;

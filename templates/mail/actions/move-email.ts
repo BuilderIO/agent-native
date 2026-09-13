@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
@@ -18,6 +18,14 @@ import {
 import { getAccessTokens } from "./helpers.js";
 
 type GmailLabel = { id?: string; name?: string };
+
+export type MoveEmailResult = {
+  status: "complete" | "partial";
+  requested: string[];
+  succeeded: string[];
+  failed: { id: string; error: string }[];
+  targetLabel: string;
+};
 
 const SYSTEM_LABELS: Record<string, string> = {
   inbox: "INBOX",
@@ -73,12 +81,16 @@ export default defineAction({
       .describe("Current label to remove after applying the destination"),
   }),
   run: async (args) => {
-    const ids = args.id
-      ?.split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const ids = [
+      ...new Set(
+        args.id
+          ?.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ];
     const targetLabel = args.label?.trim();
-    if (!ids || ids.length === 0) throw new Error("--id is required");
+    if (ids.length === 0) throw new Error("--id is required");
     if (!targetLabel) throw new Error("--label is required");
 
     const ownerEmail = getRequestUserEmail();
@@ -94,10 +106,10 @@ export default defineAction({
             targetThreads.add(email.threadId || email.id);
         }
 
-        let changed = 0;
+        const succeeded: string[] = [];
         const updated = emails.map((email) => {
           if (!targetThreads.has(email.threadId || email.id)) return email;
-          changed++;
+          if (idSet.has(email.id)) succeeded.push(email.id);
           const labelIds = new Set<string>(email.labelIds ?? []);
           labelIds.delete("inbox");
           if (args.removeLabel) labelIds.delete(args.removeLabel);
@@ -110,10 +122,27 @@ export default defineAction({
         });
 
         await writeLocalEmails(ownerEmail, updated);
-        return changed;
+        return succeeded;
       });
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return `Moved ${changed} local email(s) to ${targetLabel}`;
+      const succeededIds = new Set(changed);
+      const failed = ids
+        .filter((id) => !succeededIds.has(id))
+        .map((id) => ({ id, error: "Email not found in the local mailbox" }));
+      if (changed.length > 0)
+        await writeAppState("refresh-signal", { ts: Date.now() });
+      if (changed.length === 0) {
+        fail("No requested emails were found in the local mailbox", {
+          errorCode: "move_failed",
+          details: { requested: ids, failed },
+        });
+      }
+      return {
+        status: failed.length > 0 ? "partial" : "complete",
+        requested: ids,
+        succeeded: changed,
+        failed,
+        targetLabel,
+      } satisfies MoveEmailResult;
     }
 
     const accounts = await getAccessTokens();
@@ -161,15 +190,31 @@ export default defineAction({
       );
     }
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    const succeeded = results.filter((r) => r.success).length;
-    const failed = results.filter((r) => !r.success);
-    if (failed.length > 0) {
-      return `Moved ${succeeded}/${ids.length} email(s). Failures: ${failed
-        .map((r) => `${r.id}: ${r.error}`)
-        .join("; ")}`;
+    const succeeded = results
+      .filter((result) => result.success)
+      .map((result) => result.id);
+    const failed = results
+      .filter((result) => !result.success)
+      .map((result) => ({
+        id: result.id,
+        error: result.error ?? "Unknown error",
+      }));
+    if (succeeded.length > 0)
+      await writeAppState("refresh-signal", { ts: Date.now() });
+    if (succeeded.length === 0) {
+      fail("Could not move any requested emails", {
+        errorCode: "move_failed",
+        statusCode: 502,
+        details: { requested: ids, failed, targetLabel },
+      });
     }
-    return `Moved ${succeeded} email(s) to ${targetLabel}`;
+
+    return {
+      status: failed.length > 0 ? "partial" : "complete",
+      requested: ids,
+      succeeded,
+      failed,
+      targetLabel,
+    } satisfies MoveEmailResult;
   },
 });

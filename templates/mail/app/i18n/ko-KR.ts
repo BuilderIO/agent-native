@@ -277,6 +277,9 @@ const messages = {
       archived: "보관했습니다.",
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed: "보관에 실패했습니다. 대화가 복원되었습니다.",
+      moveFailed: "이동에 실패했습니다. 대화가 복원되었습니다.",
+      movePartialFailed:
+        "{{total}}개 중 {{succeeded}}개의 대화를 이동했고 {{failed}}개가 실패했습니다.",
       trashed: "휴지통으로 이동했습니다.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "예약 이메일을 보냈습니다.",

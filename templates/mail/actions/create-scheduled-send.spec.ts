@@ -53,4 +53,25 @@ describe("scheduled mail actions", () => {
     ).rejects.toThrow("Automation email sending is disabled");
     expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { to: "bad-recipient", cc: "", bcc: "" },
+    { to: "   ", cc: "", bcc: "" },
+    { to: "recipient@example.com", cc: "bad-cc", bcc: "" },
+    { to: "recipient@example.com", cc: 42, bcc: "" },
+    { to: "recipient@example.com", cc: "", bcc: "bad-bcc" },
+  ])("rejects malformed scheduled recipients", async (recipients) => {
+    await expect(
+      action.run({
+        runAt: Date.now() + 60_000,
+        payload: {
+          ...recipients,
+          subject: "Scheduled",
+          body: "body",
+        },
+      }),
+    ).rejects.toThrow("Invalid recipient address");
+
+    expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
+  });
 });

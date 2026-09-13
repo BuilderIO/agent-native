@@ -448,4 +448,23 @@ describe("inbox-thread cache rollback on mutation error", () => {
       expect(hook).toContain("restoreInboxThreadsOptimistic(qc, context");
     },
   );
+
+  it("treats a partial move as an error and keeps only successful threads removed", () => {
+    const source = emailsHookSource();
+    const start = source.indexOf("export function useMoveEmail()");
+    const end = source.indexOf("export function useSaveDraft()", start);
+    const hook = source.slice(start, end);
+
+    expect(hook).toContain('result.status === "partial"');
+    expect(hook).toContain("throw new MoveEmailPartialFailure(result)");
+    expect(hook).toContain(
+      "restoreInboxThreadsOptimistic(qc, context.inboxSnapshot)",
+    );
+    expect(hook).toContain(
+      "removeInboxThreadsOptimistic(qc, succeededThreadIds)",
+    );
+    expect(hook).toContain(
+      "context.previous.forEach(([key, data]) =>\n          qc.setQueryData(",
+    );
+  });
 });
