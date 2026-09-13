@@ -7,6 +7,7 @@ import {
   getOverviewScreenContentKey,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
+  isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
   selectionHistorySnapshotsEqual,
@@ -347,6 +348,23 @@ describe("overviewSelectionTargetsElement", () => {
 
 // Figma parity (figma-ground-truth.md Round 4): selection-only undo/redo —
 // see SelectionHistoryEntry's doc comment (history.ts).
+describe("isUserOriginatedSelectionIntent", () => {
+  it("is false for a gesture/echo reselect with no intent (duplicate clone, catch-up echo, reparent commit)", () => {
+    expect(isUserOriginatedSelectionIntent(undefined)).toBe(false);
+  });
+
+  it("is true for a real pointer click", () => {
+    expect(
+      isUserOriginatedSelectionIntent({ source: "pointer", additive: false }),
+    ).toBe(true);
+  });
+
+  it("is true for a keyboard or marquee pick", () => {
+    expect(isUserOriginatedSelectionIntent({ source: "keyboard" })).toBe(true);
+    expect(isUserOriginatedSelectionIntent({ source: "marquee" })).toBe(true);
+  });
+});
+
 describe("selectionHistorySnapshotsEqual", () => {
   it("treats two snapshots with the same fields as equal", () => {
     expect(

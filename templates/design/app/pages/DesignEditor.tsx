@@ -850,6 +850,7 @@ import {
   getSelectedScreenIdsForEditorState,
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
+  isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   resolveAvailableActiveFileId,
   sameStringIds,
@@ -9437,8 +9438,8 @@ function DesignEditor() {
         persistPendingNodeId?: boolean;
         breakpointWidthPx?: number;
       } = {},
-    ) =>
-      recordSelectionHistoryAroundChange(() =>
+    ) => {
+      const run = () =>
         runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
@@ -9469,8 +9470,15 @@ function DesignEditor() {
           info,
           intent,
           options,
-        ),
-      ),
+        );
+      // See isUserOriginatedSelectionIntent's doc comment: only a genuine
+      // user pick is its own undo step.
+      if (!isUserOriginatedSelectionIntent(intent)) {
+        run();
+        return;
+      }
+      recordSelectionHistoryAroundChange(run);
+    },
     [
       activeFile?.id,
       applyFileContentUpdate,

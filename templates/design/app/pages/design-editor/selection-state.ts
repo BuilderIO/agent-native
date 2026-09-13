@@ -4,7 +4,10 @@ import type { DesignSourceType } from "@shared/source-mode";
 
 import type { ScreenGeometrySelection } from "@/components/design/EditPanel";
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  ElementSelectionIntent,
+} from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
 import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 
@@ -512,6 +515,25 @@ export function buildActiveFileNodeIdSet(
     if (attrId) ids.add(attrId);
   }
   return ids;
+}
+
+/**
+ * Figma parity: only a genuine user pick — pointer, keyboard, or marquee,
+ * see ElementSelectionIntent's `source` — is its own undo step. An
+ * intent-less call is the bridge/host re-anchoring selection as a side
+ * effect of something else (a duplicate's clone selected mid-gesture, a
+ * post-persist code-layer catch-up echo, a drag-reparent commit reselecting
+ * the moved node); that edit's own content/geometry entry already carries
+ * selectionBefore/After, so recording this too would stack a stray
+ * "selection" entry on top of it — and undo would pop the reselect instead
+ * of the edit.
+ *
+ * Exported for unit testing.
+ */
+export function isUserOriginatedSelectionIntent(
+  intent: ElementSelectionIntent | undefined,
+): boolean {
+  return Boolean(intent);
 }
 
 /**

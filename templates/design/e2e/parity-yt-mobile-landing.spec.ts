@@ -348,12 +348,27 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
           .toBe(i + 2);
       }
 
-      const html = await fileContent(page, designId, "index.html");
-      const cardIds = [
-        ...html.matchAll(
-          /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="Card"/g,
-        ),
-      ].map((m) => m[1]);
+      // The three Cmd+D presses' saves are debounced — a single read here
+      // races that debounce and can catch the persisted content mid-save,
+      // one or two Cards short (the layers-panel polls above already wait
+      // out the same debounce for the LIVE tree; this is the same wait for
+      // the PERSISTED file).
+      let html = "";
+      let cardIds: string[] = [];
+      await expect
+        .poll(
+          async () => {
+            html = await fileContent(page, designId, "index.html");
+            cardIds = [
+              ...html.matchAll(
+                /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="Card"/g,
+              ),
+            ].map((m) => m[1]);
+            return cardIds.length;
+          },
+          { timeout: 10_000, message: "Card count in persisted index.html" },
+        )
+        .toBe(4);
       expect(cardIds, `trace: ${await dumpTrace(page)}`).toHaveLength(4);
       // Directly above the previous each time == DOM order is newest-first
       // among the Card siblings (each Cmd+D inserts immediately above the
@@ -368,16 +383,21 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
         "newest copy must sit directly above the one it duplicated",
       ).toEqual(sorted);
 
-      // Selection ended on the last (4th) copy, not the original.
-      const selectedRow = layerTree(page).locator(
-        '[role="treeitem"][aria-selected="true"]',
-      );
-      const selectedId = await selectedRow
-        .locator("[data-layer-row-button]")
-        .first()
-        .getAttribute("data-layer-node-id");
-      expect(selectedId).not.toBe("card");
-      expect(cardIds).toContain(selectedId);
+      // Selection ended on the newest (4th) copy. Layer rows are keyed by
+      // the code-layer projection's own hashed id (see
+      // parity-alt-drag-duplicate.spec.ts's matching note), not the raw
+      // data-agent-native-node-id cardIds is built from, so identify the
+      // row by tree position instead of comparing ids across those two
+      // spaces: the panel lists the highest z-order item first, and each
+      // Cmd+D inserts its copy directly above (higher z than) the one it
+      // duplicated, so the newest copy is the FIRST "Card" row.
+      const cardRows = layerTree(page)
+        .locator("[data-layer-row-button][data-layer-node-id]")
+        .filter({ has: page.locator('span[title="Card"]') });
+      await expect(cardRows).toHaveCount(4);
+      await expect(
+        cardRows.first().locator('xpath=ancestor::*[@role="treeitem"][1]'),
+      ).toHaveAttribute("aria-selected", "true");
     } finally {
       await deleteDesign(request, designId);
     }

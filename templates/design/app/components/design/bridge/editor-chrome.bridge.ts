@@ -12857,7 +12857,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       duplicatedForDrag = true;
       gestureEl = clone;
       positionOverlay(selectionOverlay, selectedEl);
-      postElementSelect(selectedEl, e);
+      // No `e` here: this reselects the clone mid-gesture, before the drag's
+      // own commit persists it (postVisualDuplicateChange, at gesture end).
+      // Passing the mousedown event would tag it a real "pointer" pick, and
+      // the host records every intent-carrying pick as its own undo step —
+      // stacking a stray one under this gesture's real content entry.
+      postElementSelect(selectedEl);
     }
     // Multi-select group move: every member of the current 2+ selection moves
     // with the gesture when the drag started on a member. Alt-drag duplicates
@@ -13450,6 +13455,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // in the final slot with no back-to-origin flicker.
         clearReorderLift();
         clearReorderReflow();
+        // See cleanupMoveDrag's matching call: the mousedown that started
+        // this reorder still owes the browser a trailing native click on
+        // mouseup, which would otherwise reselect the reordered element with
+        // a real pointer intent right after this gesture's own commit.
+        suppressNextShieldClickBriefly();
       }
       function onReorderVisibilityChange() {
         if (document.visibilityState === "hidden") onReorderEscape();
@@ -14013,6 +14023,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // after this gesture's "end"/"cancel" phase has already gone out.
       crossScreenDragMoveScheduled = false;
       crossScreenDragMovePendingEv = null;
+      // The mousedown that started this gesture still owes the browser a
+      // trailing native "click" on mouseup — unsuppressed, it reaches
+      // selectElementAtEvent as an ordinary standalone pick of whatever now
+      // sits under the pointer (the moved element, the duplicate's clone),
+      // tags it a real pointer intent, and the host records that as its own
+      // undo step stacked on top of this gesture's own commit. Every onUp
+      // exit — commit or cancel — runs this cleanup first, so suppressing
+      // here covers all of them instead of each commit branch needing its
+      // own call (the cancel branches already added theirs ad hoc).
+      suppressNextShieldClickBriefly();
     }
     function cancelMoveDrag() {
       bridgeMoveController.cancel();

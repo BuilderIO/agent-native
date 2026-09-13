@@ -9238,7 +9238,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         duplicatedForDrag = true;
         gestureEl = clone;
         positionOverlay(selectionOverlay, selectedEl);
-        postElementSelect(selectedEl, e);
+        postElementSelect(selectedEl);
       }
       var groupEls = duplicatedForDrag || e.altKey ? [gestureEl] : collectMoveGroupMembers(gestureEl);
       if (groupEls.indexOf(gestureEl) === -1) groupEls = [gestureEl];
@@ -9586,6 +9586,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearActiveDragCancel(onReorderEscape2);
           clearReorderLift2();
           clearReorderReflow2();
+          suppressNextShieldClickBriefly();
         }, onReorderVisibilityChange2 = function() {
           if (document.visibilityState === "hidden") onReorderEscape2();
         }, onReorderEscape2 = function() {
@@ -10031,6 +10032,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         restoreOverflowOnAncestors(liftedClippingAncestors);
         crossScreenDragMoveScheduled = false;
         crossScreenDragMovePendingEv = null;
+        suppressNextShieldClickBriefly();
       }
       function cancelMoveDrag() {
         bridgeMoveController.cancel();

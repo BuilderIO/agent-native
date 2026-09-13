@@ -172,8 +172,10 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
       );
       const copyId = ids.find((id) => id !== "card")!;
       expect(copyId, `trace: ${await dumpTrace(page)}`).toBeTruthy();
-      // Directly above the original in DOM order.
-      expect(ids.indexOf(copyId)).toBeLessThan(ids.indexOf("card"));
+      // Directly above the original in z-order — this app's convention (see
+      // the sibling parity specs) is later-in-DOM = higher z-order, so the
+      // copy lands immediately AFTER the source, not before.
+      expect(ids.indexOf(copyId)).toBeGreaterThan(ids.indexOf("card"));
 
       const copyBox = await designFrame(page)
         .locator(`[data-agent-native-node-id="${copyId}"]`)
