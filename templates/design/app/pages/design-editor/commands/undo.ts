@@ -49,6 +49,7 @@ import {
   contentHistoryEntryFromChanges,
   readYjsUndoSelection,
   remapFileDeletionHistoryEntryIds,
+  remapSelectionHistoryStackIds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
 import type {
@@ -894,6 +895,23 @@ export function runUndo({
         if (recreatedEntry.files.length !== entry.files.length) {
           throw new Error("Failed to restore every deleted screen");
         }
+        // The recreated screens got new database ids — a pure-selection
+        // history entry recorded before the delete still names the old
+        // ones, and would otherwise restore a selection pointing at a
+        // screen that no longer exists.
+        const recreatedIdByOldId = new Map(
+          entry.files.map(
+            (file, index) => [file.id, recreatedIds[index]!] as const,
+          ),
+        );
+        selectionUndoStackRef.current = remapSelectionHistoryStackIds(
+          selectionUndoStackRef.current,
+          recreatedIdByOldId,
+        );
+        selectionRedoStackRef.current = remapSelectionHistoryStackIds(
+          selectionRedoStackRef.current,
+          recreatedIdByOldId,
+        );
         fileDeletionRedoStackRef.current = [
           ...fileDeletionRedoStackRef.current.slice(
             -(MAX_DESIGN_UNDO_STACK - 1),

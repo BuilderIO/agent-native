@@ -82,6 +82,7 @@ export function runFrameSelection({
     kind: "wrapNodes",
     targetIds: nodeIds,
     autoLayout: false,
+    wrapperKind: "frame",
   });
   if (patch.result.status !== "applied") {
     toast.error(

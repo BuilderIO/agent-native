@@ -486,6 +486,8 @@ export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
   autoLayout?: boolean;
+  /** Defaults to a Group; auto-layout always creates a Frame. */
+  wrapperKind?: "group" | "frame";
 }
 
 /**
@@ -2440,6 +2442,9 @@ function treeTypeForNode(
   node: CodeLayerNode,
   nodesById: ReadonlyMap<string, CodeLayerNode>,
 ): CodeLayerTreeNodeType {
+  if (node.dataAttributes["data-agent-native-group"] === "true") {
+    return "group";
+  }
   // Canvas primitives (drawn shapes / board objects) carry their kind via
   // data-an-primitive so the layers panel shows a true shape/text/frame icon
   // instead of the generic code glyph. The marker wins over tag heuristics:
@@ -4423,6 +4428,7 @@ function applyWrapNodes(
   | { content: string; capability: EditCapability; wrapperNodeId: string }
   | PatchResultStatus {
   const { autoLayout = false } = intent;
+  const wrapperIsFrame = autoLayout || intent.wrapperKind === "frame";
   // A UI selection is unique, but action/tool callers and stale multi-select
   // state can repeat an id. Extracting/removing the same source span twice
   // corrupts the surrounding document and duplicates the node inside the new
@@ -4481,7 +4487,7 @@ function applyWrapNodes(
   // multiple ambiguous layers with the same bare name.
   const wrapperLayerName = nextSequentialWrapperName(
     build.projection.nodes,
-    autoLayout ? "Frame" : "Group",
+    wrapperIsFrame ? "Frame" : "Group",
   );
 
   // L7: when EVERY target is absolutely positioned with pixel left/top (and
@@ -4538,7 +4544,10 @@ function applyWrapNodes(
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
       : null;
   const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-preserve-styles="true"${wrapperStyleAttr}>`;
+  const wrapperKindAttr = wrapperIsFrame
+    ? ' data-an-primitive="frame"'
+    : ' data-agent-native-group="true"';
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-preserve-styles="true"${wrapperKindAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 

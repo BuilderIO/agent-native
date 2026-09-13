@@ -197,6 +197,37 @@ export function remapFileDeletionHistoryEntryIds(
   };
 }
 
+/** Undoing a file deletion recreates each screen under a brand-new database
+ * id (see `remapFileDeletionHistoryEntryIds`) — apply the same old-id ->
+ * new-id remap to every screen id a `SelectionHistoryEntry` snapshot carries,
+ * so a stale pure-selection undo/redo entry restores the recreated screen
+ * instead of one that no longer exists. `selectedLayerIds` is included
+ * because the overview canvas's own multi-screen selection reuses it to
+ * store screen ids too (see `undoFileDeletion`'s post-recreate selection). */
+export function remapSelectionHistoryStackIds(
+  stack: readonly SelectionHistoryEntry[],
+  idMap: ReadonlyMap<string, string>,
+): SelectionHistoryEntry[] {
+  if (idMap.size === 0) return [...stack];
+  const remapSelection = (
+    selection: GeometryHistorySelection,
+  ): GeometryHistorySelection => {
+    const remapId = (fileId: string) => idMap.get(fileId) ?? fileId;
+    return {
+      overviewSelectedScreenIds:
+        selection.overviewSelectedScreenIds.map(remapId),
+      selectedLayerIds: selection.selectedLayerIds.map(remapId),
+      activeFileId: selection.activeFileId
+        ? remapId(selection.activeFileId)
+        : selection.activeFileId,
+    };
+  };
+  return stack.map((entry) => ({
+    before: remapSelection(entry.before),
+    after: remapSelection(entry.after),
+  }));
+}
+
 export function pruneFileCreationHistoryStack(
   stack: FileCreationHistoryEntry[],
   deletedFilenames: Set<string>,

@@ -128,7 +128,15 @@ export function runLayerMarqueeSelectionChange(
         ])
       : hitLayerIds,
   );
-  if (viewModeRef.current === "overview") {
+  // A marquee gesture already drives top-level screen selection itself
+  // (MultiScreenCanvas's own selectedIds -> onScreenSelectionChange), always
+  // paired with the layer report it sends here — including the one a
+  // fully-enclosed screen produces, whose layer selection is empty by
+  // design (screens are excluded from candidates). Clearing screen
+  // selection again from that empty report would stomp the screen the
+  // marquee just selected; only a pointer/keyboard pick needs this handler
+  // to clear it, since nothing else does for those sources.
+  if (viewModeRef.current === "overview" && intent.source !== "marquee") {
     setOverviewSelectedScreenIds([]);
   }
 
