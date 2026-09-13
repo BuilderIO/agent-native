@@ -321,7 +321,7 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
     }
   });
 
-  test("menu item hover/focus background keeps white item text legible in light mode", async ({
+  test("menu item hover/focus background keeps the item text legible in light mode", async ({
     page,
     request,
   }) => {
@@ -363,11 +363,10 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
       }
 
-      // The item text is white (rgb(255,255,255)) on focus per MENU_ITEM_CLASS
-      // (`focus:text-white`). Composite the translucent focus background over
-      // an assumed white menu surface to get the effective row color, then
-      // require a WCAG-AA-ish contrast ratio (>= 3:1, the minimum for large
-      // "text-like" UI per WCAG 1.4.11) against white text.
+      // The focused row uses the shared panel hover token (a translucent tint)
+      // with the regular foreground text. Composite the tint over an assumed
+      // white menu surface to get the effective row color, then require
+      // WCAG AA contrast (>= 4.5:1) between that and the computed text color.
       const [r, g, b, a] = parseRgb(bg);
       const surface: [number, number, number] = [255, 255, 255];
       const effective: [number, number, number] = [
@@ -375,15 +374,16 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         g * a + surface[1] * (1 - a),
         b * a + surface[2] * (1 - a),
       ];
-      const textIsWhite = color.replace(/\s/g, "") === "rgb(255,255,255)";
-      expect(textIsWhite, `computed item text color was ${color}`).toBe(true);
+      const [tr, tg, tb] = parseRgb(color);
       const bgLuminance = relativeLuminance(effective);
-      const whiteLuminance = 1;
-      const contrast = (whiteLuminance + 0.05) / (bgLuminance + 0.05);
+      const textLuminance = relativeLuminance([tr, tg, tb]);
+      const lighter = Math.max(bgLuminance, textLuminance);
+      const darker = Math.min(bgLuminance, textLuminance);
+      const contrast = (lighter + 0.05) / (darker + 0.05);
       expect(
         contrast,
-        `focus background ${bg} composited over white surface -> effective rgb(${effective.map((v) => Math.round(v)).join(",")}), contrast against white text was ${contrast.toFixed(2)}:1`,
-      ).toBeGreaterThanOrEqual(3);
+        `focus background ${bg} composited over white surface -> effective rgb(${effective.map((v) => Math.round(v)).join(",")}), contrast against item text ${color} was ${contrast.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(4.5);
     } finally {
       await postAction(request, "delete-design", { id: designId }).catch(
         () => {},

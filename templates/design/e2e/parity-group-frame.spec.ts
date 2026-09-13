@@ -88,6 +88,28 @@ function styleOf(html: string, id: string): string {
   );
 }
 
+// The layers panel reflects the in-memory Yjs doc synchronously, but
+// get-design reads the persisted file, which lands a write-debounce cycle
+// later. Polling here (rather than reading indexHtml once right after a
+// layers-panel assertion) avoids a race against that persist.
+async function persistedHtml(
+  page: Page,
+  designId: string,
+  isReady: (html: string) => boolean,
+): Promise<string> {
+  let html = "";
+  await expect
+    .poll(
+      async () => {
+        html = await indexHtml(page, designId);
+        return isReady(html);
+      },
+      { timeout: 5000 },
+    )
+    .toBe(true);
+  return html;
+}
+
 function styleNum(style: string, prop: string): number {
   const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
     style,
@@ -190,7 +212,11 @@ test.describe("Cmd+G group", () => {
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
       "one undo did not remove the Group layer",
     ).toHaveCount(0);
-    const html = await indexHtml(page, id);
+    const html = await persistedHtml(
+      page,
+      id,
+      (h) => !/data-agent-native-layer-name="Group"/.test(h),
+    );
     expect(
       styleNum(styleOf(html, "red"), "left"),
       "undo did not restore Red's original position",
@@ -215,7 +241,9 @@ test.describe("Cmd+G group", () => {
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
     ).toHaveCount(1);
 
-    const html = await indexHtml(page, id);
+    const html = await persistedHtml(page, id, (h) =>
+      /data-agent-native-layer-name="Group"/.test(h),
+    );
     const groupMatch = /data-agent-native-layer-name="Group"/.exec(html);
     const greenIdx = html.indexOf('data-agent-native-node-id="green"');
     expect(
@@ -254,7 +282,9 @@ test.describe("Cmd+G group", () => {
       `Cmd+G on a single selection must create a Group wrapper — trace: ${JSON.stringify(await dump(page))}`,
     ).toHaveCount(1);
 
-    const html = await indexHtml(page, id);
+    const html = await persistedHtml(page, id, (h) =>
+      /data-agent-native-layer-name="Group"/.test(h),
+    );
     const groupMatch = /data-agent-native-layer-name="Group"/.exec(html);
     expect(groupMatch, "no Group wrapper found in source").not.toBeNull();
     // The wrapper contains exactly the one grouped layer.
@@ -277,7 +307,11 @@ test.describe("Cmd+G group", () => {
       layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
       "one undo did not remove the Group layer",
     ).toHaveCount(0);
-    const undoneHtml = await indexHtml(page, id);
+    const undoneHtml = await persistedHtml(
+      page,
+      id,
+      (h) => !/data-agent-native-layer-name="Group"/.test(h),
+    );
     expect(
       styleNum(styleOf(undoneHtml, "solo"), "left"),
       "undo did not restore Solo's original position",

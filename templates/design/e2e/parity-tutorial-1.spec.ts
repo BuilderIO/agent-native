@@ -179,13 +179,6 @@ function hasNode(html: string, nodeId: string): boolean {
   return html.includes(`data-agent-native-node-id="${nodeId}"`);
 }
 
-async function selectedNodeId(page: Page): Promise<string | null> {
-  const row = page.locator('[role="treeitem"][aria-selected="true"]').first();
-  if ((await row.count()) === 0) return null;
-  const button = row.locator("[data-layer-node-id]").first();
-  return button.getAttribute("data-layer-node-id");
-}
-
 async function textPrimitiveNodeIds(
   page: Page,
   filename: string,
@@ -334,8 +327,18 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     const textId = textIds[0]!;
 
     // --- Step 4: Select the text, press Shift+A (auto layout wraps it) ---
-    await selectByText(page, "Button");
-    await expect.poll(async () => selectedNodeId(page)).toBe(textId);
+    // The layers panel's `data-layer-node-id` is CodeLayerNode.id — an
+    // internal hashStable(...) value (see nodeIdFor in shared/code-layer.ts),
+    // never equal to the stamped data-agent-native-node-id `textId` comes
+    // from. selectByText's own bridge payload carries that real id as
+    // `sourceId`, so assert against that instead of polling the panel.
+    const selectPayload = (await selectByText(page, "Button")) as {
+      sourceId?: string;
+    };
+    expect(
+      selectPayload?.sourceId,
+      "expected the click to resolve straight to the text node, not a container",
+    ).toBe(textId);
     await page.keyboard.press("Shift+A");
     await page.waitForTimeout(400);
 
