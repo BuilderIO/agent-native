@@ -75,6 +75,10 @@ type ManagedGmailClient = {
   refreshToken: string;
 };
 
+type ManagedGmailResolution =
+  | { ok: true; client: ManagedGmailClient | null }
+  | { ok: false; error: { email: "workspace"; error: string } };
+
 async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
   if (!getCredentialContext()) return null;
   const connection = await resolveWorkspaceConnectionForApp({
@@ -94,6 +98,23 @@ async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
     accessToken: credential.accessToken,
     refreshToken: "",
   };
+}
+
+async function resolveManagedGmailClientWithError(): Promise<ManagedGmailResolution> {
+  try {
+    return { ok: true, client: await resolveManagedGmailClient() };
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        email: "workspace",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Workspace Gmail connection failed",
+      },
+    };
+  }
 }
 
 export async function getOAuth2Credentials(owner?: string): Promise<{
@@ -431,8 +452,18 @@ export async function getClientForConnectedAccount(
   ownerEmail: string,
   accountEmail: string,
 ): Promise<{ accessToken: string; email: string } | null> {
-  const oauthClient = await getClientForAccount(accountEmail);
-  if (oauthClient) return oauthClient;
+  const oauthAccount = (await listOAuthAccountsByOwner("google", ownerEmail))
+    .filter((account) => hasGmailScope(account.tokens))
+    .find(
+      (account) =>
+        account.accountId.toLowerCase() === accountEmail.toLowerCase(),
+    );
+  if (oauthAccount) {
+    return getClientFromAccount({
+      ...oauthAccount,
+      owner: ownerEmail,
+    });
+  }
   const managed = await runWithRequestContext({ userEmail: ownerEmail }, () =>
     resolveManagedGmailClient(),
   );
@@ -491,22 +522,9 @@ export async function getClientsWithErrors(
   const oauthAccountEmails = new Set(
     accounts.map((account) => account.accountId.toLowerCase()),
   );
-  const resolveManagedWithError = async () => {
-    try {
-      return { ok: true as const, client: await resolveManagedGmailClient() };
-    } catch (err: any) {
-      return {
-        ok: false as const,
-        error: {
-          email: "workspace",
-          error: err?.message || "Workspace Gmail connection failed",
-        },
-      };
-    }
-  };
   const managedPromise =
     !requested || [...requested].some((email) => !oauthAccountEmails.has(email))
-      ? resolveManagedWithError()
+      ? resolveManagedGmailClientWithError()
       : null;
 
   const clients: Array<{
@@ -567,21 +585,21 @@ export async function getClientsWithErrors(
     else if (result.error) errors.push(result.error);
   }
 
-  const clientEmails = new Set(
-    clients.map((client) => client.email.toLowerCase()),
-  );
-  if (!requested || [...requested].some((email) => !clientEmails.has(email))) {
-    const result = await (managedPromise ?? resolveManagedWithError());
+  if (managedPromise) {
+    const result = await managedPromise;
     if (!result.ok) {
       errors.push(result.error);
     } else {
       const managed = result.client;
-      if (
-        managed &&
-        (!requested || requested.has(managed.email.toLowerCase())) &&
-        !clientEmails.has(managed.email.toLowerCase())
-      ) {
-        clients.push(managed);
+      if (managed) {
+        const managedEmail = managed.email.toLowerCase();
+        if (
+          (!requested || requested.has(managedEmail)) &&
+          !oauthAccountEmails.has(managedEmail)
+        ) {
+          // A stored OAuth identity remains authoritative when refresh fails.
+          clients.push(managed);
+        }
       }
     }
   }
@@ -603,19 +621,45 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
 export async function getConnectedAccounts(
   forEmail?: string,
 ): Promise<string[]> {
-  if (!forEmail) return [];
-  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
-    (account) => hasGmailScope(account.tokens),
-  );
-  const managed = await resolveManagedGmailClient();
-  const emails = accounts.map((account) => account.accountId);
+  const result = await getConnectedAccountsWithErrors(forEmail);
+  if (result.errors.length > 0) {
+    throw new Error(
+      result.errors
+        .map(({ error }) => error)
+        .filter(Boolean)
+        .join("; "),
+    );
+  }
+  return result.accounts;
+}
+
+export async function getConnectedAccountsWithErrors(
+  forEmail?: string,
+): Promise<{
+  accounts: string[];
+  errors: Array<{ email: string; error: string }>;
+}> {
+  if (!forEmail) return { accounts: [], errors: [] };
+  const [oauthAccounts, managedResult] = await Promise.all([
+    listOAuthAccountsByOwner("google", forEmail).then((accounts) =>
+      accounts.filter((account) => hasGmailScope(account.tokens)),
+    ),
+    resolveManagedGmailClientWithError(),
+  ]);
+  const accounts = oauthAccounts.map((account) => account.accountId);
+  if (!managedResult.ok) {
+    return { accounts, errors: [managedResult.error] };
+  }
+  const managed = managedResult.client;
   if (
     managed &&
-    !emails.some((email) => email.toLowerCase() === managed.email.toLowerCase())
+    !accounts.some(
+      (email) => email.toLowerCase() === managed.email.toLowerCase(),
+    )
   ) {
-    emails.push(managed.email);
+    accounts.push(managed.email);
   }
-  return emails;
+  return { accounts, errors: [] };
 }
 
 export interface GoogleAuthStatus {
@@ -627,6 +671,7 @@ export interface GoogleAuthStatus {
     photoUrl?: string;
     shared?: boolean;
   }>;
+  errors?: Array<{ email: string; error: string }>;
 }
 
 /**
@@ -647,6 +692,7 @@ export async function getAuthStatus(
     photoUrl?: string;
     shared?: boolean;
   }> = [];
+  const errors: Array<{ email: string; error: string }> = [];
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     if (!tokens) continue;
@@ -660,6 +706,11 @@ export async function getAuthStatus(
     try {
       accessToken = await getValidAccessToken(email, tokens);
     } catch (err) {
+      errors.push({
+        email,
+        error:
+          err instanceof Error ? err.message : "Google token refresh failed",
+      });
       console.warn(
         `[mail] skipping unusable Google OAuth row for ${email}:`,
         err instanceof Error ? err.message : err,
@@ -692,19 +743,26 @@ export async function getAuthStatus(
     });
   }
 
-  const managed = await resolveManagedGmailClient();
-  if (
-    managed &&
-    !accounts.some(
-      (account) => account.email.toLowerCase() === managed.email.toLowerCase(),
-    )
-  ) {
-    accounts.push({ email: managed.email, shared: true });
+  const managedResult = await resolveManagedGmailClientWithError();
+  if (!managedResult.ok) {
+    errors.push(managedResult.error);
+  } else {
+    const managed = managedResult.client;
+    if (
+      managed &&
+      !accounts.some(
+        (account) =>
+          account.email.toLowerCase() === managed.email.toLowerCase(),
+      )
+    ) {
+      accounts.push({ email: managed.email, shared: true });
+    }
   }
 
   return {
     connected: accounts.length > 0,
     accounts,
+    ...(errors.length > 0 ? { errors } : {}),
   };
 }
 

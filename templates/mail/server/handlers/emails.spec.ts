@@ -84,9 +84,8 @@ describe("emails handler Gmail label listing", () => {
     expect(source).toContain(
       "if (label) emails = filterLabelMessages(emails, label);",
     );
-    expect(source).toContain(
-      "const accountTokens = await getAccountTokens(email, accountEmails);",
-    );
+    expect(source).toContain("await getAccountTokens(email, accountEmails);");
+    expect(source).toContain("errors: tokenErrors");
     expect(source).toContain(
       "return recomputeUnreadCounts(\n    await readEmails(email),\n    await readLabels(email),\n  );",
     );

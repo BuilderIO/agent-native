@@ -17,7 +17,7 @@ import {
 } from "./google-api.js";
 import {
   getClientForConnectedAccount,
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   getHeader,
   invalidateListCacheForOwner,
   isPermanentRefreshError,
@@ -104,13 +104,13 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
 
 // Self-address set for the "latest received message" pick. Must include the
 // account being synced explicitly: a managed-only workspace grant has no
-// per-user OAuth row, and getConnectedAccounts drops the managed email once
-// any OAuth account exists.
+// per-user OAuth row; the selected account must remain present even when the
+// workspace account inventory is incomplete.
 async function connectedEmailsLower(
   ownerEmail: string,
   accountEmail: string,
 ): Promise<Set<string>> {
-  const accounts = await getConnectedAccounts(ownerEmail);
+  const { accounts } = await getConnectedAccountsWithErrors(ownerEmail);
   return new Set([
     ...accounts.map((a) => a.toLowerCase()),
     accountEmail.toLowerCase(),
@@ -614,20 +614,25 @@ export async function ensureInboxFresh(
   const maxAgeMs = opts?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
 
-  // getConnectedAccounts is the single "which accounts exist" source: OAuth
-  // accounts with Gmail scope, else the managed workspace grant's email (no
-  // per-user OAuth row). Enumerating via listOAuthAccountsByOwner alone
-  // would silently skip managed grants forever.
-  const accounts = await getConnectedAccounts(ownerEmail);
+  // The structured account result keeps usable OAuth accounts available when
+  // a managed workspace grant cannot be resolved, while surfacing that gap.
+  const { accounts, errors: lookupErrors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
   const requested = opts?.accountEmails?.length
     ? new Set(opts.accountEmails.map((e) => e.toLowerCase()))
     : null;
+  const requestedAccountsAreKnown =
+    requested !== null &&
+    [...requested].every((email) =>
+      accounts.some((account) => account.toLowerCase() === email),
+    );
+  const relevantLookupErrors = requestedAccountsAreKnown ? [] : lookupErrors;
   const emails = accounts
     .map((email) => email.toLowerCase())
     .filter((email) => !requested || requested.has(email));
 
   const now = Date.now();
-  return Promise.all(
+  const statuses = await Promise.all(
     emails.map(async (accountEmail) => {
       const row = await ensureSyncAccountRow(ownerEmail, accountEmail);
       const fresh =
@@ -650,6 +655,15 @@ export async function ensureInboxFresh(
       }
     }),
   );
+  return [
+    ...statuses,
+    ...relevantLookupErrors.map(({ email, error }) => ({
+      accountEmail: email,
+      state: "error" as const,
+      lastSyncedAt: null,
+      error: boundedErrorMessage(error),
+    })),
+  ];
 }
 
 export async function resetInboxSync(
@@ -663,8 +677,12 @@ export async function resetInboxSync(
   // Same "which accounts exist" source as ensureInboxFresh — a managed
   // grant has no sync-account row until its first ensureInboxFresh call, so
   // resetting only existing readSyncAccounts rows would silently skip it.
-  const emails = await getConnectedAccounts(ownerEmail);
+  const { accounts: emails, errors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
   await Promise.all(
     emails.map((email) => resetSyncAccountProgress(ownerEmail, email)),
   );
+  if (errors.length > 0) {
+    throw new Error(errors.map(({ error }) => error).join("; "));
+  }
 }

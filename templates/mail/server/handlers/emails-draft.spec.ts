@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   readBody: vi.fn(),
   readSettings: vi.fn(),
   isConnected: vi.fn(),
-  getConnectedAccounts: vi.fn(),
+  getConnectedAccountsWithErrors: vi.fn(),
   getClientForConnectedAccount: vi.fn(),
   getClientsWithErrors: vi.fn(),
   listOAuthAccountsByOwner: vi.fn(),
@@ -81,7 +81,7 @@ vi.mock("../lib/google-auth.js", () => ({
   getAccountDisplayName: mocks.getAccountDisplayName,
   getClientForConnectedAccount: mocks.getClientForConnectedAccount,
   getClientsWithErrors: mocks.getClientsWithErrors,
-  getConnectedAccounts: mocks.getConnectedAccounts,
+  getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
   gmailToEmailMessage: vi.fn(),
   invalidateListCacheForOwner: vi.fn(),
   isConnected: mocks.isConnected,
@@ -140,7 +140,10 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       body: "",
     });
     mocks.isConnected.mockResolvedValue(true);
-    mocks.getConnectedAccounts.mockResolvedValue([managedAccountEmail]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [managedAccountEmail],
+      errors: [],
+    });
     mocks.getClientsWithErrors.mockResolvedValue({ clients: [], errors: [] });
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     mocks.getClientForConnectedAccount.mockResolvedValue({
@@ -158,7 +161,9 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       {},
     );
 
-    expect(mocks.getConnectedAccounts).toHaveBeenCalledWith(ownerEmail);
+    expect(mocks.getConnectedAccountsWithErrors).toHaveBeenCalledWith(
+      ownerEmail,
+    );
     expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
       ownerEmail,
       managedAccountEmail,
@@ -221,10 +226,10 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       body: "",
       accountEmail: managedAccountEmail,
     });
-    mocks.getConnectedAccounts.mockResolvedValue([
-      oauthAccountEmail,
-      managedAccountEmail,
-    ]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [oauthAccountEmail, managedAccountEmail],
+      errors: [],
+    });
     mocks.getClientsWithErrors.mockResolvedValue({
       clients: [
         {

@@ -5,7 +5,7 @@ import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import { z } from "zod";
 
 import { gmailListLabels } from "../server/lib/google-api.js";
-import { getConnectedAccounts } from "../server/lib/google-auth.js";
+import { getConnectedAccountsWithErrors } from "../server/lib/google-auth.js";
 import { readCachedLabels } from "../server/lib/inbox-store.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import type { Label } from "../shared/types.js";
@@ -127,11 +127,29 @@ export default defineAction({
 
     // getConnectedAccounts is the single "which accounts exist" source —
     // OAuth rows with Gmail scope, else a managed workspace grant's email.
-    const connectedEmails = (await getConnectedAccounts(ownerEmail))
+    const accountResult = await getConnectedAccountsWithErrors(ownerEmail);
+    const connectedEmails = accountResult.accounts
       .map((email) => email.toLowerCase())
       .filter((email) => !requested || requested.has(email));
+    const allRequestedAccountsAreKnown =
+      requested !== undefined &&
+      [...requested].every((email) =>
+        accountResult.accounts.some(
+          (account) => account.toLowerCase() === email,
+        ),
+      );
+    const errors: Array<{ accountEmail: string; error: string }> =
+      allRequestedAccountsAreKnown
+        ? []
+        : accountResult.errors.map(({ email, error }) => ({
+            accountEmail: email,
+            error: boundedErrorMessage(error),
+          }));
 
     if (connectedEmails.length === 0) {
+      if (errors.length > 0) {
+        return { labels: [], errors };
+      }
       const local = await getUserSetting(ownerEmail, "labels");
       const labels = Array.isArray((local as any)?.labels)
         ? ((local as any).labels as Label[])
@@ -162,7 +180,6 @@ export default defineAction({
     const uncachedEmails = connectedEmails.filter(
       (email) => !cachedEmails.has(email),
     );
-    const errors: Array<{ accountEmail: string; error: string }> = [];
     if (uncachedEmails.length > 0) {
       const accounts = (await getAccessTokens()).filter(({ email }) =>
         uncachedEmails.includes(email.toLowerCase()),

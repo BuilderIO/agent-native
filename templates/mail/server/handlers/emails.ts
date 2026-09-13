@@ -64,7 +64,7 @@ import {
 } from "../lib/google-api.js";
 import {
   isConnected,
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   getClientForConnectedAccount,
   getClientsWithErrors,
   invalidateListCacheForOwner,
@@ -144,6 +144,35 @@ const labelMapCache = new Map<
 >();
 const LABEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+type MailAccountError = { email: string; error: string };
+type AccountTokenResult = {
+  tokens: Array<{ email: string; accessToken: string }>;
+  errors: MailAccountError[];
+};
+
+function formatMailAccountErrors(errors: readonly MailAccountError[]): string {
+  return errors.map(({ email, error }) => `${email}: ${error}`).join("; ");
+}
+
+function mergeMailAccountErrors(
+  ...groups: ReadonlyArray<readonly MailAccountError[]>
+): MailAccountError[] {
+  const merged = new Map<string, MailAccountError>();
+  for (const error of groups.flat()) {
+    merged.set(`${error.email.toLowerCase()}\0${error.error}`, error);
+  }
+  return [...merged.values()];
+}
+
+function setMailAccountErrorsHeader(
+  event: H3Event,
+  errors: readonly MailAccountError[],
+): void {
+  if (errors.length === 0) return;
+  const safe = JSON.stringify(errors).replace(/[^\x20-\x7e]/g, "?");
+  setResponseHeader(event, "X-Account-Errors", safe);
+}
+
 async function getCachedLabelMap(
   accountTokens: Array<{ email: string; accessToken: string }>,
 ): Promise<Map<string, string>> {
@@ -187,11 +216,11 @@ async function getAccessToken(
 async function getAccountTokens(
   forEmail: string,
   requestedAccountEmails?: readonly string[],
-): Promise<Array<{ email: string; accessToken: string }>> {
+): Promise<AccountTokenResult> {
   const requested = requestedAccountEmails
     ? new Set(requestedAccountEmails.map((account) => account.toLowerCase()))
     : undefined;
-  const [accounts, { clients }] = await Promise.all([
+  const [accounts, { clients, errors }] = await Promise.all([
     listOAuthAccountsByOwner("google", forEmail),
     getClientsWithErrors(
       forEmail,
@@ -236,7 +265,10 @@ async function getAccountTokens(
       .catch(() => {});
   }
 
-  return clients.map(({ email, accessToken }) => ({ email, accessToken }));
+  return {
+    tokens: clients.map(({ email, accessToken }) => ({ email, accessToken })),
+    errors,
+  };
 }
 
 /** Resolve an account from this owner's connected mailbox set. */
@@ -244,22 +276,33 @@ async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  const accounts = await getConnectedAccounts(ownerEmail);
+  const { accounts, errors } = await getConnectedAccountsWithErrors(ownerEmail);
   if (!requestAccountEmail) {
-    return (
-      accounts.find(
-        (accountEmail) =>
-          accountEmail.toLowerCase() === ownerEmail.toLowerCase(),
-      ) ??
-      accounts[0] ??
-      ownerEmail
+    const ownerAccount = accounts.find(
+      (accountEmail) => accountEmail.toLowerCase() === ownerEmail.toLowerCase(),
     );
+    if (ownerAccount) return ownerAccount;
+    if (errors.length > 0) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: formatMailAccountErrors(errors),
+        data: { accountErrors: errors },
+      });
+    }
+    return accounts[0] ?? ownerEmail;
   }
   const account = accounts.find(
     (accountEmail) =>
       accountEmail.toLowerCase() === requestAccountEmail.toLowerCase(),
   );
   if (!account) {
+    if (errors.length > 0) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: formatMailAccountErrors(errors),
+        data: { accountErrors: errors },
+      });
+    }
     throw new Error("Account not owned by current user");
   }
   return account;
@@ -290,11 +333,14 @@ async function readGmailComposeAttachment(
   },
 ): Promise<Buffer | null> {
   if (!attachment.gmailMessageId || !attachment.gmailAttachmentId) return null;
-  const accountTokens = await getAccountTokens(ownerEmail);
   const requestedAccountEmail = requestAccountEmail ?? attachment.accountEmail;
   const requestedAccount = requestedAccountEmail
     ? await resolveAccountEmail(requestedAccountEmail, ownerEmail)
     : undefined;
+  const { tokens: accountTokens, errors } = await getAccountTokens(
+    ownerEmail,
+    requestedAccount ? [requestedAccount] : undefined,
+  );
   const candidates = requestedAccount
     ? accountTokens.filter((account) => account.email === requestedAccount)
     : accountTokens;
@@ -310,6 +356,13 @@ async function readGmailComposeAttachment(
     } catch {
       continue;
     }
+  }
+  if (errors.length > 0) {
+    throw createError({
+      statusCode: 502,
+      statusMessage: formatMailAccountErrors(errors),
+      data: { accountErrors: errors },
+    });
   }
   return null;
 }
@@ -432,7 +485,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       }
 
       // Fetch label name mapping from all accounts (cached)
-      const accountTokens = await getAccountTokens(email);
+      const { tokens: accountTokens, errors: tokenErrors } =
+        await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
       const isPlainInboxRequest = view === "inbox" && !q && !label;
       const settings = isPlainInboxRequest
@@ -461,6 +515,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       });
 
       if (!listResult.ok) {
+        setMailAccountErrorsHeader(event, tokenErrors);
         // All accounts failed — surface as error
         if (listResult.isQuotaError) {
           setResponseStatus(event, 429);
@@ -475,16 +530,19 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         return { error: listResult.message };
       }
 
-      const { emails, errors, nextPageTokens, resultSizeEstimate } = listResult;
+      const {
+        emails,
+        errors: listErrors,
+        nextPageTokens,
+        resultSizeEstimate,
+      } = listResult;
+      const errors = mergeMailAccountErrors(listErrors, tokenErrors);
 
       // If some accounts failed but others succeeded, add warning header.
       // HTTP headers must be ByteString (code points <= 255), so strip any
       // UTF-8 that might land in an error message (em dashes, smart quotes,
       // etc. from Google error responses). Otherwise the whole handler 500s.
-      if (errors.length > 0) {
-        const safe = JSON.stringify(errors).replace(/[^\x20-\x7e]/g, "?");
-        setResponseHeader(event, "X-Account-Errors", safe);
-      }
+      setMailAccountErrorsHeader(event, errors);
 
       // Encode next page token for the frontend
       let nextPageToken: string | undefined;
@@ -500,7 +558,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       };
     } catch (error: any) {
       console.error("[listEmails] Gmail error:", error.message);
-      setResponseStatus(event, 500);
+      setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
     }
   }
@@ -622,20 +680,33 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     try {
-      const accountTokens = await getAccountTokens(email);
-      let candidateTokens = accountTokens;
+      let resolvedAccount: string | undefined;
       if (accountEmail) {
-        let resolvedAccount: string;
         try {
           resolvedAccount = await resolveAccountEmail(accountEmail, email);
-        } catch {
-          setResponseStatus(event, 403);
-          return { error: "Account not owned by current user" };
+        } catch (error: any) {
+          const statusCode = error?.statusCode ?? 403;
+          setResponseStatus(event, statusCode);
+          return {
+            error: error?.statusMessage ?? "Account not owned by current user",
+            ...(error?.data?.accountErrors
+              ? { accountErrors: error.data.accountErrors }
+              : {}),
+          };
         }
+      }
+      const { tokens: accountTokens, errors } = await getAccountTokens(
+        email,
+        resolvedAccount ? [resolvedAccount] : undefined,
+      );
+      let candidateTokens = accountTokens;
+      if (resolvedAccount) {
         candidateTokens = accountTokens.filter(
-          (account) => account.email === resolvedAccount,
+          (account) =>
+            account.email.toLowerCase() === resolvedAccount.toLowerCase(),
         );
       }
+      setMailAccountErrorsHeader(event, errors);
       const labelMap = await getCachedLabelMap(accountTokens);
 
       // When the list row tells us which connected account owns the thread,
@@ -673,12 +744,26 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
         }
       }
       if (candidateTokens.length > 0) {
+        if (errors.length > 0) {
+          setResponseStatus(event, 502);
+          return {
+            error: formatMailAccountErrors(errors),
+            accountErrors: errors,
+          };
+        }
         setResponseStatus(event, 404);
         return { error: "Thread not found in any account" };
       }
+      if (errors.length > 0) {
+        setResponseStatus(event, 502);
+        return {
+          error: formatMailAccountErrors(errors),
+          accountErrors: errors,
+        };
+      }
     } catch (error: any) {
       console.error("[getThreadMessages] error:", error.message);
-      setResponseStatus(event, 500);
+      setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
     }
   }
@@ -702,7 +787,8 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
 export const getEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   if (await isConnected(email)) {
-    const accountTokens = await getAccountTokens(email);
+    const { tokens: accountTokens, errors } = await getAccountTokens(email);
+    setMailAccountErrorsHeader(event, errors);
     const labelMap = await getCachedLabelMap(accountTokens);
     for (const { email: acctEmail, accessToken } of accountTokens) {
       try {
@@ -724,8 +810,22 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
       }
     }
     if (accountTokens.length > 0) {
+      if (errors.length > 0) {
+        setResponseStatus(event, 502);
+        return {
+          error: formatMailAccountErrors(errors),
+          accountErrors: errors,
+        };
+      }
       setResponseStatus(event, 404);
       return { error: "Message not found in any account" };
+    }
+    if (errors.length > 0) {
+      setResponseStatus(event, 502);
+      return {
+        error: formatMailAccountErrors(errors),
+        accountErrors: errors,
+      };
     }
   }
 
@@ -1051,16 +1151,25 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       email,
       accountEmail,
     );
-  } catch {
-    setResponseStatus(event, 400);
-    return { error: "One or more attachments could not be read" };
+  } catch (error: any) {
+    setResponseStatus(event, error?.statusCode ?? 400);
+    return {
+      error:
+        error?.statusMessage ?? "One or more attachments could not be read",
+      ...(error?.data?.accountErrors
+        ? { accountErrors: error.data.accountErrors }
+        : {}),
+    };
   }
 
   // If Gmail is connected, send via Gmail API
   if (await isConnected(email)) {
     try {
-      const accountTokens = await getAccountTokens(email);
       let selectedEmail = await resolveAccountEmail(accountEmail, email);
+      const { tokens: accountTokens, errors } = await getAccountTokens(
+        email,
+        replyToId && !accountEmail ? undefined : [selectedEmail],
+      );
       let selectedToken = accountTokens.find(
         (account) =>
           account.email.toLowerCase() === selectedEmail.toLowerCase(),
@@ -1098,12 +1207,31 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
             if (err?.message?.includes("404")) continue;
           }
         }
+        if (!threadId) {
+          if (errors.length > 0) {
+            setResponseStatus(event, 502);
+            return {
+              error: formatMailAccountErrors(errors),
+              accountErrors: errors,
+            };
+          }
+          setResponseStatus(event, 404);
+          return { error: "Reply source not found in the selected account" };
+        }
       }
 
       if (!selectedToken) {
+        if (errors.length > 0) {
+          setResponseStatus(event, 502);
+          return {
+            error: formatMailAccountErrors(errors),
+            accountErrors: errors,
+          };
+        }
         setResponseStatus(event, 401);
         return { error: "No valid access token for account" };
       }
+      setMailAccountErrorsHeader(event, errors);
 
       const senderIdentity = await resolveGoogleSenderIdentity({
         accessToken: selectedToken,
@@ -1207,8 +1335,13 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       };
     } catch (error: any) {
       console.error("[sendEmail] Gmail API error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: "Failed to send email via Gmail" };
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return {
+        error: error?.statusMessage ?? "Failed to send email via Gmail",
+        ...(error?.data?.accountErrors
+          ? { accountErrors: error.data.accountErrors }
+          : {}),
+      };
     }
   }
 
@@ -1585,12 +1718,17 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
 // ─── Contacts (extracted from email history) ─────────────────────────────────
 
 export type ContactEntry = { name: string; email: string; count: number };
+export type ContactLookupResult = {
+  contacts: ContactEntry[];
+  errors: MailAccountError[];
+};
 
 // Contact cache: keyed by user email, TTL 10 minutes
 const contactCache = new Map<
   string,
   {
     data: ContactEntry[];
+    errors: MailAccountError[];
     expiresAt: number;
   }
 >();
@@ -1604,179 +1742,180 @@ const CONTACT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
  */
 export async function loadContactsForEmail(
   email: string,
-): Promise<ContactEntry[]> {
+): Promise<ContactLookupResult> {
   const cached = contactCache.get(email);
   if (cached && Date.now() < cached.expiresAt) {
-    return cached.data;
+    return { contacts: cached.data, errors: cached.errors };
   }
 
   if (await isConnected(email)) {
-    try {
-      const accountTokens = await getAccountTokens(email);
-      const contactMap = new Map<
-        string,
-        { name: string; email: string; count: number }
-      >();
+    const { tokens: accountTokens, errors } = await getAccountTokens(email);
+    const contactMap = new Map<
+      string,
+      { name: string; email: string; count: number }
+    >();
 
-      for (const { accessToken } of accountTokens) {
-        // Fetch saved contacts (People API connections)
-        try {
-          let nextPageToken: string | undefined;
-          do {
-            const resp = await peopleListConnections(accessToken, {
-              pageSize: 200,
-              personFields: "names,emailAddresses",
-              pageToken: nextPageToken,
-            });
-            for (const person of resp.connections || []) {
-              const emails = person.emailAddresses || [];
-              const name =
-                person.names?.[0]?.displayName || emails[0]?.value || "";
-              for (const em of emails) {
-                if (!em.value) continue;
-                const key = em.value.toLowerCase();
-                const existing = contactMap.get(key);
-                if (existing) {
-                  existing.count += 5; // boost saved contacts
-                  if (
-                    name &&
-                    name !== em.value &&
-                    existing.name === existing.email
-                  ) {
-                    existing.name = name;
-                  }
-                } else {
-                  contactMap.set(key, {
-                    name: name || em.value,
-                    email: em.value,
-                    count: 5,
-                  });
+    for (const { email: accountEmail, accessToken } of accountTokens) {
+      // Fetch saved contacts (People API connections)
+      try {
+        let nextPageToken: string | undefined;
+        do {
+          const resp = await peopleListConnections(accessToken, {
+            pageSize: 200,
+            personFields: "names,emailAddresses",
+            pageToken: nextPageToken,
+          });
+          for (const person of resp.connections || []) {
+            const emails = person.emailAddresses || [];
+            const name =
+              person.names?.[0]?.displayName || emails[0]?.value || "";
+            for (const em of emails) {
+              if (!em.value) continue;
+              const key = em.value.toLowerCase();
+              const existing = contactMap.get(key);
+              if (existing) {
+                existing.count += 5; // boost saved contacts
+                if (
+                  name &&
+                  name !== em.value &&
+                  existing.name === existing.email
+                ) {
+                  existing.name = name;
                 }
-              }
-            }
-            nextPageToken = resp.nextPageToken ?? undefined;
-          } while (nextPageToken);
-        } catch (err: any) {
-          console.error("[listContacts] connections error:", err.message);
-        }
-
-        // Fetch "other contacts" (people you've interacted with but haven't saved)
-        try {
-          let nextPageToken: string | undefined;
-          do {
-            const resp = await peopleListOtherContacts(accessToken, {
-              pageSize: 200,
-              readMask: "names,emailAddresses",
-              pageToken: nextPageToken,
-            });
-            for (const person of resp.otherContacts || []) {
-              const emails = person.emailAddresses || [];
-              const name =
-                person.names?.[0]?.displayName || emails[0]?.value || "";
-              for (const em of emails) {
-                if (!em.value) continue;
-                const key = em.value.toLowerCase();
-                if (!contactMap.has(key)) {
-                  contactMap.set(key, {
-                    name: name || em.value,
-                    email: em.value,
-                    count: 1,
-                  });
-                }
-              }
-            }
-            nextPageToken = resp.nextPageToken ?? undefined;
-          } while (nextPageToken);
-        } catch (err: any) {
-          console.error("[listContacts] otherContacts error:", err.message);
-        }
-      }
-
-      // Always merge in addresses from Gmail headers. People API's
-      // otherContacts only surfaces senders, so people the user has emailed
-      // (but who haven't replied) won't appear unless we scan sent messages.
-      // We query sent first to ensure outgoing recipients are captured, then
-      // fall back to a general scan when People API returned nothing (e.g.
-      // missing scopes).
-      const gmailQueries =
-        contactMap.size === 0 ? ["in:sent", ""] : ["in:sent"];
-      for (const query of gmailQueries) {
-        try {
-          const { messages } = await listGmailMessages(
-            query,
-            25,
-            email,
-            undefined,
-            { messageFormat: "metadata" },
-          );
-          for (const msg of messages) {
-            const headers = msg.payload?.headers || [];
-            for (const field of ["From", "To", "Cc", "Bcc"]) {
-              const raw =
-                headers.find(
-                  (h: any) => h.name?.toLowerCase() === field.toLowerCase(),
-                )?.value || "";
-              if (!raw) continue;
-              for (const part of raw.split(",")) {
-                const trimmed = part.trim();
-                if (!trimmed) continue;
-                const match = trimmed.match(/^(.+?)\s*<(.+?)>$/);
-                const name = match
-                  ? match[1].trim().replace(/^"|"$/g, "")
-                  : trimmed;
-                const addr = match ? match[2].trim() : trimmed;
-                if (!addr || !addr.includes("@")) continue;
-                const key = addr.toLowerCase();
-                const existing = contactMap.get(key);
-                if (existing) {
-                  existing.count++;
-                  if (
-                    name &&
-                    name !== addr &&
-                    existing.name === existing.email
-                  ) {
-                    existing.name = name;
-                  }
-                } else {
-                  contactMap.set(key, {
-                    name: name || addr,
-                    email: addr,
-                    count: 1,
-                  });
-                }
+              } else {
+                contactMap.set(key, {
+                  name: name || em.value,
+                  email: em.value,
+                  count: 5,
+                });
               }
             }
           }
-        } catch (err: any) {
-          console.error(
-            `[listContacts] Gmail header scan error (query="${query}"):`,
-            err.message,
-          );
-        }
+          nextPageToken = resp.nextPageToken ?? undefined;
+        } while (nextPageToken);
+      } catch (err: any) {
+        console.error("[listContacts] connections error:", err.message);
+        errors.push({ email: accountEmail, error: err.message });
       }
 
-      // Merge SQL-tracked send frequency into contact counts
-      let freqMap: Map<string, number>;
+      // Fetch "other contacts" (people you've interacted with but haven't saved)
       try {
-        freqMap = await getContactFrequencyMap(email);
-      } catch {
-        freqMap = new Map();
+        let nextPageToken: string | undefined;
+        do {
+          const resp = await peopleListOtherContacts(accessToken, {
+            pageSize: 200,
+            readMask: "names,emailAddresses",
+            pageToken: nextPageToken,
+          });
+          for (const person of resp.otherContacts || []) {
+            const emails = person.emailAddresses || [];
+            const name =
+              person.names?.[0]?.displayName || emails[0]?.value || "";
+            for (const em of emails) {
+              if (!em.value) continue;
+              const key = em.value.toLowerCase();
+              if (!contactMap.has(key)) {
+                contactMap.set(key, {
+                  name: name || em.value,
+                  email: em.value,
+                  count: 1,
+                });
+              }
+            }
+          }
+          nextPageToken = resp.nextPageToken ?? undefined;
+        } while (nextPageToken);
+      } catch (err: any) {
+        console.error("[listContacts] otherContacts error:", err.message);
+        errors.push({ email: accountEmail, error: err.message });
       }
-      const contacts = Array.from(contactMap.values())
-        .map((c) => ({
-          ...c,
-          count: c.count + (freqMap.get(c.email.toLowerCase()) || 0) * 10,
-        }))
-        .sort((a, b) => b.count - a.count);
+    }
+
+    // Always merge in addresses from Gmail headers. People API's
+    // otherContacts only surfaces senders, so people the user has emailed
+    // (but who haven't replied) won't appear unless we scan sent messages.
+    // We query sent first to ensure outgoing recipients are captured, then
+    // fall back to a general scan when People API returned nothing (e.g.
+    // missing scopes).
+    const gmailQueries = contactMap.size === 0 ? ["in:sent", ""] : ["in:sent"];
+    for (const query of gmailQueries) {
+      try {
+        const { messages, errors: gmailErrors } = await listGmailMessages(
+          query,
+          25,
+          email,
+          undefined,
+          { messageFormat: "metadata" },
+        );
+        errors.push(...gmailErrors);
+        for (const msg of messages) {
+          const headers = msg.payload?.headers || [];
+          for (const field of ["From", "To", "Cc", "Bcc"]) {
+            const raw =
+              headers.find(
+                (h: any) => h.name?.toLowerCase() === field.toLowerCase(),
+              )?.value || "";
+            if (!raw) continue;
+            for (const part of raw.split(",")) {
+              const trimmed = part.trim();
+              if (!trimmed) continue;
+              const match = trimmed.match(/^(.+?)\s*<(.+?)>$/);
+              const name = match
+                ? match[1].trim().replace(/^"|"$/g, "")
+                : trimmed;
+              const addr = match ? match[2].trim() : trimmed;
+              if (!addr || !addr.includes("@")) continue;
+              const key = addr.toLowerCase();
+              const existing = contactMap.get(key);
+              if (existing) {
+                existing.count++;
+                if (name && name !== addr && existing.name === existing.email) {
+                  existing.name = name;
+                }
+              } else {
+                contactMap.set(key, {
+                  name: name || addr,
+                  email: addr,
+                  count: 1,
+                });
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error(
+          `[listContacts] Gmail header scan error (query="${query}"):`,
+          err.message,
+        );
+        errors.push({ email: "workspace", error: err.message });
+      }
+    }
+
+    // Merge SQL-tracked send frequency into contact counts
+    let freqMap: Map<string, number>;
+    try {
+      freqMap = await getContactFrequencyMap(email);
+    } catch {
+      freqMap = new Map();
+    }
+    const contacts = Array.from(contactMap.values())
+      .map((c) => ({
+        ...c,
+        count: c.count + (freqMap.get(c.email.toLowerCase()) || 0) * 10,
+      }))
+      .sort((a, b) => b.count - a.count);
+    const result = {
+      contacts,
+      errors: mergeMailAccountErrors(errors),
+    };
+    if (result.errors.length === 0) {
       contactCache.set(email, {
         data: contacts,
+        errors: [],
         expiresAt: Date.now() + CONTACT_CACHE_TTL,
       });
-      return contacts;
-    } catch (error: any) {
-      console.error("[listContacts] error:", error.message);
-      // Fall through to demo data
     }
+    return result;
   }
 
   const emails = await readEmails(email);
@@ -1818,16 +1957,27 @@ export async function loadContactsForEmail(
   const contacts = Array.from(contactMap.values()).sort(
     (a, b) => b.count - a.count,
   );
+  const result = { contacts, errors: [] };
   contactCache.set(email, {
     data: contacts,
+    errors: [],
     expiresAt: Date.now() + CONTACT_CACHE_TTL,
   });
-  return contacts;
+  return result;
 }
 
 export const listContacts = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  return loadContactsForEmail(email);
+  const result = await loadContactsForEmail(email);
+  setMailAccountErrorsHeader(event, result.errors);
+  if (result.contacts.length === 0 && result.errors.length > 0) {
+    setResponseStatus(event, 502);
+    return {
+      error: formatMailAccountErrors(result.errors),
+      accountErrors: result.errors,
+    };
+  }
+  return result.contacts;
 });
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
@@ -1843,7 +1993,9 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         ?.split(",")
         .map((account) => account.trim())
         .filter(Boolean);
-      const accountTokens = await getAccountTokens(email, accountEmails);
+      const { tokens: accountTokens, errors: tokenErrors } =
+        await getAccountTokens(email, accountEmails);
+      setMailAccountErrorsHeader(_event, tokenErrors);
       // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
@@ -1856,7 +2008,9 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         }
       >();
       let successfulAccountReads = 0;
-      let failedAccountReads = 0;
+      let failedAccountReads = tokenErrors.filter(
+        (error) => error.email !== "workspace",
+      ).length;
       // Fetch labels from each account sequentially to avoid race conditions on the shared map
       for (const { accessToken } of accountTokens) {
         try {

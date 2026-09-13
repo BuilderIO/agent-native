@@ -26,6 +26,7 @@ import {
   getClient,
   getClientForConnectedAccount,
   getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   getClientsWithErrors,
   listGmailMessages,
   markAllUnreadReadForAccount,
@@ -877,6 +878,69 @@ describe("getClientsWithErrors parallel refresh", () => {
   });
 });
 
+describe("getClientForConnectedAccount ownership", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("resolves a secondary OAuth account only from the requested owner's rows", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "owner-token",
+          refresh_token: "owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+    vi.mocked(listOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "another-owner@example.com",
+        tokens: {
+          access_token: "another-owner-token",
+          refresh_token: "another-owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "SHARED@example.com"),
+    ).resolves.toEqual({
+      accessToken: "owner-token",
+      email: "shared@example.com",
+    });
+    expect(listOAuthAccountsByOwner).toHaveBeenCalledWith(
+      "google",
+      "owner@example.com",
+    );
+    expect(listOAuthAccounts).not.toHaveBeenCalled();
+  });
+
+  it("does not borrow a matching OAuth row owned by another user", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
+    vi.mocked(listOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "another-owner@example.com",
+        tokens: {
+          access_token: "another-owner-token",
+          refresh_token: "another-owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "shared@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccounts).not.toHaveBeenCalled();
+  });
+});
+
 describe("mixed OAuth and managed Gmail accounts", () => {
   const OWNER = "owner@example.com";
 
@@ -1045,6 +1109,15 @@ describe("mixed OAuth and managed Gmail accounts", () => {
       new Error("workspace lookup unavailable"),
     );
 
+    await expect(getConnectedAccountsWithErrors(OWNER)).resolves.toEqual({
+      accounts: ["oauth@example.com"],
+      errors: [
+        {
+          email: "workspace",
+          error: "workspace lookup unavailable",
+        },
+      ],
+    });
     await expect(getConnectedAccounts(OWNER)).rejects.toThrow(
       "workspace lookup unavailable",
     );
@@ -1058,9 +1131,92 @@ describe("mixed OAuth and managed Gmail accounts", () => {
       ],
     });
     const { getAuthStatus } = await import("./google-auth.js");
-    await expect(getAuthStatus(OWNER)).rejects.toThrow(
-      "workspace lookup unavailable",
-    );
+    await expect(getAuthStatus(OWNER)).resolves.toMatchObject({
+      connected: true,
+      accounts: [{ email: "oauth@example.com" }],
+      errors: [
+        {
+          email: "workspace",
+          error: "workspace lookup unavailable",
+        },
+      ],
+    });
+  });
+
+  it("does not fall back to a managed grant when a requested OAuth refresh fails", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: OWNER,
+    } as any);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValue(new Error("temporary refresh failure"));
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com"]),
+    ).resolves.toEqual({
+      clients: [],
+      errors: [
+        {
+          email: "oauth@example.com",
+          error: "temporary refresh failure",
+        },
+      ],
+    });
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+  });
+
+  it("does not let a mixed-request managed grant mask a failed OAuth identity", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: OWNER,
+    } as any);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValue(new Error("temporary refresh failure"));
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: true,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+        accountId: "oauth@example.com",
+        accessToken: "managed-shadow-token",
+      }),
+    } as any);
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com", "managed@example.com"]),
+    ).resolves.toEqual({
+      clients: [],
+      errors: [
+        {
+          email: "oauth@example.com",
+          error: "temporary refresh failure",
+        },
+      ],
+    });
   });
 });
 
@@ -1081,6 +1237,12 @@ describe("getAuthStatus with unusable token records", () => {
     await expect(getAuthStatus("owner@example.com")).resolves.toEqual({
       connected: false,
       accounts: [],
+      errors: [
+        {
+          email: "broken@example.com",
+          error: expect.stringContaining("please reconnect"),
+        },
+      ],
     });
     expect(deleteOAuthTokens).not.toHaveBeenCalled();
   });
@@ -1488,7 +1650,7 @@ describe("getClientForConnectedAccount", () => {
   });
 
   it("returns the OAuth-backed client when a row exists for accountEmail", async () => {
-    vi.mocked(listOAuthAccounts).mockResolvedValue([
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
       {
         accountId: "connected@example.com",
         owner: "owner@example.com",
@@ -1512,7 +1674,7 @@ describe("getClientForConnectedAccount", () => {
   });
 
   it("falls back to the managed client when no OAuth row exists but it matches the managed grant", async () => {
-    vi.mocked(listOAuthAccounts).mockResolvedValue([]);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
     mockManagedGrant(MANAGED, "managed-token");
 
     const result = await getClientForConnectedAccount(OWNER, MANAGED);
@@ -1521,7 +1683,7 @@ describe("getClientForConnectedAccount", () => {
   });
 
   it("returns null when neither an OAuth row nor the managed grant matches", async () => {
-    vi.mocked(listOAuthAccounts).mockResolvedValue([]);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
     vi.mocked(getCredentialContext).mockReturnValue(null);
 
     const result = await getClientForConnectedAccount(

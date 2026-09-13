@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     listOAuthAccountsByOwner: vi.fn(),
-    getConnectedAccounts: vi.fn(),
+    getConnectedAccountsWithErrors: vi.fn(),
     gmailGetProfile: vi.fn(),
     gmailListThreads: vi.fn(),
     gmailListHistory: vi.fn(),
@@ -48,7 +48,7 @@ vi.mock("./google-auth.js", async (importOriginal) => {
   return {
     ...actual,
     getClientForConnectedAccount: mocks.getClientForConnectedAccount,
-    getConnectedAccounts: mocks.getConnectedAccounts,
+    getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
     invalidateListCacheForOwner: mocks.invalidateListCacheForOwner,
   };
 });
@@ -134,7 +134,10 @@ beforeEach(() => {
   mocks.listOAuthAccountsByOwner.mockResolvedValue([
     { accountId: ACCOUNT, displayName: null, tokens: {} },
   ]);
-  mocks.getConnectedAccounts.mockResolvedValue([ACCOUNT]);
+  mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+    accounts: [ACCOUNT],
+    errors: [],
+  });
   mocks.getClientForConnectedAccount.mockResolvedValue({
     accessToken: "tok",
     email: ACCOUNT,
@@ -418,10 +421,10 @@ describe("syncInboxAccount — incremental sync", () => {
 
 describe("resetInboxSync", () => {
   it("clears history for every connected account when no accountEmail is given", async () => {
-    mocks.getConnectedAccounts.mockResolvedValue([
-      "a@example.com",
-      "b@example.com",
-    ]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["a@example.com", "b@example.com"],
+      errors: [],
+    });
 
     await resetInboxSync(OWNER);
 
@@ -439,7 +442,10 @@ describe("resetInboxSync", () => {
     // No OAuth accounts at all — only getConnectedAccounts (which falls
     // back to the managed client's email) reports this account exists.
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
-    mocks.getConnectedAccounts.mockResolvedValue(["managed@example.com"]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["managed@example.com"],
+      errors: [],
+    });
 
     await resetInboxSync(OWNER);
 
@@ -457,7 +463,10 @@ describe("ensureInboxFresh — managed workspace grant", () => {
     // read as "disconnected" — getConnectedAccounts (OAuth rows, else the
     // managed client's email) is the single source of which accounts exist.
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
-    mocks.getConnectedAccounts.mockResolvedValue(["managed@example.com"]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["managed@example.com"],
+      errors: [],
+    });
     currentRow = baseRow({
       accountEmail: "managed@example.com",
       historyId: "500",
@@ -536,7 +545,10 @@ describe("syncInboxAccount — managed workspace grant", () => {
     // managed-only workspace grant. That let the mailbox's own sent reply be
     // picked as the "latest received" message for classification.
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
-    mocks.getConnectedAccounts.mockResolvedValue(["managed@example.com"]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["managed@example.com"],
+      errors: [],
+    });
     currentRow = baseRow({
       accountEmail: "managed@example.com",
       historyId: "500",

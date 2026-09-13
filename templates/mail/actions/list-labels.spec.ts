@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
-  getConnectedAccounts: vi.fn(),
+  getConnectedAccountsWithErrors: vi.fn(),
   getAccessTokens: vi.fn(),
   getUserSetting: vi.fn(),
   readLocalEmails: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock("../server/lib/google-api.js", () => ({
 }));
 
 vi.mock("../server/lib/google-auth.js", () => ({
-  getConnectedAccounts: mocks.getConnectedAccounts,
+  getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
 }));
 
 vi.mock("../server/lib/inbox-store.js", () => ({
@@ -55,7 +55,10 @@ describe("list-labels action", () => {
   });
 
   it("falls back to local labels only when no Gmail account is connected", async () => {
-    mocks.getConnectedAccounts.mockResolvedValue([]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [],
+      errors: [],
+    });
     mocks.getAccessTokens.mockResolvedValue([]);
 
     const result = await action.run({}, undefined as any);
@@ -70,7 +73,10 @@ describe("list-labels action", () => {
   });
 
   it("serves cached labels without a live Gmail call when the cache has data", async () => {
-    mocks.getConnectedAccounts.mockResolvedValue(["user@gmail.com"]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["user@gmail.com"],
+      errors: [],
+    });
     mocks.readCachedLabels.mockResolvedValue({
       labels: [
         {
@@ -101,8 +107,44 @@ describe("list-labels action", () => {
     );
   });
 
+  it("returns usable OAuth labels and reports a failed managed-account lookup", async () => {
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["user@gmail.com"],
+      errors: [{ email: "workspace", error: "workspace lookup unavailable" }],
+    });
+    mocks.readCachedLabels.mockResolvedValue({
+      labels: [
+        {
+          id: "clients",
+          name: "Clients",
+          type: "user",
+          unreadCount: 2,
+          totalCount: 5,
+        },
+      ],
+      labelMapByAccount: new Map([
+        ["user@gmail.com", new Map([["Label_1", "Clients"]])],
+      ]),
+    });
+
+    const result = await action.run({}, undefined as any);
+
+    expect(result.labels).toContainEqual(
+      expect.objectContaining({ id: "clients" }),
+    );
+    expect(result.errors).toEqual([
+      {
+        accountEmail: "workspace",
+        error: "workspace lookup unavailable",
+      },
+    ]);
+  });
+
   it("falls back to a live Gmail call for an account with no cache yet", async () => {
-    mocks.getConnectedAccounts.mockResolvedValue(["user@gmail.com"]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["user@gmail.com"],
+      errors: [],
+    });
     mocks.getAccessTokens.mockResolvedValue([
       { email: "user@gmail.com", accessToken: "token-1" },
     ]);
@@ -128,10 +170,10 @@ describe("list-labels action", () => {
   });
 
   it("never fails the whole read when one account has no cache and no usable client, and reports it in errors", async () => {
-    mocks.getConnectedAccounts.mockResolvedValue([
-      "broken@gmail.com",
-      "ok@gmail.com",
-    ]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["broken@gmail.com", "ok@gmail.com"],
+      errors: [],
+    });
     mocks.readCachedLabels.mockResolvedValue({
       labels: [
         {
@@ -174,7 +216,10 @@ describe("list-labels action", () => {
   });
 
   it("reports a bounded, redacted error instead of swallowing a live Gmail fetch failure", async () => {
-    mocks.getConnectedAccounts.mockResolvedValue(["user@gmail.com"]);
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: ["user@gmail.com"],
+      errors: [],
+    });
     mocks.getAccessTokens.mockResolvedValue([
       { email: "user@gmail.com", accessToken: "token-1" },
     ]);
