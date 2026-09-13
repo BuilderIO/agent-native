@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deviceViewportFloorForWidth,
+  findTopFrameEntryAtPoint,
   getBreakpointFrameGeometry,
   getCanonicalScreenStack,
   getResponsiveInitialFrameGeometry,
@@ -10,6 +11,7 @@ import {
   getScreenPreviewViewport,
   reorderCanonicalScreenStack,
   resolveFrameGeometrySync,
+  resolveHitTestForegroundId,
   visibleBreakpointWidths,
 } from "./frame-geometry";
 
@@ -402,5 +404,95 @@ describe("canonical overview screen stack", () => {
         placement: "before",
       }),
     ).toBeNull();
+  });
+});
+
+describe("hit-test foreground tie-break", () => {
+  const hasGeometry = (ids: string[]) => (id: string) => ids.includes(id);
+
+  it("prefers an explicit selection over everything else", () => {
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: ["b"],
+        hasGeometry: hasGeometry(["a", "b"]),
+        activeId: "a",
+        firstScreenId: "a",
+        ignoreStaleActiveId: true,
+      }),
+    ).toBe("b");
+  });
+
+  it("falls back to the sticky activeId when nothing opts out", () => {
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: [],
+        hasGeometry: hasGeometry(["a", "b"]),
+        activeId: "a",
+        firstScreenId: "b",
+      }),
+    ).toBe("a");
+  });
+
+  it("drops the stale activeId/first-screen fallback for a brand-new gesture", () => {
+    // This is the draw-into-neighbouring-screen bug: activeId is still the
+    // original screen (never re-pointed by drawing a new one), and nothing
+    // is selected (e.g. cleared by Escape) when the next draw starts.
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: [],
+        hasGeometry: hasGeometry(["original", "new"]),
+        activeId: "original",
+        firstScreenId: "original",
+        ignoreStaleActiveId: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("end-to-end: a draw gesture's own point wins over a stale activeId when screens overlap", () => {
+    const original = {
+      id: "original",
+      geometry: { x: 0, y: 0, width: 1440, height: 900 },
+    };
+    // A larger new screen placed so it overlaps the original's right edge —
+    // the ambiguous zone from the repro (auto-placement only checks the
+    // drag's start point, not the full drawn rect, against neighbours).
+    const created = {
+      id: "new",
+      geometry: { x: 1300, y: 0, width: 1440, height: 900 },
+    };
+    const pointInsideNewScreen = { x: 1400, y: 50 };
+
+    // Buggy behaviour: activeId is stale from before "new" was drawn, and
+    // nothing is selected, so the tie resolves to the wrong screen.
+    const buggy = findTopFrameEntryAtPoint(
+      [original, created],
+      pointInsideNewScreen,
+      {
+        foregroundId: resolveHitTestForegroundId({
+          selectedIds: [],
+          hasGeometry: hasGeometry(["original", "new"]),
+          activeId: "original",
+          firstScreenId: "original",
+        }),
+      },
+    );
+    expect(buggy?.id).toBe("original");
+
+    // Fixed behaviour: a brand-new draw gesture ignores the stale activeId
+    // and resolves the tie by real z/paint order (last-added wins).
+    const fixed = findTopFrameEntryAtPoint(
+      [original, created],
+      pointInsideNewScreen,
+      {
+        foregroundId: resolveHitTestForegroundId({
+          selectedIds: [],
+          hasGeometry: hasGeometry(["original", "new"]),
+          activeId: "original",
+          firstScreenId: "original",
+          ignoreStaleActiveId: true,
+        }),
+      },
+    );
+    expect(fixed?.id).toBe("new");
   });
 });

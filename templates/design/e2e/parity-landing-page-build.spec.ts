@@ -13,13 +13,18 @@ import { appPath, elementInner, expandAllLayers } from "./helpers";
  * Finder: parity-landing-page-build.
  *
  * Builds ONE complete landing page, step by step, exactly as a human would in
- * Figma: youtube-tutorials.md #2 (Steven Steward — navbar + hero) as the
- * primary script, extended with figma-interaction-spec.md Part 2 §3 (nav +
- * footer) and §7/§8 (card/container system, assemble pages) for the card
- * grid, footer, and mobile parts. One design, built incrementally across a
- * SERIAL suite (`beforeAll` creates it once) so a real regression fails one
- * step and reports every later step as not-run instead of masking it behind
- * 20 independent fixtures.
+ * Figma: "Figma Tutorial For Beginners 2024 | Web Design of Landing Page" by
+ * Steven Steward (https://www.youtube.com/watch?v=sUM0IUURMqM) as the primary
+ * script — tutorial steps 1-8 (root Landing Page frame, Navbar frame,
+ * NavLinks, CTAButton, Navbar auto layout + constraints) map to steps 1-2
+ * below, and steps 9-17 (Hero frame, headline/subheading, hero CTA buttons,
+ * HeroCopy, HeroImage, Hero auto layout) map to the Hero-building steps that
+ * follow — extended with figma-interaction-spec.md Part 2 §3 (nav + footer)
+ * and §7/§8 (card/container system, assemble pages) for the card grid,
+ * footer, and mobile parts the source tutorial does not cover. One design,
+ * built incrementally across a SERIAL suite (`beforeAll` creates it once) so
+ * a real regression fails one step and reports every later step as not-run
+ * instead of masking it behind 20 independent fixtures.
  *
  * Ownership per the finder preamble: canvas gestures, draw tools, Shift+A,
  * duplicate, alt-drag, drag-reparent, layers panel, group, undo — claude.
@@ -776,9 +781,16 @@ test("step 12: Cmd+D duplicates CTAButton into Hero and its label is retyped to 
   const ctaBox = (await ctaOnCanvas.boundingBox())!;
   const ctaCx = ctaBox.x + ctaBox.width / 2;
   const ctaCy = ctaBox.y + ctaBox.height / 2;
+  // Container-first selection drills exactly one level per CLICK EVENT
+  // (see the "container-first selection" test below): a plain click always
+  // resolves to the screen's direct child (Navbar) first, and each further
+  // click at the same point drills one level deeper. CTAButton is Navbar's
+  // direct child, one level down — a THIRD click event here (this second
+  // step used to be a native dblclick, which fires two click events) drills
+  // one level too far, landing on CTAButton's own child "CTARect" instead.
   await page.mouse.click(ctaCx, ctaCy);
   await page.waitForTimeout(300);
-  await page.mouse.dblclick(ctaCx, ctaCy);
+  await page.mouse.click(ctaCx, ctaCy);
   await page.waitForTimeout(300);
   expect(
     await selectedLayerName(page),
@@ -1645,13 +1657,30 @@ test("container-first selection: plain click selects the screen's direct child, 
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
     )
     .contentFrame();
-  const brand = frame.getByText("Brand", { exact: true }).first();
+  // A bare page-wide "Brand" text search is ambiguous once the FD4B footer
+  // duplicate (a second Navbar-shaped subtree) has run earlier in this
+  // serial suite: disambiguate by content the same way the final-structure
+  // test does (the footer copy's wordmark was retyped to "(c) 2026 Brand"),
+  // then scope the query to the TRUE Navbar's subtree.
+  const html = await screenHtml(page, deskScreenId);
+  const navbarIds = nodeIdsForLayerName(html, "Navbar");
+  const trueNavbarId = navbarIds.find(
+    (id) => !elementInner(html, id).includes("(c) 2026 Brand"),
+  )!;
+  const brand = frame
+    .locator(`[data-agent-native-node-id="${trueNavbarId}"]`)
+    .getByText("Brand", { exact: true })
+    .first();
   await expect(brand).toBeVisible({ timeout: 10_000 });
+  await expandAllLayers(page);
+  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  // Read the click point AFTER expanding the layers tree, not before — the
+  // panel expansion can still be reflowing the canvas when a box captured
+  // earlier is used, and a stale box drifts onto whatever now sits at those
+  // page coordinates (observed: landed on the FD4B footer duplicate).
   const box = (await brand.boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
-  await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
 
   // Deselect first (click empty board space), then a single plain click on
   // Brand's on-screen position must select Navbar — Brand's container and

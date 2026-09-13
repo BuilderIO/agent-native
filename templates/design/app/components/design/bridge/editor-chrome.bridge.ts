@@ -178,6 +178,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
+      // A selection SWITCHING to a different element must not ease the
+      // handle spans through their old target's geometry: the singleton
+      // spans jump straight from one element's clamped hit-zone to
+      // another's, and animating that jump (see applySelectionHandleHitGeometry)
+      // can transiently render an in-between size big enough to cover the
+      // newly selected element's own center. The transition above stays for
+      // same-element chrome-scale eases (zoom settling).
+      "[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}" +
       // Locked layers get a neutral dashed hairline instead of an accent one:
       // accent means "selected" everywhere else in the canvas chrome, and a
       // locked layer is usually neither selected nor selectable. The width
@@ -2976,12 +2984,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     metaKey: boolean;
     ctrlKey: boolean;
   } {
-    var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    // Figma spec §1: Shift+click is the ADDITIVE gesture (toggles membership).
+    // Cmd/Ctrl+click alone REPLACES the selection with the deep hit — it must
+    // not set `additive`, or a click-select host consumer (runScreenElementSelect)
+    // unions the deep-selected child into the current selection instead of
+    // replacing it. `metaKey`/`ctrlKey` still ride along on the intent for
+    // consumers (like deep-select's own hit resolution) that need to know a
+    // modifier was held without treating it as additive.
+    var shiftHeld = Boolean(e && e.shiftKey);
     return {
-      additive: additive,
-      range: Boolean(e && e.shiftKey),
+      additive: shiftHeld,
+      range: shiftHeld,
       source: "pointer",
-      shiftKey: Boolean(e && e.shiftKey),
+      shiftKey: shiftHeld,
       metaKey: Boolean(e && e.metaKey),
       ctrlKey: Boolean(e && e.ctrlKey),
     };
@@ -3573,6 +3588,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function hideSelectionOverlay(): void {
     selectionOverlay.style.display = "none";
+    // The host mirrors this overlay into its own SelectionBox so a board
+    // object's handles can win z-order over an overlapping Screen (see
+    // MultiScreenCanvas). Clearing belongs here, at the single point every
+    // deselect path already funnels through — posting it from one caller
+    // leaves the host chrome floating over nothing after Escape, a marquee
+    // clear, a delete, or an undo.
+    if (designCanvasBoardSurface) {
+      window.parent.postMessage(
+        { type: "agent-native:board-selection-rect", rect: null },
+        "*",
+      );
+    }
     hideSizeBadge();
     hideSpacingOverlay();
     hideGridCellOverlay();
@@ -6141,6 +6168,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  // The element applySelectionHandleHitGeometry last sized handles for.
+  // Compared by reference on every call so a genuine selection SWITCH (a
+  // different element, including the very first real selection after the
+  // null-element page-load call) can suppress the handles' geometry
+  // transition for that one write — see the CSS rule this toggles above.
+  var lastHandleGeometryTargetEl: Element | null = null;
+
   // Sizes the selection overlay's edge/corner handles for the current chrome
   // scale, clamping each handle's inward reach against the overlaid
   // element's own rect. Called from applyEditorChromeScale (scale changes)
@@ -6150,6 +6184,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // exactly: edge bars 10*scale thick centered on the edge, corner squares
   // 7*scale offset -4*scale.
   function applySelectionHandleHitGeometry(el) {
+    // The handle spans are singletons reused across every selection. Easing
+    // them from the PREVIOUS target's geometry to this one is meaningless
+    // for hit-testing (the two targets are unrelated), and the transient
+    // in-between value — up to the fully unclamped nominal reach, since the
+    // null-element page-load call never clamps — can cover this element's
+    // entire body and steal its first click as a resize instead of a move.
+    // Only ease when the SAME element is resizing under a live chrome-scale
+    // change, which is what the transition exists for.
+    var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
+    lastHandleGeometryTargetEl = el || null;
+    if (isNewSelectionTarget) {
+      selectionOverlay.setAttribute(
+        "data-agent-native-suppress-handle-transition",
+        "",
+      );
+    }
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
@@ -6212,6 +6262,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           handle.style.right = inwardX - sizeX + "px";
         }
       });
+
+    if (isNewSelectionTarget) {
+      // Force layout so the instant geometry above is committed under the
+      // transition:none rule before removing it, or removing it on the same
+      // tick would let the transition pick up mid-write and still animate.
+      void selectionOverlay.offsetHeight;
+      selectionOverlay.removeAttribute(
+        "data-agent-native-suppress-handle-transition",
+      );
+    }
   }
 
   function applyEditorChromeScale() {
@@ -6394,6 +6454,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       updateComponentTag(el, rect);
       updateParentAutoLayoutOverlay(el);
       showSizeBadge(el);
+      // Board objects live inside this iframe, but the board wrapper is
+      // pinned below Screens (z-index 0) so an overlapping Screen can occlude
+      // this overlay's own handles both visually and for hit-testing. The
+      // host renders its own SelectionBox above every Screen and forwards
+      // gestures back into startResize() (see beginBoardElementResize); it
+      // needs this overlay's just-computed unrotated local box (left/top/
+      // width/height are set the same way by both branches above) plus the
+      // rotation separately, not the rotated bounding box.
+      if (designCanvasBoardSurface) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:board-selection-rect",
+            screenId: designCanvasScreenId,
+            selector: getSelector(el),
+            rect: {
+              left: parseFloat(overlay.style.left) || 0,
+              top: parseFloat(overlay.style.top) || 0,
+              width: parseFloat(overlay.style.width) || 0,
+              height: parseFloat(overlay.style.height) || 0,
+            },
+            rotationDeg: currentRotation(el),
+          },
+          "*",
+        );
+      }
     } else {
       applyElementOverlayChrome(overlay, el);
     }
@@ -15451,9 +15536,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Cmd/Ctrl+click (no Shift) deep-selects the next layer below the current
       // selection in the z-stack under the pointer, wrapping at the bottom.
       // Runs here (not in selectElementAtEvent) because a shield click resolves
-      // selection in this onUp and then suppresses the click handler. Selected
-      // plain (no ev) so it replaces the selection rather than adding to it;
-      // Shift-click stays additive via the normal path below.
+      // selection in this onUp and then suppresses the click handler.
       var cycledEl =
         !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
           ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
@@ -15469,7 +15552,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               ? clickThroughSelectionTarget(hit, ev)
               : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
-        selectTarget(cycledEl, undefined, true);
+        // Real event (not undefined): selectionIntentFromEvent now reports
+        // Cmd/Ctrl-alone as non-additive, so the intent this carries already
+        // replaces rather than unions — passing it lets the host tell a real
+        // deep-select from a driftless bridge echo (DesignCanvas.tsx's
+        // `e.data.intent` check) instead of reading as one.
+        selectTarget(cycledEl, ev, true);
       } else {
         selectTarget(primaryClickTarget || dragTarget, ev, true);
       }

@@ -176,12 +176,17 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("Cmd+A is scope-sensitive: inside a container it selects siblings, otherwise it selects screens", async ({
     page,
   }) => {
-    await selectByText(page, "Alpha Button");
+    // Alpha Button sits two frames deep (main > flex row > button); a plain
+    // single click (selectByText) selects the outer content frame under the
+    // pointer by design (see selectByTextDeep's doc comment) — only a real
+    // double-click descends straight to the specific leaf, which is what
+    // "a child selected" needs here.
+    await selectByTextDeep(page, "Alpha Button");
     await expandAllLayersLocal(page);
     await expect
       .poll(() => countSelectedLayerRows(page), {
         message:
-          "precondition: the paragraph click must select exactly one layer row",
+          "precondition: the button click must select exactly one layer row",
       })
       .toBe(1);
     await page.keyboard.press("ControlOrMeta+a");

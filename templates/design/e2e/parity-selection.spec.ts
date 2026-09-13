@@ -88,7 +88,10 @@ async function newDesign(page: Page): Promise<string> {
   return id;
 }
 
-async function newBoardDesign(page: Page): Promise<string> {
+async function newBoardDesign(
+  page: Page,
+  content: string = BOARD_FIXTURE,
+): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "selection parity board",
     projectType: "prototype",
@@ -98,7 +101,7 @@ async function newBoardDesign(page: Page): Promise<string> {
   const board = await postAction(page, "create-file", {
     designId: id,
     filename: "__board__.html",
-    content: BOARD_FIXTURE,
+    content,
     fileType: "html",
   });
   const boardFileId = board?.id ?? board?.data?.id;
@@ -250,6 +253,36 @@ test.describe("click selects the container, not the deep child", () => {
           'directly under the cursor ... skipping the select-container step."',
       })
       .toContain("Kid B");
+  });
+
+  test("cmd+click a child of an already-selected Card replaces the selection with the child, not the Card", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditorAndExpandLayers(page, id);
+    const card = (await node(page, "card").boundingBox())!;
+    // Card's own padding, below both children: a plain click here selects
+    // the container directly (it is already top-level).
+    await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: the plain click must select Card",
+      })
+      .toContain("Card");
+
+    const kidA = (await node(page, "kid-a").boundingBox())!;
+    await click(page, kidA, ["Meta"]);
+
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message:
+          "cmd/ctrl+click always REPLACES the selection (spec Part 3) even " +
+          "when it deep-selects a child of the currently-selected container — " +
+          "it must not union the child onto the container's selection.",
+      })
+      .toBe("Kid A");
   });
 });
 
@@ -546,5 +579,36 @@ test.describe("board objects on the overview canvas", () => {
           expect.stringContaining("Board B"),
         ]),
       );
+  });
+
+  test("cmd+click a child of an already-selected Card on the board surface replaces the selection with the child", async ({
+    page,
+  }) => {
+    // Reuses the nested Card/Kid A/Kid B fixture as the board file's content
+    // — the bug this guards is generic to the shared bridge/host round trip
+    // both the board surface and screen iframes funnel through, not specific
+    // to either one.
+    const id = await newBoardDesign(page, FIXTURE);
+    await openEditorAndExpandLayers(page, id);
+    const card = (await node(page, "card").boundingBox())!;
+    await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "precondition: the plain click must select Card",
+      })
+      .toContain("Card");
+
+    const kidA = (await node(page, "kid-a").boundingBox())!;
+    await click(page, kidA, ["Meta"]);
+
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message:
+          "cmd/ctrl+click on a board object's child must REPLACE the " +
+          "selection with the child, not leave the container selected.",
+      })
+      .toBe("Kid A");
   });
 });

@@ -770,6 +770,26 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
   }) => {
     designId = await createDesign(request);
     await gotoEditor(page, designId);
+    // The overview layout settles asynchronously after mount with no
+    // discrete event — a screenBox() read before it settles stamps a stale
+    // rect, so the "click canvas" below can miss the screen entirely and
+    // silently create nothing (see harnessNotes). Poll until two
+    // consecutive reads agree, as the "step 2 substitute" test above does.
+    {
+      let last: string | null = null;
+      await expect
+        .poll(
+          async () => {
+            const b = await screenBox(page);
+            const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)}`;
+            const stable = key === last;
+            last = key;
+            return stable;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+    }
 
     // Step 7: Press T, click canvas, type "title".
     const box = await screenBox(page);
@@ -813,14 +833,10 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       html,
       `Shift+A on two selected text layers must wrap them in a new auto-layout frame:\n${html.slice(0, 4000)}`,
     ).toMatch(/data-an-primitive="frame"/);
-    const metadataId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const match =
-        /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/.exec(
-          current,
-        );
-      return match ? [match[1]] : [];
-    });
+    // Shift+A leaves the new wrapper selected — read its LAYERS-PANEL id off
+    // the selection rather than regex-matching the raw HTML (that raw id
+    // never equals the panel's hashed data-layer-node-id, see layerRowById).
+    const metadataId = await selectedLayerNodeId(page);
 
     await expandAllLayers(page);
     await renameLayerRowById(page, metadataId, "metadata");
@@ -845,15 +861,12 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     // quickly via the same gestures as the previous test, then run the
     // higher-level wrap.
     await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 220, y: 200 });
+    // The freshly drawn frame is left selected — read its LAYERS-PANEL id
+    // straight off the selection instead of regex-extracting the raw
+    // data-agent-native-node-id from HTML (the two never coincide, see
+    // layerRowById's doc comment).
+    const albumArtId = await selectedLayerNodeId(page);
     let html = await fileContent(request, designId);
-    const albumArtId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const match =
-        /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/.exec(
-          current,
-        );
-      return match ? [match[1]] : [];
-    });
     await expandAllLayers(page);
     await renameLayerRowById(page, albumArtId, "album-art");
 
@@ -884,15 +897,9 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       frameCount,
       "Shift+A over album-art + metatext must add exactly one new wrapping frame",
     ).toBeGreaterThanOrEqual(2); // album-art itself + the new card wrapper
-    const cardId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const wrapperIds = [
-        ...current.matchAll(
-          /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/g,
-        ),
-      ].map((m) => m[1]);
-      return wrapperIds.filter((id) => id !== albumArtId);
-    });
+    // Shift+A leaves the new "card" wrapper selected — read its
+    // LAYERS-PANEL id off the selection (same fix as metadataId above).
+    const cardId = await selectedLayerNodeId(page);
 
     await expandAllLayers(page);
     await renameLayerRowById(page, cardId, "card");
@@ -950,16 +957,19 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     designId = await createDesign(request);
     await gotoEditor(page, designId);
     await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 200, y: 160 });
-    const frameId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const match =
-        /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/.exec(
-          current,
-        );
-      return match ? [match[1]] : [];
-    });
+    // The freshly drawn frame is left selected already — no need to
+    // re-select it by (wrong) id, see the album-art fix above. Still wait
+    // for the draw to persist before reading "before", or this reads the
+    // pre-draw content and "no structural change" trivially passes for the
+    // wrong reason.
+    await expect
+      .poll(async () =>
+        (await fileContent(request, designId)).includes(
+          'data-an-primitive="frame"',
+        ),
+      )
+      .toBe(true);
     await expandAllLayers(page);
-    await selectLayerRowById(page, frameId);
     await focusCanvas(page);
     const before = await fileContent(request, designId);
     await page.keyboard.press(`${PRIMARY}+Alt+k`);

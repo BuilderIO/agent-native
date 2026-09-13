@@ -189,25 +189,45 @@ async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page.waitForTimeout(400);
 }
 
+async function boardHtml(request: APIRequestContext, designId: string) {
+  return fileContent(request, designId, "__board__.html");
+}
+
+/**
+ * Draw a board-level frame outside any screen and wait for it to persist.
+ * Board objects render inside the board's own same-origin iframe stamped
+ * only with data-agent-native-node-id (shared/board-file.ts) — no
+ * `data-board-object-id` attribute exists anywhere in the app, so poll the
+ * persisted __board__.html source (as boardHtml already reads elsewhere in
+ * this file) for a new frame marker instead of a host-page DOM count.
+ */
 async function drawBoardFrame(
   page: Page,
+  request: APIRequestContext,
+  designId: string,
   from: { x: number; y: number },
   to: { x: number; y: number },
 ) {
-  const boardObjects = page.locator("[data-board-object-id]");
-  const countBefore = await boardObjects.count();
+  const countBefore = (
+    (await boardHtml(request, designId)).match(/data-an-primitive="frame"/g) ??
+    []
+  ).length;
   await pickFrameMode(page, "Frame");
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
   await expect
-    .poll(() => boardObjects.count(), { timeout: 10_000 })
+    .poll(
+      async () =>
+        (
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          ) ?? []
+        ).length,
+      { timeout: 10_000 },
+    )
     .toBeGreaterThan(countBefore);
-}
-
-async function boardHtml(request: APIRequestContext, designId: string) {
-  return fileContent(request, designId, "__board__.html");
 }
 
 test.describe("tutorial 8 — assemble your portfolio pages", () => {
@@ -253,9 +273,15 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     // Draw two free-floating board frames representing finished components
     // ("Button", "Footer") sitting on the Designs page, outside any screen.
     const p1 = await emptyBoardPoint(page);
-    await drawBoardFrame(page, p1, { x: p1.x + 120, y: p1.y + 80 });
+    await drawBoardFrame(page, request, designId, p1, {
+      x: p1.x + 120,
+      y: p1.y + 80,
+    });
     const p2 = await emptyBoardPoint(page, { x: 260, y: 0 });
-    await drawBoardFrame(page, p2, { x: p2.x + 120, y: p2.y + 80 });
+    await drawBoardFrame(page, request, designId, p2, {
+      x: p2.x + 120,
+      y: p2.y + 80,
+    });
     const boardBefore = await boardHtml(request, designId);
     const frameCountBefore = (
       boardBefore.match(/data-an-primitive="frame"/g) ?? []
@@ -323,7 +349,10 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ]));
     await gotoEditor(page, designId);
     const p1 = await emptyBoardPoint(page);
-    await drawBoardFrame(page, p1, { x: p1.x + 140, y: p1.y + 100 });
+    await drawBoardFrame(page, request, designId, p1, {
+      x: p1.x + 140,
+      y: p1.y + 100,
+    });
 
     const world = page.locator("[data-multi-screen-canvas-world]");
     const worldBox = (await world.boundingBox())!;

@@ -976,7 +976,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -2888,12 +2888,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function selectionIntentFromEvent(e) {
-      var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+      var shiftHeld = Boolean(e && e.shiftKey);
       return {
-        additive,
-        range: Boolean(e && e.shiftKey),
+        additive: shiftHeld,
+        range: shiftHeld,
         source: "pointer",
-        shiftKey: Boolean(e && e.shiftKey),
+        shiftKey: shiftHeld,
         metaKey: Boolean(e && e.metaKey),
         ctrlKey: Boolean(e && e.ctrlKey)
       };
@@ -3288,6 +3288,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hideSelectionOverlay() {
       selectionOverlay.style.display = "none";
+      if (designCanvasBoardSurface) {
+        window.parent.postMessage(
+          { type: "agent-native:board-selection-rect", rect: null },
+          "*"
+        );
+      }
       hideSizeBadge();
       hideSpacingOverlay();
       hideGridCellOverlay();
@@ -4812,7 +4818,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         elementDimension * HANDLE_MAX_INWARD_FRACTION
       );
     }
+    var lastHandleGeometryTargetEl = null;
     function applySelectionHandleHitGeometry(el) {
+      var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
+      lastHandleGeometryTargetEl = el || null;
+      if (isNewSelectionTarget) {
+        selectionOverlay.setAttribute(
+          "data-agent-native-suppress-handle-transition",
+          ""
+        );
+      }
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
@@ -4860,6 +4875,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           handle.style.right = inwardX - sizeX + "px";
         }
       });
+      if (isNewSelectionTarget) {
+        void selectionOverlay.offsetHeight;
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition"
+        );
+      }
     }
     function applyEditorChromeScale() {
       syncEditorChromeScaleVars();
@@ -5011,6 +5032,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         updateComponentTag(el, rect);
         updateParentAutoLayoutOverlay(el);
         showSizeBadge(el);
+        if (designCanvasBoardSurface) {
+          window.parent.postMessage(
+            {
+              type: "agent-native:board-selection-rect",
+              screenId: designCanvasScreenId,
+              selector: getSelector(el),
+              rect: {
+                left: parseFloat(overlay.style.left) || 0,
+                top: parseFloat(overlay.style.top) || 0,
+                width: parseFloat(overlay.style.width) || 0,
+                height: parseFloat(overlay.style.height) || 0
+              },
+              rotationDeg: currentRotation(el)
+            },
+            "*"
+          );
+        }
       } else {
         applyElementOverlayChrome(overlay, el);
       }
@@ -11112,7 +11150,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
         var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
         if (cycledEl) {
-          selectTarget(cycledEl, void 0, true);
+          selectTarget(cycledEl, ev, true);
         } else {
           selectTarget(primaryClickTarget || dragTarget, ev, true);
         }

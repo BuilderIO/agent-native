@@ -690,6 +690,30 @@ export function geometryContainsGeometry(
   );
 }
 
+/** Decides which screen wins a hit-test tie for `findTopFrameEntryAtPoint`'s
+ *  `foregroundId`. An explicit selection legitimately outranks a geometric
+ *  tie, but `activeId` is sticky — it keeps naming whichever screen was last
+ *  focused, including one the user drew a brand-new neighbor screen next to
+ *  without ever selecting. A caller resolving where a NEW gesture (a fresh
+ *  draw, not an edit of something already selected/active) starts must pass
+ *  `ignoreStaleActiveId` so an ambiguous point falls through to real z/paint
+ *  order instead of that stale default. */
+export function resolveHitTestForegroundId(options: {
+  selectedIds: readonly string[];
+  hasGeometry: (id: string) => boolean;
+  activeId: string | null | undefined;
+  firstScreenId: string | undefined;
+  ignoreStaleActiveId?: boolean;
+}): string | undefined {
+  const selected = options.selectedIds.find((id) => options.hasGeometry(id));
+  if (selected !== undefined) return selected;
+  if (options.ignoreStaleActiveId) return undefined;
+  if (options.activeId && options.hasGeometry(options.activeId)) {
+    return options.activeId;
+  }
+  return options.firstScreenId;
+}
+
 export function findTopFrameEntryAtPoint<
   T extends { id: string; geometry: FrameGeometry },
 >(

@@ -1,4 +1,8 @@
-import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  applyVisualEdit,
+  buildCodeLayerProjection,
+  type CodeLayerProjection,
+} from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import type * as Y from "yjs";
@@ -22,6 +26,60 @@ import {
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { buildActiveFileNodeIdSet } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+/**
+ * Live-rendered width/height per target node id, keyed for
+ * computeAbsoluteUnionBounds's size-hint fallback. wrapNodes (the
+ * code-layer.ts substrate) works purely off the source HTML string, so an
+ * absolutely-positioned but auto-sized target (a Text-tool node with no
+ * explicit inline width/height) otherwise gets NO computed geometry at all —
+ * the resulting frame is a zero-area `position:static` div that doesn't
+ * enclose its own content (undraggable/unresizable at its own reported
+ * position; see item-2 cross-screen investigation). Only fills a gap the
+ * string-only path cannot see — never overrides an explicit style value.
+ */
+function collectLiveSizeHints(
+  nodeIds: string[],
+  projection: CodeLayerProjection,
+): Record<string, { width: number; height: number }> {
+  const hints: Record<string, { width: number; height: number }> = {};
+  if (typeof document === "undefined") return hints;
+  const iframeDocs = Array.from(
+    document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    ),
+  )
+    .map((iframe) => iframe.contentDocument)
+    .filter((doc): doc is Document => !!doc);
+  for (const nodeId of nodeIds) {
+    // Mirrors applyWrapNodes's own target resolution: a caller-supplied id
+    // can be either the real data-agent-native-node-id attribute or the
+    // projection's internal node id — only the attribute value is queryable
+    // in the live DOM.
+    const node = projection.nodes.find(
+      (n) =>
+        n.dataAttributes["data-agent-native-node-id"] === nodeId ||
+        n.id === nodeId,
+    );
+    const attrId = node?.dataAttributes["data-agent-native-node-id"];
+    if (!attrId) continue;
+    for (const doc of iframeDocs) {
+      const el = doc.querySelector(
+        `[data-agent-native-node-id="${CSS.escape(attrId)}"]`,
+      );
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        // Keyed by the real attribute value: computeAbsoluteUnionBounds
+        // reads data-agent-native-node-id straight off the parsed element,
+        // not the caller's (possibly internal-projection-id) target id.
+        hints[attrId] = { width: rect.width, height: rect.height };
+      }
+      break;
+    }
+  }
+  return hints;
+}
 
 export interface FrameSelectionArgs {
   activeFile: DesignFile;
@@ -77,11 +135,13 @@ export function runFrameSelection({
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (nodeIds.length < 1) return;
+  const sizeHints = collectLiveSizeHints(nodeIds, baseProjection);
   const patch = applyVisualEdit(baseContent, {
     kind: "wrapNodes",
     targetIds: nodeIds,
     autoLayout: false,
     wrapperKind: "frame",
+    sizeHints,
   });
   if (patch.result.status !== "applied") {
     toast.error(

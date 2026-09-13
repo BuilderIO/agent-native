@@ -211,30 +211,21 @@ export function runScreenElementSelect(
   // stamp. Fixing that requires the code-layer projection itself to
   // model `<template>` repeater children as selectable/attributable
   // nodes, which is out of scope for this selection-time fix.
+  // Figma spec §1: Shift+click is the only additive (union) click gesture.
+  // Cmd/Ctrl+click alone deep-selects and REPLACES, same as a plain click —
+  // it must not be OR'd in here, or a deep-selected child gets unioned onto
+  // the container it was cycled out of instead of replacing it.
   const additiveSelection = Boolean(
-    node &&
-    (intent?.additive ||
-      intent?.range ||
-      intent?.shiftKey ||
-      intent?.metaKey ||
-      intent?.ctrlKey),
+    node && (intent?.additive || intent?.range || intent?.shiftKey),
   );
   setActiveFileId(screenId);
   setSelectedElement(canonical);
   setHoveredElement(null);
   setHoveredElementScreenId(null);
   if (node && additiveSelection) {
-    setSelectedLayerIdsState((current) => {
-      const removeExisting =
-        Boolean(intent?.metaKey || intent?.ctrlKey) &&
-        !intent?.shiftKey &&
-        current.includes(node.id);
-      if (removeExisting) {
-        const next = current.filter((layerId) => layerId !== node.id);
-        return next.length > 0 ? next : [node.id];
-      }
-      return dedupeStringIds([...current, node.id]);
-    });
+    setSelectedLayerIdsState((current) =>
+      dedupeStringIds([...current, node.id]),
+    );
   } else if (node) {
     // An intent-less select is the bridge re-anchoring after a content
     // replace, not a user picking one object, so it must not collapse a live
