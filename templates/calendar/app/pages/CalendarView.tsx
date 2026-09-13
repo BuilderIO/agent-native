@@ -1050,11 +1050,11 @@ export default function CalendarView() {
 
   useEffect(() => {
     if (sidebarEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, sidebarEvent.id);
+      const rebound = findEventByCurrentOrReplacedId(events, sidebarEvent);
       if (rebound && rebound.id !== sidebarEvent.id) setSidebarEvent(rebound);
     }
     if (focusedEvent) {
-      const rebound = findEventByCurrentOrReplacedId(events, focusedEvent.id);
+      const rebound = findEventByCurrentOrReplacedId(events, focusedEvent);
       if (rebound && rebound.id !== focusedEvent.id) setFocusedEvent(rebound);
     }
   }, [events, focusedEvent, setFocusedEvent, setSidebarEvent, sidebarEvent]);
@@ -1062,14 +1062,12 @@ export default function CalendarView() {
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
     if (!candidate) return null;
-    return findEventByCurrentOrReplacedId(events, candidate.id) ?? candidate;
+    return findEventByCurrentOrReplacedId(events, candidate) ?? candidate;
   }, [events, sidebarEvent, focusedEvent]);
 
   const refreshedSidebarEvent = useMemo(() => {
     if (!sidebarEvent) return null;
-    return (
-      findEventByCurrentOrReplacedId(events, sidebarEvent.id) ?? sidebarEvent
-    );
+    return findEventByCurrentOrReplacedId(events, sidebarEvent) ?? sidebarEvent;
   }, [events, sidebarEvent]);
 
   function handleNavigate(direction: "prev" | "next") {

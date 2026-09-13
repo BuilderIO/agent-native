@@ -126,6 +126,21 @@ export function findCalendarEventById(
   return candidates.find((event) => event.id === eventId) ?? first;
 }
 
+export function findCalendarEventForSelection(
+  events: CalendarEvent[],
+  selectedEvent: CalendarEvent,
+) {
+  const candidates = events.filter(
+    (event) =>
+      matchesCalendarEventId(event, selectedEvent.id) &&
+      sameCalendarSource(event, selectedEvent),
+  );
+
+  return (
+    candidates.find((event) => event.id === selectedEvent.id) ?? candidates[0]
+  );
+}
+
 export function getRemovedCalendarEvents(
   previous: CalendarEvent[] | undefined,
   next: CalendarEvent[] | undefined,

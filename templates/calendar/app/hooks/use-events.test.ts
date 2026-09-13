@@ -274,8 +274,7 @@ describe("calendar event list cache helpers", () => {
     ];
     const selected = findEventByCurrentOrReplacedId(
       cachedRanges.flat(),
-      target.id,
-      target.accountEmail,
+      target,
     );
 
     expect(selected).toBe(target);
@@ -851,8 +850,47 @@ describe("reconcileUpdatedEventList", () => {
       }),
     ]);
     expect(
-      findEventByCurrentOrReplacedId(reconciled ?? [], original.id),
+      findEventByCurrentOrReplacedId(reconciled ?? [], original),
     ).toMatchObject({ id: "google-working-location-override" });
+  });
+
+  it("rebinds a selected event by account and calendar when provider IDs collide", () => {
+    const selected = calendarEvent({
+      id: "shared-provider-id",
+      source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-one",
+      title: "Before update",
+    });
+    const otherAccount = calendarEvent({
+      id: selected.id,
+      source: "google",
+      accountEmail: "other@example.com",
+      calendarSourceKey: "calendar-two",
+      title: "Other account",
+    });
+    const otherCalendar = calendarEvent({
+      id: selected.id,
+      source: "google",
+      accountEmail: selected.accountEmail,
+      calendarSourceKey: "calendar-two",
+      title: "Other calendar",
+    });
+    const refreshed = calendarEvent({
+      id: "replacement-provider-id",
+      _replacedId: selected.id,
+      source: selected.source,
+      accountEmail: selected.accountEmail,
+      calendarSourceKey: selected.calendarSourceKey,
+      title: "After update",
+    });
+
+    expect(
+      findEventByCurrentOrReplacedId(
+        [otherAccount, otherCalendar, refreshed],
+        selected,
+      ),
+    ).toBe(refreshed);
   });
 
   it("reconciles only the selected account when provider event IDs collide", () => {

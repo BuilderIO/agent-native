@@ -30,6 +30,7 @@ import {
   calendarEventIsInScope,
   calendarEventOverlapsListParams,
   findCalendarEventById,
+  findCalendarEventForSelection,
   getRemovedCalendarEvents,
   mergeCalendarEventIntoList,
   removeCalendarEventsForScope,
@@ -618,10 +619,9 @@ export function reconcileUpdatedEventList(
 
 export function findEventByCurrentOrReplacedId(
   events: CalendarEvent[],
-  eventId: string,
-  accountEmail?: string,
+  selectedEvent: CalendarEvent,
 ): CalendarEvent | undefined {
-  return findCalendarEventById(events, eventId, accountEmail);
+  return findCalendarEventForSelection(events, selectedEvent);
 }
 
 export function useDeleteEvent() {
