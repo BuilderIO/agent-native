@@ -2510,7 +2510,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       "placeContent",
       "placeItems",
       "placeSelf",
-      "position",
+      // "position" is deliberately excluded: the drop/move that carries this
+      // snapshot always decides the landed node's position itself afterward
+      // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
+      // removeAbsolutePositioningFromNodeInHtml), and design-editor/
+      // portable-style.ts's applyPortableStyles filters it back out on the
+      // apply side too if it's ever added back here — keep both in sync.
       "rowGap",
       "textAlign",
       "textDecoration",
@@ -2548,13 +2553,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return false;
     }
+    var portableStyleTagDefaultsCache = {};
+    function portableStyleTagDefaults(el) {
+      var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
+      var cached = portableStyleTagDefaultsCache[cacheKey];
+      if (cached) return cached;
+      var probe = el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml" ? document.createElementNS(el.namespaceURI, el.tagName) : document.createElement(el.tagName);
+      probe.style.cssText = "position:absolute!important;visibility:hidden!important;pointer-events:none!important;left:-99999px!important;top:-99999px!important;";
+      document.body.appendChild(probe);
+      var probeCs = window.getComputedStyle(probe);
+      var defaults = {};
+      PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
+        defaults[property] = probeCs[property] || probeCs.getPropertyValue(property);
+      });
+      document.body.removeChild(probe);
+      portableStyleTagDefaultsCache[cacheKey] = defaults;
+      return defaults;
+    }
     function collectPortableComputedStyles(el) {
       if (!el) return {};
       var cs = window.getComputedStyle(el);
+      var defaults = portableStyleTagDefaults(el);
       var styles = {};
       PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
         var value = cs[property] || cs.getPropertyValue(property);
-        if (typeof value === "string" && value.trim()) {
+        if (typeof value === "string" && value.trim() && value !== defaults[property]) {
           styles[property] = value;
         }
       });
@@ -8116,7 +8139,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             anchor: freeParent,
             placement: "after",
             axis: "y",
-            dropMode: "absolute-container"
+            dropMode: "flow-insert"
           };
         }
         var retainedSlot = nearestChildInsertionTarget(

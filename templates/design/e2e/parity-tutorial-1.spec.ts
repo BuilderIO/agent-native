@@ -10,6 +10,7 @@ import { e2eBaseURL } from "./base-url";
 import {
   createFixtureDesign,
   designFrame,
+  elementInner,
   gotoEditor,
   installBridge,
   selectByText,
@@ -524,21 +525,10 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     await page.keyboard.press(selectAll);
     await page.keyboard.type("Sign up");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(400);
 
-    html = await fileContent(page, "index.html");
-    expect(hasNode(html, textId)).toBe(true);
-    const retyped = await page.evaluate(
-      ({ html, id }) => {
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        return doc
-          .querySelector(`[data-agent-native-node-id="${id}"]`)
-          ?.textContent?.trim();
-      },
-      { html, id: textId },
-    );
-    expect(retyped).toBe("Sign up");
-
+    // Assert the immediate DOM result first — Playwright's locator
+    // auto-waits for the live iframe to reflect the retyped text, no fixed
+    // sleep needed.
     const widthAfter = (
       await designFrame(page)
         .getByText("Sign up", { exact: true })
@@ -549,6 +539,18 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     expect(widthAfter).toBeTruthy();
     // "Sign up" is longer than "Button": a hug-contents frame must resize.
     expect(widthAfter!).toBeGreaterThan(widthBefore! - 1);
+
+    // The save queue can wait up to 400ms before issuing the persist RPC —
+    // poll for the exact persisted text instead of racing it with a fixed
+    // sleep.
+    await expect
+      .poll(async () => {
+        const polledHtml = await fileContent(page, "index.html");
+        return hasNode(polledHtml, textId)
+          ? elementInner(polledHtml, textId).trim()
+          : null;
+      })
+      .toBe("Sign up");
   });
 
   test("steps 6-10: fill, stroke, corner radius, drop shadow, padding via inspector (peer-owned)", async ({
@@ -999,11 +1001,16 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
 
     await expect
       .poll(
-        async () => hasNode(await fileContent(page, "index.html"), textId),
+        async () => {
+          const result = await readBoth();
+          return (
+            hasNode(result.index, textId) && !result.board.includes(textId)
+          );
+        },
         {
           timeout: 10_000,
           message:
-            "dragging back onto the screen should reparent it back into index.html",
+            "dragging back onto the screen should reparent it back into index.html and remove it from the board file",
         },
       )
       .toBe(true);

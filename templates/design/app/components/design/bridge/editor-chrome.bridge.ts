@@ -2476,7 +2476,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "placeContent",
     "placeItems",
     "placeSelf",
-    "position",
+    // "position" is deliberately excluded: the drop/move that carries this
+    // snapshot always decides the landed node's position itself afterward
+    // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
+    // removeAbsolutePositioningFromNodeInHtml), and design-editor/
+    // portable-style.ts's applyPortableStyles filters it back out on the
+    // apply side too if it's ever added back here — keep both in sync.
     "rowGap",
     "textAlign",
     "textDecoration",
@@ -2530,15 +2535,63 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
+  // Bare-tag baseline for the diff below, cached per tag+namespace since a
+  // portable-style snapshot walks up to 80 descendants per drag. A probe
+  // with no class/inline style still picks up whatever the page's own
+  // stylesheet applies to that tag (a CSS reset, Tailwind preflight), so
+  // diffing against it — rather than a hardcoded CSS-initial-values table —
+  // is what actually tells us "did a class/cascade customize this, or is it
+  // just what this tag renders as anyway."
+  var portableStyleTagDefaultsCache: Record<
+    string,
+    Record<string, string>
+  > = {};
+
+  function portableStyleTagDefaults(el: Element): Record<string, string> {
+    var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
+    var cached = portableStyleTagDefaultsCache[cacheKey];
+    if (cached) return cached;
+    var probe =
+      el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
+        ? document.createElementNS(el.namespaceURI, el.tagName)
+        : document.createElement(el.tagName);
+    (probe as HTMLElement).style.cssText =
+      "position:absolute!important;visibility:hidden!important;" +
+      "pointer-events:none!important;left:-99999px!important;top:-99999px!important;";
+    document.body.appendChild(probe);
+    var probeCs = window.getComputedStyle(probe);
+    var defaults: Record<string, string> = {};
+    PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      defaults[property] =
+        probeCs[property] || probeCs.getPropertyValue(property);
+    });
+    document.body.removeChild(probe);
+    portableStyleTagDefaultsCache[cacheKey] = defaults;
+    return defaults;
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
   ): Record<string, string> {
     if (!el) return {};
     var cs = window.getComputedStyle(el);
+    var defaults = portableStyleTagDefaults(el);
     var styles: Record<string, string> = {};
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       var value = cs[property] || cs.getPropertyValue(property);
-      if (typeof value === "string" && value.trim()) {
+      // Only carry what a class/cascade actually customized on THIS element,
+      // or what it inherited from its old parent chain (an inherited value
+      // differs from the bare probe's un-inherited default too, since the
+      // probe has no parent to inherit from). A value identical to the bare
+      // tag's own rendering is noise: applying it verbatim is how a
+      // duplicate/cross-screen move used to bake ~50 irrelevant properties
+      // (opacity, z-index, box-sizing, transform:none, ...) onto every
+      // dropped copy instead of just what makes it look like the source.
+      if (
+        typeof value === "string" &&
+        value.trim() &&
+        value !== defaults[property]
+      ) {
         styles[property] = value;
       }
     });
@@ -10984,7 +11037,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           anchor: freeParent,
           placement: "after",
           axis: "y",
-          dropMode: "absolute-container",
+          dropMode: "flow-insert",
         };
       }
       var retainedSlot = nearestChildInsertionTarget(

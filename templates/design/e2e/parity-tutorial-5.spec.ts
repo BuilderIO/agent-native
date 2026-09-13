@@ -118,7 +118,19 @@ async function boardObjects(page: Page): Promise<Record<string, true>> {
 
 /** Page-relative bounding box of a node id wherever it lives — the screen
  * iframe or the board iframe alike — by reaching directly into each
- * same-origin iframe's contentDocument. */
+ * same-origin iframe's contentDocument.
+ *
+ * The overview canvas zooms by CSS-transform-scaling an ancestor of the
+ * iframe, not by resizing it: `iframe.getBoundingClientRect()` reflects that
+ * scale (it is page space), but `el.getBoundingClientRect()` computed INSIDE
+ * the iframe's own document does not — it is the iframe's native, unscaled
+ * layout space. Adding the two directly only works at 100% zoom; at any other
+ * zoom (the overview's usual "fit all screens" default) it returns a page
+ * position off by the zoom factor, which silently sends a driven mouse drag
+ * built from it to empty canvas. Rescale by the iframe's own
+ * rendered-vs-native width ratio (mirrors helpers.ts's canvasZoom, and
+ * parity-tutorial-1.spec.ts's identical helper) before combining the two
+ * coordinate spaces. */
 async function boardObjectBoundingBox(
   page: Page,
   nodeId: string,
@@ -132,11 +144,14 @@ async function boardObjectBoundingBox(
       if (!el) continue;
       const iframeRect = iframe.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
+      const scale = iframe.clientWidth
+        ? iframeRect.width / iframe.clientWidth
+        : 1;
       return {
-        x: iframeRect.left + elRect.left,
-        y: iframeRect.top + elRect.top,
-        width: elRect.width,
-        height: elRect.height,
+        x: iframeRect.left + elRect.left * scale,
+        y: iframeRect.top + elRect.top * scale,
+        width: elRect.width * scale,
+        height: elRect.height * scale,
       };
     }
     return null;

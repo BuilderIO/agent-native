@@ -261,7 +261,6 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("holding Space mid-drag keeps an element a sibling instead of reparenting it into the frame it passes over", async ({
     page,
   }) => {
-    page.on("console", (msg) => console.log("[BROWSER]", msg.text()));
     // Alpha Button sits two levels deep (main > flex row > button) — a
     // plain single click (selectByText) only ever selects the outer <main>
     // (see selectByTextDeep's doc comment), so this drag needs the real
@@ -295,25 +294,15 @@ test.describe.serial("rare-but-real unique paths", () => {
     await page.waitForTimeout(200);
 
     const html = await getFileHtml(page);
-    const sectionOpen = html.indexOf(
-      'data-agent-native-layer-name="Fixture Card Title"',
-    );
+    // The fixture's "Fixture Card Title" h2 carries no explicit
+    // data-agent-native-layer-name attribute (only its own text content) —
+    // search for that rendered text directly, not a layer-name attribute
+    // that is never persisted for this unnamed leaf.
+    const sectionOpen = html.indexOf(">Fixture Card Title<");
     const alphaIdx = html.indexOf(
       'data-agent-native-node-id="e2e-alpha-button"',
     );
     const sectionCloseIdx = html.indexOf("</section>", sectionOpen);
-    console.log(
-      "DEBUG-INDICES",
-      JSON.stringify({ sectionOpen, alphaIdx, sectionCloseIdx }),
-    );
-    console.log(
-      "DEBUG-AROUND-ALPHA",
-      html.slice(Math.max(0, alphaIdx - 300), alphaIdx + 300),
-    );
-    console.log(
-      "DEBUG-AROUND-SECTION-CLOSE",
-      html.slice(Math.max(0, sectionCloseIdx - 100), sectionCloseIdx + 400),
-    );
     expect(
       alphaIdx > 0 &&
         sectionOpen > 0 &&

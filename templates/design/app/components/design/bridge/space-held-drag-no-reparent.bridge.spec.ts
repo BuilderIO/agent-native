@@ -6,10 +6,9 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 /**
  * Figma parity (unique-paths: "holding Space mid-drag keeps an element a
  * sibling"): holding Space while dragging must suppress reparenting into
- * whatever container the pointer passes over, keeping the dragged object at
- * its current parent.
+ * whatever container the pointer passes over.
  *
- * Two compounding bugs, both in the reorder gesture's Space tracking:
+ * Three compounding bugs, all in the reorder gesture's Space tracking:
  * 1. The bridge's global keydown/keyup listeners (registered at bridge init,
  *    BEFORE any drag starts) intercepted Space while a drag was active via
  *    stopNativeInteraction — which calls stopImmediatePropagation — so the
@@ -23,6 +22,13 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  *    test's exact sequence) read the flag back as false and reparented
  *    anyway, even though Space visibly protected the object for the whole
  *    visible drag.
+ * 3. "Keep current parent" resolved to the object's immediate DOM parent
+ *    (Row) — but an auto-layout parent cannot host a freely (absolutely)
+ *    positioned child at all, so a drag far outside a small auto-layout row
+ *    nested inside an ALSO auto-layout screen must escape every auto-layout
+ *    ancestor (Row, then the screen's own auto-layout root) up to the
+ *    nearest one that isn't, landing as a free sibling of the screen's
+ *    top-level wrapper — not literally back inside Row.
  *
  * Runs the real generated bridge in a real browser: flex/box layout and
  * getBoundingClientRect need a real layout engine, not happy-dom's stub.
@@ -95,20 +101,21 @@ describe("holding Space mid-drag suppresses reparenting", () => {
       await page.mouse.up();
       await page.waitForTimeout(50);
 
-      const rowHtml = await page
-        .locator('[data-agent-native-node-id="row"]')
-        .evaluate((el) => el.outerHTML);
-      const sectionHtml = await page
-        .locator('[data-agent-native-node-id="section"]')
-        .evaluate((el) => el.outerHTML);
+      const html = await page.content();
+      const mainCloseIdx = html.indexOf("</main>");
+      const alphaIdx = html.indexOf('data-agent-native-node-id="alpha"');
+      const sectionOpenIdx = html.indexOf(
+        'data-agent-native-node-id="section"',
+      );
+      const sectionCloseIdx = html.indexOf("</section>", sectionOpenIdx);
       expect(
-        rowHtml.includes('data-agent-native-node-id="alpha"'),
-        `Alpha must stay a child of its original row after a drag where Space was held then released before drop; row: ${rowHtml}`,
+        alphaIdx > sectionCloseIdx,
+        `Alpha must NOT be reparented into the section under the pointer while Space is held; html: ${html}`,
       ).toBe(true);
       expect(
-        sectionHtml.includes('data-agent-native-node-id="alpha"'),
-        `Alpha must NOT be reparented into the section under the pointer; section: ${sectionHtml}`,
-      ).toBe(false);
+        alphaIdx > mainCloseIdx,
+        `Alpha, dragged far outside its auto-layout row and screen while Space is held, must land as a free sibling of the screen instead of back inside an auto-layout container; html: ${html}`,
+      ).toBe(true);
     } finally {
       await browser.close();
     }
