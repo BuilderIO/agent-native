@@ -67,7 +67,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
 
   async function renderScreens(
     widths: number[],
-    { height = 800 }: { height?: number } = {},
+    { height = 800, zoom = 100 }: { height?: number; zoom?: number } = {},
   ) {
     const screens = widths.map((width, index) => ({
       id: `screen-${index}`,
@@ -86,7 +86,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       root.render(
         <MultiScreenCanvas
           screens={screens}
-          zoom={100}
+          zoom={zoom}
           activeTool="move"
           geometryById={geometryById}
           onPick={() => {}}
@@ -115,5 +115,34 @@ describe("MultiScreenCanvas auto-fit framing", () => {
     const view = await renderScreens([16384, 16384], { height: 1304 });
     expect((800 - 180) / (16384 * 2 + 120)).toBeLessThan(0.1);
     expect(view.scale).toBeCloseTo(0.1, 6);
+  });
+
+  it("preserves a manually panned camera when a late tall screen arrives", async () => {
+    const initial = await renderScreens([400], { height: 800, zoom: 60 });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+    const wheel = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 96,
+      deltaMode: 0,
+    });
+    Object.defineProperty(wheel, "isTrusted", { value: true });
+    await act(async () => {
+      surface!.dispatchEvent(wheel);
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    });
+    const afterPan = readView(container);
+    expect(afterPan.y).not.toBeCloseTo(initial.y, 6);
+
+    const afterLateScreen = await renderScreens([400, 400], {
+      height: 3334,
+      zoom: 60,
+    });
+    expect(afterLateScreen.scale).toBeCloseTo(afterPan.scale, 6);
+    expect(afterLateScreen.x).toBeCloseTo(afterPan.x, 6);
+    expect(afterLateScreen.y).toBeCloseTo(afterPan.y, 6);
   });
 });

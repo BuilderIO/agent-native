@@ -582,6 +582,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
   const zoomRef = useRef(zoom);
+  const lastReportedZoomRef = useRef(zoom);
+  const lineupRecenterCameraRef = useRef({
+    x: panRef.current.x,
+    y: panRef.current.y,
+    zoom: zoomRef.current,
+  });
   // Overview viewport culling (PF22): the surface's own on-screen size,
   // tracked via ResizeObserver below. Combined with the *committed* pan/
   // canvasZoom state (never the imperative per-gesture zoomRef/panRef — see
@@ -1604,6 +1610,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setPan(nextPan);
     setCanvasZoom(zoom);
     zoomRef.current = zoom;
+    lastReportedZoomRef.current = zoom;
     // P18: an externally-driven zoom change (toolbar/keyboard) also moves
     // the canvas-space mapping the pen ghost preview was computed from.
     recomputePenPointerForViewChangeRef.current();
@@ -1739,6 +1746,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ) {
       return;
     }
+    const lastAutoFitCamera = lineupRecenterCameraRef.current;
+    if (
+      !deviceFrameChanged &&
+      previousCount !== null &&
+      screens.length > previousCount &&
+      (lastAutoFitCamera.x !== panRef.current.x ||
+        lastAutoFitCamera.y !== panRef.current.y ||
+        lastAutoFitCamera.zoom !== zoomRef.current)
+    ) {
+      // Async screen arrival must not overwrite a camera the user moved.
+      return;
+    }
     if (
       shouldDeferLineupRecenterToCameraCommand({
         cameraCommandNonce: cameraCommand?.nonce,
@@ -1816,6 +1835,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const nextZoom = nextScale * 100;
       zoomRef.current = nextZoom;
       setCanvasZoom(nextZoom);
+      lastReportedZoomRef.current = nextZoom;
       onZoomChange?.(nextZoom);
     }
     // Genuinely centred, including when content overflows: flooring these
@@ -1828,6 +1848,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
     panRef.current = nextPan;
     setPan(nextPan);
+    lineupRecenterCameraRef.current = {
+      x: nextPan.x,
+      y: nextPan.y,
+      zoom: zoomRef.current,
+    };
     // Only on mount, screen-count changes, or device-preview changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewDeviceFrame, screens.length]);
@@ -7237,7 +7262,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     setCanvasZoom(zoomRef.current);
     setPan(panRef.current);
-    onZoomChange?.(zoomRef.current);
+    if (lastReportedZoomRef.current !== zoomRef.current) {
+      lastReportedZoomRef.current = zoomRef.current;
+      onZoomChange?.(zoomRef.current);
+    }
     // P18: the wheel/pinch gesture just settled (pan/zoom state is
     // reconciled into React here) — resync the pen ghost preview from the
     // last known cursor position now that the canvas-space mapping changed.
