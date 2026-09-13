@@ -150,7 +150,15 @@ export default defineAction({
       .from(schema.designs)
       .where(
         and(
-          accessFilter(schema.designs, schema.designShares),
+          accessFilter(
+            schema.designs,
+            schema.designShares,
+            undefined,
+            "viewer",
+            {
+              includePublic: true,
+            },
+          ),
           eq(schema.designs.id, designId),
         ),
       )

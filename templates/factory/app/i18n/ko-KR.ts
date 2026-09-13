@@ -107,6 +107,7 @@ const messages = {
     status: "상태",
     coverage: "범위",
     reason: "이유",
+    summary: "요약",
     evidence: "근거",
     actionsTaken: "로그",
     threadTruncated: "이 Slack 스레드가 잘렸습니다.",

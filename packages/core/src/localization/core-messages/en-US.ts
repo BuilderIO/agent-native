@@ -169,6 +169,7 @@ const messages = {
     "Configure Anthropic, OpenAI, or another provider",
   "composer.connectAbove": "Connect AI above to continue...",
   "composer.connectBuilder": "Connect Builder.io",
+  "composer.connectKeys": "Connect keys",
   "composer.connectingBuilder": "Connecting Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",

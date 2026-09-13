@@ -458,7 +458,9 @@ export default defineAction({
 
     // ── Resolve HTML file ────────────────────────────────────────────────────
     const fileConditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       fileId
         ? eq(schema.designFiles.id, fileId)
         : eq(schema.designFiles.designId, designId),

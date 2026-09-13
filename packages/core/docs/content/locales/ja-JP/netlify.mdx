@@ -13,9 +13,12 @@ export default defineConfig({
 });
 ```
 
-新しいスキャフォールドでは、Vite パッケージの型を揃えるため、インポートした関数を
-`agentNativePlugins` と名付け、その結果を展開する場合があります。同じ
-`agentNative` プラグインで、受け取るオプションも同じです。
+生成された Chat スキャフォールドでも、インポート名は `agentNative` のままです。設定では
+型アサーションを使ってローカルの `agentNativePlugins` エイリアスに割り当て、返された
+プラグイン配列を展開して Vite パッケージの型を揃えます。このエイリアスは上記の
+`agentNative` の例と同じオプションを受け取ります。Netlify にデプロイする場合は、既存の
+`agentNativePlugins({ ... })` 呼び出しのオプションに `nitro: { preset: "netlify" }` を
+追加してください。Chat 固有の他のプラグイン、オプション、エイリアスはそのまま残します。
 
 …もしくはビルド時に `NITRO_PRESET=netlify` を設定します。
 

@@ -106,6 +106,7 @@ const messages = {
     status: "ステータス",
     coverage: "カバレッジ",
     reason: "理由",
+    summary: "概要",
     evidence: "根拠",
     actionsTaken: "ログ",
     threadTruncated: "この Slack スレッドは途切れています。",

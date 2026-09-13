@@ -67,6 +67,7 @@ const messages = {
     recordings: "녹화",
     newFolder: "새 폴더",
     noSpaces: "아직 스페이스가 없습니다",
+    noSpacesAdminCta: "조직 관리자에게 첫 스페이스를 만들어 달라고 요청하세요.",
     desktopCta: "데스크톱 앱 받기",
     desktopTitle: "Clips 데스크톱 앱을 받으세요.",
     desktopBody: "메뉴 막대, 전역 단축키, 자동 업데이트로 녹화하세요.",
@@ -723,7 +724,8 @@ const messages = {
     labMeetings: "회의 및 전사",
     labMeetingsDescription: "자동 회의 캡처 및 전사를 사용해 보세요.",
     labWisprFlow: "음성 받아쓰기",
-    labWisprFlowDescription: "새 음성 받아쓰기 기능을 사용해 보세요.",
+    labWisprFlowDescription:
+      "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
     preferencesTitle: "환경설정",
     languageTitle: "언어",

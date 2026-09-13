@@ -67,6 +67,8 @@ const messages = {
     recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
     noSpaces: "Aún no hay espacios",
+    noSpacesAdminCta:
+      "Pide a un administrador de la organización que cree el primer espacio.",
     desktopCta: "Obtener la app de escritorio",
     desktopTitle: "Obtén la app de escritorio de Clips.",
     desktopBody:
@@ -741,7 +743,8 @@ const messages = {
     labMeetingsDescription:
       "Prueba la captura y transcripción automática de reuniones.",
     labWisprFlow: "Dictado por voz",
-    labWisprFlowDescription: "Prueba la nueva función de dictado por voz.",
+    labWisprFlowDescription:
+      "Muestra u oculta el dictado por voz en Clips Desktop.",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
     preferencesTitle: "Preferencias",
     languageTitle: "Idioma",

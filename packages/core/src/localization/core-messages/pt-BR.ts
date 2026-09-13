@@ -373,6 +373,7 @@ const messages: AgentChatTranslation = {
     "Configurar Anthropic, OpenAI ou outro provedor",
   "composer.connectAbove": "Conecte um provedor de IA acima para continuar...",
   "composer.connectBuilder": "Conectar Builder.io",
+  "composer.connectKeys": "Conectar chaves",
   "composer.connectingBuilder": "Conectando Builder.io…",
   "composer.costHigher": "Custo mais alto",
   "composer.costLower": "Menor custo",

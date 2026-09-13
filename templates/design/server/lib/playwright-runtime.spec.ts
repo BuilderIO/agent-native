@@ -6,9 +6,43 @@ const serverMocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => serverMocks);
 
-import { launchChromium, type PlaywrightModule } from "./playwright-runtime.js";
+import {
+  importPlaywright,
+  launchChromium,
+  type PlaywrightModule,
+} from "./playwright-runtime.js";
 
 afterEach(() => vi.resetAllMocks());
+
+describe("importPlaywright", () => {
+  it("uses playwright-core when the serverless bundle omits playwright", async () => {
+    const browser = {};
+    const connectOverCDP = vi.fn().mockResolvedValue(browser);
+    const imported = {
+      chromium: {
+        connectOverCDP,
+        launch: vi.fn(),
+      } as unknown as PlaywrightModule["chromium"],
+    };
+    const attempts: string[] = [];
+    serverMocks.requestBuilderBrowserConnection.mockResolvedValue({
+      wsUrl: "wss://browser.example.test/cdp",
+    });
+
+    const result = await importPlaywright(async (specifier) => {
+      attempts.push(specifier);
+      if (specifier === "playwright-core") return imported;
+      throw new Error(`Cannot find package '${specifier}'`);
+    });
+
+    expect(result).toBe(imported);
+    expect(attempts).toEqual(["playwright", "playwright-core"]);
+    await expect(launchChromium(result.chromium)).resolves.toBe(browser);
+    expect(connectOverCDP).toHaveBeenCalledWith(
+      "wss://browser.example.test/cdp",
+    );
+  });
+});
 
 describe("launchChromium", () => {
   it("uses Builder Browser before trying local Chromium", async () => {

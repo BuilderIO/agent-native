@@ -11,7 +11,7 @@ const schema = z.object({
 
 export default defineAction({
   description:
-    "Opt the current user into or out of one registered lab. Labs are user preferences, default off, and may expose new or unstable features.",
+    "Opt the current user into or out of one registered lab. Unset preferences use the app-defined default; labs may expose new or unstable features.",
   schema,
   run: async (args, ctx) => {
     const email = ctx?.userEmail;
