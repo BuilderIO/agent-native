@@ -49,7 +49,7 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 
 ## Validation
 
-- The latest complete Mail run passes 735 tests across 92 files. The focused
+- The initial complete Mail run passed 735 tests across 92 files. The focused
   `ComposeModal` suite passes all 6 tests, including expanded new-message and
   unchanged compact-reply defaults.
 - Repository: all 73 guards and both i18n guards pass after the latest review
@@ -66,8 +66,9 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
   `BETTER_AUTH_SECRET` and persistent database configuration; no production
   build or connected-mail runtime check was performed.
 - The PR preview build, deploy, and smoke check passed; the preview opens to its
-  sign-in screen. Interactive Gmail access remains unverified pending explicit
-  approval to authorize the PR preview.
+  sign-in screen. PR-preview OAuth was not used. Local account-backed access is
+  blocked by missing Google OAuth client credentials (see the 2026-09-13
+  follow-up below).
 
 ## Draft lifecycle review follow-up — 2026-09-12
 
@@ -133,7 +134,8 @@ The 84-case interaction matrix remains mostly unrun. In particular: all viewport
 drag paths; command and keyboard coverage across each view; failure/rollback,
 offline and partial-account states; real autosave/reopen/delete; and a live
 round-trip through only the current user's explicitly approved addresses.
-That round trip is pending because Mail has no Google account connected here.
+That round trip is pending because local Mail's Google OAuth route currently
+reports missing `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 COMPOSE-014 through COMPOSE-017 have automated regression coverage but still
 need the matrix's rendered side-by-side steps when both products are available.
 SEARCH-011 now guards combobox active-descendant references against closed or
@@ -144,3 +146,24 @@ The audit also identified larger product gaps that this initial bug-fix tranche
 does not close: Superhuman-style inline word/phrase autocomplete, offline cached
 search, Smart Send, Auto Reminders, broader label management, and Quick Quote /
 Instant Reply. Track each as a gap in the matrix until implemented and verified.
+
+## PR review and local OAuth follow-up — 2026-09-13
+
+- The latest complete Mail suite passes 742 tests across 92 files. Mail
+  TypeScript checking, all 73 repository guards, both i18n guards, `oxfmt
+  --check`, and `git diff --check` pass.
+- Regression coverage now includes late autosave metadata after close, save-first
+  close-all for captured compose IDs, retaining a recoverable draft and its last
+  confirmed mailbox ID on save failure, deleting the last saved copy on discard
+  even when a pending save rejects, a 409 for a missing explicitly saved local
+  draft, SVG/text-node keyboard targets, Tab/Shift+Tab cycling, and conditional
+  combobox `aria-controls` references.
+- The local Mail app started at `http://localhost:8080/inbox`. Selecting
+  **Connect Google** reached
+  `/_agent-native/connections/oauth/gmail/start?appId=mail&scope=user&return=%2Finbox`
+  and displayed “Gmail OAuth client credentials are not configured.” The app's
+  supported flow requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; no
+  OAuth consent or account grant occurred. No live mailbox content was opened,
+  and no messages or drafts were sent or changed. Read-only provider-backed
+  mailbox/search/thread verification remains incomplete until local Mail has
+  its OAuth client credentials configured.

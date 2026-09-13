@@ -3,10 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyDraftSaveResult,
+  deleteCapturedDraftsAfterSaves,
+  deleteSavedDraftAfterPendingSave,
   enqueueDraftMutation,
   enqueueCapturedDraftDeletions,
   enqueueDraftSave,
   filterRemovedDrafts,
+  getDraftSaveMetadataUpdate,
   newestUnseenPopoutDraftId,
   saveDraftToEmailsBestEffort,
   type DraftSaveResult,
@@ -196,7 +199,112 @@ describe("applyDraftSaveResult", () => {
   });
 });
 
+describe("getDraftSaveMetadataUpdate", () => {
+  it("does not enqueue saved metadata after the compose draft was removed", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    const order: string[] = [];
+    const result = {
+      status: "saved",
+      draftId: "gmail-draft-1",
+      backend: "gmail",
+      accountEmail: "secondary@example.com",
+    } as const;
+    const removed = { ...draft("compose-1"), body: "Hello" };
+
+    const deletion = enqueueDraftMutation(pending, removed.id, async () => {
+      order.push("delete");
+    });
+    const metadataUpdate = getDraftSaveMetadataUpdate(removed, result, true);
+    if (metadataUpdate) {
+      void enqueueDraftMutation(pending, removed.id, async () => {
+        order.push("put");
+      });
+    }
+
+    await deletion;
+    expect(order).toEqual(["delete"]);
+  });
+});
+
+describe("deleteSavedDraftAfterPendingSave", () => {
+  it("deletes the existing saved copy even if the in-flight save rejects", async () => {
+    const existingDraft = {
+      ...draft("compose-1"),
+      savedDraftId: "local-draft-1",
+      savedDraftBackend: "local" as const,
+    };
+    const error = new Error("autosave failed");
+    const deleteDraft = vi.fn(async () => ({ status: "deleted" as const }));
+    const reportFailure = vi.fn();
+
+    await expect(
+      deleteSavedDraftAfterPendingSave(
+        existingDraft,
+        Promise.reject(error),
+        deleteDraft,
+        reportFailure,
+      ),
+    ).resolves.toEqual({ status: "deleted" });
+
+    expect(deleteDraft).toHaveBeenCalledWith(existingDraft);
+    expect(reportFailure).toHaveBeenCalledWith({ status: "failed", error });
+  });
+});
+
 describe("enqueueDraftSave", () => {
+  it("keeps the last saved mailbox metadata when a queued update fails", async () => {
+    const pending = new Map<string, Promise<DraftSaveQueueResult>>();
+    let resolveFirst!: (result: DraftSaveResult) => void;
+    const firstResult = new Promise<DraftSaveResult>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const save = vi
+      .fn()
+      .mockImplementationOnce(async () => firstResult)
+      .mockImplementationOnce(async () => ({
+        status: "failed" as const,
+        error: new Error("latest update failed"),
+      }));
+    const current = { ...draft("compose-1"), body: "First version" };
+    const updated = { ...current, body: "Latest version" };
+
+    const first = enqueueDraftSave(
+      pending,
+      current,
+      () => current,
+      () => false,
+      save,
+    );
+    const second = enqueueDraftSave(
+      pending,
+      updated,
+      () => undefined,
+      () => false,
+      save,
+      true,
+    );
+    resolveFirst({
+      status: "saved",
+      draftId: "gmail-draft-1",
+      backend: "gmail",
+      accountEmail: "secondary@example.com",
+    });
+
+    await first;
+    await expect(second).resolves.toMatchObject({
+      status: "failed",
+      savedDraft: {
+        draftId: "gmail-draft-1",
+        backend: "gmail",
+        accountEmail: "secondary@example.com",
+      },
+    });
+    expect(save.mock.calls[1]?.[0]).toMatchObject({
+      body: "Latest version",
+      savedDraftId: "gmail-draft-1",
+    });
+  });
+
   it("serializes close-time persistence behind autosave and carries the returned ID forward", async () => {
     const pending = new Map<string, Promise<DraftSaveQueueResult>>();
     let resolveFirst!: (result: DraftSaveResult) => void;
@@ -299,6 +407,45 @@ describe("enqueueDraftSave", () => {
 });
 
 describe("enqueueDraftMutation", () => {
+  it("waits for mailbox saves and preserves compose state after a failed save", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    const deleted: string[] = [];
+    let finishSave!: (result: DraftSaveQueueResult) => void;
+    const save = new Promise<DraftSaveQueueResult>((resolve) => {
+      finishSave = resolve;
+    });
+    const closeAll = deleteCapturedDraftsAfterSaves(
+      [
+        { id: "saved", promise: save },
+        {
+          id: "failed",
+          promise: Promise.resolve({
+            status: "failed",
+            error: new Error("mailbox save failed"),
+          }),
+        },
+      ],
+      pending,
+      ["saved", "failed", "empty"],
+      async (id) => {
+        deleted.push(id);
+      },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deleted).toEqual([]);
+
+    finishSave({
+      status: "saved",
+      draftId: "gmail-draft-1",
+      backend: "gmail",
+      accountEmail: "owner@example.com",
+    });
+    await expect(closeAll).resolves.toEqual(["failed"]);
+    expect(deleted.sort()).toEqual(["empty", "saved"]);
+  });
+
   it("runs local compose deletion after any pending state write", async () => {
     const pending = new Map<string, Promise<unknown>>();
     const order: string[] = [];

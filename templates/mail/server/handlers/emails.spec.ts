@@ -57,6 +57,16 @@ describe("emails handler saved-draft metadata", () => {
     expect(source).toContain("setResponseStatus(event, 409)");
     expect(source).toContain("encodeURIComponent(savedDraftId)");
   });
+
+  it("does not mint a new local ID when an existing saved draft is missing", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain("if (savedDraftId && existingIdx < 0)");
+    expect(source).toContain("setResponseStatus(event, 409);");
+    expect(source).toContain(
+      'return { error: "Saved local draft was not found" };',
+    );
+  });
 });
 
 describe("emails handler Gmail label listing", () => {

@@ -314,7 +314,7 @@ export function SearchBar({
           data-mail-search
           role="combobox"
           aria-autocomplete="list"
-          aria-controls="mail-search-suggestions"
+          aria-controls={showDropdown ? "mail-search-suggestions" : undefined}
           aria-expanded={showDropdown}
           aria-activedescendant={getActiveDescendantId(
             "mail-search-suggestion-",

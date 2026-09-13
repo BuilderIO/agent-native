@@ -1140,12 +1140,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       key: "Tab",
       shouldHandle: canCycleTab,
       handler: () => cycleTab(false),
+      skipInInput: false,
     },
     {
       key: "Tab",
       shift: true,
       shouldHandle: canCycleTab,
       handler: () => cycleTab(true),
+      skipInInput: false,
     },
     {
       key: "Escape",
@@ -2086,11 +2088,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   ),
               );
               const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const savePromises = new Map(
-                popoutDrafts.map((draft) => [
-                  draft.id,
-                  compose.close(draft.id),
-                ]),
+              const savePromises = compose.closeAll(
+                popoutDrafts.map((draft) => draft.id),
               );
               if (snapshots.length > 0) {
                 toast(
@@ -2099,15 +2098,25 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     action: {
                       label: t("mail.compose.reopenDraft"),
                       onClick: async () => {
-                        const savedSnapshots = await Promise.all(
-                          snapshots.map(async (snapshot) =>
-                            applyDraftSaveResult(
-                              snapshot,
-                              await savePromises.get(snapshot.id),
-                            ),
-                          ),
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
                         );
-                        for (const savedSnapshot of savedSnapshots) {
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.setActiveId(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
+                          );
                           const { id: _id, ...reopenData } = savedSnapshot;
                           compose.open(reopenData);
                         }
@@ -2116,15 +2125,25 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     cancel: {
                       label: t("mail.compose.deleteDrafts"),
                       onClick: async () => {
-                        const savedSnapshots = await Promise.all(
-                          snapshots.map(async (snapshot) =>
-                            applyDraftSaveResult(
-                              snapshot,
-                              await savePromises.get(snapshot.id),
-                            ),
-                          ),
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
                         );
-                        for (const savedSnapshot of savedSnapshots) {
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.discard(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
+                          );
                           if (savedSnapshot.savedDraftId) {
                             await compose.deleteSavedDraft(savedSnapshot);
                           }

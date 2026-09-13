@@ -787,7 +787,9 @@ export function RecipientInput({
           data-recipient-field={field}
           role="combobox"
           aria-autocomplete="list"
-          aria-controls={suggestionListId}
+          aria-controls={
+            showSuggestions && hasSuggestions ? suggestionListId : undefined
+          }
           aria-expanded={showSuggestions && hasSuggestions}
           aria-activedescendant={getActiveDescendantId(
             `${suggestionListId}-option-`,

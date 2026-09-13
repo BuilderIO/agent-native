@@ -29,6 +29,19 @@ describe("isKeyboardShortcutTarget", () => {
     expect(isKeyboardShortcutTarget(icon)).toBe(true);
   });
 
+  it("recognizes SVG and text-node descendants inside interactive controls", () => {
+    const button = document.createElement("button");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const text = document.createTextNode("Send");
+    svg.append(path);
+    button.append(svg, text);
+    document.body.append(button);
+
+    expect(isKeyboardShortcutTarget(path)).toBe(true);
+    expect(isKeyboardShortcutTarget(text)).toBe(true);
+  });
+
   it("leaves a non-interactive list surface available to shortcuts", () => {
     const row = document.createElement("div");
     row.setAttribute("role", "row");

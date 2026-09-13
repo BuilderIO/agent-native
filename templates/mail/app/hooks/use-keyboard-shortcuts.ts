@@ -24,10 +24,16 @@ const INTERACTIVE_TARGET_SELECTOR = [
  * agree about which surface owns the event.
  */
 export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  if (!element) return false;
   return (
-    target.isContentEditable ||
-    target.closest(INTERACTIVE_TARGET_SELECTOR) !== null
+    (element instanceof HTMLElement && element.isContentEditable) ||
+    element.closest(INTERACTIVE_TARGET_SELECTOR) !== null
   );
 }
 

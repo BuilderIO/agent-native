@@ -1469,6 +1469,10 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     const existingIdx = savedDraftId
       ? emails.findIndex((e) => e.id === savedDraftId && e.isDraft)
       : -1;
+    if (savedDraftId && existingIdx < 0) {
+      setResponseStatus(event, 409);
+      return { error: "Saved local draft was not found" };
+    }
 
     const draftEmail: EmailMessage = {
       id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,

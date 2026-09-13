@@ -21,7 +21,9 @@ describe("SearchBar saved-filter flow", () => {
     const source = searchBarSource();
 
     expect(source).toContain('role="combobox"');
-    expect(source).toContain('aria-controls="mail-search-suggestions"');
+    expect(source).toContain(
+      'showDropdown ? "mail-search-suggestions" : undefined',
+    );
     expect(source).toContain('id="mail-search-suggestions"');
     expect(source).toContain("getActiveDescendantId(");
     expect(source).toContain('role="listbox"');
