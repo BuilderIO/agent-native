@@ -33,6 +33,7 @@ import {
   isSlideObjectGroup,
   isAutoHeightTextResize,
   isValidSlideClipboardRoot,
+  readSlideObjectSelectionFrame,
   resolveSlideClipboardElement,
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
@@ -46,8 +47,10 @@ import {
   restoreSlideObjectStyle,
   resizeSlideObject,
   resizeSlideObjectMembers,
+  resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
   readSlideObjectRotation,
+  readSlideObjectTransformSnapshot,
   resolveSlideObjectRotationDelta,
   rotateSlideObjectMembers,
   setSlideObjectRotation,
@@ -58,6 +61,8 @@ import {
   SLIDE_OBJECT_PASTE_OFFSET,
   distributeSlideObjectMembers,
   type SlideObjectGeometry,
+  type SlideObjectGroupResizeMember,
+  type SlideObjectRotationMember,
 } from "./slide-object-interactions";
 
 function createFreeformObject(
@@ -71,6 +76,34 @@ function createFreeformObject(
   if (top !== undefined) element.style.top = `${top}px`;
   if (zIndex !== undefined) element.style.zIndex = `${zIndex}`;
   return element;
+}
+
+function groupResizeMember(
+  objectId: string,
+  element: HTMLElement,
+  start: SlideObjectGeometry,
+): SlideObjectGroupResizeMember {
+  return {
+    objectId,
+    element,
+    start,
+    ...readSlideObjectTransformSnapshot(element),
+  };
+}
+
+function rotationMember(
+  objectId: string,
+  element: HTMLElement,
+  start: SlideObjectGeometry,
+  rotation: number,
+): SlideObjectRotationMember {
+  return {
+    objectId,
+    element,
+    start,
+    rotation,
+    ...readSlideObjectTransformSnapshot(element),
+  };
 }
 
 describe("slide object interactions", () => {
@@ -366,44 +399,163 @@ describe("slide object interactions", () => {
     expect(result.get("b")).toEqual({ x: 70, y: 62, width: 30, height: 28 });
   });
 
+  it("resizes a rotated object in its local axes and holds the opposite edge", () => {
+    const geometry = resizeTransformedSlideObject(
+      { x: 100, y: 80, width: 100, height: 50 },
+      {
+        transform: "matrix(0, 1, -1, 0, 0, 0)",
+        transformOrigin: "50% 50%",
+      },
+      {
+        handle: "n",
+        dx: 20,
+        dy: 0,
+        preserveAspectRatio: false,
+      },
+    );
+
+    expect(geometry).toEqual({ x: 110, y: 70, width: 100, height: 70 });
+  });
+
+  it("preserves an explicitly fixed transform origin while resizing", () => {
+    const geometry = resizeTransformedSlideObject(
+      { x: 100, y: 80, width: 100, height: 50 },
+      {
+        transform: "matrix(0, 1, -1, 0, 0, 0)",
+        transformOrigin: "50px 25px",
+      },
+      {
+        handle: "n",
+        dx: 20,
+        dy: 0,
+        preserveAspectRatio: false,
+      },
+    );
+
+    expect(geometry).toEqual({ x: 120, y: 80, width: 100, height: 70 });
+  });
+
+  it("keeps a computed centered transform origin relative to the resized box", () => {
+    const element = createFreeformObject("computed-origin");
+    Object.defineProperty(element, "offsetWidth", { value: 100 });
+    Object.defineProperty(element, "offsetHeight", { value: 50 });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: "matrix(0, 1, -1, 0, 0, 0)",
+              transformOrigin: "50px 25px",
+            } as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element)).toEqual({
+        transform: "matrix(0, 1, -1, 0, 0, 0)",
+        transformOrigin: "50% 50%",
+      });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it("measures selection handles in the rotated object's local frame", () => {
+    const element = createFreeformObject("rotated");
+    element.style.width = "100px";
+    element.style.height = "50px";
+    element.style.transform = "matrix(0, 1, -1, 0, 0, 0)";
+    element.style.transformOrigin = "50% 50%";
+    Object.defineProperty(element, "offsetWidth", { value: 100 });
+    Object.defineProperty(element, "offsetHeight", { value: 50 });
+
+    const frame = readSlideObjectSelectionFrame(element, {
+      left: 200,
+      top: 100,
+      width: 50,
+      height: 100,
+    } as DOMRect);
+
+    expect(frame).toEqual({
+      left: 175,
+      top: 125,
+      width: 100,
+      height: 50,
+      transform: "matrix(0, 1, -1, 0, 0, 0)",
+      transformOrigin: { x: 50, y: 25 },
+    });
+  });
+
   it("scales each grouped descendant in its own parent coordinate space", () => {
     const first = createFreeformObject("first");
     const nestedGroup = createFreeformObject("nested-group");
     const nestedChild = createFreeformObject("nested-child");
     const plan = scaleSlideObjectGroupMembers(
       [
+        groupResizeMember("first", first, {
+          x: 10,
+          y: 20,
+          width: 40,
+          height: 30,
+        }),
+        groupResizeMember("nested-group", nestedGroup, {
+          x: 60,
+          y: 50,
+          width: 40,
+          height: 40,
+        }),
+        groupResizeMember("nested-child", nestedChild, {
+          x: 10,
+          y: 15,
+          width: 20,
+          height: 20,
+        }),
+      ],
+      { width: 100, height: 100 },
+      { width: 200, height: 50 },
+    );
+
+    expect(plan.get(first)?.geometry).toEqual({
+      x: 20,
+      y: 10,
+      width: 80,
+      height: 15,
+    });
+    expect(plan.get(nestedGroup)?.geometry).toEqual({
+      x: 120,
+      y: 25,
+      width: 80,
+      height: 20,
+    });
+    expect(plan.get(nestedChild)?.geometry).toEqual({
+      x: 20,
+      y: 7.5,
+      width: 40,
+      height: 10,
+    });
+  });
+
+  it("scales grouped member transforms with the parent resize", () => {
+    const member = createFreeformObject("member");
+    const plan = scaleSlideObjectGroupMembers(
+      [
         {
-          objectId: "first",
-          element: first,
-          start: { x: 10, y: 20, width: 40, height: 30 },
-        },
-        {
-          objectId: "nested-group",
-          element: nestedGroup,
-          start: { x: 60, y: 50, width: 40, height: 40 },
-        },
-        {
-          objectId: "nested-child",
-          element: nestedChild,
-          start: { x: 10, y: 15, width: 20, height: 20 },
+          objectId: "member",
+          element: member,
+          start: { x: 20, y: 30, width: 40, height: 20 },
+          transform: "matrix(0.8, 0.6, -0.6, 0.8, 10, -8)",
+          transformOrigin: "25% 75%",
         },
       ],
       { width: 100, height: 100 },
       { width: 200, height: 50 },
     );
 
-    expect(plan.get(first)).toEqual({ x: 20, y: 10, width: 80, height: 15 });
-    expect(plan.get(nestedGroup)).toEqual({
-      x: 120,
-      y: 25,
-      width: 80,
-      height: 20,
-    });
-    expect(plan.get(nestedChild)).toEqual({
-      x: 20,
-      y: 7.5,
-      width: 40,
-      height: 10,
+    expect(plan.get(member)).toEqual({
+      geometry: { x: 40, y: 15, width: 80, height: 10 },
+      transform: "matrix(0.8, 0.15, -2.4, 0.8, 20, -4)",
+      transformOrigin: "20px 7.5px",
     });
   });
 
@@ -426,11 +578,12 @@ describe("slide object interactions", () => {
       });
       const plan = scaleSlideObjectGroupMembers(
         [
-          {
-            objectId: "member",
-            element: member,
-            start: { x: 20, y: 10, width: 30, height: 20 },
-          },
+          groupResizeMember("member", member, {
+            x: 20,
+            y: 10,
+            width: 30,
+            height: 20,
+          }),
         ],
         groupStart,
         groupEnd,
@@ -440,8 +593,8 @@ describe("slide object interactions", () => {
       const scaleY = groupEnd.height / groupStart.height;
 
       expect({
-        x: groupEnd.x + memberGeometry.x,
-        y: groupEnd.y + memberGeometry.y,
+        x: groupEnd.x + memberGeometry.geometry.x,
+        y: groupEnd.y + memberGeometry.geometry.y,
       }).toEqual({
         x: fixedEast - (fixedEast - originalMemberLeft) * scaleX,
         y: fixedSouth - (fixedSouth - originalMemberTop) * scaleY,
@@ -2238,22 +2391,47 @@ describe("slide object groups and rotation", () => {
     expect(group?.style.zIndex).toBe("");
   });
 
+  it("preserves the effective class z-index when grouping members", () => {
+    const style = document.createElement("style");
+    style.textContent = ".slide-object-class-z-test { z-index: 12; }";
+    document.head.append(style);
+
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second", { zIndex: 4 });
+    first.classList.add("slide-object-class-z-test");
+    parent.append(first, second);
+    document.body.append(parent);
+    const geometry = geometryFor([
+      [first, { x: 0, y: 0, width: 40, height: 40 }],
+      [second, { x: 60, y: 0, width: 40, height: 40 }],
+    ]);
+
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+
+    try {
+      expect(group?.style.zIndex).toBe("12");
+    } finally {
+      parent.remove();
+      style.remove();
+    }
+  });
+
   it("rotates a multi-selection around its union center", () => {
     const first = createFreeformObject("first");
     const second = createFreeformObject("second");
     const members = [
-      {
-        objectId: "first",
-        element: first,
-        start: { x: 0, y: 0, width: 20, height: 20 },
-        rotation: 0,
-      },
-      {
-        objectId: "second",
-        element: second,
-        start: { x: 80, y: 0, width: 20, height: 20 },
-        rotation: 10,
-      },
+      rotationMember("first", first, { x: 0, y: 0, width: 20, height: 20 }, 0),
+      rotationMember(
+        "second",
+        second,
+        { x: 80, y: 0, width: 20, height: 20 },
+        10,
+      ),
     ];
 
     const plan = rotateSlideObjectMembers(members, 90);
@@ -2268,6 +2446,100 @@ describe("slide object groups and rotation", () => {
     });
   });
 
+  it("preserves a class-supplied transform during rotation", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".slide-css-transform-test { transform: matrix(1.5, 0, 0, 1.5, 20, 8); }";
+    document.head.append(style);
+    const element = createFreeformObject("css-transform");
+    element.classList.add("slide-css-transform-test");
+    document.body.append(element);
+
+    try {
+      const member = rotationMember(
+        "css-transform",
+        element,
+        { x: 0, y: 0, width: 100, height: 50 },
+        0,
+      );
+      const plan = rotateSlideObjectMembers([member], 45);
+      const next = plan.get("css-transform");
+      const matrix = next?.transform
+        .match(/^matrix\((.+)\)$/)?.[1]
+        ?.split(",")
+        .map(Number);
+
+      expect(element.style.transform).toBe("");
+      expect(matrix).toHaveLength(6);
+      expect(Math.hypot(matrix?.[0] ?? 0, matrix?.[1] ?? 0)).toBeCloseTo(
+        1.5,
+        8,
+      );
+      expect(
+        (Math.atan2(matrix?.[1] ?? 0, matrix?.[0] ?? 1) * 180) / Math.PI,
+      ).toBeCloseTo(45, 8);
+      expect(matrix?.[4]).toBe(20);
+      expect(matrix?.[5]).toBe(8);
+    } finally {
+      element.remove();
+      style.remove();
+    }
+  });
+
+  it("keeps the pointer-rotation pivot fixed across preview updates", () => {
+    const first = createFreeformObject("first");
+    first.style.transform = "matrix(1, 0, 0, 1, 20, -5)";
+    first.style.transformOrigin = "25% 75%";
+    const second = createFreeformObject("second");
+    second.style.transform =
+      "matrix(0.965925826, 0.258819045, -0.258819045, 0.965925826, -4, 8)";
+    const initial = [
+      rotationMember("first", first, { x: 0, y: 0, width: 120, height: 20 }, 0),
+      rotationMember(
+        "second",
+        second,
+        { x: 140, y: 15, width: 20, height: 80 },
+        15,
+      ),
+    ];
+    const referenceFirst = createFreeformObject("reference-first");
+    referenceFirst.style.transform = first.style.transform;
+    referenceFirst.style.transformOrigin = first.style.transformOrigin;
+    const referenceSecond = createFreeformObject("reference-second");
+    referenceSecond.style.transform = second.style.transform;
+    const reference = [
+      rotationMember(
+        "first",
+        referenceFirst,
+        initial[0]!.start,
+        initial[0]!.rotation,
+      ),
+      rotationMember(
+        "second",
+        referenceSecond,
+        initial[1]!.start,
+        initial[1]!.rotation,
+      ),
+    ];
+
+    const firstPreview = rotateSlideObjectMembers(initial, 10);
+    for (const member of initial) {
+      setSlideObjectRotation(
+        member.element,
+        firstPreview.get(member.objectId)!.rotation,
+      );
+    }
+    const nextPreview = rotateSlideObjectMembers(initial, 20);
+    const directPreview = rotateSlideObjectMembers(reference, 20);
+
+    const output = (plan: typeof nextPreview) =>
+      [...plan.entries()].map(([id, value]) => [
+        id,
+        { geometry: value.geometry, transform: value.transform },
+      ]);
+    expect(output(nextPreview)).toEqual(output(directPreview));
+  });
+
   it.each([
     ["matrix", "matrix(1, 0, 0, 1, 20, 0)"],
     ["translate", "translate(20px, 0px)"],
@@ -2278,18 +2550,18 @@ describe("slide object groups and rotation", () => {
       first.style.transform = transform;
       const second = createFreeformObject("second");
       const members = [
-        {
-          objectId: "first",
-          element: first,
-          start: { x: 0, y: 0, width: 20, height: 20 },
-          rotation: 0,
-        },
-        {
-          objectId: "second",
-          element: second,
-          start: { x: 80, y: 0, width: 20, height: 20 },
-          rotation: 0,
-        },
+        rotationMember(
+          "first",
+          first,
+          { x: 0, y: 0, width: 20, height: 20 },
+          0,
+        ),
+        rotationMember(
+          "second",
+          second,
+          { x: 80, y: 0, width: 20, height: 20 },
+          0,
+        ),
       ];
 
       const plan = rotateSlideObjectMembers(members, 90);

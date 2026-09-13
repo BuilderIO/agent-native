@@ -55,6 +55,48 @@ of scope where the Slides app intentionally uses Agent-Native equivalents.
 | Import/export                  | PPTX/PDF/HTML/Google Slides round trips preserve objects and metadata                        | Partial                   | Existing preservation contract; use stable seeded simple/advanced fixtures and compare before/after render and metadata                                                                                                                                           |
 | Agent-Native boundaries        | Selection/app-state, shared actions, persistence, reload and collaboration                   | Partial                   | Selection is published to app state; new group/rotation state has unit serialization coverage but not live reload evidence                                                                                                                                        |
 
+## Repeatable case matrix
+
+These fixture definitions and scenarios are a test plan, not evidence. Each
+fixture must be created from the same PPTX in Google Slides and in the local
+Slides app, then captured before any interaction. The two imports may mint
+different object IDs; use labels, slide order, rendered geometry, and content
+as cross-app identity, and record each app's IDs separately.
+
+| Fixture | Stable starting content | Main coverage |
+| ------- | ----------------------- | ------------- |
+| Simple (2 slides) | Two overlapping rectangles, one ellipse, a free line, and two editable text boxes | Selection, focus, move/resize, copy/duplicate, text editing, undo/redo, basic slide-rail actions |
+| Mixed (3 slides) | A cropped image with an overlapping shape; a 4×3 native table; a native two-series chart | Image crop/mask/style, cell selection and formatting, chart selection/editing, object overlays |
+| Advanced (5 slides) | Rotated and translucent shapes; three group candidates plus an unselected peer; four uneven alignment targets; a table and chart; a second image with separate text and line | Local-frame transforms, group/ungroup, equal-z ordering, alignment/distribution, slide rail, mixed-media persistence |
+
+For every scenario, capture the untouched state, exercise pointer and keyboard
+paths, then the available modifier, context-menu, and inspector/menu paths. Check
+the visible result and persisted deck state; undo once, redo once, reload, and
+compare again. Where an app intentionally lacks a Google-only service feature,
+record that boundary instead of treating absence as a geometry or editor bug.
+
+| Case | Reproduction and Google Slides oracle | Cross-input paths | Persistence and regression oracle |
+| ---- | ------------------------------------- | ----------------- | --------------------------------- |
+| Selection and focus | On Simple slide 1, click each overlap target, toggle a second object with Shift and platform primary-click, marquee the pair, then click whitespace. Capture actual Google Slides selection and hit order; the help pages do not define every selection gesture. | Pointer click/drag, Shift/primary modifier, `Tab`/`Shift+Tab`, `Cmd/Ctrl+A`, `Escape`, context menu / `Shift+F10` | Local editor selection IDs match the selected root objects and are published to `slides-selection`; selection clears or returns to the editor's documented focus owner. Reload checks persisted objects, not a transient selection unless app state promises it. |
+| Object move and snapping | Drag an object near another object's edge/center, then near a ruler guide and grid intersection. Guides snap by default; grid snapping is an explicit View setting. | Drag, Shift-constrained movement, platform guide-suppression modifier, View menu, keyboard nudge by Arrow and Shift+Arrow | Record final canvas coordinates, visible snap guides, and setting state. Undo/redo/reload must restore the same object geometry without moving sibling objects. |
+| Resize and rotate | On Simple slide 1, exercise all eight resize handles; use Shift for aspect ratio and the platform center-resize modifier. On Advanced slide 1, drag the visible handle of a rotated object, then rotate from its handle. Google lists Shift rotation snapping to 15° and keyboard rotation at 1°/15° increments. | Pointer handles, Shift/platform modifiers, `Option+Shift+←/→` (1°), `Option+←/→` (15°) on Mac; corresponding Google shortcuts on the tested platform; inspector numeric fields | Compare local-frame anchors, opposite-edge stability, transform origin, angle, and rendered bounds. Cancel with Escape, commit, undo/redo, and reload. |
+| Grouping and z-order | On Advanced slide 2, group non-adjacent members across the unselected peer, move/resize/rotate the group, then ungroup. Google documents Arrange → Group and order actions; selected-layer tie breaking must be observed, not inferred from docs. | Toolbar/context menu; Mac `⌘+Option+G` / `⌘+Option+Shift+G`, PC `Ctrl+Alt+G` / `Ctrl+Alt+Shift+G`; Mac `⌘+↑/↓` / `⌘+Shift+↑/↓`, PC `Ctrl+↑/↓` / `Ctrl+Shift+↑/↓` | Compare paint order and member geometry before/after group, ungroup, undo/redo, and reload. Include repeated preview updates and non-inline CSS transforms in the focused regression fixture. |
+| Clipboard and duplicate | Copy, cut, and paste one object, a multi-selection, text inside edit mode, and a slide-rail selection. Duplicate with `Cmd/Ctrl+D`; compare drag-duplicate behavior with the host's platform modifier. | Native shortcuts, context menu, object/slide focus, modifier-drag, external plain-text paste, image paste when clipboard permission is available | New persisted object IDs are unique; styles, geometry, and z-order are preserved. Undo/redo must affect one logical operation; reload must preserve committed content and not resurrect a cut object. |
+| Text editing and formatting | On Simple slide 2, enter text by double click, select a range, format only that range, change paragraph alignment/list state, then leave text editing with Escape. | Single/double click, caret and range selection, toolbar, context menu, `Cmd/Ctrl+B/I/U`, list/align shortcuts, keyboard focus | Verify rich-text HTML/readback, selected range, caret ownership, final keystroke persistence, undo/redo granularity, and fresh-load rendering. |
+| Images and media | On Mixed slide 1 and Advanced slide 5, move/resize/replace an image; test crop, mask, fit, border, opacity/brightness/contrast, and reset. Use video only if an editable video source is available. | Pointer frame/crop handles, Insert menu, context menu, inspector/format options, drag/drop, external paste when permitted | Preserve intrinsic aspect ratio, source, crop, and mask independently. Read back after reload and round-trip. Mark media requiring an unavailable external account as blocked rather than passed. |
+| Shapes and lines | Insert a shape and a line; edit endpoints, stroke/fill/transparency, line dash, and rotation; overlap the line with objects and move each endpoint. | Insert menu, pointer endpoints, keyboard selection/nudge, context menu, inspector/style controls | Compare endpoints and object transforms, not just the line's axis-aligned box. Verify style and geometry through undo/redo/reload and PPTX import/export. |
+| Tables and charts | On Mixed slide 2, edit cells and test the documented 20×20 insertion limit, row/column insert/delete, gridline resize, table-corner resize, selected-cell fill and borders. On Mixed slide 3, select and edit the native chart. | Cell keyboard navigation, right-click cell menus, table handles, toolbar/inspector, chart selection and context menu | Verify cell values, row/column dimensions, border/fill styles, chart series/categories and editability after reload/import. Do not require Docs-only table sorting, pinning, or row/column dragging in Slides. |
+| Slide rail | Insert a slide with the current layout and with a different layout; Shift-select multiple slides; duplicate, reorder, delete, skip, then switch filmstrip/grid view. | Rail pointer/context menu; Page Up/Down and slide-order shortcuts; `Shift+↑/↓`; `Cmd/Ctrl+↑/↓` and `Cmd/Ctrl+Shift+↑/↓` | Compare slide IDs and order, per-slide content/layout, skipped state, selection, thumbnails, undo/redo, and fresh load. Deletion must be undoable; skip must not delete. |
+| Themes, layouts, and background | Change theme, change a slide layout, set one-slide background, then apply a background to the theme. Insert a template slide only as a distinct import path. | Slide/Layout menus, theme sidebar, background controls, context menu where available | Record which slides and inherited styles changed. Preserve editable freeform objects and intentional Agent-Native design-system tokens; document master/layout differences as product boundaries, not silent equivalence. |
+| Comments and collaboration | Anchor comments to text, an image, and a slide; reply, mention a collaborator, filter open/resolved, resolve/reopen, and test reactions. Repeat with two editor identities for presence, concurrent edits, and selection handoff. | Toolbar/selection comment action, comment panel, comment keyboard shortcuts, pointer and keyboard navigation | Compare anchor target, thread/reply order, resolution state, and notifications where available. Verify concurrent writes do not clobber local edits; do not claim presence from a single-user run. |
+| Viewport, undo/redo, and reload | Zoom in/out/reset, pan/scroll around a selected object, then apply representative object, text, slide, and theme edits. | Pointer wheel/trackpad, zoom controls, documented zoom shortcuts, keyboard focus movement | Selection and scroll behavior should match the reference capture; undo/redo must be scoped to one edit and not erase another object or remote change. Reload after each operation class and compare render plus action readback. |
+| Import/export and agent boundary | Round-trip each fixture through PPTX; also exercise Slides PDF/HTML export and Google Slides conversion separately. For each UI edit, read the result through the Slides action surface; for each action edit, confirm the editor updates. | UI flow, export/import menus, `get-deck`/`view-screen` actions, navigation and application-state reads | Compare slide count/order, editable objects, text, images/crops, tables/charts, notes/animation metadata, and known ID remapping. A successful download or upload alone is not a fidelity pass. |
+
+The fixture PPTX generator is staged under the ignored `.tmp/` directory but has
+not been run or imported while the Mail-owned local build/test slot is held.
+Google Slides API thumbnails can validate imported structure and appearance,
+but they do not substitute for pointer/keyboard interaction in its editor.
+
 ## Exact repros, code disposition, and proof
 
 These repros capture baseline defects and their shared boundaries. A code
@@ -177,6 +219,49 @@ evidence below are marked verified, and only for the tested cases.
     bounds, then account for the target transform offset; focused regressions
     cover both `translate(...)` and `matrix(...)`. Browser interaction and
     reload evidence remain open because the local editor returned HTTP 500.
+15. Group two objects, one with transform
+    `matrix(0.8, 0.6, -0.6, 0.8, 10, -8)` and origin `25% 75%`, then resize
+    the group from 100×100 to 200×50. Expected: the member transform becomes
+    `matrix(0.8, 0.15, -2.4, 0.8, 20, -4)` with origin `20px 7.5px`, so the
+    member follows the same nonuniform parent scale as its layout box.
+    Baseline actual: only `left`/`top`/`width`/`height` changed; the matrix
+    and transform origin stayed at their original values. Root boundary:
+    `scaleSlideObjectGroupMembers` planned geometry without the transform
+    snapshot. Code disposition: resize plans now scale the planar matrix and
+    transform origin from pointer-down snapshots; focused test and reload
+    verification are pending the serialized local test slot.
+16. Give one selected member a CSS class with `z-index: 12`, give the other
+    member inline `z-index: 4`, then group them. Expected: the wrapper inherits
+    the highest effective non-auto member layer (`12`). Baseline actual: the
+    wrapper was left at `auto` because grouping inspected only inline
+    `style.zIndex`. Root boundary: `groupSlideObjects` ignored the existing
+    effective-layer helper. Code disposition: grouping now reads computed
+    non-auto z-index values; focused test and rendered stacking verification
+    are pending.
+17. Select a 100×50 object at `(100, 80)`, rotate it 90° around its center,
+    then drag the visible right-middle selection handle 20 px right. Expected:
+    that visual edge maps to the object's local north handle; the opposite
+    local edge stays fixed and geometry becomes `(110, 70, 100, 70)`. Baseline
+    actual: selection handles were placed on the axis-aligned 50×100 bounds,
+    and the `e` handle fed world `dx` into unrotated axes, producing
+    `(100, 80, 120, 50)` instead. Root boundary: `ElementSelectionOutline`
+    exposed AABB handles while `startElementResize` trusted canvas-axis deltas.
+    Code disposition: single-object chrome now follows the transformed local
+    frame, and resize deltas/anchors are mapped through the immutable planar
+    transform. Computed pixel origins are normalized to relative coordinates
+    so a default centered pivot follows the resized box, while explicitly
+    authored inline lengths keep their fixed-pixel meaning. Focused
+    geometry/frame tests and browser interaction remain pending.
+18. Start rotating two differently sized objects, move the pointer to a
+    10° preview, then continue to 20°. Expected: the second preview is computed
+    from the pointer-down transform snapshots and matches a direct 20° preview.
+    Baseline actual: each preview read the live mutated CSS transform while
+    reusing the original layout geometry, shifting the transformed union
+    center and rotating around a drifting pivot. Root boundary:
+    `rotateSlideObjectMembers` mixed live transforms with immutable `start`
+    geometry. Code disposition: rotation members now capture transform and
+    origin once and return the planned transform; repeat-preview regression
+    and browser drag/reload evidence are pending.
 
 ## Review findings — 2026-09-13
 
@@ -211,6 +296,18 @@ evidence below are marked verified, and only for the tested cases.
   drift. It now plans from transformed bounds and compensates for the target
   transform offset; matrix and `translate(...)` regressions pass. Browser
   rotation/persistence verification remains open.
+- New review candidates on the pushed head (comments 3998534017, 3998534018,
+  3998534020, and 3998534022): all four reproduce at the shared transform and
+  effective-layer boundaries described in repros 15–18. Focused regression
+  coverage and source fixes are prepared, but no local tests have been run
+  while Mail owns the serialized test slot. The authenticated editor check is
+  still unavailable because the only open Slides preview is at sign-in.
+- CSS-only transforms during rotation (comment 3998589418): confirmed on the
+  pushed head, where rotation could compose from an empty inline transform.
+  The current local fix captures the effective transform before both keyboard
+  and pointer previews and composes from that snapshot. A new class-backed
+  matrix regression checks that scale and translation survive; test and
+  browser evidence remain pending.
 
 ## Evidence run and remaining blocker (2026-09-13)
 

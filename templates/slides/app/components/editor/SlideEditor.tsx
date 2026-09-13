@@ -127,6 +127,7 @@ import {
 import {
   createSelectionOverlayAutofitKey,
   createSelectionOverlayMeasurementKey,
+  currentSelectionOverlayFrame,
   currentSelectionOverlayRect,
   isSelectionOverlayAutofitSettled,
   isSelectionOverlayOnActiveSlide,
@@ -165,8 +166,10 @@ import {
   isSlideObjectGroup,
   isSlideTableStructureElement,
   isValidSlideClipboardRoot,
+  readSlideObjectSelectionFrame,
   readSlideObjectClipboardId,
   readSlideObjectRotation,
+  readSlideObjectTransformSnapshot,
   resolveSlideObjectRotationDelta,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
@@ -176,12 +179,12 @@ import {
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
   resizeSlideObjectMembers,
+  resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
   rotateSlideObjectMembers,
   resolveSlideClipboardElement,
   restoreSlideObjectStyle,
   setSlideObjectDimension,
-  setSlideObjectRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -193,7 +196,7 @@ import {
   type SlideObjectDistribution,
   type ResizeHandle,
   type SlideObjectGeometry,
-  type SlideObjectMoveMember,
+  type SlideObjectGroupResizeMember,
   type SlideObjectRotationMember,
   type SlideObjectZOrderTarget,
   type SlidesSelectionMode,
@@ -1105,18 +1108,24 @@ function ImageSelectionOutline({
 
 function ElementSelectionOutline({
   rect,
+  frame,
   viewportRect,
   onResizeStart,
   onMoveStart,
   onRotateStart,
 }: {
   rect: DOMRect;
+  frame?: SelectionOverlayMeasurement["frame"];
   viewportRect: DOMRect | null;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
   onMoveStart?: (e: React.PointerEvent) => void;
   onRotateStart?: (e: React.PointerEvent) => void;
 }) {
   const pad = 2;
+  const left = frame?.left ?? rect.left;
+  const top = frame?.top ?? rect.top;
+  const width = frame?.width ?? rect.width;
+  const height = frame?.height ?? rect.height;
   const handleClass = "absolute touch-none rounded-sm";
   const edgeHandleClass =
     "absolute flex touch-none items-center justify-center bg-transparent p-0";
@@ -1128,14 +1137,18 @@ function ElementSelectionOutline({
         data-slide-selection-chrome="true"
         style={{
           position: "absolute",
-          top: rect.top - pad,
-          left: rect.left - pad,
-          width: rect.width + pad * 2,
-          height: rect.height + pad * 2,
+          top: top - pad,
+          left: left - pad,
+          width: width + pad * 2,
+          height: height + pad * 2,
           pointerEvents: "none",
           border: "1px solid #609FF8",
           borderRadius: 3,
           boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.2)",
+          transform: frame?.transform,
+          transformOrigin: frame
+            ? `${frame.transformOrigin.x + pad}px ${frame.transformOrigin.y + pad}px`
+            : undefined,
         }}
       >
         {onMoveStart && (
@@ -1518,6 +1531,10 @@ export default function SlideEditor({
     revision: selectionMeasurementRevision,
   });
   const selectedElementRect = currentSelectionOverlayRect(
+    selectedElementMeasurement,
+    selectionOverlayMeasurementKey,
+  );
+  const selectedElementFrame = currentSelectionOverlayFrame(
     selectedElementMeasurement,
     selectionOverlayMeasurementKey,
   );
@@ -2804,9 +2821,11 @@ export default function SlideEditor({
         editingElRef.current === element
           ? richTextSelectionRef.current?.toString()
           : undefined;
+      const rect = element.getBoundingClientRect();
       setSelectedElementMeasurement({
         key: selectionOverlayMeasurementKey,
-        rect: element.getBoundingClientRect(),
+        rect,
+        frame: readSlideObjectSelectionFrame(element, rect),
       });
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
@@ -5426,7 +5445,20 @@ export default function SlideEditor({
         return;
       }
       const resizeOrigin = origin;
-      const groupResizeMembers: SlideObjectMoveMember[] = [];
+      const resizeTransform = readSlideObjectTransformSnapshot(element);
+      if (
+        !resizeTransformedSlideObject(resizeOrigin, resizeTransform, {
+          handle,
+          dx: 0,
+          dy: 0,
+          preserveAspectRatio: false,
+        })
+      ) {
+        restorePromotedElement();
+        return;
+      }
+
+      const groupResizeMembers: SlideObjectGroupResizeMember[] = [];
       if (isSlideObjectGroup(element)) {
         const pendingGroups = [element];
         while (pendingGroups.length > 0) {
@@ -5443,9 +5475,20 @@ export default function SlideEditor({
               objectId: ensureSlideObjectId(child),
               element: child,
               start: getObjectGeometry(child),
+              ...readSlideObjectTransformSnapshot(child),
             });
             if (isSlideObjectGroup(child)) pendingGroups.push(child);
           }
+        }
+        if (
+          scaleSlideObjectGroupMembers(
+            groupResizeMembers,
+            resizeOrigin,
+            resizeOrigin,
+          ).size !== groupResizeMembers.length
+        ) {
+          restorePromotedElement();
+          return;
         }
       }
       const groupResizeOriginalStyles = new Map(
@@ -5470,27 +5513,52 @@ export default function SlideEditor({
         preview: (gesture) => {
           if (gesture.kind !== "resize")
             return { handled: false, reason: "unhandled" };
+          const nextRect = resizeTransformedSlideObject(
+            resizeOrigin,
+            resizeTransform,
+            {
+              handle: gesture.handle,
+              dx: gesture.canvasDelta.x,
+              dy: gesture.canvasDelta.y,
+              altKey: Boolean(gesture.pointer.altKey),
+              preserveAspectRatio: Boolean(gesture.pointer.shiftKey),
+            },
+          );
+          if (!nextRect) return { handled: false, reason: "unhandled" };
+          const memberPlans =
+            groupResizeMembers.length > 0
+              ? scaleSlideObjectGroupMembers(
+                  groupResizeMembers,
+                  resizeOrigin,
+                  nextRect,
+                )
+              : null;
+          if (memberPlans && memberPlans.size !== groupResizeMembers.length) {
+            return { handled: false, reason: "unhandled" };
+          }
           ensureSlideObjectId(element);
-          applyObjectGeometry(element, gesture.rect, {
+          applyObjectGeometry(element, nextRect, {
             overrideImageSizing: true,
-            autoHeight: isAutoHeightTextResize(
-              element,
-              gesture.handle,
-              Boolean(gesture.pointer.shiftKey),
-            ),
+            autoHeight:
+              isAutoHeightTextResize(
+                element,
+                gesture.handle,
+                Boolean(gesture.pointer.shiftKey),
+              ) && resizeTransform.transform === "none",
           });
-          if (groupResizeMembers.length > 0) {
-            const memberGeometries = scaleSlideObjectGroupMembers(
-              groupResizeMembers,
-              resizeOrigin,
-              gesture.rect,
-            );
+          if (memberPlans) {
             for (const member of groupResizeMembers) {
-              const geometry = memberGeometries.get(member.element);
-              if (geometry) {
-                applyObjectGeometry(member.element, geometry, {
+              const plan = memberPlans.get(member.element);
+              if (plan) {
+                applyObjectGeometry(member.element, plan.geometry, {
                   overrideImageSizing: true,
                 });
+                if (plan.transform !== undefined) {
+                  member.element.style.transform = plan.transform;
+                }
+                if (plan.transformOrigin !== undefined) {
+                  member.element.style.transformOrigin = plan.transformOrigin;
+                }
               }
             }
           }
@@ -6165,6 +6233,7 @@ export default function SlideEditor({
       if (movable.length !== selection.elements.length) return false;
       const members: SlideObjectRotationMember[] = movable.map((member) => ({
         ...member,
+        ...readSlideObjectTransformSnapshot(member.element),
         rotation: readSlideObjectRotation(member.element),
       }));
       const plan = rotateSlideObjectMembers(members, deltaDegrees);
@@ -6174,7 +6243,7 @@ export default function SlideEditor({
         const next = plan.get(member.objectId);
         if (!next) continue;
         applyObjectGeometry(member.element, next.geometry);
-        setSlideObjectRotation(member.element, next.rotation);
+        member.element.style.transform = next.transform;
       }
 
       if (multiSelection.size > 0) {
@@ -6229,6 +6298,7 @@ export default function SlideEditor({
       e.stopPropagation();
       const members: SlideObjectRotationMember[] = movable.map((member) => ({
         ...member,
+        ...readSlideObjectTransformSnapshot(member.element),
         rotation: readSlideObjectRotation(member.element),
       }));
       const originalStyles = new Map(
@@ -6253,15 +6323,20 @@ export default function SlideEditor({
           const next = plan.get(member.objectId);
           if (!next) continue;
           applyObjectGeometry(member.element, next.geometry);
-          setSlideObjectRotation(member.element, next.rotation);
+          member.element.style.transform = next.transform;
         }
         changed = Math.abs(deltaDegrees) > 0.01;
         if (multiSelection.size > 0) {
           scheduleMultiSelectionRects(multiSelection);
         } else {
+          const element = members[0]?.element;
+          const rect = element?.getBoundingClientRect() ?? outlineRect;
           setSelectedElementMeasurement({
             key: selectionOverlayMeasurementKey,
-            rect: members[0]?.element.getBoundingClientRect() ?? outlineRect,
+            rect,
+            frame: element
+              ? readSlideObjectSelectionFrame(element, rect)
+              : null,
           });
         }
       };
@@ -6281,6 +6356,14 @@ export default function SlideEditor({
           const element = members[0]?.element;
           const selector = element && getBuilderSelector(element);
           if (element && selector) selectElementForStyling(element, selector);
+          if (element) {
+            const rect = element.getBoundingClientRect();
+            setSelectedElementMeasurement({
+              key: selectionOverlayMeasurementKey,
+              rect,
+              frame: readSlideObjectSelectionFrame(element, rect),
+            });
+          }
         }
       };
 
@@ -8285,14 +8368,15 @@ export default function SlideEditor({
       {selectedElementRect && !editingEl && !multiSelectionBounds && (
         <ElementSelectionOutline
           rect={selectedElementRect}
+          frame={selectedElementFrame}
           viewportRect={selectionViewportRect}
           onResizeStart={
-            !readOnly && isSelectedElementDraggable
+            !readOnly && isSelectedElementDraggable && selectedElementFrame
               ? startElementResize
               : undefined
           }
           onRotateStart={
-            !readOnly
+            !readOnly && selectedElementFrame
               ? (e) => startRotateSelection(e, selectedElementRect)
               : undefined
           }

@@ -976,11 +976,17 @@ interface SlideObjectGroupBounds {
   height: number;
 }
 
+export interface SlideObjectGroupMemberResizePlan {
+  geometry: SlideObjectGeometry;
+  transform?: string;
+  transformOrigin?: string;
+}
+
 export function scaleSlideObjectGroupMembers(
-  members: readonly SlideObjectMoveMember[],
+  members: readonly SlideObjectGroupResizeMember[],
   originalGroup: SlideObjectGroupBounds,
   nextGroup: SlideObjectGroupBounds,
-): Map<HTMLElement, SlideObjectGeometry> {
+): Map<HTMLElement, SlideObjectGroupMemberResizePlan> {
   if (
     originalGroup.width <= 0 ||
     originalGroup.height <= 0 ||
@@ -991,17 +997,52 @@ export function scaleSlideObjectGroupMembers(
   }
   const scaleX = nextGroup.width / originalGroup.width;
   const scaleY = nextGroup.height / originalGroup.height;
-  return new Map(
-    members.map(({ element, start }) => [
+  const plans = members.map((member) => {
+    const { element, start, transform, transformOrigin } = member;
+    const geometry = {
+      x: start.x * scaleX,
+      y: start.y * scaleY,
+      width: start.width * scaleX,
+      height: start.height * scaleY,
+    };
+    if (!transform || transform === "none") {
+      return { element, plan: { geometry } };
+    }
+
+    // Parent scaling maps a child's affine transform by S*M*S^-1, not by
+    // scaling its layout box alone; otherwise rotated/sheared members drift.
+    const matrix = readSlideObjectTransformMatrix(start, transform);
+    if (!matrix) return null;
+    const [a, b, c, d, tx, ty] = matrix;
+    const originTokens = transformOrigin.trim().split(/\s+/);
+    const originX = transformOriginOffset(originTokens[0], start.width, "x");
+    const originY = transformOriginOffset(originTokens[1], start.height, "y");
+    const format = (value: number) => {
+      const rounded = Number(value.toFixed(8));
+      return String(Object.is(rounded, -0) ? 0 : rounded);
+    };
+
+    return {
       element,
-      {
-        x: start.x * scaleX,
-        y: start.y * scaleY,
-        width: start.width * scaleX,
-        height: start.height * scaleY,
+      plan: {
+        geometry,
+        transform: slideObjectMatrix2dString([
+          a,
+          (scaleY / scaleX) * b,
+          (scaleX / scaleY) * c,
+          d,
+          scaleX * tx,
+          scaleY * ty,
+        ]),
+        transformOrigin: `${format(scaleX * originX)}px ${format(scaleY * originY)}px`,
       },
-    ]),
+    };
+  });
+  const validPlans = plans.filter(
+    (plan): plan is NonNullable<typeof plan> => plan !== null,
   );
+  if (validPlans.length !== plans.length) return new Map();
+  return new Map(validPlans.map(({ element, plan }) => [element, plan]));
 }
 
 export type SlideObjectZOrderTarget = "front" | "back" | "forward" | "backward";
@@ -1456,6 +1497,59 @@ export interface SlideObjectMoveMember {
   start: SlideObjectGeometry;
 }
 
+/** CSS values captured before a gesture; every preview derives from this snapshot. */
+export interface SlideObjectTransformSnapshot {
+  transform: string;
+  transformOrigin: string;
+}
+
+export interface SlideObjectSelectionFrame {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  transform: string;
+  transformOrigin: { x: number; y: number };
+}
+
+export interface SlideObjectGroupResizeMember
+  extends SlideObjectMoveMember, SlideObjectTransformSnapshot {}
+
+export function readSlideObjectTransformSnapshot(
+  element: HTMLElement,
+): SlideObjectTransformSnapshot {
+  const computedStyle = window.getComputedStyle(element);
+  const computedTransform = computedStyle.transform;
+  const inlineTransformOrigin = element.style.transformOrigin.trim();
+  const computedTransformOrigin = computedStyle.transformOrigin?.trim();
+  let transformOrigin =
+    inlineTransformOrigin || computedTransformOrigin || "50% 50%";
+  if (
+    !inlineTransformOrigin &&
+    computedTransformOrigin &&
+    element.offsetWidth > 0 &&
+    element.offsetHeight > 0
+  ) {
+    const [xToken, yToken] = computedTransformOrigin.split(/\s+/);
+    if (xToken?.endsWith("px") && yToken?.endsWith("px")) {
+      const format = (value: number) => {
+        const rounded = Number(value.toFixed(8));
+        return String(Object.is(rounded, -0) ? 0 : rounded);
+      };
+      const x = transformOriginOffset(xToken, element.offsetWidth, "x");
+      const y = transformOriginOffset(yToken, element.offsetHeight, "y");
+      transformOrigin = `${format((x / element.offsetWidth) * 100)}% ${format((y / element.offsetHeight) * 100)}%`;
+    }
+  }
+  return {
+    transform:
+      computedTransform && computedTransform !== "none"
+        ? computedTransform
+        : element.style.transform || "none",
+    transformOrigin,
+  };
+}
+
 function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
   const uniqueElements = Array.from(new Set(elements));
   return uniqueElements.filter(
@@ -1515,6 +1609,7 @@ function transformedSlideObjectBoundsForTransform(
   element: HTMLElement,
   geometry: SlideObjectGeometry,
   transform: string,
+  transformOrigin?: string,
 ): SlideObjectGeometry | null {
   if (!transform || transform === "none") return geometry;
 
@@ -1542,7 +1637,9 @@ function transformedSlideObjectBoundsForTransform(
   const tx = parsed.values[txIndex] ?? 0;
   const ty = parsed.values[tyIndex] ?? 0;
   const originTokens = (
-    computedStyle.transformOrigin || element.style.transformOrigin
+    transformOrigin ||
+    computedStyle.transformOrigin ||
+    element.style.transformOrigin
   )
     .trim()
     .split(/\s+/);
@@ -1636,12 +1733,10 @@ export function groupSlideObjects(
   group.style.boxSizing = "border-box";
 
   const explicitZIndexes = members
-    .map(({ element }) => element.style.zIndex)
-    .filter((value) => value !== "" && Number.isFinite(Number(value)));
+    .map(({ element }) => readSlideLayerZIndex(element))
+    .filter((value): value is number => value !== null);
   if (explicitZIndexes.length > 0) {
-    group.style.zIndex = String(
-      Math.max(...explicitZIndexes.map((value) => Number(value) || 0)),
-    );
+    group.style.zIndex = String(Math.max(...explicitZIndexes));
   }
 
   const topmostRoot = orderedRoots.at(-1);
@@ -1806,7 +1901,8 @@ export function ungroupSlideObject(
   return childGeometries.map(({ element }) => element);
 }
 
-export interface SlideObjectRotationMember extends SlideObjectMoveMember {
+export interface SlideObjectRotationMember
+  extends SlideObjectMoveMember, SlideObjectTransformSnapshot {
   rotation: number;
 }
 
@@ -1959,6 +2055,167 @@ function readSlideObjectTransformMatrix(
   return x !== null && y !== null && z === 0 ? [1, 0, 0, 1, x, y] : null;
 }
 
+export function resizeTransformedSlideObject(
+  start: SlideObjectGeometry,
+  transform: SlideObjectTransformSnapshot,
+  {
+    handle,
+    dx,
+    dy,
+    preserveAspectRatio,
+    altKey = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: ResizeOptions & { altKey?: boolean },
+): SlideObjectGeometry | null {
+  const matrix = readSlideObjectTransformMatrix(start, transform.transform);
+  if (!matrix) return null;
+  const [a, b, c, d, tx, ty] = matrix;
+  const determinant = a * d - b * c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return null;
+  }
+
+  const localDelta = {
+    x: (d * dx - c * dy) / determinant,
+    y: (a * dy - b * dx) / determinant,
+  };
+  const resized = resizeCanvasRect(start, {
+    handle,
+    delta: localDelta,
+    altKey,
+    preserveAspectRatio,
+    minWidth: minSize,
+    minHeight: minSize,
+  });
+  // CSS transform-origin moves with a resized box, so preserve the rendered
+  // opposite anchor rather than just its untransformed layout coordinate.
+  const originTokens = transform.transformOrigin.trim().split(/\s+/);
+  const transformedPoint = (
+    point: { x: number; y: number },
+    width: number,
+    height: number,
+  ) => {
+    const originX = transformOriginOffset(originTokens[0], width, "x");
+    const originY = transformOriginOffset(originTokens[1], height, "y");
+    return {
+      x: originX + a * (point.x - originX) + c * (point.y - originY) + tx,
+      y: originY + b * (point.x - originX) + d * (point.y - originY) + ty,
+    };
+  };
+  const oppositeAnchor = (geometry: SlideObjectGeometry) => {
+    const fromWest = handle === "nw" || handle === "w" || handle === "sw";
+    const fromEast = handle === "ne" || handle === "e" || handle === "se";
+    const fromNorth = handle === "nw" || handle === "n" || handle === "ne";
+    const fromSouth = handle === "sw" || handle === "s" || handle === "se";
+    return {
+      x: altKey
+        ? geometry.width / 2
+        : fromWest
+          ? geometry.width
+          : fromEast
+            ? 0
+            : geometry.width / 2,
+      y: altKey
+        ? geometry.height / 2
+        : fromNorth
+          ? geometry.height
+          : fromSouth
+            ? 0
+            : geometry.height / 2,
+    };
+  };
+
+  const fixedAnchor = transformedPoint(
+    oppositeAnchor(start),
+    start.width,
+    start.height,
+  );
+  const nextAnchor = transformedPoint(
+    oppositeAnchor(resized),
+    resized.width,
+    resized.height,
+  );
+  return {
+    ...resized,
+    x: start.x + fixedAnchor.x - nextAnchor.x,
+    y: start.y + fixedAnchor.y - nextAnchor.y,
+  };
+}
+
+export function readSlideObjectSelectionFrame(
+  element: HTMLElement,
+  rect: Pick<
+    DOMRect,
+    "left" | "top" | "width" | "height"
+  > = element.getBoundingClientRect(),
+): SlideObjectSelectionFrame | null {
+  const geometry = {
+    x: 0,
+    y: 0,
+    width: element.offsetWidth,
+    height: element.offsetHeight,
+  };
+  if (geometry.width <= 0 || geometry.height <= 0) return null;
+
+  const snapshot = readSlideObjectTransformSnapshot(element);
+  const matrix = readSlideObjectTransformMatrix(geometry, snapshot.transform);
+  const localBounds = transformedSlideObjectBoundsForTransform(
+    element,
+    geometry,
+    snapshot.transform,
+    snapshot.transformOrigin,
+  );
+  if (
+    !matrix ||
+    !localBounds ||
+    localBounds.width <= 0 ||
+    localBounds.height <= 0
+  ) {
+    return null;
+  }
+
+  const scaleX = rect.width / localBounds.width;
+  const scaleY = rect.height / localBounds.height;
+  if (
+    !Number.isFinite(scaleX) ||
+    !Number.isFinite(scaleY) ||
+    scaleX <= 0 ||
+    scaleY <= 0
+  ) {
+    return null;
+  }
+
+  const [a, b, c, d, tx, ty] = matrix;
+  const originTokens = snapshot.transformOrigin.trim().split(/\s+/);
+  const origin = {
+    x: transformOriginOffset(originTokens[0], geometry.width, "x"),
+    y: transformOriginOffset(originTokens[1], geometry.height, "y"),
+  };
+  const format = (value: number) => {
+    const rounded = Number(value.toFixed(8));
+    return Object.is(rounded, -0) ? 0 : rounded;
+  };
+
+  return {
+    left: rect.left - localBounds.x * scaleX,
+    top: rect.top - localBounds.y * scaleY,
+    width: geometry.width * scaleX,
+    height: geometry.height * scaleY,
+    transform: slideObjectMatrix2dString([
+      a,
+      (scaleY / scaleX) * b,
+      (scaleX / scaleY) * c,
+      d,
+      scaleX * tx,
+      scaleY * ty,
+    ]),
+    transformOrigin: {
+      x: format(scaleX * origin.x),
+      y: format(scaleY * origin.y),
+    },
+  };
+}
+
 function slideObjectTransformCenterOffset(
   element: HTMLElement,
   geometry: SlideObjectGeometry,
@@ -2092,30 +2349,36 @@ function slideObjectRotationTransform(
 export function rotateSlideObjectMembers(
   members: readonly SlideObjectRotationMember[],
   deltaDegrees: number,
-): Map<string, { geometry: SlideObjectGeometry; rotation: number }> {
+): Map<
+  string,
+  { geometry: SlideObjectGeometry; rotation: number; transform: string }
+> {
   const transformedMembers = members.map((member) => {
-    const computedTransform = window.getComputedStyle(member.element).transform;
-    const currentTransform =
-      computedTransform && computedTransform !== "none"
-        ? computedTransform
-        : member.element.style.transform;
     const currentBounds = transformedSlideObjectBoundsForTransform(
       member.element,
       member.start,
-      currentTransform,
+      member.transform,
+      member.transformOrigin,
     );
     const rotation = member.rotation + deltaDegrees;
     const nextTransform = slideObjectRotationTransform(
-      member.element.style.transform.trim(),
+      member.transform.trim(),
       rotation,
     );
     const nextBounds = transformedSlideObjectBoundsForTransform(
       member.element,
       member.start,
       nextTransform,
+      member.transformOrigin,
     );
     return currentBounds && nextBounds
-      ? { member, currentBounds, nextBounds, rotation }
+      ? {
+          member,
+          currentBounds,
+          nextBounds,
+          rotation,
+          transform: nextTransform,
+        }
       : null;
   });
   if (transformedMembers.some((member) => !member)) return new Map();
@@ -2135,7 +2398,7 @@ export function rotateSlideObjectMembers(
   const sin = Math.sin(radians);
   const plan = new Map<
     string,
-    { geometry: SlideObjectGeometry; rotation: number }
+    { geometry: SlideObjectGeometry; rotation: number; transform: string }
   >();
 
   for (const {
@@ -2143,6 +2406,7 @@ export function rotateSlideObjectMembers(
     currentBounds,
     nextBounds,
     rotation,
+    transform,
   } of plannedMembers) {
     const memberCenter = {
       x: currentBounds.x + currentBounds.width / 2,
@@ -2176,6 +2440,7 @@ export function rotateSlideObjectMembers(
         height: member.start.height,
       },
       rotation,
+      transform,
     });
   }
   return plan;
