@@ -30,6 +30,9 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("window.localStorage.setItem");
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-switcher"');
+    expect(html).toContain('id="environment-badge" aria-expanded="false"');
+    expect(html).toContain(">beta</button>");
+    expect(html).toContain("You're on Agent-Native Beta");
     expect(html).toContain('id="environment-production-link"');
     expect(html).toContain('id="environment-hide-badge"');
     expect(html).toContain("__anInitEnvironmentBadge");
