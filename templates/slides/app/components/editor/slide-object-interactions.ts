@@ -1511,24 +1511,20 @@ function transformOriginOffset(
   return dimension / 2;
 }
 
-function transformedSlideObjectBounds(
+function transformedSlideObjectBoundsForTransform(
   element: HTMLElement,
   geometry: SlideObjectGeometry,
-): SlideObjectGeometry {
-  const computedStyle = window.getComputedStyle(element);
-  const computedTransform = computedStyle.transform;
-  const transform =
-    computedTransform && computedTransform !== "none"
-      ? computedTransform
-      : element.style.transform;
+  transform: string,
+): SlideObjectGeometry | null {
   if (!transform || transform === "none") return geometry;
 
+  const computedStyle = window.getComputedStyle(element);
   let parsed = parseSlideObjectMatrix2d(transform);
   if (!parsed) {
     const rotation = transform.match(
       /^rotate(?:z)?\(\s*(-?(?:\d+\.?\d*|\.\d+))deg\s*\)$/i,
     );
-    if (!rotation) return geometry;
+    if (!rotation) return null;
     const radians = (Number(rotation[1]) * Math.PI) / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
@@ -1599,14 +1595,30 @@ export function groupSlideObjects(
       Array.prototype.indexOf.call(parent.children, left) -
       Array.prototype.indexOf.call(parent.children, right),
   );
-  const members = orderedRoots.map((element) => {
+  const members: {
+    element: HTMLElement;
+    geometry: SlideObjectGeometry;
+    visualBounds: SlideObjectGeometry;
+  }[] = [];
+  for (const element of orderedRoots) {
     const geometry = getGeometry(element);
-    return {
+    const computedTransform = window.getComputedStyle(element).transform;
+    const transform =
+      computedTransform && computedTransform !== "none"
+        ? computedTransform
+        : element.style.transform;
+    const visualBounds = transformedSlideObjectBoundsForTransform(
       element,
       geometry,
-      visualBounds: transformedSlideObjectBounds(element, geometry),
-    };
-  });
+      transform,
+    );
+    if (!visualBounds) return null;
+    members.push({
+      element,
+      geometry,
+      visualBounds,
+    });
+  }
   const bounds = unionSlideObjectGeometries(
     members.map((member) => member.visualBounds),
   );
@@ -1811,31 +1823,53 @@ function parseSlideObjectMatrix2d(transform: string): {
   }
 
   const matrix3d = transform.match(new RegExp(`^matrix3d\\((.*)\\)$`, "i"));
-  if (!matrix3d?.[1]) return null;
-  const values = matrix3d[1].split(",").map((value) => Number(value.trim()));
-  if (values.length !== 16 || !values.every(Number.isFinite)) return null;
-  const planarIndexes = new Map([
-    [2, 0],
-    [3, 0],
-    [6, 0],
-    [7, 0],
-    [8, 0],
-    [9, 0],
-    [10, 1],
-    [11, 0],
-    [14, 0],
-    [15, 1],
-  ]);
-  if (
-    Array.from(planarIndexes).some(
-      ([index, expected]) => Math.abs((values[index] ?? 0) - expected) > 1e-8,
-    )
-  ) {
+  if (matrix3d?.[1]) {
+    const values = matrix3d[1].split(",").map((value) => Number(value.trim()));
+    if (values.length !== 16 || !values.every(Number.isFinite)) return null;
+    const planarIndexes = new Map([
+      [2, 0],
+      [3, 0],
+      [6, 0],
+      [7, 0],
+      [8, 0],
+      [9, 0],
+      [10, 1],
+      [11, 0],
+      [14, 0],
+      [15, 1],
+    ]);
+    if (
+      Array.from(planarIndexes).some(
+        ([index, expected]) => Math.abs((values[index] ?? 0) - expected) > 1e-8,
+      )
+    ) {
+      return null;
+    }
+    return {
+      values,
+      indexes: [0, 1, 4, 5, 12, 13],
+    };
+  }
+
+  if (typeof DOMMatrixReadOnly === "undefined") return null;
+  let domMatrix: DOMMatrixReadOnly;
+  try {
+    domMatrix = new DOMMatrixReadOnly(transform);
+  } catch {
+    // coercion-ok: Invalid or relative transforms are unavailable; strict geometry callers reject them.
     return null;
   }
+  if (!domMatrix.is2D) return null;
   return {
-    values,
-    indexes: [0, 1, 4, 5, 12, 13],
+    values: [
+      domMatrix.a,
+      domMatrix.b,
+      domMatrix.c,
+      domMatrix.d,
+      domMatrix.e,
+      domMatrix.f,
+    ],
+    indexes: [0, 1, 2, 3, 4, 5],
   };
 }
 
@@ -1859,15 +1893,6 @@ function readSlideObjectTransformTranslation(
         y: parsedMatrix.values[fIndex] ?? 0,
       };
     }
-    if (typeof DOMMatrixReadOnly !== "undefined") {
-      try {
-        const matrix = new DOMMatrixReadOnly(candidate);
-        if (matrix.is2D) return { x: matrix.e, y: matrix.f };
-      } catch {
-        // Unsupported transform syntax continues to the explicit fallbacks.
-      }
-    }
-
     const translate = candidate.match(/^translate(?:3d|x|y)?\(([^()]*)\)$/i);
     if (translate) {
       const kind = candidate
@@ -1991,21 +2016,27 @@ export function setSlideObjectRotation(
   element: HTMLElement,
   rotation: number,
 ): void {
+  element.style.transform = slideObjectRotationTransform(
+    element.style.transform.trim(),
+    rotation,
+  );
+}
+
+function slideObjectRotationTransform(
+  currentTransform: string,
+  rotation: number,
+): string {
   const next = `rotate(${formatSlideObjectRotation(rotation)})`;
-  const current = element.style.transform.trim();
+  const current = currentTransform.trim();
   if (!current || current === "none") {
-    element.style.transform = next;
-    return;
+    return next;
   }
   if (/^matrix(?:3d)?\(/i.test(current)) {
     const matrix = rotatedSlideObjectMatrix(current, rotation);
-    if (matrix) {
-      element.style.transform = matrix;
-      return;
-    }
+    if (matrix) return matrix;
   }
   const rotatePattern = /rotate(?:z)?\(\s*-?(?:\d+\.?\d*|\.\d+)deg\s*\)/i;
-  element.style.transform = rotatePattern.test(current)
+  return rotatePattern.test(current)
     ? current.replace(rotatePattern, next)
     : `${current} ${next}`;
 }
@@ -2014,8 +2045,37 @@ export function rotateSlideObjectMembers(
   members: readonly SlideObjectRotationMember[],
   deltaDegrees: number,
 ): Map<string, { geometry: SlideObjectGeometry; rotation: number }> {
+  const transformedMembers = members.map((member) => {
+    const computedTransform = window.getComputedStyle(member.element).transform;
+    const currentTransform =
+      computedTransform && computedTransform !== "none"
+        ? computedTransform
+        : member.element.style.transform;
+    const currentBounds = transformedSlideObjectBoundsForTransform(
+      member.element,
+      member.start,
+      currentTransform,
+    );
+    const rotation = member.rotation + deltaDegrees;
+    const nextTransform = slideObjectRotationTransform(
+      member.element.style.transform.trim(),
+      rotation,
+    );
+    const nextBounds = transformedSlideObjectBoundsForTransform(
+      member.element,
+      member.start,
+      nextTransform,
+    );
+    return currentBounds && nextBounds
+      ? { member, currentBounds, nextBounds, rotation }
+      : null;
+  });
+  if (transformedMembers.some((member) => !member)) return new Map();
+  const plannedMembers = transformedMembers.filter(
+    (member): member is NonNullable<typeof member> => member !== null,
+  );
   const bounds = unionSlideObjectGeometries(
-    members.map((member) => member.start),
+    plannedMembers.map((member) => member.currentBounds),
   );
   if (!bounds) return new Map();
   const center = {
@@ -2030,10 +2090,15 @@ export function rotateSlideObjectMembers(
     { geometry: SlideObjectGeometry; rotation: number }
   >();
 
-  for (const member of members) {
+  for (const {
+    member,
+    currentBounds,
+    nextBounds,
+    rotation,
+  } of plannedMembers) {
     const memberCenter = {
-      x: member.start.x + member.start.width / 2,
-      y: member.start.y + member.start.height / 2,
+      x: currentBounds.x + currentBounds.width / 2,
+      y: currentBounds.y + currentBounds.height / 2,
     };
     const offset = {
       x: memberCenter.x - center.x,
@@ -2043,14 +2108,26 @@ export function rotateSlideObjectMembers(
       x: center.x + offset.x * cos - offset.y * sin,
       y: center.y + offset.x * sin + offset.y * cos,
     };
+    const nextLayoutCenter = {
+      x:
+        nextCenter.x -
+        (nextBounds.x +
+          nextBounds.width / 2 -
+          (member.start.x + member.start.width / 2)),
+      y:
+        nextCenter.y -
+        (nextBounds.y +
+          nextBounds.height / 2 -
+          (member.start.y + member.start.height / 2)),
+    };
     plan.set(member.objectId, {
       geometry: {
-        x: nextCenter.x - member.start.width / 2,
-        y: nextCenter.y - member.start.height / 2,
+        x: nextLayoutCenter.x - member.start.width / 2,
+        y: nextLayoutCenter.y - member.start.height / 2,
         width: member.start.width,
         height: member.start.height,
       },
-      rotation: member.rotation + deltaDegrees,
+      rotation,
     });
   }
   return plan;

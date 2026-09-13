@@ -2177,6 +2177,43 @@ describe("slide object groups and rotation", () => {
     });
   });
 
+  it.each([
+    ["matrix", "matrix(1, 0, 0, 1, 20, 0)"],
+    ["translate", "translate(20px, 0px)"],
+  ])(
+    "rotates translated members around the visible selection center (%s)",
+    (_kind, transform) => {
+      const first = createFreeformObject("first");
+      first.style.transform = transform;
+      const second = createFreeformObject("second");
+      const members = [
+        {
+          objectId: "first",
+          element: first,
+          start: { x: 0, y: 0, width: 20, height: 20 },
+          rotation: 0,
+        },
+        {
+          objectId: "second",
+          element: second,
+          start: { x: 80, y: 0, width: 20, height: 20 },
+          rotation: 0,
+        },
+      ];
+
+      const plan = rotateSlideObjectMembers(members, 90);
+
+      expect(plan.get("first")).toMatchObject({
+        geometry: { x: 30, y: -30, width: 20, height: 20 },
+        rotation: 90,
+      });
+      expect(plan.get("second")).toMatchObject({
+        geometry: { x: 50, y: 30, width: 20, height: 20 },
+        rotation: 90,
+      });
+    },
+  );
+
   it("reads and replaces a persisted rotate transform", () => {
     const element = document.createElement("div");
     element.style.transform = "translate(2px) rotate(15deg)";

@@ -39,7 +39,7 @@ of scope where the Slides app intentionally uses Agent-Native equivalents.
 | Canvas selection               | Click selects; Shift/Cmd/Ctrl toggles; marquee selects; whitespace clears                    | Partial                   | Existing pointer/marquee paths. A Shift/Meta-click attempt did not visibly multi-select, but modifier delivery was inconclusive; rerun toggle, overlap, clear, and reload checks with a live editor                                                               |
 | Object keyboard                | Duplicate, delete, nudge, Tab/Shift+Tab traversal, select-all                                | Partially implemented     | Browser: Cmd+D creates a third shape; Cmd+Z removes it, Cmd+Shift+Z restores it, and reload keeps it. Tab traversal, select-all, delete focus, and nudge remain open                                                                                              |
 | Clipboard                      | Copy, cut, paste, duplicate with object and slide focus                                      | Partial                   | Duplicate shortcut verified separately; native copy/cut/paste, external clipboard formats, focus routing, and undo/reload remain open                                                                                                                             |
-| Resize and rotate              | Eight resize handles; aspect-ratio modifier; circular rotate handle; Shift rotation snapping | Partially implemented     | Browser: southeast-handle drag by 28 px grows the shape by about 28 px per axis with fixed left/top; same-tab reload preserves exact CSS geometry. Other handles, modifiers, rotate, and group resize remain open                                                 |
+| Resize and rotate              | Eight resize handles; aspect-ratio modifier; circular rotate handle; Shift rotation snapping | Partially implemented     | Browser: southeast-handle drag by 28 px grows the shape by about 28 px per axis with fixed left/top; same-tab reload preserves exact CSS geometry. Translated mixed-selection rotation has focused matrix/translate tests; live rotation, modifiers, and group resize remain open                                     |
 | Snapping and guides            | Object/canvas snapping; rulers, guides, grid toggle, modifier bypass                         | Partial                   | Snapping/bypass paths exist; ruler, guide, grid preferences, and modifier muscle memory remain open                                                                                                                                                               |
 | Align and distribute           | Align 2+ objects; distribute 3+ objects                                                      | Implemented in code/tests | Geometry and toolbar callback coverage; browser verify dimensions, selection persistence, and undo/redo                                                                                                                                                           |
 | Grouping                       | Group selected objects; group acts as one object; ungroup restores members                   | Partially verified        | Browser verified for a two-shape group: single-group selection, child click, group reload, ungroup reload, undo, and redo. Multi-object geometry, nested groups, stack-order tie behavior, and rotated ungroup in-browser remain open                             |
@@ -164,6 +164,19 @@ evidence below are marked verified, and only for the tested cases.
     Focused regression tests and browser evidence cover group selection, child
     click, toolbar and keyboard group/ungroup, fresh-load persistence,
     ungroup persistence, undo, and redo for a two-shape pair.
+14. Select a 20×20 object at `(0, 0)` with `translate(20px, 0px)` and a peer
+    at `(80, 0)`, then rotate the selection 90°. Expected: rotate their visible
+    centers around the visual selection bounds while retaining the first
+    object's translation; the resulting layout origins are `(30, -30)` and
+    `(50, 30)`. Baseline actual: the shared plan used layout-only centers and
+    bounds, placing them at `(40, -40)` and `(40, 40)` before the first
+    object's preserved translation visibly shifted it. Root boundary:
+    `rotateSlideObjectMembers`, shared by the pointer-handle and direct
+    rotation paths in `SlideEditor`. Code disposition: rotation plans now
+    derive the selection pivot and member centers from transformed visual
+    bounds, then account for the target transform offset; focused regressions
+    cover both `translate(...)` and `matrix(...)`. Browser interaction and
+    reload evidence remain open because the local editor returned HTTP 500.
 
 ## Review findings — 2026-09-13
 
@@ -192,6 +205,12 @@ evidence below are marked verified, and only for the tested cases.
   stacking slot, preserving the group's position relative to siblings. A
   bring-to-front → ungroup regression verifies the members remain above an
   equal-z sibling.
+- Multi-object rotation with existing translation (comment 3998400907):
+  confirmed. The shared plan previously rotated layout centers while
+  `setSlideObjectRotation` retained transform translations, causing visual
+  drift. It now plans from transformed bounds and compensates for the target
+  transform offset; matrix and `translate(...)` regressions pass. Browser
+  rotation/persistence verification remains open.
 
 ## Evidence run and remaining blocker (2026-09-13)
 
@@ -267,6 +286,20 @@ Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
   chart editing, rail operations, themes/layouts, comments/presence, and
   import/export remain open. The local checks above are evidence for those
   specific paths only.
+
+### Latest review-fix verification (2026-09-13)
+
+- The matrix/translate rotation repro now passes in the 127-test focused
+  interaction + marquee run. Standalone Slides TypeScript checking and
+  `guard:no-silent-coercion` pass.
+- The full local guard sweep still cannot complete because the worktree lacks
+  the root `ajv` link required by `guard:mcp-registry`. CI also timed out once
+  in the unrelated `generate-image-api` test; the exact test passed when run
+  alone locally. The next PR CI run remains the merge gate.
+- No new browser evidence was collected for rotation. Google Slides sign-in,
+  representative side-by-side deck recreation, and all previously listed
+  partial/open interaction areas remain outstanding; this matrix does not
+  claim 1:1 parity.
 
 ## Disposition rules
 
