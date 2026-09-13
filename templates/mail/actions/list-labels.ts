@@ -5,11 +5,13 @@ import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import { z } from "zod";
 
 import { gmailListLabels } from "../server/lib/google-api.js";
-import { getConnectedAccountsWithErrors } from "../server/lib/google-auth.js";
+import {
+  getClientsWithErrors,
+  getConnectedAccountsWithErrors,
+} from "../server/lib/google-auth.js";
 import { readCachedLabels } from "../server/lib/inbox-store.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import type { Label } from "../shared/types.js";
-import { getAccessTokens } from "./helpers.js";
 
 const SYSTEM_LABELS: Record<string, { id: string; name: string }> = {
   INBOX: { id: "inbox", name: "Inbox" },
@@ -181,12 +183,37 @@ export default defineAction({
       (email) => !cachedEmails.has(email),
     );
     if (uncachedEmails.length > 0) {
-      const accounts = (await getAccessTokens()).filter(({ email }) =>
-        uncachedEmails.includes(email.toLowerCase()),
-      );
+      const { clients: accounts, errors: clientErrors } =
+        await getClientsWithErrors(ownerEmail, uncachedEmails);
       const tokenized = new Set(
         accounts.map(({ email }) => email.toLowerCase()),
       );
+      const accountErrors = new Set(
+        clientErrors
+          .filter(({ email }) => email.toLowerCase() !== "workspace")
+          .map(({ email }) => email.toLowerCase()),
+      );
+      const unreportedEmails = uncachedEmails.filter(
+        (email) => !tokenized.has(email) && !accountErrors.has(email),
+      );
+      const workspaceError = clientErrors.find(
+        ({ email }) => email.toLowerCase() === "workspace",
+      );
+      // The managed resolver can fail before it knows the mailbox identity.
+      // Attribute that workspace error when only one requested account remains.
+      const workspaceErrorAccount =
+        workspaceError && unreportedEmails.length === 1
+          ? unreportedEmails[0]
+          : undefined;
+      const reportedErrors = new Set(accountErrors);
+      for (const { email, error } of clientErrors) {
+        const accountEmail =
+          email.toLowerCase() === "workspace" && workspaceErrorAccount
+            ? workspaceErrorAccount
+            : email;
+        errors.push({ accountEmail, error: boundedErrorMessage(error) });
+        reportedErrors.add(accountEmail.toLowerCase());
+      }
       for (const { email, accessToken } of accounts) {
         try {
           const result = await gmailListLabels(accessToken);
@@ -198,12 +225,11 @@ export default defineAction({
           errors.push({ accountEmail: email, error: boundedErrorMessage(err) });
         }
       }
-      // A connected account with no cache and no usable client (e.g. a
-      // managed grant getAccessTokens couldn't resolve) must still show up
+      // A connected account with no cache and no usable client must still show up
       // in `errors` — dropping it silently would violate the `{ labels,
       // errors }` contract by making an incomplete inventory look complete.
       for (const email of uncachedEmails) {
-        if (!tokenized.has(email)) {
+        if (!tokenized.has(email) && !reportedErrors.has(email)) {
           errors.push({
             accountEmail: email,
             error: `no credentials available for ${email}`,

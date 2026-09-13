@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   getConnectedAccountsWithErrors: vi.fn(),
-  getAccessTokens: vi.fn(),
+  getClientsWithErrors: vi.fn(),
   getUserSetting: vi.fn(),
   readLocalEmails: vi.fn(),
   gmailListLabels: vi.fn(),
@@ -28,14 +28,11 @@ vi.mock("../server/lib/google-api.js", () => ({
 
 vi.mock("../server/lib/google-auth.js", () => ({
   getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
+  getClientsWithErrors: mocks.getClientsWithErrors,
 }));
 
 vi.mock("../server/lib/inbox-store.js", () => ({
   readCachedLabels: mocks.readCachedLabels,
-}));
-
-vi.mock("./helpers.js", () => ({
-  getAccessTokens: mocks.getAccessTokens,
 }));
 
 import action from "./list-labels";
@@ -44,6 +41,7 @@ describe("list-labels action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getClientsWithErrors.mockResolvedValue({ clients: [], errors: [] });
     mocks.getUserSetting.mockResolvedValue({ labels: [] });
     mocks.readLocalEmails.mockResolvedValue([]);
     // Default: no cache for anyone, so tests that don't care about the
@@ -59,8 +57,6 @@ describe("list-labels action", () => {
       accounts: [],
       errors: [],
     });
-    mocks.getAccessTokens.mockResolvedValue([]);
-
     const result = await action.run({}, undefined as any);
 
     expect(result).toEqual({ labels: [], errors: [] });
@@ -145,9 +141,16 @@ describe("list-labels action", () => {
       accounts: ["user@gmail.com"],
       errors: [],
     });
-    mocks.getAccessTokens.mockResolvedValue([
-      { email: "user@gmail.com", accessToken: "token-1" },
-    ]);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        {
+          email: "user@gmail.com",
+          accessToken: "token-1",
+          refreshToken: "refresh-1",
+        },
+      ],
+      errors: [],
+    });
     mocks.gmailListLabels.mockResolvedValue({
       labels: [
         { id: "Label_1", name: "Clients", threadsUnread: 2, threadsTotal: 5 },
@@ -189,11 +192,9 @@ describe("list-labels action", () => {
         ["ok@gmail.com", new Map([["Label_1", "Clients"]])],
       ]),
     });
-    // broken@gmail.com has no valid token at all (e.g. refresh failed, or a
-    // managed grant getAccessTokens couldn't resolve) — it must show up in
+    // broken@gmail.com has no valid token at all (e.g. refresh failed or a
+    // managed grant could not resolve) — it must show up in
     // `errors` instead of silently vanishing from the response.
-    mocks.getAccessTokens.mockResolvedValue([]);
-
     const result = await action.run({}, undefined as any);
 
     // No throw: the cached account's labels still come back...
@@ -220,9 +221,16 @@ describe("list-labels action", () => {
       accounts: ["user@gmail.com"],
       errors: [],
     });
-    mocks.getAccessTokens.mockResolvedValue([
-      { email: "user@gmail.com", accessToken: "token-1" },
-    ]);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        {
+          email: "user@gmail.com",
+          accessToken: "token-1",
+          refreshToken: "refresh-1",
+        },
+      ],
+      errors: [],
+    });
     mocks.gmailListLabels.mockRejectedValue(
       new Error(
         `Gmail unavailable Bearer ${"x".repeat(300)} access_token=secret-value`,
@@ -242,5 +250,113 @@ describe("list-labels action", () => {
     expect(error.length).toBeLessThanOrEqual(240);
     expect(error).not.toContain("secret-value");
     expect(error).toContain("Bearer [redacted]");
+  });
+
+  it("fetches labels from a managed account when the cache misses alongside OAuth", async () => {
+    const oauthEmail = "personal@example.com";
+    const managedEmail = "managed@example.com";
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [oauthEmail, managedEmail],
+      errors: [],
+    });
+    mocks.readCachedLabels.mockResolvedValue({
+      labels: [
+        {
+          id: "personal",
+          name: "Personal",
+          type: "user",
+          unreadCount: 1,
+          totalCount: 2,
+        },
+      ],
+      labelMapByAccount: new Map([
+        [oauthEmail, new Map([["Label_1", "Personal"]])],
+        [managedEmail, new Map()],
+      ]),
+    });
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        {
+          email: managedEmail,
+          accessToken: "managed-access-token",
+          refreshToken: "",
+        },
+      ],
+      errors: [],
+    });
+    mocks.gmailListLabels.mockResolvedValue({
+      labels: [
+        {
+          id: "Label_2",
+          name: "Managed",
+          threadsUnread: 2,
+          threadsTotal: 4,
+        },
+      ],
+    });
+
+    const result = await action.run({}, undefined as any);
+
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(
+      "owner@example.com",
+      [managedEmail],
+    );
+    expect(mocks.gmailListLabels).toHaveBeenCalledWith("managed-access-token");
+    expect(result.errors).toEqual([]);
+    expect(result.labels).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "managed",
+          unreadCount: 2,
+          totalCount: 4,
+        }),
+      ]),
+    );
+  });
+
+  it("attributes a managed client-resolution failure to the uncached mailbox", async () => {
+    const oauthEmail = "personal@example.com";
+    const managedEmail = "managed@example.com";
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [oauthEmail, managedEmail],
+      errors: [],
+    });
+    mocks.readCachedLabels.mockResolvedValue({
+      labels: [],
+      labelMapByAccount: new Map([
+        [oauthEmail, new Map([["Label_1", "Personal"]])],
+        [managedEmail, new Map()],
+      ]),
+    });
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [{ email: "workspace", error: "managed lookup unavailable" }],
+    });
+
+    const result = await action.run({}, undefined as any);
+
+    expect(result.errors).toEqual([
+      { accountEmail: managedEmail, error: "managed lookup unavailable" },
+    ]);
+    expect(mocks.gmailListLabels).not.toHaveBeenCalled();
+  });
+
+  it("retains the refresh failure when an uncached OAuth account has no usable client", async () => {
+    const failedEmail = "broken@example.com";
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [failedEmail],
+      errors: [],
+    });
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [{ email: failedEmail, error: "refresh failed" }],
+    });
+
+    const result = await action.run({}, undefined as any);
+
+    expect(result.errors).toEqual([
+      { accountEmail: failedEmail, error: "refresh failed" },
+    ]);
+    expect(mocks.gmailListLabels).not.toHaveBeenCalled();
   });
 });
