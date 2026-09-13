@@ -61,29 +61,70 @@ export function removeOptimisticCalendarEventFromList(
   );
 }
 
+function normalizedEmail(value?: string) {
+  return value?.trim().toLowerCase() || undefined;
+}
+
+function sameOptionalIdentity(left?: string, right?: string) {
+  return (left || undefined) === (right || undefined);
+}
+
 function sameCalendarSource(event: CalendarEvent, target: CalendarEvent) {
   if (event.source !== target.source) return false;
   if (
-    event.accountEmail &&
-    target.accountEmail &&
-    event.accountEmail.trim().toLowerCase() !==
-      target.accountEmail.trim().toLowerCase()
+    !sameOptionalIdentity(event.sourceId, target.sourceId) ||
+    !sameOptionalIdentity(event.calendarSourceKey, target.calendarSourceKey) ||
+    !sameOptionalIdentity(event.canonicalKey, target.canonicalKey) ||
+    !sameOptionalIdentity(event.calendarId, target.calendarId)
   ) {
     return false;
   }
+
+  const eventOverlayEmail = normalizedEmail(event.overlayEmail);
+  const targetOverlayEmail = normalizedEmail(target.overlayEmail);
+  if (eventOverlayEmail || targetOverlayEmail) {
+    return Boolean(
+      eventOverlayEmail && eventOverlayEmail === targetOverlayEmail,
+    );
+  }
+
   if (
-    event.calendarSourceKey &&
-    target.calendarSourceKey &&
-    event.calendarSourceKey !== target.calendarSourceKey
+    normalizedEmail(event.accountEmail) !== normalizedEmail(target.accountEmail)
   ) {
     return false;
+  }
+  if (event.source === "ical") {
+    return Boolean(event.sourceId && target.sourceId);
   }
   return true;
+}
+
+function hasRecurringSourceIdentity(
+  event: CalendarEvent,
+  target: CalendarEvent,
+) {
+  if (event.source !== "google") {
+    return Boolean(event.sourceId && target.sourceId);
+  }
+
+  const eventOverlayEmail = normalizedEmail(event.overlayEmail);
+  const targetOverlayEmail = normalizedEmail(target.overlayEmail);
+  if (eventOverlayEmail || targetOverlayEmail) {
+    return Boolean(
+      eventOverlayEmail && eventOverlayEmail === targetOverlayEmail,
+    );
+  }
+  return Boolean(
+    (event.calendarSourceKey && target.calendarSourceKey) ||
+    (event.canonicalKey && target.canonicalKey) ||
+    (event.calendarId && target.calendarId && event.accountEmail),
+  );
 }
 
 function sameRecurringSeries(event: CalendarEvent, target: CalendarEvent) {
   return (
     sameCalendarSource(event, target) &&
+    hasRecurringSourceIdentity(event, target) &&
     event.recurringEventId === (target.recurringEventId ?? target.id)
   );
 }
