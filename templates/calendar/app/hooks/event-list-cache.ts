@@ -114,6 +114,23 @@ function hasRecurringSourceIdentity(
       eventOverlayEmail && eventOverlayEmail === targetOverlayEmail,
     );
   }
+
+  const hasExplicitCalendarIdentity = Boolean(
+    event.calendarSourceKey ||
+    target.calendarSourceKey ||
+    event.canonicalKey ||
+    target.canonicalKey ||
+    event.calendarId ||
+    target.calendarId,
+  );
+  if (!hasExplicitCalendarIdentity) {
+    const eventAccountEmail = normalizedEmail(event.accountEmail);
+    return Boolean(
+      eventAccountEmail &&
+      eventAccountEmail === normalizedEmail(target.accountEmail),
+    );
+  }
+
   return Boolean(
     (event.calendarSourceKey && target.calendarSourceKey) ||
     (event.canonicalKey && target.canonicalKey) ||

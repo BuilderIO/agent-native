@@ -356,28 +356,6 @@ describe("calendar event list cache helpers", () => {
       ),
     ).toEqual([[], ["other-overlay", "missing-overlay-identity"]]);
 
-    const unscopedGoogleTarget = calendarEvent({
-      id: "unscoped-google-target",
-      source: "google",
-      accountEmail: "me@example.com",
-      recurringEventId: "unscoped-series",
-    });
-    const unscopedGoogleOccurrence = calendarEvent({
-      id: "unscoped-google-occurrence",
-      source: "google",
-      accountEmail: "me@example.com",
-      recurringEventId: "unscoped-series",
-    });
-
-    expect(
-      removeCalendarEventsForScope(
-        [unscopedGoogleTarget, unscopedGoogleOccurrence],
-        unscopedGoogleTarget.id,
-        "all",
-        unscopedGoogleTarget,
-      )?.map((event) => event.id),
-    ).toEqual(["unscoped-google-occurrence"]);
-
     const unscopedLocalTarget = calendarEvent({
       id: "unscoped-local-target",
       source: "local",
@@ -397,6 +375,56 @@ describe("calendar event list cache helpers", () => {
         unscopedLocalTarget,
       )?.map((event) => event.id),
     ).toEqual(["unscoped-local-occurrence"]);
+  });
+
+  it("uses normalized account identity for primary Google recurring cache ranges", () => {
+    const target = calendarEvent({
+      id: "primary-target",
+      source: "google",
+      accountEmail: "Me@example.com",
+      recurringEventId: "primary-series",
+      start: "2026-05-22T16:00:00.000Z",
+    });
+    const past = calendarEvent({
+      id: "primary-past",
+      source: "google",
+      accountEmail: " me@example.com ",
+      recurringEventId: "primary-series",
+      start: "2026-05-15T16:00:00.000Z",
+    });
+    const future = calendarEvent({
+      id: "primary-future",
+      source: "google",
+      accountEmail: "ME@example.com",
+      recurringEventId: "primary-series",
+      start: "2026-05-29T16:00:00.000Z",
+    });
+    const otherAccount = calendarEvent({
+      id: "other-account",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "primary-series",
+      start: future.start,
+    });
+    const ranges = [[target], [past, future, otherAccount]];
+
+    expect(
+      ranges.map((range) =>
+        removeCalendarEventsForScope(range, target.id, "all", target)?.map(
+          (event) => event.id,
+        ),
+      ),
+    ).toEqual([[], ["other-account"]]);
+    expect(
+      ranges.map((range) =>
+        removeCalendarEventsForScope(
+          range,
+          target.id,
+          "thisAndFollowing",
+          target,
+        )?.map((event) => event.id),
+      ),
+    ).toEqual([[], ["primary-past", "other-account"]]);
   });
 
   it("rolls back only missing deleted events without overwriting newer cache data", () => {
@@ -556,8 +584,7 @@ describe("calendar event list cache helpers", () => {
   it("optimistically updates this and following recurring RSVP instances", () => {
     const googleCalendar = {
       source: "google" as const,
-      accountEmail: "me@example.com",
-      calendarSourceKey: "calendar-1",
+      accountEmail: "Me@example.com",
     };
     const past = calendarEvent({
       ...googleCalendar,
@@ -577,6 +604,7 @@ describe("calendar event list cache helpers", () => {
     });
     const future = calendarEvent({
       ...googleCalendar,
+      accountEmail: " me@example.com ",
       id: "future",
       recurringEventId: "series-1",
       start: "2026-05-29T16:00:00.000Z",
@@ -591,9 +619,18 @@ describe("calendar event list cache helpers", () => {
       end: "2026-05-29T17:00:00.000Z",
       responseStatus: "accepted",
     });
+    const otherAccountSeries = calendarEvent({
+      id: "other-account",
+      source: "google",
+      accountEmail: "other@example.com",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+      end: "2026-05-29T17:00:00.000Z",
+      responseStatus: "accepted",
+    });
 
     const next = applyCalendarEventRsvp(
-      [past, target, future, otherSeries],
+      [past, target, future, otherSeries, otherAccountSeries],
       target.id,
       "tentative",
       "thisAndFollowing",
@@ -604,6 +641,7 @@ describe("calendar event list cache helpers", () => {
       ["target", "tentative"],
       ["future", "tentative"],
       ["other-series", "accepted"],
+      ["other-account", "accepted"],
     ]);
   });
 });
