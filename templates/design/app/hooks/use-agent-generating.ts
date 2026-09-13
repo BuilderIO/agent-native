@@ -1,4 +1,5 @@
 import { type AgentChatMessage } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
@@ -7,6 +8,9 @@ import { sendToDesignAgentChat } from "@/lib/agent-chat";
 // legitimately take several minutes, so avoid treating normal latency as
 // failure.
 const GENERATION_ORPHAN_TIMEOUT_MS = 30 * 60_000;
+const GENERATION_STATUS_POLL_START_DELAY_MS = 3_000;
+const GENERATION_STATUS_POLL_INTERVAL_MS = 5_000;
+const GENERATION_STATUS_IDLE_CONFIRMATIONS = 2;
 // Auto-continue briefly sets isRunning=false between gateway continuations.
 // Debounce stop handling so we do not flash "generation complete" mid-turn.
 const CHAT_STOP_DEBOUNCE_MS = 4_000;
@@ -30,6 +34,10 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   const [generating, setGenerating] = useState(false);
   const activeTabIdRef = useRef<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
+  const statusPollTimeoutRef = useRef<number | null>(null);
+  const statusPollGenerationRef = useRef(0);
+  const generationSeenActiveRef = useRef(false);
+  const generationIdlePollCountRef = useRef(0);
   const stopDebounceRef = useRef<number | null>(null);
   const callbacksRef = useRef(options);
   callbacksRef.current = options;
@@ -48,12 +56,23 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     }
   }, []);
 
+  const clearStatusPollTimeout = useCallback(() => {
+    if (statusPollTimeoutRef.current) {
+      window.clearTimeout(statusPollTimeoutRef.current);
+      statusPollTimeoutRef.current = null;
+    }
+  }, []);
+
   const reset = useCallback(() => {
+    statusPollGenerationRef.current += 1;
     clearGenerationTimeout();
+    clearStatusPollTimeout();
     clearStopDebounce();
     activeTabIdRef.current = null;
+    generationSeenActiveRef.current = false;
+    generationIdlePollCountRef.current = 0;
     setGenerating(false);
-  }, [clearGenerationTimeout, clearStopDebounce]);
+  }, [clearGenerationTimeout, clearStatusPollTimeout, clearStopDebounce]);
 
   const startGenerationTimeout = useCallback(
     (tabId: string | null) => {
@@ -68,13 +87,83 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     [clearGenerationTimeout, reset],
   );
 
+  const startStatusPolling = useCallback(
+    (tabId: string) => {
+      clearStatusPollTimeout();
+      const generation = ++statusPollGenerationRef.current;
+      generationSeenActiveRef.current = false;
+      generationIdlePollCountRef.current = 0;
+      const poll = async () => {
+        if (
+          statusPollGenerationRef.current !== generation ||
+          activeTabIdRef.current !== tabId
+        ) {
+          return;
+        }
+        try {
+          const response = await fetch(
+            `${agentNativePath("/_agent-native/agent-chat")}/runs/active?threadId=${encodeURIComponent(tabId)}`,
+            {
+              credentials: "same-origin",
+              signal: AbortSignal.timeout(10_000),
+            },
+          );
+          if (!response.ok) throw new Error("Could not read agent run state");
+          const state = (await response.json()) as { active?: unknown };
+          if (typeof state.active !== "boolean") {
+            throw new Error("Agent run state was incomplete");
+          }
+          if (
+            statusPollGenerationRef.current !== generation ||
+            activeTabIdRef.current !== tabId
+          ) {
+            return;
+          }
+          if (state.active) {
+            generationSeenActiveRef.current = true;
+            generationIdlePollCountRef.current = 0;
+          } else if (generationSeenActiveRef.current) {
+            generationIdlePollCountRef.current += 1;
+          }
+          if (
+            generationSeenActiveRef.current &&
+            generationIdlePollCountRef.current >=
+              GENERATION_STATUS_IDLE_CONFIRMATIONS
+          ) {
+            callbacksRef.current.onComplete?.(tabId);
+            reset();
+            return;
+          }
+        } catch {
+          // An unavailable status endpoint is not evidence that the run ended.
+          generationIdlePollCountRef.current = 0;
+        }
+        if (
+          statusPollGenerationRef.current === generation &&
+          activeTabIdRef.current === tabId
+        ) {
+          statusPollTimeoutRef.current = window.setTimeout(
+            poll,
+            GENERATION_STATUS_POLL_INTERVAL_MS,
+          );
+        }
+      };
+      statusPollTimeoutRef.current = window.setTimeout(
+        poll,
+        GENERATION_STATUS_POLL_START_DELAY_MS,
+      );
+    },
+    [clearStatusPollTimeout, reset],
+  );
+
   const track = useCallback(
     (tabId: string) => {
       activeTabIdRef.current = tabId;
       setGenerating(true);
       startGenerationTimeout(tabId);
+      startStatusPolling(tabId);
     },
-    [startGenerationTimeout],
+    [startGenerationTimeout, startStatusPolling],
   );
 
   useEffect(() => {
@@ -91,6 +180,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             callbacksRef.current.onRunning?.(eventTabId);
             setGenerating(true);
             startGenerationTimeout(eventTabId);
+            startStatusPolling(eventTabId);
             return;
           }
           return;
@@ -127,14 +217,16 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     };
     window.addEventListener("agentNative.chatRunning", handler);
     return () => window.removeEventListener("agentNative.chatRunning", handler);
-  }, [clearStopDebounce, reset, startGenerationTimeout]);
+  }, [clearStopDebounce, reset, startGenerationTimeout, startStatusPolling]);
 
   useEffect(() => {
     return () => {
+      statusPollGenerationRef.current += 1;
       clearGenerationTimeout();
+      clearStatusPollTimeout();
       clearStopDebounce();
     };
-  }, [clearGenerationTimeout, clearStopDebounce]);
+  }, [clearGenerationTimeout, clearStatusPollTimeout, clearStopDebounce]);
 
   const submit = useCallback(
     (

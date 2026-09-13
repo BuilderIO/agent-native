@@ -33,6 +33,7 @@ describe("useAgentGenerating", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -66,6 +67,65 @@ describe("useAgentGenerating", () => {
       await vi.advanceTimersByTimeAsync(4_000);
     });
     expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("recovers when the chat completion event is lost", async () => {
+    const onComplete = vi.fn();
+    const onStopped = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ active: true }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ active: false }),
+      });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ active: false }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<Probe onComplete={onComplete} onStopped={onStopped} />);
+    });
+    await act(async () => {
+      latest!.submit("Make a landing page", "Design id: design-1");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).toHaveBeenCalledWith("design-tab");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => root.unmount());
     container.remove();
