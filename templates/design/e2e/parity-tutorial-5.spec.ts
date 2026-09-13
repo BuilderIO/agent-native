@@ -938,6 +938,14 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
       box,
       "board-object-camera-and-click: harness could not locate the created board frame",
     ).not.toBeNull();
+    expect(
+      box!.width,
+      "created board frame must have a real width",
+    ).toBeGreaterThan(0);
+    expect(
+      box!.height,
+      "created board frame must have a real height",
+    ).toBeGreaterThan(0);
   });
 
   test("Alt-drag duplicates a board-object frame outside any screen", async ({
@@ -969,6 +977,14 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
       before,
       "board-object-camera-and-click: harness could not locate the created board shape",
     ).not.toBeNull();
+    expect(
+      before!.width,
+      "created board shape must have a real width",
+    ).toBeGreaterThan(0);
+    expect(
+      before!.height,
+      "created board shape must have a real height",
+    ).toBeGreaterThan(0);
     // Drawing a shape leaves the Rectangle tool itself still armed — a
     // mouse-down on the shape without switching back to Move would start
     // drawing a SECOND shape instead of alt-dragging the existing one.

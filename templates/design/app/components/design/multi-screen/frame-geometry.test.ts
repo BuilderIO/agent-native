@@ -417,12 +417,11 @@ describe("hit-test foreground tie-break", () => {
         hasGeometry: hasGeometry(["a", "b"]),
         activeId: "a",
         firstScreenId: "a",
-        ignoreStaleActiveId: true,
       }),
     ).toBe("b");
   });
 
-  it("falls back to the sticky activeId when nothing opts out", () => {
+  it("falls back to the sticky activeId when nothing is selected", () => {
     expect(
       resolveHitTestForegroundId({
         selectedIds: [],
@@ -433,22 +432,21 @@ describe("hit-test foreground tie-break", () => {
     ).toBe("a");
   });
 
-  it("drops the stale activeId/first-screen fallback for a brand-new gesture", () => {
-    // This is the draw-into-neighbouring-screen bug: activeId is still the
-    // original screen (never re-pointed by drawing a new one), and nothing
-    // is selected (e.g. cleared by Escape) when the next draw starts.
+  it("keeps the sticky activeId for a fresh draw gesture too — it's the same id paint boosts", () => {
+    // A draw gesture must not special-case itself away from activeId: the
+    // canvas paints activeId's screen with a z-index boost (topScreenId)
+    // whether or not a NEW gesture is starting, so hit-testing has to agree.
     expect(
       resolveHitTestForegroundId({
         selectedIds: [],
         hasGeometry: hasGeometry(["original", "new"]),
         activeId: "original",
         firstScreenId: "original",
-        ignoreStaleActiveId: true,
       }),
-    ).toBeUndefined();
+    ).toBe("original");
   });
 
-  it("end-to-end: a draw gesture's own point wins over a stale activeId when screens overlap", () => {
+  it("end-to-end: a draw gesture's point resolves to whichever screen paint puts on top, not array order", () => {
     const original = {
       id: "original",
       geometry: { x: 0, y: 0, width: 1440, height: 900 },
@@ -462,9 +460,11 @@ describe("hit-test foreground tie-break", () => {
     };
     const pointInsideNewScreen = { x: 1400, y: 50 };
 
-    // Buggy behaviour: activeId is stale from before "new" was drawn, and
-    // nothing is selected, so the tie resolves to the wrong screen.
-    const buggy = findTopFrameEntryAtPoint(
+    // "original" is still activeId (nothing is selected), so the canvas
+    // paints it above "new" (topScreenId's z boost) even though "new" was
+    // added later — the hit test must own the shape for the same screen
+    // paint actually shows on top, not for whichever is last in the array.
+    const resolved = findTopFrameEntryAtPoint(
       [original, created],
       pointInsideNewScreen,
       {
@@ -476,23 +476,6 @@ describe("hit-test foreground tie-break", () => {
         }),
       },
     );
-    expect(buggy?.id).toBe("original");
-
-    // Fixed behaviour: a brand-new draw gesture ignores the stale activeId
-    // and resolves the tie by real z/paint order (last-added wins).
-    const fixed = findTopFrameEntryAtPoint(
-      [original, created],
-      pointInsideNewScreen,
-      {
-        foregroundId: resolveHitTestForegroundId({
-          selectedIds: [],
-          hasGeometry: hasGeometry(["original", "new"]),
-          activeId: "original",
-          firstScreenId: "original",
-          ignoreStaleActiveId: true,
-        }),
-      },
-    );
-    expect(fixed?.id).toBe("new");
+    expect(resolved?.id).toBe("original");
   });
 });

@@ -451,12 +451,22 @@ export interface MultiScreenCanvasProps {
   ) => boolean | "pending" | void;
   /**
    * Called when a style property changes on a board element.
-   * Target file is boardFileId.
+   * Target file is boardFileId. `metadata` must mirror DesignCanvas's own
+   * `onVisualStyleChange` signature exactly — this callback is wired
+   * straight through from that event (see MultiScreenCanvas's board
+   * DesignCanvas) — or a resize/drag commit's `phase`/`originalStyles`
+   * silently drops before it reaches undo history, leaving one Cmd+Z
+   * unable to restore the pre-drag geometry.
    */
   onBoardVisualStyleChange?: (
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
+    metadata?: {
+      phase?: "preview" | "commit";
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   /**
    * Called when an alt-drag clone is created on the board surface.

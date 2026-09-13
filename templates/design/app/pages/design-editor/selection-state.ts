@@ -456,6 +456,21 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
   return args.resolvedCount === 0 && !args.additive;
 }
 
+/**
+ * Figma spec §1 (see screen-element-select.ts's click-path
+ * `additiveSelection`): Shift is the only additive (union) gesture. Cmd/Ctrl
+ * deep-selects and REPLACES, same as a plain click. The marquee path must
+ * resolve this the same way the click path does, or a Cmd-marquee unions
+ * onto the existing selection instead of replacing it.
+ *
+ * Exported for unit testing.
+ */
+export function resolveMarqueeAdditive(
+  intent: ElementSelectionIntent | undefined,
+): boolean {
+  return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
+}
+
 /** Clear element context only when a selected review thread changes screens. */
 export function shouldClearSelectionForReviewThreadTarget(args: {
   activeFileId?: string | null;

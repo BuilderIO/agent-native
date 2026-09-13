@@ -7,6 +7,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import type * as Y from "yjs";
 
+import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -38,19 +39,23 @@ import type { DesignFile } from "@/pages/design-editor/types";
  * position; see item-2 cross-screen investigation). Only fills a gap the
  * string-only path cannot see — never overrides an explicit style value.
  */
-function collectLiveSizeHints(
+export function collectLiveSizeHints(
   nodeIds: string[],
   projection: CodeLayerProjection,
+  activeFileId: string,
 ): Record<string, { width: number; height: number }> {
   const hints: Record<string, { width: number; height: number }> = {};
   if (typeof document === "undefined") return hints;
-  const iframeDocs = Array.from(
-    document.querySelectorAll<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    ),
-  )
-    .map((iframe) => iframe.contentDocument)
-    .filter((doc): doc is Document => !!doc);
+  // Only the active file's own iframe can legitimately contain these node
+  // ids (they came from parsing the active file's own source) — querying
+  // every preview iframe on the canvas and taking the first match risks
+  // reading a DIFFERENT screen's DOM when a duplicated Screen has remapped
+  // (or not-yet-unique) ids that collide with the active one's.
+  const doc = findCanvasIframeForScreen(
+    document.body,
+    activeFileId,
+  )?.contentDocument;
+  if (!doc) return hints;
   for (const nodeId of nodeIds) {
     // Mirrors applyWrapNodes's own target resolution: a caller-supplied id
     // can be either the real data-agent-native-node-id attribute or the
@@ -63,19 +68,16 @@ function collectLiveSizeHints(
     );
     const attrId = node?.dataAttributes["data-agent-native-node-id"];
     if (!attrId) continue;
-    for (const doc of iframeDocs) {
-      const el = doc.querySelector(
-        `[data-agent-native-node-id="${CSS.escape(attrId)}"]`,
-      );
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        // Keyed by the real attribute value: computeAbsoluteUnionBounds
-        // reads data-agent-native-node-id straight off the parsed element,
-        // not the caller's (possibly internal-projection-id) target id.
-        hints[attrId] = { width: rect.width, height: rect.height };
-      }
-      break;
+    const el = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(attrId)}"]`,
+    );
+    if (!el) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      // Keyed by the real attribute value: computeAbsoluteUnionBounds
+      // reads data-agent-native-node-id straight off the parsed element,
+      // not the caller's (possibly internal-projection-id) target id.
+      hints[attrId] = { width: rect.width, height: rect.height };
     }
   }
   return hints;
@@ -135,7 +137,11 @@ export function runFrameSelection({
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (nodeIds.length < 1) return;
-  const sizeHints = collectLiveSizeHints(nodeIds, baseProjection);
+  const sizeHints = collectLiveSizeHints(
+    nodeIds,
+    baseProjection,
+    activeFile.id,
+  );
   const patch = applyVisualEdit(baseContent, {
     kind: "wrapNodes",
     targetIds: nodeIds,

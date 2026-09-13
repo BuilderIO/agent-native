@@ -13,7 +13,7 @@ import {
   selectViaTree,
   setBaseURL,
 } from "./drag-and-drop.shared";
-import { appPath } from "./helpers";
+import { appPath, expandAllLayers } from "./helpers";
 
 /**
  * Figma parity — §13 Undo/Redo (+ Part 3 resolutions).
@@ -484,6 +484,10 @@ for (const theme of ["dark", "light"] as const) {
       timeout: 30_000,
     });
     await expect(page.locator("html")).toHaveClass(new RegExp(theme));
+    // selectViaTree below needs the "Box A" row visible; the layers tree
+    // starts collapsed, same as every other spec that navigates by hand
+    // instead of via openEditor().
+    await expandAllLayers(page);
 
     const { x: sampleX, y: sampleY } = await sampleXY(page);
 

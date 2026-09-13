@@ -853,6 +853,7 @@ import {
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   resolveAvailableActiveFileId,
+  resolveMarqueeAdditive,
   sameStringIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
@@ -18395,13 +18396,7 @@ function DesignEditor() {
       handleLayerMarqueeSelectionChange(
         infos.map((info) => ({ screenId, info })),
         {
-          additive: Boolean(
-            intent?.additive ||
-            intent?.range ||
-            intent?.shiftKey ||
-            intent?.metaKey ||
-            intent?.ctrlKey,
-          ),
+          additive: resolveMarqueeAdditive(intent),
           range: Boolean(intent?.range || intent?.shiftKey),
           source: "marquee",
           shiftKey: Boolean(intent?.shiftKey),
@@ -19221,9 +19216,15 @@ function DesignEditor() {
       React.ComponentProps<typeof MultiScreenCanvas>["onBoardVisualStyleChange"]
     >
   >(
-    (selector, styles, info) => {
+    (selector, styles, info, metadata) => {
       if (!boardFileId) return;
-      handleScreenVisualStyleChange(boardFileId, selector, styles, info);
+      handleScreenVisualStyleChange(
+        boardFileId,
+        selector,
+        styles,
+        info,
+        metadata,
+      );
     },
     [boardFileId, handleScreenVisualStyleChange],
   );

@@ -270,6 +270,7 @@ import {
   getActiveScreenIframeId,
   getBreakpointIframeId,
   isBreakpointSelectionTarget,
+  shouldRenderBoardSelectionBox,
   shouldSuppressFrameSelectionBox,
 } from "./multi-screen/iframe-targeting";
 import {
@@ -741,6 +742,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     boardViewportGeometry,
     frameGeometry,
   ]);
+  // A board-element resize's move/up handlers are captured once at
+  // mousedown and outlive any later render — reading this memo's value
+  // through a ref (not the mousedown-time closure) keeps its point mapping
+  // correct if a wheel zoom/pan changes render geometry mid-gesture (wheel
+  // is not blocked during a drag; see invalidateSnapGesture above).
+  const boardSurfaceRenderGeometryRef = useRef(boardSurfaceRenderGeometry);
+  useEffect(() => {
+    boardSurfaceRenderGeometryRef.current = boardSurfaceRenderGeometry;
+  }, [boardSurfaceRenderGeometry]);
   const boardStaticPreviewViewport = useMemo(
     () =>
       boardFrameGeometry
@@ -2046,10 +2056,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   const getFrameEntryAtPoint = useCallback(
-    (
-      point: Point,
-      options?: { excludeId?: string; ignoreStaleActiveId?: boolean },
-    ) =>
+    (point: Point, options?: { excludeId?: string }) =>
       findTopFrameEntryAtPoint(
         options?.excludeId
           ? getSelectableFrameEntries().filter(
@@ -2058,15 +2065,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           : getSelectableFrameEntries(),
         point,
         {
-          // Screen wrappers give this same id a large z-index boost. Geometry
-          // hit testing must mirror it or drops/draws on overlapping frames can
-          // persist into a visually obscured sibling.
+          // Screen wrappers give this same id a large z-index boost (see
+          // topScreenId/isTopScreen). Geometry hit testing must resolve the
+          // tie the same way or a drop/draw at an overlap point lands in the
+          // frame underneath the one the user actually sees on top.
           foregroundId: resolveHitTestForegroundId({
             selectedIds: selectedIdsRef.current,
             hasGeometry: (id) => frameGeometryRef.current[id] !== undefined,
             activeId,
             firstScreenId: screensRef.current[0]?.id,
-            ignoreStaleActiveId: options?.ignoreStaleActiveId,
           }),
         },
       ),
@@ -5146,11 +5153,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       // Quantized from the first sample: `clientPoint / zoom` is fractional at
       // every zoom but 100%, and a new object's x/y come straight off these.
-      // The frame resolves from the raw point, which decides the step.
+      // The frame resolves from the raw point, which decides the step. This
+      // must own the frame the same way paint does (see topScreenId) — a
+      // draw at an overlap point belongs to whichever screen is really on
+      // top, not to whichever screen array order puts last.
       const rawOriginCanvas = getCanvasPoint(e.clientX, e.clientY);
-      const originFrameId = getFrameEntryAtPoint(rawOriginCanvas, {
-        ignoreStaleActiveId: true,
-      })?.id;
+      const originFrameId = getFrameEntryAtPoint(rawOriginCanvas)?.id;
       const creationSnapStep = resolveBoardSnapStepForFrame(originFrameId);
       const originCanvas = quantizeCanvasPoint(
         rawOriginCanvas,
@@ -6793,16 +6801,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       e.preventDefault();
       e.stopPropagation();
 
+      // Reads the ref, not this closure's `boardSurfaceRenderGeometry`: the
+      // handlers below outlive this render, and a wheel zoom/pan mid-drag
+      // (not blocked during a drag) changes render geometry — mapping
+      // through a stale origin would misplace every point after that.
       const toIframePoint = (clientX: number, clientY: number) =>
         boardPointToBoardSurfaceLocalPoint(
           getCanvasPoint(clientX, clientY),
-          boardSurfaceRenderGeometry,
+          boardSurfaceRenderGeometryRef.current ?? boardSurfaceRenderGeometry,
         );
       const dispatchAt = (
         target: EventTarget,
         type: string,
         point: { x: number; y: number },
         source: { shiftKey: boolean; altKey: boolean },
+        buttons: number,
       ) => {
         target.dispatchEvent(
           new MouseEvent(type, {
@@ -6810,6 +6823,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             clientY: point.y,
             shiftKey: source.shiftKey,
             altKey: source.altKey,
+            // A real pointer reports which button is held; the bridge's
+            // startResize is a stand-in for the in-iframe listener and may
+            // read this like a native event would. 1 = primary button held
+            // (mousedown/mousemove of this gesture), 0 = released (mouseup).
+            buttons,
             bubbles: true,
             cancelable: true,
           }),
@@ -6820,7 +6838,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Flows through the bridge's delegated selectionOverlay mousedown
       // listener (target carries the handle's data attribute), invoking its
       // real startResize(handle, event).
-      dispatchAt(handleEl, "mousedown", toIframePoint(e.clientX, e.clientY), e);
+      dispatchAt(
+        handleEl,
+        "mousedown",
+        toIframePoint(e.clientX, e.clientY),
+        e,
+        1,
+      );
 
       const handleMouseMove = (ev: MouseEvent) => {
         // startResize's continuation listeners are added directly on
@@ -6831,6 +6855,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           "mousemove",
           toIframePoint(ev.clientX, ev.clientY),
           ev,
+          1,
         );
       };
       const handleMouseUp = (ev: MouseEvent) => {
@@ -6839,6 +6864,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           "mouseup",
           toIframePoint(ev.clientX, ev.clientY),
           ev,
+          0,
         );
         finishDrag();
       };
@@ -6848,6 +6874,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           "mouseup",
           toIframePoint(e.clientX, e.clientY),
           e,
+          0,
         );
         finishDrag();
       });
@@ -8779,6 +8806,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedDraftEntries.length === 1 && !selectedDraftGroupBounds
       ? selectedDraftEntries[0]
       : null;
+  const boardSelectionBoxVisible = shouldRenderBoardSelectionBox({
+    boardSelectionRect,
+    boardIsActive,
+    boardSurfaceRenderGeometry,
+  });
   const rootSelectedEntryCount =
     selectedFrameEntries.length + selectedDraftEntries.length;
   const showPassiveRootSelectionBoxes = rootSelectedEntryCount > 1;
@@ -9188,14 +9220,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           />
         ) : null}
 
-        {boardSelectionRect &&
-        boardIsActive &&
-        boardSurfaceRenderGeometry &&
-        !singleSelectedFrame &&
-        !singleSelectedDraft ? (
+        {boardSelectionBoxVisible &&
+        boardSelectionRect &&
+        boardSurfaceRenderGeometry ? (
           // Additive host-level chrome for the selected board-surface
           // element: purely visual/interactive, wins z-order over an
           // overlapping Screen (SelectionBox itself is zIndex 1_000_000).
+          // Gated on the board selection alone — a Screen can stay selected
+          // at the top level while a board element is independently
+          // selected (see SelectionBox's `boardObject` doc), so a
+          // `singleSelectedFrame`/`singleSelectedDraft` check here would
+          // hide this box exactly when both are legitimately on screen.
           // The board bridge's own in-iframe selectionOverlay keeps
           // rendering underneath and stays interactive when unoccluded —
           // this never replaces it, it only wins the occluded case.
