@@ -429,6 +429,23 @@ Verification`): a rectangle dragged from `[650,260]` to `[790,340]` renders
   partial/open interaction areas remain outstanding; this matrix does not
   claim 1:1 parity.
 
+- New Builder review candidate 3999683455 (2026-09-13 12:58Z): create a group
+  whose child DOM order is front-first (`z-index: 4`) then back-second
+  (`z-index: 1`), with an equal-z outside sibling, and ungroup. Expected:
+  extract children in inner paint order and retain the wrapper's outer slot.
+  The repository sweep found one DOM-based stack-restoration implementation
+  (`ungroupSlideObject`), one `SlideEditor` command caller, and its direct
+  interaction tests. The separate Design `runUngroupSelection` path edits
+  CodeLayer content and does not restore DOM z-index, so it is not the same
+  boundary and remains out of scope. In Slides, `childGeometries` is already
+  sorted from low to high effective z-index, then each child is inserted before
+  the wrapper in that same sequence; assigning the shared wrapper z-index
+  leaves that order as the equal-z DOM tie-break. A focused regression now
+  checks inverse DOM/z-index order, the outside sibling slot, and sanitized
+  serialize/reparse order. No production change is indicated by source
+  inspection; remote CI and inline disposition are pending, and browser paint
+  verification remains unavailable at the signed-out preview.
+
 ## Disposition rules
 
 - `Implemented, verify` means the implementation and focused unit coverage

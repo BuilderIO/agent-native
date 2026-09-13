@@ -2210,6 +2210,56 @@ describe("slide object groups and rotation", () => {
     );
   });
 
+  it("preserves inner paint order when ungrouping inverse DOM and z-index order", () => {
+    const parent = document.createElement("div");
+    const frontFirst = createFreeformObject("front-first", { zIndex: 4 });
+    const backSecond = createFreeformObject("back-second", { zIndex: 1 });
+    const outside = createFreeformObject("outside", { zIndex: 4 });
+    parent.append(frontFirst, backSecond, outside);
+    const geometry = geometryFor([
+      [frontFirst, { x: 0, y: 0, width: 40, height: 40 }],
+      [backSecond, { x: 60, y: 0, width: 40, height: 40 }],
+      [outside, { x: 120, y: 0, width: 40, height: 40 }],
+    ]);
+    const group = groupSlideObjects(
+      [frontFirst, backSecond],
+      geometry.get,
+      geometry.apply,
+    );
+
+    expect(group).not.toBeNull();
+    expect(Array.from(group!.children)).toEqual([frontFirst, backSecond]);
+    expect(group!.style.zIndex).toBe("4");
+
+    const ungrouped = ungroupSlideObject(group!, geometry.get, geometry.apply);
+
+    expect(ungrouped).toEqual([backSecond, frontFirst]);
+    expect(Array.from(parent.children)).toEqual([
+      backSecond,
+      frontFirst,
+      outside,
+    ]);
+    expect([
+      backSecond.style.zIndex,
+      frontFirst.style.zIndex,
+      outside.style.zIndex,
+    ]).toEqual(["4", "4", "4"]);
+
+    const persisted = sanitizeSlideHtml(parent.innerHTML);
+    const reloaded = document.createElement("div");
+    reloaded.innerHTML = persisted;
+    expect(
+      Array.from(reloaded.children).map((element) =>
+        element.getAttribute("data-slide-object-id"),
+      ),
+    ).toEqual(["back-second", "front-first", "outside"]);
+    expect(
+      Array.from(reloaded.children).map(
+        (element) => (element as HTMLElement).style.zIndex,
+      ),
+    ).toEqual(["4", "4", "4"]);
+  });
+
   it("preserves a group's rotation when ungrouping its members", () => {
     const parent = document.createElement("div");
     const first = createFreeformObject("first");
