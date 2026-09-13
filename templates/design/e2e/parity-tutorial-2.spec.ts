@@ -394,9 +394,18 @@ async function typeCanvasTextWithRetry(
       await page.keyboard.type(text);
     }
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(500);
-    const html = await fileContent(request, designId);
-    if (html.includes(`>${text}<`)) return;
+    // The save queue can wait up to 400ms before issuing the persist RPC —
+    // poll for the committed text instead of racing it with one fixed sleep.
+    const committed = await expect
+      .poll(
+        async () =>
+          (await fileContent(request, designId)).includes(`>${text}<`),
+        { timeout: 2_000 },
+      )
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false);
+    if (committed) return;
     // Escape after a truly empty text primitive can leave a dangling
     // draft node behind — undo it before the next attempt's click drafts
     // another one on top.
@@ -699,7 +708,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       .toBe(frameId);
   });
 
-  test("step 3-4 (crossing the screen boundary): in-screen Frame tool draws album-art; alt-drag duplicates the board frame into it; Option+Arrow nudges the copy", async ({
+  test("step 3-4 (crossing the screen boundary): in-screen Frame tool draws album-art; alt-drag duplicates the board frame into it; Shift+Arrow nudges the copy", async ({
     page,
     request,
   }) => {
@@ -816,9 +825,12 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       "alt-drag must leave the original board frame in place",
     ).toContain(sourceId);
 
-    // Option+Arrow nudge 16px on the newly-dropped copy. The drop leaves the
-    // new copy selected — read its real layers-panel id off that selection
-    // rather than assuming it equals the raw newChildId.
+    // Shift+Arrow nudge (this app's registered "nudge-large" binding — see
+    // keyboard-shortcuts.ts; there is no alt+arrow nudge shortcut, so the
+    // original Option/Alt+Arrow gesture here never reached onNudge at all)
+    // on the newly-dropped copy. The drop leaves the new copy selected —
+    // read its real layers-panel id off that selection rather than assuming
+    // it equals the raw newChildId.
     const newChildId = albumArtChildren[albumArtChildren.length - 1];
     const newChildLayerNodeId = await selectedLayerNodeId(page);
     await expandAllLayers(page);
@@ -827,8 +839,8 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     const beforeNudgeMatch = new RegExp(
       `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,
     ).exec(html);
-    await page.keyboard.press("Alt+ArrowRight");
-    await page.keyboard.press("Alt+ArrowDown");
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("Shift+ArrowDown");
     await page.waitForTimeout(500);
     const htmlAfterNudge = await fileContent(request, designId);
     const afterNudgeMatch = new RegExp(
@@ -836,7 +848,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     ).exec(htmlAfterNudge);
     expect(
       afterNudgeMatch?.[1],
-      "Option+Arrow nudge should change the dropped copy's authored position",
+      "Shift+Arrow nudge should change the dropped copy's authored position",
     ).not.toBe(beforeNudgeMatch?.[1]);
   });
 

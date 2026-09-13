@@ -327,6 +327,15 @@ export function runCrossScreenElementDrop(
     const sourceContent = getScreenContent(sourceScreenId);
     const rawDestContent = getScreenContent(targetScreenId);
     if (!sourceContent || !rawDestContent) return;
+    // A duplicate leaves the source alive: insertClonedHtmlLayers's
+    // preserveIncomingNodeIds only reserves ids already present in
+    // rawDestContent (a different document), so without this the copy
+    // silently keeps the source's own data-agent-native-node-id — two live
+    // elements in two files sharing one id, breaking every id-keyed lookup
+    // (selection, nudge, the cross-file code-layer owner map) on either.
+    const sourceNodeIds = buildCodeLayerProjection(sourceContent)
+      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((value): value is string => Boolean(value));
     const destinationProjection = buildCodeLayerProjection(rawDestContent);
     const targetAnchor = targetAnchorNodeId
       ? resolveCodeLayerNodeFromBridge(
@@ -374,6 +383,7 @@ export function runCrossScreenElementDrop(
           targetDropMode !== "absolute-container",
         styleSnapshots: [styleSnapshot],
         preserveIncomingNodeIds: true,
+        additionalReservedNodeIds: sourceNodeIds,
       },
     );
     if (!nextContent) {

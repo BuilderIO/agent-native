@@ -558,3 +558,205 @@ test.describe("Figma parity — layers panel", () => {
       .toBeGreaterThan(0);
   });
 });
+
+// Peer-reported cross-run bug, fixed at the source: `runLayerMove`'s
+// applyFileContentUpdate calls omitted `forcePreviewFullDocument`, so
+// whenever the active selection sits outside the reordered subtree, the
+// bridge's non-forced replace (editor-chrome.bridge.ts
+// replaceRuntimeDocument) morphs only the selected node and returns without
+// ever reaching the sibling that moved. The deterministic, isolated proof of
+// that mechanism (no dev server, no UI timing) lives in
+// document-morph.bridge.spec.ts's "a same-parent reorder without
+// forceFullDocument" describe block — it fails without
+// `forcePreviewFullDocument` and passes with it. This end-to-end test below
+// exercises the same user gesture through the real editor and passed both
+// before and after the fix under Playwright's synthetic drag in this
+// environment (the exact browser-side selection/replace race the bridge
+// test isolates did not reproduce here); it is kept as a real-editor
+// regression guard for the full reorder + undo flow (file, live iframe, and
+// panel agreeing, with no iframe reload) rather than as the fix's proof.
+const SIBLING_REORDER_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Sibling reorder parity</title></head>
+  <body style="margin:0;min-height:300px;background:#fff">
+    <div data-agent-native-node-id="wrap" data-agent-native-layer-name="Wrap" style="position:relative;width:300px;height:150px">
+      <div data-agent-native-node-id="node-b" data-agent-native-layer-name="B" style="position:absolute;left:140px;top:20px;width:80px;height:80px;background:#3b82f6"></div>
+      <div data-agent-native-node-id="node-a" data-agent-native-layer-name="A" style="position:absolute;left:20px;top:20px;width:80px;height:80px;background:#ef4444"></div>
+    </div>
+    <div data-agent-native-node-id="other" data-agent-native-layer-name="Other" style="position:absolute;left:20px;top:200px;width:80px;height:40px;background:#10b981"></div>
+  </body>
+</html>`;
+
+async function newSiblingReorderDesign(page: Page): Promise<string> {
+  const created = await postAction(page, "create-design", {
+    title: "sibling reorder parity",
+    projectType: "prototype",
+  });
+  const id = created?.id ?? created?.data?.id;
+  if (!id) throw new Error("create-design returned no id");
+  await postAction(page, "create-file", {
+    designId: id,
+    filename: "index.html",
+    content: SIBLING_REORDER_FIXTURE,
+    fileType: "html",
+  });
+  return id;
+}
+
+async function getIndexHtml(page: Page, designId: string): Promise<string> {
+  const res = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
+  );
+  if (!res.ok()) {
+    throw new Error(`get-design failed: ${res.status()} ${await res.text()}`);
+  }
+  const result = await res.json();
+  const files = result.files ?? result.data?.files;
+  const file = files?.find((f: any) => f.filename === "index.html");
+  if (!file) throw new Error("index.html missing from get-design response");
+  return file.content as string;
+}
+
+// Only two flat, non-nested body children in this fixture, so a plain
+// index() comparison of the two id attributes is a correct (and much
+// simpler) stand-in for a real sibling-order parser.
+function domOrder(html: string): "AB" | "BA" {
+  const aIdx = html.indexOf('data-agent-native-node-id="node-a"');
+  const bIdx = html.indexOf('data-agent-native-node-id="node-b"');
+  if (aIdx < 0 || bIdx < 0) throw new Error("node-a/node-b missing from html");
+  return aIdx < bIdx ? "AB" : "BA";
+}
+
+async function livePreviewBodyOrder(page: Page): Promise<string[]> {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame()
+    .locator('[data-agent-native-node-id="wrap"] > [data-agent-native-node-id]')
+    .evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute("data-agent-native-node-id") ?? ""),
+    );
+}
+
+// A whole-document bridge replace is still an in-place, keyed morph of the
+// SAME live document (see apply-local-content-update.ts's "holistic flash
+// pipeline" note) — it must never navigate/rebuild the iframe. A marker
+// stamped on the preview window only survives an in-place morph.
+async function stampPreviewWindowMarker(page: Page): Promise<void> {
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame()
+    .locator("html")
+    .evaluate((el) => {
+      (el.ownerDocument.defaultView as any).__parityReorderMarker = "alive";
+    });
+}
+
+async function previewWindowMarkerSurvived(page: Page): Promise<boolean> {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame()
+    .locator("html")
+    .evaluate(
+      (el) =>
+        (el.ownerDocument.defaultView as any).__parityReorderMarker === "alive",
+    );
+}
+
+test.describe("Figma parity — layers panel sibling reorder / preview sync", () => {
+  let siblingDesignId: string;
+
+  test.beforeEach(async ({ page }) => {
+    siblingDesignId = await newSiblingReorderDesign(page);
+    await openEditorAndExpandLayers(page, siblingDesignId);
+  });
+
+  test("dragging B above A in the panel reaches the persisted file, the live iframe, and the panel alike; one undo restores B,A", async ({
+    page,
+  }) => {
+    expect(domOrder(await getIndexHtml(page, siblingDesignId))).toBe("BA");
+    expect(await livePreviewBodyOrder(page)).toEqual(["node-b", "node-a"]);
+
+    // A selection on a node OUTSIDE the reordered subtree is what forces the
+    // bridge's scoped single-selector morph path (replaceRuntimeDocument in
+    // editor-chrome.bridge.ts): it patches only that selected node's own
+    // subtree and returns, never reaching "wrap"'s children at all — a
+    // realistic setup, since a user has usually selected something (a
+    // completely unrelated element) before reaching for a Layers-panel drag.
+    await clickLayerRow(page, "Other");
+    await stampPreviewWindowMarker(page);
+
+    const aRow = layerRow(page, "A");
+    const aBox = await aRow.boundingBox();
+    if (!aBox) throw new Error("A row has no bounding box");
+    // Top half of A's row = "before A" (same drop-zone convention the
+    // existing "above Shop" test above relies on).
+    await layerRowButton(page, "B").dragTo(aRow, {
+      targetPosition: { x: aBox.width / 2, y: 2 },
+    });
+
+    // (a) Persisted file order flips to A,B.
+    await expect
+      .poll(async () => domOrder(await getIndexHtml(page, siblingDesignId)), {
+        message:
+          "expected the persisted index.html sibling order to become A,B",
+      })
+      .toBe("AB");
+
+    // (b) Live iframe DOM order matches — the peer-reported gap: with
+    // "Other" selected, a non-forced replace would morph only Other's own
+    // subtree and return, leaving this stale at node-b,node-a.
+    await expect
+      .poll(() => livePreviewBodyOrder(page), {
+        message:
+          "expected the live preview iframe's body child order to become node-a,node-b",
+      })
+      .toEqual(["node-a", "node-b"]);
+
+    // (c) Layers panel reflects the reorder too.
+    await expect
+      .poll(
+        async () => {
+          const names = await visibleLayerNames(page);
+          return (
+            names.indexOf("B") > -1 && names.indexOf("B") < names.indexOf("A")
+          );
+        },
+        { message: "expected B's row to move directly before A's row" },
+      )
+      .toBe(true);
+
+    // The fix is an in-place morph, not a reload: the marker stamped on the
+    // preview window before the drag must still be there.
+    expect(await previewWindowMarkerSurvived(page)).toBe(true);
+    await expect(toastMessages(page)).resolves.not.toContain(
+      "Could not move that layer",
+    );
+
+    // One undo restores B,A in all three.
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(mod);
+    await page.keyboard.press("z");
+    await page.keyboard.up(mod);
+
+    await expect
+      .poll(async () => domOrder(await getIndexHtml(page, siblingDesignId)))
+      .toBe("BA");
+    await expect
+      .poll(() => livePreviewBodyOrder(page))
+      .toEqual(["node-b", "node-a"]);
+    // Panel row order is painter's-order (top row = last DOM child, see the
+    // "footer above header" test above) — restoring literal order B,A means
+    // A is once again the last DOM child, so A's row is back on top.
+    await expect
+      .poll(async () => {
+        const names = await visibleLayerNames(page);
+        return (
+          names.indexOf("A") > -1 && names.indexOf("A") < names.indexOf("B")
+        );
+      })
+      .toBe(true);
+  });
+});

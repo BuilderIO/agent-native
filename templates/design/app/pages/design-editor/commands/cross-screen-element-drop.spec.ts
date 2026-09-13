@@ -229,6 +229,83 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     expect(nextDestinationContent).toContain("left: 130px");
     expect(nextDestinationContent).toContain("top: 238px");
   });
+
+  it("never leaves the dropped copy sharing the still-live source's node id", () => {
+    // Regression for B4: an alt-drag duplicate across the screen boundary
+    // leaves the ORIGINAL alive in its own file. insertClonedHtmlLayers's
+    // preserveIncomingNodeIds only reserved ids already in the destination
+    // doc, so the copy silently kept the source's own
+    // data-agent-native-node-id — two live elements, two files, one id,
+    // which broke every id-keyed lookup on either (including the
+    // subsequent Option+Arrow nudge landing on/writing to the wrong file).
+    const SOURCE_SCREEN = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"></div>
+</body></html>`;
+    const runtimeStructureInsertRevisionRef = { current: 0 };
+    let nextDestinationContent = "";
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate: (_fileId, nextContent) => {
+          nextDestinationContent = nextContent;
+        },
+        boardFileId: "board",
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: new Map() },
+        designSourceType: "inline",
+        getScreenContent: (screenId) =>
+          screenId === "board" ? SOURCE_SCREEN : SCREEN_WITH_FRAME,
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: SCREEN_WITH_FRAME,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: () => {},
+        runtimeStructureInsertRevisionRef,
+        sendRuntimeLayerMoveSemanticHandoff: () => true,
+        setActiveFileId: () => {},
+        setCreatedOverviewLayerSelection: () => {},
+        setOverviewSelectedScreenIds: () => {},
+        setRuntimeStructureInsertRequest: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: "#source-frame",
+        sourceNodeId: "source-id",
+        sourceScreenId: "board",
+        targetScreenId: "target",
+        targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
+        targetAnchorPlacement: "inside",
+        targetDropMode: "absolute-container",
+        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetLocalPoint: { x: 240, y: 300 },
+        sourcePointerOffset: { x: 10, y: 12 },
+        duplicate: true,
+        sourceCloneHtml:
+          '<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"></div>',
+      },
+    );
+
+    const projection = buildCodeLayerProjection(nextDestinationContent);
+    const copyIds = projection.nodes
+      .map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((id) => id && id !== "frame-1");
+    expect(copyIds).toHaveLength(1);
+    expect(copyIds[0]).not.toBe("source-id");
+  });
 });
 
 describe("runCrossScreenElementDrop runtime-only routing", () => {
