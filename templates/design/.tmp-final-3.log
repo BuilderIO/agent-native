@@ -1,0 +1,658 @@
+
+> agentnative@1.0.0 guards /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/run-guards.ts
+
+[guards] Running 73 checks with concurrency 6
+
+[guard:hooks-registered] output
+
+> agentnative@1.0.0 guard:hooks-registered /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-hooks-registered.mjs
+
+guard-hooks-registered: OK (2 hook command(s) registered, 2 hook script(s) on disk).
+[guards] PASS guard:hooks-registered (286ms)
+
+[guard:mcp-registry] output
+
+> agentnative@1.0.0 guard:mcp-registry /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node --experimental-strip-types scripts/mcp-registry.ts --check
+
+MCP Registry metadata is valid for 13 public apps.
+[guards] PASS guard:mcp-registry (362ms)
+
+[guard:chat-first-shared-ui] output
+
+> agentnative@1.0.0 guard:chat-first-shared-ui /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-chat-first-shared-ui.ts
+
+[guard:chat-first-shared-ui] clean
+[guards] PASS guard:chat-first-shared-ui (412ms)
+
+[guard:release-schema-complete] output
+
+> agentnative@1.0.0 guard:release-schema-complete /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-release-schema-complete.ts
+
+Release schema list covers every store that defines tables (0 findings).
+[guards] PASS guard:release-schema-complete (679ms)
+
+[guard:no-drizzle-push] output
+
+> agentnative@1.0.0 guard:no-drizzle-push /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-drizzle-push.mjs
+
+guard-no-drizzle-push: clean (no `drizzle-kit push` in any build/deploy path).
+[guards] PASS guard:no-drizzle-push (1.2s)
+
+[guard:no-pnpm-patches] output
+
+> agentnative@1.0.0 guard:no-pnpm-patches /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-no-pnpm-patches.ts
+
+guard-no-pnpm-patches: clean (no pnpm package patches found).
+[guards] PASS guard:no-pnpm-patches (1.2s)
+
+[guard:no-env-credentials] output
+
+> agentnative@1.0.0 guard:no-env-credentials /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-env-credentials.mjs
+
+guard-no-env-credentials: clean (no forbidden process.env reads in credential paths).
+[guards] PASS guard:no-env-credentials (1.4s)
+
+[guard:env-documentation] output
+
+> agentnative@1.0.0 guard:env-documentation /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-env-documentation.ts
+
+[env-doc] Covered 1024 static environment variables in the maintainer inventory and curated framework docs (435 inventory entries, 83 public entries).
+[guards] PASS guard:env-documentation (1.5s)
+
+[guard:no-unscoped-credentials] output
+
+> agentnative@1.0.0 guard:no-unscoped-credentials /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-unscoped-credentials.mjs
+
+guard-no-unscoped-credentials: clean (every credential call passes context).
+[guards] PASS guard:no-unscoped-credentials (1.9s)
+
+[guard:agent-native-brand] output
+
+> agentnative@1.0.0 guard:agent-native-brand /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-agent-native-brand.ts
+
+guard:agent-native-brand: clean (18957 files)
+[guards] PASS guard:agent-native-brand (3.1s)
+
+[guard:db-tool-scoping] output
+
+> agentnative@1.0.0 guard:db-tool-scoping /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-db-tool-scoping.mjs
+
+guard-db-tool-scoping: clean (61 intentionally denied template table(s))
+[guards] PASS guard:db-tool-scoping (570ms)
+
+[guard:no-env-mutation] output
+
+> agentnative@1.0.0 guard:no-env-mutation /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-env-mutation.mjs
+
+guard-no-env-mutation: clean (no process.env mutations/deletions in production code).
+[guards] PASS guard:no-env-mutation (1.3s)
+
+[guard:no-localhost-fallback] output
+
+> agentnative@1.0.0 guard:no-localhost-fallback /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-localhost-fallback.mjs
+
+guard-no-localhost-fallback: clean (no "local@localhost" literals and no ambient-identity fallbacks in production code).
+[guards] PASS guard:no-localhost-fallback (1.2s)
+
+[guard:template-list] output
+
+> agentnative@1.0.0 guard:template-list /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-template-list.mjs
+
+guard-template-list: clean (13 public templates: analytics, assets, brain, calendar, chat, clips, content, design, dispatch, forms, mail, plan, slides).
+[guards] PASS guard:template-list (210ms)
+
+[guard:no-empty-migrations] output
+
+> agentnative@1.0.0 guard:no-empty-migrations /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-no-empty-migrations.ts
+
+No empty migration plugins found.
+[guards] PASS guard:no-empty-migrations (3.8s)
+
+[guard:google-auth-redirects] output
+
+> agentnative@1.0.0 guard:google-auth-redirects /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-google-auth-redirects.mjs
+
+guard-google-auth-redirects: clean (366 Google auth source files checked).
+[guards] PASS guard:google-auth-redirects (1.1s)
+
+[guard:netlify-release-migrations] output
+
+> agentnative@1.0.0 guard:netlify-release-migrations /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-netlify-release-migrations.ts
+
+guard-netlify-release-migrations: clean (published production and beta schemas have explicit owners).
+[guards] PASS guard:netlify-release-migrations (345ms)
+
+[guard:netlify-prebuilt-workflow] output
+
+> agentnative@1.0.0 guard:netlify-prebuilt-workflow /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-netlify-prebuilt-workflow.ts
+
+Netlify prebuilt workflows preserve context and publish serialization.
+[guards] PASS guard:netlify-prebuilt-workflow (457ms)
+
+[guard:beta-e2e-suite] output
+
+> agentnative@1.0.0 guard:beta-e2e-suite /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-beta-e2e-suite.ts
+
+guard:beta-e2e-suite passed
+[guards] PASS guard:beta-e2e-suite (378ms)
+
+[guard:trusted-acceptance] output
+
+> agentnative@1.0.0 guard:trusted-acceptance /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-trusted-acceptance-workflow.ts
+
+Trusted acceptance workflow boundary checks passed.
+[guards] PASS guard:trusted-acceptance (368ms)
+
+[guard:content-product-conformance] output
+
+> agentnative@1.0.0 guard:content-product-conformance /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/validate-content-product-impact-workflow.ts
+
+Content product conformance workflow boundary checks passed.
+[guards] PASS guard:content-product-conformance (363ms)
+
+[guard:netlify-private-env] output
+
+> agentnative@1.0.0 guard:netlify-private-env /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-netlify-private-env.ts
+
+guard-netlify-private-env: clean (no Builder private key in Netlify deploy config).
+[guards] PASS guard:netlify-private-env (764ms)
+
+[guard:content-product-docs] output
+
+> agentnative@1.0.0 guard:content-product-docs /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/validate-content-product-docs.ts
+
+[content-product-docs] Validated 6 Chapters, 32 Features, and 125 Capabilities
+[guards] PASS guard:content-product-docs (465ms)
+
+[guard:template-standard] output
+
+> agentnative@1.0.0 guard:template-standard /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/template-standard/index.ts --check
+
+[template-standard] checked 17 templates: analytics, assets, brain, calendar, chat, clips, content, crm, design, dispatch, factory, forms, macros, mail, plan, slides, tasks
+[template-standard] core-routes surface: investigated, not enforced (see manifest.ts CORE_ROUTES_FINDING).
+[template-standard] never-standardized surfaces (no checks by design): actions/ (app-specific operations); drizzle schema (app-specific data model); app/ UI (app-specific screens/components); app-specific skills beyond the shared set sync-workspace-core-skills.ts governs; agent-native.json / app-skill.json content; changelog/ entries
+
+[template-standard] 10 known gap(s), accepted in the baseline (Phase 2/3 should shrink these):
+  - byte-sync:learnings-defaults:mismatch :: analytics — templates/analytics/learnings.defaults.md content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/learnings.defaults.md).
+  - byte-sync:learnings-defaults:mismatch :: clips — templates/clips/learnings.defaults.md content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/learnings.defaults.md).
+  - byte-sync:gitignore-source:mismatch :: assets — templates/assets/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+  - byte-sync:gitignore-source:mismatch :: brain — templates/brain/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+  - byte-sync:gitignore-source:mismatch :: chat — templates/chat/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+  - byte-sync:gitignore-source:mismatch :: crm — templates/crm/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+  - byte-sync:gitignore-source:mismatch :: design — templates/design/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+  - byte-sync:gitignore-source:mismatch :: dispatch — templates/dispatch/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+  - byte-sync:gitignore-source:mismatch :: plan — templates/plan/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+  - byte-sync:gitignore-source:mismatch :: slides — templates/slides/_gitignore content differs from the canonical copy (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/scripts/template-standard/assets/_gitignore).
+
+[template-standard] 6 version-drift warning(s) (WARN-level, does not fail the guard):
+  - dep-version-band:zod :: brain — templates/brain/package.json uses zod@"^4.4.3"; the majority of templates use "^4.3.6".
+  - dep-version-band:zod :: chat — templates/chat/package.json uses zod@"^4.4.3"; the majority of templates use "^4.3.6".
+  - dep-version-band:zod :: factory — templates/factory/package.json uses zod@"^4.4.3"; the majority of templates use "^4.3.6".
+  - dep-version-band:zod :: macros — templates/macros/package.json uses zod@"^4.4.3"; the majority of templates use "^4.3.6".
+  - dep-version-band:zod :: plan — templates/plan/package.json uses zod@"^4.4.3"; the majority of templates use "^4.3.6".
+  - dep-version-band:zod :: tasks — templates/tasks/package.json uses zod@"^4.4.3"; the majority of templates use "^4.3.6".
+
+[template-standard] no new drift. 10 baselined gap(s) remain open.
+[guards] PASS guard:template-standard (359ms)
+
+[guard:public-packages] output
+
+> agentnative@1.0.0 guard:public-packages /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-public-packages.ts
+
+OK Agent-Native package publish metadata is public.
+[guards] PASS guard:public-packages (341ms)
+
+[guard:shared-ui-singletons] output
+
+> agentnative@1.0.0 guard:shared-ui-singletons /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-shared-ui-singletons.ts
+
+[guard:shared-ui-singletons] clean (15 catalog-shared dependencies; 7 singleton-critical resolutions)
+[guards] PASS guard:shared-ui-singletons (338ms)
+
+[guard:workspace-skills] output
+
+> agentnative@1.0.0 guard:workspace-skills /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/sync-workspace-core-skills.ts --check
+
+Workspace-core, default-template, and template shared skills are in sync.
+[guards] PASS guard:workspace-skills (488ms)
+
+[guard:controller-boundaries] output
+
+> agentnative@1.0.0 guard:controller-boundaries /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-controller-boundaries.ts
+
+[guard:controller-boundaries] clean
+[guards] PASS guard:controller-boundaries (361ms)
+
+[guard:toolkit-must-not-import-core] output
+
+> agentnative@1.0.0 guard:toolkit-must-not-import-core /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-toolkit-must-not-import-core.ts
+
+[guard:toolkit-must-not-import-core] clean
+[guards] PASS guard:toolkit-must-not-import-core (395ms)
+
+[guard:agentkit-stream-ownership] output
+
+> agentnative@1.0.0 guard:agentkit-stream-ownership /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-agentkit-stream-ownership.ts
+
+[guard:agentkit-stream-ownership] clean
+[guards] PASS guard:agentkit-stream-ownership (450ms)
+
+[guard:no-generated-artifacts] output
+
+> agentnative@1.0.0 guard:no-generated-artifacts /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-generated-artifacts.mjs
+
+[guards] PASS guard:no-generated-artifacts (290ms)
+
+[guard:template-ui-imports] output
+
+> agentnative@1.0.0 guard:template-ui-imports /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-template-ui-imports.ts
+
+[guard:template-ui-imports] clean
+[guards] PASS guard:template-ui-imports (1.2s)
+
+[guard:no-one-off-mcp-app-html] output
+
+> agentnative@1.0.0 guard:no-one-off-mcp-app-html /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-one-off-mcp-app-html.mjs
+
+[guard-no-one-off-mcp-app-html] OK - scanned 7638 template source files.
+[guards] PASS guard:no-one-off-mcp-app-html (885ms)
+
+[guard:extension-no-public] output
+
+> agentnative@1.0.0 guard:extension-no-public /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-extension-no-public.mjs
+
+[guard-extension-no-public] OK — scanned 17694 files, no violations.
+[guards] PASS guard:extension-no-public (1.4s)
+
+[guard:i18n-changed-copy] output
+
+> agentnative@1.0.0 guard:i18n-changed-copy /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-i18n-changed-copy.ts
+
+[guard:i18n-changed-copy] checked 0 changed copy surfaces
+[guards] PASS guard:i18n-changed-copy (770ms)
+
+[guard:eject-manifests] output
+
+> agentnative@1.0.0 guard:eject-manifests /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-eject-manifests.ts
+
+Eject manifests cover 34 units across 4 packages and all six first-party catalogs.
+[guards] PASS guard:eject-manifests (3.1s)
+
+[guard:plan-skills] output
+
+> agentnative@1.0.0 guard:plan-skills /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/sync-plan-skills.ts --check
+
+Exported app skills are in sync with skills.ts constants.
+[guards] PASS guard:plan-skills (484ms)
+
+[guard:no-error-string-returns] output
+
+> agentnative@1.0.0 guard:no-error-string-returns /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-error-string-returns.mjs
+
+guard-no-error-string-returns: OK
+[guards] PASS guard:no-error-string-returns (301ms)
+
+[guard:plan-marketplace] output
+
+> agentnative@1.0.0 guard:plan-marketplace /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/sync-plan-marketplace.ts --check
+
+App marketplace bundles are in sync (agent-native 1.0.0+codex.8e8e4d55970a, agent-native-visual-plans 1.0.0+codex.93102d6bf147, agent-native-design 1.0.0+codex.b2531c2795aa, agent-native-turn-into-app 1.0.0+codex.927e36381ee5).
+[guards] PASS guard:plan-marketplace (588ms)
+
+[guard:no-action-twin-routes] output
+
+> agentnative@1.0.0 guard:no-action-twin-routes /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-action-twin-routes.mjs
+
+guard-no-action-twin-routes: OK (15 grandfathered routes remaining in baseline)
+[guards] PASS guard:no-action-twin-routes (290ms)
+
+[guard:external-result-contract] output
+
+> agentnative@1.0.0 guard:external-result-contract /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-external-result-contract.mjs
+
+guard-external-result-contract: OK
+[guards] PASS guard:external-result-contract (371ms)
+
+[guard:provider-action-factories] output
+
+> agentnative@1.0.0 guard:provider-action-factories /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-provider-action-factories.ts
+
+[guard:provider-action-factories] all shared action factories are in use
+[guards] PASS guard:provider-action-factories (404ms)
+
+[guard:agent-access-endpoints-public] output
+
+> agentnative@1.0.0 guard:agent-access-endpoints-public /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-agent-access-endpoints-public.ts
+
+[guard:agent-access-endpoints-public] clean (18 templates)
+[guards] PASS guard:agent-access-endpoints-public (874ms)
+
+[guard:agent-chat-context] output
+
+> agentnative@1.0.0 guard:agent-chat-context /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-agent-chat-context.ts
+
+[guard:agent-chat-context] packages/core/src/templates/default/AGENTS.md: 5975/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] packages/core/src/templates/headless/AGENTS.md: 5629/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] packages/core/src/templates/workspace-core/AGENTS.md: 5985/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/analytics/AGENTS.md: 5981/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/assets/AGENTS.md: 5879/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/brain/AGENTS.md: 5810/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/calendar/AGENTS.md: 5349/6000 instruction chars
+[guard:agent-chat-context] templates/chat/AGENTS.md: 3371/6000 instruction chars
+[guard:agent-chat-context] templates/clips/AGENTS.md: 6000/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/content/AGENTS.md: 5988/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/crm/AGENTS.md: 5693/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/design/AGENTS.md: 5438/6000 instruction chars
+[guard:agent-chat-context] templates/dispatch/AGENTS.md: 5958/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/factory/AGENTS.md: 5926/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/forms/AGENTS.md: 5934/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/macros/AGENTS.md: 1971/6000 instruction chars
+[guard:agent-chat-context] templates/mail/AGENTS.md: 5932/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/plan/AGENTS.md: 5037/6000 instruction chars
+[guard:agent-chat-context] templates/slides/AGENTS.md: 5995/6000 instruction chars (WARN: approaching cap)
+[guard:agent-chat-context] templates/tasks/AGENTS.md: 4145/6000 instruction chars
+[guard:agent-chat-context] packages/dispatch/src/server/plugins/agent-chat.ts: 27 starter tools
+[guard:agent-chat-context] templates/analytics/server/plugins/agent-chat.ts: 37 starter tools
+[guard:agent-chat-context] templates/assets/server/plugins/agent-chat.ts: 17 starter tools
+[guard:agent-chat-context] templates/brain/server/plugins/agent-chat.ts: 25 starter tools
+[guard:agent-chat-context] templates/calendar/server/plugins/agent-chat.ts: 21 starter tools
+[guard:agent-chat-context] WARNING: 14 file(s) over the 5500-character soft limit (does not fail the build):
+- packages/core/src/templates/default/AGENTS.md: 5975 characters is over the 5500-character soft limit — only 25 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- packages/core/src/templates/headless/AGENTS.md: 5629 characters is over the 5500-character soft limit — only 371 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- packages/core/src/templates/workspace-core/AGENTS.md: 5985 characters is over the 5500-character soft limit — only 15 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/analytics/AGENTS.md: 5981 characters is over the 5500-character soft limit — only 19 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/assets/AGENTS.md: 5879 characters is over the 5500-character soft limit — only 121 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/brain/AGENTS.md: 5810 characters is over the 5500-character soft limit — only 190 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/clips/AGENTS.md: 6000 characters is over the 5500-character soft limit — only 0 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/content/AGENTS.md: 5988 characters is over the 5500-character soft limit — only 12 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/crm/AGENTS.md: 5693 characters is over the 5500-character soft limit — only 307 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/dispatch/AGENTS.md: 5958 characters is over the 5500-character soft limit — only 42 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/factory/AGENTS.md: 5926 characters is over the 5500-character soft limit — only 74 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/forms/AGENTS.md: 5934 characters is over the 5500-character soft limit — only 66 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/mail/AGENTS.md: 5932 characters is over the 5500-character soft limit — only 68 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+- templates/slides/AGENTS.md: 5995 characters is over the 5500-character soft limit — only 5 characters of headroom before the 6000-character hard cap starts dropping content. Move detail into .agents/skills/* now.
+[guard:agent-chat-context] templates/chat/server/plugins/agent-chat.ts: 4 starter tools
+[guard:agent-chat-context] templates/clips/server/plugins/agent-chat.ts: 21 starter tools
+[guard:agent-chat-context] templates/content/server/plugins/agent-chat.ts: 4 starter tools
+[guard:agent-chat-context] templates/crm/server/plugins/agent-chat.ts: 36 starter tools
+[guard:agent-chat-context] templates/design/server/plugins/agent-chat.ts: 40 starter tools
+[guard:agent-chat-context] templates/factory/server/plugins/agent-chat.ts: 33 starter tools
+[guard:agent-chat-context] templates/forms/server/plugins/agent-chat.ts: 14 starter tools
+[guard:agent-chat-context] templates/macros/server/plugins/agent-chat.ts: 9 starter tools
+[guard:agent-chat-context] templates/mail/server/plugins/agent-chat.ts: 27 starter tools
+[guard:agent-chat-context] templates/plan/server/plugins/agent-chat.ts: 12 starter tools
+[guard:agent-chat-context] templates/slides/server/plugins/agent-chat.ts: 23 starter tools
+[guard:agent-chat-context] templates/tasks/server/plugins/agent-chat.ts: 17 starter tools
+[guard:agent-chat-context] clean (17 first-party agent chat plugins)
+[guards] PASS guard:agent-chat-context (409ms)
+
+[guard:ssr-cache-shell] output
+
+> agentnative@1.0.0 guard:ssr-cache-shell /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-ssr-cache-shell.mjs
+
+guard-ssr-cache-shell: clean (SSR HTML/.data stays a public, anonymous, hard-CDN-cached shell).
+[guards] PASS guard:ssr-cache-shell (279ms)
+
+[guard:no-core-client-barrel-imports] output
+
+> agentnative@1.0.0 guard:no-core-client-barrel-imports /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-no-core-client-barrel-imports.ts
+
+[guard:no-core-client-barrel-imports] clean
+[guards] PASS guard:no-core-client-barrel-imports (6.1s)
+
+[guard:ssr-cache-artifact] output
+
+> agentnative@1.0.0 guard:ssr-cache-artifact /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-ssr-cache-artifact.ts
+
+guard:ssr-cache-artifact: clean (runtime and prerendered Netlify shells share the public SWR policy).
+[guards] PASS guard:ssr-cache-artifact (681ms)
+
+[guard:route-chunk-recovery] output
+
+> agentnative@1.0.0 guard:route-chunk-recovery /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-route-chunk-recovery.mjs
+
+[guard:route-chunk-recovery] OK — 17 template client entr(ies) install stale-chunk recovery.
+[guards] PASS guard:route-chunk-recovery (224ms)
+
+[guard:one-sign-in] output
+
+> agentnative@1.0.0 guard:one-sign-in /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-one-sign-in.mjs
+
+[guard-one-sign-in] OK - scanned 5335 template source files.
+[guards] PASS guard:one-sign-in (884ms)
+
+[guard:additive-migrations] output
+
+> agentnative@1.0.0 guard:additive-migrations /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-additive-migrations.mjs
+
+guard-additive-migrations: OK (30 migration source file(s) scanned)
+[guards] PASS guard:additive-migrations (267ms)
+
+[guard:request-storms] output
+
+> agentnative@1.0.0 guard:request-storms /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-request-storms.ts
+
+[guard:request-storms] clean (9013 maintained TypeScript files)
+[guards] PASS guard:request-storms (2.6s)
+
+[guard:config-docs] output
+
+> agentnative@1.0.0 guard:config-docs /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/sync-config-docs.ts --check
+
+[sync-config-docs] up to date
+[guards] PASS guard:config-docs (426ms)
+
+[guard:no-legacy-config] output
+
+> agentnative@1.0.0 guard:no-legacy-config /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-legacy-config.mjs
+
+guard-no-legacy-config: clean
+[guards] PASS guard:no-legacy-config (367ms)
+
+[guard:i18n-catalogs] output
+
+> agentnative@1.0.0 guard:i18n-catalogs /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-i18n-catalogs.ts
+
+[guard:i18n-catalogs] checked 20 catalog directories
+[guards] PASS guard:i18n-catalogs (5.9s)
+
+[guard:no-major-changeset] output
+
+> agentnative@1.0.0 guard:no-major-changeset /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-major-changeset.mjs
+
+guard-no-major-changeset: OK (65 changeset file(s) checked).
+[guards] PASS guard:no-major-changeset (219ms)
+
+[guard:no-secret-literals] output
+
+> agentnative@1.0.0 guard:no-secret-literals /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-secret-literals.mjs
+
+guard-no-secret-literals: OK
+[guards] PASS guard:no-secret-literals (1.9s)
+
+[guard:no-silent-coercion] output
+
+> agentnative@1.0.0 guard:no-silent-coercion /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-silent-coercion.mjs
+
+guard-no-silent-coercion: OK
+[guards] PASS guard:no-silent-coercion (414ms)
+
+[guard:no-raw-colors] output
+
+> agentnative@1.0.0 guard:no-raw-colors /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-raw-colors.mjs
+
+guard-no-raw-colors: OK
+[guards] PASS guard:no-raw-colors (355ms)
+
+[guard:no-default-chrome] output
+
+> agentnative@1.0.0 guard:no-default-chrome /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-default-chrome.mjs
+
+guard-no-default-chrome: OK (1503 added line(s) across 9 file(s); no new default-surface chrome)
+[guards] PASS guard:no-default-chrome (399ms)
+
+[guard:persistent-compositing] output
+
+> agentnative@1.0.0 guard:persistent-compositing /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-persistent-compositing.mjs
+
+guard-persistent-compositing: OK (1 baselined, 0 new).
+[guards] PASS guard:persistent-compositing (1.1s)
+
+[guard:no-boot-data-work] output
+
+> agentnative@1.0.0 guard:no-boot-data-work /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-boot-data-work.mjs
+
+guard-no-boot-data-work: OK
+[guards] PASS guard:no-boot-data-work (602ms)
+
+[guard:single-search-clear] output
+
+> agentnative@1.0.0 guard:single-search-clear /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-single-search-clear.mjs
+
+guard-single-search-clear: OK (25 search field(s) checked; each has exactly one clear affordance)
+[guards] PASS guard:single-search-clear (901ms)
+
+[guard:no-heavy-dashboard-list-reads] output
+guard-no-heavy-dashboard-list-reads: OK
+[guards] PASS guard:no-heavy-dashboard-list-reads (175ms)
+
+[guard:no-blob-column-predicate] output
+guard-no-blob-column-predicate: clean
+[guards] PASS guard:no-blob-column-predicate (181ms)
+
+[guard:help-icon-scale] output
+
+> agentnative@1.0.0 guard:help-icon-scale /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-help-icon-scale.mjs
+
+guard-help-icon-scale: OK (16 help icon elements checked; inline glyphs are at most 12px)
+[guards] PASS guard:help-icon-scale (1.3s)
+
+[guard:serverless-function-payload] output
+
+> agentnative@1.0.0 guard:serverless-function-payload /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-serverless-function-payload.mjs
+
+guard-serverless-function-payload: OK
+[guards] PASS guard:serverless-function-payload (231ms)
+
+[guard:doc-budgets] output
+
+> agentnative@1.0.0 guard:doc-budgets /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-doc-budgets.mjs
+
+guard:doc-budgets: 10 standing docs within ceiling.
+[guards] PASS guard:doc-budgets (242ms)
+
+[guard:e2e-quarantine] output
+
+> agentnative@1.0.0 guard:e2e-quarantine /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-e2e-quarantine.mjs
+
+guard:e2e-quarantine: templates/design/e2e: 15/16 quarantined, 2/7 conditional skips.
+[guards] PASS guard:e2e-quarantine (245ms)
+
+[guard:e2e-harness] output
+
+> agentnative@1.0.0 guard:e2e-harness /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-e2e-harness.mjs
+
+guard-e2e-harness: OK — no new harness drift on added lines.
+[guards] PASS guard:e2e-harness (368ms)
+
+[guard:no-untracked-imports] output
+
+> agentnative@1.0.0 guard:no-untracked-imports /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-untracked-imports.mjs
+
+guard-no-untracked-imports: clean (19141 tracked files scanned).
+[guards] PASS guard:no-untracked-imports (1.1s)
+
+[guard:dead-settings-keys] output
+
+> agentnative@1.0.0 guard:dead-settings-keys /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-dead-settings-keys.mjs
+
+guard-dead-settings-keys: OK
+[guards] PASS guard:dead-settings-keys (1.7s)
+
+[guard:migration-manifest] output
+
+> agentnative@1.0.0 guard:migration-manifest /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> tsx scripts/guard-migration-manifest.ts
+
+[guard:migration-manifest] clean
+[guards] PASS guard:migration-manifest (11.2s)
+
+[guard:no-unscoped-queries] output
+
+> agentnative@1.0.0 guard:no-unscoped-queries /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56
+> node scripts/guard-no-unscoped-queries.mjs
+
+guard-no-unscoped-queries: clean (20 schema dirs scanned).
+[guards] PASS guard:no-unscoped-queries (27.6s)
+[guards] All 73 checks passed
+EXIT:0

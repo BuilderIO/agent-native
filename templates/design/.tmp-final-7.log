@@ -1,0 +1,1394 @@
+
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 2:49:27 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:49:27 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:49:33 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+[e2e] seeded design ooC4Spc8NDWk7qMLChfkP for e2e+autoz@local.test
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+[e2e] editor warm
+
+Running 54 tests using 1 worker
+
+[1/54] [chromium] › e2e/editor-keyboard-layers.spec.ts:83:3 › editor keyboard layer clipboard › round-trips a styled nested layer across independent designs, route remounts, and browser tabs as one undo step
+[chromium] › e2e/editor-keyboard-layers.spec.ts:83:3 › editor keyboard layer clipboard › round-trips a styled nested layer across independent designs, route remounts, and browser tabs as one undo step
+DEBUG move-visible-after-screen-select false
+
+PAGELOG %c[structure:paste-base] font-weight:bold {targetFileId: HzLwBcGOinbp0PqG6qOqe, rebasedOn: fresh-active, bytes: 833, lineageBytes: null, entries: 1}
+
+PAGELOG %c[structure:paste-refused] font-weight:bold {reason: destination document refused the clone, targetFileId: HzLwBcGOinbp0PqG6qOqe, anchors: 0}
+
+DEBUG toast-after-paste ["Could not add that layer to the screen"]
+
+DEBUG trace-dump "+     0ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+    43ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+   308ms [tool:active-tool] {\"tool\":\"move\"}\n+  2171ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  2282ms [structure:paste-base] {\"targetFileId\":\"HzLwBcGOinbp0PqG6qOqe\",\"rebasedOn\":\"fresh-active\",\"bytes\":833,\"lineageBytes\":null,\"entries\":1}\n+  2284ms [structure:paste-refused] {\"reason\":\"destination document refused the clone\",\"targetFileId\":\"HzLwBcGOinbp0PqG6qOqe\",\"anchors\":0}"
+
+  1) [chromium] › e2e/editor-keyboard-layers.spec.ts:83:3 › editor keyboard layer clipboard › round-trips a styled nested layer across independent designs, route remounts, and browser tabs as one undo step 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 5
+
+      Object {
+    -   "message": "",
+    -   "ok": true,
+    +   "message": "expect(received).toBe(expected) // Object.is equality
+    +
+    + Expected: 1
+    + Received: 0",
+    +   "ok": false,
+      }
+
+    Call Log:
+    - Timeout 15000ms exceeded while waiting on the predicate
+
+      714 |       { timeout: 15_000 },
+      715 |     )
+    > 716 |     .toEqual({ ok: true, message: "" });
+          |      ^
+      717 | }
+      718 |
+      719 | function hasFiles(value: any): value is { files: any[] } {
+        at expectFileContent (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:716:6)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:122:11
+
+    Error Context: test-results/editor-keyboard-layers-edi-a4791-owser-tabs-as-one-undo-step-chromium/error-context.md
+
+
+[2/54] [chromium] › e2e/editor-keyboard-layers.spec.ts:294:3 › editor keyboard layer clipboard › keeps two responsive pastes distinct across settled undo and redo
+  2) [chromium] › e2e/editor-keyboard-layers.spec.ts:294:3 › editor keyboard layer clipboard › keeps two responsive pastes distinct across settled undo and redo 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 5
+
+      Object {
+    -   "message": "",
+    -   "ok": true,
+    +   "message": "expect(received).toBe(expected) // Object.is equality
+    +
+    + Expected: 1
+    + Received: 0",
+    +   "ok": false,
+      }
+
+    Call Log:
+    - Timeout 15000ms exceeded while waiting on the predicate
+
+      714 |       { timeout: 15_000 },
+      715 |     )
+    > 716 |     .toEqual({ ok: true, message: "" });
+          |      ^
+      717 | }
+      718 |
+      719 | function hasFiles(value: any): value is { files: any[] } {
+        at expectFileContent (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:716:6)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:328:13
+
+    Error Context: test-results/editor-keyboard-layers-edi-cc8e1-cross-settled-undo-and-redo-chromium/error-context.md
+
+
+[3/54] [chromium] › e2e/editor-keyboard-layers.spec.ts:384:3 › editor keyboard layer clipboard › pastes a nested selected layer on the same screen and another screen with fresh ids after reload
+  3) [chromium] › e2e/editor-keyboard-layers.spec.ts:384:3 › editor keyboard layer clipboard › pastes a nested selected layer on the same screen and another screen with fresh ids after reload 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 5
+
+      Object {
+    -   "message": "",
+    -   "ok": true,
+    +   "message": "expect(received).toBe(expected) // Object.is equality
+    +
+    + Expected: 1
+    + Received: 0",
+    +   "ok": false,
+      }
+
+    Call Log:
+    - Timeout 15000ms exceeded while waiting on the predicate
+
+      714 |       { timeout: 15_000 },
+      715 |     )
+    > 716 |     .toEqual({ ok: true, message: "" });
+          |      ^
+      717 | }
+      718 |
+      719 | function hasFiles(value: any): value is { files: any[] } {
+        at expectFileContent (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:716:6)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:417:11
+
+    Error Context: test-results/editor-keyboard-layers-edi-65ea3-with-fresh-ids-after-reload-chromium/error-context.md
+
+
+[4/54] [chromium] › e2e/editor-keyboard-layers.spec.ts:444:3 › editor keyboard layer clipboard › pastes a multi-selection across screens with each layer and child id regenerated
+  4) [chromium] › e2e/editor-keyboard-layers.spec.ts:444:3 › editor keyboard layer clipboard › pastes a multi-selection across screens with each layer and child id regenerated 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 5
+
+      Object {
+    -   "message": "",
+    -   "ok": true,
+    +   "message": "expect(received).toBe(expected) // Object.is equality
+    +
+    + Expected: 1
+    + Received: 0",
+    +   "ok": false,
+      }
+
+    Call Log:
+    - Timeout 15000ms exceeded while waiting on the predicate
+
+      714 |       { timeout: 15_000 },
+      715 |     )
+    > 716 |     .toEqual({ ok: true, message: "" });
+          |      ^
+      717 | }
+      718 |
+      719 | function hasFiles(value: any): value is { files: any[] } {
+        at expectFileContent (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:716:6)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor-keyboard-layers.spec.ts:464:11
+
+    Error Context: test-results/editor-keyboard-layers-edi-e587a-er-and-child-id-regenerated-chromium/error-context.md
+
+
+[5/54] [chromium] › e2e/editor.spec.ts:408:1 › middle-mouse pan follows vertical pointer movement over screen content
+[6/54] [chromium] › e2e/editor.spec.ts:498:1 › clicking an element selects it and populates the inspector
+  5) [chromium] › e2e/editor.spec.ts:498:1 › clicking an element selects it and populates the inspector 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "H1"
+    Received: "MAIN"
+
+      503 |
+      504 |   expect(payload).toBeTruthy();
+    > 505 |   expect((payload.tagName ?? "").toUpperCase()).toBe("H1");
+          |                                                 ^
+      506 |   expect(payload.textContent ?? "").toContain("E2E Hero Heading");
+      507 |   // The element-select payload resolves to a runtime-stamped, stable node id.
+      508 |   expect(payload.selector ?? "").toMatch(/data-agent-native-node-id/);
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor.spec.ts:505:49
+
+    Error Context: test-results/editor-clicking-an-element-1d874-and-populates-the-inspector-chromium/error-context.md
+
+
+[7/54] [chromium] › e2e/editor.spec.ts:563:1 › spacing handles stay visible at rest and remain draggable
+  6) [chromium] › e2e/editor.spec.ts:563:1 › spacing handles stay visible at rest and remain draggable 
+
+    TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.
+
+       at helpers.ts:470
+
+      468 |   timeout = 15_000,
+      469 | ): Promise<any> {
+    > 470 |   const handle = await page.waitForFunction(
+          |                             ^
+      471 |     (t) =>
+      472 |       [...((window as any).__bridge ?? [])]
+      473 |         .reverse()
+        at waitForBridge (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:470:29)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor.spec.ts:627:29
+
+    Error Context: test-results/editor-spacing-handles-sta-b0244-t-rest-and-remain-draggable-chromium/error-context.md
+
+
+[8/54] [chromium] › e2e/editor.spec.ts:632:1 › selecting a different element changes the selection
+  7) [chromium] › e2e/editor.spec.ts:632:1 › selecting a different element changes the selection ───
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected substring: "Fixture Card Title"
+    Received string:    "
+          E2E Hero Heading
+          First fixture paragraph for selection tests.
+          Second fixture paragraph for selection tests.·······
+            Alpha Button
+            Beta Button·······
+          Variant CTA
+    "
+
+       at helpers.ts:508
+
+      506 |   }
+      507 |   const payload = sel?.payload ?? sel;
+    > 508 |   expect(String(payload?.textContent ?? "")).toContain(text);
+          |                                              ^
+      509 |   return payload;
+      510 | }
+      511 |
+        at selectByText (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:508:46)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor.spec.ts:636:18
+
+    Error Context: test-results/editor-selecting-a-different-element-changes-the-selection-chromium/error-context.md
+
+
+[9/54] [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas
+  8) [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas 
+
+    Error: Dragging "Second paragraph" above "First paragraph" on the canvas did not reorder the document. Clip 5:07 "why can't I simply drag and drop a text just above a text I want? I need to use this left panel".
+
+    expect(received).toBeLessThan(expected)
+
+    Expected: < 593
+    Received:   805
+
+      645 |       `reorder the document. Clip 5:07 "why can't I simply drag and drop a text ` +
+      646 |       `just above a text I want? I need to use this left panel".`,
+    > 647 |   ).toBeLessThan(html.indexOf("First paragraph"));
+          |     ^
+      648 | });
+      649 |
+      650 | test("5:30 — dragging does not repaint the canvas background", async ({
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/landing-page-authoring.spec.ts:647:5
+
+    Error Context: test-results/landing-page-authoring-5-0-ef845-y-dragging-it-on-the-canvas-chromium/error-context.md
+
+
+[10/54] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:231:3 › clipboard + duplicate (single-screen editor) › cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size
+  9) [chromium] › e2e/parity-clipboard-duplicate.spec.ts:231:3 › clipboard + duplicate (single-screen editor) › cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size 
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 2
+    Received:   2
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      250 |       await expect
+      251 |         .poll(() => groupChildrenLocator.count(), { timeout: 10_000 })
+    > 252 |         .toBeGreaterThan(2);
+          |          ^
+      253 |       const groupChildIds = await groupChildrenLocator.evaluateAll((els) =>
+      254 |         els.map((el) => el.getAttribute("data-agent-native-node-id")),
+      255 |       );
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-clipboard-duplicate.spec.ts:252:10
+
+    Error Context: test-results/parity-clipboard-duplicate-6d561-ource-keeping-name-and-size-chromium/error-context.md
+
+
+[11/54] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:325:3 › clipboard + duplicate (single-screen editor) › cmd+D duplicates in place (same x/y), directly above, identical name, selection moves to the copy
+[12/54] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:503:3 › clipboard + duplicate (single-screen editor) › each of cmd+D and cmd+V is exactly one undo step
+  10) [chromium] › e2e/parity-clipboard-duplicate.spec.ts:503:3 › clipboard + duplicate (single-screen editor) › each of cmd+D and cmd+V is exactly one undo step 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('iframe[data-design-preview-iframe]').last().contentFrame().locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]')
+    Expected: 1
+    Received: 2
+    Timeout:  10000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 10000ms
+      - waiting for locator('iframe[data-design-preview-iframe]').last().contentFrame().locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]')
+        23 × locator resolved to 2 elements
+           - unexpected value "2"
+
+
+      524 |           '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
+      525 |         ),
+    > 526 |       ).toHaveCount(1, { timeout: 10_000 });
+          |         ^
+      527 |
+      528 |       // Copy + paste: one undo step for the paste (copy has no history entry).
+      529 |       await selectByNodeId(page, "rect");
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-clipboard-duplicate.spec.ts:526:9
+
+    Error Context: test-results/parity-clipboard-duplicate-202c7--V-is-exactly-one-undo-step-chromium/error-context.md
+
+
+[13/54] [chromium] › e2e/parity-context-menu.spec.ts:211:3 › parity: right-click canvas context menu (§17) › Rename is wired (canRename/onRename/labels.rename all exist) but is never rendered in the canvas context menu
+  11) [chromium] › e2e/parity-context-menu.spec.ts:211:3 › parity: right-click canvas context menu (§17) › Rename is wired (canRename/onRename/labels.rename all exist) but is never rendered in the canvas context menu 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('menu').last().getByText('Rename', { exact: true })
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for getByRole('menu').last().getByText('Rename', { exact: true })
+
+
+      227 |       // DesignEditor.tsx call site passes a real onRename that starts the
+      228 |       // layers-panel inline editor. It should render.
+    > 229 |       await expect(menu.getByText("Rename", { exact: true })).toBeVisible();
+          |                                                               ^
+      230 |     } finally {
+      231 |       await postAction(request, "delete-design", { id: designId }).catch(
+      232 |         () => {},
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-context-menu.spec.ts:229:63
+
+    Error Context: test-results/parity-context-menu-parity-379b7--in-the-canvas-context-menu-chromium/error-context.md
+
+
+[14/54] [chromium] › e2e/parity-drag-move.spec.ts:252:1 › overview: Shift+drag constrains a screen frame move to one axis
+  12) [chromium] › e2e/parity-drag-move.spec.ts:252:1 › overview: Shift+drag constrains a screen frame move to one axis 
+
+    Error: the free axis should still have moved
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 60
+    Received:   0
+
+      277 |     const after = await frameOffsets(page);
+      278 |     const dx = after[fileIds[1]!]!.left - before[fileIds[1]!]!.left;
+    > 279 |     expect(dx, "the free axis should still have moved").toBeGreaterThan(60);
+          |                                                         ^
+      280 |     expect(
+      281 |       after[fileIds[1]!]!.top,
+      282 |       `Shift+drag was mostly horizontal but top changed ${before[fileIds[1]!]!.top} -> ${after[fileIds[1]!]!.top}`,
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-drag-move.spec.ts:279:57
+
+    Error Context: test-results/parity-drag-move-overview--28b6d-reen-frame-move-to-one-axis-chromium/error-context.md
+
+
+[15/54] [chromium] › e2e/parity-group-frame.spec.ts:178:3 › Cmd+G group › groups an adjacent pair: name Group, union bounds, one undo ungroups
+[16/54] [chromium] › e2e/parity-group-frame.spec.ts:230:3 › Cmd+G group › non-adjacent selection: the new group sits at the TOPMOST selected child's z-position, not the bottommost
+[17/54] [chromium] › e2e/parity-group-frame.spec.ts:264:3 › Cmd+G group › Cmd+G on a single selected element wraps it in a Group (Figma allows single-layer groups)
+[18/54] [chromium] › e2e/parity-landing-page-build.spec.ts:1639:1 › container-first selection: plain click selects the screen's direct child, double-click drills in, cmd-click deep-selects
+  13) [chromium] › e2e/parity-landing-page-build.spec.ts:1639:1 › container-first selection: plain click selects the screen's direct child, double-click drills in, cmd-click deep-selects 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('[data-screen-shell]')
+    Expected: 2
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for locator('[data-screen-shell]')
+        63 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      332 |     .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
+      333 |     .waitFor({ timeout: 45_000 });
+    > 334 |   await expect(page.locator("[data-screen-shell]")).toHaveCount(expectScreens, {
+          |                                                     ^
+      335 |     timeout: 30_000,
+      336 |   });
+      337 |   await page.waitForTimeout(500);
+        at openOverview (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-landing-page-build.spec.ts:334:53)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-landing-page-build.spec.ts:1642:3
+
+    Error Context: test-results/parity-landing-page-build--62a04-s-in-cmd-click-deep-selects-chromium/error-context.md
+
+    Error Context: test-results/parity-landing-page-build--62a04-s-in-cmd-click-deep-selects-chromium/error-context.md
+
+
+[19/54] [chromium] › e2e/parity-landing-page-build.spec.ts:1760:1 › step 20/26: Shift+1 zooms to fit the whole Landing Page; Shift+2 zooms tighter to the selected Navbar
+[20/54] [chromium] › e2e/parity-layers-panel.spec.ts:417:3 › Figma parity — layers panel › Cmd+R opens the rename editor for the selection (spec §15)
+  14) [chromium] › e2e/parity-layers-panel.spec.ts:417:3 › Figma parity — layers panel › Cmd+R opens the rename editor for the selection (spec §15) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('input[aria-label="Rename layer"]')
+    Expected: visible
+    Timeout: 2000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 2000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('input[aria-label="Rename layer"]')
+
+
+      432 |     // Shift+Cmd+R "paste to replace" binding) — a real, intentional
+      433 |     // deviation from spec that this test is expected to fail on.
+    > 434 |     await expect(renameInput(page)).toBeVisible({ timeout: 2000 });
+          |                                     ^
+      435 |   });
+      436 |
+      437 |   test("hide and lock toggle from the row: locked layer is not canvas-selectable but stays panel-selectable", async ({
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-layers-panel.spec.ts:434:37
+
+    Error Context: test-results/parity-layers-panel-Figma--0a42e-for-the-selection-spec-§15--chromium/error-context.md
+
+
+[21/54] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:273:1 › middle-mouse drag pans smoothly with 1:1 deltas over empty canvas
+[22/54] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:303:1 › middle-mouse drag pans smoothly with 1:1 deltas starting over screen content
+[23/54] [chromium] › e2e/parity-tutorial-1.spec.ts:310:3 › parity: Figma Tutorial 1 - create a simple button component › steps 4-5, 11: Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it
+  15) [chromium] › e2e/parity-tutorial-1.spec.ts:310:3 › parity: Figma Tutorial 1 - create a simple button component › steps 4-5, 11: Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it 
+
+    Error: Figma names a Shift+A single-object auto-layout wrapper "Frame", not "Group"
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "Frame"
+    Received: "Frame 2"
+
+      385 |       wrapperNameBefore,
+      386 |       'Figma names a Shift+A single-object auto-layout wrapper "Frame", not "Group"',
+    > 387 |     ).toBe("Frame");
+          |       ^
+      388 |
+      389 |     // --- Step 11: double-click text, retype "Sign up", verify auto-resize ---
+      390 |     const widthBefore = (
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-1.spec.ts:387:7
+
+    Error Context: test-results/parity-tutorial-1-parity-F-f08d4-me-retyping-auto-resizes-it-chromium/error-context.md
+
+
+[24/54] [chromium] › e2e/parity-tutorial-1.spec.ts:678:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › board object drag-move on overview canvas moves position without entering any screen
+  16) [chromium] › e2e/parity-tutorial-1.spec.ts:678:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › board object drag-move on overview canvas moves position without entering any screen 
+
+    TimeoutError: locator.boundingBox: Timeout 15000ms exceeded.
+    Call log:
+      - waiting for locator('[data-board-object-id]').first()
+
+
+      696 |     // (figma-interaction-spec Part 3). Locate it and drag it.
+      697 |     const boardShape = page.locator("[data-board-object-id]").first();
+    > 698 |     let before = await boardShape.boundingBox();
+          |                                   ^
+      699 |     if (!before) {
+      700 |       await expect
+      701 |         .poll(() => boardShape.boundingBox(), {
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-1.spec.ts:698:35
+
+    Error Context: test-results/parity-tutorial-1-parity-o-390ca-without-entering-any-screen-chromium/error-context.md
+
+
+[25/54] [chromium] › e2e/parity-tutorial-1.spec.ts:729:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each)
+
+[WebServer] [agent-native] action 'index-design-tokens' failed: {
+[WebServer]   action: 'index-design-tokens',
+[WebServer]   requestId: '2aeb91c4-5386-4315-8ed1-90c0f47d9ba0',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/index-design-tokens.ts:118:13)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+
+[WebServer] [agent-native] action 'list-source-files' failed: {
+[WebServer]   action: 'list-source-files',
+[WebServer]   requestId: 'ba1b51ef-6234-4488-968b-64bcaa522841',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at resolveSourceWorkspace (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/server/source-workspace.ts:163:22)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/list-source-files.ts:17:23)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+
+[WebServer] [agent-native] action 'read-source-file' failed: {
+[WebServer]   action: 'read-source-file',
+[WebServer]   requestId: '19e8dff6-f4c3-4a0c-82f7-768e62c43df4',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at resolveSourceWorkspace (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/server/source-workspace.ts:163:22)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/read-source-file.ts:30:23)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+  17) [chromium] › e2e/parity-tutorial-1.spec.ts:729:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each) 
+
+    Error: dragging out of the screen should remove it from index.html
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      795 |       leftScreen,
+      796 |       "dragging out of the screen should remove it from index.html",
+    > 797 |     ).toBe(true);
+          |       ^
+      798 |     expect(
+      799 |       enteredBoard,
+      800 |       "dragging out onto open canvas should reparent it into the board",
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-1.spec.ts:797:7
+
+    Error Context: test-results/parity-tutorial-1-parity-o-2af84-it-both-ways-one-undo-each--chromium/error-context.md
+
+
+[26/54] [chromium] › e2e/parity-tutorial-2.spec.ts:540:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 2 substitute: no polygon/triangle tool exists — a rectangle is the closest equivalent and reparents into the frame
+  18) [chromium] › e2e/parity-tutorial-2.spec.ts:540:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 2 substitute: no polygon/triangle tool exists — a rectangle is the closest equivalent and reparents into the frame 
+
+    Error: no stable (non-draft) node id appeared in time
+
+      217 |     await new Promise((resolve) => setTimeout(resolve, 300));
+      218 |   }
+    > 219 |   throw new Error("no stable (non-draft) node id appeared in time");
+          |         ^
+      220 | }
+      221 |
+      222 | async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
+        at waitForStableNodeId (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-2.spec.ts:219:9)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-2.spec.ts:611:20
+
+    Error Context: test-results/parity-tutorial-2-parity-t-ee8e3-nd-reparents-into-the-frame-chromium/error-context.md
+
+
+[27/54] [chromium] › e2e/parity-tutorial-2.spec.ts:626:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 3-4 (crossing the screen boundary): in-screen Frame tool draws album-art; alt-drag duplicates the board frame into it; Option+Arrow nudges the copy
+  19) [chromium] › e2e/parity-tutorial-2.spec.ts:626:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 3-4 (crossing the screen boundary): in-screen Frame tool draws album-art; alt-drag duplicates the board frame into it; Option+Arrow nudges the copy 
+
+    Error: alt-drag across the screen boundary must drop a new child into album-art
+
+    alt-drag across the screen boundary must drop a new child into album-art
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0
+    Received:   0
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      731 |         },
+      732 |       )
+    > 733 |       .toBeGreaterThan(0);
+          |        ^
+      734 |
+      735 |     // Original board object must still exist (alt-drag duplicates, not
+      736 |     // moves) and a new code-layer node must now be a child of album-art.
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-2.spec.ts:733:8
+
+    Error Context: test-results/parity-tutorial-2-parity-t-a0328-ption-Arrow-nudges-the-copy-chromium/error-context.md
+
+
+[28/54] [chromium] › e2e/parity-tutorial-2.spec.ts:767:3 › parity: tutorial 2 — responsive card with auto layout and constraints › steps 7-8: text tool + duplicate, shift-click multi-select, Shift+A wraps title/creator into a 'metadata' auto-layout frame with gap 4
+  20) [chromium] › e2e/parity-tutorial-2.spec.ts:767:3 › parity: tutorial 2 — responsive card with auto layout and constraints › steps 7-8: text tool + duplicate, shift-click multi-select, Shift+A wraps title/creator into a 'metadata' auto-layout frame with gap 4 
+
+    Error: text "title" occurrence 0 not found in html:
+    <!doctype html>
+    <html lang="en" data-agent-native-node-id="an-1dcsv45">
+      <head><meta charset="utf-8" /><title>Card</title></head>
+      <body style="margin:0;position:relative;min-height:900px;background:#ffffff" data-agent-native-node-id="an-ihdvjg"></body>
+    </html>
+
+      24 |     textIndex = html.indexOf(`>${text}<`, searchFrom);
+      25 |     if (textIndex < 0) {
+    > 26 |       throw new Error(
+         |             ^
+      27 |         `text "${text}" occurrence ${i} not found in html:\n${html.slice(0, 2000)}`,
+      28 |       );
+      29 |     }
+        at nodeIdForText (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-2.spec.ts:26:13)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-2.spec.ts:788:21
+
+    Error Context: test-results/parity-tutorial-2-parity-t-93177-uto-layout-frame-with-gap-4-chromium/error-context.md
+
+
+[29/54] [chromium] › e2e/parity-tutorial-2.spec.ts:837:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 9-11: album-art + metadata wrap into a 'card' frame; Fill sizing on the children; min/max width commits on the card
+  21) [chromium] › e2e/parity-tutorial-2.spec.ts:837:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 9-11: album-art + metadata wrap into a 'card' frame; Fill sizing on the children; min/max width commits on the card 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id="frame-5b81b54e-2b11-4824-9217-954008abebfb"]')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id="frame-5b81b54e-2b11-4824-9217-954008abebfb"]')
+
+
+      402 | async function renameLayerRowById(page: Page, nodeId: string, to: string) {
+      403 |   const button = layerRowById(page, nodeId);
+    > 404 |   await expect(button).toBeVisible({ timeout: 10_000 });
+          |                        ^
+      405 |   await button.dblclick({ force: true });
+      406 |   const input = layerTree(page).locator("input").first();
+      407 |   await expect(input).toBeVisible({ timeout: 5_000 });
+        at renameLayerRowById (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-2.spec.ts:404:24)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-2.spec.ts:858:11
+
+    Error Context: test-results/parity-tutorial-2-parity-t-699f7-x-width-commits-on-the-card-chromium/error-context.md
+
+
+[30/54] [chromium] › e2e/parity-tutorial-3.spec.ts:401:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 1b [overview, outside any screen]: renaming the new screen's root layer updates its filename and overview title
+  22) [chromium] › e2e/parity-tutorial-3.spec.ts:401:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 1b [overview, outside any screen]: renaming the new screen's root layer updates its filename and overview title 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Move', exact: true })
+    Expected: visible
+    Timeout: 30000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 30000ms
+      - waiting for getByRole('button', { name: 'Move', exact: true })
+
+
+       at helpers.ts:317
+
+      315 |   await expect(
+      316 |     page.getByRole("button", { name: "Move", exact: true }),
+    > 317 |   ).toBeVisible({ timeout: 30_000 });
+          |     ^
+      318 |   await waitForDesignBridgeReady(page);
+      319 | }
+      320 |
+        at gotoEditor (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:317:5)
+        at openEditorAndExpandLayers (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:171:3)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:404:5
+
+    Error Context: test-results/parity-tutorial-3-parity-F-6516d-filename-and-overview-title-chromium/error-context.md
+
+
+[31/54] [chromium] › e2e/parity-tutorial-3.spec.ts:449:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 2 [in-screen]: wordmark text dragged to the left edge snaps near x=0
+  23) [chromium] › e2e/parity-tutorial-3.spec.ts:449:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 2 [in-screen]: wordmark text dragged to the left edge snaps near x=0 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Move', exact: true })
+    Expected: visible
+    Timeout: 30000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 30000ms
+      - waiting for getByRole('button', { name: 'Move', exact: true })
+
+
+       at helpers.ts:317
+
+      315 |   await expect(
+      316 |     page.getByRole("button", { name: "Move", exact: true }),
+    > 317 |   ).toBeVisible({ timeout: 30_000 });
+          |     ^
+      318 |   await waitForDesignBridgeReady(page);
+      319 | }
+      320 |
+        at gotoEditor (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:317:5)
+        at openEditorAndExpandLayers (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:171:3)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:452:5
+
+    Error Context: test-results/parity-tutorial-3-parity-F-6ec38-he-left-edge-snaps-near-x-0-chromium/error-context.md
+
+
+[32/54] [chromium] › e2e/parity-tutorial-3.spec.ts:515:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 3-4 [in-screen]: alt-drag duplicates twice then Cmd+D once yields 4 same-named Link texts, each inserted directly above the source
+  24) [chromium] › e2e/parity-tutorial-3.spec.ts:515:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 3-4 [in-screen]: alt-drag duplicates twice then Cmd+D once yields 4 same-named Link texts, each inserted directly above the source 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Move', exact: true })
+    Expected: visible
+    Timeout: 30000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 30000ms
+      - waiting for getByRole('button', { name: 'Move', exact: true })
+
+
+       at helpers.ts:317
+
+      315 |   await expect(
+      316 |     page.getByRole("button", { name: "Move", exact: true }),
+    > 317 |   ).toBeVisible({ timeout: 30_000 });
+          |     ^
+      318 |   await waitForDesignBridgeReady(page);
+      319 | }
+      320 |
+        at gotoEditor (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:317:5)
+        at openEditorAndExpandLayers (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:171:3)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:518:5
+
+    Error Context: test-results/parity-tutorial-3-parity-F-62224-d-directly-above-the-source-chromium/error-context.md
+
+
+[33/54] [chromium] › e2e/parity-tutorial-3.spec.ts:671:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 10 [overview, outside any screen + crosses the screen boundary]: Cmd+D on the Navigation screen creates a Footer screen, then a Link text is moved across screens
+  25) [chromium] › e2e/parity-tutorial-3.spec.ts:671:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 10 [overview, outside any screen + crosses the screen boundary]: Cmd+D on the Navigation screen creates a Footer screen, then a Link text is moved across screens 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Move', exact: true })
+    Expected: visible
+    Timeout: 30000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 30000ms
+      - waiting for getByRole('button', { name: 'Move', exact: true })
+
+
+       at helpers.ts:317
+
+      315 |   await expect(
+      316 |     page.getByRole("button", { name: "Move", exact: true }),
+    > 317 |   ).toBeVisible({ timeout: 30_000 });
+          |     ^
+      318 |   await waitForDesignBridgeReady(page);
+      319 | }
+      320 |
+        at gotoEditor (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:317:5)
+        at openEditorAndExpandLayers (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:171:3)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-3.spec.ts:674:5
+
+    Error Context: test-results/parity-tutorial-3-parity-F-f7256-ext-is-moved-across-screens-chromium/error-context.md
+
+
+[34/54] [chromium] › e2e/parity-tutorial-5.spec.ts:451:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 2b: Cmd+Opt+K annotates a frame as a component (closest equivalent; no component/variant system)
+  26) [chromium] › e2e/parity-tutorial-5.spec.ts:451:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 2b: Cmd+Opt+K annotates a frame as a component (closest equivalent; no component/variant system) 
+
+    Error: Cmd+Alt+K should annotate the frame with data-agent-native-component
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      510 |       isAnnotatedComponent,
+      511 |       "Cmd+Alt+K should annotate the frame with data-agent-native-component",
+    > 512 |     ).toBe(true);
+          |       ^
+      513 |   });
+      514 |
+      515 |   test("step 3 (no equivalent): no 'Create variant' affordance exists for an annotated component", async ({
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:512:7
+
+    Error Context: test-results/parity-tutorial-5-parity-F-267cd-o-component-variant-system--chromium/error-context.md
+
+
+[35/54] [chromium] › e2e/parity-tutorial-5.spec.ts:534:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 4: rename supports a slash-delimited component-style name (button/default/unsaved)
+  27) [chromium] › e2e/parity-tutorial-5.spec.ts:534:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 4: rename supports a slash-delimited component-style name (button/default/unsaved) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Group"]') }).first()
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Group"]') }).first()
+
+
+      237 |     .filter({ has: page.locator(`span[title="${currentName}"]`) })
+      238 |     .first();
+    > 239 |   await expect(row).toBeVisible();
+          |                     ^
+      240 |   await row.click({ force: true });
+      241 |   await page.waitForTimeout(300);
+      242 |   const rowBox = await row.boundingBox();
+        at renameLayerViaPanel (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:239:21)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:564:5
+
+    Error Context: test-results/parity-tutorial-5-parity-F-0a6ad-ame-button-default-unsaved--chromium/error-context.md
+
+
+[36/54] [chromium] › e2e/parity-tutorial-5.spec.ts:572:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 5: Alt-drag duplicates a frame into another frame, gap set via auto-layout inspector
+  28) [chromium] › e2e/parity-tutorial-5.spec.ts:572:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 5: Alt-drag duplicates a frame into another frame, gap set via auto-layout inspector 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Frame"]') }).first().locator('input')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Frame"]') }).first().locator('input')
+
+
+      248 |   await page.mouse.click(rx, ry);
+      249 |   const input = row.locator("input");
+    > 250 |   await expect(input).toBeVisible({ timeout: 5_000 });
+          |                       ^
+      251 |   await input.fill(nextName);
+      252 |   await input.press("Enter");
+      253 |   await searchInput.fill("");
+        at renameLayerViaPanel (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:250:23)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:625:5
+
+    Error Context: test-results/parity-tutorial-5-parity-F-67256-t-via-auto-layout-inspector-chromium/error-context.md
+
+
+[37/54] [chromium] › e2e/parity-tutorial-5.spec.ts:819:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Frame tool on empty overview canvas creates a board-object frame with the same white-fill default
+  29) [chromium] › e2e/parity-tutorial-5.spec.ts:819:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Frame tool on empty overview canvas creates a board-object frame with the same white-fill default 
+
+    Error: board-object-camera-and-click: harness could not locate the created board frame
+
+    expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('[data-board-object-id]').first()
+    Expected: 1
+    Received: 0
+    Timeout:  10000ms
+
+    Call log:
+      - board-object-camera-and-click: harness could not locate the created board frame with timeout 10000ms
+      - waiting for locator('[data-board-object-id]').first()
+        23 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      844 |       boardObject,
+      845 |       "board-object-camera-and-click: harness could not locate the created board frame",
+    > 846 |     ).toHaveCount(1, { timeout: 10_000 });
+          |       ^
+      847 |     await expect(boardObject).toBeVisible();
+      848 |   });
+      849 |
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:846:7
+
+    Error Context: test-results/parity-tutorial-5-parity-T-4a915-the-same-white-fill-default-chromium/error-context.md
+
+
+[38/54] [chromium] › e2e/parity-tutorial-5.spec.ts:850:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Alt-drag duplicates a board-object frame outside any screen
+  30) [chromium] › e2e/parity-tutorial-5.spec.ts:850:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Alt-drag duplicates a board-object frame outside any screen 
+
+    TimeoutError: locator.boundingBox: Timeout 15000ms exceeded.
+    Call log:
+      - waiting for locator('[data-board-object-id]').first()
+
+
+      869 |
+      870 |     const shape = page.locator("[data-board-object-id]").first();
+    > 871 |     let before = await shape.boundingBox();
+          |                              ^
+      872 |     if (!before) {
+      873 |       await expect
+      874 |         .poll(() => shape.boundingBox(), {
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:871:30
+
+    Error Context: test-results/parity-tutorial-5-parity-T-0a112-ct-frame-outside-any-screen-chromium/error-context.md
+
+
+[39/54] [chromium] › e2e/parity-tutorial-5.spec.ts:903:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Dragging the built button frame out of the screen onto the board, then back in, reparents it both ways
+  31) [chromium] › e2e/parity-tutorial-5.spec.ts:903:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Dragging the built button frame out of the screen onto the board, then back in, reparents it both ways 
+
+    Error: dragging the button frame out of the screen should remove it from index.html
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: false
+    Received: true
+
+      965 |       hasNode(indexHtml, buttonFrameId),
+      966 |       "dragging the button frame out of the screen should remove it from index.html",
+    > 967 |     ).toBe(false);
+          |       ^
+      968 |     expect(
+      969 |       boardHtml.includes(buttonFrameId),
+      970 |       "dragging out onto open canvas should reparent it into the board",
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-5.spec.ts:967:7
+
+    Error Context: test-results/parity-tutorial-5-parity-T-60e57-k-in-reparents-it-both-ways-chromium/error-context.md
+
+
+[40/54] [chromium] › e2e/parity-tutorial-7.spec.ts:393:3 › tutorial 7 — card and container system › step 3 [overview, outside the screen -> crosses into the screen]: draw a Thumbnail rectangle on the board, rename it, drag it inside the screen
+  32) [chromium] › e2e/parity-tutorial-7.spec.ts:393:3 › tutorial 7 — card and container system › step 3 [overview, outside the screen -> crosses into the screen]: draw a Thumbnail rectangle on the board, rename it, drag it inside the screen 
+
+    Error: Thumbnail must be a code-layer node inside the screen after the drag — trace: "+     0ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+    35ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+   335ms [tool:active-tool] {\"tool\":\"move\"}\n+  3395ms [tool:active-tool] {\"tool\":\"rect\"}\n+  4067ms [draw:commit-primitive] {\"tool\":\"rect\",\"startedInScreen\":\"(empty canvas → board)\"}\n+  4079ms [tool:active-tool] {\"tool\":\"move\"}\n+  4120ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":null,\"hasSelection\":true}\n+  4162ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4512ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4543ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4574ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4738ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  5207ms [persist:write-file] {\"file\":\"__board__.html\",\"bytes\":661,\"blocked\":null}\n+  5211ms [persist:preview] {\"outcome\":\"applied\",\"forceFullDocument\":false,\"renderFallback\":false,\"bytes\":661}\n+  5245ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  5272ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}"
+
+    Thumbnail must be a code-layer node inside the screen after the drag — trace: "+     0ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+    35ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+   335ms [tool:active-tool] {\"tool\":\"move\"}\n+  3395ms [tool:active-tool] {\"tool\":\"rect\"}\n+  4067ms [draw:commit-primitive] {\"tool\":\"rect\",\"startedInScreen\":\"(empty canvas → board)\"}\n+  4079ms [tool:active-tool] {\"tool\":\"move\"}\n+  4120ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":null,\"hasSelection\":true}\n+  4162ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4512ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4543ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4574ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  4738ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  5207ms [persist:write-file] {\"file\":\"__board__.html\",\"bytes\":661,\"blocked\":null}\n+  5211ms [persist:preview] {\"outcome\":\"applied\",\"forceFullDocument\":false,\"renderFallback\":false,\"bytes\":661}\n+  5245ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}\n+  5272ms [select:selection-changed] {\"layers\":[\"html:a2zt8b\"],\"element\":\"[data-agent-native-node-id=\\\"rectangle-8bf58053-47ff-4b34-aaf6-96446dd09ea4\\\"]\",\"hasSelection\":true}"
+
+    expect(received).toMatch(expected)
+
+    Expected pattern: /data-agent-native-layer-name="Thumbnail"/
+    Received string:  "<!doctype html>
+    <html lang=\"en\" data-agent-native-node-id=\"an-1dcsv45\">
+      <head><meta charset=\"utf-8\" /><title>Card</title></head>
+      <body style=\"margin:0;min-height:900px;background:#fff;color:#111;font-family:system-ui,sans-serif\" data-agent-native-node-id=\"an-n7dfbx\">
+        <div data-agent-native-node-id=\"title\" data-agent-native-layer-name=\"Project title\"
+             style=\"position:absolute;left:40px;top:40px;width:340px;font-size:25px;font-weight:600\">Portfolio Project</div>
+        <button data-agent-native-node-id=\"btn\" data-agent-native-layer-name=\"View project\"
+                style=\"position:absolute;left:40px;top:220px;padding:10px 20px\"><span data-an-text data-agent-native-node-id=\"an-1ps0yt5\">View project</span></button>
+      </body>
+    </html>"
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      486 |         message: `Thumbnail must be a code-layer node inside the screen after the drag — trace: ${JSON.stringify(await dump(page))}`,
+      487 |       })
+    > 488 |       .toMatch(/data-agent-native-layer-name="Thumbnail"/);
+          |        ^
+      489 |
+      490 |     await page.keyboard.press(`${MOD}+z`);
+      491 |     await expect
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-7.spec.ts:488:8
+
+    Error Context: test-results/parity-tutorial-7-tutorial-77771-t-drag-it-inside-the-screen-chromium/error-context.md
+
+
+[41/54] [chromium] › e2e/parity-tutorial-7.spec.ts:590:3 › tutorial 7 — card and container system › step 7 [in-screen]: Frame tool drawn around Content wraps it as Project card with Figma frame-tool defaults (white fill, clips content)
+  33) [chromium] › e2e/parity-tutorial-7.spec.ts:590:3 › tutorial 7 — card and container system › step 7 [in-screen]: Frame tool drawn around Content wraps it as Project card with Figma frame-tool defaults (white fill, clips content) 
+
+    Error: Shift+A produced no new wrapper row
+
+    Shift+A produced no new wrapper row
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 4
+    Received:   2
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      606 |         { timeout: 10_000, message: "Shift+A produced no new wrapper row" },
+      607 |       )
+    > 608 |       .toBeGreaterThan(rootNames.length);
+          |        ^
+      609 |     // Diff against the rows visible BEFORE the wrap (which already include
+      610 |     // the screen's own root row) rather than a hardcoded exclude list — a
+      611 |     // hardcoded list wrongly treats the pre-existing root as "new" once the
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-7.spec.ts:608:8
+
+    Error Context: test-results/parity-tutorial-7-tutorial-1a6a1-s-white-fill-clips-content--chromium/error-context.md
+
+
+[42/54] [chromium] › e2e/parity-tutorial-8.spec.ts:382:3 › tutorial 8 — assemble your portfolio pages › step 4 [in-screen, crossing the screen boundary]: dragging a Navigation instance from another screen onto a blank page, then Shift+A wraps the dropped instances into one auto-layout page frame
+  34) [chromium] › e2e/parity-tutorial-8.spec.ts:382:3 › tutorial 8 — assemble your portfolio pages › step 4 [in-screen, crossing the screen boundary]: dragging a Navigation instance from another screen onto a blank page, then Shift+A wraps the dropped instances into one auto-layout page frame 
+
+    Error: alt-dragging the Navigation instance toward the Home screen should show the cross-screen drag ghost — trace: "+     0ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+    39ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+   610ms [tool:active-tool] {\"tool\":\"move\"}\n+  2362ms [select:selection-changed] {\"layers\":[\"html:hgc5t2\"],\"element\":\"[data-agent-native-node-id=\\\"nav-root\\\"]\",\"hasSelection\":true}\n+  2537ms [select:selection-changed] {\"layers\":[\"html:hgc5t2\"],\"element\":\"[data-agent-native-node-id=\\\"nav-root\\\"]\",\"hasSelection\":true}\n+  2571ms [select:selection-changed] {\"layers\":[\"html:hgc5t2\"],\"element\":\"[data-agent-native-node-id=\\\"nav-root\\\"]\",\"hasSelection\":true}\n+  2607ms [select:selection-changed] {\"layers\":[\"html:hgc5t2\"],\"element\":\"[data-agent-native-node-id=\\\"nav-root\\\"]\",\"hasSelection\":true}"
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      501 |       ghostAppeared,
+      502 |       `alt-dragging the Navigation instance toward the Home screen should show the cross-screen drag ghost — trace: ${JSON.stringify(await dump(page))}`,
+    > 503 |     ).toBe(true);
+          |       ^
+      504 |
+      505 |     let homeHtml = "";
+      506 |     await expect
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-8.spec.ts:503:7
+
+    Error Context: test-results/parity-tutorial-8-tutorial-603cc--one-auto-layout-page-frame-chromium/error-context.md
+
+
+[43/54] [chromium] › e2e/parity-undo-redo.spec.ts:333:1 › committing an inspector width value then one undo restores the exact previous width
+  35) [chromium] › e2e/parity-undo-redo.spec.ts:333:1 › committing an inspector width value then one undo restores the exact previous width 
+
+    Error: one undo after an inspector width commit must restore the exact prior width (120); got 240
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 120
+    Received: 240
+
+      360 |     undone.width,
+      361 |     `one undo after an inspector width commit must restore the exact prior width (${before.width}); got ${undone.width}`,
+    > 362 |   ).toBe(before.width);
+          |     ^
+      363 | });
+      364 |
+      365 | test("undo targets the file that was actually edited, not whichever screen currently has focus", async ({
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-undo-redo.spec.ts:362:5
+
+    Error Context: test-results/parity-undo-redo-committin-3f2f7-es-the-exact-previous-width-chromium/error-context.md
+
+
+[44/54] [chromium] › e2e/parity-undo-redo.spec.ts:459:3 › dark theme: undo does not flash the canvas background to the other theme's colour
+  36) [chromium] › e2e/parity-undo-redo.spec.ts:459:3 › dark theme: undo does not flash the canvas background to the other theme's colour 
+
+    TimeoutError: locator.click: Timeout 15000ms exceeded.
+    Call log:
+      - waiting for getByRole('tree', { name: 'Layers' }).getByRole('treeitem').filter({ hasText: 'Box A' }).first()
+
+
+       at drag-and-drop.shared.ts:234
+
+      232 |
+      233 | export async function selectViaTree(page: Page, name: string): Promise<void> {
+    > 234 |   await layerRow(page, name).click();
+          |                              ^
+      235 |   // A drag only moves what the bridge has already painted as selected;
+      236 |   // grabbing an unselected element starts a marquee instead. The row's own
+      237 |   // state flips before the overlay exists, so wait on the overlay.
+        at selectViaTree (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/drag-and-drop.shared.ts:234:30)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-undo-redo.spec.ts:495:11
+
+    Error Context: test-results/parity-undo-redo-dark-them-f4f91-to-the-other-theme-s-colour-chromium/error-context.md
+
+
+[45/54] [chromium] › e2e/parity-undo-redo.spec.ts:459:3 › light theme: undo does not flash the canvas background to the other theme's colour
+  37) [chromium] › e2e/parity-undo-redo.spec.ts:459:3 › light theme: undo does not flash the canvas background to the other theme's colour 
+
+    TimeoutError: locator.click: Timeout 15000ms exceeded.
+    Call log:
+      - waiting for getByRole('tree', { name: 'Layers' }).getByRole('treeitem').filter({ hasText: 'Box A' }).first()
+
+
+       at drag-and-drop.shared.ts:234
+
+      232 |
+      233 | export async function selectViaTree(page: Page, name: string): Promise<void> {
+    > 234 |   await layerRow(page, name).click();
+          |                              ^
+      235 |   // A drag only moves what the bridge has already painted as selected;
+      236 |   // grabbing an unselected element starts a marquee instead. The row's own
+      237 |   // state flips before the overlay exists, so wait on the overlay.
+        at selectViaTree (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/drag-and-drop.shared.ts:234:30)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-undo-redo.spec.ts:495:11
+
+    Error Context: test-results/parity-undo-redo-light-the-2cebf-to-the-other-theme-s-colour-chromium/error-context.md
+
+
+[46/54] [chromium] › e2e/parity-unique-paths.spec.ts:176:3 › rare-but-real unique paths › Cmd+A is scope-sensitive: inside a container it selects siblings, otherwise it selects screens
+  38) [chromium] › e2e/parity-unique-paths.spec.ts:176:3 › rare-but-real unique paths › Cmd+A is scope-sensitive: inside a container it selects siblings, otherwise it selects screens 
+
+    Error: Cmd+A with a child selected must select that child's siblings, not every screen
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 1
+    Received:   1
+
+      191 |       selectedInScope,
+      192 |       "Cmd+A with a child selected must select that child's siblings, not every screen",
+    > 193 |     ).toBeGreaterThan(1);
+          |       ^
+      194 |
+      195 |     await page.keyboard.press("Escape");
+      196 |     await page.keyboard.press("Escape");
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-unique-paths.spec.ts:193:7
+
+    Error Context: test-results/parity-unique-paths-rare-b-48c60-therwise-it-selects-screens-chromium/error-context.md
+
+
+[47/54] [chromium] › e2e/parity-yt-card-tips.spec.ts:203:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › renaming the duplicate's title layer in the layers panel only changes that layer, leaving the original untouched
+  39) [chromium] › e2e/parity-yt-card-tips.spec.ts:203:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › renaming the duplicate's title layer in the layers panel only changes that layer, leaving the original untouched 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Card"]') }).first()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Card"]') }).first()
+
+
+      141 | async function clickLayerRow(page: Page, name: string): Promise<void> {
+      142 |   const button = layerRowButton(page, name);
+    > 143 |   await expect(button).toBeVisible({ timeout: 10_000 });
+          |                        ^
+      144 |   await button.click({ force: true });
+      145 | }
+      146 |
+        at clickLayerRow (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:143:24)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:210:13
+
+    Error Context: test-results/parity-yt-card-tips-tutori-095ac-ving-the-original-untouched-chromium/error-context.md
+
+
+[48/54] [chromium] › e2e/parity-yt-card-tips.spec.ts:262:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › dragging Price above StatusTag in the layers panel reorders the DOM and persists after reload
+  40) [chromium] › e2e/parity-yt-card-tips.spec.ts:262:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › dragging Price above StatusTag in the layers panel reorders the DOM and persists after reload 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Price"]') }).first()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Price"]') }).first()
+
+
+      141 | async function clickLayerRow(page: Page, name: string): Promise<void> {
+      142 |   const button = layerRowButton(page, name);
+    > 143 |   await expect(button).toBeVisible({ timeout: 10_000 });
+          |                        ^
+      144 |   await button.click({ force: true });
+      145 | }
+      146 |
+        at clickLayerRow (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:143:24)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:269:13
+
+    Error Context: test-results/parity-yt-card-tips-tutori-f2d92-M-and-persists-after-reload-chromium/error-context.md
+
+
+[49/54] [chromium] › e2e/parity-yt-card-tips.spec.ts:300:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings
+  41) [chromium] › e2e/parity-yt-card-tips.spec.ts:300:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Image"]') }).first()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Image"]') }).first()
+
+
+      141 | async function clickLayerRow(page: Page, name: string): Promise<void> {
+      142 |   const button = layerRowButton(page, name);
+    > 143 |   await expect(button).toBeVisible({ timeout: 10_000 });
+          |                        ^
+      144 |   await button.click({ force: true });
+      145 | }
+      146 |
+        at clickLayerRow (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:143:24)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:307:13
+
+    Error Context: test-results/parity-yt-card-tips-tutori-8fd5b-s-the-two-original-siblings-chromium/error-context.md
+
+
+[50/54] [chromium] › e2e/parity-yt-card-tips.spec.ts:484:3 › tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom › marquee must FULLY enclose a top-level screen frame to select it (Steve's ground truth); partial intersection is not enough
+  42) [chromium] › e2e/parity-yt-card-tips.spec.ts:484:3 › tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom › marquee must FULLY enclose a top-level screen frame to select it (Steve's ground truth); partial intersection is not enough 
+
+    Error: a marquee that fully encloses the top-level screen must select it
+
+    expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 1
+    Received:    0
+
+      532 |         selected,
+      533 |         "a marquee that fully encloses the top-level screen must select it",
+    > 534 |       ).toBeGreaterThanOrEqual(1);
+          |         ^
+      535 |     } finally {
+      536 |       await action(request, "delete-design", { id: designId }).catch(() => {});
+      537 |     }
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:534:9
+
+    Error Context: test-results/parity-yt-card-tips-tutori-4136b--intersection-is-not-enough-chromium/error-context.md
+
+
+[51/54] [chromium] › e2e/parity-yt-mobile-landing.spec.ts:406:3 › YT #1 (mobile app beginner tutorial) › step 20: renaming one duplicate's title in the Layers panel only changes that layer, leaving Header's greeting and the original Card untouched
+  43) [chromium] › e2e/parity-yt-mobile-landing.spec.ts:406:3 › YT #1 (mobile app beginner tutorial) › step 20: renaming one duplicate's title in the Layers panel only changes that layer, leaving Header's greeting and the original Card untouched 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button] span[title="Sunrise Cafe"]')
+    Expected: 2
+    Received: 1
+    Timeout:  10000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 10000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button] span[title="Sunrise Cafe"]')
+        23 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      427 |         '[data-layer-row-button] span[title="Sunrise Cafe"]',
+      428 |       );
+    > 429 |       await expect(titleRows).toHaveCount(2, { timeout: 10_000 });
+          |                               ^
+      430 |       const duplicateTitleButton = titleRows
+      431 |         .nth(0)
+      432 |         .locator("xpath=ancestor::button[@data-layer-row-button][1]");
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-mobile-landing.spec.ts:429:31
+
+    Error Context: test-results/parity-yt-mobile-landing-Y-f3247-the-original-Card-untouched-chromium/error-context.md
+
+
+[52/54] [chromium] › e2e/parity-yt-mobile-landing.spec.ts:464:3 › YT #1 (mobile app beginner tutorial) › dragging Card out of the Home screen onto the board reparents it to the board, and one undo restores it inside Home at the exact original position
+  44) [chromium] › e2e/parity-yt-mobile-landing.spec.ts:464:3 › YT #1 (mobile app beginner tutorial) › dragging Card out of the Home screen onto the board reparents it to the board, and one undo restores it inside Home at the exact original position 
+
+    Error: Card must leave the Home screen's document; trace: "+     0ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+    40ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+   753ms [tool:active-tool] {\"tool\":\"move\"}\n+  2943ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  2972ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  2999ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3157ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3314ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3459ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3498ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3529ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3555ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3581ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3604ms [select:selection-changed] {\"layers\":[],\"element\":null,\"hasSelection\":false}\n+  3653ms [select:selection-changed] {\"layers\":[\"html:17kashk\"],\"element\":\"[data-agent-native-node-id=\\\"card\\\"]\",\"hasSelection\":true}\n+  3898ms [select:selection-changed] {\"layers\":[\"html:dbomuz\",\"html:17kashk\"],\"element\":\"[data-agent-native-node-id=\\\"card\\\"]\",\"hasSelection\":true}"
+
+    expect(received).not.toContain(expected) // indexOf
+
+    Expected substring: not "data-agent-native-node-id=\"card\""
+    Received string:        "<!doctype html>
+    <html lang=\"en\" data-agent-native-node-id=\"an-1dcsv45\">
+      <head><meta charset=\"utf-8\" /><title>Home</title></head>
+      <body style=\"margin:0;position:relative;min-height:900px;background:#fff;font-family:system-ui,sans-serif\" data-agent-native-node-id=\"an-155iqsu\">
+        <div data-agent-native-node-id=\"header\" data-agent-native-layer-name=\"Header\"
+             style=\"position:absolute;left:0;top:0;width:390px;height:80px\">
+          <div data-agent-native-node-id=\"greeting\" data-agent-native-layer-name=\"Good Morning\"
+               style=\"position:absolute;left:16px;top:16px;font-size:24px;font-weight:700\">Good Morning</div>
+        </div>
+        <div data-agent-native-node-id=\"card\" data-agent-native-layer-name=\"Card\"
+             style=\"position:absolute;left:16px;top:100px;width:358px;height:100px;background:#f2f2f2\">
+          <div data-agent-native-node-id=\"cardtitle\" data-agent-native-layer-name=\"Sunrise Cafe\"
+               style=\"position:absolute;left:12px;top:12px;font-size:16px;font-weight:600\">Sunrise Cafe</div>
+        </div>
+      </body>
+    </html>"
+
+      500 |         htmlAfterDrag,
+      501 |         `Card must leave the Home screen's document; trace: ${JSON.stringify(trace)}`,
+    > 502 |       ).not.toContain('data-agent-native-node-id="card"');
+          |             ^
+      503 |
+      504 |       await page.keyboard.press(`${MOD}+z`);
+      505 |
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-mobile-landing.spec.ts:502:13
+
+    Error Context: test-results/parity-yt-mobile-landing-Y-9c6f0-the-exact-original-position-chromium/error-context.md
+
+
+[53/54] [chromium] › e2e/parity-yt-mobile-landing.spec.ts:590:3 › YT #2 (landing page tutorial) › step 20/26: Shift+1 zooms to fit the whole Landing Page, Shift+2 zooms tighter to just the selected Navbar
+  45) [chromium] › e2e/parity-yt-mobile-landing.spec.ts:590:3 › YT #2 (landing page tutorial) › step 20/26: Shift+1 zooms to fit the whole Landing Page, Shift+2 zooms tighter to just the selected Navbar 
+
+    Error: Shift+2 (zoom to selection) must zoom in tighter than Shift+1 (zoom to fit): fit=0.6166666666666667 selection=0.6166666666666667
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0.74
+    Received:   0.6166666666666667
+
+      645 |         selectionScale,
+      646 |         `Shift+2 (zoom to selection) must zoom in tighter than Shift+1 (zoom to fit): fit=${fitScale} selection=${selectionScale}`,
+    > 647 |       ).toBeGreaterThan(fitScale * 1.2);
+          |         ^
+      648 |     } finally {
+      649 |       await deleteDesign(request, designId);
+      650 |     }
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-mobile-landing.spec.ts:647:9
+
+    Error Context: test-results/parity-yt-mobile-landing-Y-15d09-to-just-the-selected-Navbar-chromium/error-context.md
+
+
+[54/54] [chromium] › e2e/parity-yt-mobile-landing.spec.ts:653:3 › YT #2 (landing page tutorial) › right-click context menu on Navbar (canvas) offers Duplicate, and using it behaves like Cmd+D (same name, inserted above, becomes selection)
+  46) [chromium] › e2e/parity-yt-mobile-landing.spec.ts:653:3 › YT #2 (landing page tutorial) › right-click context menu on Navbar (canvas) offers Duplicate, and using it behaves like Cmd+D (same name, inserted above, becomes selection) 
+
+    Error: context menu must offer Duplicate; trace: +     0ms [select:selection-changed] {"layers":[],"element":null,"hasSelection":false}
+    +    34ms [select:selection-changed] {"layers":[],"element":null,"hasSelection":false}
+    +   449ms [tool:active-tool] {"tool":"move"}
+    +  2649ms [select:selection-changed] {"layers":["html:1xzpdqc"],"element":"[data-agent-native-node-id=\"navbar\"]","hasSelection":true}
+    +  2822ms [select:selection-changed] {"layers":["html:1xzpdqc"],"element":"[data-agent-native-node-id=\"navbar\"]","hasSelection":true}
+    +  3373ms [select:selection-changed] {"layers":["html:1xzpdqc"],"element":"[data-agent-native-node-id=\"navbar\"]","hasSelection":true}
+
+    expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('menu').last().getByRole('menuitem', { name: /Duplicate/i })
+    Expected: 1
+    Received: 0
+    Timeout:  15000ms
+
+    Call log:
+      - context menu must offer Duplicate; trace: +     0ms [select:selection-changed] {"layers":[],"element":null,"hasSelection":false}
+    +    34ms [select:selection-changed] {"layers":[],"element":null,"hasSelection":false}
+    +   449ms [tool:active-tool] {"tool":"move"}
+    +  2649ms [select:selection-changed] {"layers":["html:1xzpdqc"],"element":"[data-agent-native-node-id=\"navbar\"]","hasSelection":true}
+    +  2822ms [select:selection-changed] {"layers":["html:1xzpdqc"],"element":"[data-agent-native-node-id=\"navbar\"]","hasSelection":true}
+    +  3373ms [select:selection-changed] {"layers":["html:1xzpdqc"],"element":"[data-agent-native-node-id=\"navbar\"]","hasSelection":true} with timeout 15000ms
+      - waiting for getByRole('menu').last().getByRole('menuitem', { name: /Duplicate/i })
+        34 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      666 |         duplicateItem,
+      667 |         `context menu must offer Duplicate; trace: ${await dumpTrace(page)}`,
+    > 668 |       ).toHaveCount(1);
+          |         ^
+      669 |       await duplicateItem.click();
+      670 |       await page.waitForTimeout(300);
+      671 |
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-mobile-landing.spec.ts:668:9
+
+    Error Context: test-results/parity-yt-mobile-landing-Y-c4d28-ed-above-becomes-selection--chromium/error-context.md
+
+
+  46 failed
+    [chromium] › e2e/editor-keyboard-layers.spec.ts:83:3 › editor keyboard layer clipboard › round-trips a styled nested layer across independent designs, route remounts, and browser tabs as one undo step 
+    [chromium] › e2e/editor-keyboard-layers.spec.ts:294:3 › editor keyboard layer clipboard › keeps two responsive pastes distinct across settled undo and redo 
+    [chromium] › e2e/editor-keyboard-layers.spec.ts:384:3 › editor keyboard layer clipboard › pastes a nested selected layer on the same screen and another screen with fresh ids after reload 
+    [chromium] › e2e/editor-keyboard-layers.spec.ts:444:3 › editor keyboard layer clipboard › pastes a multi-selection across screens with each layer and child id regenerated 
+    [chromium] › e2e/editor.spec.ts:498:1 › clicking an element selects it and populates the inspector 
+    [chromium] › e2e/editor.spec.ts:563:1 › spacing handles stay visible at rest and remain draggable 
+    [chromium] › e2e/editor.spec.ts:632:1 › selecting a different element changes the selection ────
+    [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas 
+    [chromium] › e2e/parity-clipboard-duplicate.spec.ts:231:3 › clipboard + duplicate (single-screen editor) › cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size 
+    [chromium] › e2e/parity-clipboard-duplicate.spec.ts:503:3 › clipboard + duplicate (single-screen editor) › each of cmd+D and cmd+V is exactly one undo step 
+    [chromium] › e2e/parity-context-menu.spec.ts:211:3 › parity: right-click canvas context menu (§17) › Rename is wired (canRename/onRename/labels.rename all exist) but is never rendered in the canvas context menu 
+    [chromium] › e2e/parity-drag-move.spec.ts:252:1 › overview: Shift+drag constrains a screen frame move to one axis 
+    [chromium] › e2e/parity-landing-page-build.spec.ts:1639:1 › container-first selection: plain click selects the screen's direct child, double-click drills in, cmd-click deep-selects 
+    [chromium] › e2e/parity-layers-panel.spec.ts:417:3 › Figma parity — layers panel › Cmd+R opens the rename editor for the selection (spec §15) 
+    [chromium] › e2e/parity-tutorial-1.spec.ts:310:3 › parity: Figma Tutorial 1 - create a simple button component › steps 4-5, 11: Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it 
+    [chromium] › e2e/parity-tutorial-1.spec.ts:678:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › board object drag-move on overview canvas moves position without entering any screen 
+    [chromium] › e2e/parity-tutorial-1.spec.ts:729:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each) 
+    [chromium] › e2e/parity-tutorial-2.spec.ts:540:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 2 substitute: no polygon/triangle tool exists — a rectangle is the closest equivalent and reparents into the frame 
+    [chromium] › e2e/parity-tutorial-2.spec.ts:626:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 3-4 (crossing the screen boundary): in-screen Frame tool draws album-art; alt-drag duplicates the board frame into it; Option+Arrow nudges the copy 
+    [chromium] › e2e/parity-tutorial-2.spec.ts:767:3 › parity: tutorial 2 — responsive card with auto layout and constraints › steps 7-8: text tool + duplicate, shift-click multi-select, Shift+A wraps title/creator into a 'metadata' auto-layout frame with gap 4 
+    [chromium] › e2e/parity-tutorial-2.spec.ts:837:3 › parity: tutorial 2 — responsive card with auto layout and constraints › step 9-11: album-art + metadata wrap into a 'card' frame; Fill sizing on the children; min/max width commits on the card 
+    [chromium] › e2e/parity-tutorial-3.spec.ts:401:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 1b [overview, outside any screen]: renaming the new screen's root layer updates its filename and overview title 
+    [chromium] › e2e/parity-tutorial-3.spec.ts:449:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 2 [in-screen]: wordmark text dragged to the left edge snaps near x=0 
+    [chromium] › e2e/parity-tutorial-3.spec.ts:515:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 3-4 [in-screen]: alt-drag duplicates twice then Cmd+D once yields 4 same-named Link texts, each inserted directly above the source 
+    [chromium] › e2e/parity-tutorial-3.spec.ts:671:3 › parity: Figma Tutorial 3 - navigation bar and footer › step 10 [overview, outside any screen + crosses the screen boundary]: Cmd+D on the Navigation screen creates a Footer screen, then a Link text is moved across screens 
+    [chromium] › e2e/parity-tutorial-5.spec.ts:451:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 2b: Cmd+Opt+K annotates a frame as a component (closest equivalent; no component/variant system) 
+    [chromium] › e2e/parity-tutorial-5.spec.ts:534:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 4: rename supports a slash-delimited component-style name (button/default/unsaved) 
+    [chromium] › e2e/parity-tutorial-5.spec.ts:572:3 › parity: Figma Tutorial 5 - interactive button component (in-screen build) › step 5: Alt-drag duplicates a frame into another frame, gap set via auto-layout inspector 
+    [chromium] › e2e/parity-tutorial-5.spec.ts:819:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Frame tool on empty overview canvas creates a board-object frame with the same white-fill default 
+    [chromium] › e2e/parity-tutorial-5.spec.ts:850:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Alt-drag duplicates a board-object frame outside any screen 
+    [chromium] › e2e/parity-tutorial-5.spec.ts:903:3 › parity: Tutorial 5 - overview canvas (outside any screen) and cross-boundary › Dragging the built button frame out of the screen onto the board, then back in, reparents it both ways 
+    [chromium] › e2e/parity-tutorial-7.spec.ts:393:3 › tutorial 7 — card and container system › step 3 [overview, outside the screen -> crosses into the screen]: draw a Thumbnail rectangle on the board, rename it, drag it inside the screen 
+    [chromium] › e2e/parity-tutorial-7.spec.ts:590:3 › tutorial 7 — card and container system › step 7 [in-screen]: Frame tool drawn around Content wraps it as Project card with Figma frame-tool defaults (white fill, clips content) 
+    [chromium] › e2e/parity-tutorial-8.spec.ts:382:3 › tutorial 8 — assemble your portfolio pages › step 4 [in-screen, crossing the screen boundary]: dragging a Navigation instance from another screen onto a blank page, then Shift+A wraps the dropped instances into one auto-layout page frame 
+    [chromium] › e2e/parity-undo-redo.spec.ts:333:1 › committing an inspector width value then one undo restores the exact previous width 
+    [chromium] › e2e/parity-undo-redo.spec.ts:459:3 › dark theme: undo does not flash the canvas background to the other theme's colour 
+    [chromium] › e2e/parity-undo-redo.spec.ts:459:3 › light theme: undo does not flash the canvas background to the other theme's colour 
+    [chromium] › e2e/parity-unique-paths.spec.ts:176:3 › rare-but-real unique paths › Cmd+A is scope-sensitive: inside a container it selects siblings, otherwise it selects screens 
+    [chromium] › e2e/parity-yt-card-tips.spec.ts:203:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › renaming the duplicate's title layer in the layers panel only changes that layer, leaving the original untouched 
+    [chromium] › e2e/parity-yt-card-tips.spec.ts:262:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › dragging Price above StatusTag in the layers panel reorders the DOM and persists after reload 
+    [chromium] › e2e/parity-yt-card-tips.spec.ts:300:3 › tutorial #3 — card component: structure, duplicate, rename, reorder, group › Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings 
+    [chromium] › e2e/parity-yt-card-tips.spec.ts:484:3 › tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom › marquee must FULLY enclose a top-level screen frame to select it (Steve's ground truth); partial intersection is not enough 
+    [chromium] › e2e/parity-yt-mobile-landing.spec.ts:406:3 › YT #1 (mobile app beginner tutorial) › step 20: renaming one duplicate's title in the Layers panel only changes that layer, leaving Header's greeting and the original Card untouched 
+    [chromium] › e2e/parity-yt-mobile-landing.spec.ts:464:3 › YT #1 (mobile app beginner tutorial) › dragging Card out of the Home screen onto the board reparents it to the board, and one undo restores it inside Home at the exact original position 
+    [chromium] › e2e/parity-yt-mobile-landing.spec.ts:590:3 › YT #2 (landing page tutorial) › step 20/26: Shift+1 zooms to fit the whole Landing Page, Shift+2 zooms tighter to just the selected Navbar 
+    [chromium] › e2e/parity-yt-mobile-landing.spec.ts:653:3 › YT #2 (landing page tutorial) › right-click context menu on Navbar (canvas) offers Duplicate, and using it behaves like Cmd+D (same name, inserted above, becomes selection) 
+  1 did not run
+  7 passed (13.8m)
+EXIT:1

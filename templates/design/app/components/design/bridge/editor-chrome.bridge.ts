@@ -15183,7 +15183,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl.contains &&
       selectedEl.contains(hitRaw)
     ) {
-      return selectedEl;
+      // Figma parity: a mousedown inside the currently selected container
+      // targets THAT CONTAINER'S OWN CHILD under the pointer (container-first's
+      // "click inside an already-selected container selects its child" rule),
+      // not the container itself — only a hit on the container's own
+      // background (hitEl === selectedEl) drags the container.
+      return hitEl === selectedEl
+        ? selectedEl
+        : containerScopeAncestor(hitEl, selectedEl);
     }
     if (args.preferSelected && selectedEl && selectedAlive) {
       var r = args.selectedRect;
@@ -15224,7 +15231,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (rawHit && rawHit !== el) return false;
     if (isDocumentRootElement(el)) return false;
     if (outermostSvgAncestor(el) === el) return false;
-    return Boolean(el.firstElementChild);
+    var child = el.firstElementChild;
+    // A lone `data-an-text` span is the editor's own wrapper around a
+    // painted leaf's bare text (see selectionTargetForHit) — not a real
+    // design child, so a plain text leaf must never read as a container
+    // with rubber-band-selectable children just because its own text got
+    // wrapped for editing.
+    if (
+      child &&
+      child === el.lastElementChild &&
+      child.hasAttribute &&
+      child.hasAttribute("data-an-text")
+    ) {
+      return false;
+    }
+    return Boolean(child);
   }
 
   // The board surface iframe spans the whole canvas, screens included, so

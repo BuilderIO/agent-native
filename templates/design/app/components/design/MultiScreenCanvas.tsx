@@ -8821,6 +8821,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 selectedIdSet.has(screen.id) &&
                 !isBreakpointSelectionTarget(screen)
               }
+              elementSelectedInScreen={selectedElementScreenId === screen.id}
               showFullView={fullViewIdSet.has(screen.id)}
               pendingReview={pendingReviewScreenIdSet.has(screen.id)}
               onReviewPendingScreen={onReviewPendingScreen}
@@ -10181,6 +10182,14 @@ interface ScreenProps {
   locked: boolean;
   isActive: boolean;
   isSelected: boolean;
+  /** True while the current selection is an element INSIDE this screen (not
+   *  the screen/frame itself) — see selectedElementScreenId. The screen's own
+   *  edge resize-handle hit zones must yield in that case: at low overview
+   *  zoom their inward reach (handle-hit-zones.ts) can cover the same area as
+   *  an in-iframe overlay handle (e.g. a spacing-padding drag handle), and
+   *  since this chrome sits in the host document above the iframe it always
+   *  wins hit-testing, silently swallowing the click. */
+  elementSelectedInScreen: boolean;
   isTopScreen: boolean;
   showFullView: boolean;
   pendingReview: boolean;
@@ -10258,6 +10267,7 @@ const Screen = memo(function Screen({
   locked,
   isActive,
   isSelected,
+  elementSelectedInScreen,
   isTopScreen,
   showFullView,
   pendingReview,
@@ -10734,6 +10744,7 @@ const Screen = memo(function Screen({
           active={false}
           enabled={
             !selectionOutlined &&
+            !elementSelectedInScreen &&
             !penActive &&
             !creationToolActive &&
             handlesEnabled
@@ -10843,6 +10854,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
     prev.isSelected === next.isSelected &&
+    prev.elementSelectedInScreen === next.elementSelectedInScreen &&
     prev.isTopScreen === next.isTopScreen &&
     prev.showFullView === next.showFullView &&
     prev.isDirectlyHovered === next.isDirectlyHovered &&

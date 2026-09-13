@@ -10964,7 +10964,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var hitRaw = args.hitRaw || hitEl;
       var selectedAlive = !!args.selectedAlive;
       if (selectedEl2 && selectedAlive && selectedEl2.contains && selectedEl2.contains(hitRaw)) {
-        return selectedEl2;
+        return hitEl === selectedEl2 ? selectedEl2 : containerScopeAncestor(hitEl, selectedEl2);
       }
       if (args.preferSelected && selectedEl2 && selectedAlive) {
         var r = args.selectedRect;
@@ -10986,7 +10986,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (rawHit && rawHit !== el) return false;
       if (isDocumentRootElement(el)) return false;
       if (outermostSvgAncestor(el) === el) return false;
-      return Boolean(el.firstElementChild);
+      var child = el.firstElementChild;
+      if (child && child === el.lastElementChild && child.hasAttribute && child.hasAttribute("data-an-text")) {
+        return false;
+      }
+      return Boolean(child);
     }
     var crossScreenClaimedByHost = false;
     function beginPotentialShieldDrag(e) {

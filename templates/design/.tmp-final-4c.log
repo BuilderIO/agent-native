@@ -1,0 +1,234 @@
+
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 1:54:22 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 1:54:22 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 1:54:28 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+[e2e] seeded design 9IowNlTJvjTqs9guS7Y8a for e2e+autoz@local.test
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+[e2e] editor warm
+
+Running 41 tests using 1 worker
+
+[1/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:160:1 › plain wheel pans vertically by the wheel delta
+[2/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:187:1 › plain wheel pans vertically starting over screen content, not just empty canvas
+
+[WebServer] [agent-native] action 'index-design-tokens' failed: {
+[WebServer]   action: 'index-design-tokens',
+[WebServer]   requestId: 'afd97f5f-7c91-4126-af6f-8b1e62951729',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/index-design-tokens.ts:118:13)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+
+[WebServer] [agent-native] action 'list-source-files' failed: {
+[WebServer]   action: 'list-source-files',
+[WebServer]   requestId: 'e56d9845-347c-4d4b-aacf-9a8ba24e5cf4',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at resolveSourceWorkspace (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/server/source-workspace.ts:163:22)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/list-source-files.ts:17:23)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+[3/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:211:1 › shift+wheel pans horizontally
+[4/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:233:1 › cmd/ctrl+wheel zooms around the cursor: the point under the cursor stays fixed
+[5/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:273:1 › middle-mouse drag pans smoothly with 1:1 deltas over empty canvas
+[6/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:303:1 › middle-mouse drag pans smoothly with 1:1 deltas starting over screen content
+  1) [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:303:1 › middle-mouse drag pans smoothly with 1:1 deltas starting over screen content 
+
+    Error: expect(received).toBeLessThan(expected)
+
+    Expected: < 2
+    Received:   37
+
+      325 |     const after = await worldTransform(page);
+      326 |     expect(after).not.toBeNull();
+    > 327 |     expect(Math.abs(after!.x - before!.x - dx)).toBeLessThan(2);
+          |                                                 ^
+      328 |     expect(Math.abs(after!.y - before!.y - dy)).toBeLessThan(2);
+      329 |     expect(after!.scale).toBeCloseTo(before!.scale, 3);
+      330 |   } finally {
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-pan-zoom-mouse.spec.ts:327:49
+
+    Error Context: test-results/parity-pan-zoom-mouse-midd-32c64-tarting-over-screen-content-chromium/error-context.md
+
+
+[7/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:335:1 › space+drag pans the canvas
+[8/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:361:1 › panning never selects or moves an element under the drag path
+[9/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:389:1 › the zoom level readout updates after a cmd/ctrl+wheel zoom
+[10/41] [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:416:1 › a wheel pan burst over screen content does not log a scroll Intervention
+[11/41] [chromium] › e2e/parity-resize-elements.spec.ts:135:3 › element resize — one axis vs both › dragging the E edge handle changes width only
+[12/41] [chromium] › e2e/parity-resize-elements.spec.ts:153:3 › element resize — one axis vs both › dragging the SE corner handle changes both width and height
+[13/41] [chromium] › e2e/parity-resize-elements.spec.ts:174:1 › shift+drag on a corner handle keeps the element's aspect ratio
+[14/41] [chromium] › e2e/parity-resize-elements.spec.ts:198:1 › alt+drag on an edge handle resizes symmetrically from the center
+[15/41] [chromium] › e2e/parity-resize-elements.spec.ts:224:1 › selection outline tracks the pointer live during a resize drag
+[16/41] [chromium] › e2e/parity-resize-elements.spec.ts:257:1 › the inspector W/H fields update live while dragging a corner handle
+[17/41] [chromium] › e2e/parity-resize-elements.spec.ts:294:1 › one resize gesture is exactly one undo step
+[18/41] [chromium] › e2e/parity-resize-elements.spec.ts:329:1 › multi-selection resize scales the group bounds from the opposite corner
+[19/41] [chromium] › e2e/parity-resize-elements.spec.ts:371:1 › [codex] resizing a screen from its left edge changes width only, not height
+[20/41] [chromium] › e2e/parity-selection-history-delete-screen.spec.ts:108:1 › undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id
+[21/41] [chromium] › e2e/parity-selection.spec.ts:182:3 › click selects the container, not the deep child › clicking a child inside Card selects Card, not Kid A
+[22/41] [chromium] › e2e/parity-selection.spec.ts:211:3 › click selects the container, not the deep child › double-click after selecting Card drills into the clicked child
+[23/41] [chromium] › e2e/parity-selection.spec.ts:237:3 › click selects the container, not the deep child › cmd+click deep-selects Kid B directly with no prior selection
+[24/41] [chromium] › e2e/parity-selection.spec.ts:257:3 › shift+click toggles membership › shift+click adds an unselected object, then removes it on a second shift+click
+[25/41] [chromium] › e2e/parity-selection.spec.ts:313:3 › Esc / Enter traversal from a real drill-in › Escape clears the selection entirely, even from a drilled-in child
+[26/41] [chromium] › e2e/parity-selection.spec.ts:348:3 › Esc / Enter traversal from a real drill-in › Enter descends from Card to its first child
+[27/41] [chromium] › e2e/parity-selection.spec.ts:370:1 › clicking empty canvas inside the screen deselects everything
+[28/41] [chromium] › e2e/parity-selection.spec.ts:396:3 › marquee semantics › a marquee selects every top-level object it merely INTERSECTS, not just fully-enclosed ones
+[29/41] [chromium] › e2e/parity-selection.spec.ts:426:3 › marquee semantics › a marquee over Card selects Card only, not its children
+[30/41] [chromium] › e2e/parity-selection.spec.ts:454:3 › marquee semantics › cmd+marquee over Card reaches into Kid A and Kid B
+[31/41] [chromium] › e2e/parity-selection.spec.ts:484:3 › board objects on the overview canvas › clicking a board object selects it directly (no screen wraps it)
+[32/41] [chromium] › e2e/parity-selection.spec.ts:501:3 › board objects on the overview canvas › Tab cycles from Board A to Board B on the overview canvas
+[33/41] [chromium] › e2e/parity-selection.spec.ts:524:3 › board objects on the overview canvas › a marquee drawn on the board surface selects the board objects it intersects
+[34/41] [chromium] › e2e/parity-tutorial-1.spec.ts:274:3 › parity: Figma Tutorial 1 - create a simple button component › step 1: Text tool click + type creates a text node with the typed content
+[35/41] [chromium] › e2e/parity-tutorial-1.spec.ts:298:3 › parity: Figma Tutorial 1 - create a simple button component › step 2: double-click a layer row in the panel enters rename mode
+[36/41] [chromium] › e2e/parity-tutorial-1.spec.ts:317:3 › parity: Figma Tutorial 1 - create a simple button component › steps 4-5, 11: Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it
+  2) [chromium] › e2e/parity-tutorial-1.spec.ts:317:3 › parity: Figma Tutorial 1 - create a simple button component › steps 4-5, 11: Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "text-0f0778a3-a37e-4b8f-9089-655aeb3bfa85"
+    Received: "html:8ow45h"
+
+    Call Log:
+    - Timeout 15000ms exceeded while waiting on the predicate
+
+      336 |     // --- Step 4: Select the text, press Shift+A (auto layout wraps it) ---
+      337 |     await selectByText(page, "Button");
+    > 338 |     await expect.poll(async () => selectedNodeId(page)).toBe(textId);
+          |                                                         ^
+      339 |     await page.keyboard.press("Shift+A");
+      340 |     await page.waitForTimeout(400);
+      341 |
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-1.spec.ts:338:57
+
+    Error Context: test-results/parity-tutorial-1-parity-F-f08d4-me-retyping-auto-resizes-it-chromium/error-context.md
+
+
+[37/41] [chromium] › e2e/parity-tutorial-1.spec.ts:423:3 › parity: Figma Tutorial 1 - create a simple button component › steps 6-10: fill, stroke, corner radius, drop shadow, padding via inspector (peer-owned)
+  3) [chromium] › e2e/parity-tutorial-1.spec.ts:423:3 › parity: Figma Tutorial 1 - create a simple button component › steps 6-10: fill, stroke, corner radius, drop shadow, padding via inspector (peer-owned) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Group"]') }).first()
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for getByRole('tree', { name: 'Layers' }).locator('[data-layer-row-button][data-layer-node-id]').filter({ has: locator('span[title="Group"]') }).first()
+
+
+      466 |       .filter({ has: page.locator(`span[title="${wrapperName}"]`) })
+      467 |       .first();
+    > 468 |     await expect(row).toBeVisible();
+          |                       ^
+      469 |     await row.click({ force: true });
+      470 |     await searchInput.fill("");
+      471 |
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-1.spec.ts:468:23
+
+    Error Context: test-results/parity-tutorial-1-parity-F-5a7e1-g-via-inspector-peer-owned--chromium/error-context.md
+
+
+[38/41] [chromium] › e2e/parity-tutorial-1.spec.ts:582:3 › parity: Figma Tutorial 1 - create a simple button component › step 12 equivalent: Cmd+Alt+K annotates the selection as a component (no Figma component/instance system exists)
+[39/41] [chromium] › e2e/parity-tutorial-1.spec.ts:627:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › text tool on empty overview canvas creates a free-floating board object, not a screen child
+[40/41] [chromium] › e2e/parity-tutorial-1.spec.ts:675:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › board object drag-move on overview canvas moves position without entering any screen
+  4) [chromium] › e2e/parity-tutorial-1.spec.ts:675:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › board object drag-move on overview canvas moves position without entering any screen 
+
+    TimeoutError: locator.boundingBox: Timeout 15000ms exceeded.
+    Call log:
+      - waiting for locator('[data-board-object-id]').first()
+
+
+      693 |     // (figma-interaction-spec Part 3). Locate it and drag it.
+      694 |     const boardShape = page.locator("[data-board-object-id]").first();
+    > 695 |     let before = await boardShape.boundingBox();
+          |                                   ^
+      696 |     if (!before) {
+      697 |       await expect
+      698 |         .poll(() => boardShape.boundingBox(), {
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-1.spec.ts:695:35
+
+    Error Context: test-results/parity-tutorial-1-parity-o-390ca-without-entering-any-screen-chromium/error-context.md
+
+
+[41/41] [chromium] › e2e/parity-tutorial-1.spec.ts:726:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each)
+  5) [chromium] › e2e/parity-tutorial-1.spec.ts:726:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each) 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: false
+    Received: true
+
+      785 |     expect(
+      786 |       hasNode(indexHtmlAfterOut, textId) && !outResult.includes(textId),
+    > 787 |     ).toBe(false); // documents which side kept the node, asserted below explicitly.
+          |       ^
+      788 |     const leftScreen = !hasNode(indexHtmlAfterOut, textId);
+      789 |     const enteredBoard = outResult.includes(textId);
+      790 |
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-tutorial-1.spec.ts:787:7
+
+    Error Context: test-results/parity-tutorial-1-parity-o-2af84-it-both-ways-one-undo-each--chromium/error-context.md
+
+
+  5 failed
+    [chromium] › e2e/parity-pan-zoom-mouse.spec.ts:303:1 › middle-mouse drag pans smoothly with 1:1 deltas starting over screen content 
+    [chromium] › e2e/parity-tutorial-1.spec.ts:317:3 › parity: Figma Tutorial 1 - create a simple button component › steps 4-5, 11: Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it 
+    [chromium] › e2e/parity-tutorial-1.spec.ts:423:3 › parity: Figma Tutorial 1 - create a simple button component › steps 6-10: fill, stroke, corner radius, drop shadow, padding via inspector (peer-owned) 
+    [chromium] › e2e/parity-tutorial-1.spec.ts:675:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › board object drag-move on overview canvas moves position without entering any screen 
+    [chromium] › e2e/parity-tutorial-1.spec.ts:726:3 › parity: overview-canvas (outside any screen) and cross-boundary steps › dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each) 
+  36 passed (5.5m)
+EXIT:1

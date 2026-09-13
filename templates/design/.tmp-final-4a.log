@@ -1,0 +1,355 @@
+
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 1:35:43 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 1:35:43 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 1:35:49 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+[e2e] seeded design AuKREkISg8knroCmdkTFZ for e2e+autoz@local.test
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+
+[WebServer] 1:36:17 AM [vite] (client) [console.error] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:9460/app/components/design/code-workbench/CodeWorkbench.tsx
+[WebServer] 
+[WebServer] The above error occurred in one of your React components.
+[WebServer] 
+[WebServer] React will try to recreate this component tree from scratch using the error boundary you provided, CodeWorkbenchLoadErrorBoundary.
+[WebServer] 
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+[e2e] editor warm
+
+Running 36 tests using 1 worker
+
+[1/36] [chromium] › e2e/parity-alt-drag-duplicate.spec.ts:162:3 › alt-drag duplicate (single-screen editor) › alt-drag inside a screen: original stays, copy keeps the identical name, copy is selected
+
+[WebServer] [agent-native] action 'read-source-file' failed: {
+[WebServer]   action: 'read-source-file',
+[WebServer]   requestId: '2688dbed-a087-4c67-818e-d06c4c6a27eb',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at resolveSourceWorkspace (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/server/source-workspace.ts:163:22)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/read-source-file.ts:30:23)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+[2/36] [chromium] › e2e/parity-alt-drag-duplicate.spec.ts:261:3 › alt-drag duplicate (single-screen editor) › alt-drag on an unnamed (tag-fallback-named) element: copy keeps the same computed name, not literal 'Copy'
+[3/36] [chromium] › e2e/parity-alt-drag-duplicate.spec.ts:324:3 › alt-drag duplicate (single-screen editor) › alt-drag inserts the copy directly above the original in DOM order (z-order)
+[4/36] [chromium] › e2e/parity-alt-drag-duplicate.spec.ts:388:3 › alt-drag duplicate (single-screen editor) › one undo after alt-drag removes the copy and restores selection to the original
+[5/36] [chromium] › e2e/parity-alt-drag-duplicate.spec.ts:464:3 › alt-drag duplicate (overview) › alt-drag from inside a screen to outside it drops the copy on the board, does not duplicate in place
+[6/36] [chromium] › e2e/parity-alt-drag-duplicate.spec.ts:566:3 › alt-drag duplicate (overview) › alt-drag a board object (frame) copies it and leaves the original untouched
+[7/36] [chromium] › e2e/parity-alt-drag-duplicate.spec.ts:632:3 › alt-drag duplicate (overview) › known-failing: alt-dragging a multi-frame selection via [data-frame-label] — is the left shell really intercepting?
+[chromium] › e2e/parity-alt-drag-duplicate.spec.ts:632:3 › alt-drag duplicate (overview) › known-failing: alt-dragging a multi-frame selection via [data-frame-label] — is the left shell really intercepting?
+DEBUG left-shell overlap: {"labelBox":{"x":434.7166748046875,"y":257.12200927734375,"width":197.328125,"height":16.5},"shellVisible":true,"shellBox":{"x":0,"y":0,"width":344,"height":720},"overlapsShell":false,"elementAtPoint":{"tag":"SPAN","attrs":["data-frame-title=true","class=min-w-0 flex-1 truncate !text-[11px] font-medium text-foreground","title=index.html"]}}
+
+[8/36] [chromium] › e2e/parity-canvas-background.spec.ts:169:3 › dark: canvas pixel matches the themed colour before AND after the first shape
+[9/36] [chromium] › e2e/parity-canvas-background.spec.ts:169:3 › light: canvas pixel matches the themed colour before AND after the first shape
+[10/36] [chromium] › e2e/parity-canvas-background.spec.ts:222:1 › dark: canvas background does not flash light after undoing the first shape
+[11/36] [chromium] › e2e/parity-canvas-background.spec.ts:282:1 › dark: canvas background does not flash light after dragging a shape
+[12/36] [chromium] › e2e/parity-canvas-background.spec.ts:335:1 › dark: canvas background stays correct after grouping two shapes
+[13/36] [chromium] › e2e/parity-canvas-background.spec.ts:392:1 › dark: canvas background is unaffected by entering and exiting single-screen mode
+[14/36] [chromium] › e2e/parity-canvas-background.spec.ts:435:1 › theme toggle with existing board content: no stale colour from the other scheme
+[15/36] [chromium] › e2e/parity-canvas-background.spec.ts:497:1 › light: canvas background does not flash light->white on initial load before any content
+[16/36] [chromium] › e2e/parity-canvas-flash.spec.ts:573:3 › canvas flash — transient capture, dark theme, multi-screen › overview canvas never paints a light/white frame across drag-into-container, undo x2, alt-drag-out, new shape, single-screen round trip, and resize
+
+[WebServer] 1:38:04 AM [vite] (client) [Unhandled error] TypeError: Cannot read properties of null (reading 'className')
+[WebServer] 
+
+[WebServer] 1:38:10 AM [vite] (client) [Unhandled error] TypeError: Cannot read properties of null (reading 'className')
+[WebServer] 
+[chromium] › e2e/parity-canvas-flash.spec.ts:573:3 › canvas flash — transient capture, dark theme, multi-screen › overview canvas never paints a light/white frame across drag-into-container, undo x2, alt-drag-out, new shape, single-screen round trip, and resize
+[canvas-flash] drag-into-container: total=239 light=0 remounts=0
+
+[canvas-flash] undo-1: total=174 light=0 remounts=0
+
+[canvas-flash] undo-2: total=220 light=0 remounts=0
+
+[canvas-flash] alt-drag-out: total=92 light=0 remounts=0
+
+[canvas-flash] draw-first-shape: total=207 light=0 remounts=0
+
+[canvas-flash] single-screen-round-trip: total=73 light=0 remounts=1
+
+[canvas-flash] single-screen-round-trip remount detail: [{"t":19268.5,"bg":"rgb(26, 26, 26)","varVal":"","htmlClass":"dark","skeletonPresent":false,"remounts":["0z5InDvw3cvdg6TIbubQb"],"screens":[{"screenId":"0z5InDvw3cvdg6TIbubQb","accessible":true,"readyState":"complete","bodyBg":"rgba(0, 0, 0, 0)","htmlClass":"","colorScheme":"normal","bridgeInstalled":false}]}]
+
+[canvas-flash] viewport-resize: total=100 light=0 remounts=1
+
+[canvas-flash] viewport-resize remount detail: [{"t":22035.89999999851,"bg":"rgb(26, 26, 26)","varVal":"","htmlClass":"dark","skeletonPresent":false,"remounts":["0z5InDvw3cvdg6TIbubQb","tHBeR-4v2e3ETXmPvxB2O"],"screens":[{"screenId":"(active)","accessible":true,"readyState":"complete","bodyBg":"rgba(0, 0, 0, 0)","htmlClass":"","colorScheme":"dark","bridgeInstalled":true},{"screenId":"0z5InDvw3cvdg6TIbubQb","accessible":true,"readyState":"complete","bodyBg":"rgb(15, 17, 21)","htmlClass":"","colorScheme":"normal","bridgeInstalled":true},{"scre
+
+[17/36] [chromium] › e2e/parity-canvas-flash.spec.ts:810:3 › screen document flash — inside-iframe capture, dark theme › no screen document ever paints a light/white background across drag-into-container, undo/redo depth, alt-drag-out, delete+undo, and Direct<->Interact
+
+[WebServer] 1:38:28 AM [vite] (client) [Unhandled error] TypeError: Cannot read properties of null (reading 'className')
+[WebServer] 
+
+[WebServer] 1:38:31 AM [vite] (client) [Unhandled error] TypeError: Cannot read properties of null (reading 'className')
+[WebServer] 
+[chromium] › e2e/parity-canvas-flash.spec.ts:810:3 › screen document flash — inside-iframe capture, dark theme › no screen document ever paints a light/white background across drag-into-container, undo/redo depth, alt-drag-out, delete+undo, and Direct<->Interact
+[screen-flash] drag-into-container: total=191 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[screen-flash] undo-1: total=116 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[screen-flash] undo-2: total=143 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[screen-flash] redo: total=161 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[screen-flash] alt-drag-out: total=89 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[screen-flash] undo-after-alt-drag-out: total=129 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[screen-flash] direct-interact-round-trip: total=3 badCanvas=0 badScreen=0 badPixels=0 remounts=[["Qt3vBK1hxMLwuIUw363Cz"]] titleRemounts={"Screen One":[3,4]}
+
+[screen-flash] delete-widget: total=104 badCanvas=0 badScreen=0 badPixels=0 remounts=[["Qt3vBK1hxMLwuIUw363Cz","LRL9YM2Kem-q_fvJ475yu"]] titleRemounts={}
+
+[screen-flash] undo-after-delete: total=122 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[18/36] [chromium] › e2e/parity-canvas-flash.spec.ts:1181:3 › script-bearing screen flash — Tailwind/Alpine CDN latency simulation › no reload re-triggers the CDN latency paint across drag-into-container, undo x2, alt-drag-out, undo, delete, undo
+
+[WebServer] 1:38:52 AM [vite] (client) [Unhandled error] TypeError: Cannot read properties of null (reading 'className')
+[WebServer] 
+[chromium] › e2e/parity-canvas-flash.spec.ts:1181:3 › script-bearing screen flash — Tailwind/Alpine CDN latency simulation › no reload re-triggers the CDN latency paint across drag-into-container, undo x2, alt-drag-out, undo, delete, undo
+[script-flash] DIAG after delete-widget (settled): {"accessible":true,"htmlClass":"dark","bodyBg":"rgb(11, 11, 11)","bodyInlineBg":"rgb(11, 11, 11)","scriptCount":6}
+
+[script-flash] DIAG after undo-after-delete (settled): {"accessible":true,"htmlClass":"dark","bodyBg":"rgb(11, 11, 11)","bodyInlineBg":"rgb(11, 11, 11)","scriptCount":6}
+
+[script-flash] DIAG 3s later (still stuck?): {"accessible":true,"htmlClass":"dark","bodyBg":"rgb(11, 11, 11)","bodyInlineBg":"rgb(11, 11, 11)","scriptCount":6}
+
+[script-flash] drag-into-container: total=200 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[script-flash] undo-1: total=135 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[script-flash] undo-2: total=162 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[script-flash] alt-drag-out: total=98 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[script-flash] undo-after-alt-drag-out: total=141 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[script-flash] delete-widget: total=125 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[script-flash] undo-after-delete: total=115 badCanvas=0 badScreen=0 badPixels=0 remounts=[] titleRemounts={}
+
+[19/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:231:3 › clipboard + duplicate (single-screen editor) › cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size
+  1) [chromium] › e2e/parity-clipboard-duplicate.spec.ts:231:3 › clipboard + duplicate (single-screen editor) › cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size 
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 2
+    Received:   2
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      250 |       await expect
+      251 |         .poll(() => groupChildrenLocator.count(), { timeout: 10_000 })
+    > 252 |         .toBeGreaterThan(2);
+          |          ^
+      253 |       const groupChildIds = await groupChildrenLocator.evaluateAll((els) =>
+      254 |         els.map((el) => el.getAttribute("data-agent-native-node-id")),
+      255 |       );
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-clipboard-duplicate.spec.ts:252:10
+
+    Error Context: test-results/parity-clipboard-duplicate-6d561-ource-keeping-name-and-size-chromium/error-context.md
+
+
+[20/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:290:3 › clipboard + duplicate (single-screen editor) › with a container selected, paste goes inside that container
+[21/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:325:3 › clipboard + duplicate (single-screen editor) › cmd+D duplicates in place (same x/y), directly above, identical name, selection moves to the copy
+  2) [chromium] › e2e/parity-clipboard-duplicate.spec.ts:325:3 › clipboard + duplicate (single-screen editor) › cmd+D duplicates in place (same x/y), directly above, identical name, selection moves to the copy 
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 2
+    Received:   2
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      339 |       await expect
+      340 |         .poll(() => groupChildrenLocator.count(), { timeout: 10_000 })
+    > 341 |         .toBeGreaterThan(2);
+          |          ^
+      342 |       const groupChildIds = await groupChildrenLocator.evaluateAll((els) =>
+      343 |         els.map((el) => el.getAttribute("data-agent-native-node-id")),
+      344 |       );
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-clipboard-duplicate.spec.ts:341:10
+
+    Error Context: test-results/parity-clipboard-duplicate-460a7-selection-moves-to-the-copy-chromium/error-context.md
+
+
+[22/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:390:3 › clipboard + duplicate (single-screen editor) › cmd+D on an unnamed (tag-fallback-named) element keeps the same computed name, not literal 'Copy'
+[23/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:431:3 › clipboard + duplicate (single-screen editor) › shift+cmd+R (paste to replace) replaces the selection with the clipboard object
+[24/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:469:3 › clipboard + duplicate (single-screen editor) › cmd+X removes the element, and one undo restores it
+[25/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:503:3 › clipboard + duplicate (single-screen editor) › each of cmd+D and cmd+V is exactly one undo step
+  3) [chromium] › e2e/parity-clipboard-duplicate.spec.ts:503:3 › clipboard + duplicate (single-screen editor) › each of cmd+D and cmd+V is exactly one undo step 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('iframe[data-design-preview-iframe]').last().contentFrame().locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]')
+    Expected: 1
+    Received: 2
+    Timeout:  10000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 10000ms
+      - waiting for locator('iframe[data-design-preview-iframe]').last().contentFrame().locator('[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]')
+        23 × locator resolved to 2 elements
+           - unexpected value "2"
+
+
+      524 |           '[data-agent-native-node-id="rect"], [data-agent-native-node-id^="copy-"]',
+      525 |         ),
+    > 526 |       ).toHaveCount(1, { timeout: 10_000 });
+          |         ^
+      527 |
+      528 |       // Copy + paste: one undo step for the paste (copy has no history entry).
+      529 |       await selectByNodeId(page, "rect");
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-clipboard-duplicate.spec.ts:526:9
+
+    Error Context: test-results/parity-clipboard-duplicate-202c7--V-is-exactly-one-undo-step-chromium/error-context.md
+
+
+[26/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:561:3 › clipboard + duplicate (overview / board objects, cross-screen) › copy in screen A, select screen B, paste lands in screen B
+[27/36] [chromium] › e2e/parity-clipboard-duplicate.spec.ts:631:3 › clipboard + duplicate (overview / board objects, cross-screen) › cmd+D on a selected screen (a top-level frame board object) duplicates the whole screen and selects the copy
+[28/36] [chromium] › e2e/parity-context-menu.spec.ts:110:3 › parity: right-click canvas context menu (§17) › right-click on a single element shows the Figma-standard items in the documented order, and Bring to front actually reorders (one undo restores)
+[29/36] [chromium] › e2e/parity-context-menu.spec.ts:211:3 › parity: right-click canvas context menu (§17) › Rename is wired (canRename/onRename/labels.rename all exist) but is never rendered in the canvas context menu
+  4) [chromium] › e2e/parity-context-menu.spec.ts:211:3 › parity: right-click canvas context menu (§17) › Rename is wired (canRename/onRename/labels.rename all exist) but is never rendered in the canvas context menu 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('menu').last().getByText('Rename', { exact: true })
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for getByRole('menu').last().getByText('Rename', { exact: true })
+
+
+      227 |       // DesignEditor.tsx call site passes a real onRename that starts the
+      228 |       // layers-panel inline editor. It should render.
+    > 229 |       await expect(menu.getByText("Rename", { exact: true })).toBeVisible();
+          |                                                               ^
+      230 |     } finally {
+      231 |       await postAction(request, "delete-design", { id: designId }).catch(
+      232 |         () => {},
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-context-menu.spec.ts:229:63
+
+    Error Context: test-results/parity-context-menu-parity-379b7--in-the-canvas-context-menu-chromium/error-context.md
+
+
+[30/36] [chromium] › e2e/parity-context-menu.spec.ts:237:3 › parity: right-click canvas context menu (§17) › Select layer submenu label for an unnamed container matches the layers panel name, not the raw text content
+[31/36] [chromium] › e2e/parity-context-menu.spec.ts:284:3 › parity: right-click canvas context menu (§17) › Edit with AI submenu label for the same unnamed container also matches the layers panel name
+[32/36] [chromium] › e2e/parity-context-menu.spec.ts:324:3 › parity: right-click canvas context menu (§17) › menu item hover/focus background keeps white item text legible in light mode
+
+[WebServer] [agent-native] action 'index-design-tokens' failed: {
+[WebServer]   action: 'index-design-tokens',
+[WebServer]   requestId: '0955d6ac-75d7-4742-86c9-25617dd03f0f',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/index-design-tokens.ts:118:13)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+  5) [chromium] › e2e/parity-context-menu.spec.ts:324:3 › parity: right-click canvas context menu (§17) › menu item hover/focus background keeps white item text legible in light mode 
+
+    Error: computed item text color was rgb(26, 26, 26)
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      377 |       ];
+      378 |       const textIsWhite = color.replace(/\s/g, "") === "rgb(255,255,255)";
+    > 379 |       expect(textIsWhite, `computed item text color was ${color}`).toBe(true);
+          |                                                                    ^
+      380 |       const bgLuminance = relativeLuminance(effective);
+      381 |       const whiteLuminance = 1;
+      382 |       const contrast = (whiteLuminance + 0.05) / (bgLuminance + 0.05);
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-context-menu.spec.ts:379:68
+
+    Error Context: test-results/parity-context-menu-parity-3f77a--text-legible-in-light-mode-chromium/error-context.md
+
+
+
+[WebServer] [agent-native] action 'list-source-files' failed: {
+[WebServer]   action: 'list-source-files',
+[WebServer]   requestId: '68e0662f-6a8d-4b2f-a5c4-f27c04d8c102',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at resolveSourceWorkspace (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/server/source-workspace.ts:163:22)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/list-source-files.ts:17:23)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+
+[WebServer] [agent-native] action 'read-source-file' failed: {
+[WebServer]   action: 'read-source-file',
+[WebServer]   requestId: '7d1b11c7-5e4c-47b0-882e-4b2133754626',
+[WebServer]   error: 'Error: Design not found\n' +
+[WebServer]     '    at resolveSourceWorkspace (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/server/source-workspace.ts:163:22)\n' +
+[WebServer]     '    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+[WebServer]     '    at run (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/actions/read-source-file.ts:30:23)\n' +
+[WebServer]     '    at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/action-routes.ts:905:30\n' +
+[WebServer]     '    at middleware (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/server/framework-request-handler.ts:781:22)\n' +
+[WebServer]     '    at Module.fetch (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/nitro@3.0.260610-beta_@azure+identity@4.13.1_@electric-sql+pglite@0.5.8_@libsql+client@_24cbd747547d4598a5e571fd155fd325/node_modules/nitro/dist/runtime/internal/vite/dev-worker.mjs:154:12)'
+[WebServer] }
+[33/36] [chromium] › e2e/parity-context-menu.spec.ts:394:3 › parity: right-click canvas context menu (§17) › right-click on empty canvas (no selection) shows only Paste here and Show/Hide UI/comments
+[34/36] [chromium] › e2e/parity-context-menu.spec.ts:444:3 › parity: right-click canvas context menu (§17) › Escape closes the context menu without applying anything
+[35/36] [chromium] › e2e/parity-context-menu.spec.ts:466:3 › parity: right-click canvas context menu (§17) › clicking outside the menu closes it
+[36/36] [chromium] › e2e/parity-context-menu.spec.ts:486:3 › parity: right-click canvas context menu (§17) › Group selection from the context menu groups two elements and one undo restores the ungrouped selection
+  5 failed
+    [chromium] › e2e/parity-clipboard-duplicate.spec.ts:231:3 › clipboard + duplicate (single-screen editor) › cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size 
+    [chromium] › e2e/parity-clipboard-duplicate.spec.ts:325:3 › clipboard + duplicate (single-screen editor) › cmd+D duplicates in place (same x/y), directly above, identical name, selection moves to the copy 
+    [chromium] › e2e/parity-clipboard-duplicate.spec.ts:503:3 › clipboard + duplicate (single-screen editor) › each of cmd+D and cmd+V is exactly one undo step 
+    [chromium] › e2e/parity-context-menu.spec.ts:211:3 › parity: right-click canvas context menu (§17) › Rename is wired (canRename/onRename/labels.rename all exist) but is never rendered in the canvas context menu 
+    [chromium] › e2e/parity-context-menu.spec.ts:324:3 › parity: right-click canvas context menu (§17) › menu item hover/focus background keeps white item text legible in light mode 
+  31 passed (6.3m)
+EXIT:1

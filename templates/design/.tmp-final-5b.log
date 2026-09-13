@@ -1,0 +1,95 @@
+
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 2:22:35 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:22:35 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:22:42 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+[e2e] seeded design nGSdj3GNiQ8ZsGEqnR-O3 for e2e+autoz@local.test
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+[e2e] editor warm
+
+Running 35 tests using 1 worker
+
+[1/35] [chromium] › e2e/layers-reparent.spec.ts:22:3 › layers menu structure operations › selecting rows syncs the canvas and supports additive multi-select
+[2/35] [chromium] › e2e/layers-reparent.spec.ts:72:3 › layers menu structure operations › dragging a sibling row reorders it before its peer
+[3/35] [chromium] › e2e/layers-reparent.spec.ts:111:3 › layers menu structure operations › reparenting into a different parent updates layer grouping
+[4/35] [chromium] › e2e/layers-reparent.spec.ts:165:3 › layers menu structure operations › dragging onto an empty container reparents inside and persists after reload
+[5/35] [chromium] › e2e/layers-reparent.spec.ts:214:3 › layers menu structure operations › locking a layer keeps panel selection but blocks canvas selection
+[6/35] [chromium] › e2e/layers-reparent.spec.ts:251:3 › layers menu structure operations › hiding a layer keeps panel selection but blocks canvas selection until restored
+[7/35] [chromium] › e2e/overview-alt-drag-copy.spec.ts:120:1 › alt-dragging a selected frame drops a copy and leaves the original in place
+[8/35] [chromium] › e2e/overview-alt-drag-copy.spec.ts:146:1 › alt-dragging a multi-frame selection copies every frame and keeps their spacing
+[9/35] [chromium] › e2e/overview-alt-drag-element-copy.spec.ts:100:1 › alt-dragging an element keeps every copy on the canvas, not just in state
+[10/35] [chromium] › e2e/overview-alt-drag-element-copy.spec.ts:153:1 › alt-dragging an element onto another screen copies it without moving the source
+[11/35] [chromium] › e2e/overview-snap-guides.spec.ts:219:1 › dragging a screen into line draws a guide through every screen it aligns with
+[12/35] [chromium] › e2e/overview-snap-guides.spec.ts:274:1 › dragging a screen near an existing gap snaps the spacing to match it
+[13/35] [chromium] › e2e/overview-snap-guides.spec.ts:480:1 › dragging an element inside a screen lights up every edge it lines up with
+[14/35] [chromium] › e2e/overview-snap-guides.spec.ts:506:1 › dragging an element near an existing gap snaps the spacing to match it
+[15/35] [chromium] › e2e/overview-snap-guides.spec.ts:531:1 › dragging an element shows its constraint lines and pixel size, Figma-style
+[16/35] [chromium] › e2e/overview-snap-guides.spec.ts:554:1 › dragging an element shows how far it is from its nearest neighbour
+[17/35] [chromium] › e2e/overview-snap-guides.spec.ts:576:1 › a lone element far from anything stays quiet
+[18/35] [chromium] › e2e/structure-selection.spec.ts:213:3 › keyboard selection traversal › Enter selects a child of the current selection
+[19/35] [chromium] › e2e/structure-selection.spec.ts:227:3 › keyboard selection traversal › Backslash selects the parent of the current selection
+[20/35] [chromium] › e2e/structure-selection.spec.ts:242:3 › keyboard selection traversal › Escape deselects rather than walking up to the parent
+[21/35] [chromium] › e2e/structure-selection.spec.ts:259:3 › keyboard selection traversal › Escape on a top-level layer does not select the containing screen
+[22/35] [chromium] › e2e/structure-selection.spec.ts:277:3 › keyboard selection traversal › Tab selects the next sibling
+[23/35] [chromium] › e2e/structure-selection.spec.ts:290:3 › keyboard selection traversal › Shift+Tab selects the previous sibling
+[24/35] [chromium] › e2e/structure-selection.spec.ts:303:3 › keyboard selection traversal › Shift+Arrow nudges a collapsed container by the big nudge on the first press
+[25/35] [chromium] › e2e/structure-selection.spec.ts:331:3 › keyboard selection traversal › double-clicking an object drills one level down
+[26/35] [chromium] › e2e/structure-selection.spec.ts:348:3 › groups › Cmd+G wraps the selection in a group layer
+[27/35] [chromium] › e2e/structure-selection.spec.ts:360:3 › groups › a group's bounds fit its contents
+[28/35] [chromium] › e2e/structure-selection.spec.ts:387:3 › groups › a group fill is visible on the board surface
+[29/35] [chromium] › e2e/structure-selection.spec.ts:416:3 › groups › Cmd+Shift+G ungroups
+[30/35] [chromium] › e2e/structure-selection.spec.ts:432:3 › groups › moving a group moves every child by the same delta
+[31/35] [chromium] › e2e/structure-selection.spec.ts:484:3 › multi-selection › dragging a two-element selection moves both by the same delta
+[32/35] [chromium] › e2e/structure-selection.spec.ts:525:3 › multi-selection › a drag lands the object where the cursor landed
+[33/35] [chromium] › e2e/structure-selection.spec.ts:565:3 › multi-selection › a multi-selection shows one combined bounding box
+[34/35] [chromium] › e2e/structure-selection.spec.ts:615:8 › multi-selection › Smart selection exposes spacing handles for evenly spaced layers
+[35/35] [chromium] › e2e/structure-selection.spec.ts:640:3 › frames versus groups › a frame keeps its explicit size when a child moves
+  1 skipped
+  34 passed (5.7m)
+EXIT:0

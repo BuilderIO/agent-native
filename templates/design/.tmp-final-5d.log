@@ -1,0 +1,206 @@
+
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 2:31:13 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:31:13 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:31:19 AM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+[e2e] seeded design tR0qY1NpYEchkf7xg5Gx2 for e2e+autoz@local.test
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+[e2e] editor warm
+
+Running 34 tests using 1 worker
+
+[1/34] [chromium] › e2e/editor.spec.ts:31:1 › editor renders the toolbar and the design iframe content
+[2/34] [chromium] › e2e/editor.spec.ts:51:1 › share dialog uses editor panel chrome
+[3/34] [chromium] › e2e/editor.spec.ts:138:1 › right rail actions row keeps the Share button inside the panel
+[4/34] [chromium] › e2e/editor.spec.ts:171:1 › screen overview adds and targets frames from the unified breakpoint control
+[5/34] [chromium] › e2e/editor.spec.ts:259:1 › frame plus skips the breakpoint matching the base screen width
+[6/34] [chromium] › e2e/editor.spec.ts:296:1 › screen overview keeps compact frame actions contained when header space is tight
+[7/34] [chromium] › e2e/editor.spec.ts:343:1 › screen overview lets users select elements inside the active screen
+[8/34] [chromium] › e2e/editor.spec.ts:408:1 › middle-mouse pan follows vertical pointer movement over screen content
+  1) [chromium] › e2e/editor.spec.ts:408:1 › middle-mouse pan follows vertical pointer movement over screen content 
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 72
+    Received:   20.999996185302734
+
+      444 |   const finalCardY = cardY[cardY.length - 1]!;
+      445 |   expect(deltas.every((delta) => delta > 0 && delta < 30)).toBe(true);
+    > 446 |   expect(finalCardY - cardY[0]!).toBeGreaterThan(72);
+          |                                  ^
+      447 |   expect(finalCardY - cardY[0]!).toBeLessThan(120);
+      448 | });
+      449 |
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor.spec.ts:446:34
+
+    Error Context: test-results/editor-middle-mouse-pan-fo-bca2f-ovement-over-screen-content-chromium/error-context.md
+
+
+[9/34] [chromium] › e2e/editor.spec.ts:450:1 › left sidebar switches between all screens and focused screens
+[10/34] [chromium] › e2e/editor.spec.ts:498:1 › clicking an element selects it and populates the inspector
+  2) [chromium] › e2e/editor.spec.ts:498:1 › clicking an element selects it and populates the inspector 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "H1"
+    Received: "MAIN"
+
+      503 |
+      504 |   expect(payload).toBeTruthy();
+    > 505 |   expect((payload.tagName ?? "").toUpperCase()).toBe("H1");
+          |                                                 ^
+      506 |   expect(payload.textContent ?? "").toContain("E2E Hero Heading");
+      507 |   // The element-select payload resolves to a runtime-stamped, stable node id.
+      508 |   expect(payload.selector ?? "").toMatch(/data-agent-native-node-id/);
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor.spec.ts:505:49
+
+    Error Context: test-results/editor-clicking-an-element-1d874-and-populates-the-inspector-chromium/error-context.md
+
+
+[11/34] [chromium] › e2e/editor.spec.ts:513:1 › selected element handles stay above hover chrome
+[12/34] [chromium] › e2e/editor.spec.ts:563:1 › spacing handles stay visible at rest and remain draggable
+  3) [chromium] › e2e/editor.spec.ts:563:1 › spacing handles stay visible at rest and remain draggable 
+
+    TimeoutError: page.waitForFunction: Timeout 15000ms exceeded.
+
+       at helpers.ts:470
+
+      468 |   timeout = 15_000,
+      469 | ): Promise<any> {
+    > 470 |   const handle = await page.waitForFunction(
+          |                             ^
+      471 |     (t) =>
+      472 |       [...((window as any).__bridge ?? [])]
+      473 |         .reverse()
+        at waitForBridge (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:470:29)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor.spec.ts:627:29
+
+    Error Context: test-results/editor-spacing-handles-sta-b0244-t-rest-and-remain-draggable-chromium/error-context.md
+
+
+[13/34] [chromium] › e2e/editor.spec.ts:632:1 › selecting a different element changes the selection
+  4) [chromium] › e2e/editor.spec.ts:632:1 › selecting a different element changes the selection ───
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected substring: "Fixture Card Title"
+    Received string:    "
+          E2E Hero Heading
+          First fixture paragraph for selection tests.
+          Second fixture paragraph for selection tests.·······
+            Alpha Button
+            Beta Button·······
+          Variant CTA
+    "
+
+       at helpers.ts:508
+
+      506 |   }
+      507 |   const payload = sel?.payload ?? sel;
+    > 508 |   expect(String(payload?.textContent ?? "")).toContain(text);
+          |                                              ^
+      509 |   return payload;
+      510 | }
+      511 |
+        at selectByText (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/helpers.ts:508:46)
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/editor.spec.ts:636:18
+
+    Error Context: test-results/editor-selecting-a-different-element-changes-the-selection-chromium/error-context.md
+
+
+[14/34] [chromium] › e2e/editor.spec.ts:644:1 › the layers panel lists layers and a layer row selects on the canvas
+[15/34] [chromium] › e2e/editor.spec.ts:662:1 › deeply nested layer rows keep a clickable hit target
+[16/34] [chromium] › e2e/editor.spec.ts:688:1 › dragging an element on the canvas drives the bridge (move/reorder)
+[17/34] [chromium] › e2e/editor.spec.ts:697:1 › Escape cancels an in-progress element drag on the canvas
+[18/34] [chromium] › e2e/editor.spec.ts:744:1 › can capture a screenshot of the editor via CDP
+[19/34] [chromium] › e2e/landing-page-authoring.spec.ts:243:1 › 0:53 — a frame commits the rectangle you dragged
+[20/34] [chromium] › e2e/landing-page-authoring.spec.ts:268:1 › 1:16 — header text is readable against the canvas background
+[21/34] [chromium] › e2e/landing-page-authoring.spec.ts:289:1 › 6:03 — every shape you draw lands inside the page
+[22/34] [chromium] › e2e/landing-page-authoring.spec.ts:310:1 › 8:35 — a frame adopts an element drawn inside it
+[23/34] [chromium] › e2e/landing-page-authoring.spec.ts:336:1 › a rectangle does NOT adopt children, matching Figma
+[24/34] [chromium] › e2e/landing-page-authoring.spec.ts:354:1 › 2:35 — Shift+A turns a selected frame into an auto-layout container
+[25/34] [chromium] › e2e/landing-page-authoring.spec.ts:382:1 › 8:09 — enabling auto layout keeps the container's children
+[26/34] [chromium] › e2e/landing-page-authoring.spec.ts:418:1 › 3:17 — dragging a layer on the canvas moves it
+[27/34] [chromium] › e2e/landing-page-authoring.spec.ts:450:1 › 2:59 — moving a layer raises no 'Could not move that layer' toast
+[28/34] [chromium] › e2e/landing-page-authoring.spec.ts:507:1 › 5:41 — no internal node-resolution error reaches the user
+[29/34] [chromium] › e2e/landing-page-authoring.spec.ts:585:1 › Typography is available for a headline with direct text and inline children
+[30/34] [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas
+  5) [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas 
+
+    Error: Dragging "Second paragraph" above "First paragraph" on the canvas did not reorder the document. Clip 5:07 "why can't I simply drag and drop a text just above a text I want? I need to use this left panel".
+
+    expect(received).toBeLessThan(expected)
+
+    Expected: < 593
+    Received:   805
+
+      645 |       `reorder the document. Clip 5:07 "why can't I simply drag and drop a text ` +
+      646 |       `just above a text I want? I need to use this left panel".`,
+    > 647 |   ).toBeLessThan(html.indexOf("First paragraph"));
+          |     ^
+      648 | });
+      649 |
+      650 | test("5:30 — dragging does not repaint the canvas background", async ({
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/landing-page-authoring.spec.ts:647:5
+
+    Error Context: test-results/landing-page-authoring-5-0-ef845-y-dragging-it-on-the-canvas-chromium/error-context.md
+
+
+[31/34] [chromium] › e2e/landing-page-authoring.spec.ts:650:1 › 5:30 — dragging does not repaint the canvas background
+[32/34] [chromium] › e2e/landing-page-authoring.spec.ts:680:1 › 4:39 — aligning a multi-selection moves every selected layer
+[33/34] [chromium] › e2e/landing-page-authoring.spec.ts:710:1 › 0:28 — a deleted screen stays deleted
+[34/34] [chromium] › e2e/landing-page-authoring.spec.ts:748:1 › a header + hero + footer landing page renders entirely on the page
+  5 failed
+    [chromium] › e2e/editor.spec.ts:408:1 › middle-mouse pan follows vertical pointer movement over screen content 
+    [chromium] › e2e/editor.spec.ts:498:1 › clicking an element selects it and populates the inspector 
+    [chromium] › e2e/editor.spec.ts:563:1 › spacing handles stay visible at rest and remain draggable 
+    [chromium] › e2e/editor.spec.ts:632:1 › selecting a different element changes the selection ────
+    [chromium] › e2e/landing-page-authoring.spec.ts:602:1 › 5:07 — a text layer can be reordered by dragging it on the canvas 
+  29 passed (5.1m)
+EXIT:1

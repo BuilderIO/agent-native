@@ -1,0 +1,912 @@
+
+ RUN  v4.1.9 /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design
+
+DOMException [AbortError]: The operation was aborted.
+    at Fetch.onAsyncTaskManagerAbort (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:546:23)
+    at Object.<anonymous> (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:416:101)
+    at AsyncTaskManager.abortAll (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:292:30)
+    at AsyncTaskManager.destroy (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:64:21)
+    at file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:43:22
+    at new Promise (<anonymous>)
+    at BrowserFrameFactory.destroyFrame (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:30:16)
+    at HTMLIFrameElement.#unloadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:363:33)
+    at HTMLIFrameElement.[disconnectedFromDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:238:25)
+    at HTMLIFrameElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:809:58)
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:58935/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2F&previewToken=style-probe-preview-token&bridgeKey=597944%3A3409403037": The operation was aborted.
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+DOMException [AbortError]: The operation was aborted.
+    at Fetch.onAsyncTaskManagerAbort (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:546:23)
+    at Object.<anonymous> (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:416:101)
+    at AsyncTaskManager.abortAll (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:292:30)
+    at AsyncTaskManager.destroy (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:64:21)
+    at file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:43:22
+    at new Promise (<anonymous>)
+    at BrowserFrameFactory.destroyFrame (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:30:16)
+    at HTMLIFrameElement.#unloadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:363:33)
+    at HTMLIFrameElement.[disconnectedFromDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:238:25)
+    at HTMLIFrameElement.[disconnectedFromNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:834:58)
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:59035/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Faccount&previewToken=verification-preview-token&bridgeKey=597946%3A990490528": The operation was aborted.
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+DOMException [AbortError]: The operation was aborted.
+    at Fetch.onAsyncTaskManagerAbort (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:546:23)
+    at Object.<anonymous> (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:416:101)
+    at AsyncTaskManager.abortAll (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:292:30)
+    at AsyncTaskManager.destroy (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:64:21)
+    at file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:43:22
+    at new Promise (<anonymous>)
+    at BrowserFrameFactory.destroyFrame (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:30:16)
+    at HTMLIFrameElement.#unloadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:363:33)
+    at HTMLIFrameElement.[disconnectedFromDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:238:25)
+    at HTMLIFrameElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:809:58)
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:59035/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Faccount&previewToken=verification-preview-token&bridgeKey=597946%3A990490528": The operation was aborted.
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at processImmediate (node:internal/timers:472:9)
+DOMException [AbortError]: The operation was aborted.
+    at Fetch.onAsyncTaskManagerAbort (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:546:23)
+    at Object.<anonymous> (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:416:101)
+    at AsyncTaskManager.abortAll (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:292:30)
+    at AsyncTaskManager.destroy (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:64:21)
+    at file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:43:22
+    at new Promise (<anonymous>)
+    at BrowserFrameFactory.destroyFrame (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:30:16)
+    at HTMLIFrameElement.#unloadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:363:33)
+    at HTMLIFrameElement.[disconnectedFromDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:238:25)
+    at HTMLIFrameElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:809:58)
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:59039/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fchat&previewToken=handoff-preview-token&bridgeKey=597943%3A2899266333": The operation was aborted.
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+DOMException [AbortError]: The operation was aborted.
+    at Fetch.onAsyncTaskManagerAbort (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:546:23)
+    at Object.<anonymous> (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:416:101)
+    at AsyncTaskManager.abortAll (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:292:30)
+    at AsyncTaskManager.destroy (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:64:21)
+    at file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:43:22
+    at new Promise (<anonymous>)
+    at BrowserFrameFactory.destroyFrame (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/browser/utilities/BrowserFrameFactory.js:30:16)
+    at HTMLIFrameElement.#unloadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:363:33)
+    at HTMLIFrameElement.[disconnectedFromDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:238:25)
+    at HTMLIFrameElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:809:58)
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://localhost:5173/settings": The operation was aborted.
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+DOMException [NotSupportedError]: Failed to load script "http://localhost:3000/@fs/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/@tailwindcss+browser@4.3.3/node_modules/@tailwindcss/browser/dist/index.global.js". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fsettings&previewToken=example-preview-token&bridgeKey=597947%3A2389390386": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Error: connect ECONNREFUSED 127.0.0.1:7331
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1645:16) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 7331
+}
+DOMException [NetworkError]: Failed to execute "fetch()" on "Window" with URL "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&previewToken=preview-token&bridgeKey=597940%3A3789822700": connect ECONNREFUSED 127.0.0.1:7331
+    at Fetch.onError (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/fetch/Fetch.js:540:21)
+    at ClientRequest.emit (node:events:508:28)
+    at emitErrorEvent (node:_http_client:108:11)
+    at Socket.socketErrorListener (node:_http_client:575:5)
+    at Socket.emit (node:events:508:28)
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+DOMException [NotSupportedError]: Failed to load script "https://cdn.tailwindcss.com/". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "http://localhost:3000/@fs/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/alpinejs@3.15.12/node_modules/alpinejs/dist/cdn.min.js". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "https://cdn.tailwindcss.com/". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "http://localhost:3000/@fs/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/alpinejs@3.15.12/node_modules/alpinejs/dist/cdn.min.js". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "https://cdn.tailwindcss.com/". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "http://localhost:3000/@fs/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/alpinejs@3.15.12/node_modules/alpinejs/dist/cdn.min.js". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "https://cdn.tailwindcss.com/". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "http://localhost:3000/@fs/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/alpinejs@3.15.12/node_modules/alpinejs/dist/cdn.min.js". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "https://cdn.tailwindcss.com/". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+DOMException [NotSupportedError]: Failed to load script "http://localhost:3000/@fs/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/alpinejs@3.15.12/node_modules/alpinejs/dist/cdn.min.js". JavaScript file loading is disabled.
+    at HTMLScriptElement.#loadScript (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:549:31)
+    at HTMLScriptElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-script-element/HTMLScriptElement.js:315:33)
+    at HTMLScriptElement.[connectedToNode] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:806:53)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/node/Node.js:421:45)
+    at HTMLHeadElement.[appendChild] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/element/Element.js:1102:62)
+    at HTMLParser.parseRawTextElementContent (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:654:61)
+    at HTMLParser.parse (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/html-parser/HTMLParser.js:244:30)
+    at HTMLDocument.write (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/document/Document.js:1273:16)
+    at HTMLIFrameElement.#loadPage (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:319:42)
+    at HTMLIFrameElement.[connectedToDocument] (file:///Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/node_modules/.pnpm/happy-dom@20.12.0/node_modules/happy-dom/lib/nodes/html-iframe-element/HTMLIFrameElement.js:230:23)
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+AggregateError: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 3000
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:3000
+        at createConnectionError (node:net:1686:14)
+        at afterConnectMultiple (node:net:1716:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 3000
+    }
+  ]
+}
+
+ Test Files  590 passed (590)
+      Tests  6810 passed (6810)
+   Start at  01:32:57
+   Duration  89.36s (transform 17.33s, setup 0ms, import 184.45s, tests 113.15s, environment 15.24s)
+
+EXIT:0
