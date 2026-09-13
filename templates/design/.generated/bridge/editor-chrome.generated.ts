@@ -8107,6 +8107,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentRect = currentParent.getBoundingClientRect();
       var pointerOutsideCurrentParent = clientX < parentRect.left || clientX > parentRect.right || clientY < parentRect.top || clientY > parentRect.bottom;
       if (keepCurrentParent && pointerOutsideCurrentParent) {
+        var freeParent = currentParent;
+        while (freeParent && freeParent.parentElement && freeParent.parentElement !== document.body && isAutoLayoutElement(freeParent)) {
+          freeParent = freeParent.parentElement;
+        }
+        if (freeParent !== currentParent) {
+          return {
+            anchor: freeParent,
+            placement: "after",
+            axis: "y",
+            dropMode: "absolute-container"
+          };
+        }
         var retainedSlot = nearestChildInsertionTarget(
           currentParent,
           clientX,
@@ -9444,6 +9456,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           reflowSiblings = [];
           reflowKey = null;
         }, resolveReorderOrFreeTarget2 = function(cx, cy, ctrlKey) {
+          if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
           return flowMoveTargetForPoint(
             reorderEl,
             cx,
@@ -9670,7 +9683,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }, onReorderKeyUp2 = function(ev) {
           if (ev.code !== "Space" && ev.key !== " ") return;
-          keepCurrentFlowParent = false;
           ev.preventDefault();
         }, onReorderUp2 = function(ev) {
           if (!ev || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) {
@@ -11264,7 +11276,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           bridgeSpaceKeyPressed = true;
           if (activeDragCancel) {
             bridgeSpaceKeyConsumedByDrag = true;
-            stopNativeInteraction(e);
+            if (e.cancelable) e.preventDefault();
             return;
           }
         }
@@ -11364,7 +11376,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         bridgeSpaceKeyPressed = false;
         if (bridgeSpaceKeyConsumedByDrag) {
           bridgeSpaceKeyConsumedByDrag = false;
-          stopNativeInteraction(e);
+          if (e.cancelable) e.preventDefault();
           return;
         }
         if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
@@ -12183,6 +12195,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:cross-screen-claim") {
         crossScreenClaimedByHost = Boolean(e.data.claimed);
+        return;
+      }
+      if (e.data.type === "agent-native:set-space-held") {
+        bridgeSpaceKeyPressed = Boolean(e.data.held);
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {

@@ -176,6 +176,13 @@ export interface MultiScreenCanvasProps {
     widthPx: number,
     heightPx: number,
   ) => void;
+  // Fires whenever a PRIMARY (non-breakpoint) inline screen iframe reports a
+  // measured content height taller than its persisted canvasFrames geometry —
+  // the same content-fit signal canvasFrames already applies to what's drawn
+  // on screen (see the `autoHeight` derivation), surfaced so callers whose
+  // fit math reads persisted geometry directly (camera zoom-to-fit/selection)
+  // can fit the height actually rendered instead of a stale default.
+  onPrimaryContentHeightChange?: (screenId: string, heightPx: number) => void;
   onCreatePrimitive?: (
     screenId: string,
     primitive: CanvasPrimitiveInsert,

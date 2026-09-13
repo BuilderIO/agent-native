@@ -108,7 +108,18 @@ async function boardObjects(page: Page): Promise<Record<string, true>> {
 
 /** Page-relative bounding box of a node id wherever it lives — the screen
  * iframe or the board iframe alike — by reaching directly into each
- * same-origin iframe's contentDocument. */
+ * same-origin iframe's contentDocument.
+ *
+ * The overview canvas zooms by CSS-transform-scaling an ancestor of the
+ * iframe, not by resizing it: `iframe.getBoundingClientRect()` reflects that
+ * scale (it is page space), but `el.getBoundingClientRect()` computed INSIDE
+ * the iframe's own document does not — it is the iframe's native, unscaled
+ * layout space. Adding the two directly only works at 100% zoom; at any other
+ * zoom (the overview's usual "fit all screens" default) it returns a page
+ * position off by the zoom factor, which silently sends a driven mouse drag
+ * built from it to empty canvas. Rescale by the iframe's own
+ * rendered-vs-native width ratio (mirrors helpers.ts's canvasZoom) before
+ * combining the two coordinate spaces. */
 async function boardObjectBoundingBox(
   page: Page,
   nodeId: string,
@@ -122,11 +133,14 @@ async function boardObjectBoundingBox(
       if (!el) continue;
       const iframeRect = iframe.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
+      const scale = iframe.clientWidth
+        ? iframeRect.width / iframe.clientWidth
+        : 1;
       return {
-        x: iframeRect.left + elRect.left,
-        y: iframeRect.top + elRect.top,
-        width: elRect.width,
-        height: elRect.height,
+        x: iframeRect.left + elRect.left * scale,
+        y: iframeRect.top + elRect.top * scale,
+        width: elRect.width * scale,
+        height: elRect.height * scale,
       };
     }
     return null;
@@ -828,19 +842,6 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
       before,
       "no bounding box for the created board shape",
     ).not.toBeNull();
-    const debugWorld = await page.evaluate(() => {
-      const world = document.querySelector(
-        "[data-multi-screen-canvas-world]",
-      ) as HTMLElement | null;
-      return world
-        ? {
-            transform: getComputedStyle(world).transform,
-            rect: world.getBoundingClientRect().toJSON(),
-          }
-        : null;
-    });
-    console.log("DEBUG world:", JSON.stringify(debugWorld));
-    console.log("DEBUG before:", JSON.stringify(before));
     // Drawing a shape leaves the Rectangle tool itself still armed — a
     // mouse-down on the shape without switching back to Move would start
     // drawing a SECOND shape instead of moving the existing one (see
@@ -863,7 +864,6 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.waitForTimeout(400);
 
     const after = await boardObjectBoundingBox(page, shapeId);
-    console.log("DEBUG after:", JSON.stringify(after));
     expect(after).not.toBeNull();
     expect(Math.abs(after!.x - before!.x - 80)).toBeLessThan(20);
   });
@@ -907,10 +907,11 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.mouse.move(outsideX, outsideY, { steps: 8 });
     await page.waitForTimeout(150);
     await page.mouse.up();
-    await page.waitForTimeout(500);
 
-    const indexHtmlAfterOut = await fileContent(page, "index.html");
-    const outResult = await (async () => {
+    // The cross-screen persist is two async server writes (remove from the
+    // source file, add to the board file) — poll for both to land instead of
+    // a fixed sleep, which under load reads back mid-write.
+    const readBoth = async () => {
       const params = new URLSearchParams({ id: currentDesignId });
       const res = await page.request.get(
         `${baseURLForActions}/_agent-native/actions/get-design?${params}`,
@@ -924,12 +925,29 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
       ].find((candidate: any) => Array.isArray(candidate?.files));
       const files: { filename?: string; content?: string }[] =
         design?.files ?? [];
-      return files.find((f) => f.filename === "__board__.html")?.content ?? "";
-    })();
+      return {
+        index: files.find((f) => f.filename === "index.html")?.content ?? "",
+        board:
+          files.find((f) => f.filename === "__board__.html")?.content ?? "",
+      };
+    };
+    await expect
+      .poll(
+        async () => {
+          const result = await readBoth();
+          return (
+            !hasNode(result.index, textId) && result.board.includes(textId)
+          );
+        },
+        {
+          timeout: 10_000,
+          message:
+            "cross-screen drop must remove the node from index.html and add it to the board file",
+        },
+      )
+      .toBe(true);
 
-    expect(
-      hasNode(indexHtmlAfterOut, textId) && !outResult.includes(textId),
-    ).toBe(false); // documents which side kept the node, asserted below explicitly.
+    const { index: indexHtmlAfterOut, board: outResult } = await readBoth();
     const leftScreen = !hasNode(indexHtmlAfterOut, textId);
     const enteredBoard = outResult.includes(textId);
 
@@ -942,15 +960,31 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
       "dragging out onto open canvas should reparent it into the board",
     ).toBe(true);
 
-    // Now drag it back into the screen.
-    const boardNode = page
-      .locator(`[data-agent-native-node-id="${textId}"]`)
-      .first();
-    const boardBox = await boardNode.boundingBox();
+    // Now drag it back into the screen. The board node lives inside the
+    // board's own same-origin iframe, which a bare page.locator cannot pierce
+    // (see boardObjectBoundingBox's doc comment) — it would otherwise hang
+    // until its actionability timeout waiting for a match that never appears.
+    const boardBox = await boardObjectBoundingBox(page, textId);
     if (!boardBox)
       throw new Error("could not find board node after reparent-out");
-    const backX = card.x + card.width * 0.5;
-    const backY = card.y + card.height * 0.5;
+    // Re-measure the screen card instead of reusing the box captured before
+    // the first drag — dropping a node onto the board can shift the overview
+    // layout, and a stale target position lands the drop on empty canvas
+    // instead of the screen (drop:resolve-target never even fires for it).
+    const cardNow = await homeScreenCard(page).boundingBox();
+    if (!cardNow) throw new Error("no screen card box for the return drag");
+    const backX = cardNow.x + cardNow.width * 0.5;
+    const backY = cardNow.y + cardNow.height * 0.5;
+    // The board node stays selected from the out-drag above, and this
+    // node's on-screen box is tiny at the current zoom (~36x6px) — small
+    // enough that its own resize-handle overlay (a fixed-size hit strip,
+    // not scaled down with the object) covers the object's center. A
+    // mousedown there grabs the "s" resize handle instead of the object
+    // itself, so no drag ever starts. Deselecting first removes the
+    // handles; the click below both re-selects and starts the drag, same
+    // as a real click-drag on an unselected object.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
     await page.mouse.move(
       boardBox.x + boardBox.width / 2,
       boardBox.y + boardBox.height / 2,
@@ -962,13 +996,17 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.mouse.move(backX, backY, { steps: 8 });
     await page.waitForTimeout(150);
     await page.mouse.up();
-    await page.waitForTimeout(500);
 
-    const indexHtmlAfterIn = await fileContent(page, "index.html");
-    expect(
-      hasNode(indexHtmlAfterIn, textId),
-      "dragging back onto the screen should reparent it back into index.html",
-    ).toBe(true);
+    await expect
+      .poll(
+        async () => hasNode(await fileContent(page, "index.html"), textId),
+        {
+          timeout: 10_000,
+          message:
+            "dragging back onto the screen should reparent it back into index.html",
+        },
+      )
+      .toBe(true);
   });
 
   test.afterEach(async ({ request }) => {

@@ -1,0 +1,116 @@
+import { chromium } from "@playwright/test";
+import { describe, expect, it } from "vitest";
+
+import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+
+/**
+ * Figma parity (unique-paths: "holding Space mid-drag keeps an element a
+ * sibling"): holding Space while dragging must suppress reparenting into
+ * whatever container the pointer passes over, keeping the dragged object at
+ * its current parent.
+ *
+ * Two compounding bugs, both in the reorder gesture's Space tracking:
+ * 1. The bridge's global keydown/keyup listeners (registered at bridge init,
+ *    BEFORE any drag starts) intercepted Space while a drag was active via
+ *    stopNativeInteraction — which calls stopImmediatePropagation — so the
+ *    drag's OWN onReorderKeyDown/KeyUp listeners (registered later, same
+ *    document, same capture phase, added when the drag begins) never saw
+ *    the event and keepCurrentFlowParent never flipped true at all.
+ * 2. onReorderKeyUp reset keepCurrentFlowParent to false the instant Space
+ *    was released. onReorderUp (the drop) re-resolves the target fresh from
+ *    the release point instead of reusing the last live preview, so
+ *    releasing Space just before mouseup with no further pointer move (this
+ *    test's exact sequence) read the flag back as false and reparented
+ *    anyway, even though Space visibly protected the object for the whole
+ *    visible drag.
+ *
+ * Runs the real generated bridge in a real browser: flex/box layout and
+ * getBoundingClientRect need a real layout engine, not happy-dom's stub.
+ */
+function hydratedEditorChromeBridgeScript(): string {
+  return editorChromeBridgeScript
+    .replace("__READ_ONLY__", "false")
+    .replace("__TEXT_EDITING_ENABLED__", "false")
+    .replace("__EDITOR_CHROME_SCALE_X__", "1")
+    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
+}
+
+// Mirrors e2e/global-setup.ts's FIXTURE_HTML shape: a flex row holding the
+// dragged element, and a bigger container (a section with its own child)
+// further down the flow that a plain drag would reparent into.
+const FIXTURE = `<!doctype html><html><body style="margin:0">
+  <main style="display:flex;flex-direction:column;gap:16px;padding:24px">
+    <div data-agent-native-node-id="row" data-agent-native-layer-name="Row"
+         style="display:flex;flex-direction:row;gap:8px">
+      <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha"
+           style="width:100px;height:60px;background:#3b82f6"></div>
+      <div data-agent-native-node-id="beta" data-agent-native-layer-name="Beta"
+           style="width:100px;height:60px;background:#22c55e"></div>
+    </div>
+    <section data-agent-native-node-id="section" data-agent-native-layer-name="Section"
+         style="width:300px;height:200px;padding:16px;background:#1a1d24">
+      <h2 data-agent-native-node-id="section-title" data-agent-native-layer-name="Section Title"
+          style="margin:0">Section Title</h2>
+    </section>
+  </main>
+</body></html>`;
+
+describe("holding Space mid-drag suppresses reparenting", () => {
+  it("keeps the dragged element in its original parent instead of nesting it into the section under the pointer", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      // Select Alpha directly, same as ctrl-drag-flex-no-cross-screen's
+      // pattern: a click would hit container-first selection instead.
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="alpha"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+
+      await page.mouse.move(74, 54);
+      await page.mouse.down();
+      // Drag well into the section before Space is ever pressed, then hold
+      // Space, move further, and release Space BEFORE mouseup with no
+      // further pointer move — the exact sequence
+      // parity-unique-paths.spec.ts drives, and the one bug #2 above broke.
+      await page.mouse.move(174, 150, { steps: 10 });
+      await page.keyboard.down("Space");
+      await page.mouse.move(174, 200, { steps: 10 });
+      await page.keyboard.up("Space");
+      await page.mouse.up();
+      await page.waitForTimeout(50);
+
+      const rowHtml = await page
+        .locator('[data-agent-native-node-id="row"]')
+        .evaluate((el) => el.outerHTML);
+      const sectionHtml = await page
+        .locator('[data-agent-native-node-id="section"]')
+        .evaluate((el) => el.outerHTML);
+      expect(
+        rowHtml.includes('data-agent-native-node-id="alpha"'),
+        `Alpha must stay a child of its original row after a drag where Space was held then released before drop; row: ${rowHtml}`,
+      ).toBe(true);
+      expect(
+        sectionHtml.includes('data-agent-native-node-id="alpha"'),
+        `Alpha must NOT be reparented into the section under the pointer; section: ${sectionHtml}`,
+      ).toBe(false);
+    } finally {
+      await browser.close();
+    }
+  });
+});

@@ -7,7 +7,10 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import type * as Y from "yjs";
 
-import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  findCanvasIframeForScreen,
+  getBreakpointIframeId,
+} from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -42,7 +45,8 @@ import type { DesignFile } from "@/pages/design-editor/types";
 export function collectLiveSizeHints(
   nodeIds: string[],
   projection: CodeLayerProjection,
-  activeFileId: string,
+  activeIframeId: string,
+  boardFileId: string | undefined,
 ): Record<string, { width: number; height: number }> {
   const hints: Record<string, { width: number; height: number }> = {};
   if (typeof document === "undefined") return hints;
@@ -50,10 +54,16 @@ export function collectLiveSizeHints(
   // ids (they came from parsing the active file's own source) — querying
   // every preview iframe on the canvas and taking the first match risks
   // reading a DIFFERENT screen's DOM when a duplicated Screen has remapped
-  // (or not-yet-unique) ids that collide with the active one's.
+  // (or not-yet-unique) ids that collide with the active one's. activeIframeId
+  // is already the active breakpoint's sub-frame id when one is focused
+  // (getActiveScreenIframeId's id shape), since an auto-sized target can be
+  // measured only in the iframe it is actually rendered in; boardFileId lets
+  // this resolve the dedicated board surface iframe the same way every other
+  // findCanvasIframeForScreen caller does.
   const doc = findCanvasIframeForScreen(
     document.body,
-    activeFileId,
+    activeIframeId,
+    boardFileId,
   )?.contentDocument;
   if (!doc) return hints;
   for (const nodeId of nodeIds) {
@@ -84,6 +94,7 @@ export function collectLiveSizeHints(
 }
 
 export interface FrameSelectionArgs {
+  activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -100,6 +111,7 @@ export interface FrameSelectionArgs {
       selectionBefore?: YjsUndoSelectionSnapshot;
     },
   ) => void;
+  boardFileId: string | undefined;
   canEditDesign: boolean;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
@@ -114,8 +126,10 @@ export interface FrameSelectionArgs {
 }
 
 export function runFrameSelection({
+  activeBreakpointWidthState,
   activeFile,
   applyLocalContentUpdate,
+  boardFileId,
   canEditDesign,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
@@ -137,10 +151,18 @@ export function runFrameSelection({
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (nodeIds.length < 1) return;
+  // The selected element may live in the active responsive breakpoint's own
+  // sub-frame rather than the screen's primary iframe — measure wherever it
+  // is actually rendered, or an auto-sized target gets another size's rect.
+  const activeIframeId =
+    activeBreakpointWidthState !== undefined
+      ? getBreakpointIframeId(activeFile.id, activeBreakpointWidthState)
+      : activeFile.id;
   const sizeHints = collectLiveSizeHints(
     nodeIds,
     baseProjection,
-    activeFile.id,
+    activeIframeId,
+    boardFileId,
   );
   const patch = applyVisualEdit(baseContent, {
     kind: "wrapNodes",

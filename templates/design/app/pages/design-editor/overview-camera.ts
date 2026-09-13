@@ -115,6 +115,30 @@ export function getAllScreenFrameEntries(args: {
 }
 
 /**
+ * Widens each frame's height to the live measured content height when it's
+ * taller than the persisted `canvasFrames` geometry `getAllScreenFrameEntries`
+ * resolved. Inline screens auto-grow past their stored height as content is
+ * authored (MultiScreenCanvas's own `canvasFrames` render geometry already
+ * does this — see its `autoHeight` derivation), but that growth is never
+ * written back to `canvasFrames`, so camera-fit math reading the persisted
+ * geometry directly (zoom-to-fit/zoom-to-selection) would otherwise fit a
+ * shorter box than what's actually on screen. Height-only and growth-only:
+ * never touches width or shrinks a frame, so it can't fit tighter than the
+ * real page and can't disturb x-position math elsewhere.
+ */
+export function withMeasuredFrameHeights(
+  frames: FrameEntry[],
+  measuredHeightById: Record<string, number>,
+): FrameEntry[] {
+  if (Object.keys(measuredHeightById).length === 0) return frames;
+  return frames.map((frame) => {
+    const measured = measuredHeightById[frame.id];
+    if (!measured || measured <= (frame.geometry.height ?? 0)) return frame;
+    return { ...frame, geometry: { ...frame.geometry, height: measured } };
+  });
+}
+
+/**
  * Hit-tests a canvas-space point (the same coordinate system
  * `getAllScreenFrameEntries` resolves frame geometry into) against every real
  * screen frame — excluding `excludeFileId` (the board file itself, which is

@@ -10959,6 +10959,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientY > parentRect.bottom;
 
     if (keepCurrentParent && pointerOutsideCurrentParent) {
+      // Figma parity: an auto-layout parent cannot host a freely
+      // (absolutely) positioned child at all, so "keep current parent,
+      // position free" while the pointer is off dragging far away must
+      // escape every auto-layout ancestor (the object's own row, the
+      // screen's own auto-layout root, ...) up to the nearest one that
+      // isn't — never just the object's immediate DOM parent, which may
+      // be a small auto-layout group nested deep inside a big auto-layout
+      // screen. Stops one level short of document.body: body itself has
+      // no node-id for persistence to anchor on (see the body-container
+      // fallback below), so the screen's own top-level wrapper is the
+      // outermost usable anchor.
+      var freeParent = currentParent;
+      while (
+        freeParent &&
+        freeParent.parentElement &&
+        freeParent.parentElement !== document.body &&
+        isAutoLayoutElement(freeParent)
+      ) {
+        freeParent = freeParent.parentElement;
+      }
+      if (freeParent !== currentParent) {
+        return {
+          anchor: freeParent,
+          placement: "after",
+          axis: "y",
+          dropMode: "absolute-container",
+        };
+      }
       var retainedSlot = nearestChildInsertionTarget(
         currentParent,
         clientX,
@@ -13293,6 +13321,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // free x/y without leaving the layout, which would collapse it. Ctrl
       // "ignore auto layout" is the explicit free-place escape.
       function resolveReorderOrFreeTarget(cx, cy, ctrlKey) {
+        // Re-sync from the live global on every call: this document's own
+        // onReorderKeyDown/KeyUp keep keepCurrentFlowParent current when
+        // Space lands here, but the host's forwarded
+        // "agent-native:set-space-held" (see the message listener) only
+        // ever updates bridgeSpaceKeyPressed — never reaching this drag's
+        // own key listeners — so a "held" forward would otherwise be
+        // invisible to the one gesture that needs it.
+        if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
         return flowMoveTargetForPoint(
           reorderEl,
           cx,
@@ -13614,7 +13650,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       function onReorderKeyUp(ev) {
         if (ev.code !== "Space" && ev.key !== " ") return;
-        keepCurrentFlowParent = false;
+        // Deliberately NOT resetting keepCurrentFlowParent here. onReorderUp
+        // re-resolves the drop target from the release point (see its own
+        // comment) instead of reusing the last onReorderMove preview, so a
+        // release with no further pointer move before mouseup (Figma
+        // parity: press Space mid-drag, release it, drop without moving
+        // again) would otherwise re-read this as false and reparent anyway
+        // — exactly the bug this flag exists to prevent. Once Space has
+        // protected the current parent during a gesture, that protection
+        // holds for the rest of the gesture.
         ev.preventDefault();
       }
       function onReorderUp(ev) {
@@ -15702,7 +15746,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bridgeSpaceKeyPressed = true;
         if (activeDragCancel) {
           bridgeSpaceKeyConsumedByDrag = true;
-          stopNativeInteraction(e);
+          // Not stopNativeInteraction: this listener is registered before
+          // the active drag's own onReorderKeyDown (added at drag start), so
+          // stopImmediatePropagation here would keep that later listener
+          // from ever seeing Space and setting keepCurrentFlowParent — the
+          // Figma-parity "Space suppresses reparenting" gesture would only
+          // ever see whatever Space was doing at drag START. preventDefault
+          // alone still blocks the browser's default (page scroll) and the
+          // early return still skips host-hotkey forwarding below.
+          if (e.cancelable) e.preventDefault();
           return;
         }
       }
@@ -15854,7 +15906,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeSpaceKeyPressed = false;
       if (bridgeSpaceKeyConsumedByDrag) {
         bridgeSpaceKeyConsumedByDrag = false;
-        stopNativeInteraction(e);
+        // Not stopNativeInteraction — see the matching keydown listener's
+        // comment: the active drag's own onReorderKeyUp (registered later)
+        // must still see this keyup to clear keepCurrentFlowParent, or
+        // releasing Space mid-drag would never re-enable reparenting.
+        if (e.cancelable) e.preventDefault();
         return;
       }
       if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
@@ -17056,6 +17112,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "agent-native:cross-screen-claim") {
       crossScreenClaimedByHost = Boolean(e.data.claimed);
+      return;
+    }
+    if (e.data.type === "agent-native:set-space-held") {
+      // Figma parity (unique-paths): the host forwards Space here when ITS
+      // OWN window — not this document — received the native key event
+      // (the pointer-down that starts an on-canvas drag does not always
+      // move focus into this iframe). resolveReorderOrFreeTarget reads
+      // bridgeSpaceKeyPressed on every move/commit tick, so this has the
+      // same effect as this document's own keydown/keyup listener seeing it.
+      bridgeSpaceKeyPressed = Boolean(e.data.held);
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {

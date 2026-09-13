@@ -261,7 +261,12 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("holding Space mid-drag keeps an element a sibling instead of reparenting it into the frame it passes over", async ({
     page,
   }) => {
-    await selectByText(page, "Alpha Button");
+    page.on("console", (msg) => console.log("[BROWSER]", msg.text()));
+    // Alpha Button sits two levels deep (main > flex row > button) — a
+    // plain single click (selectByText) only ever selects the outer <main>
+    // (see selectByTextDeep's doc comment), so this drag needs the real
+    // leaf selected first via selectByTextDeep, not selectByText.
+    await selectByTextDeep(page, "Alpha Button");
     const target = await frameNode(page, "Alpha Button");
     const box = (await target.boundingBox())!;
     const sectionBox = (await (
@@ -297,6 +302,18 @@ test.describe.serial("rare-but-real unique paths", () => {
       'data-agent-native-node-id="e2e-alpha-button"',
     );
     const sectionCloseIdx = html.indexOf("</section>", sectionOpen);
+    console.log(
+      "DEBUG-INDICES",
+      JSON.stringify({ sectionOpen, alphaIdx, sectionCloseIdx }),
+    );
+    console.log(
+      "DEBUG-AROUND-ALPHA",
+      html.slice(Math.max(0, alphaIdx - 300), alphaIdx + 300),
+    );
+    console.log(
+      "DEBUG-AROUND-SECTION-CLOSE",
+      html.slice(Math.max(0, sectionCloseIdx - 100), sectionCloseIdx + 400),
+    );
     expect(
       alphaIdx > 0 &&
         sectionOpen > 0 &&

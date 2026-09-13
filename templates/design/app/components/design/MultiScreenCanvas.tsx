@@ -522,6 +522,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onGeometryChange,
   onGeometryCommit,
   onBreakpointContentHeightChange,
+  onPrimaryContentHeightChange,
   onCreatePrimitive,
   onPrimitiveCreated,
   onPrimitiveReparent,
@@ -625,6 +626,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const onBreakpointContentHeightChangeRef = useRef(
     onBreakpointContentHeightChange,
   );
+  const onPrimaryContentHeightChangeRef = useRef(onPrimaryContentHeightChange);
   const onNudgeSelectionRef = useRef(onNudgeSelection);
   const nudgeAmountsRef = useRef(nudgeAmounts);
   const layoutGridsRef = useRef(layoutGrids);
@@ -1314,6 +1316,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBreakpointContentHeightChangeRef.current =
       onBreakpointContentHeightChange;
   }, [onBreakpointContentHeightChange]);
+
+  useEffect(() => {
+    onPrimaryContentHeightChangeRef.current = onPrimaryContentHeightChange;
+  }, [onPrimaryContentHeightChange]);
 
   useEffect(() => {
     onNudgeSelectionRef.current = onNudgeSelection;
@@ -6430,10 +6436,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateFrameGeometry((current) =>
             frameGeometryWithOverrides(current, state.originFrames),
           );
-          // Shift-click's own click handler (handleFrameClick) does the
-          // toggle; drilling in here would fight that and enter the screen
-          // instead of just toggling it in/out of the selection.
-          if (wasAlreadySelected && !ev.shiftKey) {
+          if (wasAlreadySelected && ev.shiftKey) {
+            // This overlay sits above the frame body and owns the mousedown,
+            // so a no-move Shift release never reaches handleFrameClick's
+            // own toggle underneath — replicate it here instead, or a
+            // selected Screen could never be shift-clicked back out.
+            const nextSelectedIds = selectedIdsRef.current.filter(
+              (selectedId) => selectedId !== id,
+            );
+            updateSelectedIds(() => nextSelectedIds);
+            const nextPrimaryId =
+              nextSelectedIds[nextSelectedIds.length - 1] ?? null;
+            if (nextPrimaryId && nextPrimaryId !== activeId) {
+              onPick(nextPrimaryId);
+            }
+          } else if (wasAlreadySelected && !ev.shiftKey) {
             drillIntoScreenAtPoint(id, ev.clientX, ev.clientY, "pick");
           }
         }
@@ -8454,6 +8471,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             acceptedHeight,
           );
         }
+      } else if (screensRef.current.some((screen) => screen.id === key)) {
+        onPrimaryContentHeightChangeRef.current?.(key, acceptedHeight);
       }
       setMeasuredIframeHeights((prev) => {
         const current = prev[key];

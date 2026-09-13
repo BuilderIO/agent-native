@@ -478,6 +478,27 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
   });
 
+  it("toggles an already-selected screen out of the selection on a no-move Shift+click via the drag surface", async () => {
+    await renderSelectedFrame();
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+
+    // Regression: this overlay owns the mousedown for an already-selected
+    // frame and stops it from ever reaching handleFrameClick underneath, so
+    // a no-move Shift release must replicate its toggle-out itself.
+    await act(async () => {
+      dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
+      dispatchMouseShift(window, "mouseup", 320, 740);
+    });
+
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+  });
+
   it("drags every screen in a multi-selection from the group outline", async () => {
     await act(async () => {
       root.render(

@@ -793,6 +793,7 @@ import {
   resolveScreenDropPoint,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
+  withMeasuredFrameHeights,
 } from "./design-editor/overview-camera";
 import {
   applyInteractionStateStyleCommit,
@@ -1187,6 +1188,23 @@ function DesignEditor() {
   // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
+  // Per-screen measured content height, reported by MultiScreenCanvas as
+  // inline iframes render (see onPrimaryContentHeightChange) — the same
+  // content-fit signal the canvas already draws frames at, but the persisted
+  // canvasFrames geometry never picks it up. Camera-fit math below reads
+  // this ref (not state) purely to widen its target bounds when they're
+  // taller than the stale default, so a fresh report never triggers a
+  // re-render on its own.
+  const measuredScreenHeightByIdRef = useRef<Record<string, number>>({});
+  const handlePrimaryContentHeightChange = useCallback(
+    (screenId: string, heightPx: number) => {
+      measuredScreenHeightByIdRef.current = {
+        ...measuredScreenHeightByIdRef.current,
+        [screenId]: heightPx,
+      };
+    },
+    [],
+  );
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
   // the LIVE working copy (path-local coordinates, matching pen-path.ts);
@@ -8969,6 +8987,26 @@ function DesignEditor() {
   // gesture wiring doesn't have to infer "space-armed" from activeTool alone.
   const [spacePanActive, setSpacePanActive] = useState(false);
   const spacePanStashedToolRef = useRef<DesignTool | null>(null);
+  // Figma parity (unique-paths): a preview iframe's own document only gets
+  // Space's native keydown/keyup when IT holds keyboard focus — the pointer
+  // down that starts an on-canvas object drag does not always move focus
+  // there (e.g. a drag the host is also tracking for cross-screen drop, see
+  // editor-chrome.bridge.ts's postCrossScreenDrag), so Space landing on the
+  // HOST window mid-drag must not be swallowed into arming the hand/pan tool
+  // (that would hijack the gesture) — forward it into every preview iframe
+  // instead so the bridge's own reorder gesture can still suppress
+  // reparenting, exactly as if its own listener had seen the key.
+  const broadcastSpaceHeldToIframes = useCallback((held: boolean) => {
+    if (typeof document === "undefined") return;
+    document
+      .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+      .forEach((iframe) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:set-space-held", held },
+          "*",
+        );
+      });
+  }, []);
   useEffect(() => {
     if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
 
@@ -8978,6 +9016,11 @@ function DesignEditor() {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (!canEditDesignRef.current) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
+      if (activeEditorDragRef.current) {
+        event.preventDefault();
+        broadcastSpaceHeldToIframes(true);
+        return;
+      }
       if (spacePanStashedToolRef.current !== null) return;
       event.preventDefault();
       spacePanStashedToolRef.current = activeToolRef.current;
@@ -8987,6 +9030,11 @@ function DesignEditor() {
 
     const handleWindowKeyUp = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
+      if (activeEditorDragRef.current) {
+        event.preventDefault();
+        broadcastSpaceHeldToIframes(false);
+        return;
+      }
       const stashedTool = spacePanStashedToolRef.current;
       if (stashedTool === null) return;
       spacePanStashedToolRef.current = null;
@@ -9023,7 +9071,7 @@ function DesignEditor() {
       });
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [embedded, pendingQuestions]);
+  }, [embedded, pendingQuestions, broadcastSpaceHeldToIframes]);
 
   // PICK-RACE: a native (non-React-state) ref tracking whether Shift is
   // currently physically held, same pattern as spacePanStashedToolRef above.
@@ -11776,8 +11824,10 @@ function DesignEditor() {
   const handleFrameSelection = useCallback(
     () =>
       runFrameSelection({
+        activeBreakpointWidthState,
         activeFile,
         applyLocalContentUpdate,
+        boardFileId,
         canEditDesign,
         contentHistorySelectionAfterRef,
         contentUndoStackRef,
@@ -11791,8 +11841,10 @@ function DesignEditor() {
         undoManagerRef,
       }),
     [
+      activeBreakpointWidthState,
       activeFile,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       files,
       getFreshActiveContent,
@@ -13486,12 +13538,15 @@ function DesignEditor() {
     viewModeRef.current = "overview";
     setViewMode("overview");
     setActiveTool("move");
-    const frames = getAllScreenFrameEntries({
-      overviewScreens,
-      canvasFrameGeometryById,
-      boardContentBounds,
-      boardFileId,
-    });
+    const frames = withMeasuredFrameHeights(
+      getAllScreenFrameEntries({
+        overviewScreens,
+        canvasFrameGeometryById,
+        boardContentBounds,
+        boardFileId,
+      }),
+      measuredScreenHeightByIdRef.current,
+    );
     const bounds = getFrameGroupBounds(frames);
     if (!bounds) {
       setExplicitOverviewCanvasZoom(100);
@@ -13510,12 +13565,15 @@ function DesignEditor() {
   ]);
 
   const handleZoomToSelectionFit = useCallback(() => {
-    const allFrames = getAllScreenFrameEntries({
-      overviewScreens,
-      canvasFrameGeometryById,
-      boardContentBounds,
-      boardFileId,
-    });
+    const allFrames = withMeasuredFrameHeights(
+      getAllScreenFrameEntries({
+        overviewScreens,
+        canvasFrameGeometryById,
+        boardContentBounds,
+        boardFileId,
+      }),
+      measuredScreenHeightByIdRef.current,
+    );
     const selectedIds = new Set(overviewSelectedScreenIds);
     // No screen-level selection: an in-screen element may still be selected
     // (e.g. a layer picked inside a screen with no screen-frame selection).
@@ -21584,6 +21642,9 @@ function DesignEditor() {
                         onGeometryCommit={handleGeometryCommit}
                         onBreakpointContentHeightChange={
                           handleOverviewBreakpointContentHeightChange
+                        }
+                        onPrimaryContentHeightChange={
+                          handlePrimaryContentHeightChange
                         }
                         // Screen-frame-only partial implementation — see the
                         // gradientEditTarget derivation above for the BOARD/
