@@ -67,6 +67,8 @@ const messages = {
     recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",
+    noSpacesAdminCta:
+      "Bitte einen Organisationsadmin, den ersten Bereich anzulegen.",
     desktopCta: "Desktop-App laden",
     desktopTitle: "Hol dir die Clips-Desktop-App.",
     desktopBody:
@@ -745,7 +747,8 @@ const messages = {
     labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
     labWisprFlow: "Sprachdiktat",
-    labWisprFlowDescription: "Teste die neue Sprachdiktierfunktion.",
+    labWisprFlowDescription:
+      "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
     preferencesTitle: "Voreinstellungen",
@@ -983,6 +986,8 @@ const messages = {
     renameFailed: "Clip konnte nicht umbenannt werden",
     renameClip: "Clip umbenennen",
     clipTitle: "Clip-Titel",
+    archiveAction: "Archivieren",
+    moveToTrashAction: "In den Papierkorb verschieben",
     movedToTrash: "In den Papierkorb verschoben",
     restoredFromArchive: "Aus dem Archiv wiederhergestellt",
     archived: "Archiviert",
@@ -1876,6 +1881,7 @@ const messages = {
       "{{consoleCount}} Konsolenprobleme · {{networkCount}} fehlgeschlagene Anfragen",
     noFailures: "Keine Fehler erkannt",
     failuresPresent: "Browserfehler erkannt",
+    unviewedCount: "{{count}} ungesehen",
     captureSuccessful: "Diagnosedaten erfolgreich erfasst",
     capturedFrom: "Erfasst von {{source}}",
     browserCapture: "Browseraufnahme",

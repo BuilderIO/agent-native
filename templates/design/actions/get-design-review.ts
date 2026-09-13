@@ -14,7 +14,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -142,27 +142,9 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId, sourceRef, baseVersionId, compareVersionId }) => {
-    const db = getDb();
-
     // Verify access to the design.
-    const [design] = await db
-      .select({ id: schema.designs.id })
-      .from(schema.designs)
-      .where(
-        and(
-          accessFilter(schema.designs, schema.designShares),
-          eq(schema.designs.id, designId),
-        ),
-      )
-      .limit(1);
-
-    if (!design) {
-      const err = new Error("Design not found") as Error & {
-        statusCode: number;
-      };
-      err.statusCode = 404;
-      throw err;
-    }
+    await assertAccess("design", designId, "editor");
+    const db = getDb();
 
     // -----------------------------------------------------------------------
     // Load the latest review snapshot for this design (+ optional sourceRef).

@@ -144,6 +144,18 @@ describe("formatChatErrorText", () => {
     );
   });
 
+  it("normalizes a bare-403 transient rejection instead of the credential-rejected copy", () => {
+    const normalized = normalizeChatError(
+      "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
+      "provider_transient_rejection",
+    );
+    expect(normalized.message).toBe(
+      "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
+    );
+    expect(normalized.message).not.toMatch(/rejected the credential/i);
+    expect(normalized.message).not.toContain("403");
+  });
+
   it("formats provider rate limits as a plain retryable user message", () => {
     expect(
       formatChatErrorText(

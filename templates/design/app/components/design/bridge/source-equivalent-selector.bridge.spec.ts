@@ -61,8 +61,22 @@ async function selectAndRead(selectors: string[]): Promise<string[]> {
     for (const selector of selectors) {
       const box = await page.locator(selector).first().boundingBox();
       if (!box) throw new Error(`no box for ${selector}`);
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      await page.waitForTimeout(180);
+      // Both targets sit two levels below the screen root (ul > li), so a
+      // plain click now resolves container-first (Figma parity) onto the
+      // shared <ul> for every row alike. Select the row directly — what
+      // these tests prove is the sourceId/editCapabilities a selected row
+      // reports, not click resolution.
+      const before = await page.evaluate(
+        () => (window as unknown as { __sel: string[] }).__sel.length,
+      );
+      await page.evaluate((sel) => {
+        window.postMessage({ type: "select-element", selector: sel }, "*");
+      }, selector);
+      await page.waitForFunction(
+        (count) =>
+          (window as unknown as { __sel: string[] }).__sel.length > count,
+        before,
+      );
     }
     return await page.evaluate(
       () => (window as unknown as { __sel: string[] }).__sel,

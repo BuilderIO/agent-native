@@ -7,6 +7,7 @@ import {
   getResponsiveInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
   getResponsiveScreenGroupSize,
+  getScreenPreviewViewport,
   reorderCanonicalScreenStack,
   resolveFrameGeometrySync,
   visibleBreakpointWidths,
@@ -89,6 +90,22 @@ describe("content-fit frame height", () => {
     // Group must be tall enough to contain the 3000px-tall mobile frame
     // (scaled by primary scale) so culling doesn't evict it while visible.
     expect(withMeasure.height).toBeGreaterThanOrEqual(3000 * (1440 / 1440) - 1);
+  });
+
+  it("uses renderer scale for aspect-changing primary geometry and culling", () => {
+    const screen = {
+      id: "s1",
+      metadata: { width: 1440, height: 900 },
+      breakpointWidths: [390],
+    };
+    const primary = { x: 0, y: 0, width: 768, height: 1024 };
+    expect(getScreenPreviewViewport(screen.metadata, primary).scale).toBe(1);
+
+    const group = getResponsiveScreenGroupSize(screen, primary, () => 2200);
+    expect(group).toEqual({ width: 768 + 24 + 390, height: 2200 });
+    expect(
+      getResponsiveScreenCullGeometry(screen, primary, () => 2200),
+    ).toMatchObject(group);
   });
 
   it("dedupes breakpoints against the device width, not the resized box width", () => {
@@ -177,6 +194,24 @@ describe("responsive overview group layout", () => {
     expect(group.rotation).toBeUndefined();
     expect(group.width).toBeGreaterThanOrEqual(200);
     expect(group.height).toBeGreaterThan(320);
+  });
+
+  it("keeps the rotated right-extended preview inside cull bounds", () => {
+    const group = getResponsiveScreenCullGeometry(
+      {
+        id: "s1",
+        metadata: { width: 1440, height: 900 },
+        breakpointWidths: [390],
+      },
+      { x: 0, y: 0, width: 768, height: 1024, rotation: 90 },
+      () => 2200,
+    );
+
+    expect(group.x).toBeCloseTo(-1304);
+    expect(group.y).toBeCloseTo(128);
+    expect(group.width).toBeCloseTo(2200);
+    expect(group.height).toBeCloseTo(1182);
+    expect(group.rotation).toBeUndefined();
   });
 
   it("self-heals persisted legacy lineup coordinates without moving custom layouts", () => {

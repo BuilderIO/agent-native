@@ -6,20 +6,31 @@ import {
   type ActiveRunState,
 } from "./active-run-state.js";
 
+function sameRun(a: ActiveRunState | null, b: ActiveRunState | null): boolean {
+  return a?.threadId === b?.threadId && a?.runId === b?.runId;
+}
+
 /** Return the focused run for a thread and keep it current as the stream moves. */
 export function useActiveAgentChatRunId(
   threadId: string | null | undefined,
 ): string | null {
-  const [activeRun, setActiveRun] = useState<ActiveRunState | null>(() =>
+  const [activeRun, setActiveRunState] = useState<ActiveRunState | null>(() =>
     getActiveRun(),
   );
 
   useEffect(() => {
-    const syncFromStorage = () => setActiveRun(getActiveRun());
+    const syncFromStorage = () =>
+      setActiveRunState((current) => {
+        const next = getActiveRun();
+        return sameRun(current, next) ? current : next;
+      });
     const handleActiveRunChange = (event: Event) => {
       const state = (event as CustomEvent<{ state?: ActiveRunState | null }>)
         .detail?.state;
-      setActiveRun(state ?? null);
+      setActiveRunState((current) => {
+        const next = state ?? null;
+        return sameRun(current, next) ? current : next;
+      });
     };
 
     syncFromStorage();

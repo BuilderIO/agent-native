@@ -24,6 +24,9 @@ const messages = {
       extensions: "الإضافات",
       noteToSelf: "ملاحظة لنفسي",
     },
+    inbox: {
+      syncing: "جارٍ مزامنة الوارد…",
+    },
     toolbar: {
       toggleMenu: "تبديل القائمة",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "تثبيت الشريط الجانبي",
       unpinSidebar: "إلغاء تثبيت الشريط الجانبي",
+      closeSidebar: "إغلاق الشريط الجانبي",
       settings: "الإعدادات",
     },
     search: {
@@ -85,6 +89,8 @@ const messages = {
       cancel: "إلغاء",
       code: "رمز",
       deleteDraft: "حذف المسودة",
+      deleteDrafts: "حذف المسودات",
+      reopenDraft: "إعادة فتح",
       discardDraft: "تجاهل المسودة",
       enterLinkUrl: "أدخل عنوان URL للرابط.",
       forward: "Forward",
@@ -280,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "فشل تحميل الصورة",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "تم إرسال الرسالة.",
+      failedToSaveDraft: "تعذر حفظ المسودة.",
+      failedToDeleteDraft: "تعذر حذف المسودة.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -292,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "تم إغلاق المسودة.",
+      draftsClosed: "تم إغلاق {{count}} مسودات.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -313,6 +324,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "لم يتمكن من التحميل: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "ربط حساب Google",

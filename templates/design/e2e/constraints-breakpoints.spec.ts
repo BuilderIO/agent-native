@@ -202,10 +202,13 @@ test.describe("constraints (Figma parity)", () => {
 
     const after = await rendered(page, "child");
     const parentAfter = await rendered(page, "parent");
-    test.skip(
-      Math.abs(parentAfter.width - parentBefore.width) < 1,
-      "the parent did not actually resize, so constraints are untestable here",
-    );
+    // peer PR (screen-frame resize) owns setWidth actually resizing the
+    // parent; observed: width went ${parentBefore.width} -> ${parentAfter.width}.
+    expect(
+      Math.abs(parentAfter.width - parentBefore.width),
+      `precondition: the parent must actually resize for this constraint to be testable. ` +
+        `width went ${parentBefore.width} -> ${parentAfter.width}.`,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       Math.round(after.left - parentAfter.left),
       `Figma: Top+Left "will stay in the same position relative to the top left corner of ` +
@@ -222,7 +225,8 @@ test.describe("constraints (Figma parity)", () => {
     await layerRow(page, "Child").click();
     await page.waitForTimeout(1500);
     const opened = await openConstraints(page);
-    test.skip(!opened, "no Constraints control to set Scale with");
+    // peer PR (inspector) owns the Constraints control's presence.
+    expect(opened, "no Constraints control to set Scale with").toBe(true);
 
     // Scale lives inside the Horizontal axis Select, not on the widget itself:
     // its options are not in the DOM until that trigger is opened, so the old
@@ -399,10 +403,14 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
     const widths = (data.breakpointSet?.breakpoints ?? []).map(
       (b: any) => b.widthPx,
     );
-    test.skip(
-      widths.length === 0,
-      "create-design injects no breakpointSet; the documented default applies to generate-design",
-    );
+    // Not skipped: if create-design still injects no breakpointSet (the
+    // documented default is applied by generate-design, per the skill), that
+    // is a real product/test-scope gap this assertion should surface rather
+    // than silently pass.
+    expect(
+      widths.length,
+      "the default device set (desktop base plus mobile) must exist on a newly created design",
+    ).toBeGreaterThan(0);
     expect(
       widths,
       `skill: the default injected set is "a Desktop base plus a single Mobile (390) ` +

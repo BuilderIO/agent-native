@@ -1,3 +1,4 @@
+import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import {
   getPenPathGeometry,
   serializePenNodes,
@@ -97,6 +98,16 @@ export function writeBackVectorEditedPenPath(
     const d = serializePenPath(penPath);
     const geometry = getPenPathGeometry(penPath);
     const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
+    const strokeOverlay = svg.querySelector<SVGUseElement>(
+      ":scope > use[data-an-vector-stroke-overlay]",
+    );
+    const originalOverflow = svg.getAttribute(
+      "data-an-vector-stroke-original-overflow",
+    );
+    const originalOverflowPriority =
+      svg.getAttribute("data-an-vector-stroke-original-overflow-priority") ??
+      "";
+    const strokePosition = svg.getAttribute("data-an-vector-stroke-position");
 
     path.setAttribute("d", d);
     if (isClosed) {
@@ -111,6 +122,34 @@ export function writeBackVectorEditedPenPath(
       }
     } else {
       path.setAttribute("fill", "none");
+      if (strokeOverlay) {
+        const overlayStyle = strokeOverlay.style;
+        for (const property of [
+          "stroke",
+          "stroke-width",
+          "stroke-opacity",
+          "stroke-dasharray",
+          "stroke-dashoffset",
+          "stroke-linecap",
+          "stroke-linejoin",
+          "stroke-miterlimit",
+        ]) {
+          const value =
+            property === "stroke-width"
+              ? strokeOverlay.getAttribute("data-an-vector-logical-width")
+              : overlayStyle.getPropertyValue(property);
+          if (value) path.style.setProperty(property, value);
+        }
+        svg
+          .querySelectorAll(":scope > defs[data-an-vector-stroke-defs]")
+          .forEach((defs) => defs.remove());
+        svg
+          .querySelectorAll(":scope > use[data-an-vector-stroke-overlay]")
+          .forEach((overlay) => overlay.remove());
+        svg.removeAttribute("data-an-vector-stroke-position");
+        svg.removeAttribute("data-an-vector-stroke-original-overflow");
+        svg.removeAttribute("data-an-vector-stroke-original-overflow-priority");
+      }
       // An open path is only its stroke, and a path drawn closed commits
       // with stroke:none — reopening it without this paints nothing at all.
       if (path.getAttribute("stroke") === "none") {
@@ -140,8 +179,30 @@ export function writeBackVectorEditedPenPath(
         .filter(Boolean)
         .join(";"),
     );
+    if (!isClosed && strokeOverlay && originalOverflow !== null) {
+      const svgStyle = (svg as SVGElement).style;
+      if (originalOverflow) {
+        svgStyle.setProperty(
+          "overflow",
+          originalOverflow,
+          originalOverflowPriority,
+        );
+      } else {
+        svgStyle.removeProperty("overflow");
+      }
+    }
 
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    const updatedHtml = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    if (isClosed && strokeOverlay && strokePosition) {
+      const rebuilt = applyVisualEdit(updatedHtml, {
+        kind: "style",
+        target: { nodeId },
+        property: "--an-vector-stroke-position",
+        value: strokePosition,
+      });
+      if (rebuilt.result.status === "applied") return rebuilt.content;
+    }
+    return updatedHtml;
   } catch {
     return content;
   }
@@ -154,7 +215,7 @@ export function cloneHtmlLayerAtPosition(
 ): string | null {
   return (
     insertClonedHtmlLayers(content, [layerHtml], {
-      positions: [position],
+      positions: [{ ...position, space: "visual" }],
     })?.content ?? null
   );
 }
@@ -191,19 +252,105 @@ export function preserveClipboardLayerName(
   }
 }
 
-function setRootLayerPosition(
-  element: Element,
-  position: { x: number; y: number },
-) {
+type ClonePositionSpace = "layout" | "visual";
+/** Visual positions include the clone's transform; layout positions do not. */
+type CloneLayerPosition = {
+  x: number;
+  y: number;
+  space?: ClonePositionSpace;
+};
+
+function cssLength(value: string, reference: number): number {
+  if (value.endsWith("%")) return (Number.parseFloat(value) / 100) * reference;
+  const parsed = Number.parseFloat(value);
+  if (
+    !Number.isFinite(parsed) ||
+    !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:px)?$/.test(value)
+  ) {
+    throw new Error(`Cannot resolve transform geometry length: ${value}`);
+  }
+  return parsed;
+}
+
+function transformOriginCoordinate(
+  value: string | undefined,
+  size: number,
+  axis: "x" | "y",
+): number {
+  const origin = value || "50%";
+  if (origin === "center") return size / 2;
+  if (origin === (axis === "x" ? "left" : "top")) return 0;
+  if (origin === (axis === "x" ? "right" : "bottom")) return size;
+  return cssLength(origin, size);
+}
+
+function inlineLength(value: string, reference: number): number | null {
+  if (!value || value === "auto") return null;
+  return cssLength(value, reference);
+}
+
+/**
+ * Null when the clone is sized by layout (no inline width/height): a
+ * detached clone has no box to measure, so the caller pastes without
+ * rotation compensation instead of refusing the paste.
+ */
+function transformedBoundsOffset(
+  element: HTMLElement | SVGElement,
+): { x: number; y: number } | null {
+  const transform = element.style.transform;
+  if (!transform || transform === "none") return { x: 0, y: 0 };
+  if (typeof DOMMatrixReadOnly === "undefined") {
+    throw new Error("DOMMatrixReadOnly is required for transformed placement");
+  }
+  const matrix = new DOMMatrixReadOnly(transform);
+  if (!matrix.is2D) {
+    throw new Error(`Cannot resolve 3D transform placement: ${transform}`);
+  }
+  const width = inlineLength(element.style.width, 0);
+  const height = inlineLength(element.style.height, 0);
+  if (width === null || height === null) return null;
+  let [originX, originY] = element.style.transformOrigin
+    .split(/\s+/)
+    .slice(0, 2);
+  if (
+    (originX === "top" || originX === "bottom") &&
+    (originY === "left" || originY === "right")
+  ) {
+    [originX, originY] = [originY, originX];
+  }
+  const ox = transformOriginCoordinate(originX, width, "x");
+  const oy = transformOriginCoordinate(originY, height, "y");
+  const corners = [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ].map(([x, y]) => ({
+    x: ox + matrix.a * (x! - ox) + matrix.c * (y! - oy) + matrix.e,
+    y: oy + matrix.b * (x! - ox) + matrix.d * (y! - oy) + matrix.f,
+  }));
+  return {
+    x: Math.min(...corners.map((point) => point.x)),
+    y: Math.min(...corners.map((point) => point.y)),
+  };
+}
+
+function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
   const host = styleHost(element);
   if (!host) return;
+  const offset = (position.space === "visual"
+    ? transformedBoundsOffset(host)
+    : null) ?? {
+    x: 0,
+    y: 0,
+  };
   // Use explicit style property assignments rather than prepending a raw
   // string. Prepending creates duplicate CSS properties in the same style
   // attribute, and in CSS the LAST occurrence wins, so existing left/top
   // values from the cloned element would override the new position.
   host.style.position = "absolute";
-  host.style.left = `${Math.max(0, Math.round(position.x))}px`;
-  host.style.top = `${Math.max(0, Math.round(position.y))}px`;
+  host.style.left = `${Math.round(position.x - offset.x)}px`;
+  host.style.top = `${Math.round(position.y - offset.y)}px`;
   host.style.right = "";
   host.style.bottom = "";
 }
@@ -224,7 +371,7 @@ function claimClonedNodeId(
   return previousId;
 }
 
-function prepareClonedHtmlLayer(
+export function prepareClonedHtmlLayer(
   doc: Document,
   layerHtml: string,
   styleSnapshot?: PortableStyleSnapshot,
@@ -247,12 +394,46 @@ function prepareClonedHtmlLayer(
     layerDoc.body.firstElementChild;
   if (!source) return null;
   const clone = doc.importNode(source, true) as Element;
+  const sourceLayerName =
+    source.getAttribute("data-agent-native-layer-name") ||
+    source.getAttribute("data-layer-name") ||
+    "";
+  const sourceNodeId = source.getAttribute("data-agent-native-node-id") || "";
+  const sourceIsLegacyGroup =
+    /^an-[a-z0-9]+$/i.test(sourceNodeId) &&
+    /^group(?: \d+)?$/i.test(sourceLayerName.trim()) &&
+    source.getAttribute("data-agent-native-preserve-styles") === "true" &&
+    source.getAttribute("data-agent-native-clone-root") !== "true";
+  if (
+    sourceIsLegacyGroup &&
+    source.getAttribute("data-agent-native-group-wrapper") !== "true"
+  ) {
+    clone.setAttribute("data-agent-native-group-wrapper", "true");
+  }
   if (styleSnapshot) {
     clone.setAttribute("data-agent-native-preserve-styles", "true");
+    clone.setAttribute("data-agent-native-clone-root", "true");
     styleSnapshot.nodes.forEach((node) => {
       const target = elementAtPortableStylePath(clone, node);
       if (target) applyPortableStyles(target, node.styles);
     });
+  }
+  if (
+    !["data-agent-native-layer-name", "data-layer-name"].some((attribute) =>
+      clone.getAttribute(attribute)?.trim(),
+    )
+  ) {
+    const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
+    // A "tag" source means the name was never authored — it's derived from
+    // the element's tag/paint (layerNameFor's fallback). The clone carries
+    // the same tag and styles, so leaving it unstamped re-derives the
+    // IDENTICAL name (Figma parity: a duplicate/paste never gets a literal
+    // "Copy" suffix). Only names sourced from an attribute that clone id
+    // reassignment below is about to change (id/class -> "selector") need
+    // stamping so the derivation survives that rewrite.
+    if (sourceNode && sourceNode.layerNameSource !== "tag") {
+      clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
+    }
   }
   const nodeIdMap = new Map<string, string>();
   const previousRootNodeId = clone.getAttribute("data-agent-native-node-id");
@@ -331,7 +512,7 @@ export function prepareClonedHtmlLayersForLiveInsert(
   layerHtmls: string[],
   options: {
     stripRootPosition?: boolean;
-    positions?: Array<{ x: number; y: number } | null | undefined>;
+    positions?: Array<CloneLayerPosition | null | undefined>;
     styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
   } = {},
 ): {
@@ -390,7 +571,7 @@ export function insertClonedHtmlLayers(
     anchorSelectors?: string[];
     placement?: "before" | "after" | "inside";
     stripRootPosition?: boolean;
-    positions?: Array<{ x: number; y: number } | null | undefined>;
+    positions?: Array<CloneLayerPosition | null | undefined>;
     styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
     managedStyleSnapshots?: Array<
       DesignClipboardManagedStyleSnapshot | null | undefined

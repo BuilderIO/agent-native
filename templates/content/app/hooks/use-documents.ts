@@ -27,6 +27,10 @@ import {
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {
+  documentScopedReadRetryOptions,
+  isWithinCreateSettlingWindow,
+} from "../lib/document-scoped-read-retry";
+import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
   removeOptimisticItemFromContentDatabase,
@@ -560,12 +564,21 @@ export interface PreviewDocumentDraftRecord {
 
 export function usePreviewDocumentDraft(
   documentId: string | null,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; createdAt?: string | null } = {},
 ) {
   return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
     "get-preview-document-draft",
     documentId ? { documentId } : undefined,
-    { enabled: !!documentId && options.enabled !== false, retry: false },
+    {
+      enabled: !!documentId && options.enabled !== false,
+      // The caller gates this off while it knows creation is pending. A 403/404
+      // that still arrives for a row that young is one this connection cannot
+      // see yet rather than a refusal, so ride it out. Once the row is past its
+      // settling window a 403 is a real authorization answer and stays terminal.
+      ...documentScopedReadRetryOptions(
+        isWithinCreateSettlingWindow(options.createdAt),
+      ),
+    },
   );
 }
 

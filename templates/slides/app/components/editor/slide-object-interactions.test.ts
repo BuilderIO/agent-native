@@ -15,6 +15,7 @@ import {
   cloneSlideObject,
   collectMovableSlideObjects,
   computeSlideObjectZOrder,
+  computeSlideObjectZOrderForSelection,
   createSlideObjectPlacementGeometry,
   copySlideObjects,
   readSlideObjectClipboardId,
@@ -27,9 +28,12 @@ import {
   freezeSlideElementForFreeform,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  groupSlideObjects,
   findPersistedImageObject,
+  isSlideObjectGroup,
   isAutoHeightTextResize,
   isValidSlideClipboardRoot,
+  readSlideObjectSelectionFrame,
   resolveSlideClipboardElement,
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
@@ -38,15 +42,27 @@ import {
   persistSlideObjectZOrderFromDom,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
+  resolveSlideObjectGroupRoot,
+  resolveSlideObjectInsertionContainingBlock,
   restoreSlideObjectStyle,
   resizeSlideObject,
   resizeSlideObjectMembers,
+  resizeTransformedSlideObject,
+  scaleSlideObjectGroupMembers,
+  readSlideObjectRotation,
+  readSlideObjectTransformSnapshot,
+  resolveSlideObjectRotationDelta,
+  rotateSlideObjectMembers,
+  setSlideObjectRotation,
   setSlideObjectDimension,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
+  ungroupSlideObject,
   SLIDE_OBJECT_PASTE_OFFSET,
   distributeSlideObjectMembers,
   type SlideObjectGeometry,
+  type SlideObjectGroupResizeMember,
+  type SlideObjectRotationMember,
 } from "./slide-object-interactions";
 
 function createFreeformObject(
@@ -60,6 +76,34 @@ function createFreeformObject(
   if (top !== undefined) element.style.top = `${top}px`;
   if (zIndex !== undefined) element.style.zIndex = `${zIndex}`;
   return element;
+}
+
+function groupResizeMember(
+  objectId: string,
+  element: HTMLElement,
+  start: SlideObjectGeometry,
+): SlideObjectGroupResizeMember {
+  return {
+    objectId,
+    element,
+    start,
+    ...readSlideObjectTransformSnapshot(element),
+  };
+}
+
+function rotationMember(
+  objectId: string,
+  element: HTMLElement,
+  start: SlideObjectGeometry,
+  rotation: number,
+): SlideObjectRotationMember {
+  return {
+    objectId,
+    element,
+    start,
+    rotation,
+    ...readSlideObjectTransformSnapshot(element),
+  };
 }
 
 describe("slide object interactions", () => {
@@ -355,6 +399,209 @@ describe("slide object interactions", () => {
     expect(result.get("b")).toEqual({ x: 70, y: 62, width: 30, height: 28 });
   });
 
+  it("resizes a rotated object in its local axes and holds the opposite edge", () => {
+    const geometry = resizeTransformedSlideObject(
+      { x: 100, y: 80, width: 100, height: 50 },
+      {
+        transform: "matrix(0, 1, -1, 0, 0, 0)",
+        transformOrigin: "50% 50%",
+      },
+      {
+        handle: "n",
+        dx: 20,
+        dy: 0,
+        preserveAspectRatio: false,
+      },
+    );
+
+    expect(geometry).toEqual({ x: 110, y: 70, width: 100, height: 70 });
+  });
+
+  it("preserves an explicitly fixed transform origin while resizing", () => {
+    const geometry = resizeTransformedSlideObject(
+      { x: 100, y: 80, width: 100, height: 50 },
+      {
+        transform: "matrix(0, 1, -1, 0, 0, 0)",
+        transformOrigin: "50px 25px",
+      },
+      {
+        handle: "n",
+        dx: 20,
+        dy: 0,
+        preserveAspectRatio: false,
+      },
+    );
+
+    expect(geometry).toEqual({ x: 120, y: 80, width: 100, height: 70 });
+  });
+
+  it("keeps a computed centered transform origin relative to the resized box", () => {
+    const element = createFreeformObject("computed-origin");
+    Object.defineProperty(element, "offsetWidth", { value: 100 });
+    Object.defineProperty(element, "offsetHeight", { value: 50 });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: "matrix(0, 1, -1, 0, 0, 0)",
+              transformOrigin: "50px 25px",
+            } as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element)).toEqual({
+        transform: "matrix(0, 1, -1, 0, 0, 0)",
+        transformOrigin: "50% 50%",
+      });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it("measures selection handles in the rotated object's local frame", () => {
+    const element = createFreeformObject("rotated");
+    element.style.width = "100px";
+    element.style.height = "50px";
+    element.style.transform = "matrix(0, 1, -1, 0, 0, 0)";
+    element.style.transformOrigin = "50% 50%";
+    Object.defineProperty(element, "offsetWidth", { value: 100 });
+    Object.defineProperty(element, "offsetHeight", { value: 50 });
+
+    const frame = readSlideObjectSelectionFrame(element, {
+      left: 200,
+      top: 100,
+      width: 50,
+      height: 100,
+    } as DOMRect);
+
+    expect(frame).toEqual({
+      left: 175,
+      top: 125,
+      width: 100,
+      height: 50,
+      transform: "matrix(0, 1, -1, 0, 0, 0)",
+      transformOrigin: { x: 50, y: 25 },
+    });
+  });
+
+  it("scales each grouped descendant in its own parent coordinate space", () => {
+    const first = createFreeformObject("first");
+    const nestedGroup = createFreeformObject("nested-group");
+    const nestedChild = createFreeformObject("nested-child");
+    const plan = scaleSlideObjectGroupMembers(
+      [
+        groupResizeMember("first", first, {
+          x: 10,
+          y: 20,
+          width: 40,
+          height: 30,
+        }),
+        groupResizeMember("nested-group", nestedGroup, {
+          x: 60,
+          y: 50,
+          width: 40,
+          height: 40,
+        }),
+        groupResizeMember("nested-child", nestedChild, {
+          x: 10,
+          y: 15,
+          width: 20,
+          height: 20,
+        }),
+      ],
+      { width: 100, height: 100 },
+      { width: 200, height: 50 },
+    );
+
+    expect(plan.get(first)?.geometry).toEqual({
+      x: 20,
+      y: 10,
+      width: 80,
+      height: 15,
+    });
+    expect(plan.get(nestedGroup)?.geometry).toEqual({
+      x: 120,
+      y: 25,
+      width: 80,
+      height: 20,
+    });
+    expect(plan.get(nestedChild)?.geometry).toEqual({
+      x: 20,
+      y: 7.5,
+      width: 40,
+      height: 10,
+    });
+  });
+
+  it("scales grouped member transforms with the parent resize", () => {
+    const member = createFreeformObject("member");
+    const plan = scaleSlideObjectGroupMembers(
+      [
+        {
+          objectId: "member",
+          element: member,
+          start: { x: 20, y: 30, width: 40, height: 20 },
+          transform: "matrix(0.8, 0.6, -0.6, 0.8, 10, -8)",
+          transformOrigin: "25% 75%",
+        },
+      ],
+      { width: 100, height: 100 },
+      { width: 200, height: 50 },
+    );
+
+    expect(plan.get(member)).toEqual({
+      geometry: { x: 40, y: 15, width: 80, height: 10 },
+      transform: "matrix(0.8, 0.15, -2.4, 0.8, 20, -4)",
+      transformOrigin: "20px 7.5px",
+    });
+  });
+
+  it("keeps descendants anchored during west and north group resizes", () => {
+    const member = createFreeformObject("member");
+    const groupStart = { x: 100, y: 80, width: 100, height: 60 };
+    const fixedEast = groupStart.x + groupStart.width;
+    const fixedSouth = groupStart.y + groupStart.height;
+    const originalMemberLeft = groupStart.x + 20;
+    const originalMemberTop = groupStart.y + 10;
+
+    for (const resize of [
+      { handle: "w" as const, dx: -60, dy: 0 },
+      { handle: "n" as const, dx: 0, dy: -60 },
+      { handle: "nw" as const, dx: -60, dy: -60 },
+    ]) {
+      const groupEnd = resizeSlideObject(groupStart, {
+        ...resize,
+        preserveAspectRatio: false,
+      });
+      const plan = scaleSlideObjectGroupMembers(
+        [
+          groupResizeMember("member", member, {
+            x: 20,
+            y: 10,
+            width: 30,
+            height: 20,
+          }),
+        ],
+        groupStart,
+        groupEnd,
+      );
+      const memberGeometry = plan.get(member)!;
+      const scaleX = groupEnd.width / groupStart.width;
+      const scaleY = groupEnd.height / groupStart.height;
+
+      expect({
+        x: groupEnd.x + memberGeometry.geometry.x,
+        y: groupEnd.y + memberGeometry.geometry.y,
+      }).toEqual({
+        x: fixedEast - (fixedEast - originalMemberLeft) * scaleX,
+        y: fixedSouth - (fixedSouth - originalMemberTop) * scaleY,
+      });
+    }
+  });
+
   it("resizes multi-selection members from the west and honors minimum bounds", () => {
     const result = resizeSlideObjectMembers(
       [
@@ -601,6 +848,37 @@ describe("slide object interactions", () => {
     document.body.append(slide);
 
     expect(resolveSlideObjectContainingBlock(text, layer)).toBe(slide);
+  });
+
+  it("uses the actual CSS containing block when inserting into a static autofit layer", () => {
+    const slide = document.createElement("div");
+    const layer = document.createElement("div");
+    slide.className = "fmd-slide";
+    slide.style.position = "relative";
+    slide.style.padding = "78px 106px";
+    layer.setAttribute("data-fmd-autofit-content", "true");
+    slide.append(layer);
+    document.body.append(slide);
+
+    expect(resolveSlideObjectInsertionContainingBlock(layer)).toBe(slide);
+
+    const object = document.createElement("div");
+    object.style.position = "absolute";
+    layer.append(object);
+    expect(resolveSlideObjectContainingBlock(object, layer)).toBe(slide);
+  });
+
+  it("uses an active autofit transform as the insertion containing block", () => {
+    const slide = document.createElement("div");
+    const layer = document.createElement("div");
+    slide.className = "fmd-slide";
+    slide.style.position = "relative";
+    layer.setAttribute("data-fmd-autofit-content", "true");
+    layer.style.transform = "scale(0.9)";
+    slide.append(layer);
+    document.body.append(slide);
+
+    expect(resolveSlideObjectInsertionContainingBlock(layer)).toBe(layer);
   });
 
   it("gives clones a distinct persisted identity and drops runtime ids", () => {
@@ -1016,6 +1294,87 @@ describe("slide object interactions", () => {
       value: 1,
       shiftPeers: [],
     });
+  });
+
+  it("computes one-step freeform z-order changes while preserving peer order", () => {
+    const container = document.createElement("div");
+    const first = createFreeformObject("first", { zIndex: 0 });
+    const second = createFreeformObject("second", { zIndex: 1 });
+    const third = createFreeformObject("third", { zIndex: 2 });
+    container.append(first, second, third);
+    document.body.append(container);
+
+    expect(computeSlideObjectZOrder(second, container, "forward")).toEqual({
+      value: 2,
+      shiftPeers: [{ element: third, value: 1 }],
+    });
+    expect(computeSlideObjectZOrder(second, container, "backward")).toEqual({
+      value: 0,
+      shiftPeers: [{ element: first, value: 1 }],
+    });
+  });
+
+  it("moves multi-selected layers together while preserving their relative order", () => {
+    const container = document.createElement("div");
+    const first = createFreeformObject("first", { zIndex: 0 });
+    const middle = createFreeformObject("middle", { zIndex: 1 });
+    const last = createFreeformObject("last", { zIndex: 2 });
+    container.append(first, middle, last);
+    document.body.append(container);
+
+    expect(
+      computeSlideObjectZOrderForSelection([first, last], container, "forward"),
+    ).toEqual(
+      new Map([
+        [first, 1],
+        [middle, 0],
+      ]),
+    );
+    expect(
+      computeSlideObjectZOrderForSelection([first, last], container, "back"),
+    ).toEqual(
+      new Map([
+        [last, 1],
+        [middle, 2],
+      ]),
+    );
+  });
+
+  it("moves contiguous multi-selections one layer past the adjacent peer", () => {
+    const container = document.createElement("div");
+    const first = createFreeformObject("first", { zIndex: 0 });
+    const second = createFreeformObject("second", { zIndex: 1 });
+    const third = createFreeformObject("third", { zIndex: 2 });
+    const fourth = createFreeformObject("fourth", { zIndex: 3 });
+    container.append(first, second, third, fourth);
+    document.body.append(container);
+
+    expect(
+      computeSlideObjectZOrderForSelection(
+        [first, second],
+        container,
+        "forward",
+      ),
+    ).toEqual(
+      new Map([
+        [first, 1],
+        [second, 2],
+        [third, 0],
+      ]),
+    );
+    expect(
+      computeSlideObjectZOrderForSelection(
+        [third, fourth],
+        container,
+        "backward",
+      ),
+    ).toEqual(
+      new Map([
+        [third, 1],
+        [fourth, 2],
+        [second, 3],
+      ]),
+    );
   });
 
   it("returns null when there are no other freeform peers", () => {
@@ -1554,6 +1913,20 @@ describe("resolveSlideClipboardElement", () => {
     );
   });
 
+  it("resolves an image overlay to its object in traversal order", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div data-builder-id="first" data-slide-object-id="first"></div>' +
+      '<div class="fmd-pptx-image" data-builder-id="image-owner" ' +
+      'data-slide-object-id="image-owner"><img src="image.png" /></div>' +
+      '<div data-builder-id="last" data-slide-object-id="last"></div>';
+    const image = root.querySelector("img") as HTMLImageElement;
+    const traversalOrder = Array.from(root.children);
+    const selected = resolveSlideClipboardElement(null, image, root);
+
+    expect(traversalOrder.indexOf(selected!)).toBe(1);
+  });
+
   it("keeps the normal selected element when no image overlay is active", () => {
     const root = document.createElement("div");
     const selected = document.createElement("div");
@@ -1661,6 +2034,698 @@ describe("arrangeSlideLayerInParent", () => {
     arrangeSlideLayerInParent(a, "back");
     expect(slide.querySelector<HTMLElement>("#bg")!.style.zIndex).toBe("-1");
     expect(Number(zOf(a))).toBeGreaterThanOrEqual(0);
+  });
+
+  it("moves a layer one step forward and backward without changing layout order", () => {
+    const slide = mountSlide(
+      `<div id="a">A</div><div id="b">B</div><div id="c">C</div>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+
+    expect(arrangeSlideLayerInParent(a, "forward")).toBe(true);
+    expect(Array.from(slide.children).map((node) => node.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(Number(zOf(a))).toBe(1);
+    expect(Number(zOf(slide.querySelector<HTMLElement>("#b")!))).toBe(0);
+
+    expect(arrangeSlideLayerInParent(a, "backward")).toBe(true);
+    expect(Number(zOf(a))).toBe(0);
+    expect(Number(zOf(slide.querySelector<HTMLElement>("#b")!))).toBe(1);
+  });
+});
+
+describe("slide object groups and rotation", () => {
+  const geometryFor = (
+    entries: Array<[HTMLElement, SlideObjectGeometry]>,
+  ): {
+    get: (element: HTMLElement) => SlideObjectGeometry;
+    apply: (element: HTMLElement, geometry: SlideObjectGeometry) => void;
+  } => {
+    const geometries = new Map(entries);
+    const get = (element: HTMLElement) => {
+      const known = geometries.get(element);
+      if (known) return known;
+      return {
+        x: Number.parseFloat(element.style.left) || 0,
+        y: Number.parseFloat(element.style.top) || 0,
+        width: Number.parseFloat(element.style.width) || 0,
+        height: Number.parseFloat(element.style.height) || 0,
+      };
+    };
+    const apply = (element: HTMLElement, geometry: SlideObjectGeometry) => {
+      geometries.set(element, geometry);
+      element.style.left = `${geometry.x}px`;
+      element.style.top = `${geometry.y}px`;
+      element.style.width = `${geometry.width}px`;
+      element.style.height = `${geometry.height}px`;
+    };
+    return { get, apply };
+  };
+
+  it("resolves a grouped descendant to its nearest group wrapper", () => {
+    const boundary = document.createElement("div");
+    const outer = document.createElement("div");
+    outer.className = "fmd-slide-group";
+    outer.setAttribute("data-slide-group", "true");
+    const inner = outer.cloneNode(false) as HTMLElement;
+    const member = document.createElement("div");
+    outer.append(inner);
+    inner.append(member);
+    boundary.append(outer);
+
+    expect(resolveSlideObjectGroupRoot(member, boundary)).toBe(inner);
+    expect(resolveSlideObjectGroupRoot(inner, boundary)).toBe(inner);
+    expect(resolveSlideObjectGroupRoot(boundary, boundary)).toBeNull();
+  });
+
+  it("groups absolute siblings into one durable wrapper and ungroups at its stack position", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first", { zIndex: 0 });
+    const second = createFreeformObject("second", { zIndex: 0 });
+    const outside = createFreeformObject("outside", { zIndex: 0 });
+    parent.append(first, outside, second);
+    document.body.append(parent);
+    const firstGeometry = { x: 20, y: 30, width: 80, height: 40 };
+    const secondGeometry = { x: 140, y: 60, width: 50, height: 30 };
+    const outsideGeometry = { x: 300, y: 10, width: 20, height: 20 };
+    const geometry = geometryFor([
+      [first, firstGeometry],
+      [second, secondGeometry],
+      [outside, outsideGeometry],
+    ]);
+
+    const group = groupSlideObjects(
+      [second, first],
+      geometry.get,
+      geometry.apply,
+    );
+
+    expect(group).not.toBeNull();
+    expect(isSlideObjectGroup(group!)).toBe(true);
+    expect(group!.getAttribute("data-slide-object-id")).toBeTruthy();
+    expect(group!.style.left).toBe("20px");
+    expect(group!.style.top).toBe("30px");
+    expect(group!.style.width).toBe("170px");
+    expect(group!.style.height).toBe("60px");
+    expect(Array.from(parent.children)).toEqual([outside, group]);
+    expect(Array.from(group!.children)).toEqual([first, second]);
+    expect(first.style.left).toBe("0px");
+    expect(first.style.top).toBe("0px");
+    expect(second.style.left).toBe("120px");
+    expect(second.style.top).toBe("30px");
+
+    const ungrouped = ungroupSlideObject(group!, geometry.get, geometry.apply);
+    expect(ungrouped).toEqual([first, second]);
+    expect(parent.children[0]).toBe(outside);
+    expect(parent.children[1]).toBe(first);
+    expect(parent.children[2]).toBe(second);
+    expect(first.style.left).toBe("20px");
+    expect(first.style.top).toBe("30px");
+    expect(second.style.left).toBe("140px");
+    expect(second.style.top).toBe("60px");
+  });
+
+  it("includes transformed member bounds when creating the group wrapper", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    first.style.transform = "rotate(90deg)";
+    parent.append(first, second);
+    const geometry = geometryFor([
+      [first, { x: 10, y: 10, width: 100, height: 20 }],
+      [second, { x: 90, y: 10, width: 20, height: 20 }],
+    ]);
+
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+
+    expect(group).not.toBeNull();
+    expect(group!.style.left).toBe("50px");
+    expect(group!.style.top).toBe("-30px");
+    expect(group!.style.width).toBe("60px");
+    expect(group!.style.height).toBe("100px");
+    expect(first.style.left).toBe("-40px");
+    expect(first.style.top).toBe("40px");
+    expect(second.style.left).toBe("40px");
+    expect(second.style.top).toBe("40px");
+  });
+
+  it("restores members to the wrapper stack slot when ungrouping", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first", { zIndex: 0 });
+    const second = createFreeformObject("second", { zIndex: 2 });
+    const outside = createFreeformObject("outside", { zIndex: 2 });
+    outside.setAttribute("data-builder-id", "outside");
+    parent.append(first, second, outside);
+    const geometry = geometryFor([
+      [first, { x: 0, y: 0, width: 40, height: 40 }],
+      [second, { x: 60, y: 0, width: 40, height: 40 }],
+      [outside, { x: 120, y: 0, width: 40, height: 40 }],
+    ]);
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+    expect(group).not.toBeNull();
+    expect(arrangeSlideLayerInParent(group!, "front")).toBe(true);
+    expect(group!.style.zIndex).toBe("3");
+
+    const ungrouped = ungroupSlideObject(group!, geometry.get, geometry.apply);
+
+    expect(ungrouped).toEqual([first, second]);
+    expect(first.style.zIndex).toBe("3");
+    expect(second.style.zIndex).toBe("3");
+    expect(Number(first.style.zIndex)).toBeGreaterThan(
+      Number(outside.style.zIndex),
+    );
+    expect(Number(second.style.zIndex)).toBeGreaterThan(
+      Number(outside.style.zIndex),
+    );
+  });
+
+  it("preserves inner paint order when ungrouping inverse DOM and z-index order", () => {
+    const parent = document.createElement("div");
+    const frontFirst = createFreeformObject("front-first", { zIndex: 4 });
+    const backSecond = createFreeformObject("back-second", { zIndex: 1 });
+    const outside = createFreeformObject("outside", { zIndex: 4 });
+    parent.append(frontFirst, backSecond, outside);
+    const geometry = geometryFor([
+      [frontFirst, { x: 0, y: 0, width: 40, height: 40 }],
+      [backSecond, { x: 60, y: 0, width: 40, height: 40 }],
+      [outside, { x: 120, y: 0, width: 40, height: 40 }],
+    ]);
+    const group = groupSlideObjects(
+      [frontFirst, backSecond],
+      geometry.get,
+      geometry.apply,
+    );
+
+    expect(group).not.toBeNull();
+    expect(Array.from(group!.children)).toEqual([frontFirst, backSecond]);
+    expect(group!.style.zIndex).toBe("4");
+
+    const ungrouped = ungroupSlideObject(group!, geometry.get, geometry.apply);
+
+    expect(ungrouped).toEqual([backSecond, frontFirst]);
+    expect(Array.from(parent.children)).toEqual([
+      backSecond,
+      frontFirst,
+      outside,
+    ]);
+    expect([
+      backSecond.style.zIndex,
+      frontFirst.style.zIndex,
+      outside.style.zIndex,
+    ]).toEqual(["4", "4", "4"]);
+
+    const persisted = sanitizeSlideHtml(parent.innerHTML);
+    const reloaded = document.createElement("div");
+    reloaded.innerHTML = persisted;
+    expect(
+      Array.from(reloaded.children).map((element) =>
+        element.getAttribute("data-slide-object-id"),
+      ),
+    ).toEqual(["back-second", "front-first", "outside"]);
+    expect(
+      Array.from(reloaded.children).map(
+        (element) => (element as HTMLElement).style.zIndex,
+      ),
+    ).toEqual(["4", "4", "4"]);
+  });
+
+  it("preserves a group's rotation when ungrouping its members", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    parent.append(first, second);
+    const geometry = geometryFor([
+      [first, { x: 20, y: 30, width: 80, height: 40 }],
+      [second, { x: 140, y: 60, width: 50, height: 30 }],
+    ]);
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+    expect(group).not.toBeNull();
+    setSlideObjectRotation(group!, 90);
+
+    ungroupSlideObject(group!, geometry.get, geometry.apply);
+
+    expect(first.style.left).toBe("75px");
+    expect(first.style.top).toBe("-5px");
+    expect(second.style.left).toBe("65px");
+    expect(second.style.top).toBe("105px");
+    expect(readSlideObjectRotation(first)).toBe(90);
+    expect(readSlideObjectRotation(second)).toBe(90);
+  });
+
+  it.each([
+    ["matrix", "matrix(1, 0, 0, 1, 20, 0)"],
+    ["translate", "translate(20px, 0px)"],
+  ])(
+    "preserves a translated child's visual center when ungrouping a rotated group (%s)",
+    (_kind, transform) => {
+      const parent = document.createElement("div");
+      const group = document.createElement("div");
+      group.className = "fmd-slide-group";
+      group.setAttribute("data-slide-group", "true");
+      group.style.position = "absolute";
+      const first = createFreeformObject("first");
+      const second = createFreeformObject("second");
+      first.style.transform = transform;
+      first.style.transformOrigin = "50% 50%";
+      group.append(first, second);
+      parent.append(group);
+      document.body.append(parent);
+      const geometry = geometryFor([
+        [group, { x: 100, y: 100, width: 200, height: 100 }],
+        [first, { x: 20, y: 20, width: 40, height: 20 }],
+        [second, { x: 120, y: 50, width: 30, height: 20 }],
+      ]);
+      setSlideObjectRotation(group, 90);
+      const groupCenter = { x: 200, y: 150 };
+      const originalVisualCenter = { x: 160, y: 130 };
+      const expectedVisualCenter = {
+        x: groupCenter.x - (originalVisualCenter.y - groupCenter.y),
+        y: groupCenter.y + (originalVisualCenter.x - groupCenter.x),
+      };
+
+      ungroupSlideObject(group, geometry.get, geometry.apply);
+
+      const nextGeometry = geometry.get(first);
+      expect({
+        x: nextGeometry.x + nextGeometry.width / 2 + 20,
+        y: nextGeometry.y + nextGeometry.height / 2,
+      }).toEqual(expectedVisualCenter);
+      expect(readSlideObjectRotation(first)).toBe(90);
+    },
+  );
+
+  it.each([15, 14.5])(
+    "preserves a scaled and sheared child's visual center through rotated ungroup (%s°)",
+    (childAngle) => {
+      const parent = document.createElement("div");
+      const group = document.createElement("div");
+      group.className = "fmd-slide-group";
+      group.setAttribute("data-slide-group", "true");
+      group.style.position = "absolute";
+      const first = createFreeformObject("first");
+      const second = createFreeformObject("second");
+      const radians = (childAngle * Math.PI) / 180;
+      const matrix = [
+        2 * Math.cos(radians),
+        2 * Math.sin(radians),
+        0.25,
+        1.5,
+        20,
+        -10,
+      ];
+      first.style.transform = `matrix(${matrix.join(", ")})`;
+      first.style.transformOrigin = "25% 75%";
+      group.append(first, second);
+      parent.append(group);
+      document.body.append(parent);
+      const firstGeometry = { x: 20, y: 20, width: 40, height: 20 };
+      const groupGeometry = { x: 100, y: 100, width: 200, height: 100 };
+      const geometry = geometryFor([
+        [group, groupGeometry],
+        [first, firstGeometry],
+        [second, { x: 120, y: 50, width: 30, height: 20 }],
+      ]);
+      const origin = { x: 10, y: 15 };
+      const center = { x: 20, y: 10 };
+      const transformOffset = {
+        x:
+          matrix[0]! * (center.x - origin.x) +
+          matrix[2]! * (center.y - origin.y) +
+          matrix[4]! +
+          origin.x -
+          center.x,
+        y:
+          matrix[1]! * (center.x - origin.x) +
+          matrix[3]! * (center.y - origin.y) +
+          matrix[5]! +
+          origin.y -
+          center.y,
+      };
+      const originalVisualCenter = {
+        x: groupGeometry.x + firstGeometry.x + center.x + transformOffset.x,
+        y: groupGeometry.y + firstGeometry.y + center.y + transformOffset.y,
+      };
+      const groupCenter = { x: 200, y: 150 };
+      const expectedVisualCenter = {
+        x: groupCenter.x - (originalVisualCenter.y - groupCenter.y),
+        y: groupCenter.y + (originalVisualCenter.x - groupCenter.x),
+      };
+      setSlideObjectRotation(group, 90);
+
+      ungroupSlideObject(group, geometry.get, geometry.apply);
+
+      const nextGeometry = geometry.get(first);
+      const nextMatrix = first.style.transform
+        .match(/^matrix\((.+)\)$/)?.[1]
+        ?.split(",")
+        .map(Number);
+      expect(nextMatrix).toHaveLength(6);
+      const nextTransformOffset = {
+        x:
+          (nextMatrix?.[0] ?? 1) * (center.x - origin.x) +
+          (nextMatrix?.[2] ?? 0) * (center.y - origin.y) +
+          (nextMatrix?.[4] ?? 0) +
+          origin.x -
+          center.x,
+        y:
+          (nextMatrix?.[1] ?? 0) * (center.x - origin.x) +
+          (nextMatrix?.[3] ?? 1) * (center.y - origin.y) +
+          (nextMatrix?.[5] ?? 0) +
+          origin.y -
+          center.y,
+      };
+      expect(nextGeometry.x + center.x + nextTransformOffset.x).toBeCloseTo(
+        expectedVisualCenter.x,
+        3,
+      );
+      expect(nextGeometry.y + center.y + nextTransformOffset.y).toBeCloseTo(
+        expectedVisualCenter.y,
+        3,
+      );
+    },
+  );
+
+  it("keeps auto stacking implicit when grouping auto-z siblings", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    first.style.zIndex = "auto";
+    second.style.zIndex = "auto";
+    parent.append(first, second);
+    const geometry = geometryFor([
+      [first, { x: 0, y: 0, width: 40, height: 40 }],
+      [second, { x: 60, y: 0, width: 40, height: 40 }],
+    ]);
+
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+
+    expect(group?.style.zIndex).toBe("");
+  });
+
+  it("preserves the effective class z-index when grouping members", () => {
+    const style = document.createElement("style");
+    style.textContent = ".slide-object-class-z-test { z-index: 12; }";
+    document.head.append(style);
+
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second", { zIndex: 4 });
+    first.classList.add("slide-object-class-z-test");
+    parent.append(first, second);
+    document.body.append(parent);
+    const geometry = geometryFor([
+      [first, { x: 0, y: 0, width: 40, height: 40 }],
+      [second, { x: 60, y: 0, width: 40, height: 40 }],
+    ]);
+
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+
+    try {
+      expect(group?.style.zIndex).toBe("12");
+    } finally {
+      parent.remove();
+      style.remove();
+    }
+  });
+
+  it("rotates a multi-selection around its union center", () => {
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    const members = [
+      rotationMember("first", first, { x: 0, y: 0, width: 20, height: 20 }, 0),
+      rotationMember(
+        "second",
+        second,
+        { x: 80, y: 0, width: 20, height: 20 },
+        10,
+      ),
+    ];
+
+    const plan = rotateSlideObjectMembers(members, 90);
+
+    expect(plan.get("first")).toMatchObject({
+      geometry: { x: 40, y: -40, width: 20, height: 20 },
+      rotation: 90,
+    });
+    expect(plan.get("second")).toMatchObject({
+      geometry: { x: 40, y: 40, width: 20, height: 20 },
+      rotation: 100,
+    });
+  });
+
+  it("preserves a class-supplied transform during rotation", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".slide-css-transform-test { transform: matrix(1.5, 0, 0, 1.5, 20, 8); }";
+    document.head.append(style);
+    const element = createFreeformObject("css-transform");
+    element.classList.add("slide-css-transform-test");
+    document.body.append(element);
+
+    try {
+      const member = rotationMember(
+        "css-transform",
+        element,
+        { x: 0, y: 0, width: 100, height: 50 },
+        0,
+      );
+      const plan = rotateSlideObjectMembers([member], 45);
+      const next = plan.get("css-transform");
+      const matrix = next?.transform
+        .match(/^matrix\((.+)\)$/)?.[1]
+        ?.split(",")
+        .map(Number);
+
+      expect(element.style.transform).toBe("");
+      expect(matrix).toHaveLength(6);
+      expect(Math.hypot(matrix?.[0] ?? 0, matrix?.[1] ?? 0)).toBeCloseTo(
+        1.5,
+        8,
+      );
+      expect(
+        (Math.atan2(matrix?.[1] ?? 0, matrix?.[0] ?? 1) * 180) / Math.PI,
+      ).toBeCloseTo(45, 8);
+      expect(matrix?.[4]).toBe(20);
+      expect(matrix?.[5]).toBe(8);
+    } finally {
+      element.remove();
+      style.remove();
+    }
+  });
+
+  it("keeps the pointer-rotation pivot fixed across preview updates", () => {
+    const first = createFreeformObject("first");
+    first.style.transform = "matrix(1, 0, 0, 1, 20, -5)";
+    first.style.transformOrigin = "25% 75%";
+    const second = createFreeformObject("second");
+    second.style.transform =
+      "matrix(0.965925826, 0.258819045, -0.258819045, 0.965925826, -4, 8)";
+    const initial = [
+      rotationMember("first", first, { x: 0, y: 0, width: 120, height: 20 }, 0),
+      rotationMember(
+        "second",
+        second,
+        { x: 140, y: 15, width: 20, height: 80 },
+        15,
+      ),
+    ];
+    const referenceFirst = createFreeformObject("reference-first");
+    referenceFirst.style.transform = first.style.transform;
+    referenceFirst.style.transformOrigin = first.style.transformOrigin;
+    const referenceSecond = createFreeformObject("reference-second");
+    referenceSecond.style.transform = second.style.transform;
+    const reference = [
+      rotationMember(
+        "first",
+        referenceFirst,
+        initial[0]!.start,
+        initial[0]!.rotation,
+      ),
+      rotationMember(
+        "second",
+        referenceSecond,
+        initial[1]!.start,
+        initial[1]!.rotation,
+      ),
+    ];
+
+    const firstPreview = rotateSlideObjectMembers(initial, 10);
+    for (const member of initial) {
+      setSlideObjectRotation(
+        member.element,
+        firstPreview.get(member.objectId)!.rotation,
+      );
+    }
+    const nextPreview = rotateSlideObjectMembers(initial, 20);
+    const directPreview = rotateSlideObjectMembers(reference, 20);
+
+    const output = (plan: typeof nextPreview) =>
+      [...plan.entries()].map(([id, value]) => [
+        id,
+        { geometry: value.geometry, transform: value.transform },
+      ]);
+    expect(output(nextPreview)).toEqual(output(directPreview));
+  });
+
+  it.each([
+    ["matrix", "matrix(1, 0, 0, 1, 20, 0)"],
+    ["translate", "translate(20px, 0px)"],
+  ])(
+    "rotates translated members around the visible selection center (%s)",
+    (_kind, transform) => {
+      const first = createFreeformObject("first");
+      first.style.transform = transform;
+      const second = createFreeformObject("second");
+      const members = [
+        rotationMember(
+          "first",
+          first,
+          { x: 0, y: 0, width: 20, height: 20 },
+          0,
+        ),
+        rotationMember(
+          "second",
+          second,
+          { x: 80, y: 0, width: 20, height: 20 },
+          0,
+        ),
+      ];
+
+      const plan = rotateSlideObjectMembers(members, 90);
+
+      expect(plan.get("first")).toMatchObject({
+        geometry: { x: 30, y: -30, width: 20, height: 20 },
+        rotation: 90,
+      });
+      expect(plan.get("second")).toMatchObject({
+        geometry: { x: 50, y: 30, width: 20, height: 20 },
+        rotation: 90,
+      });
+    },
+  );
+
+  it("reads and replaces a persisted rotate transform", () => {
+    const element = document.createElement("div");
+    element.style.transform = "translate(2px) rotate(15deg)";
+
+    expect(readSlideObjectRotation(element)).toBe(15);
+    setSlideObjectRotation(element, 30);
+    expect(element.style.transform).toContain("rotate(30deg)");
+    expect(readSlideObjectRotation(element)).toBe(30);
+  });
+
+  it("replaces a matrix rotation without dropping scale or translation", () => {
+    const element = document.createElement("div");
+    element.style.transform =
+      "matrix(1.931851652, 0.51763809, -0.51763809, 1.931851652, 10, 20)";
+    expect(readSlideObjectRotation(element)).toBeCloseTo(15);
+
+    setSlideObjectRotation(element, 30);
+
+    const values = element.style.transform
+      .match(/^matrix\((.+)\)$/)?.[1]
+      ?.split(",")
+      .map(Number);
+    expect(values).toHaveLength(6);
+    expect(Math.hypot(values?.[0] ?? 0, values?.[1] ?? 0)).toBeCloseTo(2);
+    expect(
+      Math.atan2(values?.[1] ?? 0, values?.[0] ?? 1) * (180 / Math.PI),
+    ).toBeCloseTo(30);
+    expect(values?.[4]).toBe(10);
+    expect(values?.[5]).toBe(20);
+    expect(readSlideObjectRotation(element)).toBeCloseTo(30);
+  });
+
+  it("preserves fractional rotation when reading a matrix-backed transform", () => {
+    const element = document.createElement("div");
+    const angle = 12.5;
+    const radians = (angle * Math.PI) / 180;
+    element.style.transform = `matrix(${[
+      Math.cos(radians),
+      Math.sin(radians),
+      -Math.sin(radians),
+      Math.cos(radians),
+      10,
+      20,
+    ].join(", ")})`;
+
+    expect(readSlideObjectRotation(element)).toBeCloseTo(angle);
+    setSlideObjectRotation(element, readSlideObjectRotation(element) + 15);
+    expect(readSlideObjectRotation(element)).toBeCloseTo(angle + 15);
+  });
+
+  it("normalizes pointer rotation across the angle boundary and snaps only with Shift", () => {
+    const center = { x: 0, y: 0 };
+    const pointAt = (angle: number) => ({
+      x: Math.cos((angle * Math.PI) / 180),
+      y: Math.sin((angle * Math.PI) / 180),
+    });
+
+    expect(
+      resolveSlideObjectRotationDelta(179, center, pointAt(-179), false),
+    ).toBeCloseTo(2);
+    expect(resolveSlideObjectRotationDelta(0, center, pointAt(22), true)).toBe(
+      15,
+    );
+    expect(
+      resolveSlideObjectRotationDelta(0, center, pointAt(22), false),
+    ).toBeCloseTo(22);
+  });
+
+  it("preserves a group's durable child identity through slide sanitization", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    parent.append(first, second);
+    const geometry = geometryFor([
+      [first, { x: 20, y: 30, width: 80, height: 40 }],
+      [second, { x: 140, y: 60, width: 50, height: 30 }],
+    ]);
+    const group = groupSlideObjects(
+      [first, second],
+      geometry.get,
+      geometry.apply,
+    );
+    expect(group).not.toBeNull();
+    setSlideObjectRotation(group!, 15);
+
+    const persisted = sanitizeSlideHtml(parent.innerHTML);
+    const reloaded = document.createElement("div");
+    reloaded.innerHTML = persisted;
+    const restoredGroup = reloaded.querySelector<HTMLElement>(
+      '.fmd-slide-group[data-slide-group="true"]',
+    );
+
+    expect(restoredGroup?.getAttribute("data-slide-object-id")).toBeTruthy();
+    expect(restoredGroup?.style.transform).toBe("rotate(15deg)");
+    expect(
+      Array.from(
+        restoredGroup?.querySelectorAll("[data-slide-object-id]") ?? [],
+      ).map((element) => element.getAttribute("data-slide-object-id")),
+    ).toEqual(["first", "second"]);
   });
 });
 

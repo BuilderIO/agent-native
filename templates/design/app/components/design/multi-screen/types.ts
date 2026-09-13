@@ -48,6 +48,7 @@ export interface ScreenFile {
    * edit scope (Tailwind prefix: base / md: / lg: / xl:).
    */
   breakpointWidths?: number[];
+  breakpointHeights?: Record<string, number>;
   /** Id of the currently active breakpoint frame for this screen. */
   activeBreakpointWidth?: number;
   /** Generated variation-set membership. Used only to preserve/reflow the
@@ -109,6 +110,7 @@ export interface ScreenMetadata {
   width?: number;
   height?: number;
   heightPinned?: boolean;
+  breakpointHeights?: Record<string, number>;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -168,6 +170,11 @@ export interface MultiScreenCanvasProps {
   onGeometryCommit?: (
     before: FrameGeometryById,
     after: FrameGeometryById,
+  ) => void;
+  onBreakpointContentHeightChange?: (
+    screenId: string,
+    widthPx: number,
+    heightPx: number,
   ) => void;
   onCreatePrimitive?: (
     screenId: string,
@@ -288,7 +295,11 @@ export interface MultiScreenCanvasProps {
   onSelectionChange?: (selectedIds: string[]) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
-    intent: ElementSelectionIntent,
+    // `final` is true only for the one report each marquee gesture sends at
+    // mouseup (every mousemove tick omits it) — see
+    // coalesceMarqueeSelectionHistory's doc comment for why the host needs
+    // it to record one undo step per drag instead of one per tick.
+    intent: ElementSelectionIntent & { final?: boolean },
   ) => void;
   selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
   /**
@@ -327,6 +338,10 @@ export interface MultiScreenCanvasProps {
     sourcePointerOffset?: Point;
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
+    /** True when the source bridge is carrying an Alt-drag copy. */
+    duplicate?: boolean;
+    /** Runtime HTML for an Alt-drag copy whose source must remain in place. */
+    sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
   }) => void;
@@ -533,6 +548,18 @@ export interface MultiScreenCanvasProps {
     paddingScreenPx?: number;
     nonce: number;
   } | null;
+  /**
+   * Screen-px width of fixed chrome the caller renders OVER this canvas's
+   * left/right edges (e.g. the left workspace rail+panel shell, the right
+   * inspector panel) — both are absolutely-positioned overlays, not flex
+   * siblings, so this component's own measured surface rect never shrinks
+   * for them. Every camera-fit computation (the default overview lineup
+   * recenter and the explicit `cameraCommand` fit) must center content in
+   * the space actually free of that chrome, or the first screen and its
+   * frame label render unreachable underneath it. Defaults to 0.
+   */
+  chromeInsetLeft?: number;
+  chromeInsetRight?: number;
 }
 
 export interface FrameGeometry {

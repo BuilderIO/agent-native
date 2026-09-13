@@ -3124,6 +3124,8 @@ export function findServerlessBrowserRuntimeConsumer(
   const manifest = readPackageManifest(projectCwd);
   for (const packageName of [
     ...SERVERLESS_BROWSER_RUNTIME_PACKAGES,
+    // A Playwright declaration signals usage; only playwright-core is copied.
+    "playwright",
     SERVERLESS_BROWSER_RUNTIME_CONSUMER,
   ]) {
     if (manifestDeclaresDependency(manifest, packageName)) return packageName;
@@ -3684,7 +3686,10 @@ export const config = {
 export function emitSingleTemplateNetlifyRecurringJobsFunction(
   projectCwd: string,
 ): void {
-  if (!isRecurringJobsDeployEnabled()) return;
+  // Chat recovery shares this trigger, even when user-created jobs are disabled.
+  if (!isRecurringJobsDeployEnabled() && !isDurableBackgroundDeployEnabled()) {
+    return;
+  }
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const backgroundEntry = path.join(
     internalDir,

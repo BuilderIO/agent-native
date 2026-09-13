@@ -4,6 +4,211 @@
 /** Compiled IIFE string for editor-chrome.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const editorChromeBridgeScript: string = `"use strict";
 (() => {
+  var __create = Object.create;
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getProtoOf = Object.getPrototypeOf;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __commonJS = (cb, mod) => function __require() {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod
+  ));
+
+  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  var require_resolve_uri_umd = __commonJS({
+    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
+      (function(global, factory) {
+        typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, global.resolveURI = factory());
+      })(exports, (function() {
+        "use strict";
+        const schemeRegex = /^[\\w+.-]+:\\/\\//;
+        const urlRegex = /^([\\w+.-]+:)\\/\\/([^@/#?]*@)?([^:/#?]*)(:\\d+)?(\\/[^#?]*)?(\\?[^#]*)?(#.*)?/;
+        const fileRegex = /^file:(?:\\/\\/((?![a-z]:)[^/#?]*)?)?(\\/?[^#?]*)(\\?[^#]*)?(#.*)?/i;
+        function isAbsoluteUrl(input) {
+          return schemeRegex.test(input);
+        }
+        function isSchemeRelativeUrl(input) {
+          return input.startsWith("//");
+        }
+        function isAbsolutePath(input) {
+          return input.startsWith("/");
+        }
+        function isFileUrl(input) {
+          return input.startsWith("file:");
+        }
+        function isRelative(input) {
+          return /^[.?#]/.test(input);
+        }
+        function parseAbsoluteUrl(input) {
+          const match = urlRegex.exec(input);
+          return makeUrl(match[1], match[2] || "", match[3], match[4] || "", match[5] || "/", match[6] || "", match[7] || "");
+        }
+        function parseFileUrl(input) {
+          const match = fileRegex.exec(input);
+          const path = match[2];
+          return makeUrl("file:", "", match[1] || "", "", isAbsolutePath(path) ? path : "/" + path, match[3] || "", match[4] || "");
+        }
+        function makeUrl(scheme, user, host, port, path, query, hash) {
+          return {
+            scheme,
+            user,
+            host,
+            port,
+            path,
+            query,
+            hash,
+            type: 7
+          };
+        }
+        function parseUrl(input) {
+          if (isSchemeRelativeUrl(input)) {
+            const url2 = parseAbsoluteUrl("http:" + input);
+            url2.scheme = "";
+            url2.type = 6;
+            return url2;
+          }
+          if (isAbsolutePath(input)) {
+            const url2 = parseAbsoluteUrl("http://foo.com" + input);
+            url2.scheme = "";
+            url2.host = "";
+            url2.type = 5;
+            return url2;
+          }
+          if (isFileUrl(input))
+            return parseFileUrl(input);
+          if (isAbsoluteUrl(input))
+            return parseAbsoluteUrl(input);
+          const url = parseAbsoluteUrl("http://foo.com/" + input);
+          url.scheme = "";
+          url.host = "";
+          url.type = input ? input.startsWith("?") ? 3 : input.startsWith("#") ? 2 : 4 : 1;
+          return url;
+        }
+        function stripPathFilename(path) {
+          if (path.endsWith("/.."))
+            return path;
+          const index = path.lastIndexOf("/");
+          return path.slice(0, index + 1);
+        }
+        function mergePaths(url, base) {
+          normalizePath(base, base.type);
+          if (url.path === "/") {
+            url.path = base.path;
+          } else {
+            url.path = stripPathFilename(base.path) + url.path;
+          }
+        }
+        function normalizePath(url, type) {
+          const rel = type <= 4;
+          const pieces = url.path.split("/");
+          let pointer = 1;
+          let positive = 0;
+          let addTrailingSlash = false;
+          for (let i = 1; i < pieces.length; i++) {
+            const piece = pieces[i];
+            if (!piece) {
+              addTrailingSlash = true;
+              continue;
+            }
+            addTrailingSlash = false;
+            if (piece === ".")
+              continue;
+            if (piece === "..") {
+              if (positive) {
+                addTrailingSlash = true;
+                positive--;
+                pointer--;
+              } else if (rel) {
+                pieces[pointer++] = piece;
+              }
+              continue;
+            }
+            pieces[pointer++] = piece;
+            positive++;
+          }
+          let path = "";
+          for (let i = 1; i < pointer; i++) {
+            path += "/" + pieces[i];
+          }
+          if (!path || addTrailingSlash && !path.endsWith("/..")) {
+            path += "/";
+          }
+          url.path = path;
+        }
+        function resolve(input, base) {
+          if (!input && !base)
+            return "";
+          const url = parseUrl(input);
+          let inputType = url.type;
+          if (base && inputType !== 7) {
+            const baseUrl = parseUrl(base);
+            const baseType = baseUrl.type;
+            switch (inputType) {
+              case 1:
+                url.hash = baseUrl.hash;
+              // fall through
+              case 2:
+                url.query = baseUrl.query;
+              // fall through
+              case 3:
+              case 4:
+                mergePaths(url, baseUrl);
+              // fall through
+              case 5:
+                url.user = baseUrl.user;
+                url.host = baseUrl.host;
+                url.port = baseUrl.port;
+              // fall through
+              case 6:
+                url.scheme = baseUrl.scheme;
+            }
+            if (baseType > inputType)
+              inputType = baseType;
+          }
+          normalizePath(url, inputType);
+          const queryHash = url.query + url.hash;
+          switch (inputType) {
+            // This is impossible, because of the empty checks at the start of the function.
+            // case UrlType.Empty:
+            case 2:
+            case 3:
+              return queryHash;
+            case 4: {
+              const path = url.path.slice(1);
+              if (!path)
+                return queryHash || ".";
+              if (isRelative(base || input) && !isRelative(path)) {
+                return "./" + path + queryHash;
+              }
+              return path + queryHash;
+            }
+            case 5:
+              return url.path + queryHash;
+            default:
+              return url.scheme + "//" + url.user + url.host + url.port + url.path + queryHash;
+          }
+        }
+        return resolve;
+      }));
+    }
+  });
+
   // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
   var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
   var DEFAULT_CANVAS_NUDGE = 1;
@@ -412,6 +617,292 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
+  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
+  var comma = ",".charCodeAt(0);
+  var semicolon = ";".charCodeAt(0);
+  var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  var intToChar = new Uint8Array(64);
+  var charToInt = new Uint8Array(128);
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars.charCodeAt(i);
+    intToChar[i] = c;
+    charToInt[c] = i;
+  }
+  function decodeInteger(reader, relative) {
+    let value = 0;
+    let shift = 0;
+    let integer = 0;
+    do {
+      const c = reader.next();
+      integer = charToInt[c];
+      value |= (integer & 31) << shift;
+      shift += 5;
+    } while (integer & 32);
+    const shouldNegate = value & 1;
+    value >>>= 1;
+    if (shouldNegate) {
+      value = -2147483648 | -value;
+    }
+    return relative + value;
+  }
+  function hasMoreVlq(reader, max) {
+    if (reader.pos >= max) return false;
+    return reader.peek() !== comma;
+  }
+  var bufLength = 1024 * 16;
+  var StringReader = class {
+    constructor(buffer) {
+      this.pos = 0;
+      this.buffer = buffer;
+    }
+    next() {
+      return this.buffer.charCodeAt(this.pos++);
+    }
+    peek() {
+      return this.buffer.charCodeAt(this.pos);
+    }
+    indexOf(char) {
+      const { buffer, pos } = this;
+      const idx = buffer.indexOf(char, pos);
+      return idx === -1 ? buffer.length : idx;
+    }
+  };
+  function decode(mappings) {
+    const { length } = mappings;
+    const reader = new StringReader(mappings);
+    const decoded = [];
+    let genColumn = 0;
+    let sourcesIndex = 0;
+    let sourceLine = 0;
+    let sourceColumn = 0;
+    let namesIndex = 0;
+    do {
+      const semi = reader.indexOf(";");
+      const line = [];
+      let sorted = true;
+      let lastCol = 0;
+      genColumn = 0;
+      while (reader.pos < semi) {
+        let seg;
+        genColumn = decodeInteger(reader, genColumn);
+        if (genColumn < lastCol) sorted = false;
+        lastCol = genColumn;
+        if (hasMoreVlq(reader, semi)) {
+          sourcesIndex = decodeInteger(reader, sourcesIndex);
+          sourceLine = decodeInteger(reader, sourceLine);
+          sourceColumn = decodeInteger(reader, sourceColumn);
+          if (hasMoreVlq(reader, semi)) {
+            namesIndex = decodeInteger(reader, namesIndex);
+            seg = [genColumn, sourcesIndex, sourceLine, sourceColumn, namesIndex];
+          } else {
+            seg = [genColumn, sourcesIndex, sourceLine, sourceColumn];
+          }
+        } else {
+          seg = [genColumn];
+        }
+        line.push(seg);
+        reader.pos++;
+      }
+      if (!sorted) sort(line);
+      decoded.push(line);
+      reader.pos = semi + 1;
+    } while (reader.pos <= length);
+    return decoded;
+  }
+  function sort(line) {
+    line.sort(sortComparator);
+  }
+  function sortComparator(a, b) {
+    return a[0] - b[0];
+  }
+
+  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
+  var import_resolve_uri = __toESM(require_resolve_uri_umd(), 1);
+  function stripFilename(path) {
+    if (!path) return "";
+    const index = path.lastIndexOf("/");
+    return path.slice(0, index + 1);
+  }
+  function resolver(mapUrl, sourceRoot) {
+    const from = stripFilename(mapUrl);
+    const prefix = sourceRoot ? sourceRoot + "/" : "";
+    return (source) => (0, import_resolve_uri.default)(prefix + (source || ""), from);
+  }
+  var COLUMN = 0;
+  var SOURCES_INDEX = 1;
+  var SOURCE_LINE = 2;
+  var SOURCE_COLUMN = 3;
+  var NAMES_INDEX = 4;
+  function maybeSort(mappings, owned) {
+    const unsortedIndex = nextUnsortedSegmentLine(mappings, 0);
+    if (unsortedIndex === mappings.length) return mappings;
+    if (!owned) mappings = mappings.slice();
+    for (let i = unsortedIndex; i < mappings.length; i = nextUnsortedSegmentLine(mappings, i + 1)) {
+      mappings[i] = sortSegments(mappings[i], owned);
+    }
+    return mappings;
+  }
+  function nextUnsortedSegmentLine(mappings, start) {
+    for (let i = start; i < mappings.length; i++) {
+      if (!isSorted(mappings[i])) return i;
+    }
+    return mappings.length;
+  }
+  function isSorted(line) {
+    for (let j = 1; j < line.length; j++) {
+      if (line[j][COLUMN] < line[j - 1][COLUMN]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  function sortSegments(line, owned) {
+    if (!owned) line = line.slice();
+    return line.sort(sortComparator2);
+  }
+  function sortComparator2(a, b) {
+    return a[COLUMN] - b[COLUMN];
+  }
+  var found = false;
+  function binarySearch(haystack, needle, low, high) {
+    while (low <= high) {
+      const mid = low + (high - low >> 1);
+      const cmp = haystack[mid][COLUMN] - needle;
+      if (cmp === 0) {
+        found = true;
+        return mid;
+      }
+      if (cmp < 0) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    found = false;
+    return low - 1;
+  }
+  function upperBound(haystack, needle, index) {
+    for (let i = index + 1; i < haystack.length; index = i++) {
+      if (haystack[i][COLUMN] !== needle) break;
+    }
+    return index;
+  }
+  function lowerBound(haystack, needle, index) {
+    for (let i = index - 1; i >= 0; index = i--) {
+      if (haystack[i][COLUMN] !== needle) break;
+    }
+    return index;
+  }
+  function memoizedState() {
+    return {
+      lastKey: -1,
+      lastNeedle: -1,
+      lastIndex: -1
+    };
+  }
+  function memoizedBinarySearch(haystack, needle, state, key) {
+    const { lastKey, lastNeedle, lastIndex } = state;
+    let low = 0;
+    let high = haystack.length - 1;
+    if (key === lastKey) {
+      if (needle === lastNeedle) {
+        found = lastIndex !== -1 && haystack[lastIndex][COLUMN] === needle;
+        return lastIndex;
+      }
+      if (needle >= lastNeedle) {
+        low = lastIndex === -1 ? 0 : lastIndex;
+      } else {
+        high = lastIndex;
+      }
+    }
+    state.lastKey = key;
+    state.lastNeedle = needle;
+    return state.lastIndex = binarySearch(haystack, needle, low, high);
+  }
+  function parse(map) {
+    return typeof map === "string" ? JSON.parse(map) : map;
+  }
+  var LINE_GTR_ZERO = "\`line\` must be greater than 0 (lines start at line 1)";
+  var COL_GTR_EQ_ZERO = "\`column\` must be greater than or equal to 0 (columns start at column 0)";
+  var LEAST_UPPER_BOUND = -1;
+  var GREATEST_LOWER_BOUND = 1;
+  var TraceMap = class {
+    constructor(map, mapUrl) {
+      const isString = typeof map === "string";
+      if (!isString && map._decodedMemo) return map;
+      const parsed = parse(map);
+      const { version, file, names, sourceRoot, sources, sourcesContent } = parsed;
+      this.version = version;
+      this.file = file;
+      this.names = names || [];
+      this.sourceRoot = sourceRoot;
+      this.sources = sources;
+      this.sourcesContent = sourcesContent;
+      this.ignoreList = parsed.ignoreList || parsed.x_google_ignoreList || void 0;
+      const resolve = resolver(mapUrl, sourceRoot);
+      this.resolvedSources = sources.map(resolve);
+      const { mappings } = parsed;
+      if (typeof mappings === "string") {
+        this._encoded = mappings;
+        this._decoded = void 0;
+      } else if (Array.isArray(mappings)) {
+        this._encoded = void 0;
+        this._decoded = maybeSort(mappings, isString);
+      } else if (parsed.sections) {
+        throw new Error(\`TraceMap passed sectioned source map, please use FlattenMap export instead\`);
+      } else {
+        throw new Error(\`invalid source map: \${JSON.stringify(parsed)}\`);
+      }
+      this._decodedMemo = memoizedState();
+      this._bySources = void 0;
+      this._bySourceMemos = void 0;
+    }
+  };
+  function cast(map) {
+    return map;
+  }
+  function decodedMappings(map) {
+    var _a;
+    return (_a = cast(map))._decoded || (_a._decoded = decode(cast(map)._encoded));
+  }
+  function originalPositionFor(map, needle) {
+    let { line, column, bias } = needle;
+    line--;
+    if (line < 0) throw new Error(LINE_GTR_ZERO);
+    if (column < 0) throw new Error(COL_GTR_EQ_ZERO);
+    const decoded = decodedMappings(map);
+    if (line >= decoded.length) return OMapping(null, null, null, null);
+    const segments = decoded[line];
+    const index = traceSegmentInternal(
+      segments,
+      cast(map)._decodedMemo,
+      line,
+      column,
+      bias || GREATEST_LOWER_BOUND
+    );
+    if (index === -1) return OMapping(null, null, null, null);
+    const segment = segments[index];
+    if (segment.length === 1) return OMapping(null, null, null, null);
+    const { names, resolvedSources } = map;
+    return OMapping(
+      resolvedSources[segment[SOURCES_INDEX]],
+      segment[SOURCE_LINE] + 1,
+      segment[SOURCE_COLUMN],
+      segment.length === 5 ? names[segment[NAMES_INDEX]] : null
+    );
+  }
+  function OMapping(source, line, column, name) {
+    return { source, line, column, name };
+  }
+  function traceSegmentInternal(segments, memo, line, column, bias) {
+    let index = memoizedBinarySearch(segments, column, memo, line);
+    if (found) {
+      index = (bias === LEAST_UPPER_BOUND ? upperBound : lowerBound)(segments, column, index);
+    } else if (bias === LEAST_UPPER_BOUND) index++;
+    if (index === -1 || index === segments.length) return -1;
+    return index;
+  }
+
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     if (window.__anEditorChromeBridge) return;
@@ -781,17 +1272,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     function resolveProvenanceFrameUrl(rawUrl) {
       if (rawUrl.indexOf("webpack-internal:///") === 0) {
         var webpackPath = rawUrl.slice("webpack-internal:///".length).replace(/^\\.\\//, "");
-        return webpackPath || null;
+        return webpackPath ? { sourceFile: webpackPath, localServedOutput: false } : null;
       }
       try {
-        var url = new URL(rawUrl);
+        var baseUrl = typeof document !== "undefined" ? document.baseURI : void 0;
+        var url = baseUrl ? new URL(rawUrl, baseUrl) : new URL(rawUrl);
         var path = decodeURIComponent(url.pathname);
+        var localServedOutput = path.indexOf("/@fs/") === 0;
         if (path.indexOf("/@fs/") === 0) {
           path = path.slice("/@fs".length);
         } else if (url.protocol !== "file:") {
           path = path.replace(/^\\/+/, "");
         }
-        return path || null;
+        return path ? {
+          sourceFile: path,
+          servedUrl: url.href,
+          localServedOutput
+        } : null;
       } catch (_error) {
         return null;
       }
@@ -800,16 +1297,21 @@ export const editorChromeBridgeScript: string = `"use strict";
     function parseProvenanceStackFrame(lineText) {
       var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
       if (!match) return null;
-      var sourceFile = resolveProvenanceFrameUrl(match[2]);
-      if (!sourceFile || isProvenanceNoisePath(sourceFile)) return null;
+      var resolved = resolveProvenanceFrameUrl(match[2]);
+      if (!resolved) return null;
+      if (!resolved.localServedOutput && isProvenanceNoisePath(resolved.sourceFile)) {
+        return null;
+      }
       var line = parseInt(match[3], 10);
       var column = parseInt(match[4], 10);
       if (!isFinite(line) || !isFinite(column)) return null;
       return {
-        sourceFile,
+        sourceFile: resolved.sourceFile,
         line,
         column,
-        functionName: match[1] || void 0
+        functionName: match[1] || void 0,
+        servedUrl: resolved.servedUrl,
+        localServedOutput: resolved.localServedOutput
       };
     }
     function fiberDebugLocation(fiber) {
@@ -833,7 +1335,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             line: parsed.line,
             column: parsed.column,
             functionName: parsed.functionName,
-            structured: false
+            structured: false,
+            servedUrl: parsed.servedUrl
           };
         }
       }
@@ -870,21 +1373,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cached !== void 0) return cached;
       var leafFiber = reactFiberOf(el);
       if (!leafFiber) return { unavailableReason: "not-framework" };
-      var elementLocation = null;
+      var elementLocation = fiberDebugLocation(leafFiber);
       var componentFiber = null;
-      var fiber = leafFiber;
+      var fiber = leafFiber.return || leafFiber.parent || leafFiber._debugOwner;
       for (var depth = 0; fiber && depth < 12; depth += 1) {
-        if (!elementLocation) elementLocation = fiberDebugLocation(fiber);
-        if (!componentFiber && fiber !== leafFiber && typeof fiber.type === "function") {
+        if (!componentFiber && typeof fiber.type === "function") {
           componentFiber = fiber;
         }
-        if (elementLocation && componentFiber) break;
-        fiber = fiber.return;
+        if (componentFiber) break;
+        fiber = fiber.return || fiber.parent || fiber._debugOwner;
       }
       if (!elementLocation) {
         return { framework: "react", unavailableReason: "no-debug-info" };
       }
-      var componentName = componentFiber && componentFiber.type && (componentFiber.type.displayName || componentFiber.type.name) || elementLocation.functionName || void 0;
+      var componentName = componentFiber && componentFiber.type && (componentFiber.type.displayName || componentFiber.type.name) || elementLocation.functionName || elementLocation.sourceFile.split("/").pop()?.split(".")[0] || void 0;
       var provenance = {
         framework: "react",
         sourceFile: elementLocation.sourceFile,
@@ -908,6 +1410,140 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       reactDebugProvenanceCache?.set(el, provenance);
       return provenance;
+    }
+    var sourceMapPromiseCache = typeof Map !== "undefined" ? /* @__PURE__ */ new Map() : null;
+    function unavailableProvenanceValue() {
+      return null;
+    }
+    function sourceMapRequestFailure(_error) {
+      return unavailableProvenanceValue();
+    }
+    function sourceMapUrlForFrame(servedUrl) {
+      if (!servedUrl) return null;
+      try {
+        var baseUrl = typeof document !== "undefined" ? document.baseURI : void 0;
+        var url = baseUrl ? new URL(servedUrl, baseUrl) : new URL(servedUrl);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+        url.pathname = url.pathname + ".map";
+        return url.href;
+      } catch (_error) {
+        return unavailableProvenanceValue();
+      }
+    }
+    function loadProvenanceSourceMap(servedUrl) {
+      var mapUrl = sourceMapUrlForFrame(servedUrl);
+      if (!mapUrl) return Promise.resolve(null);
+      var cached = sourceMapPromiseCache?.get(mapUrl);
+      if (cached) return cached;
+      var request = fetch(mapUrl, { credentials: "same-origin" }).then(function(response) {
+        return response.ok ? response.json() : null;
+      }).catch(sourceMapRequestFailure);
+      sourceMapPromiseCache?.set(mapUrl, request);
+      return request;
+    }
+    function sourceFileFromSourceMap(source, mapUrl, sourceRoot) {
+      if (typeof source !== "string" || !source) return null;
+      try {
+        var base = typeof sourceRoot === "string" && sourceRoot ? new URL(sourceRoot, mapUrl) : new URL(".", mapUrl);
+        var sourceUrl = new URL(source, base);
+        return resolveProvenanceFrameUrl(sourceUrl.href)?.sourceFile || null;
+      } catch (_error) {
+        return unavailableProvenanceValue();
+      }
+    }
+    function traceMappedProvenanceLocation(location, map, mapUrl) {
+      if (!location || !map || typeof map !== "object") return null;
+      try {
+        var original = originalPositionFor(new TraceMap(map), {
+          line: location.line,
+          column: Math.max(0, Number(location.column || 1) - 1)
+        });
+        if (!original || typeof original.source !== "string" || !Number.isFinite(original.line) || !Number.isFinite(original.column)) {
+          return null;
+        }
+        var sourceFile = sourceFileFromSourceMap(
+          original.source,
+          mapUrl,
+          map.sourceRoot
+        );
+        if (!sourceFile) return null;
+        return {
+          sourceFile,
+          line: original.line,
+          column: original.column + 1,
+          functionName: original.name || location.functionName,
+          structured: false,
+          servedUrl: void 0
+        };
+      } catch (_error) {
+        return unavailableProvenanceValue();
+      }
+    }
+    function remapProvenanceLocation(location) {
+      if (!location || location.structured || !location.servedUrl) {
+        return Promise.resolve(null);
+      }
+      var mapUrl = sourceMapUrlForFrame(location.servedUrl);
+      if (!mapUrl) return Promise.resolve(null);
+      return loadProvenanceSourceMap(location.servedUrl).then(function(map) {
+        return traceMappedProvenanceLocation(location, map, mapUrl);
+      });
+    }
+    function remapReactElementProvenance(el, provenance) {
+      if (provenance.framework !== "react" || !provenance.sourceFile && !provenance.ownerSourceFile) {
+        return Promise.resolve(null);
+      }
+      var leafFiber = reactFiberOf(el);
+      if (!leafFiber) return Promise.resolve(null);
+      var leafLocation = fiberDebugLocation(leafFiber);
+      var componentFiber = null;
+      var fiber = leafFiber.return || leafFiber.parent || leafFiber._debugOwner;
+      for (var depth = 0; fiber && depth < 12; depth += 1) {
+        if (typeof fiber.type === "function") {
+          componentFiber = fiber;
+          break;
+        }
+        fiber = fiber.return || fiber.parent || fiber._debugOwner;
+      }
+      var ownerLocation = componentFiber ? fiberDebugLocation(componentFiber) : null;
+      return Promise.all([
+        provenance.method === "debug-stack" ? remapProvenanceLocation(leafLocation) : Promise.resolve(null),
+        provenance.ownerMethod === "debug-stack" ? remapProvenanceLocation(ownerLocation) : Promise.resolve(null)
+      ]).then(function([mappedLeaf, mappedOwner]) {
+        if (!mappedLeaf && !mappedOwner) return null;
+        var next = { ...provenance };
+        if (mappedLeaf) {
+          next.sourceFile = mappedLeaf.sourceFile;
+          next.line = mappedLeaf.line;
+          next.column = mappedLeaf.column;
+          next.method = "debug-stack-remapped";
+        }
+        if (mappedOwner) {
+          next.ownerSourceFile = mappedOwner.sourceFile;
+          next.ownerLine = mappedOwner.line;
+          next.ownerColumn = mappedOwner.column;
+          next.ownerMethod = "debug-stack-remapped";
+        }
+        reactDebugProvenanceCache?.set(el, next);
+        return next;
+      });
+    }
+    function remapReactDocumentProvenance() {
+      if (!runtimeLayerSnapshotEnabled || !document.body) return;
+      var elements = Array.prototype.slice.call(
+        document.body.querySelectorAll("*")
+      );
+      var pending = [];
+      elements.forEach(function(element) {
+        var provenance = frameworkDebugProvenance(element);
+        if (provenance.framework === "react" && (provenance.method === "debug-stack" || provenance.ownerMethod === "debug-stack")) {
+          pending.push(remapReactElementProvenance(element, provenance));
+        }
+      });
+      if (pending.length === 0) return;
+      void Promise.all(pending).then(function(results) {
+        if (results.some(Boolean)) scheduleRuntimeLayerSnapshot();
+      });
     }
     function parseFrameworkDataLoc(value) {
       var lastColon = value.lastIndexOf(":");
@@ -1042,7 +1678,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         line: line !== void 0 && isFinite(line) ? line : void 0,
         column: column !== void 0 && isFinite(column) ? column : void 0,
         component: sourceNode.getAttribute("data-component-name") || void 0,
-        method: declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : "data-attribute"
+        method: declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "debug-stack-remapped" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : "data-attribute"
       };
     }
     function elementDebugProvenance(el) {
@@ -1436,7 +2072,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (isDocumentRootElement(el)) return true;
       if (el.parentElement !== document.body) return false;
       var sourceId = (getSourceId(el) || "").toLowerCase();
-      var layerName = (el.getAttribute && el.getAttribute("data-agent-native-layer-name") || "").toLowerCase();
+      var layerName = layerNameForElement(el).toLowerCase();
       return sourceId === "body" || layerName === "body" || layerName === "<body>";
     }
     function closestStableSourceElement(el) {
@@ -1608,15 +2244,63 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return siblings.length > 0 ? siblings : [el];
     }
-    function selectionTargetForHit(hit) {
-      if (!hit || isDocumentRootElement(hit)) return hit;
-      var svgRoot = outermostSvgAncestor(hit);
-      if (svgRoot) return svgRoot;
+    function unwrapTextOverlay(hit) {
       if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
         var textOwner = hit.parentElement;
         if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
       }
       return hit;
+    }
+    function selectionTargetForHit(hit, descendIntoGroup = false) {
+      if (!hit || isDocumentRootElement(hit)) return hit;
+      var svgRoot = outermostSvgAncestor(hit);
+      if (svgRoot) return svgRoot;
+      var target = unwrapTextOverlay(hit);
+      if (!descendIntoGroup) {
+        var group = target;
+        while (group && !isDocumentRootElement(group)) {
+          var groupName = group.getAttribute && group.getAttribute("data-agent-native-layer-name") || group.getAttribute && group.getAttribute("data-layer-name") || "";
+          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+          var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
+          var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+          if (generatedGroupMarker || legacyGeneratedGroup) {
+            return group;
+          }
+          group = group.parentElement;
+        }
+      }
+      return target;
+    }
+    function containerScopeAncestor(el, scope) {
+      var node = el;
+      while (node !== scope && node.parentElement && node.parentElement !== scope && node.parentElement !== document.body && node.parentElement !== document.documentElement) {
+        node = node.parentElement;
+      }
+      return node;
+    }
+    function containerFirstSelectionTarget(hit, descendIntoGroup) {
+      var resolved = selectionTargetForHit(hit, descendIntoGroup);
+      if (!resolved || isDocumentRootElement(resolved)) return resolved;
+      var scope = selectionContainerScope;
+      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
+        selectionContainerScope = null;
+        scope = document.body;
+      }
+      return containerScopeAncestor(resolved, scope);
+    }
+    function clickThroughSelectionTarget(hit, ev) {
+      if (ev.detail > 1) return null;
+      if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+        return null;
+      }
+      if (collectMoveGroupMembers(selectedEl).length > 1) return null;
+      if (!hit || isDocumentRootElement(hit)) return null;
+      var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+      if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
+        return null;
+      }
+      selectionContainerScope = selectedEl;
+      return containerScopeAncestor(raw, selectedEl);
     }
     function freshRuntimeNodeId(prefix) {
       var random = "";
@@ -1674,6 +2358,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var raw = el && el.getAttribute && el.getAttribute("data-agent-native-component");
       return raw && raw.trim ? raw.trim() : "";
     }
+    function layerNameForElement(el) {
+      if (!el || !el.getAttribute) return "";
+      var canonical = el.getAttribute("data-agent-native-layer-name");
+      if (canonical && canonical.trim) {
+        var trimmedCanonical = canonical.trim();
+        if (trimmedCanonical) return trimmedCanonical;
+      }
+      var legacy = el.getAttribute("data-layer-name");
+      return legacy && legacy.trim ? legacy.trim() : "";
+    }
     function elementLooksLikeComponent(el) {
       if (!el || !el.getAttribute || !el.tagName) return false;
       if (explicitComponentNameForElement(el)) return true;
@@ -1684,8 +2378,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var explicit = explicitComponentNameForElement(el);
       if (explicit) return explicit;
       if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
-      var layerName = el.getAttribute("data-agent-native-layer-name");
-      return layerName && layerName.trim ? layerName.trim() : "";
+      return layerNameForElement(el);
     }
     function isAutoLayoutDisplay(display) {
       return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -1946,7 +2639,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function getElementInfo(el) {
       var cs = window.getComputedStyle(el);
-      var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
+      var paintTarget = vectorPaintTarget(el) || el;
+      var strokeTarget = vectorStrokeTarget(el) || paintTarget;
+      var paintCs = window.getComputedStyle(paintTarget);
+      var strokeCs = window.getComputedStyle(strokeTarget);
+      var strokeOverlay = strokeTarget.hasAttribute(
+        "data-an-vector-stroke-overlay"
+      );
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
@@ -2094,9 +2793,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           // the \`<svg>\` wrapper itself is never painted.
           fill: paintCs.fill,
           fillOpacity: paintCs.fillOpacity,
-          stroke: paintCs.stroke,
-          strokeWidth: paintCs.strokeWidth,
-          strokeOpacity: paintCs.strokeOpacity,
+          stroke: strokeCs.stroke,
+          strokeWidth: strokeOverlay ? strokeTarget.getAttribute("data-an-vector-logical-width") || strokeCs.strokeWidth : strokeCs.strokeWidth,
+          strokeOpacity: strokeCs.strokeOpacity,
+          strokeDasharray: strokeCs.strokeDasharray,
+          strokeDashoffset: strokeCs.strokeDashoffset,
+          strokeLinecap: strokeCs.strokeLinecap,
+          strokeLinejoin: strokeCs.strokeLinejoin,
+          strokeMiterlimit: strokeCs.strokeMiterlimit,
+          vectorOpacity: paintCs.opacity,
+          vectorTransform: paintCs.transform,
+          vectorTransformOrigin: paintCs.transformOrigin,
+          vectorTransformBox: paintCs.transformBox,
+          "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || "",
           // Text glyph outline (Figma-parity text "Stroke") — CSS has no
           // unprefixed alias, so this is read via the vendor-prefixed
           // longhands directly. See applyStyleEdit/normalizeStyleProperty in
@@ -2120,6 +2829,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         },
         inlineStyles: collectInlineStyles(el),
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
+        vectorStrokeCanAlign: vectorStrokeCanAlign(el),
         portableStyleSnapshot: collectPortableStyleSnapshot(el),
         boundingRect: {
           x: rect.x + (window.scrollX || window.pageXOffset || 0),
@@ -2189,18 +2899,40 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function postElementSelect(el, e) {
+      var selectionGenerationAtPost = ++selectionGeneration;
       rememberLiveVisualEditOriginalStyles(el);
+      var intent = e ? selectionIntentFromEvent(e) : void 0;
       var message = {
         type: "element-select",
         payload: getElementInfo(el)
       };
-      if (e) message.intent = selectionIntentFromEvent(e);
+      if (intent) message.intent = intent;
       window.parent.postMessage(message, "*");
+      var framework = frameworkDebugProvenance(el);
+      if (framework.framework === "react" && (framework.method === "debug-stack" || framework.ownerMethod === "debug-stack")) {
+        void remapReactElementProvenance(el, framework).then(function(mapped) {
+          if (!mapped || el.isConnected === false || selectedEl !== el || selectionGeneration !== selectionGenerationAtPost) {
+            return;
+          }
+          window.parent.postMessage(
+            { type: "element-select", payload: getElementInfo(el) },
+            "*"
+          );
+          remapReactDocumentProvenance();
+        });
+      }
     }
-    function collectSelectableElements() {
+    function collectSelectableElements(deep) {
       var nodes = Array.prototype.slice.call(
         document.body ? document.body.querySelectorAll("*") : []
       );
+      var scope = null;
+      if (!deep) {
+        scope = selectionContainerScope;
+        if (!scope || !document.documentElement.contains(scope)) {
+          scope = document.body;
+        }
+      }
       var seen = /* @__PURE__ */ new Set();
       var elements = [];
       nodes.forEach(function(node) {
@@ -2208,6 +2940,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var target = selectionTargetForHit(node);
+        if (target && scope && scope.contains(target)) {
+          target = containerScopeAncestor(target, scope);
+        }
         if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
           return;
         }
@@ -2224,8 +2959,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "none" || cs.visibility === "hidden";
     }
-    function collectSelectableElementInfos() {
-      return collectSelectableElements().map(function(target) {
+    function collectSelectableElementInfos(deep) {
+      return collectSelectableElements(deep).map(function(target) {
         return getElementInfo(target);
       });
     }
@@ -2562,6 +3297,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       removeRepeatInstanceOverlays();
     }
     var selectedEl = null;
+    var selectionContainerScope = null;
+    var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
     var highlightOverlayStyle = "default";
@@ -2630,6 +3367,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var spacingHatchNodesByKey = {};
     var spacingOverlayRenderKey = "";
     var activeDragCancel = null;
+    var activeDragStartedAt = null;
     var bridgeSpaceKeyPressed = false;
     var bridgeSpaceKeyConsumedByDrag = false;
     var activeCrossScreenStyleSnapshot = void 0;
@@ -2638,7 +3376,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     var hiddenSelectors = [];
     var lastEditorPointWasBlocked = false;
     function clearRuntimeSelection() {
+      window.getSelection?.()?.removeAllRanges();
       selectedEl = null;
+      selectionContainerScope = null;
       clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
@@ -2658,14 +3398,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
-    function setActiveDragCancel(cancel) {
+    function setActiveDragCancel(cancel, startedAt) {
       activeDragCancel = cancel;
+      activeDragStartedAt = typeof startedAt === "number" ? startedAt : Date.now();
       postEditorDragState(true);
     }
     function clearActiveDragCancel(cancel) {
       if (cancel && activeDragCancel !== cancel) return;
       if (!activeDragCancel) return;
       activeDragCancel = null;
+      activeDragStartedAt = null;
       postEditorDragState(false);
     }
     function cancelActiveBridgeDrag() {
@@ -2674,6 +3416,35 @@ export const editorChromeBridgeScript: string = `"use strict";
       activeDragCancel = null;
       postEditorDragState(false);
       return cancel();
+    }
+    var MOVE_CANCEL_RACE_GRACE_MS = 200;
+    var dragGestureSequence = 0;
+    var pendingMoveCommitRevert = null;
+    function armPostCommitCancelGrace(gestureId, releasedAt, revert) {
+      pendingMoveCommitRevert = {
+        gestureId,
+        releasedAt,
+        revert
+      };
+      window.setTimeout(function() {
+        if (pendingMoveCommitRevert && pendingMoveCommitRevert.gestureId === gestureId) {
+          pendingMoveCommitRevert = null;
+        }
+      }, MOVE_CANCEL_RACE_GRACE_MS);
+    }
+    function cancelActiveBridgeDragOrPendingCommit(pressedAt) {
+      if (activeDragCancel && (typeof pressedAt !== "number" || activeDragStartedAt === null || activeDragStartedAt <= pressedAt)) {
+        if (cancelActiveBridgeDrag()) return true;
+      }
+      if (pendingMoveCommitRevert && typeof pressedAt === "number" && // Strict: a tie (same-tick release and Escape) is not "Escape predates
+      // the release" and must not revert an already-committed drag.
+      pressedAt < pendingMoveCommitRevert.releasedAt) {
+        var pending = pendingMoveCommitRevert;
+        pendingMoveCommitRevert = null;
+        pending.revert();
+        return true;
+      }
+      return false;
     }
     function removePassiveSelectionOverlays() {
       passiveSelectionOverlays.forEach(function(overlay) {
@@ -2782,6 +3553,37 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       setPassiveSelectionElements([previous].concat(passiveSelectionEls));
+    }
+    function resolveShiftClickToggleOff(target, e) {
+      if (!e?.shiftKey || !target) return void 0;
+      if (target === selectedEl) {
+        var promoted = passiveSelectionEls[0] || null;
+        setPassiveSelectionElements(passiveSelectionEls.slice(1));
+        selectedEl = promoted;
+        return promoted;
+      }
+      if (passiveSelectionEls.indexOf(target) !== -1) {
+        setPassiveSelectionElements(
+          passiveSelectionEls.filter(function(el) {
+            return el !== target;
+          })
+        );
+        return selectedEl;
+      }
+      return void 0;
+    }
+    function postToggledSelection(toggledPrimary) {
+      var survivors = (toggledPrimary ? [toggledPrimary] : []).concat(passiveSelectionEls);
+      if (toggledPrimary) {
+        positionOverlay(selectionOverlay, toggledPrimary);
+      } else {
+        hideSelectionOverlay();
+      }
+      if (survivors.length > 0) {
+        postElementMarqueeSelect(survivors, false, void 0);
+      } else {
+        window.parent.postMessage({ type: "clear-selection" }, "*");
+      }
     }
     function matchesSelectorList(el, selectors) {
       if (!el || !selectors || selectors.length === 0) return false;
@@ -2967,12 +3769,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       styleDeclarations(previousSource).forEach(function(entry) {
         previousOwned[entry[0]] = entry[1];
       });
+      var nextDeclarations = styleDeclarations(nextSource);
       var nextOwned = {};
-      styleDeclarations(nextSource).forEach(function(entry) {
+      nextDeclarations.forEach(function(entry) {
         nextOwned[entry[0]] = true;
       });
       var target = document.createElement("div");
-      target.style.cssText = nextSource || "";
+      target.style.cssText = live.getAttribute("style") ?? "";
+      nextDeclarations.forEach(function(entry) {
+        var wasSource = Object.prototype.hasOwnProperty.call(
+          previousOwned,
+          entry[0]
+        );
+        if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+        target.style.setProperty(entry[0], entry[1], entry[2]);
+      });
       styleDeclarations(live.getAttribute("style") ?? "").forEach(
         function(entry) {
           if (nextOwned[entry[0]]) return;
@@ -2980,8 +3791,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             previousOwned,
             entry[0]
           );
-          if (wasSource && previousOwned[entry[0]] === entry[1]) return;
-          target.style.setProperty(entry[0], entry[1], entry[2]);
+          if (wasSource && previousOwned[entry[0]] === entry[1]) {
+            target.style.removeProperty(entry[0]);
+          }
         }
       );
       var value = target.style.cssText;
@@ -3275,7 +4087,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (!nextInTemplate && currentMatch && currentMatch !== document.body && currentMatch !== document.documentElement && !isOverlayElement(currentMatch)) {
           if (nextMatch) {
-            currentMatch.replaceWith(document.importNode(nextMatch, true));
+            if (isSourceOwned(currentMatch) && currentMatch.nodeName === nextMatch.nodeName && currentMatch.namespaceURI === nextMatch.namespaceURI && !scopeDirectiveChanged(currentMatch, nextMatch)) {
+              morphElement(
+                currentMatch,
+                nextMatch,
+                scopedMorphContext(currentMatch, nextMatch)
+              );
+            } else {
+              var replacement = document.importNode(nextMatch, true);
+              currentMatch.replaceWith(replacement);
+              recordSourceSubtree(replacement);
+            }
           } else if (currentMatch !== document.body && currentMatch !== document.documentElement) {
             if (currentMatch.parentNode && currentMatch.parentNode.contains(currentMatch)) {
               currentMatch.remove();
@@ -4324,12 +5146,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     function frameLabelText(frame) {
-      var name = frame.getAttribute("data-agent-native-layer-name") || frame.getAttribute("aria-label") || "";
+      var name = layerNameForElement(frame) || frame.getAttribute("aria-label") || "";
       return name.trim() || "Frame";
     }
     function selectFrameFromLabel(frame, e) {
       if (isLayerInteractionBlocked(frame)) return;
       blurActiveTextEditor();
+      var toggled = resolveShiftClickToggleOff(frame, e);
+      if (toggled !== void 0) {
+        postToggledSelection(toggled);
+        return;
+      }
       var previousSelectedEl = selectedEl;
       selectedEl = frame;
       positionOverlay(selectionOverlay, selectedEl);
@@ -5058,11 +5885,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!hit || hit.nodeType !== 1 || hit === document.body || hit === document.documentElement)
         return null;
       var selectedContainsHit = selectedEl && selectedEl.contains && selectedEl.contains(hit);
-      if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl))
+      var selectedGroupOwnsHit = !!(selectedContainsHit && selectionTargetForHit(hit) === selectedEl && selectionTargetForHit(hit, true) !== selectedEl);
+      if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl) && !selectedGroupOwnsHit)
         return selectedEl;
       var candidate = null;
       var node = hit;
       while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement) {
+        if (selectedGroupOwnsHit && node === selectedEl) break;
         if (hasOnlyInlineEditableChildren(node)) {
           candidate = node;
         }
@@ -5091,8 +5920,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
+      var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
+      if (toggled !== void 0) {
+        postToggledSelection(toggled);
+        return;
+      }
       var previousSelectedEl = selectedEl;
-      selectedEl = selectionTargetForHit(target);
+      selectedEl = resolvedClickTarget;
       if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
         hideSelectionOverlay();
@@ -5153,7 +5988,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rectsIntersect(a, b) {
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
-    function postElementMarqueeSelect(elements, additive, e) {
+    function postElementMarqueeSelect(elements, additive, e, final) {
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
@@ -5167,13 +6002,18 @@ export const editorChromeBridgeScript: string = `"use strict";
             source: "marquee",
             shiftKey: Boolean(e && e.shiftKey),
             metaKey: Boolean(e && e.metaKey),
-            ctrlKey: Boolean(e && e.ctrlKey)
+            ctrlKey: Boolean(e && e.ctrlKey),
+            // A live drag reports a changed hit-set on every mousemove tick;
+            // only the mouseup report (see beginMarqueeSelection's onUp) sets
+            // this, so the host records ONE selection-history entry per
+            // gesture instead of one per tick (coalesceMarqueeSelectionHistory).
+            final: final === true
           }
         },
         "*"
       );
     }
-    function updateMarqueeSelection(e) {
+    function updateMarqueeSelection(e, final) {
       if (!activeMarqueeSelection) return;
       var rect = marqueeRectFromPoints(
         activeMarqueeSelection.startX,
@@ -5187,7 +6027,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
       if (!activeMarqueeSelection.candidates) {
-        activeMarqueeSelection.candidates = collectSelectableElements();
+        activeMarqueeSelection.candidates = collectSelectableElements(
+          activeMarqueeSelection.deep
+        );
       }
       var hitElements = activeMarqueeSelection.candidates.filter(function(el) {
         var bounds = selectableBounds(el);
@@ -5210,7 +6052,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSelectionOverlay();
       }
       setPassiveSelectionElements(hitElements);
-      postElementMarqueeSelect(hitElements, activeMarqueeSelection.additive, e);
+      postElementMarqueeSelect(
+        hitElements,
+        activeMarqueeSelection.additive,
+        e,
+        final
+      );
     }
     function beginMarqueeSelection(e) {
       if (e.button !== 0) return;
@@ -5237,7 +6084,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var didMove = Boolean(activeMarqueeSelection?.moved);
         if (didMove) {
           stopNativeInteraction(ev);
-          updateMarqueeSelection(ev);
+          updateMarqueeSelection(ev, true);
           suppressNextShieldClickBriefly();
         }
         marqueeSelectionOverlay.style.display = "none";
@@ -5247,6 +6094,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         startX: e.clientX,
         startY: e.clientY,
         additive,
+        deep: Boolean(e && (e.metaKey || e.ctrlKey)),
         moved: false,
         pointerId: e.pointerId,
         move: events.move,
@@ -5262,6 +6110,91 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
+    }
+    var LAYER_LABEL_SEMANTIC_ATTRIBUTES = [
+      "aria-label",
+      "title",
+      "data-code-layer-id",
+      "data-layer-id",
+      "data-name",
+      "data-component",
+      "data-screen",
+      "data-testid",
+      "data-test-id"
+    ];
+    function fallbackTagLayerLabel(tag) {
+      switch (tag) {
+        case "article":
+          return "Article";
+        case "aside":
+          return "Aside";
+        case "body":
+          return "Body";
+        case "button":
+          return "Button";
+        case "div":
+          return "Frame";
+        case "footer":
+          return "Footer";
+        case "form":
+          return "Form";
+        case "header":
+          return "Header";
+        case "a":
+          return "Link";
+        case "img":
+        case "picture":
+          return "Image";
+        case "input":
+          return "Input";
+        case "label":
+          return "Label";
+        case "main":
+          return "Main";
+        case "select":
+          return "Select";
+        case "textarea":
+          return "Text area";
+        case "nav":
+          return "Navigation";
+        case "section":
+          return "Section";
+        case "svg":
+          return "Vector";
+        case "ul":
+        case "ol":
+          return "List";
+        case "li":
+          return "List item";
+        case "em":
+        case "h1":
+        case "h2":
+        case "h3":
+        case "h4":
+        case "h5":
+        case "h6":
+        case "p":
+        case "span":
+        case "strong":
+          return "Text";
+        default:
+          return tag.toUpperCase();
+      }
+    }
+    function layerCandidateLabelFor(candidate, candidateInfo) {
+      var explicitLabel = layerNameForElement(candidate);
+      if (explicitLabel) return explicitLabel;
+      if (candidateInfo.componentName) return candidateInfo.componentName;
+      for (var i = 0; i < LAYER_LABEL_SEMANTIC_ATTRIBUTES.length; i += 1) {
+        var semanticValue = candidate.getAttribute && candidate.getAttribute(LAYER_LABEL_SEMANTIC_ATTRIBUTES[i]);
+        if (semanticValue) return semanticValue;
+      }
+      if (candidate.id) return candidate.id;
+      if (candidate.children.length === 0) {
+        var textLabel = (candidate.textContent || "").trim().replace(/\\s+/g, " ");
+        if (textLabel && textLabel.length <= 48) return textLabel;
+      }
+      return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
     }
     function collectLayerHitCandidates(clientX, clientY) {
       var shieldPointerEvents = shieldOverlay.style.pointerEvents;
@@ -5285,9 +6218,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         elements.push(candidate);
         var candidateInfo = getElementInfo(candidate);
-        var explicitLabel = candidate.getAttribute && candidate.getAttribute("data-agent-native-layer-name") || "";
-        var textLabel = (candidate.textContent || "").trim().replace(/\\s+/g, " ");
-        var label = explicitLabel || candidateInfo.componentName || candidate.id || (textLabel && textLabel.length <= 48 ? textLabel : "") || candidate.tagName.toLowerCase();
+        var label = layerCandidateLabelFor(candidate, candidateInfo);
         var identity = candidateInfo.sourceId || candidateInfo.selector || String(layerCandidates.length);
         layerCandidates.push({
           key: String(identity) + ":" + String(layerCandidates.length),
@@ -5522,7 +6453,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshOverlays();
       postNodeHtmlPreviewApplied(proposalId);
     }
-    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId) {
+    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId, allowDocumentBody = false) {
       var matches = /* @__PURE__ */ new Set();
       if (typeof pendingId === "string" && pendingId) {
         try {
@@ -5531,7 +6462,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (pendingMatches.length === 1) {
             var pendingMatch = pendingMatches[0];
-            if (pendingMatch !== document.body && pendingMatch !== document.documentElement && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
+            if (pendingMatch !== document.documentElement && (allowDocumentBody || pendingMatch !== document.body) && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
               return pendingMatch;
             }
           }
@@ -5561,15 +6492,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (matches.size > 1) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
-          return sourceMatch && sourceMatch !== document.body && sourceMatch !== document.documentElement && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
+          return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
         }
       }
-      if (typeof selector !== "string" || !selector) return null;
+      if (typeof selector !== "string" || !selector) {
+        return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
+      }
       try {
         var selectorMatches = document.querySelectorAll(selector);
         if (selectorMatches.length !== 1) return null;
         var selectorMatch = selectorMatches[0];
-        return selectorMatch !== document.body && selectorMatch !== document.documentElement && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
+        return selectorMatch !== document.documentElement && (allowDocumentBody || selectorMatch !== document.body) && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
       } catch (_err) {
         return null;
       }
@@ -6211,12 +7144,211 @@ export const editorChromeBridgeScript: string = `"use strict";
     function vectorPaintTarget(el) {
       if (!el || el.tagName.toLowerCase() !== "svg") return null;
       var kind = el.getAttribute("data-an-primitive") || "";
-      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star") {
+      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star" && kind !== "rect" && kind !== "rectangle" && kind !== "ellipse" && kind !== "circle") {
         return null;
       }
       return el.querySelector(
-        ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline"
+        ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline"
       );
+    }
+    function vectorStrokeTarget(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return null;
+      return el.querySelector(":scope > use[data-an-vector-stroke-overlay]") || vectorPaintTarget(el);
+    }
+    function vectorStrokeCanAlign(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return false;
+      var kind = el.getAttribute("data-an-primitive") || "";
+      var shape = vectorPaintTarget(el);
+      if (!shape) return false;
+      var shapeTag = shape.tagName.toLowerCase();
+      if ((kind === "rect" || kind === "rectangle") && shapeTag === "rect") {
+        return true;
+      }
+      if ((kind === "ellipse" || kind === "circle") && (shapeTag === "ellipse" || shapeTag === "circle")) {
+        return true;
+      }
+      if (kind === "polygon" || kind === "star") {
+        return shapeTag === "polygon" || shapeTag === "path" && /z/i.test(shape.getAttribute("d") || "");
+      }
+      if (kind !== "path") return false;
+      return !!(shape && shapeTag === "path" && /z/i.test(shape.getAttribute("d") || ""));
+    }
+    function scaledVectorStrokeWidth(value, scale) {
+      var match = value.trim().match(/^([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))([a-z%]*)$/i);
+      if (!match) return scale === 1 ? value : "";
+      return String(Number(match[1]) * scale) + match[2];
+    }
+    function applyVectorStrokePosition(el, position) {
+      if (!["inside", "center", "outside"].includes(position) || !vectorStrokeCanAlign(el)) {
+        return false;
+      }
+      var shape = vectorPaintTarget(el);
+      if (!shape) return false;
+      var oldOverlay = vectorStrokeTarget(el);
+      var oldIsOverlay = oldOverlay && oldOverlay.hasAttribute("data-an-vector-stroke-overlay");
+      var shapeStyle = window.getComputedStyle(shape);
+      var paintStyle = oldIsOverlay ? window.getComputedStyle(oldOverlay) : shapeStyle;
+      var overlayOpacity = oldIsOverlay ? oldOverlay.style.getPropertyValue("opacity") || oldOverlay.getAttribute("opacity") : "";
+      var logicalWidth = oldIsOverlay ? oldOverlay.getAttribute("data-an-vector-logical-width") || paintStyle.strokeWidth : paintStyle.strokeWidth;
+      var paint = {
+        opacity: overlayOpacity ? paintStyle.opacity : shapeStyle.opacity,
+        stroke: paintStyle.stroke,
+        strokeOpacity: paintStyle.strokeOpacity,
+        strokeDasharray: paintStyle.strokeDasharray,
+        strokeDashoffset: paintStyle.strokeDashoffset,
+        strokeLinecap: paintStyle.strokeLinecap,
+        strokeLinejoin: paintStyle.strokeLinejoin,
+        strokeMiterlimit: paintStyle.strokeMiterlimit
+      };
+      var actualWidth = scaledVectorStrokeWidth(
+        logicalWidth,
+        position === "center" ? 1 : 2
+      );
+      if (!actualWidth) return false;
+      var viewBox = (el.getAttribute("viewBox") || "0 0 300 150").trim().split(/[\\s,]+/).map(Number);
+      if (viewBox.length !== 4 || !viewBox.every(Number.isFinite) || viewBox[2] <= 0 || viewBox[3] <= 0) {
+        return false;
+      }
+      var wrapperStyle = el.style;
+      var savedOverflow = el.getAttribute(
+        "data-an-vector-stroke-original-overflow"
+      );
+      if (position === "outside") {
+        if (savedOverflow === null) {
+          el.setAttribute(
+            "data-an-vector-stroke-original-overflow",
+            wrapperStyle.getPropertyValue("overflow")
+          );
+          el.setAttribute(
+            "data-an-vector-stroke-original-overflow-priority",
+            wrapperStyle.getPropertyPriority("overflow")
+          );
+        }
+        wrapperStyle.setProperty("overflow", "visible", "important");
+      } else if (savedOverflow !== null) {
+        var overflowPriority = el.getAttribute("data-an-vector-stroke-original-overflow-priority") || "";
+        if (savedOverflow) {
+          wrapperStyle.setProperty("overflow", savedOverflow, overflowPriority);
+        } else {
+          wrapperStyle.removeProperty("overflow");
+        }
+        el.removeAttribute("data-an-vector-stroke-original-overflow");
+        el.removeAttribute("data-an-vector-stroke-original-overflow-priority");
+      }
+      var miterlimit = Math.max(parseFloat(paint.strokeMiterlimit) || 4, 1);
+      var pad = Math.max((parseFloat(actualWidth) || 0) * miterlimit / 2, 1);
+      var x = viewBox[0] - pad;
+      var y = viewBox[1] - pad;
+      var width = viewBox[2] + pad * 2;
+      var height = viewBox[3] + pad * 2;
+      var svgNs = "http://www.w3.org/2000/svg";
+      Array.from(
+        el.querySelectorAll(":scope > defs[data-an-vector-stroke-defs]")
+      ).forEach(function(generatedDefs) {
+        generatedDefs.remove();
+      });
+      Array.from(
+        el.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]")
+      ).forEach(function(generatedOverlay) {
+        generatedOverlay.remove();
+      });
+      var id = freshRuntimeNodeId("vector-stroke");
+      while (document.getElementById(id + "-geometry")) {
+        id = freshRuntimeNodeId("vector-stroke");
+      }
+      var geometryId = id + "-geometry";
+      var clipId = id + "-inside";
+      var maskId = id + "-outside";
+      var geometry = shape.cloneNode(false);
+      Array.from(geometry.attributes).forEach(function(attribute) {
+        if (![
+          "d",
+          "points",
+          "x",
+          "y",
+          "width",
+          "height",
+          "rx",
+          "ry",
+          "cx",
+          "cy",
+          "r",
+          "fill-rule",
+          "clip-rule"
+        ].includes(attribute.name.toLowerCase())) {
+          geometry.removeAttribute(attribute.name);
+        }
+      });
+      var geometryStyle = window.getComputedStyle(shape);
+      if (geometryStyle.transform !== "none") {
+        geometry.style.setProperty("transform", geometryStyle.transform);
+      }
+      geometry.style.setProperty(
+        "transform-origin",
+        geometryStyle.transformOrigin
+      );
+      geometry.style.setProperty("transform-box", geometryStyle.transformBox);
+      geometry.setAttribute("id", geometryId);
+      geometry.setAttribute("data-an-vector-stroke-geometry", "");
+      var defs = document.createElementNS(svgNs, "defs");
+      defs.setAttribute("data-an-vector-stroke-defs", "");
+      defs.appendChild(geometry);
+      var clip = document.createElementNS(svgNs, "clipPath");
+      clip.setAttribute("id", clipId);
+      clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+      var clipUse = document.createElementNS(svgNs, "use");
+      clipUse.setAttribute("href", "#" + geometryId);
+      clip.appendChild(clipUse);
+      defs.appendChild(clip);
+      var mask = document.createElementNS(svgNs, "mask");
+      mask.setAttribute("id", maskId);
+      mask.setAttribute("maskUnits", "userSpaceOnUse");
+      mask.setAttribute("maskContentUnits", "userSpaceOnUse");
+      mask.setAttribute("mask-type", "luminance");
+      mask.setAttribute("x", String(x));
+      mask.setAttribute("y", String(y));
+      mask.setAttribute("width", String(width));
+      mask.setAttribute("height", String(height));
+      var maskRect = document.createElementNS(svgNs, "rect");
+      maskRect.setAttribute("x", String(x));
+      maskRect.setAttribute("y", String(y));
+      maskRect.setAttribute("width", String(width));
+      maskRect.setAttribute("height", String(height));
+      maskRect.setAttribute("fill", "white");
+      var maskUse = document.createElementNS(svgNs, "use");
+      maskUse.setAttribute("href", "#" + geometryId);
+      maskUse.setAttribute("fill", "black");
+      mask.appendChild(maskRect);
+      mask.appendChild(maskUse);
+      defs.appendChild(mask);
+      var overlay = document.createElementNS(svgNs, "use");
+      overlay.setAttribute("href", "#" + geometryId);
+      overlay.setAttribute("data-an-vector-stroke-overlay", "");
+      overlay.setAttribute("data-an-vector-logical-width", logicalWidth);
+      overlay.setAttribute("pointer-events", "none");
+      overlay.setAttribute("aria-hidden", "true");
+      var overlayStyle = overlay.style;
+      overlayStyle.setProperty("fill", "none");
+      overlayStyle.setProperty("opacity", paint.opacity);
+      overlayStyle.setProperty("stroke", paint.stroke);
+      overlayStyle.setProperty("stroke-width", actualWidth);
+      overlayStyle.setProperty("stroke-opacity", paint.strokeOpacity);
+      overlayStyle.setProperty("stroke-dasharray", paint.strokeDasharray);
+      overlayStyle.setProperty("stroke-dashoffset", paint.strokeDashoffset);
+      overlayStyle.setProperty("stroke-linecap", paint.strokeLinecap);
+      overlayStyle.setProperty("stroke-linejoin", paint.strokeLinejoin);
+      overlayStyle.setProperty("stroke-miterlimit", paint.strokeMiterlimit);
+      if (position === "inside") {
+        overlayStyle.setProperty("clip-path", "url(#" + clipId + ")");
+      } else if (position === "outside") {
+        overlayStyle.setProperty("mask", "url(#" + maskId + ")");
+      }
+      var nextSibling = shape.nextSibling;
+      el.insertBefore(defs, nextSibling);
+      el.insertBefore(overlay, defs.nextSibling);
+      shape.style.setProperty("stroke", "none");
+      el.setAttribute("data-an-vector-stroke-position", position);
+      return true;
     }
     function isVectorPaintProperty(cssProperty) {
       return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0;
@@ -6240,15 +7372,40 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
+      if (cssProperty === "--an-vector-stroke-position") {
+        return applyVectorStrokePosition(el, String(value));
+      }
       var target = el;
+      var strokeOverlay = null;
+      var useOverlay = false;
       if (isVectorPaintProperty(cssProperty)) {
         var shape = vectorPaintTarget(el);
         if (shape) {
-          target = shape;
+          strokeOverlay = vectorStrokeTarget(el);
+          useOverlay = cssProperty.indexOf("stroke") === 0 && !!strokeOverlay && strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
+          target = useOverlay ? strokeOverlay : shape;
           clearVectorWrapperPaint(el);
+          if (useOverlay && cssProperty === "stroke-width") {
+            var logicalWidth = String(value);
+            var position = el.getAttribute("data-an-vector-stroke-position") || "center";
+            var actualWidth = scaledVectorStrokeWidth(
+              logicalWidth,
+              position === "center" ? 1 : 2
+            );
+            if (!actualWidth) return false;
+            strokeOverlay.setAttribute(
+              "data-an-vector-logical-width",
+              logicalWidth
+            );
+            value = actualWidth;
+          }
         }
       }
       target.style.setProperty(cssProperty, String(value));
+      var strokePosition = el.getAttribute("data-an-vector-stroke-position");
+      if (useOverlay && (cssProperty === "stroke-width" || cssProperty === "stroke-miterlimit" && strokePosition === "outside")) {
+        return applyVectorStrokePosition(el, strokePosition || "center");
+      }
       return true;
     }
     function exactCoverSpanForRange(range) {
@@ -6614,7 +7771,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
-    function postCrossScreenDrag(phase, el, ev) {
+    function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
@@ -6625,13 +7782,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
-        activeCrossScreenStyleSnapshot = collectPortableStyleSnapshot(el ?? null);
+        activeCrossScreenStyleSnapshot = options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
       }
-      var rect = el ? el.getBoundingClientRect() : null;
-      var pointerOffset = rect && ev?.clientX !== void 0 && ev.clientY !== void 0 ? {
+      var rect = options?.elementRect ?? (el ? el.getBoundingClientRect() : null);
+      var pointerOffset = options?.pointerOffset ?? (rect && ev?.clientX !== void 0 && ev.clientY !== void 0 ? {
         x: ev.clientX - rect.left,
         y: ev.clientY - rect.top
-      } : void 0;
+      } : void 0);
       window.parent.postMessage(
         {
           type: "agent-native:cross-screen-drag",
@@ -6651,7 +7808,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             height: rect.height
           } : void 0,
           pointerOffset,
-          styleSnapshot: activeCrossScreenStyleSnapshot
+          styleSnapshot: activeCrossScreenStyleSnapshot,
+          duplicate: options?.duplicate === true ? true : void 0,
+          sourceCloneHtml: options?.duplicate && el ? el.outerHTML : void 0
         },
         "*"
       );
@@ -7409,6 +8568,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function postVisualDuplicateChange(originalEl, cloneEl, target) {
       if (!originalEl || !cloneEl) return;
+      recordSourceSubtree(cloneEl);
       window.parent.postMessage(
         {
           type: "visual-duplicate-change",
@@ -8082,6 +9242,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      var moveGestureId = ++dragGestureSequence;
+      var gestureStartedAt = performance.timeOrigin + e.timeStamp;
       var events = dragEventNames(e);
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
@@ -8093,7 +9255,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         duplicatedForDrag = true;
         gestureEl = clone;
         positionOverlay(selectionOverlay, selectedEl);
-        postElementSelect(selectedEl, e);
+        postElementSelect(selectedEl);
       }
       var groupEls = duplicatedForDrag || e.altKey ? [gestureEl] : collectMoveGroupMembers(gestureEl);
       if (groupEls.indexOf(gestureEl) === -1) groupEls = [gestureEl];
@@ -8385,29 +9547,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           var dx = cx - reorderPointerStart.clientX;
           var dy = cy - reorderPointerStart.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
-          if (!isGroupDrag) {
-            window.parent.postMessage(
+          if (!isGroupDrag && !reorderIgnoresAutoLayout) {
+            postCrossScreenDrag(
+              "move",
+              reorderEl,
+              { clientX: cx, clientY: cy },
               {
-                type: "agent-native:cross-screen-drag",
-                phase: "move",
-                selector: reorderSelector,
-                sourceId: reorderSourceId,
-                iframeX: cx,
-                iframeY: cy,
-                viewportW: vw,
-                viewportH: vh,
-                // Without a size the host can only draw a 16px cursor dot, so
-                // the element being dragged is invisible once it leaves here.
-                elementRect: {
-                  left: reorderRect.left,
-                  top: reorderRect.top,
-                  width: reorderRect.width,
-                  height: reorderRect.height
-                },
+                duplicate: duplicatedForDrag,
+                elementRect: reorderRect,
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
-              },
-              "*"
+              }
             );
           }
           if (outside && !isGroupDrag) {
@@ -8416,7 +9566,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             clearReorderReflow2();
             showTransformBadge("Move layer", cx, cy);
           } else {
-            crossScreenClaimedByHost = false;
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
@@ -8454,16 +9603,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearActiveDragCancel(onReorderEscape2);
           clearReorderLift2();
           clearReorderReflow2();
+          suppressNextShieldClickBriefly();
         }, onReorderVisibilityChange2 = function() {
           if (document.visibilityState === "hidden") onReorderEscape2();
         }, onReorderEscape2 = function() {
           cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
-          window.parent.postMessage(
-            { type: "agent-native:cross-screen-drag", phase: "cancel" },
-            "*"
-          );
+          if (!isGroupDrag) postCrossScreenDrag("cancel");
           if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
             if (reorderEl.parentElement)
               reorderEl.parentElement.removeChild(reorderEl);
@@ -8499,35 +9646,40 @@ export const editorChromeBridgeScript: string = `"use strict";
           var vh = window.innerHeight;
           var cx = ev.clientX;
           var cy = ev.clientY;
-          var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh || // Claimed by the host: committing here too would write the node
-          // twice, from two different ideas of where it landed.
-          crossScreenClaimedByHost;
-          if (!isGroupDrag) {
-            window.parent.postMessage(
+          var outsideOnDrop = (
+            // A ctrl/cmd auto-layout-override drag never arms the host (see
+            // onReorderMove/reorderIgnoresAutoLayout above), so the numeric
+            // outside-the-iframe check below — which exists only to defer to
+            // the host's cross-screen drop — must not apply to it either, or
+            // the in-iframe commit below is skipped with nothing to take its
+            // place.
+            !reorderIgnoresAutoLayout && (cx < 0 || cy < 0 || cx > vw || cy > vh) || // Claimed by the host: committing here too would write the node
+            // twice, from two different ideas of where it landed.
+            crossScreenClaimedByHost
+          );
+          if (!isGroupDrag && !reorderIgnoresAutoLayout) {
+            postCrossScreenDrag(
+              "end",
+              reorderEl,
+              { clientX: cx, clientY: cy },
               {
-                type: "agent-native:cross-screen-drag",
-                phase: "end",
-                selector: reorderSelector,
-                sourceId: reorderSourceId,
-                iframeX: cx,
-                iframeY: cy,
-                viewportW: vw,
-                viewportH: vh,
-                // Without a size the host can only draw a 16px cursor dot, so
-                // the element being dragged is invisible once it leaves here.
-                elementRect: {
-                  left: reorderRect.left,
-                  top: reorderRect.top,
-                  width: reorderRect.width,
-                  height: reorderRect.height
-                },
+                duplicate: duplicatedForDrag,
+                elementRect: reorderRect,
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
-              },
-              "*"
+              }
             );
           }
-          if (outsideOnDrop) return;
+          if (outsideOnDrop) {
+            if (duplicatedForDrag) {
+              if (reorderEl.parentElement)
+                reorderEl.parentElement.removeChild(reorderEl);
+              selectedEl = originalSelectedEl;
+              positionOverlay(selectionOverlay, selectedEl);
+              postElementSelect(selectedEl);
+            }
+            return;
+          }
           var finalRaw = resolveReorderOrFreeTarget2(cx, cy, Boolean(ev?.ctrlKey));
           currentTarget = liveReflowEnabled ? stabilizeReorderTarget2(
             applyReorderSizeGuard2(finalRaw, ev),
@@ -8569,6 +9721,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               reorderEl,
               currentTarget
             );
+            postCrossScreenDrag("cancel");
           } else if (isGroupDrag) {
             applyGroupStructureDrop(
               groupEls,
@@ -8620,23 +9773,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reorderGestureStartRect = reorderEl.getBoundingClientRect();
         var reorderLastTargetKey = null;
         var keepCurrentFlowParent = bridgeSpaceKeyPressed;
+        var reorderIgnoresAutoLayout = Boolean(e.ctrlKey || e.metaKey);
         var currentTarget = flowMoveTargetForPoint(
           reorderEl,
           e.clientX,
           e.clientY,
           groupOthers,
           keepCurrentFlowParent,
-          Boolean(e.ctrlKey)
+          reorderIgnoresAutoLayout
         );
         showInsertionGuideFor(currentTarget);
         dndLog("start:reorder", {
           el: getSelector(reorderEl),
           isGroup: isGroupDrag,
-          ctrl: Boolean(e.ctrlKey),
+          ctrl: reorderIgnoresAutoLayout,
           target: dndTarget(currentTarget)
         });
-        var reorderSelector = getSelector(reorderEl);
-        var reorderSourceId = getSourceId(reorderEl);
         crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
         var reorderRect = reorderEl.getBoundingClientRect();
@@ -8645,6 +9797,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: reorderPointerStart.clientX - reorderRect.left,
           y: reorderPointerStart.clientY - reorderRect.top
         };
+        if (!isGroupDrag && !reorderIgnoresAutoLayout) {
+          postCrossScreenDrag("start", reorderEl, reorderPointerStart, {
+            duplicate: duplicatedForDrag,
+            elementRect: {
+              left: reorderRect.left,
+              top: reorderRect.top,
+              width: reorderRect.width,
+              height: reorderRect.height
+            },
+            pointerOffset: reorderPointerOffset,
+            styleSnapshot: reorderStyleSnapshot
+          });
+        }
         var reorderLiftedMembers = [];
         var reorderCommittedTarget = null;
         var reorderCommittedSlot = null;
@@ -8747,8 +9912,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var dragElOffsetScaleX = ancestorScale(dragEl, "x");
       var dragElOffsetScaleY = ancestorScale(dragEl, "y");
-      if (!duplicatedForDrag && !isGroupDrag) {
-        postCrossScreenDrag("start", dragEl, e);
+      if (!isGroupDrag) {
+        postCrossScreenDrag("start", dragEl, e, {
+          duplicate: duplicatedForDrag
+        });
       }
       var crossScreenDragMoveScheduled = false;
       var crossScreenDragMovePendingEv = null;
@@ -8756,7 +9923,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         crossScreenDragMoveScheduled = false;
         var pendingEv = crossScreenDragMovePendingEv;
         crossScreenDragMovePendingEv = null;
-        if (pendingEv) postCrossScreenDrag("move", dragEl, pendingEv);
+        if (pendingEv) {
+          postCrossScreenDrag("move", dragEl, pendingEv, {
+            duplicate: duplicatedForDrag
+          });
+        }
       }
       function scheduleCrossScreenDragMove(ev) {
         crossScreenDragMovePendingEv = {
@@ -8815,14 +9986,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           state.el.style.left = quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
           state.el.style.top = quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
         });
-        if (!duplicatedForDrag && !isGroupDrag) {
+        if (!isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
         }
-        if (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        if (!isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
-          crossScreenClaimedByHost = false;
           currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
@@ -8841,7 +10011,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
-        if (flowInsertPending || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        if (flowInsertPending || !isGroupDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           hideSnapGuides();
           dragChromeSuppressed = true;
           hideSizeBadge();
@@ -8879,6 +10049,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         restoreOverflowOnAncestors(liftedClippingAncestors);
         crossScreenDragMoveScheduled = false;
         crossScreenDragMovePendingEv = null;
+        suppressNextShieldClickBriefly();
       }
       function cancelMoveDrag() {
         bridgeMoveController.cancel();
@@ -8896,6 +10067,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           selectedEl = originalSelectedEl;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
+          postCrossScreenDrag("cancel");
         } else if (dragEl && document.documentElement.contains(dragEl)) {
           restoreSourceDragPosition();
           if (!isGroupDrag) postCrossScreenDrag("cancel");
@@ -8920,6 +10092,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideSnapGuides();
           hideSizeBadge();
           hideConstraintGuides();
+          if (duplicatedForDrag) {
+            if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+            postCrossScreenDrag("cancel");
+          }
           return;
         }
         cleanupMoveDrag();
@@ -8930,11 +10109,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideConstraintGuides();
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
-        if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          postCrossScreenDrag("end", dragEl, ev);
+        if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+          postCrossScreenDrag("end", dragEl, ev, {
+            duplicate: duplicatedForDrag
+          });
         }
-        if (ev && !duplicatedForDrag && outsideOnDrop) {
-          restoreSourceDragPosition();
+        if (ev && !isGroupDrag && outsideOnDrop) {
+          if (duplicatedForDrag) {
+            if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+            selectedEl = originalSelectedEl;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          } else {
+            restoreSourceDragPosition();
+          }
           return;
         }
         if (ev && !duplicatedForDrag && !outsideOnDrop && !bridgeSpaceKeyPressed) {
@@ -8960,10 +10148,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           selectedEl = originalSelectedEl;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
+          postCrossScreenDrag("cancel");
           return;
         }
         if (duplicatedForDrag) {
           postVisualDuplicateChange(originalSelectedEl, dragEl);
+          postCrossScreenDrag("cancel");
         } else if (currentAutoLayoutTarget) {
           if (isGroupDrag) {
             applyGroupStructureDrop(
@@ -9014,14 +10204,51 @@ export const editorChromeBridgeScript: string = `"use strict";
               },
               "*"
             );
+            recordSourceOwnership(state.el);
           });
+          armPostCommitCancelGrace(
+            moveGestureId,
+            // Real creation time of the mouseup, not of this handler running —
+            // any synchronous work above (auto-layout resolution, DOM writes)
+            // would otherwise inflate the apparent release time.
+            performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
+            function() {
+              memberStates.forEach(function(state) {
+                state.el.style.position = state.originalPosition;
+                state.el.style.left = state.originalLeft;
+                state.el.style.top = state.originalTop;
+                var revertStyles = {
+                  position: state.originalPosition,
+                  left: state.originalLeft,
+                  top: state.originalTop
+                };
+                window.parent.postMessage(
+                  {
+                    type: "visual-style-change",
+                    selector: getSelector(state.el),
+                    styles: revertStyles,
+                    originalStyles: originalInlineStylesForPatch(
+                      state.el,
+                      revertStyles
+                    ),
+                    payload: getElementInfo(state.el)
+                  },
+                  "*"
+                );
+                recordSourceOwnership(state.el);
+              });
+              selectedEl = originalSelectedEl;
+              positionOverlay(selectionOverlay, selectedEl);
+              refreshOverlays();
+            }
+          );
           if (!isGroupDrag) postCrossScreenDrag("cancel");
         }
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onMoveKeyDown, true);
-      setActiveDragCancel(cancelMoveDrag);
+      setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
     }
     function collectScaleFontTargets(root) {
       var targets = [];
@@ -9773,21 +11000,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (idx === -1) return null;
       return candidateKeys[(idx + 1) % candidateKeys.length];
     }
-    function isContainerBackgroundHit(el) {
+    function isContainerBackgroundHit(el, rawHit = null) {
       if (!el || el === selectedEl) return false;
+      if (rawHit && rawHit !== el) return false;
       if (isDocumentRootElement(el)) return false;
       if (outermostSvgAncestor(el) === el) return false;
-      return Boolean(el.firstElementChild);
+      var child = el.firstElementChild;
+      if (child && child === el.lastElementChild && child.hasAttribute && child.hasAttribute("data-an-text")) {
+        return false;
+      }
+      return Boolean(child);
     }
     var crossScreenClaimedByHost = false;
     function beginPotentialShieldDrag(e) {
       stopNativeInteraction(e);
+      pendingMoveCommitRevert = null;
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget)) {
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget, hit)) {
         beginMarqueeSelection(e);
         return;
       }
@@ -9802,7 +11035,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         point: { x: e.clientX, y: e.clientY },
         preferSelected: selectedLayerDragPriorityEnabled
       });
-      var clickTarget = hitTarget;
       if (window.__DND_DEBUG)
         dndLog("shield:down", {
           hit: getSelector(hit),
@@ -9822,13 +11054,21 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       }
-      if (!readOnly && !e.altKey) {
+      var suppressCrossScreenStartForCtrlReorder = Boolean(e.ctrlKey || e.metaKey) && isFlowReorderCandidate(dragTarget);
+      if (!readOnly && !e.altKey && !suppressCrossScreenStartForCtrlReorder) {
         postCrossScreenDrag("start", dragTarget, e);
       }
       var startX = e.clientX;
       var startY = e.clientY;
       var didStartDrag = false;
-      function selectTarget(target, ev) {
+      function selectTarget(target, ev, isClick) {
+        if (isClick) {
+          var toggled = resolveShiftClickToggleOff(target, ev);
+          if (toggled !== void 0) {
+            postToggledSelection(toggled);
+            return;
+          }
+        }
         var previousSelectedEl = selectedEl;
         selectedEl = target;
         positionOverlay(selectionOverlay, selectedEl);
@@ -9870,10 +11110,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
         if (cycledEl) {
-          selectTarget(cycledEl);
+          selectTarget(cycledEl, void 0, true);
         } else {
-          selectTarget(clickTarget || dragTarget, ev);
+          selectTarget(primaryClickTarget || dragTarget, ev, true);
         }
         suppressNextShieldClickBriefly();
       }
@@ -10267,7 +11508,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
           if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
             var previousSelectedElForDescend = selectedEl;
-            var descendTarget = selectionTargetForHit(descendHit);
+            if (previousSelectedElForDescend && document.documentElement.contains(previousSelectedElForDescend) && previousSelectedElForDescend.contains(descendHit)) {
+              selectionContainerScope = previousSelectedElForDescend;
+            }
+            var descendTarget = containerFirstSelectionTarget(descendHit, true);
             if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
               selectedEl = descendTarget;
               positionOverlay(selectionOverlay, selectedEl);
@@ -10364,6 +11608,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.borderColor = originalBorderColor;
         setTextEditingPointerPassthrough(false);
         setSelectionOverlayResizeChromeVisible(true);
+        var nativeSelection = window.getSelection ? window.getSelection() : null;
+        if (nativeSelection) nativeSelection.removeAllRanges();
         if (activeTextEditEl === target) activeTextEditEl = null;
         if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
         postTextEditingState(target, false);
@@ -10562,11 +11808,52 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    var lastHoverClientPoint = null;
+    function resolveHoverTarget(clientX, clientY, deepSelect) {
+      var rawHit = elementFromEditorPoint(clientX, clientY);
+      return deepSelect ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
+    }
+    function reresolveHoverAtLastPoint(deepSelect) {
+      if (!lastHoverClientPoint) return;
+      hoveredEl = resolveHoverTarget(
+        lastHoverClientPoint.x,
+        lastHoverClientPoint.y,
+        deepSelect
+      );
+      if (!hoveredEl || hoveredEl === selectedEl) {
+        highlightOverlay.style.display = "none";
+      } else {
+        positionOverlay(highlightOverlay, hoveredEl);
+      }
+    }
+    document.addEventListener(
+      "keydown",
+      function(e) {
+        if (e.key === "Meta" || e.key === "Control") {
+          reresolveHoverAtLastPoint(true);
+        }
+      },
+      true
+    );
+    document.addEventListener(
+      "keyup",
+      function(e) {
+        if (e.key === "Meta" || e.key === "Control") {
+          reresolveHoverAtLastPoint(false);
+        }
+      },
+      true
+    );
     shieldOverlay.addEventListener(
       "pointermove",
       function(e) {
         stopNativeInteraction(e);
-        hoveredEl = elementFromEditorPoint(e.clientX, e.clientY);
+        lastHoverClientPoint = { x: e.clientX, y: e.clientY };
+        hoveredEl = resolveHoverTarget(
+          e.clientX,
+          e.clientY,
+          e.metaKey || e.ctrlKey
+        );
         if (!hoveredEl) {
           highlightOverlay.style.display = "none";
           if (!spacingDrag) {
@@ -10859,7 +12146,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {
-        cancelActiveBridgeDrag();
+        cancelActiveBridgeDragOrPendingCommit(
+          typeof e.data.pressedAt === "number" ? e.data.pressedAt : void 0
+        );
         return;
       }
       if (e.data.type === "agent-native:reset-live-visual-edit-baselines") {
@@ -10903,7 +12192,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           {
             type: "agent-native:selectable-rects-result",
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
-            payload: collectSelectableElementInfos()
+            payload: collectSelectableElementInfos(Boolean(e.data.deep))
           },
           "*"
         );
@@ -11151,7 +12440,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var insertAnchor = findUniqueRuntimeStructureTarget(
           String(e.data.anchorSelector || ""),
           typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
-          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : ""
+          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : "",
+          true
         );
         if (!insertAnchor) {
           rejectInsert("anchor-unresolved");
@@ -11518,6 +12808,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "class",
           "data-agent-native-component",
           "data-agent-native-layer-name",
+          "data-layer-name",
           "data-an-primitive",
           "data-component-name",
           "data-source-column",
@@ -11550,6 +12841,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         attributes: true,
         attributeFilter: [
           "data-agent-native-layer-name",
+          "data-layer-name",
           "data-an-primitive",
           "class",
           "style"

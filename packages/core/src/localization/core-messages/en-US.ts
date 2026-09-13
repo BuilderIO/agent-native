@@ -140,6 +140,7 @@ const messages = {
   "composer.openDesktop": "Open Desktop to use this chat.",
   "composer.removeAttachment": "Remove {{name}}",
   "composer.scrollToBottom": "Scroll to bottom",
+  "composer.suggestedPrompts": "Suggested prompts",
   "composer.stopResponse": "Stop response",
   "composer.subAgentReadOnly":
     "Send messages to the orchestrator chat — this sub-agent runs automatically",
@@ -168,6 +169,7 @@ const messages = {
     "Configure Anthropic, OpenAI, or another provider",
   "composer.connectAbove": "Connect AI above to continue...",
   "composer.connectBuilder": "Connect Builder.io",
+  "composer.connectKeys": "Connect keys",
   "composer.connectingBuilder": "Connecting Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",
@@ -381,6 +383,8 @@ const messages = {
     "The model provider could not be reached. Check your connection and retry.",
   "errorMessages.providerRateLimit":
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+  "errorMessages.providerTransientRejection":
+    "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
   "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
   "feedback.inaccurate": "Inaccurate",
@@ -521,6 +525,10 @@ const messages = {
   "queue.remove": "Remove from queue",
   "queue.sendNow": "Send now",
   "queue.sendNowHint": "Send now (stops the current response)",
+  "queue.steer": "Steer",
+  "queue.steerHint": "Send this message next",
+  "queue.moreActions": "More actions",
+  "queue.moveToTop": "Move to top",
   "recovery.connectingBuilder": "Connecting Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",

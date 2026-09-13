@@ -118,6 +118,10 @@ export function createOAuth2Client(
 // all calls for this token briefly so the per-minute window can refill and
 // subsequent requests don't pile on top of an already-exhausted quota.
 const QUOTA_COOLDOWN_MS = 90_000;
+// Must match the 300s Retry-After clamp in retryAfterSecondsFromErrors
+// (list-inbox-emails.ts) and gmailErrorStatus (server/handlers/emails.ts) —
+// otherwise a client could retry into a breaker window that's still active.
+const QUOTA_COOLDOWN_MAX_MS = 300_000;
 const tokenCooldowns = new Map<string, number>();
 
 function cooldownKey(accessToken: string): string {
@@ -136,11 +140,22 @@ function isInCooldown(accessToken: string): number {
   return until - Date.now();
 }
 
-function tripCooldown(accessToken: string, cooldownMs = QUOTA_COOLDOWN_MS) {
+// Returns the effective cooldown actually applied (never less than
+// QUOTA_COOLDOWN_MS) so callers can put a consistent duration into the
+// thrown error instead of the raw, possibly-shorter provider value.
+function tripCooldown(
+  accessToken: string,
+  cooldownMs = QUOTA_COOLDOWN_MS,
+): number {
+  const effectiveCooldownMs = Math.min(
+    Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
+    QUOTA_COOLDOWN_MAX_MS,
+  );
   tokenCooldowns.set(
     cooldownKey(accessToken),
-    Date.now() + Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
+    Date.now() + effectiveCooldownMs,
   );
+  return effectiveCooldownMs;
 }
 
 function isQuotaError(status: number, data: any): boolean {
@@ -194,6 +209,25 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
 function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
   const seconds = Math.ceil(cooldownMs / 1000);
   return `Email service is briefly busy and will be ready again in about ${seconds}s. Ask the user for the missing info if you need it now, or try again in a moment.`;
+}
+
+/**
+ * Every quota/cooldown throw in this file goes through this type instead of
+ * a plain Error. The message text is deliberately jargon-free (see
+ * quotaCooldownMessage above) so callers that need to *detect* a quota
+ * cooldown — to return 429 + Retry-After instead of a hard failure — must
+ * not do it by grepping the message for words like "quota" or "429"; that
+ * regex silently stops matching the moment the wording changes, and every
+ * caller upstream then reports a plain 502 during a routine cooldown. Check
+ * `instanceof GmailQuotaCooldownError` (or read `retryAfterMs`) instead.
+ */
+export class GmailQuotaCooldownError extends Error {
+  readonly retryAfterMs: number;
+  constructor(message: string, retryAfterMs: number) {
+    super(message);
+    this.name = "GmailQuotaCooldownError";
+    this.retryAfterMs = retryAfterMs;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +357,10 @@ export async function googleFetch(
   // hammering Google and deepening the rate-limit state.
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
-    throw new Error(quotaCooldownMessage(remaining));
+    throw new GmailQuotaCooldownError(
+      quotaCooldownMessage(remaining),
+      remaining,
+    );
   }
 
   const maxRetries = 3;
@@ -374,12 +411,15 @@ export async function googleFetch(
     // per-token circuit breaker and let callers/UI retry after the cooldown.
     if (!res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
-      tripCooldown(accessToken, cooldownMs);
+      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
       // Don't surface Google's raw "Quota exceeded for quota metric…" string
       // — the agent verbatim-quotes tool errors back to the user, and that
       // jargon is what made our last user reply with "I don't know what a
       // Gmail rate limit means". Use the clean wording instead.
-      throw new Error(quotaCooldownMessage(cooldownMs));
+      throw new GmailQuotaCooldownError(
+        quotaCooldownMessage(effectiveCooldownMs),
+        effectiveCooldownMs,
+      );
     }
 
     if (!res.ok) {
@@ -515,13 +555,26 @@ export function gmailGetAttachment(
   );
 }
 
+// Builds the shared format/metadataHeaders query string for a thread/message
+// get. `metadataHeaders` must be repeated query params (?metadataHeaders=From
+// &metadataHeaders=To&...), not a single joined value — same rule as
+// `historyTypes` on gmailListHistory below.
+function metadataQs(format?: string, metadataHeaders?: string[]): string {
+  const sp = new URLSearchParams();
+  if (format) sp.set("format", format);
+  for (const h of metadataHeaders || []) sp.append("metadataHeaders", h);
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
 export function gmailGetThread(
   accessToken: string,
   id: string,
   format?: string,
+  metadataHeaders?: string[],
 ) {
   return googleFetch(
-    `${GMAIL_BASE}/threads/${id}${qs({ format })}`,
+    `${GMAIL_BASE}/threads/${id}${metadataQs(format, metadataHeaders)}`,
     accessToken,
   );
 }
@@ -618,6 +671,7 @@ export function gmailListHistory(
     historyTypes?: string[];
     labelId?: string;
     maxResults?: number;
+    pageToken?: string;
   },
 ) {
   // Gmail's users.history.list expects `historyTypes` as repeated query
@@ -630,6 +684,7 @@ export function gmailListHistory(
   if (params.maxResults !== undefined) {
     sp.set("maxResults", String(params.maxResults));
   }
+  if (params.pageToken) sp.set("pageToken", params.pageToken);
   for (const t of params.historyTypes || []) sp.append("historyTypes", t);
   return googleFetch(`${GMAIL_BASE}/history?${sp.toString()}`, accessToken);
 }
@@ -699,7 +754,10 @@ async function gmailBatchGet(
   // Respect the circuit breaker like googleFetch does.
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
-    throw new Error(quotaCooldownMessage(remaining));
+    throw new GmailQuotaCooldownError(
+      quotaCooldownMessage(remaining),
+      remaining,
+    );
   }
 
   // Pre-pay the whole batch so the token bucket sees real cost instead of a
@@ -740,7 +798,16 @@ async function gmailBatchGet(
       /* body is multipart or plain text — fine */
     }
     if (isQuotaError(res.status, parsed)) {
-      tripCooldown(accessToken, parseRetryAfterMs(res.headers));
+      const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
+      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
+      // Same rationale as googleFetch: a whole-batch 429 must surface as a
+      // detectable cooldown too, not the raw Google error text below — a
+      // caller checking `instanceof GmailQuotaCooldownError` shouldn't have
+      // to know this is a different code path than the per-item quota error.
+      throw new GmailQuotaCooldownError(
+        quotaCooldownMessage(effectiveCooldownMs),
+        effectiveCooldownMs,
+      );
     }
     throw new Error(
       `Google API error (${res.status}): Gmail batch failed: ${text || res.statusText}`,
@@ -762,7 +829,10 @@ async function gmailBatchGet(
   const quotaPart = parsed.find((part) => isQuotaErrorText(part.error));
   if (quotaPart) {
     tripCooldown(accessToken);
-    throw new Error(quotaCooldownMessage());
+    throw new GmailQuotaCooldownError(
+      quotaCooldownMessage(),
+      QUOTA_COOLDOWN_MS,
+    );
   }
   return parsed;
 }
@@ -785,13 +855,14 @@ export async function gmailBatchGetThreads(
   accessToken: string,
   ids: string[],
   format?: "full" | "metadata" | "minimal",
+  metadataHeaders?: string[],
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
-  const formatQs = format ? `?format=${format}` : "";
+  const query = metadataQs(format, metadataHeaders);
   return gmailBatchGet(
     accessToken,
     ids,
     10,
-    (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${formatQs}`,
+    (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${query}`,
   );
 }
 

@@ -64,8 +64,8 @@ const slidesCanvasInteractionConfig = {
     snapping: true,
     alignment: true,
     distribution: true,
-    grouping: false,
-    rotation: false,
+    grouping: true,
+    rotation: true,
     marquee: true,
   },
 };
@@ -85,6 +85,25 @@ export function resolveSlidesCanvasNudge(
 ) {
   if (input.altKey || input.ctrlKey || input.metaKey) return null;
   return slidesCanvasInteractionCore.nudge(input);
+}
+
+/** Rotate a selected canvas object by the Google Slides keyboard increment. */
+export function resolveSlidesCanvasRotation(
+  input: Pick<
+    KeyboardEvent,
+    "key" | "altKey" | "shiftKey" | "metaKey" | "ctrlKey"
+  >,
+): number | null {
+  if (
+    !input.altKey ||
+    input.metaKey ||
+    input.ctrlKey ||
+    (input.key !== "ArrowLeft" && input.key !== "ArrowRight")
+  ) {
+    return null;
+  }
+  const amount = input.shiftKey ? 1 : 15;
+  return input.key === "ArrowLeft" ? -amount : amount;
 }
 
 /** Creates one shared controller per live Slides pointer gesture. */

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   isRetryableSessionReadErrorMessage,
+  isTransientCommittedNavigationResponse,
   isTransientStartupPollResponse,
 } from "./qa-standalone-chat-dev-smoke-readiness";
 
@@ -29,6 +30,28 @@ describe("standalone chat startup poll readiness", () => {
     );
     assert.equal(
       isTransientStartupPollResponse(502, "Error: socket hang up"),
+      false,
+    );
+  });
+
+  it("retries committed responses only for known cold-start failures", () => {
+    assert.equal(
+      isTransientCommittedNavigationResponse(503, "Vite is starting"),
+      true,
+    );
+    assert.equal(
+      isTransientCommittedNavigationResponse(504, "Outdated optimize dep"),
+      true,
+    );
+    assert.equal(
+      isTransientCommittedNavigationResponse(500, "Error: socket hang up"),
+      true,
+    );
+    assert.equal(
+      isTransientCommittedNavigationResponse(
+        500,
+        "Error: database migration failed",
+      ),
       false,
     );
   });

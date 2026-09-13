@@ -9,6 +9,9 @@ packages/docs/app/components/blocks/image.tsx|An image, full width or aligned le
 packages/docs/app/components/blocks/media-layout.tsx|Close preview
 packages/docs/app/components/blocks/media-layout.tsx|Media preview
 packages/docs/app/components/blocks/notice.tsx|A bold, filled alert card with an icon and optional title, for something a reader must not skim past. Tones: info, decision, risk, warning, success.
+packages/docs/app/components/blocks/sequence.tsx|**Finally** this happens
+packages/docs/app/components/blocks/sequence.tsx|**First** thing happens
+packages/docs/app/components/blocks/sequence.tsx|**Then** this happens
 packages/docs/app/components/blocks/signature.tsx|Describe the parameter.
 packages/docs/app/components/blocks/signature.tsx|Function signature
 packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.

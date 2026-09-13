@@ -21,6 +21,7 @@ import { IntegrationConnectionChoice } from "../integrations/IntegrationConnecti
 import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import { cn } from "../utils.js";
 import {
+  allowsMcpIntegrationPersonalScope,
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   filterMcpIntegrations,
@@ -28,7 +29,9 @@ import {
   getDefaultMcpIntegrations,
   isMcpIntegrationUrl,
   isCustomMcpIntegrationEnabled,
+  mcpUrlRequiresOrganizationScope,
   navigateToMcpOAuthStart,
+  requiresMcpIntegrationOrganizationScope,
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
@@ -54,6 +57,7 @@ export interface McpIntegrationDialogProps {
   initialIntegrationId?: string | null;
   connectIntegrationId?: string | null;
   quickConnectIntegrationId?: string | null;
+  presentation?: "takeover" | "modal";
   defaultScope: McpServerScope;
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
@@ -103,7 +107,9 @@ function resolveIntegrationScope(
   canCreateOrgMcp: boolean,
 ): McpServerScope {
   return resolveMcpIntegrationScope(
-    defaultScope,
+    integration && requiresMcpIntegrationOrganizationScope(integration)
+      ? "org"
+      : defaultScope,
     hasOrg,
     canCreateOrgMcp,
     !integration ||
@@ -118,6 +124,7 @@ export function McpIntegrationDialog({
   initialIntegrationId = null,
   connectIntegrationId = null,
   quickConnectIntegrationId = null,
+  presentation = "takeover",
   defaultScope,
   canCreateOrgMcp,
   hasOrg,
@@ -197,9 +204,14 @@ export function McpIntegrationDialog({
       createMcpIntegrationFormDefaults(initialIntegration);
     const initialNeedsScopeChoice = Boolean(
       initialIntegration &&
-      hasOrg &&
-      requiresMcpIntegrationSetup(initialIntegration) &&
-      supportsMcpIntegrationOrganizationScope(initialIntegration),
+      // Org-only integrations reach the choice screen regardless of workspace
+      // membership: the form would otherwise offer a personal connection the
+      // server rejects, and with no workspace there is nothing else to explain
+      // why the only option is unavailable.
+      (requiresMcpIntegrationOrganizationScope(initialIntegration) ||
+        (hasOrg &&
+          requiresMcpIntegrationSetup(initialIntegration) &&
+          supportsMcpIntegrationOrganizationScope(initialIntegration))),
     );
     setMode(
       initialNeedsScopeChoice
@@ -287,6 +299,17 @@ export function McpIntegrationDialog({
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
       setError(validationError);
+      setTestResult(null);
+      return;
+    }
+    // A hand-entered org-only URL has no catalog entry to route it through the
+    // workspace-only flow, so check eligibility here rather than navigating to
+    // an OAuth start the server can only refuse.
+    if (
+      mcpUrlRequiresOrganizationScope(args.url) &&
+      !(hasOrg && canCreateOrgMcp)
+    ) {
+      setError(t("mcpIntegrations.workspaceOnlyDescription"));
       setTestResult(null);
       return;
     }
@@ -405,7 +428,25 @@ export function McpIntegrationDialog({
     });
   };
 
+  // Org-only integrations have no personal connection to fall back to, so they
+  // must never reach the user-scoped paths below. When the workspace connection
+  // is available we start it directly; otherwise the choice screen is the only
+  // surface that can explain why nothing here is actionable yet.
+  const routeOrganizationOnlyIntegration = (
+    integration: DefaultMcpIntegration,
+  ): boolean => {
+    if (!requiresMcpIntegrationOrganizationScope(integration)) return false;
+    if (hasOrg && canCreateOrgMcp) {
+      connectWorkspace(integration);
+      return true;
+    }
+    setSelected(integration);
+    setMode("choice");
+    return true;
+  };
+
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -439,6 +480,7 @@ export function McpIntegrationDialog({
 
   const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
     if (!mcpServersQuery.isSuccess) return;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -477,6 +519,7 @@ export function McpIntegrationDialog({
     if (!integration) return;
     if (integration.authMode === "oauth" && !oauthReady) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (
       integration.authMode === "oauth" &&
       !(hasOrg && supportsMcpIntegrationOrganizationScope(integration))
@@ -507,6 +550,7 @@ export function McpIntegrationDialog({
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
+    if (routeOrganizationOnlyIntegration(integration)) return;
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
@@ -617,8 +661,25 @@ export function McpIntegrationDialog({
     }
   };
 
+  // The org-only rule covers the shared OAuth grant, so it applies to the OAuth
+  // connection modes only. A header connection carries the user's own token and
+  // stays legitimately personal, exactly as the server treats it.
+  const formRequiresOrganizationScope = selected
+    ? selected.authMode === "oauth" &&
+      requiresMcpIntegrationOrganizationScope(selected)
+    : customAuthMode === "oauth" && mcpUrlRequiresOrganizationScope(url);
+
   const renderScopeSelector = () => {
     if (selected?.managedOAuth) return null;
+    // Offering a personal choice here would be a lie: the connection can only
+    // be created for the workspace, so say that instead of showing a toggle.
+    if (formRequiresOrganizationScope) {
+      return (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {t("mcpIntegrations.workspaceOnlyDescription")}
+        </p>
+      );
+    }
     const canSelectScope = selected
       ? shouldOfferMcpIntegrationOrganizationScope(
           selected,
@@ -678,7 +739,12 @@ export function McpIntegrationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-describedby={undefined}
-        className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
+        className={cn(
+          "flex flex-col gap-0 overflow-hidden p-0",
+          presentation === "takeover"
+            ? "inset-0 h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 rounded-none"
+            : "max-h-[min(680px,calc(100dvh-2rem))] w-[calc(100vw-2rem)] max-w-xl rounded-xl",
+        )}
       >
         {mcpServersQuery.isError ? (
           <div
@@ -716,13 +782,18 @@ export function McpIntegrationDialog({
                   imageClassName="size-full p-1"
                 />
               }
+              showPersonalOption={allowsMcpIntegrationPersonalScope(selected)}
               showWorkspaceOption={supportsMcpIntegrationOrganizationScope(
                 selected,
               )}
               workspaceOptionDisabled={!canCreateOrgMcp}
               workspaceOptionDisabledReason={
                 !canCreateOrgMcp
-                  ? t("mcpIntegrations.workspaceAdminRequired")
+                  ? t(
+                      hasOrg
+                        ? "mcpIntegrations.workspaceAdminRequired"
+                        : "mcpIntegrations.workspaceJoinRequired",
+                    )
                   : undefined
               }
               personalOnlyReason={
@@ -730,7 +801,13 @@ export function McpIntegrationDialog({
                   ? t("mcpIntegrations.personalOnlyDescription")
                   : undefined
               }
+              workspaceOnlyReason={
+                requiresMcpIntegrationOrganizationScope(selected)
+                  ? t("mcpIntegrations.workspaceOnlyDescription")
+                  : undefined
+              }
               busy={busy}
+              compact={presentation === "modal"}
               onPersonal={() => connectPersonal(selected)}
               onWorkspace={() => connectWorkspace(selected)}
             />
@@ -836,21 +913,27 @@ export function McpIntegrationDialog({
           </>
         ) : (
           <>
-            <DialogHeader className="shrink-0 border-b border-border px-7 pb-5 pe-14 pt-7 sm:px-10">
-              <button
-                type="button"
-                onClick={() => {
-                  clearFeedback();
-                  setMode("catalog");
-                }}
-                className={cn(
-                  "mb-1 inline-flex w-fit items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground",
-                  !showCatalog && "hidden",
-                )}
-              >
-                <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
-                {t("mcpIntegrations.backToIntegrations")}
-              </button>
+            <DialogHeader
+              className={cn(
+                "shrink-0 border-b border-border pe-14",
+                presentation === "takeover"
+                  ? "px-7 pb-5 pt-7 sm:px-10"
+                  : "px-6 pb-4 pt-6",
+              )}
+            >
+              {showCatalog && presentation === "takeover" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearFeedback();
+                    setMode("catalog");
+                  }}
+                  className="mb-1 inline-flex w-fit items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
+                  {t("mcpIntegrations.backToIntegrations")}
+                </button>
+              ) : null}
               <DialogTitle>
                 {selected
                   ? selectedRequiresSetup
@@ -872,7 +955,14 @@ export function McpIntegrationDialog({
                   : t("mcpIntegrations.customDescription")}
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-7 py-7 sm:px-10">
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-y-auto",
+                presentation === "takeover"
+                  ? "px-7 py-7 sm:px-10"
+                  : "px-6 py-5",
+              )}
+            >
               <div className="mx-auto max-w-2xl space-y-3">
                 {renderScopeSelector()}
                 {selected?.setupNoteKey && !selectedRequiresSetup ? (
@@ -881,17 +971,24 @@ export function McpIntegrationDialog({
                   </div>
                 ) : null}
                 {selectedRequiresSetup && selected && (
-                  <div className="mx-auto grid w-full max-w-xl gap-4 py-8">
-                    <div>
-                      <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
-                        {t("mcpIntegrations.providerSetupRequired")}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        {t("mcpIntegrations.providerSetupDescription", {
-                          name: selected.name,
-                        })}
-                      </p>
-                    </div>
+                  <div
+                    className={cn(
+                      "mx-auto grid w-full max-w-xl gap-4",
+                      presentation === "takeover" ? "py-8" : "py-1",
+                    )}
+                  >
+                    {presentation === "takeover" ? (
+                      <div>
+                        <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                          {t("mcpIntegrations.providerSetupRequired")}
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          {t("mcpIntegrations.providerSetupDescription", {
+                            name: selected.name,
+                          })}
+                        </p>
+                      </div>
+                    ) : null}
                     {selected.setupNoteKey ? (
                       <p className="text-sm leading-6 text-muted-foreground">
                         {t(selected.setupNoteKey)}
@@ -1077,7 +1174,12 @@ export function McpIntegrationDialog({
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-7 py-4">
+            <div
+              className={cn(
+                "flex shrink-0 items-center justify-between gap-2 border-t border-border py-4",
+                presentation === "takeover" ? "px-7" : "px-6",
+              )}
+            >
               {!selectedRequiresSetup && (
                 <button
                   type="button"

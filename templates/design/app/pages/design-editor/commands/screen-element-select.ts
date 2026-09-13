@@ -248,7 +248,13 @@ export function runScreenElementSelect(
     setSelectedLayerIdsState([]);
   }
   if (viewModeRef.current === "overview") {
-    setOverviewSelectedScreenIds([]);
+    // Mirrors the intent-less-echo guard on selectedLayerIdsState above: a
+    // content-replace re-anchoring echo (no intent) must not clear a live
+    // overview screen selection out from under the user — only a real pick
+    // clears it.
+    setOverviewSelectedScreenIds((current) =>
+      !intent && current.length > 0 ? current : [],
+    );
     // A responsive sub-frame now owns a full editor bridge, so selection
     // carries its exact width into the edit scope. Primary-frame clicks
     // still return to Base. This prevents two identical selectors in the

@@ -84,8 +84,34 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       'const emailView = activeSavedFilter\n    ? "inbox"',
     );
+    // The inbox view itself now fetches through `useInboxThreads` instead —
+    // this useEmails call stays disabled while on /inbox.
     expect(source).toContain(
-      "useEmails(emailView, searchQuery, effectiveLabel)",
+      "useEmails(emailView, searchQuery, effectiveLabel, {\n    enabled: !isInboxView,\n  })",
+    );
+  });
+
+  it("falls back to the useEmails search path when /inbox has a `q` param", () => {
+    const source = inboxSource();
+
+    // The store path (list-inbox-threads) has no notion of a free-text
+    // search, so `isInboxView` (which gates rawEmails/pagination between the
+    // store and useEmails) must turn off for a non-empty `q` — only the tab
+    // bar's useInboxThreads stays keyed on the route alone.
+    expect(source).toContain(
+      'const isInboxView = view === "inbox" && !searchParams.get("q");',
+    );
+    expect(source).toContain('{ enabled: view === "inbox" },');
+  });
+
+  it("navigates the inbox tab bar when an agent command sets `tab`", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      'import { inboxTabHref } from "@shared/inbox-threads";',
+    );
+    expect(source).toContain(
+      "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",
     );
   });
 
@@ -118,10 +144,14 @@ describe("Inbox navigation commands", () => {
 
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
+    expect(navigationHookSource()).toContain("tab?: string;");
     expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
+    // The inbox view reports the server-resolved tab id (falls back to the
+    // raw URL param before the first response lands) so the agent sees the
+    // actual active tab, including the default when the URL has none.
     expect(inboxSource()).toContain(
-      "activeInboxTab: activeInboxTab ?? undefined",
+      'activeInboxTab:\n        view === "inbox"\n          ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)\n          : (activeInboxTab ?? undefined)',
     );
     expect(inboxSource()).toContain("filter: activeFilterId ?? undefined");
     expect(inboxSource()).toContain("const searchQ = searchQuery;");
@@ -222,6 +252,16 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
     expect(source).toContain("const activeLabelIsInboxScoped =");
   });
+
+  it("treats a needs_reauth account as incomplete coverage, not just error", () => {
+    const source = inboxSource();
+
+    // A reconnect-needed account has unread rows we couldn't read either, so
+    // it must suppress the false Inbox Zero the same as a sync error.
+    expect(source).toContain(
+      'account.state === "error" || account.state === "needs_reauth"',
+    );
+  });
 });
 
 describe("Inbox pagination", () => {
@@ -240,6 +280,26 @@ describe("Inbox pagination", () => {
     expect(source).toContain("runPaginationRetry(fetchNextPage");
     expect(inboxSource()).toContain("shouldShowInboxZero");
     expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
+  });
+
+  it("pages the inbox view for real instead of a flat capped fetch", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "const inboxHasNextPage =\n    isInboxView && inboxThreads.data !== undefined\n      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)\n      : false;",
+    );
+    expect(source).toContain(
+      "const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;",
+    );
+    expect(source).toContain(
+      "const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;",
+    );
+    expect(source).toContain("setInboxExtraPageCount((count) => count + 1);");
+    // Resets pagination on tab/account switch so "load more" always starts
+    // from the newly-active tab's page 0.
+    expect(source).toContain(
+      "  }, [isInboxView, resolvedInboxTab, activeAccounts]);",
+    );
   });
 
   it("uses a contact-scoped search and bounded follow-up pages", () => {
@@ -267,5 +327,23 @@ describe("Inbox draft opening", () => {
     expect(source).toContain("gmailMessageId: email.id");
     expect(source).toContain("gmailAttachmentId: attachment.id");
     expect(source).not.toContain("deleteDraft.mutate(email.id)");
+  });
+});
+
+describe("Inbox load-more pagination error recovery", () => {
+  it("retries a failed extra page instead of skipping it with a new offset", () => {
+    const source = inboxSource();
+    const hook = source.slice(
+      source.indexOf("const fetchInboxNextPage = useCallback("),
+      source.indexOf("const inboxAccountErrors = useMemo("),
+    );
+
+    expect(hook).toContain(
+      "const lastPage = inboxExtraPages[inboxExtraPages.length - 1];",
+    );
+    expect(hook).toContain("if (lastPage?.isError)");
+    expect(hook).toContain("return lastPage.refetch().then(() => undefined);");
+    // Only reached once the failed-page retry branch above returns early.
+    expect(hook).toContain("setInboxExtraPageCount((count) => count + 1);");
   });
 });

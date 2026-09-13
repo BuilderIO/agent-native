@@ -244,6 +244,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.toolCallable = entry.toolCallable;
   }
   if (
+    Array.isArray(entry.capabilityScopes) &&
+    entry.capabilityScopes.length > 0 &&
+    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
+  ) {
+    out.capabilityScopes = entry.capabilityScopes;
+  }
+  if (
     entry.publicAgent &&
     typeof entry.publicAgent === "object" &&
     !Array.isArray(entry.publicAgent)

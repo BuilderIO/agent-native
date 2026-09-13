@@ -5,11 +5,15 @@ import { track } from "@agent-native/core/tracking";
 import { summarizeArchiveFailures } from "@shared/archive-errors.js";
 import { z } from "zod";
 
-import { archiveEmail } from "../server/lib/email-state.js";
+import {
+  archiveEmail,
+  resolveMutationAccounts,
+} from "../server/lib/email-state.js";
 import {
   gmailBatchModifyByAccount,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
 import { invalidateThreadCache } from "../server/lib/thread-cache.js";
 
 function userFacingActionError(message: string, statusCode: number): Error {
@@ -87,13 +91,20 @@ export default defineAction({
         threadId: threadIdFor(i),
         accountEmail: accountEmailFor(i),
       }));
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
+      // Resolve every target's account once, up front, with the same rule
+      // used by the single-item path — so the Gmail mutation below and the
+      // store mirror after it never group by different accounts.
+      const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
+      );
+      const { succeeded, failed } = await gmailBatchModifyByAccount(
+        ownerEmail,
+        resolved,
         undefined,
         ["INBOX"],
       );
-      const threadIdById = new Map(targets.map((t) => [t.id, t.threadId]));
+      const threadIdById = new Map(resolved.map((t) => [t.id, t.threadId]));
       for (const id of succeeded) {
         const tid = threadIdById.get(id);
         if (tid) invalidateThreadCache(ownerEmail, tid);
@@ -101,6 +112,13 @@ export default defineAction({
       }
       for (const f of failed)
         results.push({ id: f.id, success: false, error: f.error });
+      for (const u of unresolved)
+        results.push({ id: u.id, success: false, error: u.error });
+      await syncInboxLabelDeltaForTargets(
+        ownerEmail,
+        resolved.filter((t) => succeeded.includes(t.id)),
+        { remove: ["INBOX"] },
+      );
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];

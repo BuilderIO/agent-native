@@ -5,6 +5,11 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
+const sessionMocks = vi.hoisted(() => ({
+  recheckSessionAfterUnauthorized: vi.fn(),
+}));
+vi.mock("./use-session.js", () => sessionMocks);
+
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
@@ -224,6 +229,49 @@ describe("callAction", () => {
         outcome: "http-error",
       }),
     );
+  });
+
+  it("re-resolves the session when an action is refused as unauthenticated", async () => {
+    // 401 means the server stopped recognising this browser. Without telling
+    // the session gate, the shell stays mounted on its last "authenticated"
+    // read and this failure surfaces as a generic load error instead of a
+    // redirect to sign-in - the screen reported after the logout race.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "Unauthorized" }, { status: 401 }),
+        ),
+    );
+
+    await expect(
+      callAction("list-designs", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 401 });
+
+    expect(sessionMocks.recheckSessionAfterUnauthorized).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+
+  it("leaves the session alone when an action is refused as forbidden", async () => {
+    // 403 is an authenticated caller being refused one thing. Re-reading the
+    // session here would be noise, and treating it as signed-out would sign a
+    // working session out.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "Forbidden" }, { status: 403 }),
+        ),
+    );
+
+    await expect(
+      callAction("list-designs", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(sessionMocks.recheckSessionAfterUnauthorized).not.toHaveBeenCalled();
   });
 
   it("calls mutating actions through the framework action transport", async () => {

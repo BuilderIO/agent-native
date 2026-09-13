@@ -1,14 +1,63 @@
+import type { CodeLayerNode } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
+import type { GeometryHistorySelection } from "./history";
 import {
+  elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
+  isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
+  selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
+
+function makeSelection(
+  overrides: Partial<GeometryHistorySelection> = {},
+): GeometryHistorySelection {
+  return {
+    overviewSelectedScreenIds: [],
+    selectedLayerIds: [],
+    activeFileId: null,
+    ...overrides,
+  };
+}
+
+function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
+  const selector = overrides.selector ?? "div";
+  return {
+    id: overrides.id ?? "node-1",
+    tag: overrides.tag ?? "div",
+    layerName: overrides.layerName ?? "Div",
+    layerNameSource: overrides.layerNameSource ?? "tag",
+    paintsOwnText: overrides.paintsOwnText ?? false,
+    repeatXFor: overrides.repeatXFor ?? null,
+    selector,
+    selectors: overrides.selectors ?? [selector],
+    path: overrides.path ?? selector,
+    attributes: overrides.attributes ?? {},
+    dataAttributes: overrides.dataAttributes ?? {},
+    classes: overrides.classes ?? [],
+    textSnippet: overrides.textSnippet ?? null,
+    style: overrides.style ?? {},
+    styleTokens: overrides.styleTokens ?? [],
+    parentId: overrides.parentId,
+    children: overrides.children ?? [],
+    layout: overrides.layout ?? {
+      siblingIndex: 0,
+      nthOfType: 1,
+      isFlexContainer: false,
+      isGridContainer: false,
+    },
+    capabilities: overrides.capabilities ?? [],
+    confidence: overrides.confidence ?? 1,
+    source: overrides.source ?? null,
+    componentInstance: overrides.componentInstance,
+  };
+}
 
 describe("getOverviewScreenContentKey", () => {
   it("keeps inline overview identity stable across active switch, content edits, and revision bumps", () => {
@@ -294,5 +343,114 @@ describe("overviewSelectionTargetsElement", () => {
         fileIds: ["screen-1"],
       }),
     ).toBe(false);
+  });
+});
+
+// Figma parity (figma-ground-truth.md Round 4): selection-only undo/redo —
+// see SelectionHistoryEntry's doc comment (history.ts).
+describe("isUserOriginatedSelectionIntent", () => {
+  it("is false for a gesture/echo reselect with no intent (duplicate clone, catch-up echo, reparent commit)", () => {
+    expect(isUserOriginatedSelectionIntent(undefined)).toBe(false);
+  });
+
+  it("is true for a real pointer click", () => {
+    expect(
+      isUserOriginatedSelectionIntent({ source: "pointer", additive: false }),
+    ).toBe(true);
+  });
+
+  it("is true for a keyboard or marquee pick", () => {
+    expect(isUserOriginatedSelectionIntent({ source: "keyboard" })).toBe(true);
+    expect(isUserOriginatedSelectionIntent({ source: "marquee" })).toBe(true);
+  });
+});
+
+describe("selectionHistorySnapshotsEqual", () => {
+  it("treats two snapshots with the same fields as equal", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ selectedLayerIds: ["a"], activeFileId: "screen-1" }),
+        makeSelection({ selectedLayerIds: ["a"], activeFileId: "screen-1" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is false when the selected layer ids differ (click A, click B)", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ selectedLayerIds: ["a"] }),
+        makeSelection({ selectedLayerIds: ["b"] }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when one side deselected to nothing", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ selectedLayerIds: ["a"] }),
+        makeSelection({ selectedLayerIds: [] }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when only the active file differs", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ activeFileId: "screen-1" }),
+        makeSelection({ activeFileId: "screen-2" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when only the overview screen selection differs", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ overviewSelectedScreenIds: ["screen-1"] }),
+        makeSelection({ overviewSelectedScreenIds: ["screen-2"] }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("elementInfoForSelectionSnapshot", () => {
+  it("derives the canvas selection overlay's element from a single restored layer id", () => {
+    const node = makeNode({ id: "box-a", tag: "div" });
+    const owners = new Map([["box-a", { node }]]);
+
+    const info = elementInfoForSelectionSnapshot(
+      makeSelection({ selectedLayerIds: ["box-a"] }),
+      owners,
+    );
+
+    expect(info?.tagName).toBe("div");
+  });
+
+  it("returns null for a multi-layer selection (no single overlay to restore)", () => {
+    const owners = new Map([
+      ["box-a", { node: makeNode({ id: "box-a" }) }],
+      ["box-b", { node: makeNode({ id: "box-b" }) }],
+    ]);
+
+    expect(
+      elementInfoForSelectionSnapshot(
+        makeSelection({ selectedLayerIds: ["box-a", "box-b"] }),
+        owners,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for an empty selection (deselected)", () => {
+    expect(
+      elementInfoForSelectionSnapshot(makeSelection(), new Map()),
+    ).toBeNull();
+  });
+
+  it("returns null when the layer id has no owner (e.g. a selected screen id)", () => {
+    expect(
+      elementInfoForSelectionSnapshot(
+        makeSelection({ selectedLayerIds: ["screen-1"] }),
+        new Map(),
+      ),
+    ).toBeNull();
   });
 });

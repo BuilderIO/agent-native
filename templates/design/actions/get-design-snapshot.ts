@@ -49,6 +49,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {

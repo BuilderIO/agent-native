@@ -65,7 +65,7 @@ describe("rightInspectorPanelClassName", () => {
       FLOATING_RIGHT_INSPECTOR_CLASSNAME,
     );
     expect(rightInspectorPanelClassName(true)).toContain(
-      "top-14 right-3 bottom-3",
+      "top-3 right-3 bottom-3",
     );
     expect(rightInspectorPanelClassName(true)).toContain("rounded-2xl");
     expect(rightInspectorPanelClassName(true)).toContain("shadow-xl");

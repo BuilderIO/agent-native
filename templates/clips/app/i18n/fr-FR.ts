@@ -67,6 +67,8 @@ const messages = {
     recordings: "Enregistrements",
     newFolder: "Nouveau dossier",
     noSpaces: "Aucun espace pour le moment",
+    noSpacesAdminCta:
+      "Demandez à un administrateur de l’organisation de créer le premier espace.",
     desktopCta: "Obtenir l’app de bureau",
     desktopTitle: "Obtenez l’app de bureau Clips.",
     desktopBody:
@@ -738,7 +740,8 @@ const messages = {
     labMeetingsDescription:
       "Essayez la capture et la transcription automatiques des réunions.",
     labWisprFlow: "Dictée vocale",
-    labWisprFlowDescription: "Essayez la nouvelle fonction de dictée vocale.",
+    labWisprFlowDescription:
+      "Afficher ou masquer la dictée vocale dans Clips Desktop.",
     intro: "Préférences et services connectés pour cet espace Clips.",
     preferencesTitle: "Préférences",
     languageTitle: "Langue",
@@ -976,6 +979,8 @@ const messages = {
     renameFailed: "Échec du renommage du clip",
     renameClip: "Renommer le clip",
     clipTitle: "Titre du clip",
+    archiveAction: "Archiver",
+    moveToTrashAction: "Déplacer vers la corbeille",
     movedToTrash: "Déplacé vers la corbeille",
     restoredFromArchive: "Restauré depuis l’archive",
     archived: "Archivé",
@@ -1872,6 +1877,7 @@ const messages = {
       "{{consoleCount}} problèmes de console · {{networkCount}} requêtes échouées",
     noFailures: "Aucun échec détecté",
     failuresPresent: "Des erreurs de navigateur ont été détectées",
+    unviewedCount: "{{count}} non consultés",
     captureSuccessful: "Diagnostics capturés avec succès",
     capturedFrom: "Capturé depuis {{source}}",
     browserCapture: "Capture du navigateur",
