@@ -1,6 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { getText, hasCollabState } from "@agent-native/core/collab";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -444,6 +448,9 @@ export default defineAction({
     const access = await resolveAccess("design", designId);
     if (!access) {
       throw new Error("Design not found");
+    }
+    if (includeReview) {
+      await assertAccess("design", designId, "editor");
     }
 
     const db = getDb();
