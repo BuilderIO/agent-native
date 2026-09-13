@@ -144,7 +144,16 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       accounts: [managedAccountEmail],
       errors: [],
     });
-    mocks.getClientsWithErrors.mockResolvedValue({ clients: [], errors: [] });
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        {
+          email: managedAccountEmail,
+          accessToken: "test-access-token",
+          refreshToken: "",
+        },
+      ],
+      errors: [],
+    });
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     mocks.getClientForConnectedAccount.mockResolvedValue({
       accessToken: "test-access-token",
@@ -161,9 +170,7 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       {},
     );
 
-    expect(mocks.getConnectedAccountsWithErrors).toHaveBeenCalledWith(
-      ownerEmail,
-    );
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(ownerEmail);
     expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
       ownerEmail,
       managedAccountEmail,
@@ -178,6 +185,129 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       backend: "gmail",
       accountEmail: managedAccountEmail,
       created: true,
+    });
+  });
+
+  it("sends from a usable OAuth account when managed account lookup fails", async () => {
+    const oauthAccountEmail = "secondary@example.com";
+    mocks.getConnectedAccountsWithErrors.mockResolvedValue({
+      accounts: [oauthAccountEmail],
+      errors: [{ email: "workspace", error: "workspace lookup unavailable" }],
+    });
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        {
+          email: oauthAccountEmail,
+          accessToken: "oauth-access-token",
+          refreshToken: "oauth-refresh-token",
+        },
+      ],
+      errors: [],
+    });
+    mocks.resolveGoogleSenderIdentity.mockResolvedValue({
+      header: `Test <${oauthAccountEmail}>`,
+      email: oauthAccountEmail,
+      displayName: "Test",
+    });
+    mocks.googleFetch.mockResolvedValue({
+      id: "gmail-message-id",
+      threadId: "gmail-thread-id",
+    });
+
+    const result = await (sendEmail as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(ownerEmail, [
+      oauthAccountEmail,
+    ]);
+    expect(mocks.googleFetch).toHaveBeenCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      "oauth-access-token",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(mocks.withLocalEmailMutationLock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: "gmail-message-id",
+      from: { email: oauthAccountEmail },
+    });
+  });
+
+  it("skips an unusable first OAuth account when selecting a default", async () => {
+    const firstAccountEmail = "broken@example.com";
+    const usableAccountEmail = "usable@example.com";
+    mocks.getClientsWithErrors
+      .mockResolvedValueOnce({
+        clients: [
+          {
+            email: usableAccountEmail,
+            accessToken: "usable-access-token",
+            refreshToken: "usable-refresh-token",
+          },
+        ],
+        errors: [{ email: firstAccountEmail, error: "refresh failed" }],
+      })
+      .mockResolvedValueOnce({
+        clients: [
+          {
+            email: usableAccountEmail,
+            accessToken: "usable-access-token",
+            refreshToken: "usable-refresh-token",
+          },
+        ],
+        errors: [],
+      });
+    mocks.resolveGoogleSenderIdentity.mockResolvedValue({
+      header: `Test <${usableAccountEmail}>`,
+      email: usableAccountEmail,
+      displayName: "Test",
+    });
+    mocks.googleFetch.mockResolvedValue({
+      id: "gmail-message-id",
+      threadId: "gmail-thread-id",
+    });
+
+    const result = await (sendEmail as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    expect(mocks.getClientsWithErrors).toHaveBeenNthCalledWith(1, ownerEmail);
+    expect(mocks.getClientsWithErrors).toHaveBeenNthCalledWith(2, ownerEmail, [
+      usableAccountEmail,
+    ]);
+    expect(mocks.googleFetch).toHaveBeenCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      "usable-access-token",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(mocks.withLocalEmailMutationLock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: "gmail-message-id",
+      from: { email: usableAccountEmail },
+    });
+  });
+
+  it("returns account errors when no default OAuth account is usable", async () => {
+    const brokenAccountEmail = "broken@example.com";
+    const accountError = {
+      email: brokenAccountEmail,
+      error: "refresh failed",
+    };
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [accountError],
+    });
+
+    const result = await (sendEmail as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mocks.googleFetch).not.toHaveBeenCalled();
+    expect(mocks.withLocalEmailMutationLock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      error: "broken@example.com: refresh failed",
+      accountErrors: [accountError],
     });
   });
 

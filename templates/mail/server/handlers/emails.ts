@@ -276,12 +276,13 @@ async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  const { accounts, errors } = await getConnectedAccountsWithErrors(ownerEmail);
   if (!requestAccountEmail) {
-    const ownerAccount = accounts.find(
-      (accountEmail) => accountEmail.toLowerCase() === ownerEmail.toLowerCase(),
+    const { clients, errors } = await getClientsWithErrors(ownerEmail);
+    const ownerAccount = clients.find(
+      (client) => client.email.toLowerCase() === ownerEmail.toLowerCase(),
     );
-    if (ownerAccount) return ownerAccount;
+    if (ownerAccount) return ownerAccount.email;
+    if (clients.length > 0) return clients[0].email;
     if (errors.length > 0) {
       throw createError({
         statusCode: 503,
@@ -289,8 +290,9 @@ async function resolveAccountEmail(
         data: { accountErrors: errors },
       });
     }
-    return accounts[0] ?? ownerEmail;
+    return ownerEmail;
   }
+  const { accounts, errors } = await getConnectedAccountsWithErrors(ownerEmail);
   const account = accounts.find(
     (accountEmail) =>
       accountEmail.toLowerCase() === requestAccountEmail.toLowerCase(),
