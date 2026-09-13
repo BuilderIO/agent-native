@@ -38,6 +38,7 @@ import {
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import {
   useCallback,
   useEffect,
@@ -127,6 +128,7 @@ import {
 } from "./design-canvas/pending-text-edit";
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
+import { getBoardSurfaceRenderContent } from "./multi-screen/board-surface-html";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
 import {
   registerLinkedScreenPreviewHandlers,
@@ -1237,6 +1239,7 @@ export function DesignCanvas({
   spacePanActive = false,
 }: DesignCanvasProps) {
   const t = useT();
+  const { resolvedTheme } = useTheme();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const runtimeVerificationIframeRef = useRef<HTMLIFrameElement>(null);
   const embeddedCanvasPanSessionRef = useRef<EmbeddedCanvasPanSession | null>(
@@ -4205,7 +4208,7 @@ export function DesignCanvas({
 
   const replacePreviewContentFromHost = useCallback(
     (
-      nextContent: string,
+      rawNextContent: string,
       selector?: string | null,
       candidates?: string[],
       options?: {
@@ -4216,6 +4219,17 @@ export function DesignCanvas({
       // Raw content here drops the injected offset/background styles, moving a
       // frame authored at a negative offset off screen. Both channels push the
       // same shape.
+      //
+      // A board surface additionally needs its render-style tag
+      // (color-scheme + transparent background) re-applied here: this is raw
+      // file content — e.g. an undo/redo content revert — that never passed
+      // through MultiScreenCanvas's own `getBoardSurfaceRenderContent` wrap.
+      // Skipping it drops `color-scheme:dark` from the live document, and
+      // Chrome then paints its opaque light UA base behind the still-
+      // transparent iframe — a white canvas in a dark editor.
+      const nextContent = boardSurface
+        ? getBoardSurfaceRenderContent(rawNextContent, resolvedTheme === "dark")
+        : rawNextContent;
       const replaced = replacePreviewContent(
         getEmbeddedFrameDocumentContent({
           content: withLocalRuntimes(nextContent),
@@ -4232,24 +4246,37 @@ export function DesignCanvas({
       if (replaced) {
         // The orchestrator applied these exact bytes imperatively before the
         // React props carrying their new runtimeReplacementKey rendered.
-        // Remember them so that render can acknowledge the new key without
-        // applying the same forced replacement a second time.
+        // Remember the board-wrapped form so the later React-prop comparison
+        // (against MultiScreenCanvas's own equally-wrapped
+        // `runtimeReplacementContent`) recognizes the live document as
+        // already current instead of re-applying the same content again.
         lastRuntimeReplacementContentRef.current = nextContent;
       }
       return replaced;
     },
     [
+      boardSurface,
       embeddedFrame?.contentOffsetX,
       embeddedFrame?.contentOffsetY,
       embeddedFrameBackground,
       replacePreviewContent,
+      resolvedTheme,
       transparentBackground,
     ],
   );
 
   const replaceRuntimeContentInPlace = useCallback(
-    (nextContent: string) => {
+    (rawNextContent: string) => {
       if (externalPreviewUrl) return false;
+      // Symmetric with replacePreviewContentFromHost above: this channel's
+      // callers (the runtimeReplacementContent effect, the iframe load
+      // listener) already pass board-wrapped content today, but relying on
+      // every current and future caller to remember that is exactly the
+      // stale-cache trap that produced the white-canvas bug there — wrap
+      // unconditionally so this channel can never regress the same way.
+      const nextContent = boardSurface
+        ? getBoardSurfaceRenderContent(rawNextContent, resolvedTheme === "dark")
+        : rawNextContent;
       return replacePreviewContent(
         getEmbeddedFrameDocumentContent({
           // The initial srcdoc is normalized through withLocalRuntimes below.
@@ -4279,11 +4306,13 @@ export function DesignCanvas({
       );
     },
     [
+      boardSurface,
       embeddedFrame?.contentOffsetX,
       embeddedFrame?.contentOffsetY,
       embeddedFrameBackground,
       externalPreviewUrl,
       replacePreviewContent,
+      resolvedTheme,
       transparentBackground,
     ],
   );

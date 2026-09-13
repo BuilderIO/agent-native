@@ -562,3 +562,170 @@ test("light: canvas background does not flash light->white on initial load befor
     }
   }
 });
+
+/**
+ * A board FRAME (auto-layout, `data-agent-native-group-wrapper="true"` +
+ * `data-an-primitive="frame"`) is a live-DOM drag: the bridge writes
+ * left/top straight onto the element and only the persisted file goes
+ * through undo's content-revert path (replaceRuntimeDocument /
+ * getEmbeddedFrameDocumentContent), which never carried the board's
+ * render-style tag. Reproduces feedback.md's "white canvas after drag /
+ * Cmd+Z / double-click" on a Frame specifically (a plain shape has no
+ * group-wrapper marker and does not exercise the same path).
+ */
+const BOARD_FRAME_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>*, *::before, *::after { box-sizing: border-box; } html, body { background: transparent; } body { margin: 0; position: relative; overflow: visible; }</style>
+</head>
+<body>
+<div data-agent-native-node-id="wc-frame" data-agent-native-layer-name="Frame 1" data-agent-native-group-wrapper="true" data-an-primitive="frame" style="position:absolute;left:400px;top:300px;width:320px;height:160px;display:flex;flex-direction:row;gap:20px;padding:20px">
+<div data-agent-native-node-id="wc-rect-a" data-agent-native-layer-name="Rectangle 1" data-an-primitive="rectangle" style="width:60px;height:60px;background:#3b82f6"></div>
+<div data-agent-native-node-id="wc-rect-b" data-agent-native-layer-name="Rectangle 2" data-an-primitive="rectangle" style="width:60px;height:60px;background:#22c55e"></div>
+</div>
+</body>
+</html>`;
+
+function boardIframe(page: Page) {
+  return page
+    .locator("iframe[data-design-preview-iframe]:not([data-screen-iframe-id])")
+    .first();
+}
+
+test("dark: dragging a board Frame then undoing restores its position and the canvas stays dark", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  let designId: string | undefined;
+  try {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.addInitScript(
+      (value) => localStorage.setItem("theme", value),
+      "dark",
+    );
+    const created = await postAction(page.request, "create-design", {
+      title: "E2E Parity Canvas Background board-frame drag-undo",
+      projectType: "prototype",
+    });
+    designId = created?.id ?? created?.data?.id;
+    expect(designId).toBeTruthy();
+    const board = await postAction(page.request, "create-file", {
+      designId,
+      filename: "__board__.html",
+      fileType: "html",
+      content: BOARD_FRAME_HTML,
+    });
+    const boardFileId = board?.id ?? board?.data?.id ?? board?.file?.id;
+    expect(boardFileId, "board file id").toBeTruthy();
+    await postAction(page.request, "update-design", {
+      id: designId,
+      dataOperations: [
+        { op: "set", path: ["boardFileId"], value: boardFileId },
+      ],
+    });
+
+    await page.goto(appPath(`/design/${designId}`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const frame = boardIframe(page)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="wc-frame"]');
+    await expect(frame).toBeVisible({ timeout: 20_000 });
+    const before = await frame.boundingBox();
+    if (!before) throw new Error("no bounding box for the board frame");
+
+    // A point well inside the frame's own empty flex space — both
+    // rectangles sit in the left half of the fixture's 320px-wide frame, see
+    // its geometry above — clear of both children (so this grabs the FRAME
+    // itself, never a click-through) and far enough from every edge to miss
+    // the selected frame's own resize handles.
+    const px = before.x + before.width * 0.7;
+    const py = before.y + before.height / 2;
+    // A point safely below the frame's own box, clear of it at every one of
+    // before/dragged/undone positions in this test — the canvas's own
+    // colour shows through here whenever bug (A) is fixed, regardless of
+    // whether (B) also put the frame itself back.
+    const bgX = before.x + before.width / 2;
+    const bgY = before.y + before.height + 120;
+
+    await page.mouse.click(px, py);
+    await expect(
+      page.getByRole("treeitem").filter({ hasText: "Frame 1" }),
+    ).toHaveAttribute("aria-selected", "true", { timeout: 10_000 });
+
+    await page.mouse.move(px, py);
+    await page.mouse.down();
+    await page.mouse.move(px + 150, py + 120, { steps: 16 });
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+
+    const dragged = await frame.boundingBox();
+    if (!dragged) throw new Error("frame disappeared after drag");
+    expect(
+      [Math.round(dragged.x), Math.round(dragged.y)],
+      "precondition: the drag must actually move the frame",
+    ).not.toEqual([Math.round(before.x), Math.round(before.y)]);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await page.waitForTimeout(500);
+
+    // (B) the LIVE canvas position, not just the persisted file, must
+    // follow the undo.
+    const undone = await frame.boundingBox();
+    if (!undone) throw new Error("frame disappeared after undo");
+    expect(
+      [Math.round(undone.x), Math.round(undone.y)],
+      `undo must restore the pre-drag on-screen position (${before.x},${before.y}); got (${undone.x},${undone.y}). Trace: ${JSON.stringify(await designTraceDump(page)).slice(-1000)}`,
+    ).toEqual([Math.round(before.x), Math.round(before.y)]);
+
+    // (A) the board iframe's document must keep its dark-theme render style
+    // (color-scheme:dark + transparent background) across the undo's
+    // content revert, or Chrome paints its opaque light UA base behind the
+    // still-transparent document — a white canvas.
+    const boardHtml = boardIframe(page).contentFrame().locator("html");
+    await expect
+      .poll(() => boardHtml.evaluate((el) => getComputedStyle(el).colorScheme))
+      .toBe("dark");
+    await expect
+      .poll(() =>
+        boardHtml.evaluate(
+          (el) =>
+            el.ownerDocument.querySelector(
+              "style[data-agent-native-board-surface-render]",
+            ) !== null,
+        ),
+      )
+      .toBe(true);
+
+    // Ground truth: the actual rendered pixel below the frame, sampled
+    // repeatedly across the settle window so a one-frame flash can't hide
+    // between two checks.
+    const samples: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      samples.push(await pixelAt(page, bgX, bgY));
+      await page.waitForTimeout(120);
+    }
+    const bad = samples.filter((s) => s !== "26,26,26");
+    if (bad.length > 0) {
+      console.log(
+        "post-undo board-frame samples:",
+        samples,
+        "canvas-var:",
+        await canvasVarRgb(page),
+      );
+    }
+    expect(bad).toEqual([]);
+  } finally {
+    if (designId) {
+      await postAction(page.request, "delete-design", { id: designId }).catch(
+        () => {},
+      );
+    }
+  }
+});

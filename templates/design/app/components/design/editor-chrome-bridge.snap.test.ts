@@ -388,10 +388,14 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "outermostSvgAncestor",
   );
+  const textOverlay = extractFunction(
+    editorChromeBridgeScript,
+    "unwrapTextOverlay",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${textOverlay}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }

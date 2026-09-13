@@ -2192,7 +2192,7 @@ it(
 );
 
 it(
-  "keeps a generated group selected on click and edits its text child on double-click",
+  "click-through descends from a generated wrapper into its text child on the second click, then edits it on double-click",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -2261,7 +2261,11 @@ it(
         (window as any).__elementSelectPayloads.at(-1),
       );
 
-      expect(repeatedSelection.sourceId).toBe("headline");
+      // Figma parity: with the wrapper already selected, a second plain
+      // click descends into the child under the pointer instead of
+      // re-resolving back to the wrapper (clickThroughSelectionTarget no
+      // longer promotes to a group-wrapper-marked ancestor).
+      expect(repeatedSelection.sourceId).not.toBe("headline");
 
       await page.mouse.dblclick(point.x, point.y);
       await page.waitForFunction(() =>

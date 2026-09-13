@@ -2094,6 +2094,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return siblings.length > 0 ? siblings : [el];
   }
 
+  // `data-an-text` is the editor's own wrapper around a painted leaf's bare
+  // text. Selecting it hands the inspector a bare inline span, so a button's
+  // radius, fill and component props all read as absent.
+  function unwrapTextOverlay(hit: Element): Element {
+    if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
+      var textOwner = hit.parentElement;
+      if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+    }
+    return hit;
+  }
+
   function selectionTargetForHit(
     hit: Element | null,
     descendIntoGroup = false,
@@ -2104,14 +2115,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // layout box.
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return svgRoot;
-    // `data-an-text` is the editor's own wrapper around a painted leaf's bare
-    // text. Selecting it hands the inspector a bare inline span, so a button's
-    // radius, fill and component props all read as absent.
-    var target = hit;
-    if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
-      var textOwner = hit.parentElement;
-      if (textOwner && !isDocumentRootElement(textOwner)) target = textOwner;
-    }
+    var target = unwrapTextOverlay(hit);
     if (!descendIntoGroup) {
       var group = target;
       while (group && !isDocumentRootElement(group)) {
@@ -2203,16 +2207,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return null;
     }
     if (collectMoveGroupMembers(selectedEl).length > 1) return null;
-    var resolved = selectionTargetForHit(hit);
-    if (
-      !resolved ||
-      resolved === selectedEl ||
-      !selectedEl.contains(resolved)
-    ) {
+    if (!hit || isDocumentRootElement(hit)) return null;
+    // Unlike selectionTargetForHit, this does not promote to an ancestor
+    // group/frame wrapper: a Frame-kind wrapper carries the same
+    // data-agent-native-group-wrapper marker as a Group, so that promotion
+    // would resolve straight back to selectedEl and click-through would
+    // never descend into a selected Frame's children.
+    var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+    if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
       return null;
     }
     selectionContainerScope = selectedEl;
-    return containerScopeAncestor(resolved, selectedEl);
+    return containerScopeAncestor(raw, selectedEl);
   }
 
   function freshRuntimeNodeId(prefix: string): string {
@@ -14249,6 +14255,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             },
             "*",
           );
+          // This position is now the source's own value (the host persists
+          // it as-is, runtimeApplied, with no re-morph of this element) —
+          // record it as the last-known source baseline. Skipping this left
+          // __anSourceMeta pinned to the PRE-drag position, so a later
+          // full-document reconcile (e.g. undo back to that same pre-drag
+          // value) matched the stale cache and left the dragged position
+          // rendered instead of reverting.
+          recordSourceOwnership(state.el);
         });
         armPostCommitCancelGrace(
           moveGestureId,
@@ -14279,6 +14293,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 },
                 "*",
               );
+              // Same reasoning as the commit above: this grace-period revert
+              // is the new source baseline too, so the cache must follow it
+              // back rather than staying pinned to the just-cancelled commit.
+              recordSourceOwnership(state.el);
             });
             selectedEl = originalSelectedEl;
             positionOverlay(selectionOverlay, selectedEl);

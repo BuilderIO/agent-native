@@ -2244,15 +2244,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return siblings.length > 0 ? siblings : [el];
     }
+    function unwrapTextOverlay(hit) {
+      if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
+        var textOwner = hit.parentElement;
+        if (textOwner && !isDocumentRootElement(textOwner)) return textOwner;
+      }
+      return hit;
+    }
     function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return svgRoot;
-      var target = hit;
-      if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
-        var textOwner = hit.parentElement;
-        if (textOwner && !isDocumentRootElement(textOwner)) target = textOwner;
-      }
+      var target = unwrapTextOverlay(hit);
       if (!descendIntoGroup) {
         var group = target;
         while (group && !isDocumentRootElement(group)) {
@@ -2291,12 +2294,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return null;
       }
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
-      var resolved = selectionTargetForHit(hit);
-      if (!resolved || resolved === selectedEl || !selectedEl.contains(resolved)) {
+      if (!hit || isDocumentRootElement(hit)) return null;
+      var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+      if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
         return null;
       }
       selectionContainerScope = selectedEl;
-      return containerScopeAncestor(resolved, selectedEl);
+      return containerScopeAncestor(raw, selectedEl);
     }
     function freshRuntimeNodeId(prefix) {
       var random = "";
@@ -10200,6 +10204,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               },
               "*"
             );
+            recordSourceOwnership(state.el);
           });
           armPostCommitCancelGrace(
             moveGestureId,
@@ -10230,6 +10235,7 @@ export const editorChromeBridgeScript: string = `"use strict";
                   },
                   "*"
                 );
+                recordSourceOwnership(state.el);
               });
               selectedEl = originalSelectedEl;
               positionOverlay(selectionOverlay, selectedEl);
