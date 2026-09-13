@@ -3,6 +3,7 @@ import { getText, hasCollabState } from "@agent-native/core/collab";
 import {
   accessFilter,
   assertAccess,
+  roleSatisfies,
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -513,9 +514,9 @@ export default defineAction({
     // Captured routes and preview refs are editor data even when the design is public.
     const [motionTimelines, designStates, review] = await Promise.all([
       fetchMotionTimelines(db, designId, file.id),
-      access.role === "viewer"
-        ? Promise.resolve([])
-        : fetchDesignStates(db, designId),
+      roleSatisfies(access.role, "editor")
+        ? fetchDesignStates(db, designId)
+        : Promise.resolve([]),
       includeReview
         ? fetchLatestReview(db, designId)
         : Promise.resolve(undefined),

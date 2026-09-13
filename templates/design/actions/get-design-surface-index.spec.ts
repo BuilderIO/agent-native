@@ -6,6 +6,16 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   getText: vi.fn(),
   hasCollabState: vi.fn(),
+  roleSatisfies: vi.fn((actual: string, minimum: string) => {
+    const rank: Record<string, number> = {
+      viewer: 1,
+      commenter: 2,
+      editor: 3,
+      admin: 4,
+      owner: 5,
+    };
+    return rank[actual] >= rank[minimum];
+  }),
   resolveAccess: vi.fn(),
   schema: {
     designFiles: {
@@ -46,6 +56,7 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: mocks.accessFilter,
   assertAccess: mocks.assertAccess,
+  roleSatisfies: mocks.roleSatisfies,
   resolveAccess: mocks.resolveAccess,
 }));
 vi.mock("drizzle-orm", () => ({
@@ -87,66 +98,77 @@ describe("get-design-surface-index", () => {
     expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
-  it("omits captured-state metadata for public viewers", async () => {
-    const file = {
-      id: "file_1",
-      designId: "design_1",
-      filename: "index.html",
-      fileType: "html",
-      content: "<html><body><main>Public design</main></body></html>",
-    };
-    const fileQuery = {
-      from: vi.fn(),
-      innerJoin: vi.fn(),
-      where: vi.fn(),
-      limit: vi.fn().mockResolvedValue([file]),
-    };
-    fileQuery.from.mockReturnValue(fileQuery);
-    fileQuery.innerJoin.mockReturnValue(fileQuery);
-    fileQuery.where.mockReturnValue(fileQuery);
+  it.each(["viewer", "commenter"] as const)(
+    "omits captured-state metadata for %s access",
+    async (role) => {
+      mocks.resolveAccess.mockResolvedValue({
+        resource: { data: '{"sourceType":"inline"}' },
+        role,
+      });
 
-    const motionQuery = { from: vi.fn(), where: vi.fn().mockResolvedValue([]) };
-    motionQuery.from.mockReturnValue(motionQuery);
-
-    const stateQuery = {
-      from: vi.fn(),
-      where: vi.fn().mockResolvedValue([
-        {
-          id: "state_1",
-          kind: "capture",
-          name: "Private account",
-          breakpoint: "mobile",
-          route: "/private/account",
-          fixtureData: '{"email":"private@example.test"}',
-          captureData: '{"accountId":"private"}',
-          previewRef: "https://example.test/private-preview.png",
-        },
-      ]),
-    };
-    stateQuery.from.mockReturnValue(stateQuery);
-
-    const db = {
-      select: vi
-        .fn()
-        .mockReturnValueOnce(fileQuery)
-        .mockReturnValueOnce(motionQuery)
-        .mockReturnValueOnce(stateQuery),
-    };
-    mocks.getDb.mockReturnValue(db);
-
-    const result = await action.run(
-      {
+      const file = {
+        id: "file_1",
         designId: "design_1",
         filename: "index.html",
-        includeNodes: false,
-        includeReview: false,
-      } as never,
-      {} as never,
-    );
+        fileType: "html",
+        content: "<html><body><main>Public design</main></body></html>",
+      };
+      const fileQuery = {
+        from: vi.fn(),
+        innerJoin: vi.fn(),
+        where: vi.fn(),
+        limit: vi.fn().mockResolvedValue([file]),
+      };
+      fileQuery.from.mockReturnValue(fileQuery);
+      fileQuery.innerJoin.mockReturnValue(fileQuery);
+      fileQuery.where.mockReturnValue(fileQuery);
 
-    expect(db.select).toHaveBeenCalledTimes(2);
-    expect(stateQuery.where).not.toHaveBeenCalled();
-    expect(result.index.states).toBeUndefined();
-    expect(result.summary.stateCount).toBe(0);
-  });
+      const motionQuery = {
+        from: vi.fn(),
+        where: vi.fn().mockResolvedValue([]),
+      };
+      motionQuery.from.mockReturnValue(motionQuery);
+
+      const stateQuery = {
+        from: vi.fn(),
+        where: vi.fn().mockResolvedValue([
+          {
+            id: "state_1",
+            kind: "capture",
+            name: "Private account",
+            breakpoint: "mobile",
+            route: "/private/account",
+            fixtureData: '{"email":"private@example.test"}',
+            captureData: '{"accountId":"private"}',
+            previewRef: "https://example.test/private-preview.png",
+          },
+        ]),
+      };
+      stateQuery.from.mockReturnValue(stateQuery);
+
+      const db = {
+        select: vi
+          .fn()
+          .mockReturnValueOnce(fileQuery)
+          .mockReturnValueOnce(motionQuery)
+          .mockReturnValueOnce(stateQuery),
+      };
+      mocks.getDb.mockReturnValue(db);
+
+      const result = await action.run(
+        {
+          designId: "design_1",
+          filename: "index.html",
+          includeNodes: false,
+          includeReview: false,
+        } as never,
+        {} as never,
+      );
+
+      expect(db.select).toHaveBeenCalledTimes(2);
+      expect(stateQuery.where).not.toHaveBeenCalled();
+      expect(result.index.states).toBeUndefined();
+      expect(result.summary.stateCount).toBe(0);
+    },
+  );
 });
