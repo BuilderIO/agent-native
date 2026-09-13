@@ -109,4 +109,17 @@ describe("list-design-states access", () => {
       ],
     });
   });
+
+  it("does not query states when editor access is denied", async () => {
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("editor access required"),
+    );
+
+    await expect(
+      action.run({ designId: "design_1", kind: "state" }),
+    ).rejects.toThrow("editor access required");
+
+    expect(mocks.events).toEqual([]);
+    expect(mocks.db.select).not.toHaveBeenCalled();
+  });
 });
