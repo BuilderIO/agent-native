@@ -1065,6 +1065,23 @@ function contentHash(value: string): string {
 const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-ignore non-UI regex
 
 /**
+ * A structural edit's `nextContent` can come from a live-DOM round trip (the
+ * bridge resolves the moved/edited node against the running iframe, not
+ * against the original source bytes). The browser's own attribute serializer
+ * normalizes a bare boolean attribute like `defer` to `defer=""` on that trip
+ * even though nothing about the script changed — comparing raw markup would
+ * read that as a script edit and force a spurious reload. Re-parse each match
+ * through an inert `<template>` (its content never executes or attaches to
+ * the document) so both sides compare the DOM's own canonical serialization
+ * instead of whichever byte-for-byte form the source happened to be in.
+ */
+function normalizeScriptMarkup(scriptHtml: string): string {
+  const template = document.createElement("template");
+  template.innerHTML = scriptHtml;
+  return template.content.firstElementChild?.outerHTML ?? scriptHtml;
+}
+
+/**
  * Runtime document replacement morphs the live DOM, which preserves the iframe
  * browsing context but cannot execute newly inserted or changed scripts.
  * Reload only when source script elements change.
@@ -1085,7 +1102,7 @@ function runtimeDocumentNeedsReload(
     return Array.from(
       html.matchAll(SCRIPT_ELEMENT_RE),
       (match) =>
-        `${(match.index ?? 0) < boundary ? "head" : "body"}:${match[0]}`,
+        `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`,
     ).join("\n");
   };
   return scriptSignature(previousContent) !== scriptSignature(nextContent);

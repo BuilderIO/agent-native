@@ -4088,6 +4088,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
       let lastLayerSelectionSignature: string | null = null;
+      // A screen that is itself a fully-enclosed top-level selection target
+      // (see `hitIds` below) is the selection — Figma does not also reach
+      // into its children for a plain marquee, only a screen the marquee
+      // merely brushes offers its children up as candidates. Cmd/Ctrl-held
+      // deep-select is the one exception: it always reaches into nested
+      // descendants regardless of enclosure.
+      let latestFullyEnclosedScreenIds = new Set<string>();
       const marqueeState: MarqueeDragState = {
         type: "marquee",
         originClient: { x: e.clientX, y: e.clientY },
@@ -4115,6 +4122,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // stale reply cannot flash/replace the new gesture's layer selection.
         if (state !== marqueeState) return;
         const selection = layerCandidates
+          .filter(
+            (candidate) =>
+              deepSelect ||
+              !latestFullyEnclosedScreenIds.has(candidate.screenId),
+          )
           .filter((candidate) => !enclosesMarqueeRect(candidate.geometry, rect))
           .filter((candidate) =>
             rotatedRectIntersects(
@@ -4226,7 +4238,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setMarquee(rect);
 
         const chromeScale = chromeScaleFromZoom(zoomRef.current);
-        const hitIds = getSelectableFrameEntries()
+        const screenEntries = getSelectableFrameEntries();
+        // Screens the marquee only touches still need their layer candidates
+        // fetched — a shape inside a partially-touched screen selects on
+        // intersect. The screen itself, being a top-level frame, only joins
+        // the selection once the marquee fully encloses it (below).
+        const intersectedScreenIds = screenEntries
           .filter((entry) =>
             rotatedRectIntersects(
               rect,
@@ -4236,6 +4253,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             ),
           )
           .map((entry) => entry.id);
+        const hitIds = screenEntries
+          .filter((entry) =>
+            marqueeFullyEnclosesBounds(
+              rect,
+              getSelectableBounds(entry.geometry, chromeScale),
+            ),
+          )
+          .map((entry) => entry.id);
+        latestFullyEnclosedScreenIds = new Set(hitIds);
         const hitDraftIds = getCurrentDraftEntries()
           .filter((entry) =>
             rotatedRectIntersects(
@@ -4247,7 +4273,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           )
           .map((entry) => entry.id);
 
-        collectForIntersectedScreens(hitIds);
+        collectForIntersectedScreens(intersectedScreenIds);
 
         updateSelectedIds(() =>
           state.additive
@@ -11996,6 +12022,22 @@ function enclosesMarqueeRect(
     geometry.y <= rect.y &&
     geometry.x + geometry.width >= rect.x + rect.width &&
     geometry.y + geometry.height >= rect.y + rect.height
+  );
+}
+
+/** A top-level screen only joins the marquee selection once the marquee box
+ *  fully contains it — unlike shapes/board objects, which select on mere
+ *  intersection (figma-ground-truth.md: a marquee clipping only a frame's
+ *  edge must not select it). */
+function marqueeFullyEnclosesBounds(
+  rect: MarqueeRect,
+  bounds: { left: number; top: number; right: number; bottom: number },
+): boolean {
+  return (
+    rect.x <= bounds.left &&
+    rect.y <= bounds.top &&
+    rect.x + rect.width >= bounds.right &&
+    rect.y + rect.height >= bounds.bottom
   );
 }
 

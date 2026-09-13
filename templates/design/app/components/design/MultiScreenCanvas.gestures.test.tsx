@@ -909,6 +909,73 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     ).not.toBeNull();
   });
 
+  it("requires full enclosure to marquee-select a top-level screen, unlike a shape's intersect rule", async () => {
+    // screen-a spans canvas x:[0,320] y:[0,640] (renderSelectedFrame's
+    // default geometry). Ground truth: a top-level frame only joins the
+    // marquee selection once the box fully contains it — mere intersection
+    // (Figma's rule for shapes/board objects) must not select it.
+    await renderSelectedFrame(320, false);
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+
+    const worldLayer = surface!.firstElementChild as HTMLElement;
+    const transformMatch = worldLayer.style.transform.match(
+      /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/,
+    );
+    expect(transformMatch).not.toBeNull();
+    const [, panXStr, panYStr, scaleStr] = transformMatch!;
+    const panX = Number.parseFloat(panXStr);
+    const panY = Number.parseFloat(panYStr);
+    const scale = Number.parseFloat(scaleStr);
+    const clientPointForCanvas = (canvasX: number, canvasY: number) => ({
+      clientX: panX + (SURFACE_PADDING + canvasX) * scale,
+      clientY: panY + (SURFACE_PADDING + canvasY) * scale,
+    });
+
+    // A marquee box that only clips the frame's right edge (well above the
+    // frame's top so the mousedown starts on empty canvas, not the label).
+    const partialOrigin = clientPointForCanvas(340, -100);
+    const partialEnd = clientPointForCanvas(300, 40);
+    await act(async () => {
+      dispatchMouse(
+        surface!,
+        "mousedown",
+        partialOrigin.clientX,
+        partialOrigin.clientY,
+      );
+      dispatchMouse(
+        window,
+        "mousemove",
+        partialEnd.clientX,
+        partialEnd.clientY,
+      );
+      dispatchMouse(window, "mouseup", partialEnd.clientX, partialEnd.clientY);
+    });
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+      "a marquee that only clips the screen's edge must not select it",
+    ).toBeNull();
+
+    // Now fully enclose the frame.
+    const fullOrigin = clientPointForCanvas(-40, -100);
+    const fullEnd = clientPointForCanvas(360, 700);
+    await act(async () => {
+      dispatchMouse(
+        surface!,
+        "mousedown",
+        fullOrigin.clientX,
+        fullOrigin.clientY,
+      );
+      dispatchMouse(window, "mousemove", fullEnd.clientX, fullEnd.clientY);
+      dispatchMouse(window, "mouseup", fullEnd.clientX, fullEnd.clientY);
+    });
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+      "fully enclosing the screen with the marquee must select it",
+    ).not.toBeNull();
+  });
+
   it("restores direct-DOM draft movement when Escape cancels the drag", async () => {
     const surface = await renderHarness("rect");
     const draft = await createSelectedDraft(surface);
@@ -1632,11 +1699,36 @@ describe("canvas iframe identity", () => {
         "postMessage",
       );
 
-      // pan=0 and zoom=2: screenX=(SURFACE_PADDING+boardX)*0.02.
-      // right-edge is visible near the viewport's right edge but outside the
-      // centered 24,576-world-pixel live iframe.
+      // The mount-time board-fit effect centers the lone board content in
+      // the viewport, so pan is not {0,0} here — derive the click point from
+      // the transform it actually committed rather than assuming a fixed
+      // pan. right-edge sits at canvas (35000, 100) (see the fixture above):
+      // visible near the viewport's right edge but outside the centered
+      // 24,576-world-pixel live iframe.
+      const worldLayer = container.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      );
+      expect(worldLayer).not.toBeNull();
+      const transformMatch = worldLayer!.style.transform.match(
+        /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/,
+      );
+      expect(transformMatch).not.toBeNull();
+      const [, panXStr, panYStr, scaleStr] = transformMatch!;
+      const panX = Number.parseFloat(panXStr);
+      const panY = Number.parseFloat(panYStr);
+      const scale = Number.parseFloat(scaleStr);
+      const rightEdgeClick = {
+        clientX: panX + (SURFACE_PADDING + 35000) * scale,
+        clientY: panY + (SURFACE_PADDING + 100) * scale,
+      };
+
       await act(async () => {
-        dispatchMouse(surface!, "mousedown", 706, 8);
+        dispatchMouse(
+          surface!,
+          "mousedown",
+          rightEdgeClick.clientX,
+          rightEdgeClick.clientY,
+        );
         await nextAnimationFrame();
         await nextAnimationFrame();
       });

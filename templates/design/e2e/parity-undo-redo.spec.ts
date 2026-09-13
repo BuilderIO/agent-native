@@ -4,6 +4,8 @@ import {
   FIXTURE,
   MOD,
   geom,
+  indexHtml,
+  layerRow,
   newDesign,
   node,
   openEditor,
@@ -386,6 +388,12 @@ test("undo targets the file that was actually edited, not whichever screen curre
   await target.click({ force: true });
   await page.waitForTimeout(300);
 
+  // Figma parity (ground-truth Round 4): the click above is itself a real
+  // selection change, so it is its own undo step — the first Undo only
+  // walks back through it (re-selecting box-a), matching Part B's sandwiched-
+  // edit scenario. The second Undo is the one that must revert the drag.
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(500);
   await page.keyboard.press(UNDO);
   await page.waitForTimeout(500);
 
@@ -505,3 +513,145 @@ for (const theme of ["dark", "light"] as const) {
     expect([undone.left, undone.top]).toEqual([before.left, before.top]);
   });
 }
+
+/**
+ * Figma parity — figma-ground-truth.md Round 4: a plain selection change (no
+ * document edit) is its own undo-stack entry. Three scenarios verified
+ * directly against the live Figma app (see history.ts's SelectionHistoryEntry
+ * doc comment for the full contract this fixes).
+ */
+test("selection-only undo/redo: click A, click B, click C, then undo/undo/redo walks the selection history (ground-truth Round 4, Part A)", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  await selectViaTree(page, "Box A");
+  await selectViaTree(page, "Box B");
+  await selectViaTree(page, "Chip 1");
+  await expect(layerRow(page, "Chip 1")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  const documentBeforeUndo = await indexHtml(page, id);
+
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(300);
+  await expect(
+    layerRow(page, "Box B"),
+    "first undo re-selects Box B, the previous selection",
+  ).toHaveAttribute("aria-selected", "true");
+  expect(
+    await indexHtml(page, id),
+    "a selection-only undo must never touch the document",
+  ).toBe(documentBeforeUndo);
+
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(300);
+  await expect(
+    layerRow(page, "Box A"),
+    "second undo re-selects Box A",
+  ).toHaveAttribute("aria-selected", "true");
+
+  await page.keyboard.press(REDO);
+  await page.waitForTimeout(300);
+  await expect(
+    layerRow(page, "Box B"),
+    "redo replays the selection changes forward, one at a time",
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("undo walks back through a trailing selection change before reverting a sandwiched edit; redo does not replay the selection past the edit (ground-truth Round 4, Part B)", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  await selectViaTree(page, "Box A");
+  const before = await geom(page, id, "box-a");
+  await dragElement(page, "box-a", 100, 0);
+  const dropped = await geom(page, id, "box-a");
+  expect(
+    [dropped.left, dropped.top],
+    "precondition: the drag must actually move box-a",
+  ).not.toEqual([before.left, before.top]);
+
+  await selectViaTree(page, "Box B");
+  await expect(layerRow(page, "Box B")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  // Undo #1: re-selects Box A; the move is STILL applied.
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(500);
+  await expect(
+    layerRow(page, "Box A"),
+    "first undo only reverts the trailing selection change (select Box B)",
+  ).toHaveAttribute("aria-selected", "true");
+  const afterUndo1 = await geom(page, id, "box-a");
+  expect(
+    [afterUndo1.left, afterUndo1.top],
+    "the move must still be applied after only the selection is undone",
+  ).toEqual([dropped.left, dropped.top]);
+
+  // Undo #2: reverts the move itself; Box A remains selected.
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(500);
+  const afterUndo2 = await geom(page, id, "box-a");
+  expect(
+    [afterUndo2.left, afterUndo2.top],
+    "second undo reverts the sandwiched drag",
+  ).toEqual([before.left, before.top]);
+  await expect(layerRow(page, "Box A")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  // Redo #1: reapplies the move (selection stays on Box A, matching what
+  // was selected when the drag committed).
+  await page.keyboard.press(REDO);
+  await page.waitForTimeout(500);
+  const afterRedo1 = await geom(page, id, "box-a");
+  expect(
+    [afterRedo1.left, afterRedo1.top],
+    "redo must reapply the exact dropped position",
+  ).toEqual([dropped.left, dropped.top]);
+
+  // Redo #2: Figma's asymmetry — the trailing "select Box B" step is NOT
+  // replayed once a real edit below it has been redone; the redo stack is
+  // exhausted here, so selection stays on Box A.
+  await page.keyboard.press(REDO);
+  await page.waitForTimeout(500);
+  await expect(
+    layerRow(page, "Box A"),
+    "a further redo must not resurrect the pre-edit-boundary selection",
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("Escape (deselect to nothing) is its own undo step (ground-truth Round 4, Part C)", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  await selectViaTree(page, "Box A");
+  await expect(layerRow(page, "Box A")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]'),
+    "Escape must deselect to nothing",
+  ).toHaveCount(0);
+
+  await page.keyboard.press(UNDO);
+  await page.waitForTimeout(300);
+  await expect(
+    layerRow(page, "Box A"),
+    "undoing a deselect-to-nothing re-selects what was selected before it",
+  ).toHaveAttribute("aria-selected", "true");
+});

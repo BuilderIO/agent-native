@@ -139,6 +139,22 @@ export interface GeometryHistoryEntry {
   selectionAfter?: GeometryHistorySelection;
 }
 
+/**
+ * Figma parity (figma-ground-truth.md Round 4): a plain selection change with
+ * no document edit is its own undo-stack entry — click A, click B, click C,
+ * then Cmd+Z re-selects B, Cmd+Z re-selects A. Recorded only at the five
+ * pure-selection command entry points (layers-panel click, canvas click,
+ * marquee, Escape-to-deselect, select-all) via `recordSelectionHistoryAroundChange`
+ * in DesignEditor.tsx — an edit command's own post-write reselect (group,
+ * duplicate, paste, delete) is never routed through those, so it stays
+ * captured only by that edit's own `selectionBefore`/`selectionAfter`
+ * instead of being double-recorded here.
+ */
+export interface SelectionHistoryEntry {
+  before: GeometryHistorySelection;
+  after: GeometryHistorySelection;
+}
+
 export interface FileCreationHistoryEntry {
   filename: string;
   content: string;

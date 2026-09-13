@@ -44,7 +44,19 @@ function renderPanel() {
       (candidate) => candidate.getAttribute("aria-label") === label,
     );
     if (!button) throw new Error(`no button labelled ${label}`);
+    // A real pointer click fires mousedown before click — the toggle now
+    // lives on mousedown (see LayersPanel.tsx) so a click-drag onto a
+    // DIFFERENT row's icon, which never fires "click" on this one at all
+    // (mouseup lands elsewhere), still toggles it exactly once. click's own
+    // handler is a keyboard-only (detail===0) fallback, so it must stay
+    // silent here or this would count two invocations for one real click.
     await act(async () => {
+      button.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
+      );
+      button.dispatchEvent(
+        new MouseEvent("mouseup", { bubbles: true, detail: 1 }),
+      );
       button.dispatchEvent(
         new MouseEvent("click", { bubbles: true, detail: 1 }),
       );
@@ -69,6 +81,23 @@ describe("LayersPanel lock/hide toggles", () => {
     await panel.click("layersPanel.hide");
     expect(panel.onToggleHidden.mock.calls).toEqual([["n1", true]]);
     expect(panel.onToggleLocked).not.toHaveBeenCalled();
+    panel.root.unmount();
+  });
+
+  // Keyboard activation (Enter/Space on a focused button) fires "click"
+  // with no preceding mousedown — the icon's own toggle must still work
+  // through that path, not just through the mousedown a pointer click adds.
+  it("invokes onToggleHidden exactly once for a keyboard (detail 0) activation", async () => {
+    const panel = renderPanel();
+    await panel.mount();
+    const button = Array.from(panel.host.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.getAttribute("aria-label") === "layersPanel.hide",
+    )!;
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    });
+    expect(panel.onToggleHidden.mock.calls).toEqual([["n1", true]]);
     panel.root.unmount();
   });
 });

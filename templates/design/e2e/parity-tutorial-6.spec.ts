@@ -104,10 +104,32 @@ function layersTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
 }
 
+/** Layer row located by its LAYERS-PANEL node id (the code-layer
+ * projection's own hashed id, e.g. "html:1r0xyc7") — never the raw,
+ * persisted data-agent-native-node-id a draw/duplicate hands back. Those two
+ * never coincide (shared/code-layer.ts's nodeIdFor always hashes the
+ * authored id); resolve the real one via selectedLayerNodeId() first. */
 function layerRowById(page: Page, nodeId: string) {
   return layersTree(page).locator(
     `[data-layer-row-button][data-layer-node-id="${nodeId}"]`,
   );
+}
+
+/**
+ * The Layers-panel node id of whatever is currently selected. A freshly
+ * drawn primitive is always left selected (see canvas-tools.spec.ts's
+ * "insertion keeps the new primitive selected" contract), so this is the
+ * reliable way to learn its real panel id right after the draw — never
+ * assume it equals the raw data-agent-native-node-id (see layerRowById).
+ */
+async function selectedLayerNodeId(page: Page): Promise<string> {
+  const button = layersTree(page)
+    .locator('[aria-selected="true"] [data-layer-row-button]')
+    .first();
+  await expect(button).toBeVisible({ timeout: 10_000 });
+  const id = await button.getAttribute("data-layer-node-id");
+  if (!id) throw new Error("selected layer row has no data-layer-node-id");
+  return id;
 }
 
 async function selectLayerRowById(page: Page, nodeId: string): Promise<void> {
@@ -342,7 +364,10 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
         `from a 2:1 (120x60) drag delta, style="${style}"`,
     ).toBeLessThan(0.15);
 
-    await renameLayerRowById(page, frameId, "Icon grid");
+    // The layers panel keys rows by its own hashed projection id, never the
+    // raw frameId above — read the real one off the still-selected row.
+    const frameLayerNodeId = await selectedLayerNodeId(page);
+    await renameLayerRowById(page, frameLayerNodeId, "Icon grid");
     const renamedHtml = await indexHtml(request, designId);
     expect(
       renamedHtml,

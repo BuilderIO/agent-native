@@ -1,6 +1,9 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+} from "@shared/code-layer";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -36,6 +39,7 @@ import type {
   FileDeletionHistoryEntry,
   GeometryHistoryEntry,
   GeometryHistorySelection,
+  SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
   MAX_DESIGN_UNDO_STACK,
@@ -57,7 +61,10 @@ import {
   mergePendingLiveNonStyleEdits,
   mergePendingVisualStyleEdits,
 } from "@/pages/design-editor/pending-edits";
-import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selection-state";
+import {
+  elementInfoForSelectionSnapshot,
+  pendingEditTargetsSelectedElement,
+} from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface UndoArgs {
@@ -93,6 +100,10 @@ export interface UndoArgs {
   canEditDesign: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
+  /** Flat ownership map (DesignEditor.tsx's `codeLayerOwnerByNodeIdRef`) used
+   * only to derive the on-canvas `selectedElement` a restored selection-only
+   * entry implies — see `elementInfoForSelectionSnapshot`'s doc comment. */
+  codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
   contentRedoSelectionStackRef: RefObject<
     (GeometryHistorySelection | undefined)[]
   >;
@@ -118,7 +129,7 @@ export interface UndoArgs {
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
-  historyOrderRef: RefObject<UndoRedoOrderKind[]>;
+  historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
@@ -169,7 +180,7 @@ export interface UndoArgs {
     content: string,
     options?: { syncCollab?: boolean; immediate?: boolean },
   ) => void;
-  redoOrderRef: RefObject<UndoRedoOrderKind[]>;
+  redoOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
@@ -184,6 +195,8 @@ export interface UndoArgs {
   restoreSelectionSnapshot: (
     selection: GeometryHistorySelection | undefined,
   ) => void;
+  selectionRedoStackRef: RefObject<SelectionHistoryEntry[]>;
+  selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -222,6 +235,7 @@ export function runUndo({
   canEditDesign,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
+  codeLayerOwnerByNodeIdRef,
   contentRedoSelectionStackRef,
   contentRedoStackRef,
   contentUndoSelectionStackRef,
@@ -265,6 +279,8 @@ export function runUndo({
   requestPendingLiveNonStyleRevert,
   requestPendingVisualStyleRevert,
   restoreSelectionSnapshot,
+  selectionRedoStackRef,
+  selectionUndoStackRef,
   setActiveFileId,
   setContentRenderRevision,
   setHoveredElement,
@@ -796,6 +812,32 @@ export function runUndo({
     restoreSelectionSnapshot(entry.selectionBefore);
     return true;
   };
+  // Figma parity (ground-truth Round 4): undo a plain selection change (no
+  // document edit) — see SelectionHistoryEntry's doc comment. Restores the
+  // pre-selection-change snapshot, including the on-canvas selection overlay
+  // (elementInfoForSelectionSnapshot), which restoreSelectionSnapshot alone
+  // cannot derive.
+  const undoSelection = () => {
+    if (!canUseOverviewHistory) return false;
+    const entry = selectionUndoStackRef.current.pop();
+    if (!entry) return false;
+    selectionRedoStackRef.current = [
+      ...selectionRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      entry,
+    ];
+    redoOrderRef.current = [
+      ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "selection",
+    ];
+    restoreSelectionSnapshot(entry.before);
+    setSelectedElement(
+      elementInfoForSelectionSnapshot(
+        entry.before,
+        codeLayerOwnerByNodeIdRef.current,
+      ),
+    );
+    return true;
+  };
   // U12: undo a screen create/duplicate by soft-deleting the file it
   // created (performDeleteFiles already prunes any content/geometry undo
   // entries for that file, mirroring U2's screen-deletion cleanup).
@@ -916,7 +958,10 @@ export function runUndo({
     return true;
   };
 
-  const undoByOrder = (preferred?: UndoRedoOrderKind) => {
+  const undoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+    if (preferred === "selection") {
+      return undoSelection() || undoContent() || undoGeometry();
+    }
     if (preferred === "file-deleted") {
       return (
         undoFileDeletion() ||

@@ -25,6 +25,17 @@ vi.mock("@agent-native/core/client/i18n", () => ({
  * card resolved to no-frame-under-pointer — reproduced here at the marquee
  * hit-test (host-only, no cross-iframe drag machinery needed), the same
  * getSelectableFrameEntries() the cross-screen element-drop path also calls.
+ *
+ * A top-level screen only joins a marquee selection once the marquee box
+ * fully encloses it (parity-unique-paths.spec.ts's full-enclosure ground
+ * truth), and the rendered card fully contains the persisted geometry here
+ * (same x/y origin, only height differs) — so a marquee sized to enclose the
+ * rendered card would enclose the persisted one too either way and prove
+ * nothing. Discriminate the other direction instead: a marquee that fully
+ * encloses only the smaller PERSISTED bounds must NOT select the screen,
+ * because the real (rendered) card is taller and so is not fully enclosed —
+ * selecting it here would mean hit-testing fell back to the stale persisted
+ * geometry.
  */
 describe("frame hit-testing uses rendered (content-fit) geometry", () => {
   let container: HTMLDivElement;
@@ -56,7 +67,7 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
     container.remove();
   });
 
-  it("marquee-selects a screen whose measured content grew its card past its saved geometry", async () => {
+  it("does not select a screen via a marquee that only encloses its stale, pre-measurement geometry", async () => {
     const onSelectionChange = vi.fn();
     await act(async () => {
       root.render(
@@ -128,10 +139,12 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
       clientY: panY + (SURFACE_PADDING + canvasY) * scale,
     });
 
-    // (700,600) sits inside b's RENDERED card (x:600-1000, y:0-950) but
-    // outside both its PERSISTED geometry (y:0-100) and screen a's bounds.
-    const start = clientPointForCanvas(700, 600);
-    const end = clientPointForCanvas(750, 650);
+    // Fully encloses b's PERSISTED geometry (x:600-1000, y:0-100, plus the
+    // frame-label chrome above it) but stops well short of its RENDERED
+    // height (950) — see the discrimination this needs, in the doc comment
+    // above.
+    const start = clientPointForCanvas(590, -40);
+    const end = clientPointForCanvas(1010, 150);
 
     const dispatch = (
       target: EventTarget,
@@ -156,6 +169,6 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
       dispatch(window, "mouseup", end.clientX, end.clientY);
     });
 
-    expect(onSelectionChange).toHaveBeenCalledWith(["b"]);
+    expect(onSelectionChange).not.toHaveBeenCalledWith(["b"]);
   });
 });

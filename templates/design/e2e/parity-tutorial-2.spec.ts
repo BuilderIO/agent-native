@@ -104,14 +104,98 @@ async function fileContent(
   );
 }
 
+/**
+ * Board-level frames/shapes drawn outside any screen are persisted as
+ * ordinary code-layer nodes inside the reserved __board__.html file (see
+ * shared/board-file.ts), not in the legacy designs.data.boardObjects JSON
+ * blob this helper used to read: that field is migrated away from the first
+ * time a design opens (actions/migrate-board-objects-to-file.ts) and never
+ * written to again, so reading it always returns {} post-migration. Parse
+ * the board file's own markup instead, keyed by each top-level (direct
+ * <body> child) node's real data-agent-native-node-id.
+ */
+interface BoardObjectSummary {
+  kind: string;
+  name?: string;
+  radius?: number;
+  effects?: string[];
+  /** Set only for a direct (depth-1) child of a top-level board frame. */
+  parentId?: string;
+}
+
 async function boardObjects(
   request: APIRequestContext,
   id: string,
-): Promise<Record<string, any>> {
-  const record = await request
-    .get(`${BASE_URL}/_agent-native/actions/get-design?id=${id}`)
-    .then((r) => r.json());
-  return record?.data?.boardObjects ?? record?.boardObjects ?? {};
+): Promise<Record<string, BoardObjectSummary>> {
+  const html = await fileContent(request, id, "__board__.html");
+  const bodyMatch = /<body\b[^>]*>([\s\S]*)<\/body>/i.exec(html);
+  if (!bodyMatch) return {};
+  const result: Record<string, BoardObjectSummary> = {};
+  let depth = 0;
+  let currentTopLevelId: string | undefined;
+  for (const tag of bodyMatch[1].matchAll(/<(\/?)([a-zA-Z0-9-]+)([^>]*)>/g)) {
+    const [, slash, , attrs] = tag as unknown as [
+      string,
+      string,
+      string,
+      string,
+    ];
+    if (slash === "/") {
+      depth -= 1;
+      if (depth === 0) currentTopLevelId = undefined;
+      continue;
+    }
+    const nodeId = /data-agent-native-node-id="([^"]+)"/.exec(attrs)?.[1];
+    if (nodeId && (depth === 0 || depth === 1)) {
+      const style = /style="([^"]*)"/.exec(attrs)?.[1] ?? "";
+      const radiusMatch = /border-radius:\s*([\d.]+)px/.exec(style);
+      const shadowMatch = /box-shadow:\s*([^;]+)/.exec(style);
+      result[nodeId] = {
+        kind: /data-an-primitive="([^"]+)"/.exec(attrs)?.[1] ?? "frame",
+        name: /data-agent-native-layer-name="([^"]+)"/.exec(attrs)?.[1],
+        radius: radiusMatch ? Number(radiusMatch[1]) : undefined,
+        effects: shadowMatch ? [shadowMatch[1].trim()] : undefined,
+        parentId: depth === 1 ? currentTopLevelId : undefined,
+      };
+    }
+    const selfClosing = attrs.trimEnd().endsWith("/");
+    if (!selfClosing) {
+      if (depth === 0 && nodeId) currentTopLevelId = nodeId;
+      depth += 1;
+    }
+  }
+  return result;
+}
+
+/**
+ * Page-relative bounding box of a node id wherever it lives — the screen
+ * iframe or the board iframe alike — by reaching directly into each
+ * same-origin iframe's contentDocument (mirrors pen-board-commit.spec.ts's
+ * allVectors helper). The board iframe carries no data-screen-iframe-id, so
+ * designFrame()'s selector can't target it.
+ */
+async function boardObjectBoundingBox(
+  page: Page,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  return page.evaluate((id) => {
+    for (const iframe of Array.from(
+      document.querySelectorAll("iframe"),
+    ) as HTMLIFrameElement[]) {
+      const doc = iframe.contentDocument;
+      const el = doc?.querySelector(`[data-agent-native-node-id="${id}"]`);
+      if (!el) continue;
+      const iframeRect = iframe.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      return {
+        x: iframeRect.left + elRect.left,
+        y: iframeRect.top + elRect.top,
+        width: elRect.width,
+        height: elRect.height,
+      };
+    }
+    return null;
+  }, nodeId);
 }
 
 /**
@@ -273,14 +357,35 @@ function layerTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
 }
 
-/** Layer row located by its stable code-layer / board-object node id, never
- * by display name — text-tool and rename defaults are not spec'd, so a
- * name-based lookup is brittle where an id extracted from the persisted HTML
- * (or the create-* action response) is exact. */
+/** Layer row located by its LAYERS-PANEL node id (the code-layer
+ * projection's own hashed id, e.g. "html:1r0xyc7") — never the raw,
+ * persisted data-agent-native-node-id a draw/duplicate/drop hands back.
+ * Those two never coincide (shared/code-layer.ts's nodeIdFor always hashes
+ * the authored id); resolve the real one via selectedLayerNodeId() before
+ * calling this, the same convention parity-alt-drag-duplicate.spec.ts
+ * established. */
 function layerRowById(page: Page, nodeId: string) {
   return layerTree(page).locator(
     `[data-layer-row-button][data-layer-node-id="${nodeId}"]`,
   );
+}
+
+/**
+ * The Layers-panel node id of whatever is currently selected. A freshly
+ * drawn, duplicated, or dropped primitive is always left selected (see
+ * canvas-tools.spec.ts's "insertion keeps the new primitive selected"
+ * contract), so this is the reliable way to learn its real panel id right
+ * after the gesture that created it — never assume it equals the raw
+ * data-agent-native-node-id (see layerRowById above).
+ */
+async function selectedLayerNodeId(page: Page): Promise<string> {
+  const button = layerTree(page)
+    .locator('[aria-selected="true"] [data-layer-row-button]')
+    .first();
+  await expect(button).toBeVisible({ timeout: 10_000 });
+  const id = await button.getAttribute("data-layer-node-id");
+  if (!id) throw new Error("selected layer row has no data-layer-node-id");
+  return id;
 }
 
 async function selectLayerRowById(
@@ -387,16 +492,19 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       "Frame tool must create exactly one board frame",
     ).toHaveLength(1);
     expect(afterDraw[frameId].kind).toBe("frame");
+    // The layers panel keys rows by its own hashed projection id, never the
+    // raw frameId above — read the real one off the still-selected row.
+    const frameLayerNodeId = await selectedLayerNodeId(page);
 
     // Rename via the layers panel (double-click), like Figma.
-    await renameLayerRowById(page, frameId, "play-button");
+    await renameLayerRowById(page, frameLayerNodeId, "play-button");
     await expect
       .poll(async () => (await boardObjects(request, designId))[frameId]?.name)
       .toBe("play-button");
 
     // Select it and type exact corner radius (Figma types "100" for a fully
     // pill-rounded 40x40 square).
-    await selectLayerRowById(page, frameId);
+    await selectLayerRowById(page, frameLayerNodeId);
     const radiusInput = page.locator('input[aria-label="Corner radius" i]');
     await expect(radiusInput).toBeVisible({ timeout: 10_000 });
     await radiusInput.fill("100");
@@ -409,9 +517,13 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       )
       .toBeTruthy();
 
-    // Add a drop-shadow effect (Effects section → Add effect).
+    // Add a drop-shadow effect (Effects section → Add effect → Drop shadow,
+    // the same two-click sequence inspector-styles.spec.ts and
+    // parity-tutorial-1.spec.ts use — "Add effect" alone only opens the
+    // kind menu, it never itself commits a shadow).
     const effectsSection = inspectorSection(page, /^Effects$/i);
     await effectsSection.getByRole("button", { name: "Add effect" }).click();
+    await page.getByRole("menuitem", { name: "Drop shadow" }).click();
     await page.waitForTimeout(400);
     await expect
       .poll(
@@ -479,9 +591,10 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       designId,
       "Frame",
     );
-    const frameBox = await page
-      .locator(`[data-board-object-id="${frameId}"]`)
-      .boundingBox();
+    // The board object renders inside the board's own same-origin iframe
+    // (no data-board-object-id wrapper exists anywhere in the app) — reach
+    // into the iframe directly rather than querying the host page.
+    const frameBox = await boardObjectBoundingBox(page, frameId);
     expect(frameBox, "no bounding box for the drawn frame").toBeTruthy();
 
     // Draw the substitute rectangle centered inside the frame's on-screen box
@@ -561,8 +674,11 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       html,
       "step 3 must add a frame inside the screen, not a new screen file",
     ).toMatch(/data-an-primitive="frame"/);
+    // The layers panel keys rows by its own hashed projection id, never the
+    // raw albumArtId above — read the real one off the still-selected row.
+    const albumArtLayerNodeId = await selectedLayerNodeId(page);
     await expandAllLayers(page);
-    await renameLayerRowById(page, albumArtId, "album-art");
+    await renameLayerRowById(page, albumArtLayerNodeId, "album-art");
 
     // Step 4: create a source board object (stand-in for the play-button
     // instance) then Option/Alt-drag it across the screen boundary into
@@ -576,9 +692,10 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       "Frame",
       60,
     );
-    const sourceBox = await page
-      .locator(`[data-board-object-id="${sourceId}"]`)
-      .boundingBox();
+    // The board object renders inside the board's own same-origin iframe
+    // (no data-board-object-id wrapper exists anywhere in the app) — reach
+    // into the iframe directly rather than querying the host page.
+    const sourceBox = await boardObjectBoundingBox(page, sourceId);
     expect(sourceBox, "no bounding box for the source frame").toBeTruthy();
 
     // album-art lives inside the screen's own iframe document; drop
@@ -623,10 +740,13 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       "alt-drag must leave the original board frame in place",
     ).toContain(sourceId);
 
-    // Option+Arrow nudge 16px on the newly-dropped copy.
+    // Option+Arrow nudge 16px on the newly-dropped copy. The drop leaves the
+    // new copy selected — read its real layers-panel id off that selection
+    // rather than assuming it equals the raw newChildId.
     const newChildId = albumArtChildren[albumArtChildren.length - 1];
+    const newChildLayerNodeId = await selectedLayerNodeId(page);
     await expandAllLayers(page);
-    await selectLayerRowById(page, newChildId);
+    await selectLayerRowById(page, newChildLayerNodeId);
     await focusCanvas(page);
     const beforeNudgeMatch = new RegExp(
       `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,

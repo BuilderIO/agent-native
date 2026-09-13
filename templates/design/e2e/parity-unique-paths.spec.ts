@@ -48,17 +48,14 @@ async function createFreeDragFixture(page: Page): Promise<string> {
   );
   const created = await res.json();
   const id: string = created?.id ?? created?.data?.id ?? created?.design?.id;
-  await page.request.post(
-    `${e2eBaseURL()}/_agent-native/actions/create-file`,
-    {
-      data: {
-        designId: id,
-        filename: "index.html",
-        content: FREE_DRAG_HTML,
-        fileType: "html",
-      },
+  await page.request.post(`${e2eBaseURL()}/_agent-native/actions/create-file`, {
+    data: {
+      designId: id,
+      filename: "index.html",
+      content: FREE_DRAG_HTML,
+      fileType: "html",
     },
-  );
+  });
   return id;
 }
 
@@ -79,9 +76,10 @@ test.describe.serial("rare-but-real unique paths", () => {
     const beforeCount = before.length;
 
     const target = layerRowButton(page, "Beta Button").first();
-    const sourceBox = (await layerRowButton(page, "Alpha Button")
-      .first()
-      .boundingBox())!;
+    const sourceRow = layerRowButton(page, "Alpha Button");
+    const sourceLayerNodeId =
+      await sourceRow.getAttribute("data-layer-node-id");
+    const sourceBox = (await sourceRow.boundingBox())!;
     const targetBox = (await target.boundingBox())!;
 
     await page.mouse.move(
@@ -100,10 +98,22 @@ test.describe.serial("rare-but-real unique paths", () => {
     await page.waitForTimeout(300);
 
     const after = await topLevelLayerNodeIds(page);
+    // A button-shaped leaf's visible text is a real wrapped <span> child
+    // (see shared/code-layer.ts's wrapBareTextLeavesInHtml), so duplicating
+    // "Alpha Button" legitimately adds that child row too — assert growth,
+    // not an exact +1, then pin down the real signal: the ORIGINAL row must
+    // still be present unchanged (a duplicate, not a move) and at least one
+    // brand-new id must now exist (a plain reorder/reparent — the pre-fix
+    // behavior — never adds any).
     expect(
       after.length,
-      `alt-drag in the layers panel from ${JSON.stringify(before)} should add one node; got ${JSON.stringify(after)}`,
-    ).toBe(beforeCount + 1);
+      `alt-drag in the layers panel from ${JSON.stringify(before)} should add at least one node; got ${JSON.stringify(after)}`,
+    ).toBeGreaterThan(beforeCount);
+    expect(sourceLayerNodeId).toBeTruthy();
+    expect(
+      after,
+      "the original Alpha Button row must still exist after an alt-drag duplicate",
+    ).toContain(sourceLayerNodeId);
 
     await page.keyboard.press(`${MOD}+z`);
     await page.waitForTimeout(200);
@@ -170,7 +180,8 @@ test.describe.serial("rare-but-real unique paths", () => {
     await expandAllLayersLocal(page);
     await expect
       .poll(() => countSelectedLayerRows(page), {
-        message: "precondition: the paragraph click must select exactly one layer row",
+        message:
+          "precondition: the paragraph click must select exactly one layer row",
       })
       .toBe(1);
     await page.keyboard.press("ControlOrMeta+a");
@@ -248,27 +259,44 @@ test.describe.serial("rare-but-real unique paths", () => {
     await selectByText(page, "Alpha Button");
     const target = await frameNode(page, "Alpha Button");
     const box = (await target.boundingBox())!;
-    const sectionBox = (await (await frameNode(page, "Fixture Card Title")).boundingBox())!;
+    const sectionBox = (await (
+      await frameNode(page, "Fixture Card Title")
+    ).boundingBox())!;
 
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(sectionBox.x + sectionBox.width / 2, sectionBox.y + 10, {
-      steps: 10,
-    });
+    await page.mouse.move(
+      sectionBox.x + sectionBox.width / 2,
+      sectionBox.y + 10,
+      {
+        steps: 10,
+      },
+    );
     await page.keyboard.down("Space");
-    await page.mouse.move(sectionBox.x + sectionBox.width / 2, sectionBox.y + sectionBox.height / 2, {
-      steps: 10,
-    });
+    await page.mouse.move(
+      sectionBox.x + sectionBox.width / 2,
+      sectionBox.y + sectionBox.height / 2,
+      {
+        steps: 10,
+      },
+    );
     await page.keyboard.up("Space");
     await page.mouse.up();
     await page.waitForTimeout(200);
 
     const html = await getFileHtml(page);
-    const sectionOpen = html.indexOf('data-agent-native-layer-name="Fixture Card Title"');
-    const alphaIdx = html.indexOf('data-agent-native-node-id="e2e-alpha-button"');
+    const sectionOpen = html.indexOf(
+      'data-agent-native-layer-name="Fixture Card Title"',
+    );
+    const alphaIdx = html.indexOf(
+      'data-agent-native-node-id="e2e-alpha-button"',
+    );
     const sectionCloseIdx = html.indexOf("</section>", sectionOpen);
     expect(
-      alphaIdx > 0 && sectionOpen > 0 && sectionCloseIdx > 0 && alphaIdx > sectionCloseIdx,
+      alphaIdx > 0 &&
+        sectionOpen > 0 &&
+        sectionCloseIdx > 0 &&
+        alphaIdx > sectionCloseIdx,
       "Alpha Button must not land inside the section while Space is held during the drag",
     ).toBe(true);
   });
@@ -279,26 +307,59 @@ test.describe.serial("rare-but-real unique paths", () => {
     await openLayerSearch(page, "Button");
     const rowA = layerRow(page, "Alpha Button");
     const rowB = layerRow(page, "Beta Button");
-    await rowA.hover();
-    const eyeA = rowA.locator('button[aria-label="Hide layer"], button[aria-label="Show layer"]').first();
-    await rowB.hover();
-    const eyeB = rowB.locator('button[aria-label="Hide layer"], button[aria-label="Show layer"]').first();
-    const boxA = (await eyeA.boundingBox())!;
-    const boxB = (await eyeB.boundingBox())!;
+    // Drives the gesture via the LOCK icon rather than the eye/hide icon:
+    // the hide icon is the row's rightmost, sitting directly under the
+    // panel's own width-resize separator (role="separator", position
+    // absolute at the panel's right edge) — real geometry, but one a
+    // synthetic pointer can land a pixel short of depending on the exact
+    // panel width, unrelated to the click-drag-across-a-run behavior this
+    // test exists to prove. Lock sits one icon further from that edge and
+    // exercises the identical onMouseDown/onMouseEnter continuation path
+    // (see LayersPanel.tsx) — same fix, a geometrically stable target.
+    const lockA = rowA
+      .locator(
+        'button[aria-label="Lock layer"], button[aria-label="Unlock layer"]',
+      )
+      .first();
+    const lockB = rowB
+      .locator(
+        'button[aria-label="Lock layer"], button[aria-label="Unlock layer"]',
+      )
+      .first();
+    const centerOf = async (locator: Locator) => {
+      const box = (await locator.boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
 
-    await page.mouse.move(boxA.x + boxA.width / 2, boxA.y + boxA.height / 2);
+    // The lock/hide icon column only occupies real layout space while its
+    // OWN row is genuinely :hover'd (`group-hover:w-auto` — collapsed to
+    // `w-0 overflow-hidden` otherwise), so lockB's position can only be read
+    // AFTER the mouse has actually moved into row B, not pre-computed
+    // up front alongside lockA's (which would read it mid-collapse, off in
+    // whatever the zero-width column's overflow happens to lay out to).
+    await rowA.hover();
+    const start = await centerOf(lockA);
+    await page.mouse.move(start.x, start.y);
     await page.mouse.down();
-    await page.mouse.move(boxB.x + boxB.width / 2, boxB.y + boxB.height / 2, {
-      steps: 6,
-    });
+    const rowBBox = (await rowB.boundingBox())!;
+    await page.mouse.move(
+      rowBBox.x + rowBBox.width / 2,
+      rowBBox.y + rowBBox.height / 2,
+      { steps: 6 },
+    );
+    // lockB.hover() (not a raw page.mouse.move to a pre-read box):
+    // Playwright re-resolves the element's position itself right before
+    // moving, so it reflects the `group-hover:w-auto` reveal instead of
+    // racing it.
+    await lockB.hover({ force: true });
     await page.mouse.up();
     await page.waitForTimeout(200);
 
-    const alphaHidden = await isLayerHidden(page, "Alpha Button");
-    const betaHidden = await isLayerHidden(page, "Beta Button");
+    const alphaLocked = await isLayerLocked(page, "Alpha Button");
+    const betaLocked = await isLayerLocked(page, "Beta Button");
     expect(
-      alphaHidden && betaHidden,
-      `a continuous drag across both eye icons should hide both rows; got Alpha hidden=${alphaHidden}, Beta hidden=${betaHidden}`,
+      alphaLocked && betaLocked,
+      `a continuous drag across both lock icons should lock both rows; got Alpha locked=${alphaLocked}, Beta locked=${betaLocked}`,
     ).toBe(true);
   });
 
@@ -306,11 +367,17 @@ test.describe.serial("rare-but-real unique paths", () => {
     page,
   }) => {
     await selectByText(page, "Alpha Button");
-    const betaBox = (await (await frameNode(page, "Beta Button")).boundingBox())!;
+    const betaBox = (await (
+      await frameNode(page, "Beta Button")
+    ).boundingBox())!;
     await page.keyboard.down("Alt");
-    await page.mouse.move(betaBox.x + betaBox.width / 2, betaBox.y + betaBox.height / 2, {
-      steps: 5,
-    });
+    await page.mouse.move(
+      betaBox.x + betaBox.width / 2,
+      betaBox.y + betaBox.height / 2,
+      {
+        steps: 5,
+      },
+    );
     await page.waitForTimeout(150);
     const overlayCount = await page
       .locator("[data-agent-native-measurement-overlay]")
@@ -329,7 +396,7 @@ test.describe.serial("rare-but-real unique paths", () => {
     // Ctrl-drag should let an auto-layout child leave (or move freely
     // within) its flex parent, bypassing the reorder-only resistance a
     // plain drag has there.
-    await selectByText(page, "Alpha Button");
+    await selectByTextDeep(page, "Alpha Button");
     const box = (await (await frameNode(page, "Alpha Button")).boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.down("Control");
@@ -344,7 +411,9 @@ test.describe.serial("rare-but-real unique paths", () => {
     const html = await getFileHtml(page);
     const rowOpen = html.indexOf('style="display:flex;flex-direction:row');
     const rowClose = html.indexOf("</div>", rowOpen);
-    const alphaIdx = html.indexOf('data-agent-native-node-id="e2e-alpha-button"');
+    const alphaIdx = html.indexOf(
+      'data-agent-native-node-id="e2e-alpha-button"',
+    );
     expect(
       alphaIdx > 0 && (alphaIdx < rowOpen || alphaIdx > rowClose),
       "Ctrl-drag should be able to pull the child out of the flex row against normal auto-layout drag resistance",
@@ -354,20 +423,25 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
     page,
   }) => {
-    await selectByText(page, "Beta Button");
+    await selectByTextDeep(page, "Beta Button");
     await page.keyboard.press(`${MOD}+Alt+c`);
     await page.waitForTimeout(100);
-    await selectByText(page, "Alpha Button");
-    const beforeBox = (await (await frameNode(page, "Alpha Button")).boundingBox())!;
+    await selectByTextDeep(page, "Alpha Button");
+    const beforeBox = (await (
+      await frameNode(page, "Alpha Button")
+    ).boundingBox())!;
     await page.keyboard.press(`${MOD}+Alt+v`);
     await page.waitForTimeout(200);
-    const afterBox = (await (await frameNode(page, "Alpha Button")).boundingBox())!;
-    const bg = await (await frameNode(page, "Alpha Button")).evaluate(
-      (el) => getComputedStyle(el).backgroundColor,
-    );
+    const afterBox = (await (
+      await frameNode(page, "Alpha Button")
+    ).boundingBox())!;
+    const bg = await (
+      await frameNode(page, "Alpha Button")
+    ).evaluate((el) => getComputedStyle(el).backgroundColor);
 
     expect(
-      Math.abs(afterBox.x - beforeBox.x) < 2 && Math.abs(afterBox.y - beforeBox.y) < 2,
+      Math.abs(afterBox.x - beforeBox.x) < 2 &&
+        Math.abs(afterBox.y - beforeBox.y) < 2,
       "paste-properties must not move the target's position",
     ).toBe(true);
     expect(
@@ -414,19 +488,26 @@ test.describe.serial("rare-but-real unique paths", () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.down("Shift");
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 45, box.y + box.height / 2 + 30, {
-      steps: 12,
-    });
+    await page.mouse.move(
+      box.x + box.width / 2 + 45,
+      box.y + box.height / 2 + 30,
+      {
+        steps: 12,
+      },
+    );
     await page.mouse.up();
     await page.keyboard.up("Shift");
     await page.waitForTimeout(150);
 
-    const rotation = await page.locator("[data-frame-shell]").first().evaluate((el) => {
-      const t = getComputedStyle(el).transform;
-      if (!t || t === "none") return 0;
-      const m = new DOMMatrix(t);
-      return Math.round((Math.atan2(m.b, m.a) * 180) / Math.PI);
-    });
+    const rotation = await page
+      .locator("[data-frame-shell]")
+      .first()
+      .evaluate((el) => {
+        const t = getComputedStyle(el).transform;
+        if (!t || t === "none") return 0;
+        const m = new DOMMatrix(t);
+        return Math.round((Math.atan2(m.b, m.a) * 180) / Math.PI);
+      });
     expect(
       Math.abs(rotation % 15) < 1 || Math.abs((rotation % 15) - 15) < 1,
       `Shift-constrained rotation should land on a 15-degree increment, got ${rotation} deg`,
@@ -438,21 +519,31 @@ test.describe.serial("rare-but-real unique paths", () => {
   }) => {
     await selectByText(page, "Alpha Button");
     const before = await getFileHtml(page);
-    const beforeAlpha = before.indexOf('data-agent-native-node-id="e2e-alpha-button"');
-    const beforeBeta = before.indexOf('data-agent-native-node-id="e2e-beta-button"');
+    const beforeAlpha = before.indexOf(
+      'data-agent-native-node-id="e2e-alpha-button"',
+    );
+    const beforeBeta = before.indexOf(
+      'data-agent-native-node-id="e2e-beta-button"',
+    );
     expect(beforeAlpha).toBeLessThan(beforeBeta);
 
     await page.keyboard.press("ArrowRight");
     await page.waitForTimeout(150);
 
     const after = await getFileHtml(page);
-    const afterAlpha = after.indexOf('data-agent-native-node-id="e2e-alpha-button"');
-    const afterBeta = after.indexOf('data-agent-native-node-id="e2e-beta-button"');
+    const afterAlpha = after.indexOf(
+      'data-agent-native-node-id="e2e-alpha-button"',
+    );
+    const afterBeta = after.indexOf(
+      'data-agent-native-node-id="e2e-beta-button"',
+    );
     expect(
       afterAlpha > afterBeta,
       "ArrowRight on a flex-row child must reorder it past its sibling in DOM order, not translate it via left/top",
     ).toBe(true);
-    const alphaBox = await (await frameNode(page, "Alpha Button")).evaluate((el) => ({
+    const alphaBox = await (
+      await frameNode(page, "Alpha Button")
+    ).evaluate((el) => ({
       left: (el as HTMLElement).style.left,
       top: (el as HTMLElement).style.top,
     }));
@@ -519,6 +610,13 @@ async function isLayerHidden(page: Page, name: string): Promise<boolean> {
   return (await button.count()) > 0;
 }
 
+async function isLayerLocked(page: Page, name: string): Promise<boolean> {
+  const button = layerRow(page, name).locator(
+    'button[aria-label="Unlock layer"]',
+  );
+  return (await button.count()) > 0;
+}
+
 async function expandAllLayersLocal(page: Page): Promise<void> {
   await page
     .getByRole("tree", { name: "Layers" })
@@ -545,14 +643,69 @@ async function openLayerSearch(page: Page, query: string): Promise<void> {
   await page.waitForTimeout(200);
 }
 
+/**
+ * Every ancestor of a matched leaf also carries a (bridge-auto-assigned)
+ * `data-agent-native-node-id` and its aggregated textContent still contains
+ * the leaf's text, so `{ hasText }` matches the whole chain up to the
+ * fixture's `<main>`. `.first()` returned that outermost ancestor in
+ * document order instead of the actual named element — every caller reading
+ * a position/size/computed-style off "Alpha Button" or "Beta Button" was
+ * silently reading `<main>` instead. Smallest bounding box picks the actual
+ * leaf, matching `selectableNodeByText`'s tie-break in e2e/helpers.ts.
+ */
 async function frameNode(page: Page, text: string): Promise<Locator> {
   await enterDirectMode(page);
   const frame = designFrame(page);
-  const node = frame
-    .locator("[data-agent-native-node-id]", { hasText: text })
-    .first();
+  const candidates = frame.locator("[data-agent-native-node-id]", {
+    hasText: text,
+  });
+  const count = await candidates.count();
+  let bestIndex = 0;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    const box = await candidate.boundingBox().catch(() => null);
+    if (!box || box.width <= 0 || box.height <= 0) continue;
+    // shared/code-layer.ts's wrapBareTextLeavesInHtml wraps a leaf's own
+    // text in a <span>, which is smaller than its element and never carries
+    // the box/style the caller means by "this element" — skip it so the
+    // named button/div itself wins the tie-break, not its text run.
+    const tag = await candidate.evaluate((el) => el.tagName);
+    if (tag === "SPAN") continue;
+    const area = box.width * box.height;
+    if (area < bestArea) {
+      bestArea = area;
+      bestIndex = index;
+    }
+  }
+  const node = candidates.nth(bestIndex);
   await node.scrollIntoViewIfNeeded().catch(() => {});
   return node;
+}
+
+/**
+ * A single click (what `selectByText` sends) always selects the outer
+ * content frame under the pointer (here, the fixture's `<main>`), confirmed
+ * by repeated single re-clicks at the same point never drilling any deeper.
+ * Only a real double-click descends straight to the specific leaf under the
+ * cursor, so a target nested more than one level deep (main > flex row >
+ * button) needs this — not `selectByText` — to make later position/style
+ * reads act on the named element instead of its ancestor.
+ */
+async function selectByTextDeep(page: Page, text: string): Promise<void> {
+  await enterDirectMode(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+  const box = (await (await frameNode(page, text)).boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+  const message = await waitForBridge(page, "element-select");
+  expect(String(message?.payload?.componentName ?? "")).toBe(text);
+  // A double-click on a text-bearing leaf also enters text editing, which
+  // moves DOM focus inside the iframe document — Escape exits editing
+  // without losing the shape selection, restoring the outer window as the
+  // keydown target the hotkey listener actually listens on.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(100);
 }
 
 /**
@@ -561,9 +714,7 @@ async function frameNode(page: Page, text: string): Promise<Locator> {
  * Re-querying by node id (not text) is what lets the caller tell a
  * duplicate's node apart from the original it was copied from.
  */
-async function boxFromNextSelect(
-  page: Page,
-): Promise<{
+async function boxFromNextSelect(page: Page): Promise<{
   nodeId: string;
   box: { x: number; y: number; width: number; height: number };
 }> {

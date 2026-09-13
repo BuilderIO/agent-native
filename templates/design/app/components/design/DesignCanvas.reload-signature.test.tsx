@@ -11,11 +11,10 @@
 // false (in-place morph); a new one means it returned true (full reload,
 // the observed "flash").
 
+import { applyVisualEdit } from "@shared/code-layer";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
-
-import { applyVisualEdit } from "@shared/code-layer";
 
 import { DesignCanvas } from "./DesignCanvas";
 
@@ -205,11 +204,41 @@ describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
     }
   });
 
+  it("does not reload when the next content reserializes a bare boolean script attribute", async () => {
+    // Root cause of the real e2e flash: a structural edit's next content can
+    // come from the live iframe's own DOM (the bridge resolves the moved
+    // node against the running document, not the original source bytes).
+    // Chromium's attribute serializer normalizes a bare boolean attribute
+    // like `defer` to `defer=""` on that round trip even though the script
+    // itself never changed — exactly what the real e2e run observed for the
+    // Alpine CDN <script> tag on the first drag-into-container edit. This
+    // reserializes ONLY that one attribute (the rest of the document is
+    // byte-identical to BASE), mirroring the live-DOM round trip without
+    // going through the string-only `applyVisualEdit` path (which never
+    // reproduces this — see the byte-for-byte test below).
+    const reserialized = BASE.replace(
+      '/dist/cdn.min.js" defer>',
+      '/dist/cdn.min.js" defer="">',
+    );
+    expect(reserialized).not.toBe(BASE);
+    const canvas = await renderCanvas(BASE);
+    try {
+      const base = canvas.iframe()?.srcdoc;
+      expect(base).toBeTruthy();
+      await canvas.update(reserialized);
+      expect(
+        canvas.iframe()?.srcdoc,
+        'a defer -> defer="" reserialization must not force a full reload',
+      ).toBe(base);
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
   it("byte-for-byte: the <head> script region never changes across any structural edit", () => {
     // Direct evidence for the "does re-serialization touch script bytes"
     // hypothesis, independent of the React/iframe harness above.
-    const headOf = (html: string) =>
-      html.slice(0, html.search(/<\/head\s*>/i));
+    const headOf = (html: string) => html.slice(0, html.search(/<\/head\s*>/i));
 
     const afterDrag = apply(BASE, {
       kind: "moveNode",

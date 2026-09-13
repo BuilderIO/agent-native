@@ -92,6 +92,134 @@ export interface LayerMoveArgs {
   visualScreenFileIds: Set<string>;
 }
 
+/**
+ * Alt-drag-duplicate in the Layers panel (Figma parity: unique-paths.md #2).
+ * Clones the dragged node's markup in place — as a fresh-id same-parent
+ * sibling — then moves that CLONE to the intended drop position; the
+ * original is never touched. A pure string/projection transform so it can
+ * run ahead of runLayerMove's codeLayerOwnerByNodeId-keyed branches, which
+ * don't know about the freshly-minted clone until the next render.
+ *
+ * Returns null when the drop doesn't fit this single-node, same-document
+ * fast path (target missing, or the move step reports anything but
+ * "applied") — callers fall back to a plain, non-duplicating move rather
+ * than fail the gesture outright.
+ */
+export function duplicateNodeForPanelDrop(
+  content: string,
+  draggedNodeId: string,
+  anchorNodeId: string,
+  placement: LayersPanelMoveIntent["placement"],
+): { content: string; duplicatedNodeId: string } | null {
+  const projection = buildCodeLayerProjection(content);
+  const source = projection.nodes.find((node) => node.id === draggedNodeId);
+  if (!source?.source) return null;
+  const fragment = content.slice(source.source.start, source.source.end);
+  let rootId = "";
+  const clonedFragment = fragment.replace(
+    /data-agent-native-node-id="[^"]*"/g,
+    () => {
+      // The dragged node's own opening tag is always the first match — its
+      // descendants' opening tags only appear later in source order.
+      const id = `copy-${
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      }`;
+      if (!rootId) rootId = id;
+      return `data-agent-native-node-id="${id}"`;
+    },
+  );
+  if (!rootId) return null;
+  const withClone =
+    content.slice(0, source.source.end) +
+    clonedFragment +
+    content.slice(source.source.end);
+  const movePatch = applyVisualEdit(withClone, {
+    kind: "moveNode",
+    target: { nodeId: rootId },
+    anchor: { nodeId: anchorNodeId },
+    placement,
+  });
+  if (movePatch.result.status !== "applied") return null;
+  return { content: movePatch.content, duplicatedNodeId: rootId };
+}
+
+type CodeLayerOwner = NonNullable<
+  ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>
+>;
+
+/**
+ * Attempts the alt-drag-duplicate fast path for a single-node panel drop;
+ * returns "handled" once it has applied the content update and selection
+ * itself, or "skip" when the shape isn't one this fast path supports (the
+ * caller then runs its normal, non-duplicating move).
+ */
+function tryDuplicateOnPanelDrop(
+  intent: LayersPanelMoveIntent,
+  targetOwner: CodeLayerOwner,
+  {
+    activeFile,
+    applyFileContentUpdate,
+    codeLayerOwnerByNodeId,
+    effectiveCodeLayerState,
+    files,
+    getFreshActiveContent,
+    setSelectedElement,
+    setSelectedLayerIdsState,
+  }: Pick<
+    LayerMoveArgs,
+    | "activeFile"
+    | "applyFileContentUpdate"
+    | "codeLayerOwnerByNodeId"
+    | "effectiveCodeLayerState"
+    | "files"
+    | "getFreshActiveContent"
+    | "setSelectedElement"
+    | "setSelectedLayerIdsState"
+  >,
+): "handled" | "skip" {
+  const draggedId = intent.draggedIds[0]!;
+  const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
+  if (
+    !draggedOwner ||
+    draggedOwner.runtimeOnly ||
+    targetOwner.runtimeOnly ||
+    draggedOwner.fileId !== targetOwner.fileId ||
+    effectiveCodeLayerState.lockedIds.has(draggedId)
+  ) {
+    return "skip";
+  }
+  const baseContent =
+    targetOwner.fileId === activeFile?.id
+      ? getFreshActiveContent()
+      : (files.find((file) => file.id === targetOwner.fileId)?.content ?? "");
+  if (!baseContent) return "skip";
+  const duplicated = duplicateNodeForPanelDrop(
+    baseContent,
+    draggedId,
+    intent.targetId,
+    intent.placement,
+  );
+  if (!duplicated) return "skip";
+  applyFileContentUpdate(targetOwner.fileId, duplicated.content, {
+    recordHistory: true,
+    refreshPreview: false,
+  });
+  const finalNode = buildCodeLayerProjection(duplicated.content).nodes.find(
+    (node) =>
+      node.dataAttributes["data-agent-native-node-id"] ===
+      duplicated.duplicatedNodeId,
+  );
+  if (finalNode) {
+    setSelectedLayerIdsState([finalNode.id]);
+    if (targetOwner.fileId === activeFile?.id) {
+      setSelectedElement(elementInfoFromCodeLayerNode(finalNode));
+    }
+  }
+  return "handled";
+}
+
 export function runLayerMove(
   {
     activeFile,
@@ -134,6 +262,21 @@ export function runLayerMove(
       handleLayerMoveToScreen(intent, targetFile.id);
     }
     return;
+  }
+  if (intent.duplicate && intent.draggedIds.length === 1) {
+    const outcome = tryDuplicateOnPanelDrop(intent, targetOwner, {
+      activeFile,
+      applyFileContentUpdate,
+      codeLayerOwnerByNodeId,
+      effectiveCodeLayerState,
+      files,
+      getFreshActiveContent,
+      setSelectedElement,
+      setSelectedLayerIdsState,
+    });
+    if (outcome === "handled") return;
+    // Falls through to the plain (non-duplicating) move below when the fast
+    // path doesn't apply — e.g. cross-file, runtime-only, or locked source.
   }
   const runtimeDraggedOwner =
     intent.draggedIds.length === 1
@@ -217,6 +360,20 @@ export function runLayerMove(
       // dragged/reordered like any other layer.
       effectiveCodeLayerState.lockedIds.has(draggedId)
     ) {
+      continue;
+    }
+    if (draggedOwner.runtimeOnly) {
+      // The single-drag runtimeOnly branch above only fires when the WHOLE
+      // intent is one runtime-only id; a mixed multi-select drag reaches
+      // here with a runtime-only item still in the list. It has no
+      // sourceHtml counterpart, so applyVisualEdit/moveNodeBetweenDocuments
+      // below would fail with a raw "no code layer node exists"/"not found
+      // in sourceHtml" id string instead of moving anything — refuse with
+      // the same plain-language copy every other per-drag failure here
+      // uses, rather than let that technical message reach the user.
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
       continue;
     }
     // L15: mirror canMoveLayer's per-drag ancestor-of-target guard here.

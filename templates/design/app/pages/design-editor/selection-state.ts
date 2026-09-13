@@ -1,12 +1,14 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import type { CodeLayerProjection } from "@shared/code-layer";
+import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
 import type { DesignSourceType } from "@shared/source-mode";
 
 import type { ScreenGeometrySelection } from "@/components/design/EditPanel";
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
 import type { ElementInfo } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
+import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 
+import type { GeometryHistorySelection } from "./history";
 import type { DesignTool, EditorMode } from "./types";
 
 // PF11: cache the FNV hash by content-string value. Two calls with an equal
@@ -510,4 +512,46 @@ export function buildActiveFileNodeIdSet(
     if (attrId) ids.add(attrId);
   }
   return ids;
+}
+
+/**
+ * Whether two selection snapshots are the same selection — used to skip
+ * recording a no-op selection-history entry (a command ran but landed back
+ * on the same selection it started from).
+ *
+ * Exported for unit testing.
+ */
+export function selectionHistorySnapshotsEqual(
+  a: GeometryHistorySelection,
+  b: GeometryHistorySelection,
+): boolean {
+  return (
+    a.activeFileId === b.activeFileId &&
+    sameStringIds(a.overviewSelectedScreenIds, b.overviewSelectedScreenIds) &&
+    sameStringIds(a.selectedLayerIds, b.selectedLayerIds)
+  );
+}
+
+/**
+ * Figma-parity undo/redo selection restore for the new selection-only
+ * history kind: `restoreSelectionSnapshot` (DesignEditor.tsx) only knows
+ * `GeometryHistorySelection`'s own fields (layer ids, screen ids, active
+ * file) and has no `ElementInfo` to give the canvas selection overlay, which
+ * reads `selectedElement`, not `selectedLayerIdsState`. Mirrors the same
+ * derivation `undoContent`/`redoContent` already do from a content
+ * projection, but from the flat `codeLayerOwnerByNodeId` map instead (a
+ * selection-only entry never rewrites document content, so there is no
+ * content snapshot to re-project). Scoped to exactly one restored layer, like
+ * its content-history counterparts — a multi-select has no single
+ * `ElementInfo` to give the overlay.
+ *
+ * Exported for unit testing.
+ */
+export function elementInfoForSelectionSnapshot(
+  selection: GeometryHistorySelection,
+  codeLayerOwnerByNodeId: ReadonlyMap<string, { node: CodeLayerNode }>,
+): ElementInfo | null {
+  if (selection.selectedLayerIds.length !== 1) return null;
+  const owner = codeLayerOwnerByNodeId.get(selection.selectedLayerIds[0]!);
+  return owner ? elementInfoFromCodeLayerNode(owner.node) : null;
 }
