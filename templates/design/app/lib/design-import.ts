@@ -315,6 +315,7 @@ function truncateForToast(value: string): string {
 export interface DesignClipboardLayerEntry {
   html: string;
   rootNodeId?: string;
+  sourceParentNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -410,6 +411,8 @@ function validateDesignClipboardPayload(
       !clipboardString(entry.html, MAX_CLIPBOARD_CONTENT_CHARS) ||
       !clipboardString(entry.sourceFileId) ||
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
+      (entry.sourceParentNodeId !== undefined &&
+        !clipboardString(entry.sourceParentNodeId)) ||
       (entry.portableStyleSnapshot !== undefined &&
         !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot)) ||
       (entry.managedStyleSnapshot !== undefined &&

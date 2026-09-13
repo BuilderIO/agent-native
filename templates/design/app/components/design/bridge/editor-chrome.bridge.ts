@@ -7340,7 +7340,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return null;
     var selectedContainsHit =
       selectedEl && selectedEl.contains && selectedEl.contains(hit);
-    if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl))
+    // Generated Group wrappers are selection boundaries, not text targets.
+    var selectedGroupOwnsHit = !!(
+      selectedContainsHit &&
+      selectionTargetForHit(hit) === selectedEl &&
+      selectionTargetForHit(hit, true) !== selectedEl
+    );
+    if (
+      selectedContainsHit &&
+      hasOnlyInlineEditableChildren(selectedEl) &&
+      !selectedGroupOwnsHit
+    )
       return selectedEl;
 
     var candidate = null;
@@ -7351,6 +7361,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       node !== document.body &&
       node !== document.documentElement
     ) {
+      if (selectedGroupOwnsHit && node === selectedEl) break;
       if (hasOnlyInlineEditableChildren(node)) {
         candidate = node;
       }
@@ -14791,8 +14802,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var startX = e.clientX;
     var startY = e.clientY;
     var didStartDrag = false;
-    function selectTarget(target, ev?: MouseEvent) {
+    // Only a click release descends into selected group text; drag starts keep
+    // the group target.
+    function selectTarget(target, ev?: MouseEvent, selectTextChild = false) {
       var previousSelectedEl = selectedEl;
+      if (
+        selectTextChild &&
+        target === previousSelectedEl &&
+        hit &&
+        previousSelectedEl.contains(hit)
+      ) {
+        var textTarget = findTextEditTarget(hit);
+        if (
+          textTarget &&
+          textTarget !== previousSelectedEl &&
+          hasOwnTextContent(textTarget)
+        ) {
+          target = textTarget;
+        }
+      }
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
       // A plain (non-shift) select on a fresh target collapses any prior
@@ -14861,7 +14889,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (cycledEl) {
         selectTarget(cycledEl);
       } else {
-        selectTarget(clickTarget || dragTarget, ev);
+        selectTarget(clickTarget || dragTarget, ev, true);
       }
       suppressNextShieldClickBriefly();
     }

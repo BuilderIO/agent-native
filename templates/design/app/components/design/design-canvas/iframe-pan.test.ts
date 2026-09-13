@@ -65,7 +65,7 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
     vi.restoreAllMocks();
   });
 
-  it("maps the start through iframe scale and preserves parent-pixel deltas", () => {
+  it("maps iframe-local pan deltas through the iframe scale", () => {
     const events: Array<{
       type: string;
       button: number;
@@ -134,17 +134,43 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
         type: "mousemove",
         button: 1,
         buttons: 4,
-        clientX: 155,
-        clientY: 125,
+        clientX: 170,
+        clientY: 140,
       },
       {
         type: "mouseup",
         button: 1,
         buttons: 0,
-        clientX: 160,
-        clientY: 130,
+        clientX: 180,
+        clientY: 150,
       },
     ]);
+  });
+
+  it("preserves a 96px vertical drag from a 2x-scaled iframe", () => {
+    let receivedY: number | null = null;
+    window.addEventListener(
+      "mousemove",
+      (event) => {
+        receivedY = (event as MouseEvent).clientY;
+      },
+      { once: true },
+    );
+
+    const start = forwardEmbeddedCanvasPanMessage({
+      data: panMessage("start"),
+      iframe,
+      hostWindow: window,
+      session: null,
+    });
+    forwardEmbeddedCanvasPanMessage({
+      data: panMessage("move", { movementY: 48 }),
+      iframe,
+      hostWindow: window,
+      session: start.session,
+    });
+
+    expect(receivedY).toBe(206);
   });
 
   it("rejects malformed, reordered, and mismatched packets", () => {
@@ -237,12 +263,12 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
       session: start.session,
     });
 
-    expect(moves).toEqual([{ clientX: 155, clientY: 125 }]);
+    expect(moves).toEqual([{ clientX: 170, clientY: 140 }]);
     expect(move.session).toEqual({
       pointerId: 7,
       button: 1,
-      clientX: 155,
-      clientY: 125,
+      clientX: 170,
+      clientY: 140,
     });
   });
 });

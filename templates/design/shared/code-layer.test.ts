@@ -948,6 +948,11 @@ describe("applyVisualEdit", () => {
     let html = `<section data-layer-name="Card" style="width: 240px">Hello</section>`;
     const edits = [
       { property: "fontSize", cssProperty: "font-size", value: "24px" },
+      {
+        property: "backgroundClip",
+        cssProperty: "background-clip",
+        value: "text",
+      },
       { property: "borderRadius", cssProperty: "border-radius", value: "12px" },
       { property: "opacity", cssProperty: "opacity", value: "0.64" },
       {

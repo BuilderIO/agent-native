@@ -32,6 +32,51 @@ import type { DesignFile } from "@/pages/design-editor/types";
 /** Inset for a copy whose original parent is gone, so it lands on screen. */
 const ORPHANED_PASTE_INSET = 24;
 
+function isSelectedClipboardLayer(
+  entries: ReadonlyArray<CanvasLayerClipboardEntry>,
+  targetFileId: string,
+  selectedNodeId: string | null | undefined,
+) {
+  return Boolean(
+    selectedNodeId &&
+    entries.every((entry) => entry.sourceFileId === targetFileId) &&
+    entries.some((entry) => entry.rootNodeId === selectedNodeId),
+  );
+}
+
+function offsetPositionsFromSource(
+  sourcePositions: Array<{ x: number; y: number } | null>,
+  cascadeOffset: number,
+) {
+  const positionedSources = sourcePositions.filter(
+    (source): source is { x: number; y: number } => Boolean(source),
+  );
+  if (positionedSources.length !== sourcePositions.length) return undefined;
+  return positionedSources.map((source) => ({
+    x: source.x + 10 + cascadeOffset,
+    y: source.y + 10 + cascadeOffset,
+    space: "layout" as const,
+  }));
+}
+
+function commonClipboardSourceParentNodeId(
+  entries: ReadonlyArray<CanvasLayerClipboardEntry>,
+  targetFileId: string,
+) {
+  const sourceParentNodeId = entries[0]?.sourceParentNodeId;
+  if (
+    !sourceParentNodeId ||
+    !entries.every(
+      (entry) =>
+        entry.sourceFileId === targetFileId &&
+        entry.sourceParentNodeId === sourceParentNodeId,
+    )
+  ) {
+    return null;
+  }
+  return sourceParentNodeId;
+}
+
 export interface PasteSelectionArgs {
   activeFile: DesignFile;
   applyFileContentUpdate: (
@@ -264,6 +309,13 @@ export async function runPasteSelection(
               undefined,
           }
         : null;
+    const sourceParentNodeId =
+      !position && !selectedAnchor
+        ? commonClipboardSourceParentNodeId(entries, targetFileId)
+        : null;
+    const sourceParentAnchor = sourceParentNodeId
+      ? { selector: "", sourceId: sourceParentNodeId }
+      : null;
     const sourcePositions = entries.map((entry) =>
       extractLayerPosition(entry.html),
     );
@@ -292,8 +344,13 @@ export async function runPasteSelection(
     const pastingIntoSourceScreen = entries.every(
       (entry) => entry.sourceFileId === targetFileId,
     );
+    const selectedSourcePositions =
+      selectedAnchor &&
+      isSelectedClipboardLayer(entries, targetFileId, selectedAnchor.sourceId)
+        ? offsetPositionsFromSource(sourcePositions, cascadeOffset)
+        : undefined;
     const positions = selectedAnchor
-      ? undefined
+      ? selectedSourcePositions
       : entries.map((_, index) => {
           const source = sourcePositions[index];
           if (position) {
@@ -301,20 +358,24 @@ export async function runPasteSelection(
               ? {
                   x: position.x + source.x - minSourceX,
                   y: position.y + source.y - minSourceY,
+                  space: "visual" as const,
                 }
               : {
                   x: position.x + index * 16,
                   y: position.y + index * 16,
+                  space: "visual" as const,
                 };
           }
           return source && pastingIntoSourceScreen
             ? {
                 x: source.x + 10 + cascadeOffset,
                 y: source.y + 10 + cascadeOffset,
+                space: "layout" as const,
               }
             : {
                 x: viewportCenter.x + cascadeOffset + index * 16,
                 y: viewportCenter.y + cascadeOffset + index * 16,
+                space: "visual" as const,
               };
         });
     const prepared = prepareClonedHtmlLayersForLiveInsert(
@@ -340,7 +401,7 @@ export async function runPasteSelection(
       screenId: targetFileId,
       html: firstHtml,
       additionalHtml: prepared.htmlFragments.slice(1),
-      anchor: selectedAnchor ?? { selector: "body" },
+      anchor: selectedAnchor ?? sourceParentAnchor ?? { selector: "body" },
       placement: selectedAnchor ? "after" : "inside",
     });
     return;
@@ -415,10 +476,35 @@ export async function runPasteSelection(
       content: baseContent,
       selectedElement,
     });
+    const sourceParentSelectors =
+      sourceAnchor?.fileId === targetFileId
+        ? sourceAnchor.parentSelectors
+        : null;
+    const pasteBackIntoSourceParent =
+      decision?.placement === "after" &&
+      sourceParentSelectors !== null &&
+      isSelectedClipboardLayer(
+        entries,
+        targetFileId,
+        selectedElement.runtimeSourceId ??
+          selectedElement.sourceId ??
+          selectedElement.id,
+      );
+    const selectedSourcePositions = pasteBackIntoSourceParent
+      ? offsetPositionsFromSource(
+          entries.map((entry) => extractLayerPosition(entry.html)),
+          pasteCascadeRef.current * 16,
+        )
+      : undefined;
     const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
-      targetSelectors: [selector],
-      placement: decision?.placement ?? "after",
+      targetSelectors: pasteBackIntoSourceParent
+        ? (sourceParentSelectors ?? [selector])
+        : [selector],
+      placement: pasteBackIntoSourceParent
+        ? "inside"
+        : (decision?.placement ?? "after"),
       stripRootPosition: true,
+      positions: selectedSourcePositions,
       styleSnapshots,
       managedStyleSnapshots,
     });
@@ -516,23 +602,31 @@ export async function runPasteSelection(
         ? {
             x: position.x + source.x - minSourceX,
             y: position.y + source.y - minSourceY,
+            space: "visual" as const,
           }
-        : { x: position.x + index * 16, y: position.y + index * 16 };
+        : {
+            x: position.x + index * 16,
+            y: position.y + index * 16,
+            space: "visual" as const,
+          };
     }
     if (rootFallbackPlacement) {
       return {
         x: ORPHANED_PASTE_INSET + cascadeOffset + index * 16,
         y: ORPHANED_PASTE_INSET + cascadeOffset + index * 16,
+        space: "visual" as const,
       };
     }
     return source && pastingIntoSourceScreen
       ? {
           x: source.x + 10 + cascadeOffset,
           y: source.y + 10 + cascadeOffset,
+          space: "layout" as const,
         }
       : {
           x: viewportCenter.x + cascadeOffset + index * 16,
           y: viewportCenter.y + cascadeOffset + index * 16,
+          space: "visual" as const,
         };
   });
   const result = insertClonedHtmlLayers(baseContent, layerHtmls, {

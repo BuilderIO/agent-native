@@ -771,6 +771,66 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
+    "inserts a deselected live copy inside its stable source-group anchor",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        #source-group { position:absolute;left:0;top:0;width:390px;height:844px; }
+      </style></head><body>
+        <div id="source-group" data-agent-native-node-id="runtime-group" data-agent-native-group-wrapper="true">
+          <div id="source-child" data-agent-native-node-id="runtime-child">Source</div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 45,
+              html: '<div data-agent-native-node-id="runtime-copy" style="position:absolute;left:50px;top:130px;width:200px;height:100px;transform:rotate(12deg)"></div>',
+              anchorSelector: "",
+              anchorSourceId: "runtime-group",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const inserted = await page
+        .locator('[data-agent-native-node-id="runtime-copy"]')
+        .evaluate((element) => {
+          const item = element as HTMLElement;
+          return {
+            parent: item.parentElement?.id ?? null,
+            left: item.style.left,
+            top: item.style.top,
+            width: item.style.width,
+            height: item.style.height,
+            transform: item.style.transform,
+          };
+        });
+
+      expect(inserted).toEqual({
+        parent: "source-group",
+        left: "50px",
+        top: "130px",
+        width: "200px",
+        height: "100px",
+        transform: "rotate(12deg)",
+      });
+      await page.close();
+    },
+  );
+
+  it(
     "answers an unresolvable insert anchor instead of dropping the gesture silently",
     { timeout: 30_000 },
     async () => {

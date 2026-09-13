@@ -5750,11 +5750,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!hit || hit.nodeType !== 1 || hit === document.body || hit === document.documentElement)
         return null;
       var selectedContainsHit = selectedEl && selectedEl.contains && selectedEl.contains(hit);
-      if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl))
+      var selectedGroupOwnsHit = !!(selectedContainsHit && selectionTargetForHit(hit) === selectedEl && selectionTargetForHit(hit, true) !== selectedEl);
+      if (selectedContainsHit && hasOnlyInlineEditableChildren(selectedEl) && !selectedGroupOwnsHit)
         return selectedEl;
       var candidate = null;
       var node = hit;
       while (node && node.nodeType === 1 && node !== document.body && node !== document.documentElement) {
+        if (selectedGroupOwnsHit && node === selectedEl) break;
         if (hasOnlyInlineEditableChildren(node)) {
           candidate = node;
         }
@@ -10769,8 +10771,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var didStartDrag = false;
-      function selectTarget(target, ev) {
+      function selectTarget(target, ev, selectTextChild = false) {
         var previousSelectedEl = selectedEl;
+        if (selectTextChild && target === previousSelectedEl && hit && previousSelectedEl.contains(hit)) {
+          var textTarget = findTextEditTarget(hit);
+          if (textTarget && textTarget !== previousSelectedEl && hasOwnTextContent(textTarget)) {
+            target = textTarget;
+          }
+        }
         selectedEl = target;
         positionOverlay(selectionOverlay, selectedEl);
         if (!ev?.shiftKey && passiveSelectionEls.length) {
@@ -10814,7 +10822,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (cycledEl) {
           selectTarget(cycledEl);
         } else {
-          selectTarget(clickTarget || dragTarget, ev);
+          selectTarget(clickTarget || dragTarget, ev, true);
         }
         suppressNextShieldClickBriefly();
       }

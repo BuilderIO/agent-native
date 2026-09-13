@@ -78,6 +78,7 @@ export type VisualStyleProperty =
   | "display"
   | "color"
   | "background"
+  | "background-clip"
   | "background-color"
   | "background-image"
   | "background-size"
@@ -741,6 +742,7 @@ const STYLE_PROPERTIES = [
   "display",
   "color",
   "background",
+  "background-clip",
   "background-color",
   "background-image",
   "background-size",

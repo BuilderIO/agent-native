@@ -215,7 +215,7 @@ export function cloneHtmlLayerAtPosition(
 ): string | null {
   return (
     insertClonedHtmlLayers(content, [layerHtml], {
-      positions: [position],
+      positions: [{ ...position, space: "visual" }],
     })?.content ?? null
   );
 }
@@ -252,19 +252,93 @@ export function preserveClipboardLayerName(
   }
 }
 
-function setRootLayerPosition(
-  element: Element,
-  position: { x: number; y: number },
-) {
+type ClonePositionSpace = "layout" | "visual";
+/** Visual positions include the clone's transform; layout positions do not. */
+type CloneLayerPosition = {
+  x: number;
+  y: number;
+  space?: ClonePositionSpace;
+};
+
+function cssLength(value: string, reference: number): number {
+  if (value.endsWith("%")) return (Number.parseFloat(value) / 100) * reference;
+  const parsed = Number.parseFloat(value);
+  if (
+    !Number.isFinite(parsed) ||
+    !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:px)?$/.test(value)
+  ) {
+    throw new Error(`Cannot resolve transform geometry length: ${value}`);
+  }
+  return parsed;
+}
+
+function transformOriginCoordinate(
+  value: string | undefined,
+  size: number,
+  axis: "x" | "y",
+): number {
+  const origin = value || "50%";
+  if (origin === "center") return size / 2;
+  if (origin === (axis === "x" ? "left" : "top")) return 0;
+  if (origin === (axis === "x" ? "right" : "bottom")) return size;
+  return cssLength(origin, size);
+}
+
+function transformedBoundsOffset(element: HTMLElement | SVGElement): {
+  x: number;
+  y: number;
+} {
+  const transform = element.style.transform;
+  if (!transform || transform === "none") return { x: 0, y: 0 };
+  if (typeof DOMMatrixReadOnly === "undefined") {
+    throw new Error("DOMMatrixReadOnly is required for transformed placement");
+  }
+  const matrix = new DOMMatrixReadOnly(transform);
+  if (!matrix.is2D) {
+    throw new Error(`Cannot resolve 3D transform placement: ${transform}`);
+  }
+  const width = cssLength(element.style.width, 0);
+  const height = cssLength(element.style.height, 0);
+  let [originX, originY] = element.style.transformOrigin
+    .split(/\s+/)
+    .slice(0, 2);
+  if (
+    (originX === "top" || originX === "bottom") &&
+    (originY === "left" || originY === "right")
+  ) {
+    [originX, originY] = [originY, originX];
+  }
+  const ox = transformOriginCoordinate(originX, width, "x");
+  const oy = transformOriginCoordinate(originY, height, "y");
+  const corners = [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ].map(([x, y]) => ({
+    x: ox + matrix.a * (x! - ox) + matrix.c * (y! - oy) + matrix.e,
+    y: oy + matrix.b * (x! - ox) + matrix.d * (y! - oy) + matrix.f,
+  }));
+  return {
+    x: Math.min(...corners.map((point) => point.x)),
+    y: Math.min(...corners.map((point) => point.y)),
+  };
+}
+
+function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
   const host = styleHost(element);
   if (!host) return;
+  const offset =
+    position.space === "visual"
+      ? transformedBoundsOffset(host)
+      : { x: 0, y: 0 };
   // Use explicit style property assignments rather than prepending a raw
   // string. Prepending creates duplicate CSS properties in the same style
   // attribute, and in CSS the LAST occurrence wins, so existing left/top
   // values from the cloned element would override the new position.
   host.style.position = "absolute";
-  host.style.left = `${Math.max(0, Math.round(position.x))}px`;
-  host.style.top = `${Math.max(0, Math.round(position.y))}px`;
+  host.style.left = `${Math.round(position.x - offset.x)}px`;
+  host.style.top = `${Math.round(position.y - offset.y)}px`;
   host.style.right = "";
   host.style.bottom = "";
 }
@@ -422,7 +496,7 @@ export function prepareClonedHtmlLayersForLiveInsert(
   layerHtmls: string[],
   options: {
     stripRootPosition?: boolean;
-    positions?: Array<{ x: number; y: number } | null | undefined>;
+    positions?: Array<CloneLayerPosition | null | undefined>;
     styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
   } = {},
 ): {
@@ -481,7 +555,7 @@ export function insertClonedHtmlLayers(
     anchorSelectors?: string[];
     placement?: "before" | "after" | "inside";
     stripRootPosition?: boolean;
-    positions?: Array<{ x: number; y: number } | null | undefined>;
+    positions?: Array<CloneLayerPosition | null | undefined>;
     styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
     managedStyleSnapshots?: Array<
       DesignClipboardManagedStyleSnapshot | null | undefined

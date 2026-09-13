@@ -483,6 +483,7 @@ import {
   bridgeSourceIdForCodeLayerNode,
   canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
+  codeLayerSourceNodeIdAttrs,
   codeLayerNodeLooksLikeComponent,
   codeLayerNodeMatchesBridgeTarget,
   codeLayerSelectorAliases,
@@ -4742,7 +4743,7 @@ function DesignEditor() {
   // add/remove-breakpoint ones stay where they were, next to the JSX that
   // uses them.
   const handleBreakpointBarSelect = useCallback(
-    (widthPx: number | undefined) => {
+    (widthPx: number | undefined, selectedBreakpointId?: string) => {
       // Selection and bridge events from a breakpoint iframe can be followed
       // by a style commit in the same browser task. Mirror synchronously so
       // that commit cannot observe the previous frame's scope while React is
@@ -4751,7 +4752,8 @@ function DesignEditor() {
       setActiveBreakpointWidthState(widthPx);
       if (!id) return;
       const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
-      const breakpointId = widthPx !== undefined && bp ? bp.id : "auto";
+      const breakpointId =
+        selectedBreakpointId ?? (widthPx !== undefined && bp ? bp.id : "auto");
       // Item 9 — seed the dedupe ref BEFORE the mutation resolves so the
       // app-state poll tick this write eventually triggers is a no-op echo,
       // not a redundant re-apply of a value we already set locally.
@@ -9585,6 +9587,7 @@ function DesignEditor() {
           canvasContainerRef,
           canvasContextMenuRef,
           focusDesignInspectorForSelection,
+          getCodeLayerProjectionForScreen,
           handleScreenElementSelect,
           overviewCanvasZoom,
           setCanvasLayerHitCandidates,
@@ -9598,6 +9601,7 @@ function DesignEditor() {
       activeFileId,
       boardFileId,
       focusDesignInspectorForSelection,
+      getCodeLayerProjectionForScreen,
       handleScreenElementSelect,
       overviewCanvasZoom,
       viewMode,
@@ -15571,6 +15575,8 @@ function DesignEditor() {
     fileId: string;
     projection: CodeLayerProjection;
     sourceProjection: CodeLayerProjection;
+    sourceContent: string;
+    sourceNodeIdAttrs: ReadonlySet<string>;
     runtimeOnly: boolean;
     tree: CodeLayerTreeNode[];
     nodeById: Map<string, CodeLayerNode>;
@@ -15583,6 +15589,12 @@ function DesignEditor() {
     const cache = codeLayerModelCacheRef.current;
     const liveFileIds = new Set(files.map((file) => file.id));
     const models = files.map((file): CodeLayerFileModel => {
+      const sourceContent = getScreenContent(file.id);
+      const cached = cache.get(file.id);
+      const sourceNodeIdAttrs =
+        cached?.sourceContent === sourceContent
+          ? cached.sourceNodeIdAttrs
+          : codeLayerSourceNodeIdAttrs(sourceContent);
       const sourceProjection =
         getCodeLayerProjectionForScreen(file.id) ??
         buildCodeLayerProjection(getProjectionContentForScreen(file.id));
@@ -15606,11 +15618,11 @@ function DesignEditor() {
       const projection = useRuntimeProjection
         ? runtimeProjection!
         : sourceProjection;
-      const cached = cache.get(file.id);
       if (
         cached &&
         cached.projection === projection &&
         cached.sourceProjection === sourceProjection &&
+        cached.sourceContent === sourceContent &&
         cached.runtimeOnly === useRuntimeProjection
       ) {
         return cached;
@@ -15624,6 +15636,8 @@ function DesignEditor() {
         fileId: file.id,
         projection,
         sourceProjection,
+        sourceContent,
+        sourceNodeIdAttrs,
         runtimeOnly: useRuntimeProjection,
         tree,
         nodeById: new Map(projection.nodes.map((node) => [node.id, node])),
@@ -15661,6 +15675,7 @@ function DesignEditor() {
     getCodeLayerProjectionForScreen,
     getProjectionContentForScreen,
     getRuntimeCodeLayerProjection,
+    getScreenContent,
     overviewScreenById,
     runtimeLayerSnapshotsById,
   ]);
@@ -15685,11 +15700,6 @@ function DesignEditor() {
       // resolvable source counterpart. See isCodeLayerNodeRuntimeOnly's doc
       // comment for why every lock/hide/group/reparent call site downstream
       // needs the narrower per-node signal instead.
-      const sourceNodeIdAttrs = new Set(
-        model.sourceProjection.nodes
-          .map((node) => node.dataAttributes["data-agent-native-node-id"])
-          .filter((value): value is string => Boolean(value)),
-      );
       model.projection.nodes.forEach((node) => {
         owners.set(node.id, {
           fileId: model.fileId,
@@ -15698,7 +15708,7 @@ function DesignEditor() {
           runtimeOnly: isCodeLayerNodeRuntimeOnly({
             fileIsRuntimeProjected: model.runtimeOnly,
             nodeIdAttr: node.dataAttributes["data-agent-native-node-id"],
-            sourceNodeIdAttrs,
+            sourceNodeIdAttrs: model.sourceNodeIdAttrs,
           }),
         });
       });
@@ -17919,6 +17929,7 @@ function DesignEditor() {
           effectiveCodeLayerState,
           files,
           getFreshActiveContent,
+          getScreenContent,
           recordContentHistoryEntry,
           recordLocalContentHistoryEntry,
           runtimeStructureInsertRevisionRef,
@@ -17940,6 +17951,7 @@ function DesignEditor() {
       effectiveCodeLayerState,
       files,
       getFreshActiveContent,
+      getScreenContent,
       recordContentHistoryEntry,
       recordLocalContentHistoryEntry,
       t,
@@ -17958,6 +17970,7 @@ function DesignEditor() {
           effectiveCodeLayerState,
           files,
           getFreshActiveContent,
+          getScreenContent,
           handleLayerMoveToScreen,
           handleScreenLayerMove,
           recordContentHistoryEntry,
@@ -17983,6 +17996,7 @@ function DesignEditor() {
       effectiveCodeLayerState,
       files,
       getFreshActiveContent,
+      getScreenContent,
       handleLayerMoveToScreen,
       handleScreenLayerMove,
       recordContentHistoryEntry,
@@ -19199,23 +19213,31 @@ function DesignEditor() {
       ) {
         return;
       }
-      const wasActive =
-        activeBreakpointWidthStateRef.current === existing.widthPx;
       const label = breakpointLabelForWidth(widthPx);
       void (async () => {
+        let addedBreakpointId: string | undefined;
         try {
-          await addBreakpointMutation.mutateAsync({
+          const addResult = await addBreakpointMutation.mutateAsync({
             designId: id,
             label,
             widthPx,
           });
+          addedBreakpointId = addResult.breakpointSet.breakpoints.find(
+            (breakpoint) => breakpoint.widthPx === widthPx,
+          )?.id;
+          if (!addedBreakpointId) return;
         } catch {
           // Add failed: abort before touching the old breakpoint. The old
           // width stays in the set and, if it was the active edit target,
           // stays targeted — no orphaned scope.
           return;
         }
-        if (wasActive) handleBreakpointBarSelect(widthPx);
+        if (
+          activeBreakpointWidthStateRef.current === existing.widthPx &&
+          addedBreakpointId
+        ) {
+          handleBreakpointBarSelect(widthPx, addedBreakpointId);
+        }
         try {
           await removeBreakpointMutation.mutateAsync({
             designId: id,

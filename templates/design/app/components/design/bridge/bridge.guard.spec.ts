@@ -37,6 +37,7 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
+import { isTextElement } from "../edit-panel/element-classification";
 
 declare global {
   interface Window {
@@ -2204,6 +2205,105 @@ it(
         () => !document.querySelector("[data-agent-native-text-editing]"),
       );
       expect(stillNotTextEditing).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "repeatedly clicking text inside a generated group selects its text layer",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #headline { position: absolute; left: 100px; top: 100px; width: 300px; height: 120px; background: #f5f5f5; }
+      #headline > span { position: absolute; left: 20px; display: block; font-size: 24px; }
+      #headline > span:first-child { top: 20px; }
+      #production-ui { top: 60px; }
+    </style>
+  </head>
+  <body>
+    <div id="headline" data-agent-native-node-id="headline" data-agent-native-layer-name="Headline" data-agent-native-group-wrapper="true">
+      <span data-an-primitive="text">Your prompt</span>
+      <span id="production-ui" data-agent-native-node-id="production-ui" data-an-primitive="text">Production UI</span>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-text-editing-enabled", enabled: true },
+          "*",
+        );
+        (window as any).__elementSelectPayloads = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__elementSelectPayloads.push(event.data.payload);
+          }
+        });
+      });
+
+      const prompt = page.locator("#headline > span").first();
+      const box = await prompt.boundingBox();
+      if (!box) throw new Error("Prompt text was not rendered");
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 0,
+      );
+      const firstSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(firstSelection.sourceId).toBe("headline");
+
+      await page.waitForTimeout(500);
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 1,
+      );
+      const repeatedSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      expect(repeatedSelection.tagName).toBe("span");
+      expect(repeatedSelection.hasOwnText).toBe(true);
+      expect(repeatedSelection.pendingNodeId).toBeTruthy();
+      expect(isTextElement(repeatedSelection)).toBe(true);
+
+      await page.mouse.dblclick(point.x, point.y);
+      await page.waitForFunction(() =>
+        Boolean(
+          document.querySelector<HTMLElement>(
+            '[data-agent-native-text-editing="true"]',
+          ),
+        ),
+      );
+      const textSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      expect(textSelection.tagName).toBe("span");
+      expect(textSelection.primitiveKind).toBe("text");
+      expect(textSelection.hasOwnText).toBe(true);
+      expect(textSelection.pendingNodeId).toBeTruthy();
+      expect(isTextElement(textSelection)).toBe(true);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

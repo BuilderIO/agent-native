@@ -10,6 +10,10 @@ vi.mock("sonner", () => ({
 
 import { sourceContentHash } from "@shared/source-workspace";
 
+import type {
+  ElementInfo,
+  RuntimeStructureInsertRequest,
+} from "@/components/design/types";
 import {
   publishClipboardContentMutation,
   type ClipboardContentLineage,
@@ -37,6 +41,14 @@ ${BOARD_NOTE_HTML}
 </div>
 </body></html>`;
 
+const GROUPED_TRANSFORMED_HTML = `<div data-agent-native-node-id="group-child" data-an-primitive="rectangle" data-agent-native-layer-name="Badge" style="position:absolute;left:40px;top:120px;width:200px;height:100px;transform:translateX(20px) rotate(12deg)"></div>`;
+const GROUPED_BOARD_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="group-1" data-agent-native-group-wrapper="true" data-agent-native-layer-name="Group" style="position:absolute;left:0px;top:0px;width:390px;height:844px">
+${GROUPED_TRANSFORMED_HTML}
+</div>
+</body></html>`;
+
 function designFile(id: string, filename: string, content: string): DesignFile {
   return {
     id,
@@ -57,6 +69,9 @@ interface Harness {
   contentByFileId: Map<string, string>;
   writes: Array<{ fileId: string; content: string }>;
   selections: Array<{ screenId: string; rootNodeIds: string[] }>;
+  runtimeInsertRequests: Array<
+    RuntimeStructureInsertRequest & { screenId: string }
+  >;
 }
 
 function harness(
@@ -64,6 +79,7 @@ function harness(
     entries?: CanvasLayerClipboardEntry[];
     files?: DesignFile[];
     activeFileId?: string;
+    selectedElement?: ElementInfo | null;
   } = {},
 ): Harness {
   const files = overrides.files ?? [
@@ -76,6 +92,9 @@ function harness(
   )!;
   const writes: Array<{ fileId: string; content: string }> = [];
   const selections: Array<{ screenId: string; rootNodeIds: string[] }> = [];
+  const runtimeInsertRequests: Array<
+    RuntimeStructureInsertRequest & { screenId: string }
+  > = [];
 
   const container = document.createElement("div");
   container.getBoundingClientRect = () =>
@@ -139,8 +158,11 @@ function harness(
       selections.push({ screenId, rootNodeIds });
     },
     selectedCanvasSelector: "",
-    selectedElement: null,
-    setRuntimeStructureInsertRequest: () => {},
+    selectedElement: overrides.selectedElement ?? null,
+    setRuntimeStructureInsertRequest: (next) => {
+      const request = typeof next === "function" ? next(null) : next;
+      if (request) runtimeInsertRequests.push(request);
+    },
     syncUndoRedoState: () => {},
     t: (key) => key,
     undoManagerRef: ref(null),
@@ -148,7 +170,7 @@ function harness(
     zoom: 100,
   };
 
-  return { args, contentByFileId, writes, selections };
+  return { args, contentByFileId, writes, selections, runtimeInsertRequests };
 }
 
 function pastedCopies(content: string) {
@@ -188,6 +210,160 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(left).toBeLessThan(390);
     expect(top).toBeGreaterThanOrEqual(0);
     expect(top).toBeLessThan(844);
+  });
+
+  it("pastes a transformed layer inside its source group and preserves size", async () => {
+    const { args, writes } = harness({
+      files: [
+        designFile("home", "index.html", HOME_HTML),
+        designFile("board", "__board__.html", GROUPED_BOARD_HTML),
+      ],
+      entries: [
+        {
+          html: GROUPED_TRANSFORMED_HTML,
+          rootNodeId: "group-child",
+          sourceFileId: "board",
+        },
+      ],
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes[0]?.fileId).toBe("board");
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "group-1",
+    );
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
+    expect(copy.style.width).toBe("200px");
+    expect(copy.style.height).toBe("100px");
+    expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
+  });
+
+  it("keeps a selected grouped child positioned next to its source", async () => {
+    const selectedElement: ElementInfo = {
+      tagName: "div",
+      sourceId: "group-child",
+      selector: '[data-agent-native-node-id="group-child"]',
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 40, y: 120, width: 200, height: 100 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+    const { args, writes } = harness({
+      files: [
+        designFile("home", "index.html", GROUPED_BOARD_HTML),
+        designFile("board", "__board__.html", BOARD_HTML),
+      ],
+      activeFileId: "home",
+      entries: [
+        {
+          html: GROUPED_TRANSFORMED_HTML,
+          rootNodeId: "group-child",
+          sourceFileId: "home",
+        },
+      ],
+      selectedElement,
+    });
+    args.selectedCanvasSelector = selectedElement.selector!;
+
+    await runPasteSelection(args);
+
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "group-1",
+    );
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
+    expect(copy.style.width).toBe("200px");
+    expect(copy.style.height).toBe("100px");
+    expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
+  });
+
+  it("keeps a selected live grouped child positioned next to its source", async () => {
+    const selectedElement: ElementInfo = {
+      tagName: "div",
+      sourceId: "runtime-group-child",
+      runtimeSourceId: "runtime-group-child",
+      selector: '[data-agent-native-node-id="source-group-child"]',
+      runtimeSelector: '[data-agent-native-node-id="runtime-group-child"]',
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 40, y: 120, width: 200, height: 100 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+    const { args, runtimeInsertRequests } = harness({
+      files: [
+        designFile("home", "index.html", HOME_HTML),
+        designFile("board", "__board__.html", BOARD_HTML),
+        designFile("live", "live.html", "https://example.com/live"),
+      ],
+      activeFileId: "live",
+      entries: [
+        {
+          html: GROUPED_TRANSFORMED_HTML,
+          rootNodeId: "runtime-group-child",
+          sourceFileId: "live",
+        },
+      ],
+      selectedElement,
+    });
+    args.selectedCanvasSelector = selectedElement.selector!;
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    const request = runtimeInsertRequests[0]!;
+    expect(request.anchor).toEqual({
+      selector: selectedElement.runtimeSelector,
+      sourceId: selectedElement.runtimeSourceId,
+    });
+    expect(request.placement).toBe("after");
+    const copy = new DOMParser().parseFromString(request.html, "text/html").body
+      .firstElementChild as HTMLElement;
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
+    expect(copy.style.width).toBe("200px");
+    expect(copy.style.height).toBe("100px");
+    expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
+  });
+
+  it("anchors a deselected live paste inside its copied source group", async () => {
+    const sourceEntry = {
+      html: GROUPED_TRANSFORMED_HTML,
+      rootNodeId: "runtime-group-child",
+      sourceFileId: "live",
+      sourceParentNodeId: "runtime-group",
+    };
+    const { args, runtimeInsertRequests } = harness({
+      files: [
+        designFile("home", "index.html", HOME_HTML),
+        designFile("board", "__board__.html", BOARD_HTML),
+        designFile("live", "live.html", "https://example.com/live"),
+      ],
+      activeFileId: "live",
+      entries: [sourceEntry],
+    });
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    const request = runtimeInsertRequests[0]!;
+    expect(request.anchor).toEqual({
+      selector: "",
+      sourceId: "runtime-group",
+    });
+    expect(request.placement).toBe("inside");
+    const copy = new DOMParser().parseFromString(request.html, "text/html").body
+      .firstElementChild as HTMLElement;
+    expect(pixels(copy.style.left)).toBe(50);
+    expect(pixels(copy.style.top)).toBe(130);
+    expect(copy.style.width).toBe("200px");
+    expect(copy.style.height).toBe("100px");
+    expect(copy.style.transform).toBe("translateX(20px) rotate(12deg)");
   });
 
   it("puts the copy somewhere visible when its source parent is gone", async () => {
@@ -310,6 +486,20 @@ describe("pasting copied layers with no explicit drop point", () => {
     ).toBe("board-group");
     expect(pixels(copies[0]!.style.left)).toBeLessThan(600);
     expect(pixels(copies[0]!.style.top)).toBeLessThan(400);
+  });
+
+  it("places a transformed copy at the explicit canvas point", async () => {
+    const html = `<div data-agent-native-node-id="translated" data-agent-native-layer-name="Translated" style="position:absolute;left:100px;top:40px;width:100px;height:50px;transform:translateX(100px)"></div>`;
+    const { args, writes } = harness({
+      entries: [{ html, rootNodeId: "translated", sourceFileId: "home" }],
+    });
+
+    await runPasteSelection(args, { x: 50, y: 40 });
+
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(pixels(copy.style.left)).toBe(-50);
+    expect(pixels(copy.style.top)).toBe(40);
+    expect(copy.style.transform).toBe("translateX(100px)");
   });
 
   it("reports a paste it cannot place instead of dropping it on the board", async () => {

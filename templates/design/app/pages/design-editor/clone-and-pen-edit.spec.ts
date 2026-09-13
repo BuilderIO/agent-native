@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { buildCodeLayerProjection } from "@shared/code-layer";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   extractLayerPosition,
@@ -10,6 +10,8 @@ import {
 } from "./clone-and-pen-edit";
 
 const LIVE_URL = "http://localhost:5173/products?preview=1";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("extractLayerPosition", () => {
   it("returns authored layout coordinates without applying the transform", () => {
@@ -45,6 +47,93 @@ describe("extractLayerPosition", () => {
     expect((clone as HTMLElement).style.transform).toBe(
       "translate(16px, 24px) rotate(2deg)",
     );
+  });
+
+  it("keeps a transform-inclusive paste target near the canvas origin", () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 1;
+        readonly b = 0;
+        readonly c = 0;
+        readonly d = 1;
+        readonly e = 100;
+        readonly f = 0;
+
+        constructor(_transform: string) {}
+      },
+    );
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="source" style="position:absolute;left:100px;top:40px;width:100px;height:50px;transform:translateX(100px)">Source</div>',
+      ],
+      {
+        positions: [{ x: 50, y: 40, space: "visual" }],
+      },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    expect((clone as HTMLElement).style.left).toBe("-50px");
+    expect((clone as HTMLElement).style.top).toBe("40px");
+    expect((clone as HTMLElement).style.transform).toBe("translateX(100px)");
+  });
+
+  it("places a rotated layer by its transformed bounds around the default origin", () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 0;
+        readonly b = 1;
+        readonly c = -1;
+        readonly d = 0;
+        readonly e = 0;
+        readonly f = 0;
+
+        constructor(_transform: string) {}
+      },
+    );
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div style="position:absolute;left:0;top:0;width:100px;height:50px;transform:rotate(90deg)">Rotated</div>',
+      ],
+      { positions: [{ x: 50, y: 60, space: "visual" }] },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect(clone.style.left).toBe("25px");
+    expect(clone.style.top).toBe("85px");
+  });
+
+  it("places a scaled layer by its transformed bounds around a percentage origin", () => {
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        readonly is2D = true;
+        readonly a = 2;
+        readonly b = 0;
+        readonly c = 0;
+        readonly d = 2;
+        readonly e = 0;
+        readonly f = 0;
+
+        constructor(_transform: string) {}
+      },
+    );
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div style="position:absolute;left:0;top:0;width:100px;height:50px;transform:scale(2);transform-origin:25% 75%">Scaled</div>',
+      ],
+      { positions: [{ x: 50, y: 40, space: "visual" }] },
+    );
+
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect(clone.style.left).toBe("75px");
+    expect(clone.style.top).toBe("78px");
   });
 });
 

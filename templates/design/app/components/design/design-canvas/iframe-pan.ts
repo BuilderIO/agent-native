@@ -111,10 +111,9 @@ function parseEmbeddedCanvasPanMessage(
 
 /**
  * Replays a trusted iframe bridge pan message through the parent document's
- * existing mouse-drag path. The start point maps through the scaled iframe rect;
- * pointer movement deltas already use parent-viewport pixels, so they are
- * accumulated without scaling again. This also keeps queued messages stable if
- * parent panning moves the iframe before they are handled. The synthetic
+ * existing mouse-drag path. The start point and movement deltas map through the
+ * scaled iframe rect. Accumulating mapped deltas keeps queued messages stable
+ * if parent panning moves the iframe before they are handled. The synthetic
  * mousedown bubbles from the iframe element, so single-screen DesignCanvas and
  * overview MultiScreenCanvas keep one authoritative pan implementation;
  * move/end events go to `window`, where both implementations already install
@@ -160,14 +159,16 @@ export function forwardEmbeddedCanvasPanMessage({
   const clientX = clamp(
     message.phase === "start"
       ? frameRect.left + message.clientX * scaleX
-      : session!.clientX + (message.phase === "cancel" ? 0 : message.movementX),
+      : session!.clientX +
+          (message.phase === "cancel" ? 0 : message.movementX * scaleX),
     -MAX_IFRAME_PAN_COORDINATE,
     MAX_IFRAME_PAN_COORDINATE,
   );
   const clientY = clamp(
     message.phase === "start"
       ? frameRect.top + message.clientY * scaleY
-      : session!.clientY + (message.phase === "cancel" ? 0 : message.movementY),
+      : session!.clientY +
+          (message.phase === "cancel" ? 0 : message.movementY * scaleY),
     -MAX_IFRAME_PAN_COORDINATE,
     MAX_IFRAME_PAN_COORDINATE,
   );

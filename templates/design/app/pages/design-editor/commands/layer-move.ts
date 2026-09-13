@@ -68,6 +68,7 @@ export interface LayerMoveArgs {
   effectiveCodeLayerState: EffectiveCodeLayerState;
   files: DesignFile[];
   getFreshActiveContent: () => string;
+  getScreenContent: (screenId: string) => string;
   handleLayerMoveToScreen: (
     intent: LayersPanelMoveIntent,
     targetFileId: string,
@@ -102,6 +103,7 @@ export function runLayerMove(
     effectiveCodeLayerState,
     files,
     getFreshActiveContent,
+    getScreenContent,
     handleLayerMoveToScreen,
     handleScreenLayerMove,
     recordContentHistoryEntry,
@@ -186,7 +188,9 @@ export function runLayerMove(
   const destContent =
     targetOwner.fileId === activeFile?.id
       ? freshActiveContent
-      : (destFile?.content ?? "");
+      : destFile
+        ? getScreenContent(targetOwner.fileId)
+        : "";
   if (!destContent) return;
 
   // L17: a single ordered insert pipeline for a MIXED same-file/cross-file
@@ -355,7 +359,7 @@ export function runLayerMove(
         sourceFileId,
         activeFileId: activeFile?.id,
         activeContent: freshActiveContent,
-        sourceFileContent: srcFile.content,
+        sourceFileContent: getScreenContent(sourceFileId),
         sourceContentMap,
       });
       if (!sourceOriginalContentMap.has(sourceFileId)) {

@@ -13,6 +13,7 @@ import {
   resolveCodeLayerTargetFromElementInfo,
   elementInfoFromCodeLayerNode,
   isClientRenderedMountShell,
+  codeLayerSourceNodeIdAttrs,
   isCodeLayerNodeRuntimeOnly,
   liveDeleteSelectorGroups,
   refreshedBoundingRectSize,
@@ -787,6 +788,38 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
         sourceNodeIdAttrs: new Set(["an-abc123"]),
       }),
     ).toBe(true);
+  });
+
+  it("keeps editor-minted runtime ids out of authored source identity", () => {
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs: new Set(["an-authored"]),
+      }),
+    ).toBe(true);
+
+    const sourceNodeIdAttrs = codeLayerSourceNodeIdAttrs(
+      '<main data-agent-native-node-id="an-authored"></main>',
+    );
+    expect(sourceNodeIdAttrs.has("runtime-1m2vou")).toBe(false);
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs,
+      }),
+    ).toBe(true);
+
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs: codeLayerSourceNodeIdAttrs(
+          '<main data-agent-native-node-id="runtime-1m2vou"></main>',
+        ),
+      }),
+    ).toBe(false);
   });
 
   it("is runtime-only when the node has no stamped id at all", () => {

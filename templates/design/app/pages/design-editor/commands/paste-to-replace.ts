@@ -90,7 +90,9 @@ export function runPasteToReplace({
       targetStoredContent,
       [entries[0]!.html],
       {
-        positions: [{ x: targetPosition.x, y: targetPosition.y }],
+        positions: [
+          { x: targetPosition.x, y: targetPosition.y, space: "visual" },
+        ],
         styleSnapshots: [entries[0]!.portableStyleSnapshot],
       },
     );
@@ -139,19 +141,24 @@ export function runPasteToReplace({
   // subtraction is the fallback for a target positioned by class or transform.
   const authoredLeft = pixelLength(targetNode.style.left);
   const authoredTop = pixelLength(targetNode.style.top);
+  const hasAuthoredPosition = authoredLeft !== null && authoredTop !== null;
   const parentRect = selectedElement?.parentBoundingRect;
-  const position =
-    authoredLeft !== null && authoredTop !== null
-      ? { x: authoredLeft, y: authoredTop }
-      : {
-          x: targetPosition.x - (parentRect?.x ?? 0),
-          y: targetPosition.y - (parentRect?.y ?? 0),
-        };
+  const position = hasAuthoredPosition
+    ? { x: authoredLeft, y: authoredTop }
+    : {
+        x: targetPosition.x - (parentRect?.x ?? 0),
+        y: targetPosition.y - (parentRect?.y ?? 0),
+      };
   const result = insertClonedHtmlLayers(
     contentWithoutTarget,
     [entries[0]!.html],
     {
-      positions: [position],
+      positions: [
+        {
+          ...position,
+          space: hasAuthoredPosition ? "layout" : "visual",
+        },
+      ],
       styleSnapshots: [entries[0]!.portableStyleSnapshot],
       managedStyleSnapshots: [entries[0]!.managedStyleSnapshot],
     },

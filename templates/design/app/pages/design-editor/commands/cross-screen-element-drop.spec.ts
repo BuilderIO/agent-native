@@ -1,6 +1,15 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  codeLayerSourceNodeIdAttrs,
+  isCodeLayerNodeRuntimeOnly,
+} from "@/pages/design-editor/code-layer-state";
 
 import {
   absolutePlacePointForDrop,
@@ -219,5 +228,109 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 
     expect(nextDestinationContent).toContain("left: 130px");
     expect(nextDestinationContent).toContain("top: 238px");
+  });
+});
+
+describe("runCrossScreenElementDrop runtime-only routing", () => {
+  it("routes a runtime-only id absent from source HTML through the runtime handoff", () => {
+    const sourceContent =
+      '<html><body><div id="subject">Subject</div></body></html>';
+    const runtimeContent =
+      '<html><body><div id="subject" data-agent-native-node-id="runtime-1m2vou">Subject</div></body></html>';
+    const targetContent =
+      '<html><body><div data-agent-native-node-id="an-anchor">Anchor</div></body></html>';
+    const runtimeProjection = buildCodeLayerProjection(runtimeContent);
+    const runtimeTree = buildCodeLayerTree(runtimeProjection);
+    const sourceNodeIdAttrs = codeLayerSourceNodeIdAttrs(sourceContent);
+    const sourceNode = runtimeProjection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "runtime-1m2vou",
+    )!;
+    const targetProjection = buildCodeLayerProjection(targetContent);
+    const targetTree = buildCodeLayerTree(targetProjection);
+    const targetNode = targetProjection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "an-anchor",
+    )!;
+    const owners = new Map([
+      [
+        sourceNode.id,
+        {
+          fileId: "source",
+          node: sourceNode,
+          tree: runtimeTree,
+          runtimeOnly: isCodeLayerNodeRuntimeOnly({
+            fileIsRuntimeProjected: false,
+            nodeIdAttr: "runtime-1m2vou",
+            sourceNodeIdAttrs,
+          }),
+        },
+      ],
+      [
+        targetNode.id,
+        {
+          fileId: "target",
+          node: targetNode,
+          tree: targetTree,
+          runtimeOnly: false,
+        },
+      ],
+    ]);
+    const applyFileContentUpdate = vi.fn();
+    const sendRuntimeLayerMoveSemanticHandoff = vi.fn(() => true);
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate,
+        boardFileId: undefined,
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: owners },
+        designSourceType: "inline",
+        getScreenContent: (screenId) =>
+          screenId === "source" ? sourceContent : targetContent,
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: targetContent,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: vi.fn(),
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        sendRuntimeLayerMoveSemanticHandoff,
+        setActiveFileId: vi.fn(),
+        setCreatedOverviewLayerSelection: vi.fn(),
+        setOverviewSelectedScreenIds: vi.fn(),
+        setRuntimeStructureInsertRequest: vi.fn(),
+        setSelectedElement: vi.fn(),
+        setSelectedLayerIdsState: vi.fn(),
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: '[data-agent-native-node-id="runtime-1m2vou"]',
+        sourceNodeId: "runtime-1m2vou",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "an-anchor",
+        targetAnchorSelector: '[data-agent-native-node-id="an-anchor"]',
+        targetAnchorPlacement: "after",
+        targetDropMode: "flow-insert",
+      },
+    );
+
+    expect(sendRuntimeLayerMoveSemanticHandoff).toHaveBeenCalledWith(
+      sourceNode.id,
+      targetNode.id,
+      "after",
+    );
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
   });
 });

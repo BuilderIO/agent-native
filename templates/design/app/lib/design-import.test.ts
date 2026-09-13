@@ -257,6 +257,7 @@ describe("design clipboard marker round-trip", () => {
       {
         html: "<div>Hello</div>",
         rootNodeId: "node-1",
+        sourceParentNodeId: "group-1",
         sourceFileId: "file-1",
         portableStyleSnapshot: {
           version: 1,

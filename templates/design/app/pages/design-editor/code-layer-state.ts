@@ -896,15 +896,31 @@ export function elementInfoIsRuntimeOnly(
  * shared/code-layer.ts), and sourceKey differs between the runtime and
  * source projection parses of the very same content, so `id` never lines up
  * even for the identical element — the stamped DOM attribute does.
+ * Runtime snapshot ids (`runtime-<base36 hash>`) are editor-minted, not source
+ * identity; snapshots can make them appear in a projection that is otherwise
+ * treated as source, so compare them against the persisted screen content.
  */
 export function isCodeLayerNodeRuntimeOnly(args: {
   fileIsRuntimeProjected: boolean;
   nodeIdAttr: string | undefined;
   sourceNodeIdAttrs: ReadonlySet<string>;
 }): boolean {
-  if (!args.fileIsRuntimeProjected) return false;
-  if (!args.nodeIdAttr) return true;
-  return !args.sourceNodeIdAttrs.has(args.nodeIdAttr);
+  if (!args.nodeIdAttr) return args.fileIsRuntimeProjected;
+  if (args.sourceNodeIdAttrs.has(args.nodeIdAttr)) return false;
+  return (
+    args.fileIsRuntimeProjected || /^runtime-[a-z0-9]+$/i.test(args.nodeIdAttr)
+  );
+}
+
+/** Runtime/external projections are not a source-id inventory for movement. */
+export function codeLayerSourceNodeIdAttrs(
+  content: string,
+): ReadonlySet<string> {
+  return new Set(
+    buildCodeLayerProjection(content)
+      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((value): value is string => Boolean(value)),
+  );
 }
 
 /**

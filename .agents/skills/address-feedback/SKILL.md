@@ -13,14 +13,15 @@ metadata:
 
 Use this skill when the user shares a feedback document, issue, thread, or pasted notes and asks you to address the feedback.
 
-The default posture is judgment plus action: fix clear, verified bugs you agree
-with; skip low-signal, subjective, and out-of-scope items. In a Slack bug
-sweep, only clear observable failures enter the reaction or reply ledger - do
-not react to general UX suggestions, product ideas, or merge/review requests.
-Design feedback routes to Sid unless the user separately assigns a concrete
-Design fix. If another agent or owner is already handling a report, leave it
-with that owner. If a previous run mistakenly reacted to a non-bug, release the
-claim with `✅` when reactions are available and do not add a compensating reply.
+The default posture is judgment plus action: fix clear, verified bugs and
+handle concrete design/UX feedback about existing surfaces. In a Slack sweep,
+new capability requests still need the invoking identity's `:upvote:`; praise,
+status updates, merge/review requests, bot forwards, duplicates, and noise stay
+out of scope. Do not exclude Design feedback just because it is visual or
+subjective. If another agent or owner is already handling a report, leave it
+with that owner. If a previous run
+mistakenly reacted to an out-of-scope item, release the claim with `✅` when
+reactions are available and do not add a compensating reply.
 
 ## Choose the fix altitude
 
@@ -125,7 +126,7 @@ state, never the opening or the prose of the reporter-facing reply.
    data model, provider/runtime, or product policy.
 
    - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Verify and fix when you agree.
-   - **UX suggestion**: Design, discoverability, workflow, or feature feedback. Propose the cleanest version first unless the user explicitly asked you to implement UX changes.
+   - **UX suggestion**: Design, discoverability, workflow, or feature feedback. For concrete critique of an existing surface, choose and implement the smallest coherent treatment when it is in scope. A request for a new capability still needs the invoking identity's `:upvote:` in a Slack sweep.
    - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect after the clarification gate. Ask or flag it only when the missing detail still blocks a safe fix.
    - **Out of scope**: Outside this repo, already shipped, intentionally unsupported, or too low-signal. Note briefly and skip.
 
@@ -160,7 +161,7 @@ evidence:
   feedback, name the invariant and require repeated evidence before broadening
   it.
 
-6. Fix only the clear bugs you agree with.
+6. Fix verified bugs and actionable UX feedback that is in scope.
 
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
    - Keep each fix narrow and mapped to a feedback item.
