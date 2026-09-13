@@ -14844,6 +14844,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         },
         "*",
       );
+      // This size is now the source's own value (the host persists it as-is)
+      // — record it as the last-known source baseline, exactly like the
+      // absolute-move commit above. Skipping this leaves __anSourceMeta
+      // pinned to the PRE-resize size, so an undo's full-document reconcile
+      // back to that same pre-resize value matches the stale cache and
+      // applyStyleAttribute treats it as "unchanged since last render",
+      // leaving the resized DOM rendered instead of reverting.
+      recordSourceOwnership(resizeEl);
       if (scaleToolEnabled) {
         (scaledTextTargetsCache || []).forEach(function (target) {
           var textStyles: Record<string, string> = {
@@ -14863,6 +14871,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             },
             "*",
           );
+          recordSourceOwnership(target.el);
         });
       }
     }

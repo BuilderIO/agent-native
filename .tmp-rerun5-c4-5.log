@@ -1,0 +1,81 @@
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 2:13:41 PM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:13:41 PM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:13:50 PM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+
+[e2e] seeded design dcoT39Lhl5Lc5A1Eb2oSi for e2e+autoz@local.test
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+
+[e2e] editor warm
+
+Running 1 test using 1 worker
+
+[1/1] [chromium] › e2e/parity-yt-card-tips.spec.ts:484:3 › tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom › marquee must FULLY enclose a top-level screen frame to select it (Steve's ground truth); partial intersection is not enough
+  1) [chromium] › e2e/parity-yt-card-tips.spec.ts:484:3 › tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom › marquee must FULLY enclose a top-level screen frame to select it (Steve's ground truth); partial intersection is not enough 
+
+    Error: a marquee that fully encloses the top-level screen must select it
+
+    expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 1
+    Received:    0
+
+      532 |         selected,
+      533 |         "a marquee that fully encloses the top-level screen must select it",
+    > 534 |       ).toBeGreaterThanOrEqual(1);
+          |         ^
+      535 |     } finally {
+      536 |       await action(request, "delete-design", { id: designId }).catch(() => {});
+      537 |     }
+        at /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/e2e/parity-yt-card-tips.spec.ts:534:9
+
+    Error Context: test-results/parity-yt-card-tips-tutori-4136b--intersection-is-not-enough-chromium/error-context.md
+
+
+  1 failed
+    [chromium] › e2e/parity-yt-card-tips.spec.ts:484:3 › tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom › marquee must FULLY enclose a top-level screen frame to select it (Steve's ground truth); partial intersection is not enough 

@@ -10616,6 +10616,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           },
           "*"
         );
+        recordSourceOwnership(resizeEl);
         if (scaleToolEnabled) {
           (scaledTextTargetsCache || []).forEach(function(target) {
             var textStyles = {
@@ -10635,6 +10636,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               },
               "*"
             );
+            recordSourceOwnership(target.el);
           });
         }
       }

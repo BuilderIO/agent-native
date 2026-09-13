@@ -1,0 +1,69 @@
+[WebServer] Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+[WebServer] Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+[WebServer] 2:24:03 PM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 34 |  	if (!configPath) return undefined;
+[WebServer] 35 |  	try {
+[WebServer] 36 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 37 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 38 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:24:03 PM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+[WebServer] 55 |  	if (!configPath) return undefined;
+[WebServer] 56 |  	try {
+[WebServer] 57 |  		const module = await import(pathToFileURL(configPath).href);
+[WebServer]    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[WebServer] 58 |  		const config = module.default ?? module.agentNativeConfig;
+[WebServer] 59 |  		if (typeof config !== "object" && typeof config !== "function") {
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/vite/agent-native-config-loader.ts
+
+[WebServer] 2:24:09 PM [vite] (nitro) warning: 
+[WebServer] /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+[WebServer] 97 |  	const moduleName = "mammoth";
+[WebServer] 98 |  	try {
+[WebServer] 99 |  		return await import(moduleName);
+[WebServer]    |                        ^^^^^^^^^^
+[WebServer] 100|  	} catch {
+[WebServer] 101|  		throw new Error("Structured DOCX parsing requires the optional mammoth dependency.");
+[WebServer] The above dynamic import cannot be analyzed by Vite.
+[WebServer] See https://github.com/rollup/plugins/tree/master/packages/dynamic-import-vars#limitations for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[WebServer] 
+[WebServer]   Plugin: vite:import-analysis
+[WebServer]   File: /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/packages/core/src/ingestion/docx.ts
+
+[WebServer] [agent-native] `externalAgents` is deprecated — use `mcp: { externalAgents: … }`.
+
+[WebServer] [agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral in-memory development secret. Sessions will reset every time this process restarts. Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.
+
+[e2e] seeded design sMGdO44SxGxqRmlZqhFr0 for e2e+autoz@local.test
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/design-app-interactions-533f56/templates/design/app/pages/DesignEditor.tsx as it exceeds the max of 500KB.
+
+[e2e] editor warm
+
+Running 15 tests using 1 worker
+
+[1/15] [chromium] › e2e/drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts:71:3 › drop containers › a frame adopts an element dragged into it
+[2/15] [chromium] › e2e/drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts:83:3 › drop containers › a rectangle adopts as a free-placement container, not a layout parent
+[3/15] [chromium] › e2e/drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts:157:3 › modifier collisions › the primary modifier does not hijack a drag
+[4/15] [chromium] › e2e/drag-and-drop.drop-containers-modifier-collisions-marquee.spec.ts:174:3 › marquee › dragging from empty canvas marquee-selects the elements it covers
+[5/15] [chromium] › e2e/drag-and-drop.moving-by-drag-resizing.spec.ts:60:3 › moving by drag › dragging one element leaves its siblings untouched
+[6/15] [chromium] › e2e/drag-and-drop.moving-by-drag-resizing.spec.ts:71:3 › moving by drag › undo restores the position after a drag
+[7/15] [chromium] › e2e/drag-and-drop.moving-by-drag-resizing.spec.ts:85:3 › resizing › dragging the bottom-right corner resizes width and height
+[8/15] [chromium] › e2e/drag-and-drop.moving-by-drag-resizing.spec.ts:113:3 › resizing › resizing keeps the opposite edge anchored
+[9/15] [chromium] › e2e/drag-and-drop.moving-by-drag.spec.ts:22:3 › moving by drag › a drag moves the element by the drag delta
+[10/15] [chromium] › e2e/drag-and-drop.moving-by-drag.spec.ts:44:3 › moving by drag › Shift+drag locks movement to one axis
+[11/15] [chromium] › e2e/drag-and-drop.moving-by-drag.spec.ts:69:3 › moving by drag › Alt+drag leaves the original and creates a copy
+[12/15] [chromium] › e2e/drag-and-drop.moving-by-drag.spec.ts:87:3 › moving by drag › Escape during a drag cancels the move

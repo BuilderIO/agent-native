@@ -489,8 +489,17 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     ).toMatch(/^Frame(?: \d+)?$/);
 
     // --- Step 11: double-click text, retype "Sign up", verify auto-resize ---
+    // exact: true matters here — this fixture also has "Alpha Button", "Beta
+    // Button", and "Deep Layer Button" on screen, all substring-matching a
+    // loose "Button" search. Without it, .first() silently grabbed one of
+    // those unrelated fixture buttons instead of the node this test created,
+    // and compared its width to "Sign up"'s — a stale, unrelated pair of
+    // boxes that made a correctly-resizing hug-contents frame look broken.
     const widthBefore = (
-      await designFrame(page).getByText("Button").first().boundingBox()
+      await designFrame(page)
+        .getByText("Button", { exact: true })
+        .first()
+        .boundingBox()
     )?.width;
     await designFrame(page)
       .getByText("Button", { exact: true })
@@ -517,7 +526,10 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     expect(retyped).toBe("Sign up");
 
     const widthAfter = (
-      await designFrame(page).getByText("Sign up").first().boundingBox()
+      await designFrame(page)
+        .getByText("Sign up", { exact: true })
+        .first()
+        .boundingBox()
     )?.width;
     expect(widthBefore).toBeTruthy();
     expect(widthAfter).toBeTruthy();
@@ -816,6 +828,19 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
       before,
       "no bounding box for the created board shape",
     ).not.toBeNull();
+    const debugWorld = await page.evaluate(() => {
+      const world = document.querySelector(
+        "[data-multi-screen-canvas-world]",
+      ) as HTMLElement | null;
+      return world
+        ? {
+            transform: getComputedStyle(world).transform,
+            rect: world.getBoundingClientRect().toJSON(),
+          }
+        : null;
+    });
+    console.log("DEBUG world:", JSON.stringify(debugWorld));
+    console.log("DEBUG before:", JSON.stringify(before));
     // Drawing a shape leaves the Rectangle tool itself still armed — a
     // mouse-down on the shape without switching back to Move would start
     // drawing a SECOND shape instead of moving the existing one (see
@@ -838,6 +863,7 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.waitForTimeout(400);
 
     const after = await boardObjectBoundingBox(page, shapeId);
+    console.log("DEBUG after:", JSON.stringify(after));
     expect(after).not.toBeNull();
     expect(Math.abs(after!.x - before!.x - 80)).toBeLessThan(20);
   });

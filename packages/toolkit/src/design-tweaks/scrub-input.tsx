@@ -489,6 +489,12 @@ export function VisualScrubInput({
         placeholder={placeholder}
         inputMode="decimal"
         aria-label={ariaLabel ?? label}
+        // Enter commits but deliberately keeps focus here (see handleKeyDown)
+        // so the user can keep typing — that means the field is still an
+        // "editable target" when Cmd+Z/Cmd+Y is pressed right after a commit.
+        // This opts back into the global history shortcut the same way
+        // DesignColorPicker's popover does.
+        data-design-history-hotkeys="true"
         onFocus={(event) => {
           setFocused(true);
           if (mixed && mixedLabel !== undefined) {
