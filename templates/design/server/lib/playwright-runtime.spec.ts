@@ -3,8 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const serverMocks = vi.hoisted(() => ({
   requestBuilderBrowserConnection: vi.fn(),
 }));
+const serverlessChromiumMocks = vi.hoisted(() => ({
+  chromiumPackUrl: vi.fn(),
+  loadOptionalServerlessChromium: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/server", () => serverMocks);
+vi.mock(
+  "@agent-native/creative-context/connectors/serverless-chromium",
+  () => serverlessChromiumMocks,
+);
 
 import {
   importPlaywright,
@@ -81,5 +89,39 @@ describe("launchChromium", () => {
 
     await expect(launchChromium(chromium)).resolves.toBe(browser);
     expect(launch).toHaveBeenCalledWith({ args: ["--no-sandbox"] });
+  });
+
+  it("launches the packaged Chromium binary when the host has no browser", async () => {
+    const browser = {};
+    const launch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Executable doesn't exist at /missing"))
+      .mockResolvedValueOnce(browser);
+    const executablePath = vi.fn().mockResolvedValue("/tmp/chromium");
+    const chromium = {
+      connectOverCDP: vi.fn(),
+      launch,
+    } as unknown as PlaywrightModule["chromium"];
+    serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
+      new Error("Builder Browser unavailable"),
+    );
+    serverlessChromiumMocks.chromiumPackUrl.mockReturnValue(
+      "https://example.test/chromium.tar",
+    );
+    serverlessChromiumMocks.loadOptionalServerlessChromium.mockResolvedValue({
+      args: ["--disable-dev-shm-usage"],
+      executablePath,
+    });
+
+    await expect(launchChromium(chromium)).resolves.toBe(browser);
+
+    expect(executablePath).toHaveBeenCalledWith(
+      "https://example.test/chromium.tar",
+    );
+    expect(launch).toHaveBeenNthCalledWith(1, { args: ["--no-sandbox"] });
+    expect(launch).toHaveBeenNthCalledWith(2, {
+      args: ["--no-sandbox", "--disable-dev-shm-usage"],
+      executablePath: "/tmp/chromium",
+    });
   });
 });

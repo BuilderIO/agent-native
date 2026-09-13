@@ -12,6 +12,11 @@
 
 import { randomUUID } from "node:crypto";
 
+import {
+  chromiumPackUrl,
+  loadOptionalServerlessChromium,
+} from "@agent-native/creative-context/connectors/serverless-chromium";
+
 export type PlaywrightModule = {
   chromium: import("@playwright/test").BrowserType;
 };
@@ -84,21 +89,41 @@ async function launchLocalChromium(
   chromium: import("@playwright/test").BrowserType,
 ): Promise<import("@playwright/test").Browser> {
   const launchOptions = { args: ["--no-sandbox"] };
+  let missingBrowserError: unknown;
   try {
     return await chromium.launch(launchOptions);
   } catch (err) {
     if (!isMissingBrowserError(err)) throw err;
-    const { existsSync } = await import("node:fs");
-    for (const executablePath of SYSTEM_CHROME_EXECUTABLES) {
-      if (!existsSync(executablePath)) continue;
-      try {
-        return await chromium.launch({ ...launchOptions, executablePath });
-      } catch {
-        // Try the next candidate; the original error is rethrown below.
-      }
-    }
-    throw err;
+    missingBrowserError = err;
   }
+
+  const serverlessChromium = await loadOptionalServerlessChromium();
+  if (serverlessChromium) {
+    try {
+      const executablePath =
+        await serverlessChromium.executablePath(chromiumPackUrl());
+      if (executablePath) {
+        return await chromium.launch({
+          ...launchOptions,
+          args: [...launchOptions.args, ...(serverlessChromium.args ?? [])],
+          executablePath,
+        });
+      }
+    } catch (err) {
+      missingBrowserError = err;
+    }
+  }
+
+  const { existsSync } = await import("node:fs");
+  for (const executablePath of SYSTEM_CHROME_EXECUTABLES) {
+    if (!existsSync(executablePath)) continue;
+    try {
+      return await chromium.launch({ ...launchOptions, executablePath });
+    } catch (err) {
+      missingBrowserError = err;
+    }
+  }
+  throw missingBrowserError;
 }
 
 /** Connects to Builder Browser first, then falls back to local/system Chrome. */

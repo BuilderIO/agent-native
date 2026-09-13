@@ -510,9 +510,12 @@ export default defineAction({
     };
 
     // ── Build sections in parallel ───────────────────────────────────────────
+    // Captured routes and preview refs are editor data even when the design is public.
     const [motionTimelines, designStates, review] = await Promise.all([
       fetchMotionTimelines(db, designId, file.id),
-      fetchDesignStates(db, designId),
+      access.role === "viewer"
+        ? Promise.resolve([])
+        : fetchDesignStates(db, designId),
       includeReview
         ? fetchLatestReview(db, designId)
         : Promise.resolve(undefined),

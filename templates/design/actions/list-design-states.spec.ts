@@ -86,7 +86,7 @@ beforeEach(() => {
 });
 
 describe("list-design-states access", () => {
-  it("authorizes the parent design before listing child states", async () => {
+  it("requires editor access before listing private child states", async () => {
     const result = await action.run({
       designId: "design_1",
       kind: "state",
@@ -96,7 +96,7 @@ describe("list-design-states access", () => {
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design_1",
-      "viewer",
+      "editor",
     );
     expect(result).toMatchObject({
       count: 1,
