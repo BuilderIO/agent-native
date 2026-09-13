@@ -108,6 +108,21 @@ describe("extractLayerPosition", () => {
     expect(clone.style.top).toBe("85px");
   });
 
+  it("pastes a rotated layer with no explicit height instead of refusing the clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div style="position:absolute;left:40px;top:60px;width:260px;transform:rotate(2deg)">Card</div>',
+      ],
+      { positions: [{ x: 50, y: 40, space: "visual" }] },
+    );
+
+    expect(result).not.toBeNull();
+    const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+    expect(clone.style.left).toBe("50px");
+    expect(clone.style.top).toBe("40px");
+  });
+
   it("places a scaled layer by its transformed bounds around a percentage origin", () => {
     vi.stubGlobal(
       "DOMMatrixReadOnly",

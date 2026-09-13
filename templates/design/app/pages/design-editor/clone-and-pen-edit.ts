@@ -284,10 +284,19 @@ function transformOriginCoordinate(
   return cssLength(origin, size);
 }
 
-function transformedBoundsOffset(element: HTMLElement | SVGElement): {
-  x: number;
-  y: number;
-} {
+function inlineLength(value: string, reference: number): number | null {
+  if (!value || value === "auto") return null;
+  return cssLength(value, reference);
+}
+
+/**
+ * Null when the clone is sized by layout (no inline width/height): a
+ * detached clone has no box to measure, so the caller pastes without
+ * rotation compensation instead of refusing the paste.
+ */
+function transformedBoundsOffset(
+  element: HTMLElement | SVGElement,
+): { x: number; y: number } | null {
   const transform = element.style.transform;
   if (!transform || transform === "none") return { x: 0, y: 0 };
   if (typeof DOMMatrixReadOnly === "undefined") {
@@ -297,8 +306,9 @@ function transformedBoundsOffset(element: HTMLElement | SVGElement): {
   if (!matrix.is2D) {
     throw new Error(`Cannot resolve 3D transform placement: ${transform}`);
   }
-  const width = cssLength(element.style.width, 0);
-  const height = cssLength(element.style.height, 0);
+  const width = inlineLength(element.style.width, 0);
+  const height = inlineLength(element.style.height, 0);
+  if (width === null || height === null) return null;
   let [originX, originY] = element.style.transformOrigin
     .split(/\s+/)
     .slice(0, 2);
@@ -328,10 +338,12 @@ function transformedBoundsOffset(element: HTMLElement | SVGElement): {
 function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
   const host = styleHost(element);
   if (!host) return;
-  const offset =
-    position.space === "visual"
-      ? transformedBoundsOffset(host)
-      : { x: 0, y: 0 };
+  const offset = (position.space === "visual"
+    ? transformedBoundsOffset(host)
+    : null) ?? {
+    x: 0,
+    y: 0,
+  };
   // Use explicit style property assignments rather than prepending a raw
   // string. Prepending creates duplicate CSS properties in the same style
   // attribute, and in CSS the LAST occurrence wins, so existing left/top
