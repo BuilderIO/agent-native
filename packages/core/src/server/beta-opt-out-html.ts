@@ -233,12 +233,13 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
     return null;
   }
   function updateCopy() {
-    var candidates = [root.getAttribute('data-locale')];
+    var candidates = [];
     try {
       candidates.push(window.localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)}));
     } catch (error) {
       void error;
     }
+    candidates.push(root.getAttribute('data-locale'));
     candidates.push(root.getAttribute('lang'));
     var browserLocales = navigator.languages && navigator.languages.length
       ? navigator.languages

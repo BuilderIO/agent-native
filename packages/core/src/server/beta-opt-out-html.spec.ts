@@ -10,6 +10,80 @@ import {
   injectBetaOptOutPersistence,
 } from "./beta-opt-out-html.js";
 
+function renderEnvironmentSwitcherCopy(
+  documentLocale: string,
+  storedLocale: string | null,
+) {
+  const html = injectBetaOptOutPersistence(
+    `<html lang="${documentLocale}" data-locale="${documentLocale}"><head></head><body></body></html>`,
+  );
+  const script = html.match(
+    /<script data-agent-native-environment-switcher-script="1">([\s\S]*?)<\/script>/,
+  )?.[1];
+  if (!script) throw new Error("Environment switcher script was not injected");
+
+  const element = () => ({
+    hidden: true,
+    textContent: "",
+    href: "",
+    setAttribute() {},
+    addEventListener() {},
+    contains() {
+      return false;
+    },
+  });
+  const switcher = element();
+  const badge = element();
+  const popover = element();
+  const title = element();
+  const copy = element();
+  const productionLink = element();
+  const hideButton = element();
+  const elements: Record<string, ReturnType<typeof element>> = {
+    "environment-switcher": switcher,
+    "environment-badge": badge,
+    "environment-popover": popover,
+    "environment-popover-title": title,
+    "environment-production-link": productionLink,
+    "environment-hide-badge": hideButton,
+  };
+  const attributes = new Map([
+    ["data-locale", documentLocale],
+    ["lang", documentLocale],
+  ]);
+  const root = {
+    getAttribute: (name: string) => attributes.get(name) ?? null,
+  };
+  const document = {
+    documentElement: root,
+    getElementById: (id: string) => elements[id] ?? null,
+    querySelector: () => copy,
+    addEventListener() {},
+  };
+  const window = {
+    parent: undefined as unknown,
+    location: {
+      href: "https://beta.dispatch.agent-native.com/login",
+      hostname: "beta.dispatch.agent-native.com",
+    },
+    localStorage: { getItem: () => storedLocale },
+    sessionStorage: { setItem() {} },
+  };
+  window.parent = window;
+
+  runInNewContext(script, {
+    window,
+    document,
+    navigator: { languages: [], language: "en-US" },
+    MutationObserver: class {
+      observe() {}
+    },
+    URL,
+  });
+
+  return { badgeText: badge.textContent, copyText: copy.textContent };
+}
+
 describe("injectBetaOptOutPersistence", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -96,79 +170,23 @@ describe("injectBetaOptOutPersistence", () => {
   });
 
   it("uses Traditional Chinese copy for script-and-region locale aliases", () => {
-    const html = injectBetaOptOutPersistence(
-      '<html lang="zh-Hant-HK" data-locale="zh-Hant-HK"><head></head><body></body></html>',
+    const { badgeText, copyText } = renderEnvironmentSwitcherCopy(
+      "zh-Hant-HK",
+      null,
     );
-    const script = html.match(
-      /<script data-agent-native-environment-switcher-script="1">([\s\S]*?)<\/script>/,
-    )?.[1];
-    expect(script).toBeDefined();
 
-    const element = () => ({
-      hidden: true,
-      textContent: "",
-      href: "",
-      setAttribute() {},
-      addEventListener() {},
-      contains() {
-        return false;
-      },
-    });
-    const switcher = element();
-    const badge = element();
-    const popover = element();
-    const title = element();
-    const copy = element();
-    const productionLink = element();
-    const hideButton = element();
-    const elements: Record<string, ReturnType<typeof element>> = {
-      "environment-switcher": switcher,
-      "environment-badge": badge,
-      "environment-popover": popover,
-      "environment-popover-title": title,
-      "environment-production-link": productionLink,
-      "environment-hide-badge": hideButton,
-    };
-    const locale = new Map([
-      ["data-locale", "zh-Hant-HK"],
-      ["lang", "zh-Hant-HK"],
-    ]);
-    const root = {
-      getAttribute: (name: string) => locale.get(name) ?? null,
-    };
-    const document = {
-      documentElement: root,
-      getElementById: (id: string) => elements[id] ?? null,
-      querySelector: () => copy,
-      addEventListener() {},
-    };
-    const window = {
-      parent: undefined as unknown,
-      location: {
-        href: "https://beta.dispatch.agent-native.com/login",
-        hostname: "beta.dispatch.agent-native.com",
-      },
-      localStorage: { getItem: () => null },
-      sessionStorage: { setItem() {} },
-    };
-    window.parent = window;
+    expect(badgeText).toBe(ENVIRONMENT_BADGE_MESSAGES["zh-TW"].betaLabel);
+    expect(copyText).toBe(ENVIRONMENT_BADGE_MESSAGES["zh-TW"].continuePrompt);
+  });
 
-    runInNewContext(script!, {
-      window,
-      document,
-      navigator: { languages: [], language: "en-US" },
-      MutationObserver: class {
-        observe() {}
-      },
-      URL,
-    });
-
-    expect(badge.textContent).toBe(
-      ENVIRONMENT_BADGE_MESSAGES["zh-TW"].betaLabel,
+  it("prefers a persisted locale to the onboarding document default", () => {
+    const { badgeText, copyText } = renderEnvironmentSwitcherCopy(
+      "en-US",
+      "fr-FR",
     );
-    expect(copy.textContent).toBe(
-      ENVIRONMENT_BADGE_MESSAGES["zh-TW"].continuePrompt,
-    );
+
+    expect(badgeText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].betaLabel);
+    expect(copyText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].continuePrompt);
   });
 
   it("does not duplicate the handoff on a second auth response pass", () => {
