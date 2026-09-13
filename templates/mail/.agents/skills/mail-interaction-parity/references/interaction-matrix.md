@@ -60,6 +60,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   thread. Clear each and verify the original route/query/tab is restored.
 - SEARCH-010 — Open a thread and use in-thread search. Test next/previous,
   match count, case/phrase boundaries, Escape, thread navigation, and refresh.
+- SEARCH-011 — Select a suggestion, then close the dropdown and rapidly change
+  between matching, no-match, and different-match queries. Confirm
+  `aria-activedescendant` is absent while closed or when the selected index is
+  stale, and otherwise always resolves to a rendered option in the open list.
 
 ## Inbox rows, selection, and triage
 

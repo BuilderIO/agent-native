@@ -40,6 +40,7 @@ import {
   aliasIdFromToken,
   ALIAS_PREFIX,
 } from "@/lib/alias-utils";
+import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { cn } from "@/lib/utils";
 
 /** Which header field a RecipientInput represents — used for cross-field drag. */
@@ -788,11 +789,12 @@ export function RecipientInput({
           aria-autocomplete="list"
           aria-controls={suggestionListId}
           aria-expanded={showSuggestions && hasSuggestions}
-          aria-activedescendant={
-            showSuggestions && hasSuggestions
-              ? `${suggestionListId}-option-${selectedIndex}`
-              : undefined
-          }
+          aria-activedescendant={getActiveDescendantId(
+            `${suggestionListId}-option-`,
+            showSuggestions && hasSuggestions,
+            selectedIndex,
+            allSuggestions.length,
+          )}
           type="text"
           value={inputValue}
           onChange={(e) => {

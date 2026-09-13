@@ -23,6 +23,7 @@ describe("SearchBar saved-filter flow", () => {
     expect(source).toContain('role="combobox"');
     expect(source).toContain('aria-controls="mail-search-suggestions"');
     expect(source).toContain('id="mail-search-suggestions"');
+    expect(source).toContain("getActiveDescendantId(");
     expect(source).toContain('role="listbox"');
     expect(source).toContain("data-search-item");
     expect(source).toContain('querySelectorAll("[data-search-item]")');

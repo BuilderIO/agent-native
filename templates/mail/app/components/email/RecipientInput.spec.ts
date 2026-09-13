@@ -107,6 +107,7 @@ describe("recipient autocomplete interaction contract", () => {
     expect(source).toContain('role="combobox"');
     expect(source).toContain('role="listbox"');
     expect(source).toContain('role="option"');
+    expect(source).toContain("getActiveDescendantId(");
     expect(source).toContain("aria-activedescendant");
   });
 });

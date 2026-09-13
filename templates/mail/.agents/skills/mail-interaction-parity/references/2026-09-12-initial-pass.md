@@ -49,7 +49,7 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 
 - Mail initial pass: 87 test files, 690 tests passed. The first review follow-up
   raised that to 698 passing tests across 87 files. The latest Mail run passes
-  712 tests across 89 files; the 36 focused draft regressions also pass alone.
+  715 tests across 90 files; the 36 focused draft regressions also pass alone.
 - Repository: all 73 guards and both i18n guards pass after the latest review
   follow-up.
 - `oxfmt --check`, `git diff --check`, and direct Mail TypeScript checking
@@ -63,6 +63,9 @@ Status: initial, partial pass; this is not a claim of 1:1 parity or zero bugs.
 - `agent-native typecheck` reported that this checkout lacks production
   `BETTER_AUTH_SECRET` and persistent database configuration; no production
   build or connected-mail runtime check was performed.
+- The PR preview build, deploy, and smoke check passed; the preview opens to its
+  sign-in screen. Interactive Gmail access remains unverified pending explicit
+  approval to authorize the PR preview.
 
 ## Draft lifecycle review follow-up — 2026-09-12
 
@@ -79,13 +82,16 @@ checks; they do not count as the still-missing rendered side-by-side cases.
 
 ## Remaining work
 
-The interaction matrix remains mostly unrun. In particular: all viewport/touch/
+The 84-case interaction matrix remains mostly unrun. In particular: all viewport/touch/
 drag paths; command and keyboard coverage across each view; failure/rollback,
 offline and partial-account states; real autosave/reopen/delete; and a live
 round-trip through only the current user's explicitly approved addresses.
 That round trip is pending because Mail has no Google account connected here.
 COMPOSE-014 through COMPOSE-017 have automated regression coverage but still
 need the matrix's rendered side-by-side steps when both products are available.
+SEARCH-011 now guards combobox active-descendant references against closed or
+stale suggestion lists; the fix is unit/contract tested but its rendered rapid-
+filter transition still needs side-by-side browser coverage.
 
 The audit also identified larger product gaps that this initial bug-fix tranche
 does not close: Superhuman-style inline word/phrase autocomplete, offline cached

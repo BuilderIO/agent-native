@@ -32,6 +32,7 @@ import {
   type Contact,
   type InfiniteEmails,
 } from "@/hooks/use-emails";
+import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -315,11 +316,12 @@ export function SearchBar({
           aria-autocomplete="list"
           aria-controls="mail-search-suggestions"
           aria-expanded={showDropdown}
-          aria-activedescendant={
-            selectedIndex >= 0
-              ? `mail-search-suggestion-${selectedIndex}`
-              : undefined
-          }
+          aria-activedescendant={getActiveDescendantId(
+            "mail-search-suggestion-",
+            showDropdown,
+            selectedIndex,
+            combinedMatchCount,
+          )}
           autoFocus={autoFocus}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
