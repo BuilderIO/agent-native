@@ -796,7 +796,7 @@ const koKR = {
       heroTitle: "AI 에이전트로 데이터를 분석하세요",
       heroDescription:
         "Analytics는 연결된 데이터를 조회하고, 대시보드를 만들고, 사용자 세션을 조사할 수 있는 무료 오픈소스 AI 분석 도구입니다.",
-      heroCta: "Analytics 열기",
+      heroCta: "데이터 살펴보기",
       useCasesHeading: "Analytics로 무엇을 할 수 있나요?",
       useCasesBody:
         "제품 성장을 추적하거나, 비즈니스 성과를 보고하거나, 앱에서 사용자가 겪은 문제를 조사해 보세요.",
@@ -831,7 +831,7 @@ const koKR = {
         "기록된 세션을 콘솔 및 네트워크 활동과 함께 재생하세요. 오류로 바로 이동하고, AI 에이전트를 위한 임시 진단 링크를 복사할 수 있습니다.",
       finalCtaHeading: "데이터에 대한 질문으로 시작하세요",
       finalCtaBody: "소스를 연결하고 AI 에이전트에게 첫 번째 차트를 요청하세요.",
-      finalCtaButton: "Analytics 열기",
+      finalCtaButton: "데이터 살펴보기",
       faq: {
         question1: "Agent-Native Analytics는 무엇인가요?",
         answer1:
@@ -857,7 +857,7 @@ const koKR = {
       heroTitle: "AI 에이전트로 일정을 관리하세요",
       heroDescription:
         "Calendar는 Google Calendar 일정 관리, 미팅 시간 찾기, 예약 링크 공유를 위한 무료 오픈 소스 AI 일정 관리 도구입니다.",
-      heroCta: "Calendar 열기",
+      heroCta: "일정 관리 시작하기",
       useCasesHeading: "Calendar로 무엇을 할 수 있나요?",
       useCasesBody:
         "고객과의 통화를 예약하고, 팀을 한자리에 모으고, 일정이 바뀌면 하루 일정을 조정하세요.",
@@ -892,7 +892,7 @@ const koKR = {
         "Google Meet를 추가하거나, Zoom을 연결하거나, 맞춤 미팅 링크를 사용해 게스트가 예약 시 참여 방법을 알 수 있게 하세요.",
       finalCtaHeading: "다음 미팅을 캘린더에 등록하세요",
       finalCtaBody: "AI 에이전트로 시간을 찾거나 예약 링크를 보내세요.",
-      finalCtaButton: "Calendar 열기",
+      finalCtaButton: "일정 관리 시작하기",
       s002: "Calendar 조회수",
       s003: "에이전트 작업",
       s004: "예약 링크 유형",
@@ -992,7 +992,7 @@ const koKR = {
       heroTitle: "AI 에이전트로 브랜드 자산 만들고 관리하기",
       heroDescription:
         "Assets는 무료 오픈소스 브랜드 자산 라이브러리로, 이미지·동영상·브랜드 레퍼런스를 정리할 수 있고 AI 에이전트가 브랜드 키트를 활용해 미디어를 생성하고 편집합니다.",
-      heroCta: "Assets 열기",
+      heroCta: "이미지 생성하기",
       useCasesHeading: "Assets로 무엇을 할 수 있나요?",
       useCasesBody:
         "캠페인 이미지를 만들거나, 기존 비주얼을 새 프로젝트에 맞게 조정하거나, 팀과 AI 에이전트가 함께 쓰는 브랜드 라이브러리를 마련해 보세요.",
@@ -1027,7 +1027,7 @@ const koKR = {
         "AI 에이전트를 연결해 라이브러리를 검색하고, 미디어를 생성하고, 채팅에서 자산을 선택하세요. 지원되는 앱은 자산 선택기를 삽입할 수도 있습니다.",
       finalCtaHeading: "다음 브랜드 자산을 만들어 보세요",
       finalCtaBody: "레퍼런스를 선택하고 필요한 것을 AI 에이전트에게 알려주세요.",
-      finalCtaButton: "Assets 열기",
+      finalCtaButton: "이미지 생성하기",
     },
     clips: {
       s001: "Clips 템플릿 스크린샷",
@@ -1078,7 +1078,7 @@ const koKR = {
       finalCtaHeading: "다음 클립을 업무에 활용해 보세요",
       finalCtaBody:
         "설명을 녹화하거나 공유된 클립을 AI 에이전트에게 전달해 보세요.",
-      finalCtaButton: "Clips 열기",
+      finalCtaButton: "클립 녹화하기",
       s002: "화면 녹화",
       s003: "브라우저 디버그 로그",
       s004: "받아쓰기",
@@ -1182,7 +1182,7 @@ const koKR = {
       heroTitle: "AI 에이전트와 함께 작업을 만들고 정리하세요",
       heroDescription:
         "Content는 문서, 작업 목록, 데이터베이스를 위한 무료 오픈소스 워크스페이스로, 사용자와 AI 에이전트가 함께 읽고 업데이트할 수 있습니다.",
-      heroCta: "Content 열기",
+      heroCta: "작업 정리하기",
       useCasesHeading: "Content로 무엇을 할 수 있나요?",
       useCasesBody:
         "초안 작업을 하거나, 해야 할 일을 추적하거나, 새 요청에 필요한 세부 정보를 모아 보세요.",
@@ -1217,7 +1217,7 @@ const koKR = {
         "페이지를 함께 편집하고, 구절에 댓글을 달고, 스레드에서 답장하세요. 특정 사람이나 조직과 공유하고 접근 권한 수준을 선택할 수 있습니다.",
       finalCtaHeading: "다음 프로젝트를 Content로 가져오세요",
       finalCtaBody: "이미 팀에서 사용 중인 문서, 작업 목록, 테이블로 시작해 보세요.",
-      finalCtaButton: "Content 열기",
+      finalCtaButton: "작업 정리하기",
       s002: "모든 템플릿",
       s003: "MDX을 위한 오픈 소스 Obsidian",
       s004: "Obsidian와 같은 로컬 Markdown/MDX 파일을 편집하고, 풍부한 대화형 사용자 정의 블록을 생성하고, 문서를 아는 AI 에이전트로 작성하세요.",
@@ -1305,7 +1305,7 @@ const koKR = {
       heroTitle: "AI 에이전트로 인터랙티브 프로토타입 디자인하기",
       heroDescription:
         "Design은 무료 오픈소스 AI 디자인 및 프로토타이핑 도구로, 브랜드에 맞는 페이지와 제품 인터페이스를 만들고 디자인은 직접 편집할 수 있습니다.",
-      heroCta: "디자인 시작하기",
+      heroCta: "무료로 디자인하기",
       useCasesHeading: "Design으로 무엇을 할 수 있나요?",
       useCasesBody:
         "만들기 전에 새로운 페이지, 제품 흐름, 인터페이스를 살펴보세요. 브리핑과 중요한 세부 사항을 AI 에이전트에게 전달하세요.",
@@ -1340,7 +1340,7 @@ const koKR = {
         "디자인 파일의 HTML이나 ZIP을 내보내세요. 개발자나 코딩 에이전트에게 프로토타입과 맥락을 전달해 구현을 이어가도록 하세요.",
       finalCtaHeading: "다음 디자인을 시작하세요",
       finalCtaBody: "브리핑을 가져오세요. 가능성을 살펴보세요. 세부 사항을 다듬으세요.",
-      finalCtaButton: "디자인 시작하기",
+      finalCtaButton: "무료로 디자인하기",
       s002: "설명하다",
       s003: "생성",
       s004: "구체화",
@@ -1426,7 +1426,7 @@ const koKR = {
       heroTitle: "AI 에이전트를 한곳에서 조율하세요",
       heroDescription:
         "Dispatch는 연결된 Agent-Native 앱에 작업을 위임하고, 반복 작업을 예약하고, 공유 연결을 관리하는 무료 오픈소스 AI 에이전트 오케스트레이션 앱입니다.",
-      heroCta: "Dispatch 열기",
+      heroCta: "작업 위임하기",
       useCasesHeading: "Dispatch로 무엇을 할 수 있나요?",
       useCasesBody:
         "연결된 앱에 도움을 요청하거나, 정기 업데이트를 설정하거나, 주의가 필요한 에이전트 실행을 조사하세요.",
@@ -1461,7 +1461,7 @@ const koKR = {
         "다른 관리자가 Dispatch의 공유 리소스 및 설정 변경 사항을 검토하도록 요구하세요. 팀 워크스페이스에서 대기 중인 요청을 검토하고 승인하거나 거부하세요.",
       finalCtaHeading: "연결된 작업 하나로 시작하세요",
       finalCtaBody: "필요한 앱을 선택하고 Dispatch에 작업 조율을 요청하세요.",
-      finalCtaButton: "Dispatch 열기",
+      finalCtaButton: "작업 위임하기",
       s002: "+ Telegram 지원",
       s003: "에이전트 간",
       s004: "메모리",
@@ -1676,7 +1676,7 @@ const koKR = {
       heroTitle: "AI 에이전트로 받은편지함 관리하기",
       heroDescription:
         "Mail은 Gmail을 위한 무료 오픈소스 이메일 클라이언트로, AI 에이전트가 메시지를 찾고, 대화를 요약하고, 답장을 작성하고, 받은편지함을 정리해 줍니다.",
-      heroCta: "Mail 열기",
+      heroCta: "받은편지함 관리하기",
       useCasesHeading: "Mail로 무엇을 할 수 있나요?",
       useCasesBody:
         "대화 내용을 따라잡거나, 고객과 동료에게 답장하거나, 밀린 이메일을 정리해 보세요.",
@@ -1712,7 +1712,7 @@ const koKR = {
       finalCtaHeading: "다음 이메일부터 시작해 보세요",
       finalCtaBody:
         "대화를 열고 AI 에이전트에게 요약이나 답장 초안을 요청해 보세요.",
-      finalCtaButton: "Mail 열기",
+      finalCtaButton: "받은편지함 관리하기",
       s002: "키보드 우선",
       s003: "받은편지함 분류",
       s004: "조회수",
@@ -1797,7 +1797,7 @@ const koKR = {
       heroTitle: "AI 코딩 에이전트가 만들려는 것 미리 보기",
       heroDescription:
         "Plans는 다이어그램, 와이어프레임, 주석이 달린 코드로 코딩 에이전트의 접근 방식을 검토하고 피드백을 주고 코드 변경 사항을 이해할 수 있는 무료 오픈소스 시각적 계획 도구입니다.",
-      heroCta: "에이전트에 추가하기",
+      heroCta: "시각적으로 계획하기",
       heroSecondaryCta: "Plans 열기",
       useCasesHeading: "Plans로 무엇을 할 수 있나요?",
       useCasesBody:
@@ -1833,7 +1833,7 @@ const koKR = {
         "팀원이 브라우저에서 검토할 수 있도록 계획을 공유하세요. 별도 사본이 필요하면 HTML, Markdown, JSON, MDX로 내보낼 수 있습니다.",
       finalCtaHeading: "다음 코딩 작업을 시각적으로 검토하세요",
       finalCtaBody: "에이전트에게 계획을 요청하고, 세부 사항을 함께 검토해 보세요.",
-      finalCtaButton: "에이전트에 추가하기",
+      finalCtaButton: "시각적으로 계획하기",
     },
     slides: {
       s001: "Slides 템플릿 스크린샷",
@@ -1877,7 +1877,7 @@ const koKR = {
         "발표자 노트와 함께 전체 화면으로 발표하거나, 보기 링크를 공유하거나, 덱을 PowerPoint 파일로 내보내세요.",
       finalCtaHeading: "다음 프레젠테이션을 시작하세요",
       finalCtaBody: "아이디어, 브리핑, 또는 기존 덱을 가져와 보세요.",
-      finalCtaButton: "Slides 열기",
+      finalCtaButton: "덱 만들기",
       s002: "설명하다",
       s003: "생성",
       s004: "구체화",
@@ -2056,7 +2056,7 @@ const koKR = {
       heroTitle: "나만의 AI 채팅 앱 만들기",
       heroDescription:
         "Chat은 무료 오픈소스 AI 채팅 앱 기반으로, 저장된 대화와 인증, 그리고 직접 actions, 데이터, 화면을 추가해 확장할 수 있는 에이전트를 제공합니다.",
-      heroCta: "앱 만들기",
+      heroCta: "채팅 앱 만들기",
       heroSecondaryCta: "Chat 열기",
       useCasesHeading: "Chat으로 무엇을 만들 수 있나요?",
       useCasesBody:
@@ -2092,7 +2092,7 @@ const koKR = {
         "애플리케이션을 만들고 디버깅하는 동안 저장된 데이터와 에이전트 실행 내역을 확인할 수 있도록 기본 제공되는 데이터베이스 관리 및 관찰 가능성 화면을 사용하세요.",
       finalCtaHeading: "첫 에이전트 워크플로 만들기",
       finalCtaBody: "복사본을 만들고 사용자에게 필요한 첫 action을 추가하세요.",
-      finalCtaButton: "앱 만들기",
+      finalCtaButton: "채팅 앱 만들기",
     },
   },
   skillsPage: {

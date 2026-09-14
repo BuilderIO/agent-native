@@ -774,7 +774,7 @@ const zhCN = {
       heroTitle: "用你的 AI 智能体分析数据",
       heroDescription:
         "Analytics 是一款免费开源的 AI 分析工具，用于查询你连接的数据、构建仪表板，并调查用户会话。",
-      heroCta: "打开 Analytics",
+      heroCta: "探索你的数据",
       useCasesHeading: "用 Analytics 能做什么？",
       useCasesBody: "跟踪产品增长、报告业务表现，或调查有人在你的应用中遇到的问题。",
       useCase1Title: "跟踪产品增长",
@@ -808,7 +808,7 @@ const zhCN = {
         "回放录制的会话，同时查看控制台和网络活动。直接跳转到错误，并复制一个临时诊断链接给你的 AI 智能体。",
       finalCtaHeading: "从一个关于数据的问题开始",
       finalCtaBody: "连接一个数据源，让你的 AI 智能体生成第一张图表。",
-      finalCtaButton: "打开 Analytics",
+      finalCtaButton: "探索你的数据",
       faq: {
         question1: "什么是 Agent-Native Analytics？",
         answer1:
@@ -834,7 +834,7 @@ const zhCN = {
       heroTitle: "用你的 AI 代理管理日程",
       heroDescription:
         "Calendar 是一款免费开源的 AI 日程助手，用于管理 Google Calendar 事件、查找会议时间，并让他人可以与你预约。",
-      heroCta: "打开 Calendar",
+      heroCta: "开始安排日程",
       useCasesHeading: "用 Calendar 能做什么？",
       useCasesBody: "预约客户通话、召集团队，或在计划变动时调整你的一天。",
       useCase1Title: "预约客户通话和演示",
@@ -868,7 +868,7 @@ const zhCN = {
         "添加 Google Meet、连接 Zoom，或使用自定义会议链接，让参与者在预约时就知道从哪里加入。",
       finalCtaHeading: "把你的下一场会议加入日历",
       finalCtaBody: "用你的 AI 代理找到时间，或发送一个预约链接。",
-      finalCtaButton: "打开 Calendar",
+      finalCtaButton: "开始安排日程",
       s002: "Calendar 观看次数",
       s003: "代理动作",
       s004: "预订链接类型",
@@ -968,7 +968,7 @@ const zhCN = {
       heroTitle: "用你的 AI 智能体创建和管理品牌素材",
       heroDescription:
         "Assets 是一款免费开源的品牌素材库，用于整理你的图片、视频和品牌参考资料，并配有 AI 智能体，能使用你的品牌套件生成和编辑媒体。",
-      heroCta: "打开 Assets",
+      heroCta: "生成一张图片",
       useCasesHeading: "用 Assets 能做什么？",
       useCasesBody:
         "创建活动图片，为新项目调整素材，或为团队和 AI 智能体提供一个共享的品牌素材库。",
@@ -1003,7 +1003,7 @@ const zhCN = {
         "连接你的 AI 智能体即可搜索素材库、生成媒体，并在聊天中选择素材。受支持的应用还可以嵌入素材选择器。",
       finalCtaHeading: "创建你的下一份品牌素材",
       finalCtaBody: "选好参考资料，告诉你的 AI 智能体你需要什么。",
-      finalCtaButton: "打开 Assets",
+      finalCtaButton: "生成一张图片",
     },
     clips: {
       s001: "Clips 模板屏幕截图",
@@ -1053,7 +1053,7 @@ const zhCN = {
       watchClipLabel: "观看这段 Clip",
       finalCtaHeading: "让你的下一段 Clip 发挥作用",
       finalCtaBody: "录制一段说明,或把一段分享的 Clip 交给你的 AI 智能体。",
-      finalCtaButton: "打开 Clips",
+      finalCtaButton: "录制一段 Clip",
       s002: "屏幕录制",
       s003: "浏览器调试日志",
       s004: "口授",
@@ -1157,7 +1157,7 @@ const zhCN = {
       heroTitle: "和你的 AI 智能体一起创建和整理工作",
       heroDescription:
         "Content 是一款免费开源的工作空间，用于文档、任务列表和数据库，你和你的 AI 智能体可以一起阅读和更新。",
-      heroCta: "打开 Content",
+      heroCta: "整理你的工作",
       useCasesHeading: "用 Content 能做什么？",
       useCasesBody: "处理一份草稿，跟踪待办事项，或收集一项新请求所需的详细信息。",
       useCase1Title: "撰写和审阅内容",
@@ -1191,7 +1191,7 @@ const zhCN = {
         "一起编辑页面，在段落上留下评论，并在讨论串中回复。与特定的人或你的组织共享，并选择他们的访问权限。",
       finalCtaHeading: "把你的下一个项目带进 Content",
       finalCtaBody: "从一份文档、一个任务列表，或你团队已经在用的表格开始。",
-      finalCtaButton: "打开 Content",
+      finalCtaButton: "整理你的工作",
       s002: "所有模板",
       s003: "为 MDX 开源 Obsidian",
       s004: "编辑本地 Markdown/MDX 文件（如 Obsidian），生成丰富的交互式自定义块，并使用了解您文档的 AI 代理进行编写。",
@@ -1278,7 +1278,7 @@ const zhCN = {
       heroTitle: "用你的 AI 智能体设计交互式原型",
       heroDescription:
         "Design 是一款免费开源的 AI 设计与原型工具，可以创建符合品牌风格的页面和产品界面，并且你可以自己编辑设计。",
-      heroCta: "开始设计",
+      heroCta: "免费设计",
       useCasesHeading: "用 Design 能做什么？",
       useCasesBody:
         "在动手搭建之前，先探索一个新页面、产品流程或界面。把简报和重要细节告诉你的 AI 智能体。",
@@ -1313,7 +1313,7 @@ const zhCN = {
         "导出设计文件的 HTML 或 ZIP。把原型和背景信息交给开发者或编程智能体，让他们继续实现。",
       finalCtaHeading: "开始你的下一个设计",
       finalCtaBody: "带来一份简报。探索各种可能性。完善细节。",
-      finalCtaButton: "开始设计",
+      finalCtaButton: "免费设计",
       s002: "描述",
       s003: "生成",
       s004: "精炼",
@@ -1399,7 +1399,7 @@ const zhCN = {
       heroTitle: "在一个地方协调你的 AI 代理",
       heroDescription:
         "Dispatch 是一款免费的开源 AI 代理编排应用，用于将工作委派给已连接的 Agent-Native 应用、安排周期性任务，并管理共享连接。",
-      heroCta: "打开 Dispatch",
+      heroCta: "委派一项任务",
       useCasesHeading: "你能用 Dispatch 做什么？",
       useCasesBody:
         "向已连接的应用寻求帮助，设置定期更新，或调查需要关注的代理运行情况。",
@@ -1434,7 +1434,7 @@ const zhCN = {
         "要求另一位管理员审核 Dispatch 对共享资源和设置所做的更改。在团队工作区中审核待处理请求并批准或拒绝。",
       finalCtaHeading: "从一个已连接的任务开始",
       finalCtaBody: "选择你需要的应用，让 Dispatch 协调这项工作。",
-      finalCtaButton: "打开 Dispatch",
+      finalCtaButton: "委派一项任务",
       s002: "+ Telegram 支持",
       s003: "代理间",
       s004: "内存",
@@ -1649,7 +1649,7 @@ const zhCN = {
       heroTitle: "用你的 AI 智能体管理收件箱",
       heroDescription:
         "Mail 是一款面向 Gmail 的免费开源邮件客户端，AI 智能体可以查找邮件、总结对话、起草回复，并整理你的收件箱。",
-      heroCta: "打开 Mail",
+      heroCta: "管理你的收件箱",
       useCasesHeading: "用 Mail 能做什么？",
       useCasesBody: "跟上对话进度、回复客户和同事，或整理积压的邮件。",
       useCase1Title: "跟上对话进度",
@@ -1683,7 +1683,7 @@ const zhCN = {
         "选择邮件的发送时间，或让某条消息稍后再提醒你。查看已安排的任务，计划变化时可以取消。",
       finalCtaHeading: "从下一封邮件开始",
       finalCtaBody: "打开一段对话，让你的 AI 智能体给你一份摘要或回复草稿。",
-      finalCtaButton: "打开 Mail",
+      finalCtaButton: "管理你的收件箱",
       s002: "键盘优先",
       s003: "收件箱分类",
       s004: "意见",
@@ -1768,7 +1768,7 @@ const zhCN = {
       heroTitle: "看清你的 AI 编码代理打算构建什么",
       heroDescription:
         "Plans 是一款免费开源的可视化规划工具，通过图表、线框图和带注释的代码，帮助你审阅编码代理的方案、给出反馈并理解代码改动。",
-      heroCta: "添加到你的代理",
+      heroCta: "可视化规划",
       heroSecondaryCta: "打开 Plans",
       useCasesHeading: "用 Plans 能做什么？",
       useCasesBody:
@@ -1804,7 +1804,7 @@ const zhCN = {
         "分享一份计划，让团队成员在浏览器中查看。需要单独保存副本时，可导出为 HTML、Markdown、JSON 或 MDX。",
       finalCtaHeading: "以可视化方式审阅你的下一个编码任务",
       finalCtaBody: "让你的代理生成一份计划，然后一起梳理细节。",
-      finalCtaButton: "添加到你的代理",
+      finalCtaButton: "可视化规划",
     },
     slides: {
       s001: "Slides 模板屏幕截图",
@@ -1848,7 +1848,7 @@ const zhCN = {
         "全屏演示并显示演讲者备注，分享一个查看链接，或将文稿导出为 PowerPoint 文件。",
       finalCtaHeading: "开始你的下一份演示文稿",
       finalCtaBody: "带来一个想法、一份简报，或一份已有的文稿。",
-      finalCtaButton: "打开 Slides",
+      finalCtaButton: "创建一份 PPT",
       s002: "描述",
       s003: "生成",
       s004: "精炼",
@@ -2025,7 +2025,7 @@ const zhCN = {
       heroTitle: "打造属于你自己的 AI 聊天应用",
       heroDescription:
         "Chat 是一款免费开源的 AI 聊天应用脚手架，提供已保存的对话、认证，以及一个可用你自己的 actions、数据和页面来扩展的 agent。",
-      heroCta: "构建你的应用",
+      heroCta: "构建你的聊天应用",
       heroSecondaryCta: "打开 Chat",
       useCasesHeading: "用 Chat 能构建什么？",
       useCasesBody:
@@ -2061,7 +2061,7 @@ const zhCN = {
         "在构建和调试应用时，使用内置的数据库管理和可观测性页面来检查已存储的数据和 agent 的运行记录。",
       finalCtaHeading: "构建你的第一个 agent 工作流",
       finalCtaBody: "创建你的副本，并添加用户需要的第一个 action。",
-      finalCtaButton: "构建你的应用",
+      finalCtaButton: "构建你的聊天应用",
     },
   },
   skillsPage: {

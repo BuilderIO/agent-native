@@ -755,7 +755,7 @@ const esES = {
       heroTitle: "Analiza tus datos con tu agente de IA",
       heroDescription:
         "Analytics es una herramienta de analítica con IA gratuita y de código abierto para consultar tus datos conectados, crear paneles e investigar sesiones de usuario.",
-      heroCta: "Abrir Analytics",
+      heroCta: "Explora tus datos",
       useCasesHeading: "¿Qué puedes hacer con Analytics?",
       useCasesBody:
         "Haz seguimiento del crecimiento del producto, informa sobre el rendimiento del negocio o investiga un problema que alguien haya encontrado en tu app.",
@@ -790,7 +790,7 @@ const esES = {
         "Reproduce sesiones grabadas junto con la actividad de consola y red. Ve directo a los errores y copia un enlace de diagnóstico temporal para tu agente de IA.",
       finalCtaHeading: "Empieza con una pregunta sobre tus datos",
       finalCtaBody: "Conecta una fuente y pídele a tu agente de IA el primer gráfico.",
-      finalCtaButton: "Abrir Analytics",
+      finalCtaButton: "Explora tus datos",
       s001: "Analytics captura de pantalla de la plantilla",
       s002: "Conectores de datos",
       s003: "Tipos de gráficos",
@@ -882,7 +882,7 @@ const esES = {
       heroTitle: "Gestiona tu agenda con tu agente de IA",
       heroDescription:
         "Calendar es un asistente de programación con IA gratuito y de código abierto para gestionar eventos de Google Calendar, encontrar horarios y dejar que otros reserven contigo.",
-      heroCta: "Abrir Calendar",
+      heroCta: "Empieza a programar",
       useCasesHeading: "¿Qué puedes hacer con Calendar?",
       useCasesBody:
         "Reserva una llamada con un cliente, reúne a tu equipo o ajusta tu día cuando cambien los planes.",
@@ -919,7 +919,7 @@ const esES = {
       finalCtaHeading: "Añade tu próxima reunión al calendario",
       finalCtaBody:
         "Encuentra un horario con tu agente de IA o envía un enlace de reserva.",
-      finalCtaButton: "Abrir Calendar",
+      finalCtaButton: "Empieza a programar",
       s002: "Calendar vistas",
       s003: "Acciones del agente",
       s004: "Tipos de enlaces de reserva",
@@ -1004,7 +1004,7 @@ const esES = {
       heroTitle: "Crea y gestiona recursos de marca con tu agente de IA",
       heroDescription:
         "Assets es una biblioteca de activos de marca gratuita y de código abierto para organizar tus imágenes, vídeos y referencias de marca, con un agente de IA que genera y edita contenido multimedia usando tu kit de marca.",
-      heroCta: "Abrir Assets",
+      heroCta: "Genera una imagen",
       useCasesHeading: "¿Qué puedes hacer con Assets?",
       useCasesBody:
         "Crea imágenes de campaña, adapta visuales para nuevos proyectos, o dale a tu equipo y a tus agentes de IA una biblioteca de marca compartida.",
@@ -1041,7 +1041,7 @@ const esES = {
       finalCtaHeading: "Crea tu próximo recurso de marca",
       finalCtaBody:
         "Elige tus referencias y dile a tu agente de IA lo que necesitas.",
-      finalCtaButton: "Abrir Assets",
+      finalCtaButton: "Genera una imagen",
     },
     chat: {
       faq: {
@@ -1067,7 +1067,7 @@ const esES = {
       heroTitle: "Crea tu propia app de chat con IA",
       heroDescription:
         "Chat es una app de chat con IA gratuita y de código abierto, con conversaciones guardadas, autenticación y un agente que puedes ampliar con tus propias acciones, datos y pantallas.",
-      heroCta: "Crea tu app",
+      heroCta: "Crea tu chat",
       heroSecondaryCta: "Abrir Chat",
       useCasesHeading: "¿Qué puedes construir con Chat?",
       useCasesBody:
@@ -1104,7 +1104,7 @@ const esES = {
       finalCtaHeading: "Construye tu primer flujo de trabajo de agente",
       finalCtaBody:
         "Crea tu copia y añade la primera acción que necesiten tus usuarios.",
-      finalCtaButton: "Crea tu app",
+      finalCtaButton: "Crea tu chat",
     },
     clips: {
       s001: "Clips captura de pantalla de la plantilla",
@@ -1158,7 +1158,7 @@ const esES = {
       finalCtaHeading: "Pon tu próximo clip a trabajar",
       finalCtaBody:
         "Graba una explicación o lleva un clip compartido a tu agente de IA.",
-      finalCtaButton: "Abrir Clips",
+      finalCtaButton: "Grabar un clip",
       s002: "Registro de pantalla",
       s003: "Registros de depuración del navegador",
       s004: "Dictar",
@@ -1282,7 +1282,7 @@ const esES = {
       heroTitle: "Crea y organiza tu trabajo con tu agente de IA",
       heroDescription:
         "Content es un espacio de trabajo gratuito y de código abierto para documentos, listas de tareas y bases de datos que puedes leer y actualizar junto con tus agentes de IA.",
-      heroCta: "Abrir Content",
+      heroCta: "Organiza tu trabajo",
       useCasesHeading: "¿Qué puedes hacer con Content?",
       useCasesBody:
         "Trabaja en un borrador, haz seguimiento de lo que falta por hacer o recopila los detalles de una nueva solicitud.",
@@ -1319,7 +1319,7 @@ const esES = {
       finalCtaHeading: "Lleva tu próximo proyecto a Content",
       finalCtaBody:
         "Empieza con un documento, una lista de tareas o una tabla que tu equipo ya usa.",
-      finalCtaButton: "Abrir Content",
+      finalCtaButton: "Organiza tu trabajo",
       s002: "Todas las plantillas",
       s003: "Obsidian de código abierto para MDX",
       s004: "Edite archivos Markdown/MDX locales como Obsidian, genere bloques personalizados interactivos enriquecidos y escriba con un agente AI que conozca sus documentos.",
@@ -1406,7 +1406,7 @@ const esES = {
       heroTitle: "Diseña prototipos interactivos con tu agente de IA",
       heroDescription:
         "Design es una herramienta de diseño y prototipado con IA gratuita y de código abierto para crear páginas e interfaces de producto con tu marca, con diseños que puedes editar tú mismo.",
-      heroCta: "Empieza a diseñar",
+      heroCta: "Diseña gratis",
       useCasesHeading: "¿Qué puedes hacer con Design?",
       useCasesBody:
         "Explora una página, un flujo de producto o una interfaz nueva antes de construirla. Dale a tu agente de IA el brief y los detalles que importan.",
@@ -1443,7 +1443,7 @@ const esES = {
       finalCtaHeading: "Empieza tu próximo diseño",
       finalCtaBody:
         "Trae un brief. Explora las posibilidades. Perfecciona los detalles.",
-      finalCtaButton: "Empieza a diseñar",
+      finalCtaButton: "Diseña gratis",
       s002: "describir",
       s003: "generar",
       s004: "Refinar",
@@ -1529,7 +1529,7 @@ const esES = {
       heroTitle: "Coordina tus agentes de IA desde un solo lugar",
       heroDescription:
         "Dispatch es una app de orquestación de agentes de IA gratuita y de código abierto para delegar trabajo a las apps de Agent-Native conectadas, programar tareas recurrentes y gestionar conexiones compartidas.",
-      heroCta: "Abrir Dispatch",
+      heroCta: "Delega una tarea",
       useCasesHeading: "¿Qué puedes hacer con Dispatch?",
       useCasesBody:
         "Pide ayuda a una app conectada, configura una actualización periódica o investiga una ejecución de agente que necesite atención.",
@@ -1566,7 +1566,7 @@ const esES = {
       finalCtaHeading: "Empieza con una tarea conectada",
       finalCtaBody:
         "Elige las apps que necesitas y pídele a Dispatch que coordine el trabajo.",
-      finalCtaButton: "Abrir Dispatch",
+      finalCtaButton: "Delega una tarea",
       s002: "+ Telegram incluido",
       s003: "Interagente",
       s004: "Memoria",
@@ -1764,7 +1764,7 @@ const esES = {
       heroTitle: "Gestiona tu bandeja de entrada con tu agente de IA",
       heroDescription:
         "Mail es un cliente de correo electrónico gratuito y de código abierto para Gmail, con un agente de IA que encuentra mensajes, resume conversaciones, redacta respuestas y organiza tu bandeja de entrada.",
-      heroCta: "Abrir Mail",
+      heroCta: "Gestiona tu bandeja de entrada",
       useCasesHeading: "¿Qué puedes hacer con Mail?",
       useCasesBody:
         "Ponte al día con conversaciones, responde a clientes y compañeros, o resuelve una acumulación de correo.",
@@ -1801,7 +1801,7 @@ const esES = {
       finalCtaHeading: "Empieza con tu próximo correo",
       finalCtaBody:
         "Abre una conversación y pídele a tu agente de IA un resumen o un borrador de respuesta.",
-      finalCtaButton: "Abrir Mail",
+      finalCtaButton: "Gestiona tu bandeja de entrada",
       s002: "Teclado primero",
       s003: "Clasificación de bandeja de entrada",
       s004: "Vistas",
@@ -1886,7 +1886,7 @@ const esES = {
       heroTitle: "Mira qué planea construir tu agente de código",
       heroDescription:
         "Plans es una herramienta de planificación visual gratuita y de código abierto para revisar el enfoque de tu agente de código, darle comentarios y entender los cambios de código mediante diagramas, wireframes y código anotado.",
-      heroCta: "Añadir a tu agente",
+      heroCta: "Planifica visualmente",
       heroSecondaryCta: "Abrir Plans",
       useCasesHeading: "¿Qué puedes hacer con Plans?",
       useCasesBody:
@@ -1924,7 +1924,7 @@ const esES = {
       finalCtaHeading: "Revisa visualmente tu próxima tarea de código",
       finalCtaBody:
         "Pídele un plan a tu agente y revisa los detalles juntos.",
-      finalCtaButton: "Añadir a tu agente",
+      finalCtaButton: "Planifica visualmente",
     },
     slides: {
       faq: {
@@ -1989,7 +1989,7 @@ const esES = {
         "Presenta a pantalla completa con notas del orador, comparte un enlace de visualización o exporta tu deck como archivo de PowerPoint.",
       finalCtaHeading: "Empieza tu próxima presentación",
       finalCtaBody: "Trae una idea, un brief o un deck ya existente.",
-      finalCtaButton: "Abrir Slides",
+      finalCtaButton: "Crear un deck",
       s002: "describir",
       s003: "generar",
       s004: "Refinar",

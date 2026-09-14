@@ -755,7 +755,7 @@ const deDE = {
       heroTitle: "Analysiere deine Daten mit deinem KI-Agenten",
       heroDescription:
         "Analytics ist ein kostenloses Open-Source-KI-Analysetool, um deine verbundenen Daten abzufragen, Dashboards zu erstellen und Nutzersitzungen zu untersuchen.",
-      heroCta: "Analytics öffnen",
+      heroCta: "Erkunde deine Daten",
       useCasesHeading: "Was kannst du mit Analytics machen?",
       useCasesBody:
         "Verfolge das Produktwachstum, berichte über die Geschäftsentwicklung oder untersuche ein Problem, auf das jemand in deiner App gestoßen ist.",
@@ -792,7 +792,7 @@ const deDE = {
       finalCtaHeading: "Starte mit einer Frage zu deinen Daten",
       finalCtaBody:
         "Verbinde eine Quelle und bitte deinen KI-Agenten um das erste Diagramm.",
-      finalCtaButton: "Analytics öffnen",
+      finalCtaButton: "Erkunde deine Daten",
       s001: "Screenshot der Vorlage Analytics",
       s002: "Datenanschlüsse",
       s003: "Diagrammtypen",
@@ -885,7 +885,7 @@ const deDE = {
       heroTitle: "Verwalte deinen Kalender mit deinem KI-Agenten",
       heroDescription:
         "Calendar ist ein kostenloser Open-Source-KI-Planungsassistent zum Verwalten von Google Calendar-Terminen und Finden von Besprechungsterminen – und lässt andere Termine bei dir buchen.",
-      heroCta: "Calendar öffnen",
+      heroCta: "Starte die Planung",
       useCasesHeading: "Was kannst du mit Calendar machen?",
       useCasesBody:
         "Buche ein Kundengespräch, bring dein Team zusammen oder passe deinen Tag an, wenn sich Pläne ändern.",
@@ -922,7 +922,7 @@ const deDE = {
       finalCtaHeading: "Trage dein nächstes Meeting in den Kalender ein",
       finalCtaBody:
         "Finde einen Termin mit deinem KI-Agenten oder verschicke einen Buchungslink.",
-      finalCtaButton: "Calendar öffnen",
+      finalCtaButton: "Starte die Planung",
       s002: "Calendar Aufrufe",
       s003: "Agentenaktionen",
       s004: "Arten von Buchungslinks",
@@ -1010,7 +1010,7 @@ const deDE = {
         "Markenmaterial mit Ihrem KI-Agenten erstellen und verwalten",
       heroDescription:
         "Assets ist eine kostenlose Open-Source-Marken-Asset-Bibliothek zum Organisieren Ihrer Bilder, Videos und Markenreferenzen, mit einem KI-Agenten, der Medien anhand Ihres Markenkits generiert und bearbeitet.",
-      heroCta: "Assets öffnen",
+      heroCta: "Generiere ein Bild",
       useCasesHeading: "Was können Sie mit Assets tun?",
       useCasesBody:
         "Erstellen Sie Kampagnenbilder, passen Sie Visuals für neue Projekte an oder geben Sie Ihrem Team und Ihren KI-Agenten eine gemeinsame Markenbibliothek.",
@@ -1047,7 +1047,7 @@ const deDE = {
       finalCtaHeading: "Erstellen Sie Ihr nächstes Markenmaterial",
       finalCtaBody:
         "Wählen Sie Ihre Referenzen aus und teilen Sie Ihrem KI-Agenten mit, was Sie brauchen.",
-      finalCtaButton: "Assets öffnen",
+      finalCtaButton: "Generiere ein Bild",
     },
     chat: {
       faq: {
@@ -1073,7 +1073,7 @@ const deDE = {
       heroTitle: "Bauen Sie Ihre eigene KI-Chat-App",
       heroDescription:
         "Chat ist eine kostenlose Open-Source-KI-Chat-App-Vorlage mit gespeicherten Unterhaltungen, Authentifizierung und einem Agenten, den Sie mit eigenen Actions, Daten und Screens erweitern können.",
-      heroCta: "App bauen",
+      heroCta: "Baue deinen Chat",
       heroSecondaryCta: "Chat öffnen",
       useCasesHeading: "Was können Sie mit Chat bauen?",
       useCasesBody:
@@ -1110,7 +1110,7 @@ const deDE = {
       finalCtaHeading: "Bauen Sie Ihren ersten Agent-Workflow",
       finalCtaBody:
         "Erstellen Sie Ihre Kopie und fügen Sie die erste Action hinzu, die Ihre Nutzer brauchen.",
-      finalCtaButton: "App bauen",
+      finalCtaButton: "Baue deinen Chat",
     },
     clips: {
       s001: "Screenshot der Vorlage Clips",
@@ -1163,7 +1163,7 @@ const deDE = {
       finalCtaHeading: "Setze deinen nächsten Clip ein",
       finalCtaBody:
         "Nimm eine Erklärung auf oder bring einen geteilten Clip zu deinem KI-Agenten.",
-      finalCtaButton: "Clips öffnen",
+      finalCtaButton: "Clip aufnehmen",
       s002: "Bildschirmaufzeichnung",
       s003: "Browser-Debug-Protokolle",
       s004: "Diktieren",
@@ -1287,7 +1287,7 @@ const deDE = {
       heroTitle: "Erstelle und organisiere deine Arbeit mit deinem KI-Agenten",
       heroDescription:
         "Content ist ein kostenloser Open-Source-Arbeitsbereich für Dokumente, Aufgabenlisten und Datenbanken, die du und deine KI-Agenten gemeinsam lesen und bearbeiten könnt.",
-      heroCta: "Content öffnen",
+      heroCta: "Organisiere deine Arbeit",
       useCasesHeading: "Was kannst du mit Content machen?",
       useCasesBody:
         "Arbeite an einem Entwurf, behalte im Blick, was noch zu erledigen ist, oder sammle die Details für eine neue Anfrage.",
@@ -1324,7 +1324,7 @@ const deDE = {
       finalCtaHeading: "Bring dein nächstes Projekt in Content",
       finalCtaBody:
         "Starte mit einem Dokument, einer Aufgabenliste oder einer Tabelle, die dein Team bereits nutzt.",
-      finalCtaButton: "Content öffnen",
+      finalCtaButton: "Organisiere deine Arbeit",
       s002: "Alle Vorlagen",
       s003: "Open-Source-Obsidian für MDX",
       s004: "Bearbeiten Sie lokale Markdown/MDX-Dateien wie Obsidian, generieren Sie umfangreiche interaktive benutzerdefinierte Blöcke und schreiben Sie mit einem AI-Agenten, der Ihre Dokumente kennt.",
@@ -1411,7 +1411,7 @@ const deDE = {
       heroTitle: "Interaktive Prototypen mit deinem KI-Agenten gestalten",
       heroDescription:
         "Design ist ein kostenloses Open-Source-Tool für KI-Design und Prototyping, mit dem du markenkonforme Seiten und Produktoberflächen erstellst – mit Designs, die du selbst bearbeiten kannst.",
-      heroCta: "Jetzt gestalten",
+      heroCta: "Gestalte kostenlos",
       useCasesHeading: "Was kannst du mit Design machen?",
       useCasesBody:
         "Erkunde eine neue Seite, einen Produkt-Flow oder eine Oberfläche, bevor du sie baust. Gib deinem KI-Agenten das Briefing und die Details, auf die es ankommt.",
@@ -1448,7 +1448,7 @@ const deDE = {
       finalCtaHeading: "Starte dein nächstes Design",
       finalCtaBody:
         "Bring ein Briefing mit. Erkunde die Möglichkeiten. Verfeinere die Details.",
-      finalCtaButton: "Jetzt gestalten",
+      finalCtaButton: "Gestalte kostenlos",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",
@@ -1534,7 +1534,7 @@ const deDE = {
       heroTitle: "Koordiniere deine KI-Agents an einem Ort",
       heroDescription:
         "Dispatch ist eine kostenlose Open-Source-KI-Agent-Orchestrierungs-App, um Arbeit an verbundene Agent-Native-Apps zu delegieren, wiederkehrende Aufgaben zu planen und gemeinsame Verbindungen zu verwalten.",
-      heroCta: "Dispatch öffnen",
+      heroCta: "Delegiere eine Aufgabe",
       useCasesHeading: "Was kannst du mit Dispatch machen?",
       useCasesBody:
         "Bitte eine verbundene App um Hilfe, richte ein regelmäßiges Update ein oder untersuche einen Agentenlauf, der Aufmerksamkeit braucht.",
@@ -1571,7 +1571,7 @@ const deDE = {
       finalCtaHeading: "Beginne mit einer verbundenen Aufgabe",
       finalCtaBody:
         "Wähle die Apps, die du brauchst, und bitte Dispatch, die Arbeit zu koordinieren.",
-      finalCtaButton: "Dispatch öffnen",
+      finalCtaButton: "Delegiere eine Aufgabe",
       s002: "+ Telegram dabei",
       s003: "Inter-Agent",
       s004: "Erinnerung",
@@ -1769,7 +1769,7 @@ const deDE = {
       heroTitle: "Verwalte deinen Posteingang mit deinem KI-Agenten",
       heroDescription:
         "Mail ist ein kostenloser, quelloffener E-Mail-Client für Gmail mit einem KI-Agenten, der Nachrichten findet, Unterhaltungen zusammenfasst, Antworten entwirft und deinen Posteingang organisiert.",
-      heroCta: "Mail öffnen",
+      heroCta: "Verwalte deinen Posteingang",
       useCasesHeading: "Was kannst du mit Mail machen?",
       useCasesBody:
         "Hol Unterhaltungen nach, antworte Kunden und Kollegen oder arbeite einen E-Mail-Rückstand auf.",
@@ -1806,7 +1806,7 @@ const deDE = {
       finalCtaHeading: "Starte mit deiner nächsten E-Mail",
       finalCtaBody:
         "Öffne eine Unterhaltung und bitte deinen KI-Agenten um eine Zusammenfassung oder einen Antwortentwurf.",
-      finalCtaButton: "Mail öffnen",
+      finalCtaButton: "Verwalte deinen Posteingang",
       s002: "Zuerst die Tastatur",
       s003: "Posteingangs-Sortierung",
       s004: "Ansichten",
@@ -1892,7 +1892,7 @@ const deDE = {
       heroTitle: "Sieh, was dein KI-Coding-Agent bauen will",
       heroDescription:
         "Plans ist ein kostenloses Open-Source-Tool zur visuellen Planung, mit dem du den Ansatz deines Coding-Agenten prüfst, Feedback gibst und Codeänderungen anhand von Diagrammen, Wireframes und kommentiertem Code verstehst.",
-      heroCta: "Zu deinem Agenten hinzufügen",
+      heroCta: "Plane visuell",
       heroSecondaryCta: "Plans öffnen",
       useCasesHeading: "Was kannst du mit Plans machen?",
       useCasesBody:
@@ -1930,7 +1930,7 @@ const deDE = {
       finalCtaHeading: "Prüfe deine nächste Coding-Aufgabe visuell",
       finalCtaBody:
         "Bitte deinen Agenten um einen Plan und arbeite die Details anschließend gemeinsam durch.",
-      finalCtaButton: "Zu deinem Agenten hinzufügen",
+      finalCtaButton: "Plane visuell",
     },
     slides: {
       faq: {
@@ -1997,7 +1997,7 @@ const deDE = {
       finalCtaHeading: "Starte deine nächste Präsentation",
       finalCtaBody:
         "Bring eine Idee, ein Briefing oder ein bestehendes Deck mit.",
-      finalCtaButton: "Slides öffnen",
+      finalCtaButton: "Deck erstellen",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",

@@ -774,7 +774,7 @@ const messages = {
       heroTitle: "用你的 AI 代理分析資料",
       heroDescription:
         "Analytics 是一款免費開源的 AI 分析工具，可用來查詢你連線的資料、建立儀表板，並調查使用者工作階段。",
-      heroCta: "開啟 Analytics",
+      heroCta: "探索你的資料",
       useCasesHeading: "用 Analytics 能做什麼？",
       useCasesBody: "追蹤產品成長、回報業務表現，或調查有人在你的應用程式中遇到的問題。",
       useCase1Title: "追蹤產品成長",
@@ -808,7 +808,7 @@ const messages = {
         "重播錄製的工作階段，同時檢視主控台與網路活動。直接跳到錯誤發生處，並複製一個臨時診斷連結給你的 AI 代理。",
       finalCtaHeading: "從一個關於資料的問題開始",
       finalCtaBody: "連線一個資料來源，請你的 AI 代理產生第一張圖表。",
-      finalCtaButton: "開啟 Analytics",
+      finalCtaButton: "探索你的資料",
       faq: {
         question1: "什麼是 Agent-Native Analytics？",
         answer1:
@@ -834,7 +834,7 @@ const messages = {
       heroTitle: "用你的 AI 代理管理行程",
       heroDescription:
         "Calendar 是一款免費開放原始碼的 AI 排程助理，用於管理 Google Calendar 活動、尋找會議時間，並讓其他人可以與你預約。",
-      heroCta: "開啟 Calendar",
+      heroCta: "開始安排行程",
       useCasesHeading: "用 Calendar 能做什麼？",
       useCasesBody: "預約客戶通話、召集你的團隊，或在計畫變動時調整你的一天。",
       useCase1Title: "預約客戶通話與展示",
@@ -868,7 +868,7 @@ const messages = {
         "加入 Google Meet、連線 Zoom，或使用自訂會議連結，讓參與者在預約時就知道從哪裡加入。",
       finalCtaHeading: "把你的下一場會議加入行事曆",
       finalCtaBody: "用你的 AI 代理找到時間，或傳送一個預約連結。",
-      finalCtaButton: "開啟 Calendar",
+      finalCtaButton: "開始安排行程",
       s002: "Calendar 觀看次數",
       s003: "代理動作",
       s004: "預訂連結型別",
@@ -968,7 +968,7 @@ const messages = {
       heroTitle: "用你的 AI 代理建立與管理品牌素材",
       heroDescription:
         "Assets 是一款免費開源的品牌素材庫，用於整理你的圖片、影片和品牌參考資料，並配有 AI 代理，能運用你的品牌套件生成與編輯媒體。",
-      heroCta: "開啟 Assets",
+      heroCta: "產生一張圖片",
       useCasesHeading: "用 Assets 能做什麼？",
       useCasesBody:
         "建立行銷活動圖片，為新專案調整素材，或為團隊和 AI 代理提供共用的品牌素材庫。",
@@ -1003,7 +1003,7 @@ const messages = {
         "連接你的 AI 代理即可搜尋素材庫、生成媒體，並在聊天中選擇素材。受支援的應用程式還可以嵌入素材選擇器。",
       finalCtaHeading: "建立你的下一份品牌素材",
       finalCtaBody: "選好參考資料，告訴你的 AI 代理你需要什麼。",
-      finalCtaButton: "開啟 Assets",
+      finalCtaButton: "產生一張圖片",
     },
     clips: {
       s001: "Clips 範本螢幕截圖",
@@ -1053,7 +1053,7 @@ const messages = {
       watchClipLabel: "觀看這段 Clip",
       finalCtaHeading: "讓你的下一段 Clip 發揮作用",
       finalCtaBody: "錄製一段說明,或把一段分享的 Clip 交給你的 AI 代理。",
-      finalCtaButton: "開啟 Clips",
+      finalCtaButton: "錄製一段 Clip",
       s002: "螢幕錄製",
       s003: "瀏覽器偵錯記錄",
       s004: "口授",
@@ -1157,7 +1157,7 @@ const messages = {
       heroTitle: "和你的 AI 代理一起建立和整理工作",
       heroDescription:
         "Content 是一款免費開放原始碼的工作空間，用於文件、任務清單和資料庫，你和你的 AI 代理可以一起閱讀和更新。",
-      heroCta: "開啟 Content",
+      heroCta: "整理你的工作",
       useCasesHeading: "用 Content 能做什麼？",
       useCasesBody: "處理一份草稿，追蹤待辦事項，或收集一項新請求所需的詳細資訊。",
       useCase1Title: "撰寫和審閱內容",
@@ -1191,7 +1191,7 @@ const messages = {
         "一起編輯頁面，在段落上留下評論，並在討論串中回覆。與特定的人或你的組織共用，並選擇他們的存取權限。",
       finalCtaHeading: "把你的下一個專案帶進 Content",
       finalCtaBody: "從一份文件、一個任務清單，或你團隊已經在用的表格開始。",
-      finalCtaButton: "開啟 Content",
+      finalCtaButton: "整理你的工作",
       s002: "所有範本",
       s003: "為 MDX 開放原始碼 Obsidian",
       s004: "編輯本機 Markdown/MDX 檔案（如 Obsidian），生成豐富的互動式自訂塊，並使用了解您檔案的 AI 代理進行編寫。",
@@ -1278,7 +1278,7 @@ const messages = {
       heroTitle: "用你的 AI 代理設計互動式原型",
       heroDescription:
         "Design 是一款免費開源的 AI 設計與原型工具，能建立符合品牌風格的頁面與產品介面，且你可以自己編輯設計。",
-      heroCta: "開始設計",
+      heroCta: "免費設計",
       useCasesHeading: "用 Design 能做什麼？",
       useCasesBody:
         "在動手打造之前，先探索新的頁面、產品流程或介面。把簡報說明和重要細節告訴你的 AI 代理。",
@@ -1313,7 +1313,7 @@ const messages = {
         "匯出設計檔案的 HTML 或 ZIP。把原型和背景脈絡交給開發人員或程式開發代理，讓他們接續實作。",
       finalCtaHeading: "開始你的下一個設計",
       finalCtaBody: "帶來一份簡報說明。探索各種可能性。完善細節。",
-      finalCtaButton: "開始設計",
+      finalCtaButton: "免費設計",
       s002: "描述",
       s003: "生成",
       s004: "精煉",
@@ -1399,7 +1399,7 @@ const messages = {
       heroTitle: "在同一個地方協調你的 AI 代理",
       heroDescription:
         "Dispatch 是一款免費的開源 AI 代理協調應用程式，用於將工作委派給已連線的 Agent-Native 應用程式、排程週期性工作，並管理共用連線。",
-      heroCta: "開啟 Dispatch",
+      heroCta: "委派一項任務",
       useCasesHeading: "你能用 Dispatch 做什麼？",
       useCasesBody:
         "向已連線的應用程式尋求協助、設定定期更新，或調查需要留意的代理執行狀況。",
@@ -1434,7 +1434,7 @@ const messages = {
         "要求另一位管理員審核 Dispatch 對共用資源與設定所做的變更。在團隊工作區中審核待處理請求並核准或拒絕。",
       finalCtaHeading: "從一項已連線的工作開始",
       finalCtaBody: "選擇你需要的應用程式，讓 Dispatch 協調這項工作。",
-      finalCtaButton: "開啟 Dispatch",
+      finalCtaButton: "委派一項任務",
       s002: "+ Telegram 支援",
       s003: "代理間",
       s004: "記憶",
@@ -1649,7 +1649,7 @@ const messages = {
       heroTitle: "用你的 AI 代理管理收件匣",
       heroDescription:
         "Mail 是一款針對 Gmail 的免費開放原始碼郵件用戶端，AI 代理能查找郵件、彙整對話、草擬回覆，並整理你的收件匣。",
-      heroCta: "開啟 Mail",
+      heroCta: "管理你的收件匣",
       useCasesHeading: "用 Mail 能做什麼？",
       useCasesBody: "跟上對話進度、回覆客戶和同事，或整理積壓的郵件。",
       useCase1Title: "跟上對話進度",
@@ -1683,7 +1683,7 @@ const messages = {
         "選擇郵件的寄送時間，或讓某則訊息稍後再提醒你。檢視已排程的項目，計畫變動時可以取消。",
       finalCtaHeading: "從下一封郵件開始",
       finalCtaBody: "開啟一段對話，讓你的 AI 代理給你一份摘要或回覆草稿。",
-      finalCtaButton: "開啟 Mail",
+      finalCtaButton: "管理你的收件匣",
       s002: "鍵盤優先",
       s003: "收件箱分類",
       s004: "意見",
@@ -1768,7 +1768,7 @@ const messages = {
       heroTitle: "看看你的 AI 編碼代理打算建置什麼",
       heroDescription:
         "Plans 是一款免費開源的視覺規劃工具，讓你透過圖表、線框圖和帶註解的程式碼，審閱編碼代理的做法、提供意見回饋，並理解程式碼變更。",
-      heroCta: "新增至你的代理",
+      heroCta: "視覺化規劃",
       heroSecondaryCta: "開啟 Plans",
       useCasesHeading: "用 Plans 能做什麼？",
       useCasesBody:
@@ -1806,7 +1806,7 @@ const messages = {
       finalCtaHeading: "以視覺化方式審閱你的下一項編碼任務",
       finalCtaBody:
         "請你的代理提供計畫，然後一起討論細節。",
-      finalCtaButton: "新增至你的代理",
+      finalCtaButton: "視覺化規劃",
     },
     slides: {
       s001: "Slides 範本螢幕截圖",
@@ -1850,7 +1850,7 @@ const messages = {
         "全螢幕簡報並顯示演講者備忘稿，分享檢視連結，或將簡報匯出為 PowerPoint 檔案。",
       finalCtaHeading: "開始你的下一份簡報",
       finalCtaBody: "帶來一個想法、一份簡報說明，或一份現有的簡報。",
-      finalCtaButton: "開啟 Slides",
+      finalCtaButton: "建立一份 PPT",
       s002: "描述",
       s003: "生成",
       s004: "精煉",
@@ -2027,7 +2027,7 @@ const messages = {
       heroTitle: "打造屬於你自己的 AI 聊天應用",
       heroDescription:
         "Chat 是一款免費開源的 AI 聊天應用鷹架，提供已儲存的對話、驗證，以及一個可用你自己的 actions、資料和畫面來擴充的 agent。",
-      heroCta: "建構你的應用",
+      heroCta: "打造你的聊天應用",
       heroSecondaryCta: "開啟 Chat",
       useCasesHeading: "用 Chat 能建構什麼？",
       useCasesBody:
@@ -2063,7 +2063,7 @@ const messages = {
         "在建構和除錯應用時，使用內建的資料庫管理和可觀測性畫面來檢查已儲存的資料和 agent 的執行紀錄。",
       finalCtaHeading: "建構你的第一個 agent 工作流程",
       finalCtaBody: "建立你的副本，並新增使用者需要的第一個 action。",
-      finalCtaButton: "建構你的應用",
+      finalCtaButton: "打造你的聊天應用",
     },
   },
   skillsPage: {

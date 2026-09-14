@@ -748,7 +748,7 @@ const enUS = {
       heroTitle: "Create and manage brand assets with your AI agent",
       heroDescription:
         "Assets is a free and open-source brand asset library for organizing your images, videos, and brand references, with an AI agent that generates and edits media using your brand kit.",
-      heroCta: "Open Assets",
+      heroCta: "Generate an image",
       useCasesHeading: "What can you do with Assets?",
       useCasesBody:
         "Create campaign images, adapt visuals for new projects, or give your team and AI agents a shared brand library.",
@@ -783,7 +783,7 @@ const enUS = {
         "Connect your AI agent to search the library, generate media, and choose assets from chat. Supported apps can also embed an asset picker.",
       finalCtaHeading: "Create your next brand asset",
       finalCtaBody: "Choose your references and tell your AI agent what you need.",
-      finalCtaButton: "Open Assets",
+      finalCtaButton: "Generate an image",
     },
     chat: {
       faq: {
@@ -809,7 +809,7 @@ const enUS = {
       heroTitle: "Build your own AI chat app",
       heroDescription:
         "Chat is a free and open-source AI chat app starter with saved conversations, authentication, and an agent you can extend with your own actions, data, and screens.",
-      heroCta: "Build your app",
+      heroCta: "Build your chat",
       heroSecondaryCta: "Open Chat",
       useCasesHeading: "What can you build with Chat?",
       useCasesBody:
@@ -846,7 +846,7 @@ const enUS = {
       finalCtaHeading: "Build your first agent workflow",
       finalCtaBody:
         "Create your copy and add the first action your users need.",
-      finalCtaButton: "Build your app",
+      finalCtaButton: "Build your chat",
     },
     analytics: {
       faq: {
@@ -871,7 +871,7 @@ const enUS = {
       heroTitle: "Analyze your data with your AI agent",
       heroDescription:
         "Analytics is a free and open-source AI analytics tool for querying your connected data, building dashboards, and investigating user sessions.",
-      heroCta: "Open Analytics",
+      heroCta: "Explore your data",
       useCasesHeading: "What can you do with Analytics?",
       useCasesBody:
         "Track product growth, report on business performance, or investigate a problem someone encountered in your app.",
@@ -906,7 +906,7 @@ const enUS = {
         "Replay recorded sessions with console and network activity alongside them. Jump to errors and copy a temporary diagnostics link for your AI agent.",
       finalCtaHeading: "Start with a question about your data",
       finalCtaBody: "Connect a source and ask your AI agent for the first chart.",
-      finalCtaButton: "Open Analytics",
+      finalCtaButton: "Explore your data",
       s001: "Analytics app screenshot",
       s002: "Data connectors",
       s003: "Chart types",
@@ -997,7 +997,7 @@ const enUS = {
       heroTitle: "Manage your schedule with your AI agent",
       heroDescription:
         "Calendar is a free and open-source AI scheduling assistant for managing Google Calendar events, finding meeting times, and letting people book with you.",
-      heroCta: "Open Calendar",
+      heroCta: "Start scheduling",
       useCasesHeading: "What can you do with Calendar?",
       useCasesBody:
         "Book a client call, bring your team together, or adjust your day when plans change.",
@@ -1033,7 +1033,7 @@ const enUS = {
         "Add Google Meet, connect Zoom, or use a custom meeting link so guests know where to join when they book.",
       finalCtaHeading: "Put your next meeting on the calendar",
       finalCtaBody: "Find a time with your AI agent, or send a booking link.",
-      finalCtaButton: "Open Calendar",
+      finalCtaButton: "Start scheduling",
       s002: "Calendar views",
       s003: "Agent actions",
       s004: "Booking link types",
@@ -1144,7 +1144,7 @@ const enUS = {
       finalCtaHeading: "Put your next clip to work",
       finalCtaBody:
         "Record an explanation or bring a shared clip to your AI agent.",
-      finalCtaButton: "Open Clips",
+      finalCtaButton: "Record a clip",
       s002: "Screen Record",
       s003: "Browser Debug Logs",
       s004: "Dictate",
@@ -1266,7 +1266,7 @@ const enUS = {
       heroTitle: "Create and organize your work with your AI agent",
       heroDescription:
         "Content is a free and open-source workspace for documents, task lists, and databases that you and your AI agents can read and update together.",
-      heroCta: "Open Content",
+      heroCta: "Organize your work",
       useCasesHeading: "What can you do with Content?",
       useCasesBody:
         "Work on a draft, track what needs doing, or collect the details for a new request.",
@@ -1303,7 +1303,7 @@ const enUS = {
       finalCtaHeading: "Bring your next project into Content",
       finalCtaBody:
         "Start with a document, a task list, or a table your team already uses.",
-      finalCtaButton: "Open Content",
+      finalCtaButton: "Organize your work",
       s002: "All Apps",
       s003: "Open-Source Notion/Obsidian alternative",
       s004: "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and write with an AI agent that knows your docs.",
@@ -1390,7 +1390,7 @@ const enUS = {
       heroTitle: "Design interactive prototypes with your AI agent",
       heroDescription:
         "Design is a free and open-source AI design and prototyping tool for creating on-brand pages and product interfaces, with designs you can edit yourself.",
-      heroCta: "Start designing",
+      heroCta: "Design for free",
       useCasesHeading: "What can you do with Design?",
       useCasesBody:
         "Explore a new page, product flow, or interface before building it. Give your AI agent the brief and the details that matter.",
@@ -1427,7 +1427,7 @@ const enUS = {
       finalCtaHeading: "Start your next design",
       finalCtaBody:
         "Bring a brief. Explore the possibilities. Refine the details.",
-      finalCtaButton: "Start designing",
+      finalCtaButton: "Design for free",
       s002: "Describe",
       s003: "Generate",
       s004: "Refine",
@@ -1513,7 +1513,7 @@ const enUS = {
       heroTitle: "Coordinate your AI agents from one place",
       heroDescription:
         "Dispatch is a free and open-source AI agent orchestration app for delegating work to connected Agent-Native apps, scheduling recurring tasks, and managing shared connections.",
-      heroCta: "Open Dispatch",
+      heroCta: "Delegate a task",
       useCasesHeading: "What can you do with Dispatch?",
       useCasesBody:
         "Ask a connected app for help, set up a regular update, or investigate an agent run that needs attention.",
@@ -1550,7 +1550,7 @@ const enUS = {
       finalCtaHeading: "Start with one connected task",
       finalCtaBody:
         "Choose the apps you need and ask Dispatch to coordinate the work.",
-      finalCtaButton: "Open Dispatch",
+      finalCtaButton: "Delegate a task",
       s002: "+ Telegram",
       s003: "Inter-agent",
       s004: "Memory",
@@ -1749,7 +1749,7 @@ const enUS = {
       heroTitle: "Manage your inbox with your AI agent",
       heroDescription:
         "Mail is a free and open-source email client for Gmail, with an AI agent that finds messages, summarizes conversations, drafts replies, and organizes your inbox.",
-      heroCta: "Open Mail",
+      heroCta: "Manage your inbox",
       useCasesHeading: "What can you do with Mail?",
       useCasesBody:
         "Catch up on conversations, reply to customers and colleagues, or sort through a backlog of email.",
@@ -1785,7 +1785,7 @@ const enUS = {
       finalCtaHeading: "Start with your next email",
       finalCtaBody:
         "Open a conversation and ask your AI agent for a summary or a draft reply.",
-      finalCtaButton: "Open Mail",
+      finalCtaButton: "Manage your inbox",
       s002: "Keyboard-first",
       s003: "Inbox triage",
       s004: "Views",
@@ -1870,7 +1870,7 @@ const enUS = {
       heroTitle: "See what your AI coding agent plans to build",
       heroDescription:
         "Plans is a free and open-source visual planning tool for reviewing your coding agent's approach, giving feedback, and understanding code changes through diagrams, wireframes, and annotated code.",
-      heroCta: "Add to your agent",
+      heroCta: "Plan visually",
       heroSecondaryCta: "Open Plans",
       useCasesHeading: "What can you do with Plans?",
       useCasesBody:
@@ -1908,7 +1908,7 @@ const enUS = {
       finalCtaHeading: "Review your next coding task visually",
       finalCtaBody:
         "Ask your agent for a plan, then work through the details together.",
-      finalCtaButton: "Add to your agent",
+      finalCtaButton: "Plan visually",
     },
     slides: {
       faq: {
@@ -1970,7 +1970,7 @@ const enUS = {
         "Present full-screen with speaker notes, share a viewing link, or export your deck as a PowerPoint file.",
       finalCtaHeading: "Start your next presentation",
       finalCtaBody: "Bring an idea, a brief, or an existing deck.",
-      finalCtaButton: "Open Slides",
+      finalCtaButton: "Create a deck",
       s002: "Prompt it.",
       s003: "Brand it.",
       s004: "Re-use it.",

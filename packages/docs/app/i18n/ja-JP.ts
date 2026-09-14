@@ -798,7 +798,7 @@ const jaJP = {
       heroTitle: "AIエージェントでデータを分析",
       heroDescription:
         "Analyticsは無料でオープンソースのAI分析ツールです。接続したデータに対してクエリを実行し、ダッシュボードを作成し、ユーザーセッションを調査できます。",
-      heroCta: "Analyticsを開く",
+      heroCta: "データを探索",
       useCasesHeading: "Analyticsでできること",
       useCasesBody:
         "プロダクトの成長を追跡したり、ビジネスの実績を報告したり、アプリでユーザーが遭遇した問題を調査したりできます。",
@@ -833,7 +833,7 @@ const jaJP = {
         "記録されたセッションを、コンソールとネットワークのアクティビティとあわせて再生しましょう。エラーにジャンプし、AIエージェント用の一時的な診断リンクをコピーできます。",
       finalCtaHeading: "データについての質問から始めましょう",
       finalCtaBody: "ソースを接続して、AIエージェントに最初のチャートを頼みましょう。",
-      finalCtaButton: "Analyticsを開く",
+      finalCtaButton: "データを探索",
       faq: {
         question1: "Agent-Native Analyticsとは何ですか？",
         answer1:
@@ -859,7 +859,7 @@ const jaJP = {
       heroTitle: "AIエージェントで予定を管理",
       heroDescription:
         "Calendar は、Google Calendar の予定管理、空き時間の検索、他の人からの予約受付ができる、無料のオープンソース AI スケジューリングアシスタントです。",
-      heroCta: "Calendar を開く",
+      heroCta: "スケジュールを開始",
       useCasesHeading: "Calendar でできること",
       useCasesBody:
         "顧客との通話を予約したり、チームを集めたり、予定が変わったときに一日を調整したりできます。",
@@ -895,7 +895,7 @@ const jaJP = {
       finalCtaHeading: "次のミーティングをカレンダーに登録しましょう",
       finalCtaBody:
         "AIエージェントで時間を見つけるか、予約リンクを送りましょう。",
-      finalCtaButton: "Calendar を開く",
+      finalCtaButton: "スケジュールを開始",
       s002: "Calendar ビュー",
       s003: "エージェントのアクション",
       s004: "予約リンクのタイプ",
@@ -995,7 +995,7 @@ const jaJP = {
       heroTitle: "AIエージェントでブランドアセットを作成・管理",
       heroDescription:
         "Assetsは無料でオープンソースのブランドアセットライブラリです。画像、動画、ブランドリファレンスを整理でき、AIエージェントがブランドキットを使ってメディアを生成・編集します。",
-      heroCta: "Assetsを開く",
+      heroCta: "画像を生成",
       useCasesHeading: "Assetsでできること",
       useCasesBody:
         "キャンペーン用の画像を作成したり、既存のビジュアルを新しいプロジェクト向けに調整したり、チームとAIエージェントで共有ブランドライブラリを持てます。",
@@ -1030,7 +1030,7 @@ const jaJP = {
         "AIエージェントを接続すれば、ライブラリの検索、メディアの生成、チャットからのアセット選択ができます。対応アプリはアセットピッカーを埋め込むこともできます。",
       finalCtaHeading: "次のブランドアセットを作成しましょう",
       finalCtaBody: "リファレンスを選んで、必要なものをAIエージェントに伝えましょう。",
-      finalCtaButton: "Assetsを開く",
+      finalCtaButton: "画像を生成",
     },
     clips: {
       s001: "Clips テンプレートのスクリーンショット",
@@ -1082,7 +1082,7 @@ const jaJP = {
       finalCtaHeading: "次のクリップを役立てましょう",
       finalCtaBody:
         "説明を録画するか、共有されたクリップをAIエージェントに渡しましょう。",
-      finalCtaButton: "Clipsを開く",
+      finalCtaButton: "クリップを録画",
       s002: "画面録画",
       s003: "ブラウザのデバッグログ",
       s004: "口述する",
@@ -1186,7 +1186,7 @@ const jaJP = {
       heroTitle: "AIエージェントで作業を作成・整理する",
       heroDescription:
         "Content は、ドキュメント、タスクリスト、データベースのための無料でオープンソースのワークスペースです。あなたとAIエージェントが一緒に読み書きできます。",
-      heroCta: "Content を開く",
+      heroCta: "作業を整理",
       useCasesHeading: "Content でできること",
       useCasesBody:
         "下書きに取り組んだり、やるべきことを管理したり、新しい依頼の詳細を集めたりできます。",
@@ -1222,7 +1222,7 @@ const jaJP = {
       finalCtaHeading: "次のプロジェクトを Content で始めましょう",
       finalCtaBody:
         "ドキュメント、タスクリスト、またはチームがすでに使っているテーブルから始めましょう。",
-      finalCtaButton: "Content を開く",
+      finalCtaButton: "作業を整理",
       s002: "すべてのテンプレート",
       s003: "MDX 用のオープンソース Obsidian",
       s004: "Obsidian などのローカル Markdown/MDX ファイルを編集し、豊富な対話型カスタム ブロックを生成し、ドキュメントを認識する AI エージェントを使用して書き込みます。",
@@ -1309,7 +1309,7 @@ const jaJP = {
       heroTitle: "AIエージェントでインタラクティブなプロトタイプをデザイン",
       heroDescription:
         "Designは無料でオープンソースのAIデザイン・プロトタイピングツールです。ブランドに沿ったページや製品インターフェースを作成し、デザインは自分で編集できます。",
-      heroCta: "デザインを始める",
+      heroCta: "無料でデザイン",
       useCasesHeading: "Designでできること",
       useCasesBody:
         "構築する前に、新しいページやプロダクトフロー、インターフェースを検討しましょう。要件と重要なポイントをAIエージェントに伝えてください。",
@@ -1345,7 +1345,7 @@ const jaJP = {
       finalCtaHeading: "次のデザインを始めましょう",
       finalCtaBody:
         "要件を持ち込んでください。可能性を探り、細部を磨き上げましょう。",
-      finalCtaButton: "デザインを始める",
+      finalCtaButton: "無料でデザイン",
       s002: "説明する",
       s003: "生成する",
       s004: "絞り込む",
@@ -1431,7 +1431,7 @@ const jaJP = {
       heroTitle: "AI エージェントを一箇所でまとめて調整",
       heroDescription:
         "Dispatch は、接続された Agent-Native アプリへの作業の委任、定期タスクのスケジュール設定、共有接続の管理を行う、無料のオープンソース AI エージェントオーケストレーションアプリです。",
-      heroCta: "Dispatch を開く",
+      heroCta: "タスクを委任",
       useCasesHeading: "Dispatch でできること",
       useCasesBody:
         "接続されたアプリにサポートを依頼したり、定期的な更新を設定したり、対応が必要なエージェントの実行を調査したりできます。",
@@ -1466,7 +1466,7 @@ const jaJP = {
         "共有リソースや設定に対する Dispatch 自身の変更について、別の管理者によるレビューを必須にします。チームのワークスペースで保留中のリクエストをレビューし、承認または却下します。",
       finalCtaHeading: "1 つの連携タスクから始めましょう",
       finalCtaBody: "必要なアプリを選んで、Dispatch に作業の調整を依頼しましょう。",
-      finalCtaButton: "Dispatch を開く",
+      finalCtaButton: "タスクを委任",
       s002: "+ Telegram 対応",
       s003: "エージェント間",
       s004: "記憶",
@@ -1681,7 +1681,7 @@ const jaJP = {
       heroTitle: "AIエージェントで受信トレイを管理",
       heroDescription:
         "MailはGmail向けの無料でオープンソースのメールクライアントで、AIエージェントがメッセージを見つけ、会話を要約し、返信を下書きし、受信トレイを整理します。",
-      heroCta: "Mailを開く",
+      heroCta: "受信トレイを管理",
       useCasesHeading: "Mailでできること",
       useCasesBody:
         "会話の内容を追いかけたり、顧客や同僚に返信したり、たまったメールを整理したりできます。",
@@ -1717,7 +1717,7 @@ const jaJP = {
       finalCtaHeading: "次のメールから始めましょう",
       finalCtaBody:
         "会話を開いて、AIエージェントに要約や返信の下書きを頼んでみましょう。",
-      finalCtaButton: "Mailを開く",
+      finalCtaButton: "受信トレイを管理",
       s002: "キーボードファースト",
       s003: "受信トレイのトリアージ",
       s004: "ビュー",
@@ -1802,7 +1802,7 @@ const jaJP = {
       heroTitle: "AI コーディングエージェントが何を作ろうとしているかを可視化する",
       heroDescription:
         "Plans は無料・オープンソースのビジュアル計画ツールです。図、ワイヤーフレーム、注釈付きコードを通じて、コーディングエージェントの進め方をレビューし、フィードバックを送り、コードの変更内容を理解できます。",
-      heroCta: "エージェントに追加する",
+      heroCta: "ビジュアルで計画",
       heroSecondaryCta: "Plans を開く",
       useCasesHeading: "Plans でできること",
       useCasesBody:
@@ -1838,7 +1838,7 @@ const jaJP = {
         "チームメイトがブラウザでレビューできるようプランを共有できます。別途コピーが必要な場合は、HTML、Markdown、JSON、MDX としてエクスポートできます。",
       finalCtaHeading: "次のコーディングタスクをビジュアルにレビューする",
       finalCtaBody: "エージェントにプランを依頼し、細部を一緒に詰めていきましょう。",
-      finalCtaButton: "エージェントに追加する",
+      finalCtaButton: "ビジュアルで計画",
     },
     slides: {
       s001: "Slides テンプレートのスクリーンショット",
@@ -1882,7 +1882,7 @@ const jaJP = {
         "スピーカーノート付きで全画面発表したり、閲覧用リンクを共有したり、デッキをPowerPointファイルとしてエクスポートできます。",
       finalCtaHeading: "次のプレゼンテーションを始めましょう",
       finalCtaBody: "アイデア、資料、または既存のデッキを持ち込んでください。",
-      finalCtaButton: "Slidesを開く",
+      finalCtaButton: "スライドを作成",
       s002: "説明する",
       s003: "生成する",
       s004: "絞り込む",
@@ -2065,7 +2065,7 @@ const jaJP = {
       heroTitle: "自分だけの AI チャットアプリを作ろう",
       heroDescription:
         "Chat は無料でオープンソースの AI チャットアプリの土台で、保存された会話、認証、そして独自の actions・データ・画面で拡張できるエージェントを備えています。",
-      heroCta: "アプリを作る",
+      heroCta: "チャットを構築",
       heroSecondaryCta: "Chat を開く",
       useCasesHeading: "Chat で何を作れますか？",
       useCasesBody:
@@ -2101,7 +2101,7 @@ const jaJP = {
         "付属のデータベース管理・観測性画面を使って、アプリケーションの構築とデバッグ中に保存されたデータやエージェントの実行結果を確認できます。",
       finalCtaHeading: "最初のエージェントワークフローを作ろう",
       finalCtaBody: "コピーを作成し、ユーザーに必要な最初の action を追加しましょう。",
-      finalCtaButton: "アプリを作る",
+      finalCtaButton: "チャットを構築",
     },
   },
   skillsPage: {

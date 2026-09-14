@@ -743,7 +743,7 @@ const hiIN = {
       heroTitle: "अपने AI एजेंट से अपना डेटा एनालाइज़ करें",
       heroDescription:
         "Analytics एक फ्री और ओपन-सोर्स AI एनालिटिक्स टूल है, जिससे आप अपने कनेक्टेड डेटा को क्वेरी कर सकते हैं, डैशबोर्ड बना सकते हैं, और यूज़र सेशंस की जांच कर सकते हैं।",
-      heroCta: "Analytics खोलें",
+      heroCta: "अपना डेटा एक्सप्लोर करें",
       useCasesHeading: "Analytics से आप क्या कर सकते हैं?",
       useCasesBody:
         "प्रोडक्ट ग्रोथ ट्रैक करें, बिज़नेस परफॉर्मेंस पर रिपोर्ट करें, या अपने ऐप में किसी यूज़र को आई किसी दिक्कत की जांच करें।",
@@ -778,7 +778,7 @@ const hiIN = {
         "रिकॉर्ड की गई सेशंस को कंसोल और नेटवर्क एक्टिविटी के साथ रीप्ले करें। एरर्स पर जाएं और अपने AI एजेंट के लिए एक टेम्पररी डायग्नोस्टिक्स लिंक कॉपी करें।",
       finalCtaHeading: "अपने डेटा के बारे में एक सवाल से शुरू करें",
       finalCtaBody: "एक सोर्स कनेक्ट करें और अपने AI एजेंट से पहला चार्ट मांगें।",
-      finalCtaButton: "Analytics खोलें",
+      finalCtaButton: "अपना डेटा एक्सप्लोर करें",
       s001: "Analytics टेम्पलेट स्क्रीनशॉट",
       s002: "डेटा कनेक्टर्स",
       s003: "चार्ट प्रकार",
@@ -870,7 +870,7 @@ const hiIN = {
       heroTitle: "अपने AI एजेंट से अपना शेड्यूल मैनेज करें",
       heroDescription:
         "Calendar एक फ्री और ओपन-सोर्स AI शेड्यूलिंग असिस्टेंट है, जो Google Calendar के इवेंट्स मैनेज करता है, मीटिंग के लिए समय ढूंढता है, और लोगों को आपके साथ बुक करने देता है।",
-      heroCta: "Calendar खोलें",
+      heroCta: "शेड्यूलिंग शुरू करें",
       useCasesHeading: "Calendar से आप क्या कर सकते हैं?",
       useCasesBody:
         "किसी क्लाइंट कॉल को बुक करें, अपनी टीम को साथ लाएं, या प्लान बदलने पर अपना दिन एडजस्ट करें।",
@@ -907,7 +907,7 @@ const hiIN = {
       finalCtaHeading: "अपनी अगली मीटिंग को कैलेंडर पर डालें",
       finalCtaBody:
         "अपने AI एजेंट से कोई समय ढूंढें, या कोई बुकिंग लिंक भेजें।",
-      finalCtaButton: "Calendar खोलें",
+      finalCtaButton: "शेड्यूलिंग शुरू करें",
       s002: "Calendar दृश्य",
       s003: "एजेंट की हरकतें",
       s004: "बुकिंग लिंक प्रकार",
@@ -991,7 +991,7 @@ const hiIN = {
       heroTitle: "अपने AI एजेंट से ब्रांड एसेट्स बनाएं और मैनेज करें",
       heroDescription:
         "Assets एक फ्री और ओपन-सोर्स ब्रांड एसेट लाइब्रेरी है, जो आपकी इमेजेस, वीडियोज़ और ब्रांड रेफरेंस को व्यवस्थित करने के लिए है, और इसमें एक AI एजेंट है जो आपकी ब्रांड किट का इस्तेमाल करके मीडिया जनरेट और एडिट करता है।",
-      heroCta: "Assets खोलें",
+      heroCta: "एक इमेज जनरेट करें",
       useCasesHeading: "Assets से आप क्या कर सकते हैं?",
       useCasesBody:
         "कैंपेन इमेजेस बनाएं, नए प्रोजेक्ट्स के लिए विज़ुअल्स को ढालें, या अपनी टीम और AI एजेंट्स को एक शेयर्ड ब्रांड लाइब्रेरी दें।",
@@ -1026,7 +1026,7 @@ const hiIN = {
         "लाइब्रेरी सर्च करने, मीडिया जनरेट करने और चैट से एसेट्स चुनने के लिए अपना AI एजेंट कनेक्ट करें। सपोर्टेड apps एसेट पिकर भी एम्बेड कर सकती हैं।",
       finalCtaHeading: "अपना अगला ब्रांड एसेट बनाएं",
       finalCtaBody: "अपने रेफरेंस चुनें और अपने AI एजेंट को बताएं कि आपको क्या चाहिए।",
-      finalCtaButton: "Assets खोलें",
+      finalCtaButton: "एक इमेज जनरेट करें",
     },
     chat: {
       faq: {
@@ -1052,7 +1052,7 @@ const hiIN = {
       heroTitle: "अपना खुद का AI chat app बनाएँ",
       heroDescription:
         "Chat एक मुफ़्त और ओपन-सोर्स AI chat app है, जिसमें saved conversations, authentication और एक ऐसा agent शामिल है जिसे आप अपने खुद के actions, data और screens से आगे बढ़ा सकते हैं।",
-      heroCta: "अपनी app बनाएँ",
+      heroCta: "अपना चैट बनाएं",
       heroSecondaryCta: "Chat खोलें",
       useCasesHeading: "आप Chat से क्या बना सकते हैं?",
       useCasesBody:
@@ -1088,7 +1088,7 @@ const hiIN = {
         "अपनी application बनाते और debug करते समय stored data और agent runs को जांचने के लिए शामिल database administration और observability screens का इस्तेमाल करें।",
       finalCtaHeading: "अपना पहला agent workflow बनाएँ",
       finalCtaBody: "अपनी कॉपी बनाएँ और अपने users को चाहिए वह पहला action जोड़ें।",
-      finalCtaButton: "अपनी app बनाएँ",
+      finalCtaButton: "अपना चैट बनाएं",
     },
     clips: {
       s001: "Clips टेम्पलेट स्क्रीनशॉट",
@@ -1139,7 +1139,7 @@ const hiIN = {
       finalCtaHeading: "अपनी अगली क्लिप को काम पर लगाएं",
       finalCtaBody:
         "कोई एक्सप्लेनेशन रेकॉर्ड करें या कोई शेयर की गई क्लिप अपने AI एजेंट तक पहुंचाएं।",
-      finalCtaButton: "Clips खोलें",
+      finalCtaButton: "क्लिप रेकॉर्ड करें",
       s002: "स्क्रीन रिकॉर्ड",
       s003: "ब्राउज़र डीबग लॉग",
       s004: "हुक्म चलाना",
@@ -1262,7 +1262,7 @@ const hiIN = {
       heroTitle: "अपने AI एजेंट के साथ अपना काम बनाएं और व्यवस्थित करें",
       heroDescription:
         "Content डॉक्यूमेंट्स, टास्क लिस्ट्स और डेटाबेस के लिए एक फ्री और ओपन-सोर्स वर्कस्पेस है, जिसे आप और आपके AI एजेंट्स मिलकर पढ़ और अपडेट कर सकते हैं।",
-      heroCta: "Content खोलें",
+      heroCta: "अपना काम व्यवस्थित करें",
       useCasesHeading: "आप Content के साथ क्या कर सकते हैं?",
       useCasesBody:
         "किसी ड्राफ़्ट पर काम करें, यह ट्रैक करें कि क्या करना बाकी है, या किसी नई रिक्वेस्ट के लिए डिटेल्स इकट्ठा करें।",
@@ -1299,7 +1299,7 @@ const hiIN = {
       finalCtaHeading: "अपने अगले प्रोजेक्ट को Content में लाएं",
       finalCtaBody:
         "किसी डॉक्यूमेंट, टास्क लिस्ट, या ऐसे टेबल से शुरुआत करें जिसे आपकी टीम पहले से इस्तेमाल करती है।",
-      finalCtaButton: "Content खोलें",
+      finalCtaButton: "अपना काम व्यवस्थित करें",
       s002: "सभी टेम्पलेट",
       s003: "MDX के लिए ओपन-सोर्स Obsidian",
       s004: "Obsidian जैसी स्थानीय Markdown/MDX फ़ाइलों को संपादित करें, समृद्ध इंटरैक्टिव कस्टम ब्लॉक बनाएं, और एक AI एजेंट के साथ लिखें जो आपके दस्तावेज़ जानता हो।",
@@ -1386,7 +1386,7 @@ const hiIN = {
       heroTitle: "अपने AI एजेंट से इंटरैक्टिव prototypes design करें",
       heroDescription:
         "Design एक फ्री और ओपन-सोर्स AI design और prototyping tool है, जो आपके ब्रांड के अनुरूप pages और product interfaces बनाता है, जिन्हें आप खुद एडिट कर सकते हैं।",
-      heroCta: "Design करना शुरू करें",
+      heroCta: "फ़्री में डिज़ाइन करें",
       useCasesHeading: "Design से आप क्या कर सकते हैं?",
       useCasesBody:
         "बनाने से पहले किसी नए page, product flow या interface को explore करें। अपने AI एजेंट को brief और ज़रूरी डिटेल्स बताएं।",
@@ -1421,7 +1421,7 @@ const hiIN = {
         "अपनी design files का HTML या ZIP export करें। implementation जारी रखने के लिए किसी developer या coding एजेंट को prototype और context दें।",
       finalCtaHeading: "अपना अगला design शुरू करें",
       finalCtaBody: "एक brief लाएं। संभावनाएं explore करें। डिटेल्स को refine करें।",
-      finalCtaButton: "Design करना शुरू करें",
+      finalCtaButton: "फ़्री में डिज़ाइन करें",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",
@@ -1507,7 +1507,7 @@ const hiIN = {
       heroTitle: "अपने AI agents को एक जगह से coordinate करें",
       heroDescription:
         "Dispatch एक मुफ़्त और open source AI agent orchestration app है, जो connected Agent-Native apps को काम सौंपने, recurring tasks schedule करने, और shared connections manage करने के लिए बना है।",
-      heroCta: "Dispatch खोलें",
+      heroCta: "एक टास्क डेलिगेट करें",
       useCasesHeading: "आप Dispatch से क्या कर सकते हैं?",
       useCasesBody:
         "किसी connected app से मदद माँगें, कोई नियमित update सेट करें, या किसी ऐसे agent run की जांच करें जिस पर ध्यान देने की ज़रूरत है।",
@@ -1542,7 +1542,7 @@ const hiIN = {
         "किसी दूसरे admin को shared resources और settings में Dispatch के अपने बदलावों की review करना ज़रूरी बनाएं। team workspace में pending requests review करें और उन्हें approve या reject करें।",
       finalCtaHeading: "एक connected task से शुरुआत करें",
       finalCtaBody: "अपनी ज़रूरत के apps चुनें और Dispatch से काम coordinate करने को कहें।",
-      finalCtaButton: "Dispatch खोलें",
+      finalCtaButton: "एक टास्क डेलिगेट करें",
       s002: "+ Telegram support",
       s003: "अंतर-एजेंट",
       s004: "स्मृति",
@@ -1740,7 +1740,7 @@ const hiIN = {
       heroTitle: "अपने AI एजेंट से अपना inbox मैनेज करें",
       heroDescription:
         "Mail, Gmail के लिए एक फ्री और ओपन-सोर्स email client है, जिसमें एक AI एजेंट messages ढूंढता है, conversations को summarize करता है, replies draft करता है, और आपके inbox को व्यवस्थित करता है।",
-      heroCta: "Mail खोलें",
+      heroCta: "अपना इनबॉक्स मैनेज करें",
       useCasesHeading: "Mail से आप क्या कर सकते हैं?",
       useCasesBody:
         "conversations में जो हुआ उसे जानें, customers और colleagues को reply करें, या email के backlog को व्यवस्थित करें।",
@@ -1776,7 +1776,7 @@ const hiIN = {
       finalCtaHeading: "अपनी अगली email से शुरुआत करें",
       finalCtaBody:
         "कोई conversation खोलें और अपने AI एजेंट से summary या reply का draft मांगें।",
-      finalCtaButton: "Mail खोलें",
+      finalCtaButton: "अपना इनबॉक्स मैनेज करें",
       s002: "कीबोर्ड-प्रथम",
       s003: "इनबॉक्स ट्राइएज",
       s004: "दृश्य",
@@ -1863,7 +1863,7 @@ const hiIN = {
       heroTitle: "देखें कि आपका AI कोडिंग एजेंट क्या बनाने की योजना बना रहा है",
       heroDescription:
         "Plans एक फ्री और ओपन-सोर्स विज़ुअल प्लानिंग टूल है, जिससे आप अपने कोडिंग एजेंट के अप्रोच को रिव्यू कर सकते हैं, फीडबैक दे सकते हैं, और डायग्राम्स, वायरफ्रेम्स व एनोटेटेड कोड के ज़रिए कोड में हुए बदलावों को समझ सकते हैं।",
-      heroCta: "अपने एजेंट में जोड़ें",
+      heroCta: "विज़ुअली प्लान करें",
       heroSecondaryCta: "Plans खोलें",
       useCasesHeading: "Plans से आप क्या कर सकते हैं?",
       useCasesBody:
@@ -1901,7 +1901,7 @@ const hiIN = {
       finalCtaHeading: "अपने अगले कोडिंग टास्क को विज़ुअली रिव्यू करें",
       finalCtaBody:
         "अपने एजेंट से एक प्लान मांगें, फिर मिलकर डिटेल्स पर काम करें।",
-      finalCtaButton: "अपने एजेंट में जोड़ें",
+      finalCtaButton: "विज़ुअली प्लान करें",
     },
     slides: {
       faq: {
@@ -1963,7 +1963,7 @@ const hiIN = {
         "स्पीकर नोट्स के साथ फुल-स्क्रीन प्रेजेंट करें, व्यूइंग लिंक शेयर करें, या अपने डेक को PowerPoint फ़ाइल के रूप में एक्सपोर्ट करें।",
       finalCtaHeading: "अपना अगला प्रेजेंटेशन शुरू करें",
       finalCtaBody: "कोई आइडिया, कोई ब्रीफ, या कोई मौजूदा डेक लाएं।",
-      finalCtaButton: "Slides खोलें",
+      finalCtaButton: "डेक बनाएं",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",
