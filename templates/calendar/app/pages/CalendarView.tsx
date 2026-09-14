@@ -16,6 +16,7 @@ import {
   IconChevronDown,
   IconMenu2,
   IconSearch,
+  IconUsers,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -2064,6 +2065,26 @@ export default function CalendarView() {
 
             {/* Right: search, new event */}
             <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+              {overlayPeople.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 sm:h-7 sm:w-7"
+                      asChild
+                    >
+                      <Link to="/booking-links?tab=shared">
+                        <IconUsers className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{t("sidebar.managePeerAvailability")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

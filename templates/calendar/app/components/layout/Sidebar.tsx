@@ -1062,19 +1062,6 @@ export function Sidebar({
                           ({otherCalendarItems.length - 8})
                         </button>
                       )}
-                      {/* Removing a peer also stops their working hours
-                            backing your booking links, so it lives on the
-                            booking-links page rather than as a hover target
-                            next to a plain hide toggle. */}
-                      {overlayPeople.length > 0 && (
-                        <Link
-                          to="/booking-links?tab=shared"
-                          onClick={onClose}
-                          className="mx-3 flex h-7 items-center rounded text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          {t("sidebar.managePeerAvailability")}
-                        </Link>
-                      )}
                     </div>
                   )}
 
