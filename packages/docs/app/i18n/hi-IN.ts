@@ -1068,19 +1068,19 @@ const hiIN = {
         "जब users को काम को visually review करना हो, तो एक queue, list या editor बनाएँ। इसे अपने agent जैसे ही actions और data से जोड़ें।",
       keyFeaturesEyebrow: "मुख्य विशेषताएँ",
       keyFeaturesHeading: "आपके agent और उसके interface के लिए एक शुरुआती आधार",
-      feature1Title: "Saved conversations",
+      feature1Title: "सेव की गई बातचीत",
       feature1Body:
         "users को ऐसे threads दें जिन पर वे वापस आ सकें। शामिल sidebar से conversations बनाएँ, फिर से खोलें, नाम बदलें, pin करें और archive करें।",
-      feature2Title: "Built-in agent chat",
+      feature2Title: "बिल्ट-इन एजेंट चैट",
       feature2Body:
         "एक full-page conversation और framework के agent runtime से शुरुआत करें। अपने application को जिन tasks को संभालना है, उनके लिए instructions और tools जोड़ें।",
       feature3Title: "Authentication और sessions",
       feature3Body:
         "पहले से जुड़े login, signup, sessions और organization support से शुरुआत करें। अपने application के data और workflows के लिए ज़रूरी access rules जोड़ें।",
-      feature4Title: "Shared actions",
+      feature4Title: "शेयर की गई एक्शन्स",
       feature4Body:
         "एक operation को अपने agent और interface, दोनों के लिए एक बार परिभाषित करें। अपनी क्षमताएँ जोड़ते समय शामिल उदाहरण action को फॉलो करें।",
-      feature5Title: "Live data sync",
+      feature5Title: "लाइव डेटा सिंक",
       feature5Body:
         "जब agent application data बदले, तो अपने interface को अपडेट रखें। framework के shared state और database sync के आस-पास screens बनाएँ।",
       feature6Title: "Database और run inspection",
@@ -1401,7 +1401,7 @@ const hiIN = {
         "Workflow requirements को dashboard या admin interface में बदलें। explore करें कि लोग जानकारी कैसे ढूंढेंगे और अपने रोज़ के काम कैसे पूरे करेंगे।",
       keyFeaturesEyebrow: "मुख्य फीचर्स",
       keyFeaturesHeading: "Design करने, prototype बनाने और शेयर करने के लिए जो भी चाहिए",
-      feature1Title: "Interactive prototypes",
+      feature1Title: "इंटरैक्टिव प्रोटोटाइप्स",
       feature1Body:
         "जो page या flow चाहिए उसे describe करें। आपका AI एजेंट ऐसा HTML prototype बनाता है जिसके interactions आप preview में try कर सकते हैं।",
       feature2Title: "AI और विज़ुअल एडिटिंग",
@@ -1413,7 +1413,7 @@ const hiIN = {
       feature4Title: "फिर से इस्तेमाल हो सकने वाली brand styles",
       feature4Body:
         "अपने कलर्स, टाइपोग्राफी और स्टाइलिंग के साथ एक design system लिंक करें। इसे अपने पूरे प्रोजेक्ट में नए designs और revisions को गाइड करने के लिए इस्तेमाल करें।",
-      feature5Title: "Design review comments",
+      feature5Title: "डिज़ाइन रिव्यू कमेंट्स",
       feature5Body:
         "किसी खास element पर feedback पिन करें ताकि context साफ़ रहे। बदलाव पर काम करने के लिए अपने AI एजेंट को कमेंट भेजें।",
       feature6Title: "HTML export और code handoff",
@@ -1522,22 +1522,22 @@ const hiIN = {
         "किसी task का last run और कोई भी errors देखें। जब किसी workflow पर ध्यान देने की ज़रूरत हो, तो यह जांचने के लिए उपलब्ध thread और monitoring details का इस्तेमाल करें कि क्या हुआ।",
       keyFeaturesEyebrow: "मुख्य विशेषताएं",
       keyFeaturesHeading: "काम सौंपने, schedule करने और monitor करने के लिए ज़रूरी सब कुछ",
-      feature1Title: "cross-app delegation",
+      feature1Title: "क्रॉस-ऐप डेलिगेशन",
       feature1Body:
         "उस काम को संभालने वाले connected app को requests भेजें। हर app जवाब देने के लिए अपने खुद के agent, actions, और data का इस्तेमाल करता है।",
-      feature2Title: "messaging connections",
+      feature2Title: "मैसेजिंग कनेक्शंस",
       feature2Body:
         "requests भेजने और replies पाने के लिए Slack या Telegram जैसे channels connect करें। identities link करें ताकि Dispatch को पता चले कि कौन सा workspace user पूछ रहा है।",
-      feature3Title: "scheduled tasks",
+      feature3Title: "शेड्यूल्ड टास्क्स",
       feature3Body:
         "बार-बार होने वाले काम के लिए schedule तय करें। देखें कि task enabled है या नहीं, वह पिछली बार कब चला, अगली बार कब चलेगा, और कोई recorded error है या नहीं।",
-      feature4Title: "saved delivery destinations",
+      feature4Title: "सेव की गई डिलीवरी डेस्टिनेशंस",
       feature4Body:
         "किसी Slack channel, Telegram chat, या email address को delivery target के रूप में save करें। इसे scheduled results के लिए दोबारा इस्तेमाल करें और delivery status जांचें।",
-      feature5Title: "shared integrations",
+      feature5Title: "शेयर की गई इंटीग्रेशंस",
       feature5Body:
         "एक बार provider connection configure करें और उसकी ज़रूरत वाले apps को access दें। Dispatch से shared connections और app access manage करें।",
-      feature6Title: "workspace change approvals",
+      feature6Title: "वर्कस्पेस चेंज अप्रूवल्स",
       feature6Body:
         "किसी दूसरे admin को shared resources और settings में Dispatch के अपने बदलावों की review करना ज़रूरी बनाएं। team workspace में pending requests review करें और उन्हें approve या reject करें।",
       finalCtaHeading: "एक connected task से शुरुआत करें",
@@ -1635,22 +1635,22 @@ const hiIN = {
         "लोगों को design requests, project briefs या internal support के लिए form दें। Deadlines, requirements और अपनी team को चाहिए अन्य detail पूछें।",
       keyFeaturesEyebrow: "मुख्य विशेषताएं",
       keyFeaturesHeading: "बनाने, share करने और review करने के लिए आपको चाहिए सब कुछ",
-      feature1Title: "AI form generation",
+      feature1Title: "AI फ़ॉर्म जनरेशन",
       feature1Body:
         "आप क्या जमा करना चाहते हैं यह बताएं, और आपका AI एजेंट form बना देगा। उससे questions जोड़ने या मौजूदा fields में बदलाव करने को कहें।",
-      feature2Title: "Visual field editing",
+      feature2Title: "विज़ुअल फ़ील्ड एडिटिंग",
       feature2Body:
         "Labels, options, required fields और questions का क्रम खुद edit करें। text, email, multiple choice, dates, ratings और scales जैसे field types चुनें।",
-      feature3Title: "Conditional questions",
+      feature3Title: "कंडीशनल क्वेश्चंस",
       feature3Body:
         "जब पहले का कोई जवाब किसी rule से मेल खाए तो एक follow-up question दिखाएं। जैसे, कोई “Other” चुने तो और detail मांगें।",
-      feature4Title: "Public form links",
+      feature4Title: "पब्लिक फ़ॉर्म लिंक्स",
       feature4Body:
         "एक form publish करें और उसका link share करें। completion message या redirect सेट करें, और responses लेना बंद करने पर form को बंद कर दें।",
       feature5Title: "Response insights और exports",
       feature5Body:
         "Submissions को table में देखें या summaries और trends के लिए अपने AI एजेंट से पूछें। Response table को CSV के रूप में download करें।",
-      feature6Title: "Submission integrations",
+      feature6Title: "सबमिशन इंटीग्रेशंस",
       feature6Body:
         "Slack, Discord, Google Sheets या webhook पर delivery सेट करें। नए responses उस destination पर जाएंगे जो आपने उस form के लिए सेट किया है।",
       finalCtaHeading: "अपना अगला form बनाएं",
@@ -1755,19 +1755,19 @@ const hiIN = {
         "अपने AI एजेंट से invoices को label करने, newsletters को archive करने, या किसी client के messages को star करने को कहें। आने वाले similar emails को संभालने के लिए rules लागू करें।",
       keyFeaturesEyebrow: "मुख्य विशेषताएं",
       keyFeaturesHeading: "email पढ़ने, लिखने और व्यवस्थित करने के लिए जो कुछ भी चाहिए",
-      feature1Title: "AI thread summaries",
+      feature1Title: "AI थ्रेड समरी",
       feature1Body:
         "अपनी खुली हुई conversation के बारे में पूछें। आपका AI एजेंट discussion को summarize करने और बाकी बचे सवालों की पहचान करने के लिए thread को पढ़ता है।",
-      feature2Title: "AI email drafting",
+      feature2Title: "AI ईमेल ड्राफ्टिंग",
       feature2Body:
         "अपने AI एजेंट के साथ कोई reply draft करें या चुने हुए text को सुधारें। writing preferences सेट करें, अपना signature जोड़ें, और drafts खुद edit करें।",
-      feature3Title: "Multi-account search",
+      feature3Title: "मल्टी-अकाउंट सर्च",
       feature3Body:
         "अपने work और personal Gmail accounts कनेक्ट करें। search bar से या अपने AI एजेंट से पूछकर, एक ही inbox से उन सभी में search करें।",
-      feature4Title: "Inbox automations",
+      feature4Title: "इनबॉक्स ऑटोमेशन",
       feature4Body:
         "आने वाले messages को label, archive, star करने या read के रूप में mark करने के लिए rules बताएं। AI rules इस्तेमाल करें या native Gmail filters सेट करें।",
-      feature5Title: "Keyboard shortcuts",
+      feature5Title: "कीबोर्ड शॉर्टकट्स",
       feature5Body:
         "keyboard से messages के बीच navigate करें, replies compose करें, conversations archive करें, और अपने inbox में search करें। और actions खोजने के लिए command palette खोलें।",
       feature6Title: "Scheduled sends और snooze",
