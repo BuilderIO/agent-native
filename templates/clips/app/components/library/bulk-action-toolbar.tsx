@@ -29,6 +29,7 @@ interface BulkActionToolbarProps {
   allSelected?: boolean;
   onSelectAll?: () => void;
   onArchive?: () => void;
+  archiveAction?: "archive" | "unarchive";
   onMove?: (folderId: string | null) => void;
   onTrash?: () => void;
   onClear?: () => void;
@@ -42,6 +43,7 @@ export function BulkActionToolbar({
   allSelected = false,
   onSelectAll,
   onArchive,
+  archiveAction = "archive",
   onMove,
   onTrash,
   onClear,
@@ -82,7 +84,12 @@ export function BulkActionToolbar({
         onClick={onArchive}
         disabled={isPending}
       >
-        <IconArchive className="h-3.5 w-3.5" /> {t("libraryGrid.archiveAction")}
+        <IconArchive className="h-3.5 w-3.5" />{" "}
+        {t(
+          archiveAction === "unarchive"
+            ? "clipsFinalRaw.unarchive"
+            : "libraryGrid.archiveAction",
+        )}
       </Button>
       {canMove && (
         <DropdownMenu>
