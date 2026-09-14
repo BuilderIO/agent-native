@@ -29,12 +29,24 @@ export interface CreditsLimitInfo {
   limit?: number;
   /** Credits consumed in the exceeded window, when the gateway sent it. */
   used?: number;
-  /** Milliseconds until the window resets, from `Retry-After` when present. */
+  /**
+   * Milliseconds until the window resets. Must come from an UNCAPPED
+   * `Retry-After` read: `extractRetryAfterMs` clamps to 60s so one retry cannot
+   * eat the run budget, and reusing that scheduling value here would promise a
+   * one-minute reset for a rejection that actually lasts until midnight.
+   */
   resetsInMs?: number;
 }
 
-export function isCreditsLimitCode(code: string | undefined): boolean {
-  return typeof code === "string" && code.startsWith("credits-limit");
+/**
+ * Mirrors the server rule exactly: a `credits-limit-*` code, or a bare 402 the
+ * gateway sent no structured code for. `emitHttpError` treats both as quota, so
+ * a client predicate that only accepted the former would drop the Agent Credits
+ * CTA on precisely the rejection that explains itself least.
+ */
+export function isCreditsRejectionCode(code: string | undefined): boolean {
+  if (typeof code !== "string") return false;
+  return code.startsWith("credits-limit") || code === "http_402";
 }
 
 export function creditsLimitWindowFromCode(
@@ -120,6 +132,11 @@ export function normalizeAgentCreditsTerminology(text: string): string {
     .replace(/\bAI(\s+)credit\b/gi, (_m, gap: string) => `Agent${gap}Credit`);
 }
 
+/** Gateway sentences arrive with and without terminal punctuation. */
+function endWithStop(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
 function titleCasePlan(plan: string): string {
   return plan.charAt(0).toUpperCase() + plan.slice(1);
 }
@@ -127,7 +144,9 @@ function titleCasePlan(plan: string): string {
 function humanizeDuration(ms: number): string | undefined {
   const minutes = Math.round(ms / 60_000);
   if (minutes < 1) return "less than a minute";
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  // Rounding 90 minutes to "about 2 hours" overstates the wait by a third, so
+  // stay in minutes until the rounding error stops mattering.
+  if (minutes < 120) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
   const hours = Math.round(minutes / 60);
   if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"}`;
   const days = Math.round(hours / 24);
@@ -163,14 +182,31 @@ export const CREDITS_LIMIT_MONTHLY_MESSAGE =
 export const CREDITS_LIMIT_GENERIC_MESSAGE =
   "You've reached the Agent Credits limit for your current plan.";
 
-export function formatCreditsLimitMessage(info: CreditsLimitInfo): string {
+/**
+ * `gatewayMessage` is the sentence the gateway sent. It is preferred whenever
+ * this module cannot say anything more specific — a bare 402, or a
+ * `credits-limit-reached` with no window and no counts. Replacing
+ * "You have used all AI credits for this month" with a generic line would
+ * delete information the reader had before this function existed; the only
+ * thing that always applies is the term swap.
+ */
+export function formatCreditsLimitMessage(
+  info: CreditsLimitInfo,
+  gatewayMessage?: string,
+): string {
   const reset = resetSentence(info);
   const windowWord = info.window === "unknown" ? "" : `${info.window} `;
   if (info.limit === undefined) {
+    if (info.window === "unknown") {
+      const carried = gatewayMessage?.trim()
+        ? endWithStop(normalizeAgentCreditsTerminology(gatewayMessage.trim()))
+        : CREDITS_LIMIT_GENERIC_MESSAGE;
+      return reset ? `${carried} ${reset}` : carried;
+    }
     if (info.resetsInMs === undefined) {
-      if (info.window === "daily") return CREDITS_LIMIT_DAILY_MESSAGE;
-      if (info.window === "monthly") return CREDITS_LIMIT_MONTHLY_MESSAGE;
-      return CREDITS_LIMIT_GENERIC_MESSAGE;
+      return info.window === "daily"
+        ? CREDITS_LIMIT_DAILY_MESSAGE
+        : CREDITS_LIMIT_MONTHLY_MESSAGE;
     }
     return `You've reached the ${windowWord}Agent Credits limit for your current plan. ${reset}`;
   }

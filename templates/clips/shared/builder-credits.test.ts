@@ -42,6 +42,10 @@ describe("builder credit status helpers", () => {
   });
 
   it("does not treat unrelated provider quota errors as Builder credit limits", () => {
+    // Naming the balance is not the same as running out of it.
+    expect(
+      isBuilderCreditsExhaustedMessage("Agent Credits service unavailable"),
+    ).toBe(false);
     expect(isBuilderCreditsExhaustedMessage("Groq quota exceeded")).toBe(false);
     expect(isBuilderCreditsExhaustedMessage("rate limit exceeded")).toBe(false);
     expect(isBuilderCreditsExhaustedMessage(null)).toBe(false);

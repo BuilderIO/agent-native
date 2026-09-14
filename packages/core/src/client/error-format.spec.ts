@@ -100,6 +100,20 @@ describe("formatChatErrorText", () => {
     }
   });
 
+  // The server routes every 402 down the credits branch, so a bare 402 with no
+  // structured code must not be the one rejection that loses the CTA.
+  it("adds the docs CTA to a bare 402 the gateway sent no code for", () => {
+    expect(
+      formatChatErrorText(
+        "Payment required.",
+        agentNativeUpgradeUrl,
+        "http_402",
+      ),
+    ).toContain(
+      `[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
+    );
+  });
+
   it("keeps the gateway's original sentence in details after the rename", () => {
     const raw = "You have used all AI credits for this month";
     const normalized = normalizeChatError(raw, "credits-limit-monthly");

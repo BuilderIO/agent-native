@@ -42,6 +42,7 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import { parseRetryAfterMs } from "../../shared/retry-after.js";
 import { isInBackgroundFunctionRuntime } from "../durable-background.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
@@ -712,9 +713,16 @@ async function* emitHttpError(
     // and calls the balance "AI credits" while the page the CTA opens calls it
     // "Agent Credits". Both are decided in one place (`credits-limit.ts`) so
     // every lane that surfaces this rejection says the same thing.
+    // NOT `retryAfterMs`: that one is clamped to 60s so a single retry cannot
+    // eat the run budget, and a daily cap that clears at midnight would be
+    // announced as "resets in about 1 minute".
+    const resetInMs =
+      parseRetryAfterMs(Object.fromEntries(response.headers.entries())) ??
+      undefined;
     yield stop({
       error: formatCreditsLimitMessage(
-        parseCreditsLimitInfo(errBody, code, retryAfterMs),
+        parseCreditsLimitInfo(errBody, code, resetInMs),
+        message,
       ),
       errorCode: code,
       upgradeUrl: await buildUpgradeUrl(),

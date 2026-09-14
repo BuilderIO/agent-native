@@ -6,7 +6,7 @@ import {
   CREDITS_LIMIT_MONTHLY_MESSAGE,
   creditsLimitWindowFromCode,
   formatCreditsLimitMessage,
-  isCreditsLimitCode,
+  isCreditsRejectionCode,
   normalizeAgentCreditsTerminology,
   parseCreditsLimitInfo,
 } from "./credits-limit.js";
@@ -82,6 +82,44 @@ describe("formatCreditsLimitMessage", () => {
     ).toBe(
       "You've reached the daily Agent Credits limit for your current plan. They reset in about 2 hours.",
     );
+    // A 90-minute wait rounded to "2 hours" overstates it by a third.
+    expect(
+      formatCreditsLimitMessage({ window: "daily", resetsInMs: 90 * 60_000 }),
+    ).toContain("about 90 minutes");
+  });
+
+  // Replacing a specific gateway sentence with a generic one deletes
+  // information the reader had before this function existed.
+  it("keeps the gateway sentence when it cannot say anything more specific", () => {
+    expect(
+      formatCreditsLimitMessage(
+        { window: "unknown" },
+        "You have used all AI credits for this month",
+      ),
+    ).toBe("You have used all Agent Credits for this month.");
+  });
+
+  it("appends a known reset to the carried gateway sentence", () => {
+    expect(
+      formatCreditsLimitMessage(
+        { window: "unknown", resetsInMs: 3 * 3600_000 },
+        "You have used all AI credits for this month",
+      ),
+    ).toBe(
+      "You have used all Agent Credits for this month. They reset in about 3 hours.",
+    );
+  });
+
+  it("falls back to the generic line when the gateway sent no sentence", () => {
+    expect(formatCreditsLimitMessage({ window: "unknown" }, "   ")).toBe(
+      CREDITS_LIMIT_GENERIC_MESSAGE,
+    );
+  });
+
+  it("renders a multi-hour reset as hours, not the retry cap", () => {
+    expect(
+      formatCreditsLimitMessage({ window: "daily", resetsInMs: 7 * 3600_000 }),
+    ).toContain("about 7 hours");
   });
 
   it("never says AI credits", () => {
@@ -123,11 +161,18 @@ describe("normalizeAgentCreditsTerminology", () => {
 
 describe("code helpers", () => {
   it("recognizes every credits-limit variant", () => {
-    expect(isCreditsLimitCode("credits-limit-daily")).toBe(true);
-    expect(isCreditsLimitCode("credits-limit-monthly")).toBe(true);
-    expect(isCreditsLimitCode("credits-limit-reached")).toBe(true);
-    expect(isCreditsLimitCode("rate_limit_exceeded")).toBe(false);
-    expect(isCreditsLimitCode(undefined)).toBe(false);
+    expect(isCreditsRejectionCode("credits-limit-daily")).toBe(true);
+    expect(isCreditsRejectionCode("credits-limit-monthly")).toBe(true);
+    expect(isCreditsRejectionCode("credits-limit-reached")).toBe(true);
+    expect(isCreditsRejectionCode("rate_limit_exceeded")).toBe(false);
+    expect(isCreditsRejectionCode(undefined)).toBe(false);
+  });
+
+  // The server treats a bare 402 as quota too, so the client must agree or the
+  // rejection that explains itself least is the one that loses the docs CTA.
+  it("matches the bare 402 the server also treats as quota", () => {
+    expect(isCreditsRejectionCode("http_402")).toBe(true);
+    expect(isCreditsRejectionCode("http_403")).toBe(false);
   });
 
   it("maps codes to their window", () => {

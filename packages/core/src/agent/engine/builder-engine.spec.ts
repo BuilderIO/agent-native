@@ -864,6 +864,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
   });
 
+  // A bare 402 has no window and no counts, so there is nothing more specific
+  // to say than what the gateway already said. Replacing it with a generic
+  // credits line would delete information the reader had before this change.
+  it("keeps a bare 402's own sentence, with the term corrected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(402, {
+          message: "Payment required: AI credits for this space are suspended.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.error).toBe(
+      "Payment required: Agent Credits for this space are suspended.",
+    );
+    expect(stop?.upgradeUrl).toContain("builder.io");
+  });
+
   it("maps 401 unauthorized to Builder auth stop-error", async () => {
     vi.stubGlobal(
       "fetch",

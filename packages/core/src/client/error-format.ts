@@ -4,7 +4,7 @@ import {
   CREDITS_LIMIT_DAILY_MESSAGE,
   CREDITS_LIMIT_GENERIC_MESSAGE,
   CREDITS_LIMIT_MONTHLY_MESSAGE,
-  isCreditsLimitCode,
+  isCreditsRejectionCode,
   normalizeAgentCreditsTerminology,
 } from "../agent/engine/credits-limit.js";
 import {
@@ -116,7 +116,7 @@ export function formatChatErrorText(
     return `Error: ${normalized.message}`;
   }
   const upgradeCta = `[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
-  if (isCreditsLimitCode(errorCode)) {
+  if (isCreditsRejectionCode(errorCode)) {
     return `Error: ${normalized.message}\n\n${upgradeCta}\n\n[${SEE_AGENT_CREDITS_LIMIT_LABEL}](${BUILDER_AGENT_CREDITS_DOCS_URL})`;
   }
   return `Error: ${normalized.message}\n\n${upgradeCta}`;
@@ -394,7 +394,7 @@ export function normalizeChatError(
   // complete-text, and through threads persisted before that change, all of
   // which still carry the gateway's "AI credits" wording for a balance every
   // Builder.io billing page calls Agent Credits.
-  if (isCreditsLimitCode(code)) {
+  if (isCreditsRejectionCode(code)) {
     const renamed = normalizeAgentCreditsTerminology(text);
     return renamed === text
       ? { message: text }
