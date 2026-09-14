@@ -138,6 +138,7 @@ afterEach(() => {
   delete process.env.URL;
   delete process.env.DEPLOY_PRIME_URL;
   delete process.env.DEPLOY_URL;
+  delete process.env.SITE_NAME;
 });
 
 describe("identity SSO feature switch and request classifiers", () => {
@@ -175,6 +176,42 @@ describe("identity SSO feature switch and request classifiers", () => {
 
     process.env.APP_URL = "https://workspace.example.test";
     expect(store.getIdentityHubUrl()).toBeUndefined();
+  });
+
+  it("enables SSO only on immutable deploy permalinks for first-party Netlify sites", () => {
+    process.env.SITE_NAME = "agent-native-mail";
+    const deployHost = `${"a".repeat(24)}--agent-native-mail.netlify.app`;
+
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        deployHost,
+        "https",
+      ),
+    ).toBe(true);
+    expect(
+      store.isIdentitySsoAvailableForRequest({
+        requestHost: deployHost,
+        requestProtocol: "https",
+      }),
+    ).toBe(false);
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        "deploy-preview-42--agent-native-mail.netlify.app",
+        "https",
+      ),
+    ).toBe(false);
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        `${"a".repeat(24)}--agent-native-calendar.netlify.app`,
+        "https",
+      ),
+    ).toBe(false);
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        deployHost,
+        "http",
+      ),
+    ).toBe(false);
   });
 
   it("keeps silent federation available for explicitly configured self-hosted apps", () => {

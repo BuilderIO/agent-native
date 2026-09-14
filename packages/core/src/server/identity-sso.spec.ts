@@ -108,6 +108,8 @@ vi.mock("./better-auth-instance.js", () => ({
 }));
 vi.mock("./identity-sso-store.js", () => ({
   CANONICAL_IDENTITY_SSO_HUB_URL: "https://dispatch.agent-native.com",
+  NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL:
+    "https://beta.dispatch.agent-native.com",
   SSO_STATE_TTL_MS: 600_000,
   getIdentityHubUrl: () => {
     const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
@@ -124,6 +126,12 @@ vi.mock("./identity-sso-store.js", () => ({
     ["mail.agent-native.com", "dispatch.agent-native.com"].includes(host),
   isCanonicalIdentitySsoClientRequest: (host: string, protocol: string) =>
     protocol === "https" && host === "mail.agent-native.com",
+  isNetlifyDeployPermalinkIdentitySsoClientRequest: (
+    host: string,
+    protocol: string,
+  ) =>
+    protocol === "https" &&
+    /^[a-f0-9]{24}--agent-native-[a-z0-9-]+\.netlify\.app$/.test(host ?? ""),
   isDesktopSsoUserAgent: (userAgent: string | undefined) =>
     /AgentNativeDesktop(?:SsoCanary)?\//i.test(userAgent ?? ""),
   isDesktopSsoCanaryUserAgent: (userAgent: string | undefined) =>
@@ -337,6 +345,20 @@ describe("identity SSO browser contract", () => {
     const response = await handleIdentitySso(request, "/login");
     expect(resolveIdentityHubUrl(request)).toBe(HUB);
     expect(response.status).toBe(302);
+  });
+
+  it("routes immutable Netlify deploys to the beta identity authority", () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const request = event("/_agent-native/identity/login?return=/inbox", {
+      headers: {
+        host: `${"a".repeat(24)}--agent-native-analytics.netlify.app`,
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    expect(resolveIdentityHubUrl(request)).toBe(
+      "https://beta.dispatch.agent-native.com",
+    );
   });
 
   it("starts an authorization-code + PKCE request without a browser JWT", async () => {

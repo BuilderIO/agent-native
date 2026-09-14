@@ -70,6 +70,7 @@ import {
   isCanonicalIdentitySsoClientRequest,
   isCanonicalIdentitySsoClientConfigured,
   isIdentitySsoAvailableForRequest,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
@@ -1273,6 +1274,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
   const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const googleViaIdentitySso = isNetlifyDeployPermalinkIdentitySsoClientRequest(
+    identitySsoRequestHost,
+    identitySsoRequestProtocol,
+  );
   const identitySsoEnabled = isIdentitySsoAvailableForRequest({
     requestHost: identitySsoRequestHost,
     requestProtocol: identitySsoRequestProtocol,
@@ -1654,6 +1659,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    googleViaIdentitySso,
     identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,

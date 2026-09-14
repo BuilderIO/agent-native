@@ -31,6 +31,8 @@ const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
 export const CANONICAL_IDENTITY_SSO_HUB_URL =
   "https://dispatch.agent-native.com";
+export const NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL =
+  "https://beta.dispatch.agent-native.com";
 const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://analytics.agent-native.com",
   "https://assets.agent-native.com",
@@ -188,11 +190,27 @@ export function isCanonicalIdentitySsoClientRequest(
   return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
 }
 
-/**
- * Return whether the silent federation flow is available for this request.
- * The browser entry is intentionally not rendered: local Google/email auth is
- * the only sign-in UI, and federation happens after that local session exists.
- */
+export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  // Netlify exposes SITE_NAME at runtime; accept the immutable deploy URL, not
+  // DEPLOY_PRIME_URL's movable Deploy Preview alias.
+  const siteName = process.env.SITE_NAME?.trim().toLowerCase();
+  if (
+    !host ||
+    forwardedProtocol !== "https" ||
+    !siteName ||
+    !/^agent-native-[a-z0-9-]+$/.test(siteName)
+  ) {
+    return false;
+  }
+  return new RegExp(`^[a-f0-9]{24}--${siteName}\\.netlify\\.app$`).test(
+    host.toLowerCase(),
+  );
+}
+
+/** Silent federation and post-login bootstrap remain limited to canonical or explicitly configured clients. */
 export function isIdentitySsoAvailableForRequest(
   options: {
     requestHost?: string;
