@@ -430,7 +430,7 @@ describe("update-slide", () => {
 
     expect(rejection?.message).toContain('must use the structured "edits"');
     expect(rejection?.message).toContain(
-      '[{"find":"background:#111111","replace":"background:#f4f0e8","expectedMatches":1}]',
+      '[{"find":"background:#111111","replace":"background:#f4f0e8","occurrence":1}]',
     );
     expect(lastUpdateSet).toBeUndefined();
 
@@ -456,7 +456,55 @@ describe("update-slide", () => {
     );
   });
 
-  it("answers a styleOnly objectId edit with the equivalent edits call", async () => {
+  // The legacy find path replaces the first match; the edits path refuses an
+  // ambiguous literal outright. A declaration repeated on the slide is the case
+  // where a careless conversion swaps one rejection for another.
+  it("suggests an edits call that still works when the declaration repeats", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="background:#111111"><div style="background:#111111"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        find: "background:#111111",
+        replace: "background:#f4f0e8",
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    const suggested = JSON.parse(
+      rejection!.message.slice(
+        rejection!.message.indexOf('[{"find"'),
+        rejection!.message.lastIndexOf("]") + 1,
+      ),
+    );
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      edits: suggested,
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    // First match only, exactly as the rejected legacy call would have done.
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide" style="background:#f4f0e8"><div style="background:#111111"><h1>Headline</h1></div></div>',
+    );
+  });
+
+  it("refuses to route a styleOnly change through objectId", async () => {
     const rejection = await action
       .run({
         deckId: "deck-1",
@@ -470,9 +518,11 @@ describe("update-slide", () => {
         (error: Error) => error,
       );
 
-    expect(rejection?.message).toContain(
-      '[{"objectId":"slide-object-7","replace":"<span>x</span>"}]',
-    );
+    // objectId only swaps inner content, so echoing it back would hand over a
+    // call that cannot reach the element's own style attribute.
+    expect(rejection?.message).toContain('cannot go through "objectId"');
+    expect(rejection?.message).not.toContain('"objectId":"slide-object-7"');
+    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
     expect(lastUpdateSet).toBeUndefined();
   });
 
