@@ -105,6 +105,7 @@ function setupFetch(options?: {
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   deferredDelete?: boolean;
+  deferredDuplicate?: boolean;
   patchFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
@@ -119,6 +120,7 @@ function setupFetch(options?: {
   let deferNextGetDeck = false;
   let resolveDeferredGetDeck: (() => void) | null = null;
   let rejectDeferredDelete: ((error: unknown) => void) | null = null;
+  const pendingDuplicateRejects: Array<(error: unknown) => void> = [];
   let deferNextDeckList = false;
   let resolveDeferredDeckList: (() => void) | null = null;
   let accessibleDeck: Deck | null = null;
@@ -199,6 +201,17 @@ function setupFetch(options?: {
             status: 404,
           }),
         );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ success: true }), { status: 200 }),
+      );
+    }
+
+    if (href.includes("/_agent-native/actions/duplicate-deck")) {
+      if (options?.deferredDuplicate) {
+        return new Promise<Response>((_resolve, reject) => {
+          pendingDuplicateRejects.push(reject);
+        });
       }
       return Promise.resolve(
         new Response(JSON.stringify({ success: true }), { status: 200 }),
@@ -288,6 +301,10 @@ function setupFetch(options?: {
       rejectDeferredPut?.(error),
     rejectDeferredDelete: (error: unknown = new Error("late delete failure")) =>
       rejectDeferredDelete?.(error),
+    rejectNextDuplicate: (
+      error: unknown = new Error("late duplicate failure"),
+    ) => pendingDuplicateRejects.shift()?.(error),
+    pendingDuplicateCount: () => pendingDuplicateRejects.length,
     getFirstPutSignal: () => firstPutSignal,
     getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
@@ -1692,6 +1709,71 @@ describe("DeckContext deck creation persistence", () => {
         requestString(url).includes("/_agent-native/actions/duplicate-deck"),
       ),
     ).toBe(false);
+  });
+
+  it("does not let an old duplicate failure mutate a new-organization duplicate", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const sourceSlide: Slide = {
+      id: "source-slide",
+      content: "<div>Source</div>",
+      notes: "",
+      layout: "content",
+    };
+    const oldSource: Deck = {
+      id: "shared-source-id",
+      title: "Old Source",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [sourceSlide],
+    };
+    const { setAccessibleDeck, rejectNextDuplicate, pendingDuplicateCount } =
+      setupFetch({ deferredDuplicate: true });
+    setAccessibleDeck(oldSource);
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const oldFailure = vi.fn();
+    await act(async () => {
+      await result.current.duplicateDeck(
+        oldSource.id,
+        "old-org-copy",
+        undefined,
+        oldFailure,
+      );
+    });
+    expect(pendingDuplicateCount()).toBe(1);
+
+    const newSource = { ...oldSource, title: "New Source" };
+    setAccessibleDeck(newSource);
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.duplicateDeck(newSource.id, "new-org-copy");
+    });
+    expect(pendingDuplicateCount()).toBe(2);
+
+    await act(async () => {
+      rejectNextDuplicate();
+      await Promise.resolve();
+    });
+
+    let overlappingDuplicate: Deck | null = newSource;
+    await act(async () => {
+      overlappingDuplicate = await result.current.duplicateDeck(
+        newSource.id,
+        "overlapping-copy",
+      );
+    });
+
+    expect(oldFailure).not.toHaveBeenCalled();
+    expect(overlappingDuplicate).toBeNull();
+    expect(pendingDuplicateCount()).toBe(1);
+    expect(result.current.getDeck("new-org-copy")).toBeDefined();
   });
 
   it("does not restore a failed old-organization delete after switching organizations", async () => {
