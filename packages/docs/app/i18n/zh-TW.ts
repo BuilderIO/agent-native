@@ -1338,7 +1338,64 @@ const messages = {
       },
     },
     mail: {
+      faq: {
+        question1: "什麼是 Agent-Native Mail？",
+        answer1:
+          "Agent-Native Mail 是一款針對 Gmail 的免費開放原始碼郵件用戶端，內建 AI 郵件助理。你可以閱讀和搜尋郵件、彙整對話、草擬回覆，並透過收件匣或你的 AI 代理整理郵件。",
+        question2: "Mail 能配合我現有的 Gmail 帳號使用嗎？",
+        answer2:
+          "可以。連接你現有的 Gmail 帳號，即可透過 Mail 收發郵件。你可以連接多個 Gmail 帳號並同時搜尋所有帳號。Mail 不會提供新的電子郵件地址，目前也只支援 Gmail，暫不支援 Outlook 或其他郵件服務商。",
+        question3: "AI 代理會在未經我同意的情況下寄送郵件嗎？",
+        answer3:
+          "當你在對話中要求 AI 代理寄送郵件時，需要你的核准。由自動化觸發的寄送同樣需要核准，除非你在 Mail 設定中明確啟用自動寄送。寄送前你都可以檢視並編輯草稿。",
+        question4: "AI 能自動整理我的收件匣嗎？",
+        answer4:
+          "可以。用自然語言建立規則，為收到的郵件加上標籤、封存、加星號或標示為已讀。Mail 也支援依寄件者或主旨等條件運作的原生 Gmail 篩選器。Gmail 篩選器在 Gmail 中執行，即使關閉 Mail 也會持續生效。",
+        question5: "同事能替我準備一封郵件供我審核嗎？",
+        answer5:
+          "可以。同事可以請求產生一份草稿，出現在你的審核佇列中。開啟它、編輯內容，準備好後再寄送。提出請求的人無法代替你寄送；由草稿的擁有者或組織管理員來控制寄送。",
+      },
       s001: "Mail 範本螢幕截圖",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "用你的 AI 代理管理收件匣",
+      heroDescription:
+        "Mail 是一款針對 Gmail 的免費開放原始碼郵件用戶端，AI 代理能查找郵件、彙整對話、草擬回覆，並整理你的收件匣。",
+      heroCta: "開啟 Mail",
+      useCasesHeading: "用 Mail 能做什麼？",
+      useCasesBody: "跟上對話進度、回覆客戶和同事，或整理積壓的郵件。",
+      useCase1Title: "跟上對話進度",
+      useCase1Body:
+        "讓你的 AI 代理告訴你一段長對話裡發生了什麼、達成了什麼共識，以及哪些問題仍需要回答。",
+      useCase2Title: "回覆客戶和同事",
+      useCase2Body:
+        "把你想表達的重點告訴你的 AI 代理。寄送前，在撰寫面板中檢視並編輯它的回覆。",
+      useCase3Title: "整理你的收件匣",
+      useCase3Body:
+        "請你的 AI 代理為發票加上標籤、封存電子報，或為某位客戶的郵件加上星號。套用規則，讓抵達的類似郵件自動處理。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "閱讀、撰寫與整理郵件所需的一切",
+      feature1Title: "AI 對話摘要",
+      feature1Body:
+        "針對你開啟的對話提問。你的 AI 代理會讀取整個對話串，彙整討論內容並找出尚未解決的問題。",
+      feature2Title: "AI 郵件撰寫",
+      feature2Body:
+        "與你的 AI 代理一起草擬回覆，或修改選取的文字。設定寫作偏好、加入簽名檔，草稿也能自行編輯。",
+      feature3Title: "多帳號搜尋",
+      feature3Body:
+        "連接你的工作與個人 Gmail 帳號，透過搜尋欄或直接詢問你的 AI 代理，在同一個收件匣中搜尋所有帳號。",
+      feature4Title: "收件匣自動化",
+      feature4Body:
+        "描述規則，為收到的郵件加上標籤、封存、加星號或標示為已讀。可以使用 AI 規則，也可以設定原生 Gmail 篩選器。",
+      feature5Title: "鍵盤快速鍵",
+      feature5Body:
+        "用鍵盤瀏覽郵件、撰寫回覆、封存對話、搜尋收件匣。開啟指令選單可以找到更多動作。",
+      feature6Title: "排程寄送與稍後提醒",
+      feature6Body:
+        "選擇郵件的寄送時間，或讓某則訊息稍後再提醒你。檢視已排程的項目，計畫變動時可以取消。",
+      finalCtaHeading: "從下一封郵件開始",
+      finalCtaBody: "開啟一段對話，讓你的 AI 代理給你一份摘要或回覆草稿。",
+      finalCtaButton: "開啟 Mail",
       s002: "鍵盤優先",
       s003: "收件箱分類",
       s004: "意見",

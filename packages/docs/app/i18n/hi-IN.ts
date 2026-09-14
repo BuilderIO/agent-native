@@ -1372,22 +1372,65 @@ const hiIN = {
     },
     mail: {
       faq: {
-        question1: "क्या AI मेरे inbox को व्यवस्थित कर सकता है?",
+        question1: "Agent-Native Mail क्या है?",
         answer1:
-          "हाँ। Agent आपका inbox पढ़ता है, प्राथमिक messages सामने लाता है, labels लगाकर sort करता है, replies draft करता है, auto-archive rules सेट करता है और unread mail का सार action items के साथ देता है।",
-        question2: "Mail, Superhuman से कैसे अलग है?",
+          "Agent-Native Mail, Gmail के लिए एक फ्री और ओपन-सोर्स email client है जिसमें एक AI email assistant है। messages पढ़ें और search करें, conversations summarize करें, replies draft करें, और अपने inbox या अपने AI एजेंट के ज़रिए email को व्यवस्थित करें।",
+        question2: "क्या Mail मेरे मौजूदा Gmail account के साथ काम करता है?",
         answer2:
-          "Keyboard-first गति इसका आधार है — compose, archive और reply, सब shortcuts से। अंतर यह है कि agent सच में inbox का काम करता है, कोई subscription नहीं है और code आपका है।",
-        question3: "क्या Mail, Gmail के साथ काम करता है?",
-        answer3: "हाँ — Gmail और कई accounts के support के साथ।",
-        question4: "क्या मेरा email निजी रहता है?",
+          "हाँ। Mail के ज़रिए email पढ़ने और भेजने के लिए अपना मौजूदा Gmail account कनेक्ट करें। आप कई Gmail accounts कनेक्ट कर सकते हैं और उन सभी में search कर सकते हैं। Mail कोई नया email address उपलब्ध नहीं कराता, और यह फ़िलहाल Outlook या दूसरे email providers की बजाय Gmail को सपोर्ट करता है।",
+        question3: "क्या AI एजेंट मेरी मंज़ूरी के बिना emails भेज देगा?",
+        answer3:
+          "जब आप chat में AI एजेंट से कोई email भेजने को कहते हैं, तो उसे आपकी मंज़ूरी चाहिए होती है। Automation से शुरू होने वाले sends के लिए भी मंज़ूरी ज़रूरी है, जब तक कि आप Mail की settings में automatic sending को साफ़ तौर पर enable न करें। भेजने से पहले आप drafts को review और edit कर सकते हैं।",
+        question4: "क्या AI मेरे inbox को अपने आप व्यवस्थित कर सकता है?",
         answer4:
-          "Mail open source है और स्थानीय रूप से चलता है — आपका mail आपकी infrastructure पर रहता है, और उसे छूने वाली code की हर line आप पढ़ सकते हैं।",
-        question5: "क्या Mail मुफ़्त है?",
+          "हाँ। आने वाले messages को label, archive, star करने या read के रूप में mark करने के लिए plain language में rules बनाएं। Mail, sender या subject जैसी conditions के लिए native Gmail filters को भी सपोर्ट करता है। Gmail filters, Gmail में चलते हैं और Mail बंद होने पर भी काम करते रहते हैं।",
+        question5: "क्या कोई teammate मेरे review के लिए email तैयार कर सकता है?",
         answer5:
-          "हाँ। मुफ़्त और open source — कोई subscription या vendor lock-in नहीं।",
+          "हाँ। कोई teammate एक draft का अनुरोध कर सकता है जो आपकी review queue में दिखाई देता है। उसे खोलें, message edit करें, और तैयार होने पर उसे भेज दें। अनुरोध करने वाला व्यक्ति आपकी ओर से उसे नहीं भेज सकता; draft का owner या कोई organization admin ही sending को नियंत्रित करता है।",
       },
       s001: "Mail टेम्पलेट स्क्रीनशॉट",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "अपने AI एजेंट से अपना inbox मैनेज करें",
+      heroDescription:
+        "Mail, Gmail के लिए एक फ्री और ओपन-सोर्स email client है, जिसमें एक AI एजेंट messages ढूंढता है, conversations को summarize करता है, replies draft करता है, और आपके inbox को व्यवस्थित करता है।",
+      heroCta: "Mail खोलें",
+      useCasesHeading: "Mail से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "conversations में जो हुआ उसे जानें, customers और colleagues को reply करें, या email के backlog को व्यवस्थित करें।",
+      useCase1Title: "conversations में जो हुआ उसे जानें",
+      useCase1Body:
+        "अपने AI एजेंट से पूछें कि किसी लंबी thread में क्या हुआ, क्या तय हुआ, और किन सवालों के जवाब अभी बाकी हैं।",
+      useCase2Title: "customers और colleagues को reply करें",
+      useCase2Body:
+        "अपने AI एजेंट को वे points बताएं जिन्हें आप cover करना चाहते हैं। भेजने से पहले compose panel में उसके reply को review और edit करें।",
+      useCase3Title: "अपने inbox को व्यवस्थित करें",
+      useCase3Body:
+        "अपने AI एजेंट से invoices को label करने, newsletters को archive करने, या किसी client के messages को star करने को कहें। आने वाले similar emails को संभालने के लिए rules लागू करें।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएं",
+      keyFeaturesHeading: "email पढ़ने, लिखने और व्यवस्थित करने के लिए जो कुछ भी चाहिए",
+      feature1Title: "AI thread summaries",
+      feature1Body:
+        "अपनी खुली हुई conversation के बारे में पूछें। आपका AI एजेंट discussion को summarize करने और बाकी बचे सवालों की पहचान करने के लिए thread को पढ़ता है।",
+      feature2Title: "AI email drafting",
+      feature2Body:
+        "अपने AI एजेंट के साथ कोई reply draft करें या चुने हुए text को सुधारें। writing preferences सेट करें, अपना signature जोड़ें, और drafts खुद edit करें।",
+      feature3Title: "Multi-account search",
+      feature3Body:
+        "अपने work और personal Gmail accounts कनेक्ट करें। search bar से या अपने AI एजेंट से पूछकर, एक ही inbox से उन सभी में search करें।",
+      feature4Title: "Inbox automations",
+      feature4Body:
+        "आने वाले messages को label, archive, star करने या read के रूप में mark करने के लिए rules बताएं। AI rules इस्तेमाल करें या native Gmail filters सेट करें।",
+      feature5Title: "Keyboard shortcuts",
+      feature5Body:
+        "keyboard से messages के बीच navigate करें, replies compose करें, conversations archive करें, और अपने inbox में search करें। और actions खोजने के लिए command palette खोलें।",
+      feature6Title: "Scheduled sends और snooze",
+      feature6Body:
+        "चुनें कि कोई email कब भेजनी है या किसी message को दोबारा कब सामने लाना है। योजना बदलने पर scheduled items को review करें और cancel करें।",
+      finalCtaHeading: "अपनी अगली email से शुरुआत करें",
+      finalCtaBody:
+        "कोई conversation खोलें और अपने AI एजेंट से summary या reply का draft मांगें।",
+      finalCtaButton: "Mail खोलें",
       s002: "कीबोर्ड-प्रथम",
       s003: "इनबॉक्स ट्राइएज",
       s004: "दृश्य",

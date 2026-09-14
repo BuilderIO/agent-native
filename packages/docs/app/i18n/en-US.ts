@@ -1378,22 +1378,65 @@ const enUS = {
     },
     mail: {
       faq: {
-        question1: "Can AI triage my inbox?",
+        question1: "What is Agent-Native Mail?",
         answer1:
-          "Yes. The agent reads your inbox, surfaces priorities, labels and sorts, drafts replies, sets auto-archive rules, and summarizes unread mail with the action items pulled out.",
-        question2: "How is Mail different from Superhuman?",
+          "Agent-Native Mail is a free and open-source email client for Gmail with an AI email assistant. Read and search messages, summarize conversations, draft replies, and organize email through the inbox or your AI agent.",
+        question2: "Does Mail work with my existing Gmail account?",
         answer2:
-          "The keyboard-first speed is the baseline — compose, archive, reply, all on bindings. The difference: an agent that actually works the inbox, no subscription, and code you own.",
-        question3: "Does Mail work with Gmail?",
-        answer3: "Yes — Gmail, with multi-account support.",
-        question4: "Is my email private?",
+          "Yes. Connect your existing Gmail account to read and send email through Mail. You can connect multiple Gmail accounts and search across them. Mail does not provide a new email address, and it currently supports Gmail rather than Outlook or other email providers.",
+        question3: "Will the AI agent send emails without my approval?",
+        answer3:
+          "When you ask the AI agent to send an email in chat, it requires your approval. Automation-triggered sends also require approval unless you explicitly enable automatic sending in Mail settings. You can review and edit drafts before sending them.",
+        question4: "Can AI automatically organize my inbox?",
         answer4:
-          "Mail is open source and runs locally — your mail stays on your infrastructure, and you can read every line of code that touches it.",
-        question5: "Is Mail free?",
+          "Yes. Create rules in plain language to label, archive, star, or mark incoming messages as read. Mail also supports native Gmail filters for conditions such as a sender or subject. Gmail filters run in Gmail and continue working when Mail is closed.",
+        question5: "Can a teammate prepare an email for me to review?",
         answer5:
-          "Yes. Free and open source — no subscription, no vendor lock-in.",
+          "Yes. A teammate can request a draft that appears in your review queue. Open it, edit the message, and send it when ready. The requester cannot send it on your behalf; the draft owner or an organization admin controls sending.",
       },
       s001: "Mail app screenshot",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "Manage your inbox with your AI agent",
+      heroDescription:
+        "Mail is a free and open-source email client for Gmail, with an AI agent that finds messages, summarizes conversations, drafts replies, and organizes your inbox.",
+      heroCta: "Open Mail",
+      useCasesHeading: "What can you do with Mail?",
+      useCasesBody:
+        "Catch up on conversations, reply to customers and colleagues, or sort through a backlog of email.",
+      useCase1Title: "Catch up on conversations",
+      useCase1Body:
+        "Ask your AI agent what happened in a long thread, what was agreed, and which questions still need an answer.",
+      useCase2Title: "Reply to customers and colleagues",
+      useCase2Body:
+        "Give your AI agent the points you want to cover. Review and edit its reply in the compose panel before sending.",
+      useCase3Title: "Sort through your inbox",
+      useCase3Body:
+        "Ask your AI agent to label invoices, archive newsletters, or star messages from a client. Apply rules to handle similar emails as they arrive.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading: "Everything you need to read, write, and organize email",
+      feature1Title: "AI thread summaries",
+      feature1Body:
+        "Ask about the conversation you have open. Your AI agent reads the thread to summarize the discussion and identify outstanding questions.",
+      feature2Title: "AI email drafting",
+      feature2Body:
+        "Draft a reply or revise selected text with your AI agent. Set writing preferences, add your signature, and edit drafts yourself.",
+      feature3Title: "Multi-account search",
+      feature3Body:
+        "Connect work and personal Gmail accounts. Search across them from one inbox, using the search bar or asking your AI agent.",
+      feature4Title: "Inbox automations",
+      feature4Body:
+        "Describe rules for labeling, archiving, starring, or marking incoming messages as read. Use AI rules or set up native Gmail filters.",
+      feature5Title: "Keyboard shortcuts",
+      feature5Body:
+        "Navigate messages, compose replies, archive conversations, and search your inbox from the keyboard. Open the command palette to find more actions.",
+      feature6Title: "Scheduled sends and snooze",
+      feature6Body:
+        "Choose when to send an email or bring a message back to your attention. Review scheduled items and cancel them when plans change.",
+      finalCtaHeading: "Start with your next email",
+      finalCtaBody:
+        "Open a conversation and ask your AI agent for a summary or a draft reply.",
+      finalCtaButton: "Open Mail",
       s002: "Keyboard-first",
       s003: "Inbox triage",
       s004: "Views",
