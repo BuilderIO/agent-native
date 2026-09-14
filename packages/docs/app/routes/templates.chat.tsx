@@ -4,6 +4,7 @@ import type { MouseEvent } from "react";
 import { Link } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
+import { CustomizeTemplatePopover } from "../components/CustomizeTemplatePopover";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
@@ -140,7 +141,6 @@ export default function ChatTemplate() {
               {t("templateLanding.chat.heroEyebrow")}
             </span>
           }
-          customizeTemplate={template}
           headingAction={
             <div className="flex flex-col items-start gap-4">
               <div className="flex flex-wrap items-center gap-3">
@@ -174,6 +174,14 @@ export default function ChatTemplate() {
                 >
                   {t("templateLanding.chat.heroSecondaryCta")}
                 </a>
+                {/* Rendered inline with the button row instead of via
+                    TemplateHero's `customizeTemplate` prop -- that prop places
+                    the popover as a flex-wrap sibling of the whole
+                    `headingAction` block, which here is a two-row stack
+                    (buttons + code block), so it would vertically center
+                    against the tall stack instead of sitting next to the
+                    buttons. */}
+                <CustomizeTemplatePopover template={template} />
               </div>
               <div className="w-full max-w-[420px]">
                 <CodeBlock code={INSTALL_COMMAND} language="bash" />

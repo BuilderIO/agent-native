@@ -3,6 +3,7 @@ import { IconArrowUpRight } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
+import { CustomizeTemplatePopover } from "../components/CustomizeTemplatePopover";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
@@ -145,27 +146,23 @@ export default function PlanTemplate() {
               {t("templateLanding.plan.heroEyebrow")}
             </span>
           }
-          customizeTemplate={template}
           headingAction={
-            <div className="flex w-full flex-col gap-4">
-              <Link
-                to={PLAN_PLUGIN_DOCS_PATH}
-                className="primary-button"
-                style={{ gap: "4px" }}
-                onClick={() =>
-                  trackEvent("click add to agent", {
-                    template: template.slug,
-                    location: "landing_page_hero",
-                  })
-                }
-              >
-                {t("templateLanding.plan.heroCta")}
-                <IconArrowUpRight size={16} />
-              </Link>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="w-full max-w-[420px]">
-                  <CodeBlock code={template.cliCommand} language="bash" />
-                </div>
+            <div className="flex flex-col items-start gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  to={PLAN_PLUGIN_DOCS_PATH}
+                  className="primary-button"
+                  style={{ gap: "4px" }}
+                  onClick={() =>
+                    trackEvent("click add to agent", {
+                      template: template.slug,
+                      location: "landing_page_hero",
+                    })
+                  }
+                >
+                  {t("templateLanding.plan.heroCta")}
+                  <IconArrowUpRight size={16} />
+                </Link>
                 <a
                   href={firstPartyAppUrl(template.demoUrl)}
                   target="_blank"
@@ -181,6 +178,16 @@ export default function PlanTemplate() {
                 >
                   {t("templateLanding.plan.heroSecondaryCta")}
                 </a>
+                {/* Rendered inline with the button row instead of via
+                    TemplateHero's `customizeTemplate` prop -- that prop places
+                    the popover as a flex-wrap sibling of the whole
+                    `headingAction` block, which here is a two-row stack
+                    (buttons + code block), so it would force onto its own row
+                    below instead of sitting next to the buttons. */}
+                <CustomizeTemplatePopover template={template} />
+              </div>
+              <div className="w-full max-w-[420px]">
+                <CodeBlock code={template.cliCommand} language="bash" />
               </div>
             </div>
           }
