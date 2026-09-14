@@ -882,11 +882,17 @@ export default function Index() {
       }
     }
 
+    // Only the document that actually became the reference deck is already
+    // represented; the import controls accept several files but import one, so
+    // excluding all of `referenceFilePaths` would drop the rest entirely while
+    // telling the agent every attachment had been read.
     const referenceHydration = await hydrateReferenceDocuments(
       filesForGeneration,
       {
         excludePaths: [
-          ...referenceFilePaths,
+          ...(referenceSelection.importedReferenceFilePath
+            ? [referenceSelection.importedReferenceFilePath]
+            : []),
           ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
         ],
       },
@@ -903,7 +909,12 @@ export default function Index() {
     // this the no-design-system branch below prescribed the same generic
     // fallback look a reference-less prompt gets — which is how a styled PDF
     // produced a deck indistinguishable from one generated with no reference.
-    const hasHydratedReferenceDesign = referenceHydration.status === "hydrated";
+    // Keyed on a measured design, not merely a successful read: a DOCX, or a
+    // PDF whose digest could not be built, would otherwise suppress both the
+    // workspace default and the fallback and leave no styling guidance at all.
+    const hasHydratedReferenceDesign =
+      referenceHydration.status === "hydrated" &&
+      referenceHydration.measuredDesignCount > 0;
 
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
@@ -1408,6 +1419,7 @@ export default function Index() {
                 : t("home.importedReferenceDeck"),
             source: "pptx",
             referenceFilePaths,
+            importedFilePath: pptxReference.path,
           };
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
@@ -1466,6 +1478,7 @@ export default function Index() {
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
               referenceFilePaths,
+              importedFilePath: documentReference.path,
             };
           } catch (error) {
             deleteDeck(referenceDeck.id);

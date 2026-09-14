@@ -10,7 +10,19 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
  */
 export const REFERENCE_HYDRATION_TIMEOUT_MS = 3 * 60 * 1000;
 
+/**
+ * Wall-clock ceiling for the whole hydration step. Up to `MAX_REFERENCE_FILES`
+ * documents can be attached, so a per-file timeout alone would let setup sit
+ * for the sum of them before the first slide is written.
+ */
+export const REFERENCE_HYDRATION_DEADLINE_MS = 4 * 60 * 1000;
+
+/** Reads in flight at once. Each one is a full server-side document parse. */
+const HYDRATION_CONCURRENCY = 3;
+
 const MAX_CHARS_PER_REFERENCE = 12_000;
+/** Ceiling across all references, so N attachments cannot flood the prompt. */
+const MAX_TOTAL_REFERENCE_CHARS = 36_000;
 const MAX_PDF_PAGES_IN_CONTEXT = 20;
 const MAX_PPTX_SLIDES_IN_CONTEXT = 20;
 const MAX_DOCX_SECTIONS_IN_CONTEXT = 20;
@@ -24,7 +36,17 @@ export interface ReferenceDocumentFailure {
 
 export type ReferenceDocumentHydration =
   | { status: "none" }
-  | { status: "hydrated"; context: string; readCount: number }
+  | {
+      status: "hydrated";
+      context: string;
+      readCount: number;
+      /**
+       * Documents that contributed an actual measured visual language. A DOCX
+       * never does, and neither does a PDF whose digest could not be built —
+       * those are readable content, not a design to follow.
+       */
+      measuredDesignCount: number;
+    }
   | {
       status: "unreadable";
       failures: ReferenceDocumentFailure[];
@@ -195,6 +217,24 @@ function describeDocx(result: Record<string, unknown>): string[] {
   return lines;
 }
 
+/**
+ * Whether this read produced a visual language the agent can actually follow.
+ * Suppressing the generic styling fallback on the strength of a DOCX, or of a
+ * PDF whose digest failed, leaves a deck with no styling guidance at all.
+ */
+export function hasMeasuredDesign(
+  format: ReferenceDocumentFormat,
+  result: Record<string, unknown>,
+): boolean {
+  if (format === "pdf") return asRecord(result.styleDigest) !== null;
+  if (format === "pptx") {
+    const theme = asRecord(result.theme);
+    if (!theme) return false;
+    return asArray(theme.fonts).length > 0 || asArray(theme.colors).length > 0;
+  }
+  return false;
+}
+
 function describeReference(
   file: UploadedFile,
   format: ReferenceDocumentFormat,
@@ -239,6 +279,7 @@ export interface HydrateReferenceDocumentsOptions {
   /** Paths already turned into a reference deck or imported as the source deck. */
   excludePaths?: Iterable<string>;
   callActionImpl?: typeof callAction;
+  now?: () => number;
 }
 
 /**
@@ -257,6 +298,7 @@ export async function hydrateReferenceDocuments(
 ): Promise<ReferenceDocumentHydration> {
   const excluded = new Set(options.excludePaths ?? []);
   const call = options.callActionImpl ?? callAction;
+  const now = options.now ?? (() => Date.now());
   const targets = files.flatMap((file) => {
     if (excluded.has(file.path)) return [];
     const format = referenceDocumentFormat(file);
@@ -264,45 +306,31 @@ export async function hydrateReferenceDocuments(
   });
   if (targets.length === 0) return { status: "none" };
 
-  const blocks: string[] = [];
-  const failures: ReferenceDocumentFailure[] = [];
+  const deadlineAt = now() + REFERENCE_HYDRATION_DEADLINE_MS;
+  const outcomes = new Array<ReferenceReadOutcome>(targets.length);
+  let next = 0;
 
-  for (const { file, format } of targets) {
-    try {
-      const result = asRecord(
-        await call(
-          "import-file",
-          {
-            filePath: file.path,
-            format,
-            maxChars: MAX_CHARS_PER_REFERENCE,
-          },
-          { timeoutMs: REFERENCE_HYDRATION_TIMEOUT_MS },
-        ),
+  const worker = async () => {
+    for (let index = next++; index < targets.length; index = next++) {
+      outcomes[index] = await readReference(
+        targets[index],
+        call,
+        Math.min(REFERENCE_HYDRATION_TIMEOUT_MS, deadlineAt - now()),
       );
-      if (!result) {
-        failures.push({
-          originalName: file.originalName,
-          message: "the file reader returned no result",
-        });
-        continue;
-      }
-      if (!hasUsableContent(format, result)) {
-        failures.push({
-          originalName: file.originalName,
-          message: "no readable content was found in the file",
-        });
-        continue;
-      }
-      blocks.push(describeReference(file, format, result));
-    } catch (error) {
-      failures.push({
-        originalName: file.originalName,
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
-  }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(HYDRATION_CONCURRENCY, targets.length) },
+      worker,
+    ),
+  );
 
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === "failed"
+      ? [{ originalName: outcome.originalName, message: outcome.message }]
+      : [],
+  );
   if (failures.length > 0) {
     return {
       status: "unreadable",
@@ -311,9 +339,29 @@ export async function hydrateReferenceDocuments(
     };
   }
 
+  // Shared budget rather than per-file: N attachments at the per-file cap
+  // would otherwise crowd out the user's own request in the prompt.
+  const budget = { remaining: MAX_TOTAL_REFERENCE_CHARS };
+  const blocks: string[] = [];
+  let measuredDesignCount = 0;
+  for (const outcome of outcomes) {
+    if (outcome.status !== "read") continue;
+    if (outcome.measuredDesign) measuredDesignCount += 1;
+    if (budget.remaining <= 0) {
+      blocks.push(
+        `### ${outcome.originalName}\nRead successfully, but omitted here because earlier references filled the reference budget. Call \`import-file\` for this one if you need it.`,
+      );
+      continue;
+    }
+    const block = truncate(outcome.block, budget.remaining);
+    budget.remaining -= block.length;
+    blocks.push(block);
+  }
+
   return {
     status: "hydrated",
     readCount: blocks.length,
+    measuredDesignCount,
     context: [
       "",
       "## Attached Reference Documents",
@@ -322,6 +370,65 @@ export async function hydrateReferenceDocuments(
       ...blocks,
     ].join("\n\n"),
   };
+}
+
+type ReferenceReadOutcome =
+  | {
+      status: "read";
+      originalName: string;
+      block: string;
+      measuredDesign: boolean;
+    }
+  | { status: "failed"; originalName: string; message: string };
+
+async function readReference(
+  target: { file: UploadedFile; format: ReferenceDocumentFormat },
+  call: typeof callAction,
+  timeoutMs: number,
+): Promise<ReferenceReadOutcome> {
+  const { file, format } = target;
+  if (timeoutMs <= 0) {
+    return {
+      status: "failed",
+      originalName: file.originalName,
+      message: "reading the attached references took too long",
+    };
+  }
+  try {
+    const result = asRecord(
+      await call(
+        "import-file",
+        { filePath: file.path, format, maxChars: MAX_CHARS_PER_REFERENCE },
+        { timeoutMs },
+      ),
+    );
+    if (!result) {
+      return {
+        status: "failed",
+        originalName: file.originalName,
+        message: "the file reader returned no result",
+      };
+    }
+    if (!hasUsableContent(format, result)) {
+      return {
+        status: "failed",
+        originalName: file.originalName,
+        message: "no readable content was found in the file",
+      };
+    }
+    return {
+      status: "read",
+      originalName: file.originalName,
+      block: describeReference(file, format, result),
+      measuredDesign: hasMeasuredDesign(format, result),
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      originalName: file.originalName,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export function describeUnreadableReferences(

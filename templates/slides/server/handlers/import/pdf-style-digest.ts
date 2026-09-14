@@ -34,7 +34,11 @@ export interface PdfStyleDigest {
     top: number;
     bottom: number;
   } | null;
-  /** Pages carrying at least one placed image. */
+  /**
+   * Pages carrying imagery, counting images the parser detected but could not
+   * place. The read-only path parses without decoded image bytes, so placed
+   * elements alone would report every image-heavy PDF as having none.
+   */
   pagesWithImages: number;
 }
 
@@ -102,7 +106,10 @@ export function buildPdfStyleDigest(
     const textElements = page.elements.filter(
       (element) => element.kind === "text" && element.paragraphs?.length,
     );
-    if (page.elements.some((element) => element.kind === "image")) {
+    if (
+      page.imagesSkipped > 0 ||
+      page.elements.some((element) => element.kind === "image")
+    ) {
       pagesWithImages += 1;
     }
 

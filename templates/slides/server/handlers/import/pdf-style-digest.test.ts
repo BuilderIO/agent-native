@@ -176,6 +176,18 @@ describe("buildPdfStyleDigest", () => {
     expect(digest?.pagesWithImages).toBe(1);
   });
 
+  it("counts imagery the read-only parse detected but could not place", () => {
+    // The read-only path parses without decoded image bytes, so an
+    // image-heavy page arrives with no image element and imagesSkipped set.
+    const digest = buildPdfStyleDigest([
+      page({ imagesSkipped: 3 }),
+      page({ pageNumber: 2, imagesSkipped: 1 }),
+      page({ pageNumber: 3 }),
+    ]);
+
+    expect(digest?.pagesWithImages).toBe(2);
+  });
+
   it("classifies a portrait reference", () => {
     const digest = buildPdfStyleDigest([
       page({ widthEmu: pt(612), heightEmu: pt(792) }),

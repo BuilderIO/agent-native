@@ -362,6 +362,7 @@ describe("startDeckGeneration", () => {
         referenceSelection: {
           referenceDeckId: "reference-deck-1",
           referenceFilePaths: ["/uploads/reference.pdf"],
+          importedReferenceFilePath: "/uploads/reference.pdf",
         },
         designSystems: [],
         createDeck: vi.fn(() => deck),
@@ -388,9 +389,21 @@ describe("startDeckGeneration", () => {
     );
   });
 
-  it("keeps every imported reference file out of source-preserving mode", async () => {
-    mockCallAction.mockClear();
-    mockCallAction.mockResolvedValue(undefined);
+  it("hydrates reference-import documents that were not imported into the deck", async () => {
+    // The import controls accept several files but import only one. The rest
+    // are in referenceFilePaths yet represented nowhere, so they still need
+    // reading — excluding the whole list silently dropped them.
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "import-file"
+        ? {
+            format: "pdf",
+            pageCount: 1,
+            textPageCount: 1,
+            pages: [{ pageNum: 1, text: "SECOND_REFERENCE_TEXT" }],
+          }
+        : undefined,
+    );
     const deck = {
       id: "deck-multiple-reference-files",
       title: "Untitled Deck",
@@ -426,6 +439,7 @@ describe("startDeckGeneration", () => {
             "/uploads/reference.pptx",
             "/uploads/reference.pdf",
           ],
+          importedReferenceFilePath: "/uploads/reference.pptx",
         },
         designSystems: [],
         createDeck: vi.fn(() => deck),
@@ -439,11 +453,18 @@ describe("startDeckGeneration", () => {
       }),
     ).resolves.toBe("started");
 
+    // The imported PPTX is already represented by the reference deck.
     expect(mockCallAction).not.toHaveBeenCalledWith(
       "import-file",
-      expect.anything(),
+      expect.objectContaining({ filePath: "/uploads/reference.pptx" }),
       expect.anything(),
     );
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "import-file",
+      expect.objectContaining({ filePath: "/uploads/reference.pdf" }),
+      expect.anything(),
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain("SECOND_REFERENCE_TEXT");
     expect(agentSubmit.mock.calls[0]?.[1]).not.toContain(
       "Source-preserving improvement mode",
     );
@@ -675,6 +696,64 @@ describe("startDeckGeneration", () => {
     expect(context).not.toContain("use a light warm-neutral canvas");
     expect(context).not.toContain("Before generating a bare or on-brand deck");
     expect(context).not.toContain(
+      "When no reference deck or hydrated design system is available",
+    );
+  });
+
+  it("keeps the styling fallback for a reference that carries no design", async () => {
+    // A DOCX is readable content, not a visual language. Suppressing the
+    // workspace default and the fallback for it would leave the deck with no
+    // styling guidance at all.
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "import-file"
+        ? {
+            format: "docx",
+            sections: [
+              { heading: "Overview", textPreview: "Why this matters" },
+            ],
+            textLength: 400,
+          }
+        : undefined,
+    );
+    const deck = {
+      id: "deck-docx-reference",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Turn this brief into a deck",
+        files: [
+          {
+            path: "/uploads/brief.docx",
+            originalName: "brief.docx",
+            filename: "brief.docx",
+            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            size: 2048,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("Overview: Why this matters");
+    expect(context).toContain("Before generating a bare or on-brand deck");
+    expect(context).toContain(
       "When no reference deck or hydrated design system is available",
     );
   });

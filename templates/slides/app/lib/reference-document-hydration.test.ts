@@ -4,6 +4,7 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 
 import {
   hydrateReferenceDocuments,
+  REFERENCE_HYDRATION_DEADLINE_MS,
   referenceDocumentFormat,
 } from "./reference-document-hydration";
 
@@ -77,6 +78,7 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.status).toBe("hydrated");
     if (result.status !== "hydrated") return;
     expect(result.readCount).toBe(1);
+    expect(result.measuredDesignCount).toBe(1);
     expect(result.context).toContain("## Attached Reference Documents");
     expect(result.context).toContain("### deck.pdf (PDF)");
     expect(result.context).toContain("Quarterly review");
@@ -113,6 +115,9 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).toContain(
       "Visual style could not be measured from this PDF (canvas renderer unavailable)",
     );
+    // Readable content, but no design to follow — the caller must keep its
+    // styling fallback rather than suppress it for a reference it cannot see.
+    expect(result.measuredDesignCount).toBe(0);
   });
 
   it("treats an unavailable upload handle as unreadable, not as an empty reference", async () => {
@@ -219,5 +224,88 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.status).toBe("hydrated");
     if (result.status !== "hydrated") return;
     expect(result.context).toContain("Overview: Why this matters");
+    // A DOCX carries content, never a visual language.
+    expect(result.measuredDesignCount).toBe(0);
+  });
+
+  it("counts a PPTX theme as a measured design", async () => {
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pptx",
+      theme: { fonts: ["Inter"] },
+      slides: [{ index: 0, texts: "Title" }],
+    });
+
+    const result = await hydrateReferenceDocuments([uploaded("deck.pptx")], {
+      callActionImpl,
+    });
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    expect(result.measuredDesignCount).toBe(1);
+  });
+
+  it("reads references concurrently instead of one timeout after another", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const callActionImpl = vi.fn().mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return pdfResult;
+    });
+
+    const files = Array.from({ length: 6 }, (_, index) =>
+      uploaded(`deck-${index}.pdf`),
+    );
+    const result = await hydrateReferenceDocuments(files, { callActionImpl });
+
+    expect(result.status).toBe("hydrated");
+    expect(callActionImpl).toHaveBeenCalledTimes(6);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(3);
+  });
+
+  it("passes a shrinking timeout so the whole step has a deadline", async () => {
+    let clock = 0;
+    const now = () => clock;
+    const callActionImpl = vi.fn().mockImplementation(async () => {
+      clock += REFERENCE_HYDRATION_DEADLINE_MS / 2;
+      return pdfResult;
+    });
+
+    const result = await hydrateReferenceDocuments(
+      [uploaded("a.pdf"), uploaded("b.pdf"), uploaded("c.pdf")],
+      { callActionImpl, now },
+    );
+
+    const timeouts = callActionImpl.mock.calls.map(
+      (call) => (call[2] as { timeoutMs: number }).timeoutMs,
+    );
+    expect(timeouts[0]).toBeLessThanOrEqual(REFERENCE_HYDRATION_DEADLINE_MS);
+    expect(Math.min(...timeouts)).toBeLessThan(timeouts[0]);
+    expect(result.status).toBe("unreadable");
+    if (result.status !== "unreadable") return;
+    expect(result.failures[0].message).toContain("took too long");
+  });
+
+  it("keeps the combined reference context within a total budget", async () => {
+    const long = "x".repeat(20_000);
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pdf",
+      pageCount: 1,
+      textPageCount: 1,
+      pages: [{ pageNum: 1, text: long }],
+    });
+
+    const files = Array.from({ length: 6 }, (_, index) =>
+      uploaded(`deck-${index}.pdf`),
+    );
+    const result = await hydrateReferenceDocuments(files, { callActionImpl });
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    expect(result.context.length).toBeLessThan(50_000);
+    expect(result.context).toContain("filled the reference budget");
   });
 });

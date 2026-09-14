@@ -45,6 +45,12 @@ export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];
+  /**
+   * The one uploaded document that became `referenceDeckId`. The import
+   * controls accept multiple files but only import one, so the rest of
+   * `referenceFilePaths` still needs hydrating.
+   */
+  importedReferenceFilePath?: string;
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
     value: string;
@@ -60,6 +66,8 @@ export interface ImportedReference {
   title: string;
   source: "pptx" | "pdf" | "docx" | "google-slides";
   referenceFilePaths?: string[];
+  /** The uploaded document this reference deck was built from, when any. */
+  importedFilePath?: string;
 }
 
 type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
@@ -205,6 +213,9 @@ export function NewDeckReferenceStep({
         referenceSource: trimmedSource,
         ...(importedReference?.referenceFilePaths?.length
           ? { referenceFilePaths: importedReference.referenceFilePaths }
+          : {}),
+        ...(importedReference?.importedFilePath
+          ? { importedReferenceFilePath: importedReference.importedFilePath }
           : {}),
       });
     } finally {
