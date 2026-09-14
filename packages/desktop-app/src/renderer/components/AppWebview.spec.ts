@@ -18,6 +18,7 @@ import {
   APP_WEBVIEW_PREFERENCES,
   buildGuestAppChatSidebarStateScript,
   buildGuestAuthStateProbeScript,
+  navigateAppWebviewHistory,
   resolveAppWebviewPartition,
   readAppWebviewNavigationState,
   resolveAppWebviewAuthState,
@@ -61,6 +62,34 @@ describe("desktop webview navigation state", () => {
         canGoForward: () => true,
       }),
     ).toEqual({ canGoBack: false, canGoForward: false });
+  });
+
+  it("runs available history actions", () => {
+    const webview = {
+      canGoBack: vi.fn(() => true),
+      canGoForward: vi.fn(() => true),
+      goBack: vi.fn(),
+      goForward: vi.fn(),
+    };
+
+    expect(navigateAppWebviewHistory(webview, "back")).toBe(true);
+    expect(navigateAppWebviewHistory(webview, "forward")).toBe(true);
+    expect(webview.goBack).toHaveBeenCalledOnce();
+    expect(webview.goForward).toHaveBeenCalledOnce();
+  });
+
+  it("reports a detached guest without throwing", () => {
+    const webview = {
+      canGoBack: vi.fn(() => {
+        throw new Error("guest detached");
+      }),
+      canGoForward: vi.fn(() => false),
+      goBack: vi.fn(),
+      goForward: vi.fn(),
+    };
+
+    expect(navigateAppWebviewHistory(webview, "back")).toBe(false);
+    expect(webview.goBack).not.toHaveBeenCalled();
   });
 });
 

@@ -521,6 +521,26 @@ export function readAppWebviewNavigationState(
   }
 }
 
+export function navigateAppWebviewHistory(
+  webview: Pick<
+    ElectronWebviewElement,
+    "canGoBack" | "canGoForward" | "goBack" | "goForward"
+  > | null,
+  direction: "back" | "forward",
+): boolean {
+  if (!webview) return true;
+  try {
+    if (direction === "back") {
+      if (webview.canGoBack()) webview.goBack();
+    } else if (webview.canGoForward()) {
+      webview.goForward();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Determine the URL to load for this app.
  *
@@ -1332,11 +1352,21 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         },
         goBack() {
           const wv = webviewRef.current;
-          if (wv?.canGoBack()) wv.goBack();
+          if (!navigateAppWebviewHistory(wv, "back")) {
+            onNavigationStateChangeRef.current?.({
+              canGoBack: false,
+              canGoForward: false,
+            });
+          }
         },
         goForward() {
           const wv = webviewRef.current;
-          if (wv?.canGoForward()) wv.goForward();
+          if (!navigateAppWebviewHistory(wv, "forward")) {
+            onNavigationStateChangeRef.current?.({
+              canGoBack: false,
+              canGoForward: false,
+            });
+          }
         },
         reload() {
           const wv = webviewRef.current;
@@ -1512,6 +1542,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (disposed || loadFailureRef.current) return;
         loadFailureRef.current = true;
         authProbeSequenceRef.current += 1;
+        onNavigationStateChangeRef.current?.({
+          canGoBack: false,
+          canGoForward: false,
+        });
         setError(true);
         setIsLoading(false);
         onMainFrameLoadFailureRef.current?.(details);
