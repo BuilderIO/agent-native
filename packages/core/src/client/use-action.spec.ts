@@ -604,6 +604,62 @@ describe("callActionWithRetry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses a write method instead of risking a duplicated mutation", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry("send-thing", {}, {
+        method: "POST",
+      } as Parameters<typeof callActionWithRetry>[2]),
+    ).rejects.toThrow(/refuses POST/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends GET even when the caller passes no method", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callActionWithRetry("read-thing");
+
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+
+  it("stops the backoff as soon as the caller aborts", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      const promise = callActionWithRetry(
+        "read-thing",
+        {},
+        { method: "GET", signal: controller.signal },
+      );
+      const assertion = expect(promise).rejects.toMatchObject({ status: 503 });
+
+      // Flush only microtasks: the first 503 lands and the 500ms backoff is
+      // armed, but no timer has fired.
+      for (let tick = 0; tick < 10; tick++) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Settling this without advancing the backoff timer is the whole point:
+      // an uncancellable delay leaves the call pending for the full 500ms and
+      // then spends another attempt on a dead signal.
+      controller.abort();
+      await assertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not retry an aborted call", async () => {
     const controller = new AbortController();
     const fetchMock = vi.fn(() => {

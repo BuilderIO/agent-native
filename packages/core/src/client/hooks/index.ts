@@ -44,6 +44,7 @@ export {
   type ActionRegistry,
   type ClientActionCallOptions,
   type ClientActionMethod,
+  type RetriedActionCallOptions,
   type KeepaliveActionCallRejectionReason,
   type KeepaliveActionCallResult,
 } from "../use-action.js";

@@ -48,6 +48,7 @@ function setupFetch() {
   let listFailures = 0;
   let listFailureStatus: number | "network" = 503;
   let holdDeckReads = false;
+  let failDeckReads = false;
   const pendingDeckReads: (() => void)[] = [];
 
   const fetchMock = vi.fn((url: string | URL | Request) => {
@@ -72,9 +73,11 @@ function setupFetch() {
       const id = new URL(href, "http://localhost").searchParams.get("id");
       const found = serverDecks.find((d) => d.id === id);
       const respond = () =>
-        found
-          ? new Response(JSON.stringify(found), { status: 200 })
-          : new Response("", { status: 404 });
+        failDeckReads
+          ? new Response("", { status: 500 })
+          : found
+            ? new Response(JSON.stringify(found), { status: 200 })
+            : new Response("", { status: 404 });
       if (!holdDeckReads) return Promise.resolve(respond());
       return new Promise<Response>((resolve) => {
         pendingDeckReads.push(() => resolve(respond()));
@@ -97,6 +100,10 @@ function setupFetch() {
     /** Make every `get-deck` hang so the list/body gap is observable. */
     holdDeckReads() {
       holdDeckReads = true;
+    },
+    /** Make every `get-deck` fail deterministically (no retry budget spent). */
+    failDeckReads() {
+      failDeckReads = true;
     },
     pendingDeckReadCount: () => pendingDeckReads.length,
     releaseDeckReads() {
@@ -233,6 +240,28 @@ describe("deck list recovery through the fallback poll", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     queryClient.clear();
+  });
+
+  it("keeps the error when the list names decks whose bodies cannot be read back", async () => {
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+    api.failNextListReads(10, "network");
+
+    const { result, seen } = renderDeckListStates();
+    await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
+
+    // The light list recovers and names deck-a, but its body never reads back.
+    // "The server says you have a deck we could not load" must not resolve to
+    // "you have no decks".
+    api.failNextListReads(0);
+    api.failDeckReads();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+
+    expect(result.current.decks).toHaveLength(0);
+    expect(seen).not.toContain("empty");
+    expect(seen[seen.length - 1]).toBe("error");
   });
 
   it("holds the error pane until recovered decks are applied, never showing the empty state", async () => {

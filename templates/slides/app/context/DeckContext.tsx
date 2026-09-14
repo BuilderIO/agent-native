@@ -2355,10 +2355,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const addedDecks = (
-      await Promise.all(addedIds.map((id) => fetchDeckFromAPI(id)))
-    ).filter((d): d is Deck => d !== null);
+    const addedResults = await Promise.all(
+      addedIds.map((id) => fetchDeckFromAPI(id)),
+    );
     if (requestId !== deckListRequestIdRef.current) return;
+    const addedDecks = addedResults.filter((d): d is Deck => d !== null);
+    // The server named these ids; a body we could not read back is a truncated
+    // reconcile, not a completed one. Clearing the error here would assert
+    // "no decks yet" on a list the server just said is non-empty.
+    const hydratedEveryAddedDeck = addedDecks.length === addedIds.length;
 
     lastExternalUpdateRef.current = Date.now();
     const removedIds = new Set(removed.map((d) => d.id));
@@ -2374,7 +2379,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    setLoadError(false);
+    if (hydratedEveryAddedDeck) setLoadError(false);
   }, [isNewerThanSnapshot]);
 
   // Re-fetch the currently-open deck's full slide data and reconcile it.
