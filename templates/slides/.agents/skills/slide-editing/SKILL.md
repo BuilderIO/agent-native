@@ -19,7 +19,10 @@ registry; do not assume a fixed 1920x1080 canvas.
 Every slide uses this wrapper:
 
 ```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start;">
+<div
+  class="fmd-slide"
+  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start;"
+>
   <!-- Slide content here -->
 </div>
 ```
@@ -34,17 +37,17 @@ anti-pattern issues, but it cannot replace the active system.
 
 When no system is linked, generated slides may use these conventions:
 
-| Element | Style |
-|---------|-------|
-| Background | `bg-[#000000]` (pure black) |
-| Font | `font-family: 'Poppins', sans-serif` on all text |
-| Section labels | `font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF` |
-| Headings | `font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px` |
-| Title slides | `font-size: 54px; font-weight: 900` with `justify-content: center` |
-| Bullet points | `&#x25CF;` character (8px, white), gap: 20px, font-size: 22px, color: rgba(255,255,255,0.85) |
-| Sub-bullets | `&#x25CB;` (open circle), padding-left: 36px |
-| Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
-| Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
+| Element        | Style                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| Background     | `bg-[#000000]` (pure black)                                                                            |
+| Font           | `font-family: 'Poppins', sans-serif` on all text                                                       |
+| Section labels | `font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF`    |
+| Headings       | `font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px`              |
+| Title slides   | `font-size: 54px; font-weight: 900` with `justify-content: center`                                     |
+| Bullet points  | `&#x25CF;` character (8px, white), gap: 20px, font-size: 22px, color: rgba(255,255,255,0.85)           |
+| Sub-bullets    | `&#x25CB;` (open circle), padding-left: 36px                                                           |
+| Bold terms     | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
+| Accent color   | `#00E5FF` (cyan) for section labels, emphasis, highlights                                              |
 
 ## Fit and Density
 
@@ -97,6 +100,14 @@ To edit a slide's content:
    tab, and the canvas only ever shows the selected slide.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
+
+   For a deck-wide restyle such as "beautify this", report only what the write
+   actually returned. `patch-deck` lists genuinely changed slides in
+   `updatedSlideIds` and byte-identical ones in `unchangedSlideIds`; a slide in
+   `unchangedSlideIds` was not edited and must not be described as restyled.
+   `update-slide` fails with `slide_edit_noop` for the same reason. Both
+   reject a batch in which nothing changed, so re-read those slides and send
+   different content rather than narrating a summary the deck does not show.
 
 6. For factual edits, compare changed text against the retrieved source and
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
@@ -170,7 +181,10 @@ children of `.fmd-slide`. Give each one a stable `data-slide-object-id`:
 For visual elements (diagrams, charts, photos), use placeholder divs:
 
 ```html
-<div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px;">
+<div
+  class="fmd-img-placeholder"
+  style="width: 100%; height: 300px; border-radius: 12px;"
+>
   Description of the image
 </div>
 ```

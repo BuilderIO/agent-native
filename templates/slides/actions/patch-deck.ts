@@ -602,6 +602,21 @@ export function applyOperation(
 }
 
 /**
+ * Per-slide signatures taken either side of the operation loop. The deck-wide
+ * signature cannot answer "did this slide change", which is the only question
+ * that decides what the agent may report as edited.
+ */
+export function slideSignatures(deck: any): Map<string, string> {
+  const signatures = new Map<string, string>();
+  for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
+    if (typeof slide?.id === "string") {
+      signatures.set(slide.id, deckVersionContentSignature(slide));
+    }
+  }
+  return signatures;
+}
+
+/**
  * Agent content rewrites must not inherit click-reveal paths implicitly. A
  * caller that wants to revise both HTML and reveals sends `animations` in the
  * same patch, including the complete ordered list. Source-preserving edits are
@@ -611,7 +626,10 @@ export function applyOperation(
 export function clearOmittedAnimationsForAgentContentPatches(
   deck: any,
   operations: readonly Operation[],
-  options?: { sourceImport?: SourceImportMetadata | null },
+  options?: {
+    sourceImport?: SourceImportMetadata | null;
+    changedSlideIds?: ReadonlySet<string>;
+  },
 ): void {
   const explicitAnimationSlideIds = new Set(
     operations.flatMap((operation) =>
@@ -632,6 +650,7 @@ export function clearOmittedAnimationsForAgentContentPatches(
       operation.fields.content !== undefined &&
       operation.fields.animations === undefined &&
       !explicitAnimationSlideIds.has(operation.slideId) &&
+      (options?.changedSlideIds?.has(operation.slideId) ?? true) &&
       (operation.preserveSource === false ||
         !sourceSlideIds.has(operation.slideId))
         ? [operation.slideId]
@@ -656,13 +675,17 @@ export function clearOmittedAnimationsForAgentContentPatches(
 export function assertPatchedSlideAnimationsResolve(
   deck: any,
   operations: readonly Operation[],
-  options?: { requireElementPaths?: boolean },
+  options?: {
+    requireElementPaths?: boolean;
+    changedSlideIds?: ReadonlySet<string>;
+  },
 ): void {
   const slideIdsToValidate = new Set(
     operations.flatMap((operation) =>
       (operation.op === "patch-slide" || operation.op === "add-slide") &&
       (operation.fields.content !== undefined ||
-        operation.fields.animations !== undefined)
+        operation.fields.animations !== undefined) &&
+      (options?.changedSlideIds?.has(operation.slideId) ?? true)
         ? [operation.slideId]
         : [],
     ),
@@ -743,7 +766,12 @@ export default defineAction({
     "use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
-    "count, and animation metadata before reporting success. Content writes " +
+    "count, and animation metadata before reporting success. Only the slide " +
+    "IDs in updatedSlideIds actually changed: a slide echoed back in " +
+    "unchangedSlideIds matched the stored content exactly and must never be " +
+    "described as edited. A batch in which every patched slide is unchanged " +
+    "is rejected, so re-read those slides and send content that differs " +
+    "instead of retrying the same HTML. Content writes " +
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
     "get-layout-overflows later when you need the browser's fit result. " +
     "Agents can delete or reorder slides through operations in this action. " +
@@ -903,6 +931,7 @@ export default defineAction({
 
       const layoutFitSlideIds = new Set<string>();
       const deletedSlideIds = new Set<string>();
+      const signaturesBeforeOperations = slideSignatures(deck);
       for (const op of operations) {
         const existedBeforeDelete =
           op.op === "delete-slide" &&
@@ -957,6 +986,39 @@ export default defineAction({
           }
         }
       }
+      // ─── What actually changed, per slide ─────────────────────────────────
+      //
+      // `meaningfulChange` below is deck-wide: one real edit anywhere makes a
+      // batch of otherwise byte-identical patches look like a successful
+      // write, and the requested slide ids were then echoed back as
+      // `updatedSlideIds`. That is what a "beautify this" run reports to the
+      // user, so a deck where five of six slides were re-sent unchanged was
+      // narrated as six beautified slides. Compare each patched slide against
+      // its own pre-operation signature instead. This has to run before the
+      // deck-fit revision bump and the animation clearing below, because both
+      // rewrite slides and would otherwise count as the content change they
+      // are supposed to follow.
+      const signaturesAfterOperations = slideSignatures(deck);
+      const requestedSlideIds = [
+        ...new Set(
+          operations.flatMap((operation) =>
+            operation.op === "patch-slide" || operation.op === "add-slide"
+              ? [operation.slideId]
+              : [],
+          ),
+        ),
+      ];
+      const changedSlideIds = new Set(
+        requestedSlideIds.filter(
+          (slideId) =>
+            signaturesBeforeOperations.get(slideId) !==
+            signaturesAfterOperations.get(slideId),
+        ),
+      );
+      const unchangedSlideIds = requestedSlideIds.filter(
+        (slideId) => !changedSlideIds.has(slideId),
+      );
+
       if (deckFitRenderFieldsChanged(previousDeckFitFields, deck)) {
         for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
           if (typeof slide.id !== "string") continue;
@@ -967,14 +1029,17 @@ export default defineAction({
           layoutFitSlideIds.add(slide.id);
         }
       }
+
       if (sourceRewriteRequested) delete deck.sourceImport;
       if (isAgentCaller) {
         clearOmittedAnimationsForAgentContentPatches(deck, operations, {
           sourceImport: sourceRewriteRequested ? null : sourceImport,
+          changedSlideIds,
         });
       }
       assertPatchedSlideAnimationsResolve(deck, operations, {
         requireElementPaths: isAgentCaller,
+        changedSlideIds,
       });
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
@@ -1109,6 +1174,28 @@ export default defineAction({
         }
       }
 
+      // An agent restyle that landed nothing must fail, not return. Every
+      // requested slide coming back unchanged means the deck the user is
+      // looking at is the deck they were already looking at, and a returned
+      // value is indistinguishable from a real write to everything upstream
+      // — which is how a confident "beautified every slide" summary gets
+      // written about a deck nobody touched. Structural or deck-field work in
+      // the same batch is still real work, so only a pure slide-patch batch
+      // is rejected here.
+      const hasNonSlidePatchWork = operations.some(
+        (operation) => operation.op !== "patch-slide",
+      );
+      if (
+        isAgentCaller &&
+        !hasNonSlidePatchWork &&
+        requestedSlideIds.length > 0 &&
+        changedSlideIds.size === 0
+      ) {
+        throw new Error(
+          `Nothing was written: every patched slide (${requestedSlideIds.join(", ")}) is identical to the deck's current content, so the deck is unchanged. Do not report these slides as edited. Re-read them with get-deck and send content that actually differs.`,
+        );
+      }
+
       const meaningfulChange =
         deckVersionContentSignature(row.data) !==
           deckVersionContentSignature(deck) ||
@@ -1174,15 +1261,9 @@ export default defineAction({
         }
       });
 
-      const updatedSlideIds = [
-        ...new Set(
-          operations.flatMap((operation) =>
-            operation.op === "patch-slide" || operation.op === "add-slide"
-              ? [operation.slideId]
-              : [],
-          ),
-        ),
-      ];
+      const updatedSlideIds = requestedSlideIds.filter((slideId) =>
+        changedSlideIds.has(slideId),
+      );
       const hasMixedStructuralOperation = operations.some(
         (operation) =>
           operation.op === "delete-slide" ||
@@ -1217,6 +1298,13 @@ export default defineAction({
         updatedAt: now,
         updatedSlideIds,
         deletedSlideIds: [...deletedSlideIds],
+        ...(unchangedSlideIds.length
+          ? {
+              unchangedSlideIds,
+              partial: true,
+              message: `Applied, but ${unchangedSlideIds.join(", ")} matched the existing slide content exactly and were left unchanged — do not report those slides as edited.`,
+            }
+          : {}),
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
         ...(layoutFitSlideIdList.length
           ? {

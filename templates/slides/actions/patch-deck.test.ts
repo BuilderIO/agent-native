@@ -1625,3 +1625,238 @@ describe("run() — asynchronous layout fit metadata", () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// run() — deck-wide restyle ("beautify this") must not report unchanged slides
+// as edited. A batch where only some slides really change used to pass the
+// deck-wide meaningfulChange test and then echo every requested slideId back
+// as updated, which is what the agent narrates to the user.
+// ---------------------------------------------------------------------------
+describe("run() — partial no-op deck restyle", () => {
+  const beautifyDeck = () => ({
+    title: "Deck",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    slides: [
+      { id: "slide-1", content: "<div>One</div>" },
+      { id: "slide-2", content: "<div>Two</div>" },
+      { id: "slide-3", content: "<div>Three</div>" },
+    ],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify(beautifyDeck()),
+    };
+  });
+
+  it("reports only the slides whose content actually changed", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+          },
+          // Byte-identical to what is already persisted: a no-op the agent
+          // still believes it "beautified".
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-3",
+            fields: { content: "<div>Three</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.unchangedSlideIds).toEqual(["slide-2", "slide-3"]);
+    expect(result.partial).toBe(true);
+    expect(result.message).toContain("slide-2");
+    expect(result.message).toContain("do not report");
+  });
+});
+
+describe("run() — all-no-op deck restyle masked by animation clearing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            animations: [{ id: "a1", elementIndex: 0, type: "fade" }],
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("fails loudly when no slide content changed", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>One</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Two</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("Nothing was written"),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+});
+
+describe("run() — no-op content patches leave the slide alone", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            animations: [
+              { id: "a1", elementIndex: 0, elementPath: [0], type: "fade" },
+            ],
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("keeps reveals on a slide whose content was re-sent unchanged", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[0].animations).toHaveLength(1);
+    expect(persisted.slides[0].content).toBe("<div>One</div>");
+  });
+
+  it("drops reveals on a slide whose content really changed", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[0].animations).toBeUndefined();
+  });
+});
+
+describe("run() — deck-wide fit bump does not fake a slide edit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        aspectRatio: "16:9",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("keeps an unchanged slide unchanged when the aspect ratio changes", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          { op: "patch-deck-fields", fields: { aspectRatio: "4:3" } },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual([]);
+    expect(result.unchangedSlideIds).toEqual(["slide-1"]);
+  });
+});
