@@ -350,6 +350,10 @@ describe("trusted acceptance reaper boundary", () => {
         "let selected = configured;",
         'configured.push({ id: "calendar-content" });\n          let selected = configured;',
       ),
+      reaper.replace(
+        "let selected = configured;",
+        'Array.prototype.filter = () => [{ id: "calendar-content" }];\n          let selected = configured;',
+      ),
       reaper.replace("selected.length > 0", "selected.length >= 0"),
       reaper.replace(
         "matrix: ${{ steps.workspaces.outputs.matrix }}",

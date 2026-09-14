@@ -390,71 +390,31 @@ export function validateTrustedAcceptanceReaper(
     isRecord(workspaceStep) && typeof workspaceStep.run === "string"
       ? workspaceStep.run
       : "";
-  const runLines = selector.split("\n").map((line) => line.trim());
-  const configLines = runLines.filter((line) => /\bconfig\b/.test(line));
-  const trustedConfigLines = [
-    'const config = JSON.parse(fs.readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8"));',
-    'const configured = config.workspaces.filter(workspace => workspace.enabled === true && workspace.runtimeAuthority?.provisioner?.kind === "trusted-lease-v1");',
-  ];
-  if (configLines.join("\n") !== trustedConfigLines.join("\n")) {
-    issues.push(
-      "reaper must derive enabled workspaces from the trusted config file",
-    );
-  }
-
+  const selectorLines = selector
+    .trim()
+    .split("\n")
+    .map((line) => line.trim());
   const matrixWrite =
     "fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({include: selected.map(({id}) => ({workspace: id}))})}\\n`);";
-  const matrixWrites = runLines.filter((line) =>
-    line.startsWith("fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix="),
-  );
-  if (matrixWrites.length !== 1 || matrixWrites[0] !== matrixWrite) {
-    issues.push(
-      "reaper matrix output must be built from the selected workspaces",
-    );
-  }
-
   const hasWorkspacesWrite =
     "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);";
-  const configuredLines = runLines.filter((line) =>
-    /\bconfigured\b/.test(line),
-  );
-  const expectedConfiguredLines = [
+  const expectedSelectorLines = [
+    "node - <<'NODE'",
+    'const fs = require("node:fs");',
+    'const config = JSON.parse(fs.readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8"));',
     'const configured = config.workspaces.filter(workspace => workspace.enabled === true && workspace.runtimeAuthority?.provisioner?.kind === "trusted-lease-v1");',
     "let selected = configured;",
+    'if (process.env.EVENT_NAME === "workflow_dispatch") {',
     "selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
     'if (selected.length !== 1) throw new Error("Requested workspace has no configured trusted lease authority");',
-  ];
-  if (configuredLines.join("\n") !== expectedConfiguredLines.join("\n")) {
-    issues.push(
-      "reaper must derive configured workspaces without other reads or mutations",
-    );
-  }
-
-  const selectedLines = runLines.filter((line) => /\bselected\b/.test(line));
-  const expectedSelectedLines = [
-    "let selected = configured;",
-    "selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
-    'if (selected.length !== 1) throw new Error("Requested workspace has no configured trusted lease authority");',
+    "}",
     matrixWrite,
     hasWorkspacesWrite,
+    "NODE",
   ];
-  if (selectedLines.join("\n") !== expectedSelectedLines.join("\n")) {
+  if (selectorLines.join("\n") !== expectedSelectorLines.join("\n")) {
     issues.push(
-      "reaper must use the selected workspace list without other reads or mutations",
-    );
-  }
-
-  const hasWorkspacesWrites = runLines.filter((line) =>
-    line.startsWith(
-      "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=",
-    ),
-  );
-  if (
-    hasWorkspacesWrites.length !== 1 ||
-    hasWorkspacesWrites[0] !== hasWorkspacesWrite
-  ) {
-    issues.push(
-      "reaper must write the empty-matrix output once from selected workspaces",
+      "reaper workspace selector must match the allow-listed trusted planner",
     );
   }
   if (
