@@ -557,6 +557,37 @@ describe("contentActionInvalidatePredicate", () => {
     },
   );
 
+  it.each(["/home", "/settings", "/trash", "/page/document-1"])(
+    "reveals externally created pages in discovery queries on %s",
+    (pathname) => {
+      const predicate = contentActionInvalidatePredicate(pathname);
+      const event = [{ source: "action", key: "create-document" }];
+
+      expect(
+        predicate({ queryKey: ["action", "list-documents", undefined] }, event),
+      ).toBe(true);
+      for (const queryName of [
+        "get-content-database",
+        "query-content-database-items",
+      ]) {
+        const query = {
+          queryKey: ["action", queryName, { databaseId: "files" }],
+          isActive: () => true,
+        };
+        expect(predicate(query, event)).toBe(true);
+        expect(predicate({ ...query, isActive: () => false }, event)).toBe(
+          false,
+        );
+      }
+      expect(
+        predicate(
+          { queryKey: ["action", "list-trashed-documents", undefined] },
+          event,
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("refreshes only the active personal-view query for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {

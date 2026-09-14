@@ -65,6 +65,14 @@ pnpm action create-document --title "My Page" --icon "📝"
 pnpm action create-document --title "Research" --description "Evidence and source notes that support the current project"
 ```
 
+When a user asks for a Page in an interactive Content conversation, creation is
+not a complete handoff. After `create-document` succeeds, call `navigate` with
+the returned document `id`, then call `view-screen` to verify that the same Page
+is open before saying it is ready. The create result already supplies the
+stable Page link. Surface that link so the Page remains reachable if navigation
+is interrupted. Do not navigate for background, batch, or API creation unless
+the caller explicitly asked to open the result.
+
 ### edit-document
 
 Surgically edit document content using search-and-replace. **Preferred over `update-document --content` for modifications** — sends only the changed text instead of regenerating the entire document.
@@ -271,7 +279,7 @@ never guessed.
 | User request              | What to do                                                                        |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document --title "X" --content "# X\n\n..."`                              |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
 | "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
 
@@ -279,7 +287,7 @@ never guessed.
 
 | User says                    | What to do                                                                          |
 | ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document --title "X" --content "# X\n\n..."`                                |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
 | "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
 | "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |

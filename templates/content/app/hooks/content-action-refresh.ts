@@ -87,6 +87,8 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "restore-content-database",
 ]);
 
+const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
+
 const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-content-databases",
   "list-documents",
@@ -209,6 +211,12 @@ function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
   );
 }
 
+function isDocumentListQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" && query.queryKey[1] === "list-documents"
+  );
+}
+
 export function contentDocumentIdFromPathname(
   pathname: string,
 ): string | undefined {
@@ -230,6 +238,13 @@ export function contentActionInvalidatePredicate(
             ? args.documentId
             : undefined
         : undefined;
+    if (
+      (isDocumentListQuery(query) ||
+        (isDatabaseQuery(query) && query.isActive?.() === true)) &&
+      eventsIncludeMutation(events, DOCUMENT_DISCOVERY_MUTATIONS)
+    ) {
+      return true;
+    }
     if (
       (isDatabaseLifecycleQuery(query) ||
         (isDatabaseQuery(query) && query.isActive?.() === true)) &&
