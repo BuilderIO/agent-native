@@ -97,8 +97,8 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   focus-context behaviors need paired Superhuman replay before treating either
   as a parity gap. No mailbox contacts/results were available, and mobile plus
   Superhuman behavior remain unverified. The search combobox had no accessible
-  name in the local accessibility tree; Mail now uses its existing localized
-  `mail.search.label` for that name, with a focused regression test.
+  name and the query-clear button was unnamed in the local accessibility tree;
+  both now use existing localized labels, with a focused regression test.
 - SEARCH-002 — Type one character, two characters, three characters, spaces,
   quoted text, unicode, punctuation, and a long query. Confirm debounce,
   local-match timing, remote-search timing, and no request for short queries.

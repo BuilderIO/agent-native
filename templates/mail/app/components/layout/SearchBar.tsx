@@ -390,6 +390,7 @@ export function SearchBar({
             <TooltipTrigger asChild>
               <button
                 type="button"
+                aria-label={t("mail.search.clear")}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   handleClear();

@@ -157,11 +157,18 @@ describe("SearchBar suggestion selection", () => {
     vi.unstubAllGlobals();
   });
 
-  it("exposes the localized search label to assistive technology", () => {
+  it("exposes localized search and clear labels to assistive technology", () => {
     render(<SearchBar onClose={vi.fn()} />);
 
+    const search = screen.getByRole("combobox", {
+      name: "mail.search.label",
+    });
+    expect(search).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: "synthetic no-match" } });
+
     expect(
-      screen.getByRole("combobox", { name: "mail.search.label" }),
+      screen.getByRole("button", { name: "mail.search.clear" }),
     ).toBeTruthy();
   });
 
