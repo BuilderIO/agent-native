@@ -241,41 +241,6 @@ function AppSetup() {
   return <LocalFolderLiveSync />;
 }
 
-function ThemeToggleItem() {
-  const { theme, setTheme } = useTheme();
-  const t = useT();
-  const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
-
-  useEffect(() => {
-    setSelectedTheme(readStoredThemePreference());
-  }, [theme]);
-
-  const activeTheme = selectedTheme;
-  const activeOption =
-    themeOptions.find((option) => option.value === activeTheme) ??
-    themeOptions[0];
-  const ActiveIcon = activeOption.icon;
-  const handleSelect = () => {
-    const next = nextTheme(activeTheme);
-    setSelectedTheme(next);
-    writeStoredThemePreference(next);
-    setTheme(next);
-  };
-
-  return (
-    <CommandMenu.Item
-      onSelect={handleSelect}
-      keywords={["theme", "dark", "light", "system", "mode"]}
-    >
-      <ActiveIcon size={16} />
-      {t("root.toggleTheme")}
-      <span className="ml-auto text-xs text-muted-foreground">
-        {t(`theme.${activeOption.value}`)}
-      </span>
-    </CommandMenu.Item>
-  );
-}
-
 function CommandStateMessage({
   children,
   icon,
@@ -535,6 +500,24 @@ function ContentCommandMenu({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
+  const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
+
+  useEffect(() => {
+    setSelectedTheme(readStoredThemePreference());
+  }, [theme]);
+
+  const activeOption =
+    themeOptions.find((option) => option.value === selectedTheme) ??
+    themeOptions[0];
+  const ActiveIcon = activeOption.icon;
+  const handleThemeSelect = () => {
+    const next = nextTheme(selectedTheme);
+    setSelectedTheme(next);
+    writeStoredThemePreference(next);
+    setTheme(next);
+  };
+
   return (
     <CommandMenu
       open={open}
@@ -555,8 +538,22 @@ function ContentCommandMenu({
           {t("root.openAgent")}
         </CommandMenu.Item>
       </CommandMenu.Group>
+      {/* The theme row must stay a direct CommandMenu.Item, not a wrapper
+          component: the menu's static-children search filter only
+          recognizes direct items, so an opaque wrapper would keep the row
+          visible — and holding the keyboard selection — for searches that
+          do not match it, wedging arrow navigation above the Ask AI row. */}
       <CommandMenu.Group heading={t("root.commandAppearance")}>
-        <ThemeToggleItem />
+        <CommandMenu.Item
+          onSelect={handleThemeSelect}
+          keywords={["theme", "dark", "light", "system", "mode"]}
+        >
+          <ActiveIcon size={16} />
+          {t("root.toggleTheme")}
+          <span className="ml-auto text-xs text-muted-foreground">
+            {t(`theme.${activeOption.value}`)}
+          </span>
+        </CommandMenu.Item>
       </CommandMenu.Group>
     </CommandMenu>
   );
