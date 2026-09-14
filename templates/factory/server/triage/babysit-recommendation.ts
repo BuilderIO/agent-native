@@ -1,7 +1,6 @@
 import type { BabysitMechanicalVerdict } from "./babysit-evidence.js";
 import {
   detectBotErrorAfterPing,
-  detectBuilderActive,
   type BabysitProposal,
   type BabysitRecommendation,
 } from "./pr-babysit.js";
@@ -13,6 +12,11 @@ export interface BabysitRecommendationInput {
   mechanical: BabysitMechanicalVerdict;
   checks: readonly PullRequestCheckObservation[];
   comments: readonly ReviewCommentObservation[];
+  issueComments?: readonly {
+    body: string;
+    author: string;
+    createdAt: string;
+  }[];
   lastCommentAtMs: number | null;
   lastPingHeadSha: string | null | undefined;
   headSha: string;
@@ -32,13 +36,11 @@ export function computeBabysitRecommendation(
 ): BabysitRecommendationResult {
   const botErrorAfterPing = detectBotErrorAfterPing({
     comments: input.comments,
+    issueComments: input.issueComments,
     lastCommentAtMs: input.lastCommentAtMs,
   });
-  const builder = detectBuilderActive({
-    checks: input.checks,
-    lastBuilderActivityAtMs: input.lastCommentAtMs,
-    nowMs: input.nowMs,
-  });
+  const builderActive = input.mechanical.builderActive;
+  const builderActiveUntil = input.mechanical.builderActiveUntil;
   const openBot = input.proposal.unansweredBotComments.length;
   const openHuman = input.proposal.unansweredComments.length;
   const blockingFailed = input.proposal.failingChecks.length;
@@ -50,24 +52,19 @@ export function computeBabysitRecommendation(
       recommendation: "stuck",
       because:
         "A bot error reply appeared after Factory's last request, so another ping is unlikely to help.",
-      builderActive: builder.active,
-      builderActiveUntil: builder.untilMs
-        ? new Date(builder.untilMs).toISOString()
-        : null,
+      builderActive,
+      builderActiveUntil,
       botErrorAfterPing: true,
     };
   }
 
-  if (builder.active) {
+  if (builderActive) {
     return {
       recommendation: "defer",
-      because: `Builder is still active within the ${Math.round(
-        (builder.untilMs ?? input.nowMs) - input.nowMs,
-      )}ms quiet window after recent activity or running CI.`,
+      because:
+        "Builder is still active within the quiet window after recent activity or running CI.",
       builderActive: true,
-      builderActiveUntil: builder.untilMs
-        ? new Date(builder.untilMs).toISOString()
-        : null,
+      builderActiveUntil,
       botErrorAfterPing: false,
     };
   }

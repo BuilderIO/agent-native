@@ -164,6 +164,7 @@ export function createBabysitPullRequestAction(
         mechanical,
         checks: details.checks,
         comments: details.comments,
+        issueComments: details.issueComments,
         lastCommentAtMs: stored.lastCommentAtMs,
         lastPingHeadSha: stored.lastPingHeadSha,
         headSha: summary.headSha,

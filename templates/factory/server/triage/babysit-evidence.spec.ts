@@ -5,7 +5,10 @@ import {
   readBabysitEvidence,
   readBabysitStoredState,
 } from "./babysit-evidence.js";
-import type { BabysitEvidenceClient } from "./babysit-evidence.js";
+import type {
+  BabysitEvidenceClient,
+  BabysitEvidenceDetails,
+} from "./babysit-evidence.js";
 import {
   DEFAULT_BABYSIT_PR_COMMENT,
   reconcileBabysitState,
@@ -142,7 +145,7 @@ describe("readBabysitStoredState", () => {
 });
 
 describe("babysitMechanicalVerdict", () => {
-  const details = {
+  const details: BabysitEvidenceDetails = {
     comments: [],
     commentsTruncated: false,
     reviews: [],
@@ -166,7 +169,7 @@ describe("babysitMechanicalVerdict", () => {
   });
   const verdict = (
     stored: Parameters<typeof readBabysitStoredState>[0],
-    overrides: Partial<typeof details> = {},
+    overrides: Partial<BabysitEvidenceDetails> = {},
     live: {
       mergeable: boolean | null;
       mergeableState: string | null;

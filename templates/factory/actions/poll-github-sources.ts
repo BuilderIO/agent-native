@@ -588,11 +588,10 @@ export default defineAction({
           if (summary.state !== "open") return;
           const headSha = summary.headSha || row.headSha;
           if (!headSha) return;
-          const evidence = await client.getPullRequestEvidence(
-            repository,
-            number,
-            headSha,
-          );
+          const [evidence, issueComments] = await Promise.all([
+            client.getPullRequestEvidence(repository, number, headSha),
+            client.listIssueComments(repository, number),
+          ]);
           const rowMetadata = parseTriageMetadata(row.metadataJson ?? "{}");
           const lastCommentAt = metadataString(
             rowMetadata,
@@ -612,6 +611,7 @@ export default defineAction({
             changesRequested: hasHumanChangesRequested(evidence.reviews),
             botErrorAfterPing: detectBotErrorAfterPing({
               comments: evidence.comments,
+              issueComments: issueComments.comments,
               lastCommentAtMs:
                 lastCommentAtMs !== null && Number.isFinite(lastCommentAtMs)
                   ? lastCommentAtMs

@@ -8,6 +8,7 @@ import {
   countFactoryBabysitComments,
   decideBabysitPing,
   deferBabysitQuietWindowExpired,
+  detectBotErrorAfterPing,
   DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
   hasCompletePassingChecks,
@@ -915,6 +916,23 @@ describe("babysit work policy", () => {
     for (const state of ["active", "queued", "out-of-scope", null, undefined]) {
       expect(babysitLeavesReviewWindow(state)).toBe(false);
     }
+  });
+
+  it("detects bot errors in issue comments after Factory's ping", () => {
+    const pingAt = Date.parse("2026-08-11T15:23:49.000Z");
+    expect(
+      detectBotErrorAfterPing({
+        comments: [],
+        issueComments: [
+          {
+            author: "builder-io-integration[bot]",
+            body: "The request failed with an error",
+            createdAt: "2026-08-11T15:24:00.000Z",
+          },
+        ],
+        lastCommentAtMs: pingAt,
+      }),
+    ).toBe(true);
   });
 
   it("reopens defer after the builder quiet window expires", () => {

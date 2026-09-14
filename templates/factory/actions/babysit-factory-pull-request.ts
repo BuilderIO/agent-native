@@ -397,6 +397,7 @@ export default defineAction({
       mechanical,
       checks: details.checks,
       comments: details.comments,
+      issueComments: details.issueComments,
       lastCommentAtMs: stored.lastCommentAtMs,
       lastPingHeadSha: stored.lastPingHeadSha,
       headSha: pullRequest.headSha,
@@ -478,7 +479,6 @@ export default defineAction({
         },
         {
           status: options?.status,
-          veto: options?.veto,
           touchUpdatedAt: previousState !== nextState,
         },
       );
@@ -577,9 +577,12 @@ export default defineAction({
       }
 
       if (decision === "defer" || mechanical.builderActive) {
+        const builderActiveUntil =
+          recommendationResult.builderActiveUntil ??
+          mechanical.builderActiveUntil;
         await park("defer", babysitDeferClause(), {
-          metadata: mechanical.builderActiveUntil
-            ? { prBabysitBuilderActiveUntil: mechanical.builderActiveUntil }
+          metadata: builderActiveUntil
+            ? { prBabysitBuilderActiveUntil: builderActiveUntil }
             : undefined,
         });
         return { ok: true, action: "defer" };
@@ -589,7 +592,7 @@ export default defineAction({
         await park("stuck", babysitStuckClause(), { status: "needs_manual" });
         return { ok: true, action: "stuck" };
       }
-      if (decision === "already_asked" && !mechanical.ping.allowed) {
+      if (decision === "already_asked") {
         await park("waiting", babysitAlreadyAskedClause());
         return { ok: true, action: "waiting" };
       }

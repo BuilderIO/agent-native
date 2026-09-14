@@ -653,19 +653,46 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
 const BOT_ERROR_AFTER_PING =
   /\b(error|failed|could not|unable to|exception|timeout)\b/i;
 
+export type BabysitPingWatchComment = {
+  author: string;
+  body: string;
+  createdAt: string;
+};
+
+function botErrorAfterPingInComments(
+  comments: readonly BabysitPingWatchComment[],
+  lastCommentAtMs: number,
+  bots: readonly string[],
+): boolean {
+  return comments.some(
+    (comment) =>
+      isBabysitBotAuthor(comment.author, bots) &&
+      Date.parse(comment.createdAt) >= lastCommentAtMs &&
+      BOT_ERROR_AFTER_PING.test(comment.body),
+  );
+}
+
 export function detectBotErrorAfterPing(input: {
   comments: readonly ReviewCommentObservation[];
+  issueComments?: readonly BabysitPingWatchComment[];
   lastCommentAtMs: number | null;
   botAuthors?: readonly string[];
 }): boolean {
   if (input.lastCommentAtMs === null) return false;
   const bots = input.botAuthors ?? DEFAULT_BABYSIT_BOT_AUTHORS;
-  return input.comments.some(
-    (comment) =>
-      isBabysitBotAuthor(comment.author, bots) &&
-      Date.parse(comment.createdAt) >= input.lastCommentAtMs! &&
-      BOT_ERROR_AFTER_PING.test(comment.body),
-  );
+  if (
+    botErrorAfterPingInComments(input.comments, input.lastCommentAtMs, bots)
+  ) {
+    return true;
+  }
+  if (input.issueComments?.length) {
+    return botErrorAfterPingInComments(
+      input.issueComments,
+      input.lastCommentAtMs,
+      bots,
+    );
+  }
+  return false;
 }
 
 export function detectBuilderActive(input: {

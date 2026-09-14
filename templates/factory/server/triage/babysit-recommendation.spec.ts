@@ -81,6 +81,43 @@ describe("computeBabysitRecommendation", () => {
     expect(result.because).toMatch(/bot thread/i);
   });
 
+  it("does not defer from Factory's ping timestamp when CI is idle", () => {
+    const result = computeBabysitRecommendation({
+      proposal: baseProposal(),
+      mechanical: baseMechanical({ needsWork: true }),
+      checks: [{ name: "ci", state: "passed", observedAt: "2026-01-01" }],
+      comments: [],
+      lastCommentAtMs: Date.now() - 60_000,
+      lastPingHeadSha: "abc",
+      headSha: "abc",
+      nowMs: Date.now(),
+    });
+    expect(result.recommendation).not.toBe("defer");
+    expect(result.builderActive).toBe(false);
+  });
+
+  it("recommends stuck after bot error replies in issue comments", () => {
+    const now = Date.now();
+    const result = computeBabysitRecommendation({
+      proposal: baseProposal(),
+      mechanical: baseMechanical({ needsWork: true }),
+      checks: [],
+      comments: [],
+      issueComments: [
+        {
+          author: "builder-io-integration[bot]",
+          body: "Request failed with error",
+          createdAt: new Date(now).toISOString(),
+        },
+      ],
+      lastCommentAtMs: now - 120_000,
+      lastPingHeadSha: "abc",
+      headSha: "abc",
+      nowMs: now,
+    });
+    expect(result.recommendation).toBe("stuck");
+  });
+
   it("recommends stuck after bot error replies", () => {
     const now = Date.now();
     const result = computeBabysitRecommendation({
