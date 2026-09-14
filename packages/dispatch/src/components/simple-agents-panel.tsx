@@ -14,6 +14,7 @@ import {
   IconEdit,
   IconFileImport,
   IconFolder,
+  IconInfoCircle,
   IconLayoutGrid,
   IconMessageCircle,
   IconPlugConnected,
@@ -107,6 +108,15 @@ interface AgentPackResponse {
 interface AgentPackFileInput {
   path: string;
   content: string;
+}
+
+export function describeSkippedPackFiles(warnings: string[]): string | null {
+  if (warnings.length === 0) return null;
+  const summary =
+    warnings.length === 1
+      ? "1 file was skipped and won't be imported; the rest of the folder will still be imported."
+      : `${warnings.length} files were skipped and won't be imported; the rest of the folder will still be imported.`;
+  return `${summary} ${warnings.join(" ")}`;
 }
 
 const AGENT_ICON_KEYS = [
@@ -910,8 +920,16 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               </span>
             </div>
             {packWarnings.length > 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                {packWarnings.join(" ")}
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+              >
+                <IconInfoCircle
+                  size={16}
+                  className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+                />
+                <span>{describeSkippedPackFiles(packWarnings)}</span>
               </div>
             ) : null}
             <div className="flex flex-col gap-2">

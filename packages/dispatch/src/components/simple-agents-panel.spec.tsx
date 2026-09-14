@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  describeSkippedPackFiles,
   handleAgentPackMutationSuccess,
   isPendingWorkspaceResourceApproval,
   SimpleAgentsPanel,
@@ -108,6 +109,30 @@ describe("agent pack resource mutations", () => {
   });
 });
 
+describe("describeSkippedPackFiles", () => {
+  it("returns null when nothing was skipped", () => {
+    expect(describeSkippedPackFiles([])).toBeNull();
+  });
+
+  it("frames a single skipped file as informational, not a failure", () => {
+    const message = describeSkippedPackFiles([
+      "Skipped non-text file: notes.pdf",
+    ]);
+
+    expect(message).toContain("the rest of the folder will still be imported");
+    expect(message).toContain("Skipped non-text file: notes.pdf");
+  });
+
+  it("pluralizes the summary for multiple skipped files", () => {
+    const message = describeSkippedPackFiles([
+      "Skipped non-text file: a.pdf",
+      "Skipped non-text file: b.png",
+    ]);
+
+    expect(message).toContain("2 files were skipped");
+  });
+});
+
 describe("SimpleAgentsPanel", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -149,5 +174,56 @@ describe("SimpleAgentsPanel", () => {
 
     expect(document.body.textContent).toContain("Import an agent");
     expect(document.body.textContent).toContain("Connect endpoint");
+  });
+
+  it("shows the skipped-file notice as an informational status, not an error", async () => {
+    await act(async () => {
+      root.render(<SimpleAgentsPanel />);
+    });
+
+    const importButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Import or connect"),
+    );
+    await act(async () => {
+      importButton?.click();
+    });
+
+    const folderTab = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent === "Agent folder",
+    );
+    expect(folderTab).not.toBeUndefined();
+    await act(async () => {
+      folderTab?.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    const folderInput = document.body.querySelector(
+      'input[type="file"][multiple]',
+    ) as HTMLInputElement | null;
+    expect(folderInput).not.toBeNull();
+
+    const files = [
+      new File(["# notes"], "notes.md", { type: "text/markdown" }),
+      new File(["binary"], "diagram.pdf", { type: "application/pdf" }),
+    ];
+    Object.defineProperty(folderInput, "files", {
+      value: files,
+      configurable: true,
+    });
+
+    await act(async () => {
+      folderInput?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const notice = document.body.querySelector('[role="status"]');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain("Skipped non-text file");
+    expect(notice?.textContent).toContain(
+      "the rest of the folder will still be imported",
+    );
+    expect(notice?.className).not.toContain("destructive");
+    expect(notice?.className).not.toMatch(/\bred-\d/);
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
   });
 });
