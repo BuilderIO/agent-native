@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   assertCommentAiSourceUnchanged,
+  assertCommentAiThreadUnchanged,
   commentThreadDigest,
   requireCommentAiRequest,
   retainCommentAiPayload,
@@ -15,7 +16,7 @@ import {
   documentContentHash,
   type DocumentEditMutationResult,
 } from "./_document-edit-mutation.js";
-import addComment from "./add-comment.js";
+import { addCommentWithGuard } from "./add-comment.js";
 import editDocument from "./edit-document.js";
 
 const payloadSchema = z.object({
@@ -64,7 +65,7 @@ export default defineAction({
         );
       result = { ...result, editApplied: true };
       await updateCommentAiRequest(request, { status: "running", result });
-      const reply = await addComment.run(
+      const reply = await addCommentWithGuard(
         {
           documentId: request.documentId,
           threadId: request.threadId,
@@ -73,6 +74,7 @@ export default defineAction({
           idempotencyKey: `comment-ai:${request.id}:receipt`,
         },
         ctx,
+        (tx) => assertCommentAiThreadUnchanged(request, tx),
       );
       result = { ...result, commentId: reply.id };
       await updateCommentAiRequest(request, { status: "running", result });

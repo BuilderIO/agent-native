@@ -74,6 +74,9 @@ type RequestSummaryRow = Pick<
   | "updatedAt"
 >;
 type CommentRow = typeof schema.documentComments.$inferSelect;
+type CommentTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 export function commentThreadDigest(
   comments: Pick<
@@ -446,6 +449,28 @@ export async function assertCommentAiSourceUnchanged(request: RequestRow) {
       "The comment changed during this request. Its thread remains open for review.",
     );
   return source;
+}
+
+export async function assertCommentAiThreadUnchanged(
+  request: RequestRow,
+  tx: CommentTransaction,
+) {
+  const comments = await tx
+    .select()
+    .from(schema.documentComments)
+    .where(
+      and(
+        eq(schema.documentComments.documentId, request.documentId),
+        eq(schema.documentComments.threadId, request.threadId),
+        eq(schema.documentComments.ownerEmail, request.ownerEmail),
+      ),
+    )
+    .for("update");
+  if (commentThreadDigest(comments) !== request.threadDigest) {
+    throw new Error(
+      "The comment changed during this request. Its thread remains open for review.",
+    );
+  }
 }
 
 export async function updateCommentAiRequest(

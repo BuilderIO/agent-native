@@ -43,6 +43,12 @@ function receipt() {
 vi.mock("../server/lib/comment-ai.js", () => ({
   assertCommentAiSourceUnchanged: (...args: unknown[]) =>
     mocks.assertSourceUnchanged(...args),
+  assertCommentAiThreadUnchanged: async () => {
+    if (state.transactionDigest !== state.request.threadDigest)
+      throw new Error(
+        "The comment changed during this request. Its thread remains open for review.",
+      );
+  },
   commentThreadDigest: () => state.transactionDigest,
   requireCommentAiRequest: (...args: unknown[]) =>
     mocks.requireRequest(...args),
@@ -350,6 +356,27 @@ describe("comment AI dedicated action boundaries", () => {
     expect(mocks.editDocument).not.toHaveBeenCalled();
     expect(state.resolvedRows).toBe(false);
   });
+
+  it("keeps a suggestion request recoverable when feedback changes before its receipt", async () => {
+    state.request.intent = "suggest";
+    mocks.createSuggestion.mockImplementationOnce(async () => {
+      state.transactionDigest = "changed-thread";
+      return { id: "suggestion-1" };
+    });
+
+    await expect(
+      run(createSuggestion as any, {
+        summary: "Clarify this",
+        find: "Before",
+        replace: "After",
+      }),
+    ).rejects.toThrow("comment changed during this request");
+    expect(mocks.addComment).not.toHaveBeenCalled();
+    expect(state.request).toMatchObject({
+      status: "needs-review",
+      result: { suggestionId: "suggestion-1" },
+    });
+  });
 });
 
 describe("apply-and-resolve partial failure recovery", () => {
@@ -366,13 +393,11 @@ describe("apply-and-resolve partial failure recovery", () => {
     state.transactionDigest = "stale-thread";
 
     await expect(run(applyRequest as any, args)).rejects.toThrow(
-      "comment changed after the edit was saved",
+      "comment changed during this request",
     );
 
-    expect(state.request.result).toEqual({
-      editApplied: true,
-      commentId: "ai-receipt-1",
-    });
+    expect(state.request.result).toEqual({ editApplied: true });
+    expect(mocks.addComment).not.toHaveBeenCalled();
     expect(state.request.status).toBe("needs-review");
     expect(state.resolvedRows).toBe(false);
   });
@@ -405,14 +430,6 @@ describe("apply-and-resolve partial failure recovery", () => {
       },
     ]);
     expect(mocks.addComment.mock.calls.map(([input]) => input)).toEqual([
-      expect.objectContaining({
-        documentId: "page-1",
-        threadId: "thread-1",
-        parentId: "comment-1",
-        content: args.summary,
-        idempotencyKey:
-          "comment-ai:11111111-1111-4111-8111-111111111111:receipt",
-      }),
       expect.objectContaining({
         documentId: "page-1",
         threadId: "thread-1",

@@ -1106,7 +1106,7 @@ export const runContentMigrations = runMigrations(
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_body_revision INTEGER`,
     },
     {
-      version: 88,
+      version: 93,
       name: "content-comment-ai-requests-and-actor",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS actor_kind TEXT;
       CREATE TABLE IF NOT EXISTS comment_ai_requests (
@@ -1123,7 +1123,8 @@ export const runContentMigrations = runMigrations(
         ON comment_ai_requests (document_id, requester_email)`,
     },
     {
-      version: 89,
+      version: 94,
+      name: "content-comment-ai-active-thread-index",
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_thread_idx
         ON comment_ai_requests (document_id, thread_id, requester_email)
         WHERE status IN ('queued', 'running')`,

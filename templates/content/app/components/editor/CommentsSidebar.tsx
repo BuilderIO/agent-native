@@ -1097,10 +1097,12 @@ export function CommentsSidebar({
     requestId?: string,
   ) => {
     if (!commentAi) return;
+    const root = thread.comments.find((comment) => comment.parent_id === null);
+    if (!root) return;
     try {
       await commentAi.start({
         threadId: thread.threadId,
-        rootCommentId: thread.comments[0].id,
+        rootCommentId: root.id,
         intent,
         requestId,
       });
@@ -1366,9 +1368,19 @@ export function CommentsSidebar({
             thread.threadId,
           )}
           starting={commentAi?.startingThreadIds.has(thread.threadId) ?? false}
-          canSuggest={canSuggest}
-          canReply={canComment && !thread.resolved}
-          canApply={canResolve}
+          canSuggest={
+            canSuggest &&
+            thread.comments.some((comment) => comment.parent_id === null)
+          }
+          canReply={
+            canComment &&
+            !thread.resolved &&
+            thread.comments.some((comment) => comment.parent_id === null)
+          }
+          canApply={
+            canResolve &&
+            thread.comments.some((comment) => comment.parent_id === null)
+          }
           onStart={(intent, requestId) =>
             handleStartCommentAi(thread, intent, requestId)
           }

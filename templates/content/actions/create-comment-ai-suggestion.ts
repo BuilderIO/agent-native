@@ -5,6 +5,7 @@ import { z } from "zod";
 import { markdownSuggestionOperation } from "../app/components/editor/suggestions/markdown-operation.js";
 import {
   assertCommentAiSourceUnchanged,
+  assertCommentAiThreadUnchanged,
   requireCommentAiRequest,
   retainCommentAiPayload,
   serializeCommentAiRequest,
@@ -14,7 +15,7 @@ import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edi
 import type { CommentAiRequest } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
-import addComment from "./add-comment.js";
+import { addCommentWithGuard } from "./add-comment.js";
 
 const payloadSchema = z.object({
   summary: z.string().trim().min(1).max(500),
@@ -102,7 +103,7 @@ export default defineAction({
         status: "running",
         result: { suggestionId: suggestion.id },
       });
-      const reply = await addComment.run(
+      const reply = await addCommentWithGuard(
         {
           documentId: request.documentId,
           threadId: request.threadId,
@@ -111,6 +112,7 @@ export default defineAction({
           idempotencyKey: `comment-ai:${request.id}:receipt`,
         },
         ctx,
+        (tx) => assertCommentAiThreadUnchanged(request, tx),
       );
       return suggestionResult(
         await updateCommentAiRequest(request, {
