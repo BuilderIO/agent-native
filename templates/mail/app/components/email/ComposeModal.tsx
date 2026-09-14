@@ -223,6 +223,8 @@ export function ComposeModal({
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
   const composeRef = useRef<HTMLDivElement>(null);
+  const knownDraftIdsRef = useRef(new Set(drafts.map((draft) => draft.id)));
+  const pendingNewDraftIdsRef = useRef(new Set<string>());
 
   // Observe agent sidebar width so compose window stays to its left
   const [sidebarRight, setSidebarRight] = useState(16); // default 16px (right-4)
@@ -285,6 +287,24 @@ export function ComposeModal({
     setShowCcBcc(false);
     setShowQuoted(false);
   }, [activeId]);
+
+  useEffect(() => {
+    const currentDraftIds = new Set(drafts.map((draft) => draft.id));
+    for (const id of currentDraftIds) {
+      if (!knownDraftIdsRef.current.has(id)) {
+        pendingNewDraftIdsRef.current.add(id);
+      }
+    }
+    for (const id of pendingNewDraftIdsRef.current) {
+      if (!currentDraftIds.has(id)) pendingNewDraftIdsRef.current.delete(id);
+    }
+    knownDraftIdsRef.current = currentDraftIds;
+    if (!activeDraft || !pendingNewDraftIdsRef.current.delete(activeDraft.id)) {
+      return;
+    }
+    setMinimized(false);
+    setIsExpanded(activeDraft.mode === "compose");
+  }, [activeDraft?.id, drafts]);
 
   // Focus editor when reply/forward opens
   useEffect(() => {

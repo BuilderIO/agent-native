@@ -297,6 +297,88 @@ describe("ComposeModal scheduling", () => {
     ).toBe("false");
   });
 
+  it("reveals a newly opened draft without revealing existing drafts", async () => {
+    const secondDraft: ComposeState = {
+      ...draft,
+      id: "draft-2",
+      to: "second@example.com",
+    };
+    const props = {
+      drafts: [draft],
+      activeId: draft.id,
+      activeDraft: draft,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard: vi.fn(),
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { container, getByRole, rerender } = render(
+      <ComposeModal {...props} />,
+    );
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.minimizeCompose" }),
+    );
+    expect(
+      getByRole("button", { name: "mail.compose.restoreCompose" }),
+    ).toBeTruthy();
+
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[draft, secondDraft]}
+        activeId={draft.id}
+        activeDraft={draft}
+      />,
+    );
+    expect(
+      getByRole("button", { name: "mail.compose.restoreCompose" }),
+    ).toBeTruthy();
+
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[draft, secondDraft]}
+        activeId={secondDraft.id}
+        activeDraft={secondDraft}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        getByRole("button", {
+          name: "mail.compose.restoreComposeSize",
+        }).getAttribute("aria-pressed"),
+      ).toBe("true");
+      expect(
+        container.querySelector<HTMLInputElement>('[data-recipient-field="to"]')
+          ?.value,
+      ).toBe(secondDraft.to);
+    });
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.minimizeCompose" }),
+    );
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[draft, secondDraft]}
+        activeId={draft.id}
+        activeDraft={draft}
+      />,
+    );
+
+    expect(
+      getByRole("button", { name: "mail.compose.restoreCompose" }),
+    ).toBeTruthy();
+    expect(container.querySelector('[data-recipient-field="to"]')).toBeNull();
+  });
+
   it("reveals and focuses Bcc with the compose keyboard shortcut", async () => {
     const onUpdate = vi.fn();
     const { container } = render(

@@ -371,18 +371,29 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   both the Compose email button and `c`; both focused the To field and left Send
   disabled. Command palette, reply/forward, route persistence, and further
   paired behavior from other starting states remain unverified.
-  Paired live check on 2026-09-14 (Superhuman 1041.0.54; Mail commit
+  Paired live check on 2026-09-14 (Superhuman 1041.0.54; Mail baseline commit
   `13aa214a29cbd5142d94f12d8ff85168c5372dad`; 1280×720): `c` from a Superhuman
   search-result view opened a main-workspace compose with To focused. In Mail,
-  `c` did nothing while the minimized-draft Restore button held focus; after
-  focus moved to the inbox web area, `c` opened a floating compose and focused
-  To. The recipient-free test draft had Send disabled and was discarded; the
-  pre-existing draft was left untouched. The opening layout differs (main
-  workspace vs. floating compose), and the initial focus-dependent no-op,
+  `c` did nothing while the minimized-draft Restore button held focus. Before
+  the fix, moving focus to the inbox and pressing `c` created a draft but left
+  the compose stack minimized. The working-tree fix now reveals a newly active
+  draft and expands new-message compose; a live replay from inbox focus showed
+  To focused and Send disabled. The blank test draft was discarded, and the
+  pre-existing draft was left untouched and minimized again. Mail's expanded
+  composer still overlays the main pane, so its layout is not yet verified as
+  equivalent to Superhuman's main-workspace compose. The focus-dependent no-op,
   other focus targets, and paired button/command-palette behavior remain open.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
-  keyboard, outside click, Escape, and browser navigation.
+  keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
+  Superhuman's pop-out was returned with Pop In, and Escape from a blank
+  main-workspace compose returned to the prior view. In Mail, synthetic A/B
+  drafts displayed the matching body after switching tabs; fullscreen toggled
+  on and back off. With an existing draft minimized, `c` from inbox focus
+  created a visible second draft with To focused and Send disabled. The blank
+  test drafts were discarded, leaving the pre-existing draft untouched and
+  minimized. Close/close-all recovery, outside click, browser navigation, and
+  other platform/focus variants remain unverified.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
   commas, semicolons, newline paste, drag between fields, duplicate casing,
   invalid address, display name, whitespace, Backspace, Delete, Enter, Tab,
