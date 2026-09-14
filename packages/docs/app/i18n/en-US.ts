@@ -755,22 +755,63 @@ const enUS = {
     },
     analytics: {
       faq: {
-        question1: "Can I ask my analytics questions in plain English?",
+        question1: "What is Agent-Native Analytics?",
         answer1:
-          "Yes. Ask the question; the agent writes the SQL, runs it against BigQuery, and builds the chart. Queries keep history, row counts, and shareable URLs.",
-        question2: "How is Analytics different from Amplitude or Mixpanel?",
+          "Agent-Native Analytics is a free and open-source AI analytics tool. Ask an AI agent questions about connected data, inspect queries, and build reusable dashboards. It also includes session replay, error tracking, and uptime monitoring.",
+        question2: "Do I need to know SQL to use Analytics?",
         answer2:
-          "They meter you per seat and per event, and their UI is theirs. Analytics is free and open source, and the agent extends the app itself — new charts, new connectors, on request.",
-        question3: "What data sources can I connect?",
+          "You can ask questions in plain language and have your AI agent write the queries. For BigQuery, you can also build charts by selecting tables, metrics, and filters in the Explorer. SQL remains available to inspect, and someone familiar with your data may need to help connect sources and define metrics.",
+        question3: "Which data sources can I connect?",
         answer3:
-          "Ten-plus built-in connectors: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud, and more. If yours is missing, the agent can build the connector.",
-        question4: "Do I need to know SQL?",
+          "Supported sources include BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot, and Stripe. Each source needs the appropriate credentials or a shared workspace connection granted to Analytics. Available answers depend on the data and permissions you connect.",
+        question4: "Can I use our own metric definitions?",
         answer4:
-          "No — plain English is the interface. But the SQL explorer is right there when you want it: direct BigQuery access, full query history.",
-        question5: "Is Analytics free?",
+          "Yes. Use the data dictionary to document definitions, table and column names, query examples, and exceptions such as excluding internal accounts. Your AI agent can use those definitions when writing queries. Review the SQL and results when checking a business metric.",
+        question5: "Can I share dashboards and schedule reports?",
         answer5:
-          "Yes — free and open source, with no per-event billing. Your data stays in your own warehouse.",
+          "Yes. Share dashboards with teammates or your organization using viewer, editor, or admin access. You can also schedule email reports with current dashboard results, or configure alerts for conditions you want to track.",
       },
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Analytics",
+      heroTitle: "Analyze your data with your AI agent",
+      heroDescription:
+        "Analytics is a free and open-source AI analytics tool for querying your connected data, building dashboards, and investigating user sessions.",
+      heroCta: "Open Analytics",
+      useCasesHeading: "What can you do with Analytics?",
+      useCasesBody:
+        "Track product growth, report on business performance, or investigate a problem someone encountered in your app.",
+      useCase1Title: "Track product growth",
+      useCase1Body:
+        "Ask how signups, active users, or conversions have changed. Compare periods and break down results by channel, plan, or customer segment.",
+      useCase2Title: "Report on business performance",
+      useCase2Body:
+        "Bring revenue, pipeline, or usage metrics into a dashboard for your team. Set date filters and revisit it for your next review.",
+      useCase3Title: "Investigate user issues",
+      useCase3Body:
+        "Find a recorded session and replay what happened. Inspect console errors and network requests, then share diagnostics with your AI agent.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading: "Everything you need to query, visualize, and explore",
+      feature1Title: "Natural language queries",
+      feature1Body:
+        "Ask your AI agent a question about your data. Get a chart, table, or metric, then follow up with a different breakdown.",
+      feature2Title: "Reusable dashboards",
+      feature2Body:
+        "Build dashboards with your AI agent or edit them yourself. Arrange panels, add filters, save views, and share access with your team.",
+      feature3Title: "SQL query explorer",
+      feature3Body:
+        "Run BigQuery queries and review their results and history. Inspect the SQL behind dashboard panels to check the calculations and filters.",
+      feature4Title: "Data source connections",
+      feature4Body:
+        "Connect sources such as BigQuery, GA4, HubSpot, and Stripe. Query warehouse data, product events, customer records, and revenue from the same app.",
+      feature5Title: "Data dictionary",
+      feature5Body:
+        "Document metric definitions, tables, and query examples. Your AI agent uses this context when writing queries and working with your data.",
+      feature6Title: "Session replay",
+      feature6Body:
+        "Replay recorded sessions with console and network activity alongside them. Jump to errors and copy a temporary diagnostics link for your AI agent.",
+      finalCtaHeading: "Start with a question about your data",
+      finalCtaBody: "Connect a source and ask your AI agent for the first chart.",
+      finalCtaButton: "Open Analytics",
       s001: "Analytics app screenshot",
       s002: "Data connectors",
       s003: "Chart types",

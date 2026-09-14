@@ -733,23 +733,64 @@ const frFR = {
     },
     analytics: {
       faq: {
-        question1: "Puis-je poser mes questions d'analyse en langage courant ?",
+        question1: "Qu'est-ce qu'Agent-Native Analytics ?",
         answer1:
-          "Oui. Posez votre question ; l'agent écrit la requête SQL, l'exécute dans BigQuery et crée le graphique. Les requêtes conservent leur historique, le nombre de lignes et des URL partageables.",
-        question2:
-          "En quoi Analytics diffère-t-il d'Amplitude ou de Mixpanel ?",
+          "Agent-Native Analytics est un outil d'analyse IA gratuit et open source. Posez des questions à un agent IA sur vos données connectées, examinez les requêtes et créez des tableaux de bord réutilisables. Il inclut aussi la relecture de session, le suivi des erreurs et la surveillance de la disponibilité.",
+        question2: "Dois-je connaître SQL pour utiliser Analytics ?",
         answer2:
-          "Ces services facturent par utilisateur et par événement, et leur interface leur appartient. Analytics est gratuit et open source, et l'agent enrichit lui-même l'app — nouveaux graphiques et nouveaux connecteurs — à la demande.",
+          "Vous pouvez poser des questions en langage courant et laisser votre agent IA écrire les requêtes. Pour BigQuery, vous pouvez aussi créer des graphiques en sélectionnant des tables, des métriques et des filtres dans l'Explorateur. Le SQL reste disponible pour être examiné, et quelqu'un qui connaît bien vos données peut devoir aider à connecter les sources et définir les métriques.",
         question3: "Quelles sources de données puis-je connecter ?",
         answer3:
-          "Plus de dix connecteurs intégrés : HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud et bien d'autres. Si le vôtre manque, l'agent peut créer le connecteur.",
-        question4: "Dois-je connaître SQL ?",
+          "Les sources prises en charge incluent BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot et Stripe. Chaque source nécessite les identifiants appropriés ou une connexion d'espace de travail partagée accordée à Analytics. Les réponses disponibles dépendent des données et des autorisations que vous connectez.",
+        question4: "Puis-je utiliser nos propres définitions de métriques ?",
         answer4:
-          "Non : le langage courant sert d'interface. Mais l'explorateur SQL est disponible dès que vous en avez besoin, avec un accès direct à BigQuery et l'historique complet des requêtes.",
-        question5: "Analytics est-il gratuit ?",
+          "Oui. Utilisez le dictionnaire de données pour documenter les définitions, les noms de tables et de colonnes, des exemples de requêtes et des exceptions, comme l'exclusion des comptes internes. Votre agent IA peut utiliser ces définitions lors de l'écriture des requêtes. Vérifiez le SQL et les résultats lors du contrôle d'une métrique métier.",
+        question5: "Puis-je partager des tableaux de bord et planifier des rapports ?",
         answer5:
-          "Oui, il est gratuit et open source, sans facturation par événement. Vos données restent dans votre propre entrepôt de données.",
+          "Oui. Partagez des tableaux de bord avec des coéquipiers ou votre organisation avec un accès lecteur, éditeur ou administrateur. Vous pouvez aussi planifier des rapports par e-mail avec les résultats actuels du tableau de bord, ou configurer des alertes pour les conditions que vous souhaitez surveiller.",
       },
+      // Copy V3 de la landing page (2026-09-14) — du hero au CTA final ci-dessous.
+      heroEyebrow: "Analytics",
+      heroTitle: "Analysez vos données avec votre agent IA",
+      heroDescription:
+        "Analytics est un outil d'analyse IA gratuit et open source pour interroger vos données connectées, créer des tableaux de bord et examiner les sessions utilisateur.",
+      heroCta: "Ouvrir Analytics",
+      useCasesHeading: "Que pouvez-vous faire avec Analytics ?",
+      useCasesBody:
+        "Suivez la croissance du produit, faites un rapport sur la performance de l'entreprise, ou examinez un problème rencontré par un utilisateur dans votre app.",
+      useCase1Title: "Suivre la croissance du produit",
+      useCase1Body:
+        "Demandez comment les inscriptions, les utilisateurs actifs ou les conversions ont évolué. Comparez des périodes et ventilez les résultats par canal, offre ou segment de clientèle.",
+      useCase2Title: "Faire un rapport sur la performance de l'entreprise",
+      useCase2Body:
+        "Rassemblez les indicateurs de revenus, de pipeline ou d'utilisation dans un tableau de bord pour votre équipe. Définissez des filtres de date et revenez-y avant votre prochaine revue.",
+      useCase3Title: "Examiner les problèmes utilisateur",
+      useCase3Body:
+        "Trouvez une session enregistrée et rejouez ce qui s'est passé. Examinez les erreurs de console et les requêtes réseau, puis partagez le diagnostic avec votre agent IA.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading: "Tout ce qu'il faut pour interroger, visualiser et explorer",
+      feature1Title: "Requêtes en langage naturel",
+      feature1Body:
+        "Posez une question à votre agent IA sur vos données. Obtenez un graphique, un tableau ou une métrique, puis demandez une autre ventilation.",
+      feature2Title: "Tableaux de bord réutilisables",
+      feature2Body:
+        "Créez des tableaux de bord avec votre agent IA ou modifiez-les vous-même. Organisez les panneaux, ajoutez des filtres, enregistrez des vues et partagez l'accès avec votre équipe.",
+      feature3Title: "Explorateur de requêtes SQL",
+      feature3Body:
+        "Exécutez des requêtes BigQuery et consultez leurs résultats et leur historique. Examinez le SQL derrière les panneaux du tableau de bord pour vérifier les calculs et les filtres.",
+      feature4Title: "Connexions aux sources de données",
+      feature4Body:
+        "Connectez des sources telles que BigQuery, GA4, HubSpot et Stripe. Interrogez les données de l'entrepôt, les événements produit, les fiches clients et les revenus depuis la même app.",
+      feature5Title: "Dictionnaire de données",
+      feature5Body:
+        "Documentez les définitions de métriques, les tables et des exemples de requêtes. Votre agent IA utilise ce contexte pour écrire des requêtes et travailler avec vos données.",
+      feature6Title: "Relecture de session",
+      feature6Body:
+        "Rejouez des sessions enregistrées avec l'activité console et réseau associée. Accédez directement aux erreurs et copiez un lien de diagnostic temporaire pour votre agent IA.",
+      finalCtaHeading: "Commencez par une question sur vos données",
+      finalCtaBody:
+        "Connectez une source et demandez à votre agent IA le premier graphique.",
+      finalCtaButton: "Ouvrir Analytics",
       s001: "Capture d'écran du modèle Analytics",
       s002: "Connecteurs de données",
       s003: "Types de graphiques",

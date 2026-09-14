@@ -791,22 +791,63 @@ const koKR = {
       s062: "템플릿에서 시작하고, 데이터를 연결하고, 대시보드 구축을 시작하세요.",
       s063: "문서 읽기",
       s064: "모든 템플릿 보기",
+      // V3 랜딩 페이지 카피 (2026-09-14) — 아래는 hero부터 최종 CTA까지.
+      heroEyebrow: "Analytics",
+      heroTitle: "AI 에이전트로 데이터를 분석하세요",
+      heroDescription:
+        "Analytics는 연결된 데이터를 조회하고, 대시보드를 만들고, 사용자 세션을 조사할 수 있는 무료 오픈소스 AI 분석 도구입니다.",
+      heroCta: "Analytics 열기",
+      useCasesHeading: "Analytics로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "제품 성장을 추적하거나, 비즈니스 성과를 보고하거나, 앱에서 사용자가 겪은 문제를 조사해 보세요.",
+      useCase1Title: "제품 성장 추적하기",
+      useCase1Body:
+        "가입, 활성 사용자, 전환이 어떻게 변화했는지 물어보세요. 기간을 비교하고 채널, 요금제, 고객 세그먼트별로 결과를 나눠 볼 수 있습니다.",
+      useCase2Title: "비즈니스 성과 보고하기",
+      useCase2Body:
+        "매출, 파이프라인, 사용량 지표를 팀을 위한 대시보드에 담으세요. 날짜 필터를 설정하고 다음 리뷰 전에 다시 확인해 보세요.",
+      useCase3Title: "사용자 문제 조사하기",
+      useCase3Body:
+        "기록된 세션을 찾아 무슨 일이 있었는지 재생해 보세요. 콘솔 오류와 네트워크 요청을 확인한 다음, 진단 정보를 AI 에이전트와 공유하세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "조회, 시각화, 탐색에 필요한 모든 것",
+      feature1Title: "자연어 쿼리",
+      feature1Body:
+        "AI 에이전트에게 데이터에 관해 질문하세요. 차트, 테이블, 또는 지표를 받고, 다른 방식으로 세분화해 후속 질문을 이어갈 수 있습니다.",
+      feature2Title: "재사용 가능한 대시보드",
+      feature2Body:
+        "AI 에이전트와 함께 대시보드를 만들거나 직접 편집하세요. 패널을 배치하고, 필터를 추가하고, 뷰를 저장하고, 팀과 액세스를 공유하세요.",
+      feature3Title: "SQL 쿼리 탐색기",
+      feature3Body:
+        "BigQuery 쿼리를 실행하고 결과와 기록을 확인하세요. 대시보드 패널 뒤에 있는 SQL을 살펴보며 계산과 필터를 점검할 수 있습니다.",
+      feature4Title: "데이터 소스 연결",
+      feature4Body:
+        "BigQuery, GA4, HubSpot, Stripe 같은 소스를 연결하세요. 같은 앱에서 웨어하우스 데이터, 제품 이벤트, 고객 기록, 매출을 조회할 수 있습니다.",
+      feature5Title: "데이터 사전",
+      feature5Body:
+        "지표 정의, 테이블, 쿼리 예시를 문서화하세요. AI 에이전트는 쿼리를 작성하고 데이터를 다룰 때 이 맥락을 활용합니다.",
+      feature6Title: "세션 리플레이",
+      feature6Body:
+        "기록된 세션을 콘솔 및 네트워크 활동과 함께 재생하세요. 오류로 바로 이동하고, AI 에이전트를 위한 임시 진단 링크를 복사할 수 있습니다.",
+      finalCtaHeading: "데이터에 대한 질문으로 시작하세요",
+      finalCtaBody: "소스를 연결하고 AI 에이전트에게 첫 번째 차트를 요청하세요.",
+      finalCtaButton: "Analytics 열기",
       faq: {
-        question1: "분석에 관한 질문을 자연어로 물어볼 수 있나요?",
+        question1: "Agent-Native Analytics는 무엇인가요?",
         answer1:
-          "네. 질문하면 에이전트가 SQL을 작성해 BigQuery에서 실행하고 차트를 만듭니다. 쿼리에는 기록, 행 수, 공유 가능한 URL이 보관됩니다.",
-        question2: "Analytics는 Amplitude나 Mixpanel과 어떻게 다른가요?",
+          "Agent-Native Analytics는 무료 오픈소스 AI 분석 도구입니다. 연결된 데이터에 관해 AI 에이전트에게 질문하고, 쿼리를 살펴보고, 재사용 가능한 대시보드를 만들 수 있습니다. 세션 리플레이, 오류 추적, 가동 시간 모니터링도 포함되어 있습니다.",
+        question2: "Analytics를 사용하려면 SQL을 알아야 하나요?",
         answer2:
-          "Amplitude와 Mixpanel은 좌석과 이벤트 단위로 요금을 부과하며 UI도 각 서비스의 방식으로 고정됩니다. Analytics는 무료 오픈 소스이며, 에이전트가 요청에 따라 새 차트와 커넥터를 앱 자체에 추가할 수 있습니다.",
+          "일반적인 언어로 질문하고 AI 에이전트가 쿼리를 작성하도록 할 수 있습니다. BigQuery의 경우 Explorer에서 테이블, 지표, 필터를 선택해 차트를 만들 수도 있습니다. 확인용으로 SQL은 항상 제공되며, 데이터를 잘 아는 사람이 소스 연결이나 지표 정의를 도와야 할 수도 있습니다.",
         question3: "어떤 데이터 소스를 연결할 수 있나요?",
         answer3:
-          "HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud 등 10개 이상의 커넥터가 내장되어 있습니다. 필요한 커넥터가 없다면 에이전트가 만들 수 있습니다.",
-        question4: "SQL을 알아야 하나요?",
+          "지원되는 소스로는 BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot, Stripe가 있습니다. 각 소스에는 적절한 자격 증명이나 Analytics에 부여된 공유 워크스페이스 연결이 필요합니다. 얻을 수 있는 답변은 연결하는 데이터와 권한에 따라 달라집니다.",
+        question4: "우리만의 지표 정의를 사용할 수 있나요?",
         answer4:
-          "아니요. 자연어가 인터페이스입니다. 다만 필요할 때는 SQL 탐색기에서 BigQuery에 직접 접근하고 전체 쿼리 기록을 확인할 수 있습니다.",
-        question5: "Analytics는 무료인가요?",
+          "네. 데이터 사전을 사용해 정의, 테이블 및 열 이름, 쿼리 예시, 내부 계정 제외 같은 예외 사항을 문서화하세요. AI 에이전트는 쿼리를 작성할 때 이 정의를 활용할 수 있습니다. 비즈니스 지표를 확인할 때는 SQL과 결과를 검토하세요.",
+        question5: "대시보드를 공유하고 보고서를 예약할 수 있나요?",
         answer5:
-          "네. 무료 오픈 소스이며 이벤트 단위 요금이 없습니다. 데이터는 자체 데이터 웨어하우스에 그대로 보관됩니다.",
+          "네. 뷰어, 편집자, 관리자 권한으로 팀원이나 조직과 대시보드를 공유할 수 있습니다. 현재 대시보드 결과가 담긴 이메일 보고서를 예약하거나, 추적하고 싶은 조건에 대한 알림을 설정할 수도 있습니다.",
       },
     },
     calendar: {
