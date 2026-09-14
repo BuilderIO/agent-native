@@ -1506,6 +1506,15 @@ function currentOpenDeckIdFromWindow(): string | null {
   return deckIdFromPathname(window.location.pathname);
 }
 
+function replaceOpenDeckRouteWithDeckList(): void {
+  if (typeof window === "undefined") return;
+  const deckSegmentIndex = window.location.pathname.indexOf("/deck/");
+  if (deckSegmentIndex < 0) return;
+  const nextPath = `${window.location.pathname.slice(0, deckSegmentIndex)}/home`;
+  window.history.replaceState(window.history.state, "", nextPath);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 export async function includeOpenDeckIfMissing(
   decks: Deck[],
   openDeckId: string | null,
@@ -2609,6 +2618,49 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     await reloadDecksWithStatus();
   }, [reloadDecksWithStatus]);
 
+  const resetDeckScope = useCallback(() => {
+    const scopedDeckIds = new Set([
+      ...decksRef.current.map((deck) => deck.id),
+      ...pendingCreateIdsRef.current,
+      ...pendingCreatePromisesRef.current.keys(),
+      ...pendingDuplicateSourceIdsRef.current,
+      ...dirtyDeckIdsRef.current,
+      ...localCreateSeqByIdRef.current.keys(),
+      ...openDeckRequestIdByDeckRef.current.keys(),
+      ...pendingSaves.keys(),
+      ...pendingOpsQueue.keys(),
+      ...inFlightSaves,
+      ...failedSaveDecks,
+      ...activeInlineEditSlides.keys(),
+    ]);
+    for (const deckId of scopedDeckIds) {
+      discardPendingDeckOps(deckId);
+      deckLocalWriteSeq.delete(deckId);
+      slideLocalWriteSequences.delete(deckId);
+      activeInlineEditSlides.delete(deckId);
+    }
+
+    ++deckBaselineRequestIdRef.current;
+    ++deckListRequestIdRef.current;
+    ++serverSnapshotGenerationRef.current;
+    openDeckRequestIdByDeckRef.current.clear();
+    pendingCreateIdsRef.current.clear();
+    pendingCreatePromisesRef.current.clear();
+    pendingDuplicateSourceIdsRef.current.clear();
+    dirtyDeckIdsRef.current.clear();
+    deletedSlideTombstonesRef.current.clear();
+    slideDeleteGenerationsRef.current.clear();
+    successfulReplacementTombstoneBoundariesRef.current.clear();
+    localCreateSeqRef.current = 0;
+    localCreateSeqByIdRef.current.clear();
+    undoControllerRef.current?.clear();
+    lastExternalUpdateRef.current = Date.now();
+    decksRef.current = [];
+    setDecks([]);
+    setLoadError(false);
+    setLoading(true);
+  }, []);
+
   // Load decks from API on mount
   useEffect(() => {
     // The deck query is scoped by the active organization on the server. Do
@@ -2644,10 +2696,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     });
   }, [nextOpenDeckRequestId, orgLoading, resetDeckBaseline]);
 
-  // Switching orgs re-scopes list-decks server-side but leaves this context's
-  // in-memory list untouched, so the previous org's decks linger. Reload when
-  // the org id actually changes; skip the first observed id so we don't double
-  // up on the mount fetch above.
+  // Organization changes are a hard access boundary. Clear the previous
+  // scope before loading the next one so optimistic state and stale responses
+  // cannot keep prior-organization decks visible.
   const lastOrgIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (orgLoading) return;
@@ -2658,8 +2709,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     }
     if (lastOrgIdRef.current === orgId) return;
     lastOrgIdRef.current = orgId;
+    replaceOpenDeckRouteWithDeckList();
+    resetDeckScope();
     void reloadDecks();
-  }, [org?.orgId, orgLoading, reloadDecks]);
+  }, [org?.orgId, orgLoading, reloadDecks, resetDeckScope]);
 
   // Fallback polling for deck list + open-deck changes. SSE is the primary
   // path; this catches agent/db writes that bypass it without hammering idle
