@@ -69,7 +69,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     // that asked for it. Replaying it from an effect would swap a dead button
     // for a blocked popup and an "allow popups" message blaming the user.
     const onConnect = vi.fn();
-    const retry = vi.fn();
+    const retry = vi.fn(() => true);
     const flow = {
       connecting: false,
       start: vi.fn(),
@@ -122,7 +122,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     const flow = {
       connecting: false,
       start: vi.fn(),
-      retry: vi.fn(),
+      retry: vi.fn(() => true),
       statusResolved: false,
       statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,
@@ -166,7 +166,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     const flow = {
       connecting: false,
       start: vi.fn(),
-      retry: vi.fn(),
+      retry: vi.fn(() => true),
       statusResolved: false,
       statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,
@@ -206,7 +206,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     // still honour the retry it kicks off. Keying the release on the error
     // string would cancel this intent before the retry could land.
     const onConnect = vi.fn();
-    const retry = vi.fn();
+    const retry = vi.fn(() => true);
     const flow = {
       connecting: false,
       start: vi.fn(),
@@ -250,12 +250,88 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
   });
 
+  it("does not start a second read while a click is already queued", () => {
+    // The hook's newest-wins refresh drops a superseded response, so a second
+    // retry can throw away a success that was about to land.
+    const onConnect = vi.fn();
+    const retry = vi.fn(() => true);
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry,
+      statusResolved: false,
+      statusReadSettledCount: 0,
+      agentNativeProvisioningEnabled: false,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { flow, onConnect, contentTestId: "consent" },
+        trigger(),
+      ),
+    );
+
+    click(connectButton());
+    click(connectButton());
+    click(connectButton());
+
+    expect(retry).toHaveBeenCalledTimes(1);
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow: {
+            ...flow,
+            statusResolved: true,
+            statusReadSettledCount: 1,
+            agentNativeProvisioningEnabled: true,
+          },
+          onConnect,
+          contentTestId: "consent",
+        },
+        trigger(),
+      ),
+    );
+
+    expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
+  });
+
+  it("does not queue against a flow that cannot start a read", () => {
+    // A disabled flow never reads, so `statusResolved` stays false forever.
+    // Queuing there would leave the trigger busy for the rest of the session.
+    const onConnect = vi.fn();
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry: vi.fn(() => false),
+      statusResolved: false,
+      statusReadSettledCount: 0,
+      agentNativeProvisioningEnabled: false,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { flow, onConnect },
+        trigger(),
+      ),
+    );
+
+    click(connectButton());
+
+    expect(flow.retry).toHaveBeenCalledTimes(1);
+    expect(connectButton().getAttribute("aria-busy")).toBeNull();
+    expect(onConnect).not.toHaveBeenCalled();
+  });
+
   it("does not replay a pending click that the user never made", () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
       start: vi.fn(),
-      retry: vi.fn(),
+      retry: vi.fn(() => true),
       statusResolved: false,
       statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,

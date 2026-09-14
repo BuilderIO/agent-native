@@ -19,8 +19,11 @@ export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
     agentNativeProvisioningEnabled?: boolean;
     accountExists?: boolean;
-    /** Retry the status request without bypassing provisioning consent. */
-    retry?: () => void;
+    /**
+     * Retry the status request without bypassing provisioning consent.
+     * Returns true when a read actually started.
+     */
+    retry?: () => boolean;
     statusResolved?: boolean;
     /** Bounds a queued click: increments whenever a status read settles. */
     statusReadSettledCount?: number;
@@ -125,8 +128,15 @@ export function BuilderConnectPopover({
           setOpen(true);
           return;
         }
-        setQueuedClick({ settledAt: settledCount });
-        flow.retry?.();
+        // A click is already waiting on a read. Starting a second one would
+        // supersede the first in the hook's newest-wins refresh, discarding a
+        // success that was about to land.
+        if (queuedClick) return;
+        // Only wait on a read that actually started. A disabled flow never
+        // reads, so queuing against it would spin the trigger forever.
+        if (flow.retry?.() === true) {
+          setQueuedClick({ settledAt: settledCount });
+        }
         return;
       }
       children.props.onClick?.(event);

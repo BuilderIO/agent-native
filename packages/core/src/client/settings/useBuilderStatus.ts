@@ -255,8 +255,12 @@ export interface BuilderConnectFlow {
   hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: (options?: BuilderConnectStartOptions) => void;
-  /** Retry the status request before choosing a connection path. */
-  retry: () => void;
+  /**
+   * Retry the status request before choosing a connection path. Returns true
+   * when a read actually started. A disabled flow never reads, so a caller
+   * that waits on the result must be able to tell the difference.
+   */
+  retry: () => boolean;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -685,7 +689,7 @@ export function useBuilderConnectFlow(
   const activePopupRef = useRef<Window | null>(null);
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
-  const retryStatusRef = useRef<() => void>(() => {});
+  const retryStatusRef = useRef<() => boolean>(() => false);
   const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -783,7 +787,7 @@ export function useBuilderConnectFlow(
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
       connectAttemptIdRef.current = null;
-      retryStatusRef.current = () => {};
+      retryStatusRef.current = () => false;
       return;
     }
     mountedRef.current = true;
@@ -855,7 +859,10 @@ export function useBuilderConnectFlow(
         setError(null);
       }
     };
-    retryStatusRef.current = () => void refresh();
+    retryStatusRef.current = () => {
+      void refresh();
+      return true;
+    };
     // Connect-CTA cards render above the fold but their status is not needed
     // for first paint; defer the initial read. Focus/visibility/event
     // refreshes below stay immediate.
@@ -884,16 +891,14 @@ export function useBuilderConnectFlow(
       cancelled = true;
       mountedRef.current = false;
       cancelInitialRefresh();
-      retryStatusRef.current = () => {};
+      retryStatusRef.current = () => false;
       window.removeEventListener("focus", refreshNow);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
   }, [enabled, fetchStatus]);
 
-  const retry = useCallback(() => {
-    retryStatusRef.current();
-  }, []);
+  const retry = useCallback(() => retryStatusRef.current(), []);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
