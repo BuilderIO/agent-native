@@ -558,7 +558,7 @@ describe("contentActionInvalidatePredicate", () => {
   );
 
   it.each(["/home", "/settings", "/trash", "/page/document-1"])(
-    "reveals externally created pages in discovery queries on %s",
+    "reveals externally created pages in the document list on %s",
     (pathname) => {
       const predicate = contentActionInvalidatePredicate(pathname);
       const event = [{ source: "action", key: "create-document" }];
@@ -566,19 +566,19 @@ describe("contentActionInvalidatePredicate", () => {
       expect(
         predicate({ queryKey: ["action", "list-documents", undefined] }, event),
       ).toBe(true);
-      for (const queryName of [
-        "get-content-database",
-        "query-content-database-items",
-      ]) {
-        const query = {
-          queryKey: ["action", queryName, { databaseId: "files" }],
-          isActive: () => true,
-        };
-        expect(predicate(query, event)).toBe(true);
-        expect(predicate({ ...query, isActive: () => false }, event)).toBe(
-          false,
-        );
-      }
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
+              "query-content-database-items",
+              { databaseId: "unrelated-collection" },
+            ],
+            isActive: () => true,
+          },
+          event,
+        ),
+      ).toBe(false);
       expect(
         predicate(
           { queryKey: ["action", "list-trashed-documents", undefined] },

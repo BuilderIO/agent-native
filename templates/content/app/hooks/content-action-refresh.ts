@@ -239,8 +239,7 @@ export function contentActionInvalidatePredicate(
             : undefined
         : undefined;
     if (
-      (isDocumentListQuery(query) ||
-        (isDatabaseQuery(query) && query.isActive?.() === true)) &&
+      isDocumentListQuery(query) &&
       eventsIncludeMutation(events, DOCUMENT_DISCOVERY_MUTATIONS)
     ) {
       return true;
