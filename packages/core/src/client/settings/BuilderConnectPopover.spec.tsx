@@ -326,6 +326,47 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(onConnect).not.toHaveBeenCalled();
   });
 
+  it("releases a queued click when the flow resets its settle counter", () => {
+    // Disabling the flow cancels the in-flight read and zeroes the counter. A
+    // snapshot taken above that reset is never exceeded again, so an
+    // increment-only comparison would leave the trigger busy for good.
+    const onConnect = vi.fn();
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry: vi.fn(() => true),
+      statusResolved: false,
+      statusReadSettledCount: 4,
+      agentNativeProvisioningEnabled: false,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { flow, onConnect },
+        trigger(),
+      ),
+    );
+
+    click(connectButton());
+    expect(connectButton().getAttribute("aria-busy")).toBe("true");
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow: { ...flow, statusReadSettledCount: 0 },
+          onConnect,
+        },
+        trigger(),
+      ),
+    );
+
+    expect(connectButton().getAttribute("aria-busy")).toBeNull();
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(flow.start).not.toHaveBeenCalled();
+  });
+
   it("does not replay a pending click that the user never made", () => {
     const onConnect = vi.fn();
     const flow = {

@@ -21,9 +21,10 @@ export interface BuilderConnectPopoverProps {
     accountExists?: boolean;
     /**
      * Retry the status request without bypassing provisioning consent.
-     * Returns true when a read actually started.
+     * Returns true when a read actually started; a retry that cannot report
+     * that is treated as "did not start" and never queues a click.
      */
-    retry?: () => boolean;
+    retry?: () => boolean | void;
     statusResolved?: boolean;
     /** Bounds a queued click: increments whenever a status read settles. */
     statusReadSettledCount?: number;
@@ -109,8 +110,10 @@ export function BuilderConnectPopover({
     // capability. Surfaces that render this popover also render `flow.error`,
     // so the user already has the reason; dropping the intent here is what
     // keeps the trigger from sitting busy forever against an unreachable
-    // status route.
-    if (settledCount > queuedClick.settledAt) setQueuedClick(null);
+    // status route. Any movement counts, not just an increment: disabling the
+    // flow cancels the pending read and resets the counter, and a snapshot
+    // taken above that reset would otherwise never be passed again.
+    if (settledCount !== queuedClick.settledAt) setQueuedClick(null);
   }, [queuedClick, capabilityResolved, settledCount]);
 
   const trigger = React.cloneElement(children, {
