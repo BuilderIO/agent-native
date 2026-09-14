@@ -2599,7 +2599,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           openDeckRequestId !==
             openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
       ) {
-        setLoading(false);
+        if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
         return "stale";
       }
       if (loaded === null) {
@@ -2682,7 +2682,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           openDeckRequestId !==
             openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
       ) {
-        setLoading(false);
+        if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
         return;
       }
       // Initial fetch failed — start empty so the UI can render. The fallback

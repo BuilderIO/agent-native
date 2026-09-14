@@ -70,8 +70,8 @@ function wrapper({ children }: { children: ReactNode }) {
 function setupFetch() {
   let serverDecks: Deck[] = [];
   let resolveCreate: (response: Response) => void = () => {};
-  let holdList: ((decks: Deck[]) => void) | null = null;
-  let pendingListResolve: ((response: Response) => void) | null = null;
+  let heldListRequestBudget = 0;
+  const pendingListResolves: Array<(response: Response) => void> = [];
 
   const listResponse = (decks: Deck[]) =>
     new Response(JSON.stringify({ count: decks.length, decks }), {
@@ -87,9 +87,10 @@ function setupFetch() {
           : url.url;
 
     if (href.includes("/_agent-native/actions/list-decks")) {
-      if (holdList) {
+      if (heldListRequestBudget > 0) {
+        heldListRequestBudget -= 1;
         return new Promise<Response>((resolve) => {
-          pendingListResolve = resolve;
+          pendingListResolves.push(resolve);
         });
       }
       return Promise.resolve(listResponse(serverDecks));
@@ -123,14 +124,12 @@ function setupFetch() {
     resolveCreate: (response: Response) => resolveCreate(response),
     /** Make the next list-decks request hang until `releaseList` is called. */
     holdNextList: () => {
-      holdList = () => {};
+      heldListRequestBudget += 1;
     },
-    listRequestPending: () => pendingListResolve !== null,
+    listRequestPending: () => pendingListResolves.length > 0,
+    pendingListCount: () => pendingListResolves.length,
     releaseList: (decks: Deck[]) => {
-      const resolve = pendingListResolve;
-      pendingListResolve = null;
-      holdList = null;
-      resolve?.(listResponse(decks));
+      pendingListResolves.shift()?.(listResponse(decks));
     },
   };
 }
@@ -289,6 +288,7 @@ describe("DeckContext optimistic create", () => {
       api.resolveCreate(new Response("", { status: 200 }));
       await Promise.resolve();
     });
+    const previousOrgDeck = result.current.getDeck(previousDeckId)!;
     window.history.pushState({}, "", `/deck/${previousDeckId}`);
 
     const currentOrgDeck: Deck = {
@@ -299,16 +299,29 @@ describe("DeckContext optimistic create", () => {
       slides: [],
     };
     api.holdNextList();
-    api.setServerDecks([currentOrgDeck]);
+    let previousOrgReload: Promise<void> = Promise.resolve();
+    act(() => {
+      previousOrgReload = result.current.reloadDecks();
+    });
+    await waitFor(() => expect(api.pendingListCount()).toBe(1));
 
+    api.holdNextList();
+    api.setServerDecks([currentOrgDeck]);
     act(() => {
       orgQueryState.data = { orgId: "org-b" };
       rerender();
     });
 
-    await waitFor(() => expect(api.listRequestPending()).toBe(true));
+    await waitFor(() => expect(api.pendingListCount()).toBe(2));
     expect(result.current.decks).toEqual([]);
     expect(window.location.pathname).toBe("/home");
+
+    await act(async () => {
+      api.releaseList([previousOrgDeck]);
+      await previousOrgReload;
+    });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.decks).toEqual([]);
 
     await act(async () => {
       api.releaseList([currentOrgDeck]);
