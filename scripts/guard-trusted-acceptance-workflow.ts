@@ -415,6 +415,21 @@ export function validateTrustedAcceptanceReaper(
 
   const hasWorkspacesWrite =
     "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);";
+  const configuredLines = runLines.filter((line) =>
+    /\bconfigured\b/.test(line),
+  );
+  const expectedConfiguredLines = [
+    'const configured = config.workspaces.filter(workspace => workspace.enabled === true && workspace.runtimeAuthority?.provisioner?.kind === "trusted-lease-v1");',
+    "let selected = configured;",
+    "selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
+    'if (selected.length !== 1) throw new Error("Requested workspace has no configured trusted lease authority");',
+  ];
+  if (configuredLines.join("\n") !== expectedConfiguredLines.join("\n")) {
+    issues.push(
+      "reaper must derive configured workspaces without other reads or mutations",
+    );
+  }
+
   const selectedLines = runLines.filter((line) => /\bselected\b/.test(line));
   const expectedSelectedLines = [
     "let selected = configured;",
