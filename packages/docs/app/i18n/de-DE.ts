@@ -911,16 +911,66 @@ const deDE = {
     },
     chat: {
       faq: {
-        question1: "Was ist das Chat-Template?",
+        question1: "Was ist Agent-Native Chat?",
         answer1:
-          "Ein minimales Template im ChatGPT-Stil für Ihren eigenen Agenten: dauerhafte Threads, Auth, Actions, Live-Sync, eine Standard-Seitenleiste — und ein klarer Weg, Screens hinzuzufügen oder Ihr Backend anzubinden.",
-        question2: "Wie unterscheidet sich das von ChatGPT?",
+          "Agent-Native Chat ist eine kostenlose Open-Source-KI-Chat-App-Vorlage für Entwickler. Sie enthält gespeicherte Threads, eine Agent-Chat-Oberfläche, Authentifizierung, gemeinsame Actions und Live-Sync. Sie ergänzen die domänenspezifischen Daten und das Verhalten für Ihre Anwendung.",
+        question2: "Ist Chat ein fertiger KI-Assistent?",
         answer2:
-          "ChatGPT ist die App von OpenAI rund um die Modelle von OpenAI. Diese App gehört Ihnen: Ihr Agent-Backend, Ihre Daten, Ihre Screens — ein Ausgangspunkt, den Sie erweitern, kein Produkt, das Sie mieten.",
-        question3: "Ist das produktionsreif?",
+          "Chat liefert eine funktionierende Konversationsoberfläche und das Framework dahinter. Es enthält eine Beispiel-Action, aber Geschäftsworkflows und Provider-Integrationen implementieren und konfigurieren Sie selbst.",
+        question3: "Kann ich Screens über die Chat-Oberfläche hinaus hinzufügen?",
         answer3:
-          "Es ist bewusst ein minimales Template — der ehrliche Ausgangspunkt für eine Chat-App, keine fertige App. Wenn Sie etwas Fertiges möchten, beginnen Sie mit einer der anderen Apps.",
+          "Ja. Fügen Sie Routen und Komponenten für Listen, Warteschlangen, Editoren oder andere Ansichten hinzu, die Ihr Workflow benötigt. Verbinden Sie sie mit denselben Actions und Anwendungsdaten, die der Agent nutzt.",
+        question4: "Enthält Chat Verbindungen zu meinen Geschäftstools?",
+        answer4:
+          "Die minimale Vorlage enthält keine domänenspezifischen Provider-Integrationen. Fügen Sie die Verbindungen und Zugriffsregeln hinzu, die Ihre App benötigt. Wenn eine bestehende Agent-Native-App bereits zu Ihrem Workflow passt, ist deren Vorlage möglicherweise der passendere Ausgangspunkt.",
+        question5: "Kann ich meine eigene Version anpassen und bereitstellen?",
+        answer5:
+          "Ja. Erstellen Sie mit der CLI eine Kopie, fügen Sie Ihre Actions, Daten und Oberfläche hinzu und stellen Sie Ihre Anwendung bereit. Konfigurieren Sie Authentifizierung und Provider-Zugriff für Ihre Umgebung und testen Sie die hinzugefügten Workflows, bevor Sie sie mit Ihren Nutzern teilen.",
       },
+      s001: "Screenshot der Chat-App",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "Bauen Sie Ihre eigene KI-Chat-App",
+      heroDescription:
+        "Chat ist eine kostenlose Open-Source-KI-Chat-App-Vorlage mit gespeicherten Unterhaltungen, Authentifizierung und einem Agenten, den Sie mit eigenen Actions, Daten und Screens erweitern können.",
+      heroCta: "App bauen",
+      heroSecondaryCta: "Chat öffnen",
+      useCasesHeading: "Was können Sie mit Chat bauen?",
+      useCasesBody:
+        "Starten Sie mit der Chat-App und ergänzen Sie dann die Daten und Actions für Ihren Anwendungsfall. Diese Workflows gehören Ihnen — bauen Sie sie auf dieser Vorlage auf.",
+      useCase1Title: "Einen internen Assistenten bauen",
+      useCase1Body:
+        "Fügen Sie Actions hinzu, die Informationen nachschlagen oder Anfragen für Ihr Team bearbeiten. Nutzen Sie die integrierte Anmeldung und den Unterhaltungsverlauf als Ausgangspunkt.",
+      useCase2Title: "Einen Agent-Workflow prototypisieren",
+      useCase2Body:
+        "Implementieren Sie eine nützliche Action und testen Sie sie über den Chat. Verfeinern Sie die Anweisungen und das Verhalten des Agenten, bevor Sie weitere Tools oder Screens hinzufügen.",
+      useCase3Title: "Eine Oberfläche für Agent-Arbeit hinzufügen",
+      useCase3Body:
+        "Bauen Sie eine Warteschlange, Liste oder einen Editor, wenn Nutzer Arbeit visuell prüfen müssen. Verbinden Sie sie mit denselben Actions und Daten wie Ihr Agent.",
+      keyFeaturesEyebrow: "Kernfunktionen",
+      keyFeaturesHeading: "Ein Ausgangspunkt für Ihren Agenten und seine Oberfläche",
+      feature1Title: "Gespeicherte Unterhaltungen",
+      feature1Body:
+        "Geben Sie Nutzern Threads, zu denen sie zurückkehren können. Erstellen, öffnen, benennen, pinnen und archivieren Sie Unterhaltungen über die integrierte Seitenleiste.",
+      feature2Title: "Integrierter Agent-Chat",
+      feature2Body:
+        "Starten Sie mit einer ganzseitigen Unterhaltung und der Agent-Runtime des Frameworks. Fügen Sie Anweisungen und Tools für die Aufgaben hinzu, die Ihre Anwendung bewältigen muss.",
+      feature3Title: "Authentifizierung und Sitzungen",
+      feature3Body:
+        "Starten Sie mit bereits integriertem Login, Signup, Sitzungen und Organisationsunterstützung. Fügen Sie die Zugriffsregeln hinzu, die die Daten und Workflows Ihrer Anwendung erfordern.",
+      feature4Title: "Gemeinsame Actions",
+      feature4Body:
+        "Definieren Sie eine Operation einmal für Ihren Agenten und Ihre Oberfläche. Orientieren Sie sich an der enthaltenen Beispiel-Action, wenn Sie eigene Fähigkeiten hinzufügen.",
+      feature5Title: "Live-Datensynchronisierung",
+      feature5Body:
+        "Halten Sie Ihre Oberfläche aktuell, wenn der Agent Anwendungsdaten ändert. Bauen Sie Screens rund um gemeinsamen Zustand und die Datenbanksynchronisierung des Frameworks.",
+      feature6Title: "Datenbank- und Run-Inspektion",
+      feature6Body:
+        "Nutzen Sie die integrierten Screens für Datenbankverwaltung und Observability, um gespeicherte Daten und Agent-Runs beim Bauen und Debuggen Ihrer Anwendung zu prüfen.",
+      finalCtaHeading: "Bauen Sie Ihren ersten Agent-Workflow",
+      finalCtaBody:
+        "Erstellen Sie Ihre Kopie und fügen Sie die erste Action hinzu, die Ihre Nutzer brauchen.",
+      finalCtaButton: "App bauen",
     },
     clips: {
       s001: "Screenshot der Vorlage Clips",

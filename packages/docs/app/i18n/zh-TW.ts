@@ -1709,16 +1709,65 @@ const messages = {
     },
     chat: {
       faq: {
-        question1: "Chat 範本是什麼？",
+        question1: "Agent-Native Chat 是什麼？",
         answer1:
-          "這是一個面向自有代理的極簡 ChatGPT 風格鷹架，提供持久對話串、驗證、actions、即時同步和標準側邊欄，並能清楚地擴充新頁面或接入你的後端。",
-        question2: "它與 ChatGPT 有什麼不同？",
+          "Agent-Native Chat 是一款面向開發者的免費開源 AI 聊天應用鷹架，提供已儲存的對話串、agent 聊天介面、驗證、共用 actions 和即時同步。你可以為自己的應用新增特定領域的資料和行為。",
+        question2: "Chat 是一個成品 AI 助理嗎？",
         answer2:
-          "ChatGPT 是 OpenAI 圍繞自家模型打造的應用。這個範本屬於你：使用你的代理後端、你的資料和你的畫面；它是可擴充的起點，而不是租用的產品。",
-        question3: "它可以直接用於正式環境嗎？",
+          "Chat 提供一個可運作的對話介面以及背後的框架。它包含一個範例 action，但業務工作流程和第三方服務整合需要你自行實作與設定。",
+        question3: "我可以在聊天介面之外新增畫面嗎？",
         answer3:
-          "它是一個刻意保持極簡的鷹架，是聊天應用誠實的起點，而不是完整成品。如果需要完成度更高的產品，請從其他應用之一開始。",
+          "可以。為你工作流程所需的清單、佇列、編輯器或其他檢視新增路由和元件，並將它們連接到 agent 使用的同一組 actions 和應用資料上。",
+        question4: "Chat 是否包含與我業務工具的連線？",
+        answer4:
+          "這個極簡範本不包含特定領域的服務整合。請為你的應用新增所需的連線和存取規則。如果已有某個 Agent-Native 應用正好符合你的工作流程，它的範本可能是更合適的起點。",
+        question5: "我可以自訂並部署自己的版本嗎？",
+        answer5:
+          "可以。用 CLI 建立一份副本，新增你的 actions、資料和介面，然後部署你的應用。為你的環境設定驗證和服務存取權限，並在與使用者分享之前測試你新增的工作流程。",
       },
+      s001: "Chat 應用截圖",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "打造屬於你自己的 AI 聊天應用",
+      heroDescription:
+        "Chat 是一款免費開源的 AI 聊天應用鷹架，提供已儲存的對話、驗證，以及一個可用你自己的 actions、資料和畫面來擴充的 agent。",
+      heroCta: "建構你的應用",
+      heroSecondaryCta: "開啟 Chat",
+      useCasesHeading: "用 Chat 能建構什麼？",
+      useCasesBody:
+        "先從這個聊天應用開始，再為你的使用情境新增資料和 actions。這些工作流程都屬於你，可以在這個鷹架之上自由建構。",
+      useCase1Title: "建構內部助理",
+      useCase1Body:
+        "新增能查詢資訊或處理團隊請求的 actions。使用內建的登入和對話紀錄作為起點。",
+      useCase2Title: "為 agent 工作流程製作原型",
+      useCase2Body:
+        "實作一個有用的 action，透過聊天試用它。在新增更多工具或畫面之前，先打磨 agent 的指示和行為。",
+      useCase3Title: "為 agent 的工作新增介面",
+      useCase3Body:
+        "當使用者需要以視覺化方式審查工作時，建構一個佇列、清單或編輯器，並將其連接到與你的 agent 相同的 actions 和資料上。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "為你的 agent 及其介面提供的起點",
+      feature1Title: "已儲存的對話",
+      feature1Body:
+        "讓使用者擁有可以隨時返回的對話串。透過內建的側邊欄建立、重新開啟、重新命名、釘選和封存對話。",
+      feature2Title: "內建的 agent 聊天",
+      feature2Body:
+        "從一個全頁對話和框架自帶的 agent 執行環境開始。為你的應用需要處理的任務新增指示和工具。",
+      feature3Title: "驗證與工作階段",
+      feature3Body:
+        "登入、註冊、工作階段和組織支援均已內建。為你應用的資料和工作流程新增所需的存取規則。",
+      feature4Title: "共用 actions",
+      feature4Body:
+        "定義一次操作，即可同時供 agent 和介面使用。在新增自己的能力時，可參考內建的範例 action。",
+      feature5Title: "即時資料同步",
+      feature5Body:
+        "當 agent 修改應用資料時，讓你的介面保持最新。圍繞共用狀態和框架自帶的資料庫同步來建構畫面。",
+      feature6Title: "資料庫與執行檢查",
+      feature6Body:
+        "在建構和除錯應用時，使用內建的資料庫管理和可觀測性畫面來檢查已儲存的資料和 agent 的執行紀錄。",
+      finalCtaHeading: "建構你的第一個 agent 工作流程",
+      finalCtaBody: "建立你的副本，並新增使用者需要的第一個 action。",
+      finalCtaButton: "建構你的應用",
     },
   },
   skillsPage: {

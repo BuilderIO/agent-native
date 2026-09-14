@@ -742,16 +742,66 @@ const enUS = {
     },
     chat: {
       faq: {
-        question1: "What is the Chat template?",
+        question1: "What is Agent-Native Chat?",
         answer1:
-          "A minimal, ChatGPT-style scaffold for your own agent: durable threads, auth, actions, live sync, a standard sidebar — and a clean path to add screens or plug in your backend.",
-        question2: "How is this different from ChatGPT?",
+          "Agent-Native Chat is a free and open-source AI chat app starter for developers. It includes saved threads, an agent chat interface, authentication, shared actions, and live sync. You add the domain-specific data and behavior for your application.",
+        question2: "Is Chat a finished AI assistant?",
         answer2:
-          "ChatGPT is OpenAI's app around OpenAI's models. This is yours: your agent backend, your data, your screens — a starting point you extend, not a product you rent.",
-        question3: "Is it production-ready?",
+          "Chat provides a working conversation interface and the framework underneath it. It includes an example action, but business workflows and provider integrations are yours to implement and configure.",
+        question3: "Can I add screens beyond the chat interface?",
         answer3:
-          "It's a scaffold, deliberately minimal — the honest starting point for a chat app, not a finished one. If you want finished, start from one of the other apps.",
+          "Yes. Add routes and components for lists, queues, editors, or other views your workflow needs. Connect them to the same actions and application data the agent uses.",
+        question4: "Does Chat include connections to my business tools?",
+        answer4:
+          "The minimal template does not include domain-specific provider integrations. Add the connections and access rules your app needs. If an existing Agent-Native app already matches your workflow, its template may be a more suitable starting point.",
+        question5: "Can I customize and deploy my own version?",
+        answer5:
+          "Yes. Create a copy with the CLI, add your actions, data, and interface, then deploy your application. Configure authentication and provider access for your environment, and test the workflows you add before sharing it with users.",
       },
+      s001: "Chat app screenshot",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "Build your own AI chat app",
+      heroDescription:
+        "Chat is a free and open-source AI chat app starter with saved conversations, authentication, and an agent you can extend with your own actions, data, and screens.",
+      heroCta: "Build your app",
+      heroSecondaryCta: "Open Chat",
+      useCasesHeading: "What can you build with Chat?",
+      useCasesBody:
+        "Start with the chat app, then add the data and actions for your use case. These workflows are yours to build on the starter.",
+      useCase1Title: "Build an internal assistant",
+      useCase1Body:
+        "Add actions that look up information or handle requests for your team. Use the included sign-in and conversation history as the starting point.",
+      useCase2Title: "Prototype an agent workflow",
+      useCase2Body:
+        "Implement a useful action and try it through chat. Refine the agent's instructions and behavior before adding more tools or screens.",
+      useCase3Title: "Add an interface for agent work",
+      useCase3Body:
+        "Build a queue, list, or editor when users need to review work visually. Connect it to the same actions and data as your agent.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading: "A starting point for your agent and its interface",
+      feature1Title: "Saved conversations",
+      feature1Body:
+        "Give users threads they can return to. Create, reopen, rename, pin, and archive conversations from the included sidebar.",
+      feature2Title: "Built-in agent chat",
+      feature2Body:
+        "Start with a full-page conversation and the framework's agent runtime. Add instructions and tools for the tasks your application needs to handle.",
+      feature3Title: "Authentication and sessions",
+      feature3Body:
+        "Start with login, signup, sessions, and organization support already wired in. Add the access rules your application's data and workflows require.",
+      feature4Title: "Shared actions",
+      feature4Body:
+        "Define an operation once for your agent and interface to use. Follow the included example action when adding your own capabilities.",
+      feature5Title: "Live data sync",
+      feature5Body:
+        "Keep your interface updated when the agent changes application data. Build screens around shared state and the framework's database sync.",
+      feature6Title: "Database and run inspection",
+      feature6Body:
+        "Use the included database administration and observability screens to inspect stored data and agent runs while building and debugging your application.",
+      finalCtaHeading: "Build your first agent workflow",
+      finalCtaBody:
+        "Create your copy and add the first action your users need.",
+      finalCtaButton: "Build your app",
     },
     analytics: {
       faq: {

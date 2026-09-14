@@ -1708,16 +1708,65 @@ const zhCN = {
     },
     chat: {
       faq: {
-        question1: "Chat 模板是什么？",
+        question1: "Agent-Native Chat 是什么？",
         answer1:
-          "这是一个面向自有代理的极简 ChatGPT 风格脚手架，提供持久对话串、认证、actions、实时同步和标准侧边栏，并能清晰地扩展新页面或接入你的后端。",
-        question2: "它与 ChatGPT 有什么不同？",
+          "Agent-Native Chat 是一款面向开发者的免费开源 AI 聊天应用脚手架，提供已保存的对话串、agent 聊天界面、认证、共享 actions 和实时同步。你可以为自己的应用添加特定领域的数据和行为。",
+        question2: "Chat 是一个成品 AI 助手吗？",
         answer2:
-          "ChatGPT 是 OpenAI 围绕自家模型打造的应用。这个模板属于你：使用你的代理后端、你的数据和你的页面；它是可扩展的起点，而不是租用的产品。",
-        question3: "它可以直接用于生产环境吗？",
+          "Chat 提供一个可用的对话界面以及背后的框架。它包含一个示例 action，但业务工作流和第三方服务集成需要你自己实现和配置。",
+        question3: "我可以在聊天界面之外添加页面吗？",
         answer3:
-          "它是一个刻意保持极简的脚手架，是聊天应用诚实的起点，而不是完整成品。如果需要完成度更高的产品，请从其他应用之一开始。",
+          "可以。为你工作流所需的列表、队列、编辑器或其他视图添加路由和组件，并将它们连接到 agent 使用的同一套 actions 和应用数据上。",
+        question4: "Chat 是否包含与我业务工具的连接？",
+        answer4:
+          "这个极简模板不包含特定领域的服务集成。请为你的应用添加所需的连接和访问规则。如果已有某个 Agent-Native 应用正好匹配你的工作流，它的模板可能是更合适的起点。",
+        question5: "我可以自定义并部署自己的版本吗？",
+        answer5:
+          "可以。用 CLI 创建一份副本，添加你的 actions、数据和界面，然后部署你的应用。为你的环境配置认证和服务访问权限，并在与用户分享之前测试你新增的工作流。",
       },
+      s001: "Chat 应用截图",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "打造属于你自己的 AI 聊天应用",
+      heroDescription:
+        "Chat 是一款免费开源的 AI 聊天应用脚手架，提供已保存的对话、认证，以及一个可用你自己的 actions、数据和页面来扩展的 agent。",
+      heroCta: "构建你的应用",
+      heroSecondaryCta: "打开 Chat",
+      useCasesHeading: "用 Chat 能构建什么？",
+      useCasesBody:
+        "先从这个聊天应用开始，再为你的使用场景添加数据和 actions。这些工作流都属于你，可以在这个脚手架之上自由构建。",
+      useCase1Title: "构建内部助手",
+      useCase1Body:
+        "添加能查询信息或处理团队请求的 actions。使用内置的登录和对话历史作为起点。",
+      useCase2Title: "为 agent 工作流做原型",
+      useCase2Body:
+        "实现一个有用的 action，通过聊天试用它。在添加更多工具或页面之前，先打磨 agent 的指令和行为。",
+      useCase3Title: "为 agent 的工作添加界面",
+      useCase3Body:
+        "当用户需要以可视化方式审查工作时，构建一个队列、列表或编辑器，并将其连接到与你的 agent 相同的 actions 和数据上。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "为你的 agent 及其界面提供的起点",
+      feature1Title: "已保存的对话",
+      feature1Body:
+        "让用户拥有可以随时返回的对话串。通过内置的侧边栏创建、重新打开、重命名、置顶和归档对话。",
+      feature2Title: "内置的 agent 聊天",
+      feature2Body:
+        "从一个全页对话和框架自带的 agent 运行时开始。为你的应用需要处理的任务添加指令和工具。",
+      feature3Title: "认证与会话",
+      feature3Body:
+        "登录、注册、会话和组织支持均已内置。为你应用的数据和工作流添加所需的访问规则。",
+      feature4Title: "共享 actions",
+      feature4Body:
+        "定义一次操作，即可同时供 agent 和界面使用。在添加自己的能力时，可参考内置的示例 action。",
+      feature5Title: "实时数据同步",
+      feature5Body:
+        "当 agent 修改应用数据时，让你的界面保持最新。围绕共享状态和框架自带的数据库同步来构建页面。",
+      feature6Title: "数据库与运行检查",
+      feature6Body:
+        "在构建和调试应用时，使用内置的数据库管理和可观测性页面来检查已存储的数据和 agent 的运行记录。",
+      finalCtaHeading: "构建你的第一个 agent 工作流",
+      finalCtaBody: "创建你的副本，并添加用户需要的第一个 action。",
+      finalCtaButton: "构建你的应用",
     },
   },
   skillsPage: {

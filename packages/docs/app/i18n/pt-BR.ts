@@ -906,16 +906,66 @@ const ptBR = {
     },
     chat: {
       faq: {
-        question1: "O que é o template Chat?",
+        question1: "O que é o Agent-Native Chat?",
         answer1:
-          "Uma estrutura mínima no estilo do ChatGPT para seu próprio agente: threads duráveis, autenticação, actions, sincronização em tempo real, barra lateral padrão e um caminho simples para adicionar telas ou conectar seu backend.",
-        question2: "Qual é a diferença para o ChatGPT?",
+          "O Agent-Native Chat é um app de chat com IA gratuito e de código aberto para desenvolvedores. Inclui threads salvas, uma interface de chat com agente, autenticação, actions compartilhadas e sincronização em tempo real. Você adiciona os dados e o comportamento específicos do seu domínio para sua aplicação.",
+        question2: "O Chat é um assistente de IA pronto?",
         answer2:
-          "ChatGPT é o app da OpenAI para os modelos da OpenAI. Este é seu: seu backend de agente, seus dados e suas telas. É um ponto de partida que você amplia, não um produto que você aluga.",
-        question3: "Está pronto para produção?",
+          "O Chat oferece uma interface de conversa funcional e o framework por trás dela. Ele inclui uma action de exemplo, mas os fluxos de trabalho de negócio e as integrações com provedores ficam por sua conta implementar e configurar.",
+        question3: "Posso adicionar telas além da interface de chat?",
         answer3:
-          "É uma estrutura intencionalmente mínima: o ponto de partida realista para um app de chat, não um app concluído. Se você quer algo pronto, comece com um dos outros apps.",
+          "Sim. Adicione rotas e componentes para listas, filas, editores ou outras telas que seu fluxo de trabalho precisar. Conecte-as às mesmas actions e dados de aplicação que o agente usa.",
+        question4: "O Chat inclui conexões com minhas ferramentas de negócio?",
+        answer4:
+          "O template mínimo não inclui integrações com provedores específicas de domínio. Adicione as conexões e regras de acesso que seu app precisar. Se já existe um app Agent-Native que corresponde ao seu fluxo de trabalho, o template dele pode ser um ponto de partida mais adequado.",
+        question5: "Posso personalizar e implantar minha própria versão?",
+        answer5:
+          "Sim. Crie uma cópia com a CLI, adicione suas actions, dados e interface, e implante sua aplicação. Configure a autenticação e o acesso a provedores para seu ambiente, e teste os fluxos de trabalho que você adicionar antes de compartilhá-los com seus usuários.",
       },
+      s001: "Captura de tela do app Chat",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "Construa seu próprio app de chat com IA",
+      heroDescription:
+        "O Chat é um app de chat com IA gratuito e de código aberto, com conversas salvas, autenticação e um agente que você pode estender com suas próprias actions, dados e telas.",
+      heroCta: "Construir seu app",
+      heroSecondaryCta: "Abrir Chat",
+      useCasesHeading: "O que você pode construir com o Chat?",
+      useCasesBody:
+        "Comece com o app de chat e depois adicione os dados e as actions do seu caso de uso. Esses fluxos de trabalho são seus, para construir sobre essa base.",
+      useCase1Title: "Construa um assistente interno",
+      useCase1Body:
+        "Adicione actions que buscam informações ou tratam solicitações da sua equipe. Use o login e o histórico de conversas incluídos como ponto de partida.",
+      useCase2Title: "Prototipe um fluxo de trabalho de agente",
+      useCase2Body:
+        "Implemente uma action útil e teste-a pelo chat. Refine as instruções e o comportamento do agente antes de adicionar mais ferramentas ou telas.",
+      useCase3Title: "Adicione uma interface para o trabalho do agente",
+      useCase3Body:
+        "Construa uma fila, lista ou editor quando os usuários precisarem revisar o trabalho visualmente. Conecte-o às mesmas actions e dados do seu agente.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading: "Um ponto de partida para seu agente e sua interface",
+      feature1Title: "Conversas salvas",
+      feature1Body:
+        "Ofereça aos usuários threads para retornar depois. Crie, reabra, renomeie, fixe e arquive conversas pela barra lateral incluída.",
+      feature2Title: "Chat com agente integrado",
+      feature2Body:
+        "Comece com uma conversa em tela cheia e o runtime de agente do framework. Adicione instruções e ferramentas para as tarefas que sua aplicação precisa lidar.",
+      feature3Title: "Autenticação e sessões",
+      feature3Body:
+        "Comece com login, cadastro, sessões e suporte a organizações já configurados. Adicione as regras de acesso que os dados e fluxos de trabalho da sua aplicação exigem.",
+      feature4Title: "Actions compartilhadas",
+      feature4Body:
+        "Defina uma operação uma vez para seu agente e sua interface usarem. Siga a action de exemplo incluída ao adicionar suas próprias capacidades.",
+      feature5Title: "Sincronização de dados em tempo real",
+      feature5Body:
+        "Mantenha sua interface atualizada quando o agente alterar dados da aplicação. Construa telas em torno do estado compartilhado e da sincronização de banco de dados do framework.",
+      feature6Title: "Inspeção de banco de dados e execuções",
+      feature6Body:
+        "Use as telas de administração de banco de dados e observabilidade incluídas para inspecionar dados armazenados e execuções do agente enquanto constrói e depura sua aplicação.",
+      finalCtaHeading: "Construa seu primeiro fluxo de trabalho de agente",
+      finalCtaBody:
+        "Crie sua cópia e adicione a primeira action que seus usuários precisam.",
+      finalCtaButton: "Construir seu app",
     },
     clips: {
       s001: "Captura de tela do modelo Clips",
