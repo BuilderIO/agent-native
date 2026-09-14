@@ -5,6 +5,7 @@ import {
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
 import { captureError } from "../server/capture-error.js";
+import { unfinishedActionPreparations } from "./action-preparation.js";
 import {
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -796,34 +797,21 @@ export function endsAfterCompletedToolWithoutAssistantFinal(
 
 /**
  * A model can emit a lead-in before it starts assembling an action input. If
- * the run ends in that preparation phase, `done` is not a successful turn.
+ * the run ends with an action input announced and never started, `done` is not
+ * a successful turn.
+ *
+ * Read per tool call, not as a last-wins flag. The flag version called the turn
+ * finished as soon as ANY later text or sibling `tool_start`/`tool_done`
+ * arrived, so a run that announced `resources`, ran a different call, then
+ * narrated one more sentence ended as a plain `done` — while the browser, which
+ * keeps one card per call, still showed the `resources` card unstarted and told
+ * the user the action never ran.
  */
 export function endsDuringActionPreparation(run: ActiveRun): boolean {
-  let preparingAction = false;
-  for (const { event } of run.events) {
-    if (
-      isPreparingActionActivityEvent(event) ||
-      event.type === "tool_input_start" ||
-      event.type === "tool_input_delta"
-    ) {
-      preparingAction = true;
-      continue;
-    }
-    if (
-      (event.type === "text" && event.text.trim().length > 0) ||
-      event.type === "tool_start" ||
-      event.type === "tool_done" ||
-      event.type === "approval_required" ||
-      event.type === "clear" ||
-      event.type === "error" ||
-      event.type === "missing_api_key" ||
-      event.type === "auto_continue" ||
-      event.type === "loop_limit"
-    ) {
-      preparingAction = false;
-    }
-  }
-  return preparingAction;
+  return (
+    unfinishedActionPreparations(run.events.map(({ event }) => event)).length >
+    0
+  );
 }
 
 function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {

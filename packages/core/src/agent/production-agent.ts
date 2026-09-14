@@ -89,6 +89,7 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
+import { lastUnfinishedActionPreparationTool } from "./action-preparation.js";
 import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
@@ -7724,128 +7725,12 @@ function endsAtInternalContinuationBoundary(run: ActiveRun): boolean {
   return last.type === "error" && isRecoverableContinuationError(last);
 }
 
-function isPreparingActionActivityEvent(
-  event: AgentChatEvent,
-): event is Extract<AgentChatEvent, { type: "activity" }> {
-  if (event.type !== "activity") return false;
-  const label = event.label.trim().toLowerCase();
-  return label.startsWith("preparing ") && label.includes(" action");
-}
-
 export function lastUnfinishedPreparingActionToolFromEvents(
   events: readonly AgentChatEvent[],
 ): string | undefined {
-  const active = new Map<
-    string,
-    {
-      id?: string;
-      order: number;
-      tool: string;
-    }
-  >();
-  const idlessToolStarts = new Map<string, number>();
-  const removeOldestMatchingActivePreparation = (
-    tool: string,
-    shouldRemove: (value: {
-      id?: string;
-      order: number;
-      tool: string;
-    }) => boolean = () => true,
-  ) => {
-    let oldest:
-      | {
-          key: string;
-          order: number;
-        }
-      | undefined;
-    for (const [key, value] of active) {
-      if (value.tool !== tool || !shouldRemove(value)) continue;
-      if (!oldest || value.order < oldest.order) {
-        oldest = {
-          key,
-          order: value.order,
-        };
-      }
-    }
-    if (oldest) active.delete(oldest.key);
-    return Boolean(oldest);
-  };
-  const removeMatchingActivePreparation = (event: {
-    id?: string;
-    tool?: string;
-    type: "tool_done" | "tool_start";
-  }) => {
-    const id = event.id?.trim();
-    const tool = event.tool?.trim();
-    if (!tool) return;
-    if (id) {
-      if (!active.delete(`id:${id}`)) {
-        removeOldestMatchingActivePreparation(tool, (value) => !value.id);
-      }
-      return;
-    }
-
-    if (event.type === "tool_start") {
-      if (removeOldestMatchingActivePreparation(tool)) {
-        idlessToolStarts.set(tool, (idlessToolStarts.get(tool) ?? 0) + 1);
-      }
-      return;
-    }
-
-    const startedCount = idlessToolStarts.get(tool) ?? 0;
-    if (startedCount > 0) {
-      if (startedCount === 1) {
-        idlessToolStarts.delete(tool);
-      } else {
-        idlessToolStarts.set(tool, startedCount - 1);
-      }
-      return;
-    }
-    removeOldestMatchingActivePreparation(tool);
-  };
-  events.forEach((event, order) => {
-    if (isPreparingActionActivityEvent(event)) {
-      const tool = event.tool?.trim();
-      if (tool) {
-        const id = event.id?.trim();
-        const key = id ? `id:${id}` : `tool:${tool}:${order}`;
-        active.set(key, {
-          tool,
-          order,
-          ...(id ? { id } : {}),
-        });
-      }
-      return;
-    }
-    if (event.type === "tool_start" || event.type === "tool_done") {
-      removeMatchingActivePreparation(event);
-      return;
-    }
-    if (event.type === "error" && isRecoverableContinuationError(event)) {
-      return;
-    }
-    if (
-      event.type === "clear" ||
-      event.type === "done" ||
-      event.type === "error" ||
-      event.type === "missing_api_key"
-    ) {
-      active.clear();
-      idlessToolStarts.clear();
-    }
+  return lastUnfinishedActionPreparationTool(events, {
+    isRecoverableError: isRecoverableContinuationError,
   });
-  let latest:
-    | {
-        order: number;
-        tool: string;
-      }
-    | undefined;
-  for (const value of active.values()) {
-    if (!latest || value.order > latest.order) {
-      latest = value;
-    }
-  }
-  return latest?.tool;
 }
 
 function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {

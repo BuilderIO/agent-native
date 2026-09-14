@@ -2435,6 +2435,92 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  // The server ends a chunk that announced an action but never started it with
+  // `auto_continue` (run-manager `endsDuringActionPreparation`). The
+  // continuation re-runs the model under fresh call ids, so the abandoned
+  // spinner must not survive to be reported as a never-run action on the
+  // eventual `done`.
+  it("drops an abandoned action preparation at a continuation boundary", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const content: ContentPart[] = [];
+    const counter = { value: 0 };
+
+    await expect(
+      drain(
+        readSSEStream(
+          eventStream([
+            {
+              type: "activity",
+              label: "Preparing resources action",
+              tool: "resources",
+              id: "call-resources-1",
+            },
+            {
+              type: "tool_input_delta",
+              tool: "resources",
+              id: "call-resources-1",
+              text: '{"action":"write"',
+            },
+            { type: "auto_continue", reason: "stream_ended" },
+          ]),
+          content,
+          counter,
+          "tab-continuation",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentAutoContinueSignal);
+
+    expect(content).toEqual([]);
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "resources",
+            id: "call-resources-2",
+            input: { action: "write", path: "skills/github.md" },
+          },
+          {
+            type: "tool_done",
+            tool: "resources",
+            id: "call-resources-2",
+            input: { action: "write", path: "skills/github.md" },
+            result: "written",
+          },
+          { type: "text", text: "Created the skill." },
+          { type: "done" },
+        ]),
+        content,
+        counter,
+        "tab-continuation",
+      ),
+    );
+
+    const last = results.at(-1) as { metadata?: { custom?: unknown } };
+    expect(last?.metadata?.custom).toBeUndefined();
+    expect(
+      dispatchEvent.mock.calls.some(
+        ([event]) =>
+          (event as { type: string }).type === "agent-chat:run-error",
+      ),
+    ).toBe(false);
+  });
+
   it("uses a calm writing label for streamed tool-input progress", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

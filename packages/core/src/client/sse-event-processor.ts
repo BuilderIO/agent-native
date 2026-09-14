@@ -1230,6 +1230,30 @@ function coalesceCompletedToolRepeat(
   content.splice(completedIndex, 1);
 }
 
+/**
+ * Drop preparation spinners for calls that never started, at a server-declared
+ * continuation boundary.
+ *
+ * The continuation re-runs the model, so any action it re-issues arrives under
+ * a NEW call id and paints its own card. The abandoned spinner would otherwise
+ * stay pending for the rest of the turn and, on the eventual `done`, be
+ * reported as an action that never ran - announcing a failure on a turn that
+ * went on to succeed. A `tool_start` clears the `activity` flag, so nothing
+ * that actually began is removable here.
+ */
+function dropUnstartedActionPreparations(content: ContentPart[]): void {
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index];
+    if (
+      part?.type === "tool-call" &&
+      part.activity === true &&
+      part.result === undefined
+    ) {
+      content.splice(index, 1);
+    }
+  }
+}
+
 function formatToolNames(tools: string[]): string {
   const names = tools.map(humanizeToolName);
   if (names.length === 0) return "the promised action";
@@ -1972,6 +1996,7 @@ export function processEvent(
   }
 
   if (ev.type === "loop_limit") {
+    dropUnstartedActionPreparations(content);
     const maxIterations =
       typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
     return {
@@ -1984,6 +2009,7 @@ export function processEvent(
   }
 
   if (ev.type === "auto_continue") {
+    dropUnstartedActionPreparations(content);
     const reason =
       ev.reason === "stream_ended" ||
       ev.reason === "loop_limit" ||
