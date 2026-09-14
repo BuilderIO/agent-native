@@ -145,6 +145,35 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     expect(child.style.height).toBe("");
   });
 
+  it("applies the snapshot even when source and destination share an identical stylesheet head", () => {
+    // Regression: an earlier `sameStylesheetHead` short-circuit skipped
+    // applying the snapshot whenever source/dest <head> markup matched
+    // exactly. Identical heads don't prove an identical cascade — here both
+    // documents load the SAME `.card { color: white }` rule, but only the
+    // source's <body> carries `.dark`, so the destination's `.card` never
+    // matches and the node would render with the inherited default (near-
+    // black) instead of white if the snapshot were skipped.
+    const sharedHead = `<head><meta charset="UTF-8"><style>.dark .card { color: white; }</style></head>`;
+    const sourceHtml = `<!DOCTYPE html>\n<html lang="en">${sharedHead}<body class="dark"><div class="card" data-agent-native-node-id="dropped"></div></body></html>`;
+    const destHtml = `<!DOCTYPE html>\n<html lang="en">${sharedHead}<body><div class="card" data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px;"></div></body></html>`;
+    const result = applyPortableStyleSnapshotToHtml(destHtml, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: { color: "rgb(255, 255, 255)" },
+        },
+      ],
+    });
+    const doc = new DOMParser().parseFromString(result, "text/html");
+    const dropped = doc.querySelector(
+      '[data-agent-native-node-id="dropped"]',
+    ) as HTMLElement;
+    expect(dropped.style.color).toBe("rgb(255, 255, 255)");
+  });
+
   it("is a no-op when the snapshot has nothing left after filtering", () => {
     const result = applyPortableStyleSnapshotToHtml(
       DEST_BARE_SCREEN,

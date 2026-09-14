@@ -67,39 +67,20 @@ export function applyPortableStyles(
   });
 }
 
-export function sameStylesheetHead(
-  sourceHtml: string,
-  destHtml: string,
-): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const parser = new DOMParser();
-    const sourceHead = parser.parseFromString(sourceHtml, "text/html").head
-      ?.innerHTML;
-    const destHead = parser.parseFromString(destHtml, "text/html").head
-      ?.innerHTML;
-    return (
-      typeof sourceHead === "string" &&
-      typeof destHead === "string" &&
-      sourceHead === destHead
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function applyPortableStyleSnapshotToHtml(
   content: string,
   nodeAttrId: string,
   snapshot?: PortableStyleSnapshot,
-  sourceContent?: string,
 ): string {
   if (typeof window === "undefined" || !snapshot?.nodes?.length) {
     return content;
   }
-  if (sourceContent && sameStylesheetHead(sourceContent, content)) {
-    return content;
-  }
+  // Do NOT skip based on source/dest stylesheet <head> equality: identical
+  // heads don't prove an identical cascade (body classes, ancestor
+  // selectors, and other document-level context can still differ), and this
+  // apply is idempotent when the values already match — so there is nothing
+  // to gain by trying to detect "already equal" and every way to gain by not
+  // getting it wrong.
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const root = doc.querySelector(

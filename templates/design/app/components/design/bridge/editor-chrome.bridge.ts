@@ -2825,10 +2825,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // authored, same as always, UNLESS a same-origin rule with
       // `!important` for this property matches this element anywhere
       // reachable, in which case that rule (not the inline value) may be
-      // what actually won the cascade.
-      return collectMatchingPxDeclarations(el, property).importantMatch
-        ? null
-        : inline;
+      // what actually won the cascade. An unreadable (cross-origin/@import)
+      // sheet masks the same way: it could hide exactly such a rule, so fail
+      // closed instead of trusting the inline value, same as the pixel and
+      // stylesheet-rule branches below.
+      var nonPxResult = collectMatchingPxDeclarations(el, property);
+      return nonPxResult.masked || nonPxResult.importantMatch ? null : inline;
     }
     var result = collectMatchingPxDeclarations(el, property);
     if (result.masked || result.values.length !== 1) return null; // masked, none, or ambiguous
@@ -2859,18 +2861,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var value = cs[property] || cs.getPropertyValue(property);
-      // Only carry what a class/cascade actually customized on THIS element,
-      // or what it inherited from its old parent chain (an inherited value
-      // differs from the bare probe's un-inherited default too, since the
-      // probe has no parent to inherit from). A value identical to the bare
-      // tag's own rendering is noise: applying it verbatim is how a
-      // duplicate/cross-screen move used to bake ~50 irrelevant properties
-      // (opacity, z-index, box-sizing, transform:none, ...) onto every
-      // dropped copy instead of just what makes it look like the source.
+      // An explicit inline declaration is unambiguous authorship — carry it
+      // verbatim even when it happens to equal the bare-tag default (e.g.
+      // style="color: black" on a <div>, whose UA default color already is
+      // black; dropping it because the probe agrees would let a stylesheet
+      // rule on the destination repaint the element).
+      var inlineValue = hostStyle && (hostStyle as any)[property];
+      // Otherwise, only carry what a class/cascade actually customized on
+      // THIS element, or what it inherited from its old parent chain (an
+      // inherited value differs from the bare probe's un-inherited default
+      // too, since the probe has no parent to inherit from). A value
+      // identical to the bare tag's own rendering is noise: applying it
+      // verbatim is how a duplicate/cross-screen move used to bake ~50
+      // irrelevant properties (opacity, z-index, box-sizing, transform:none,
+      // ...) onto every dropped copy instead of just what makes it look
+      // like the source. KNOWN CEILING: a stylesheet-authored value that
+      // ALSO equals the default (e.g. `.card { color: black }` on a <div>)
+      // is indistinguishable here from "never authored" — this walk is
+      // deliberately not a cascade engine (see collectMatchingPxDeclarations
+      // above), so that case still loses the property, same as before.
       if (
         typeof value === "string" &&
         value.trim() &&
-        value !== defaults[property]
+        (inlineValue || value !== defaults[property])
       ) {
         styles[property] = value;
       }

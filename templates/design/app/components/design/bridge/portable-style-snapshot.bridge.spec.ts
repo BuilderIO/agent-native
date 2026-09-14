@@ -477,6 +477,65 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
   );
 
   it(
+    "carries an inline-authored property even when it equals the bare-tag default",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div data-agent-native-node-id="card" style="color:black"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // A <div>'s UA-default color already renders black, so a diff against
+      // the bare-tag probe alone can't tell "authored, coincidentally
+      // matches the default" from "never authored" — but an explicit inline
+      // declaration is unambiguous authorship and must be carried regardless
+      // of what the probe says.
+      expect(styles?.color).toBe("rgb(0, 0, 0)");
+    },
+  );
+
+  it(
+    "still drops a stylesheet-authored property that equals the bare-tag default (known ceiling, not a cascade engine)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{color:black}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // Without a real cascade engine this walk cannot tell "a stylesheet
+      // rule authored this and it happens to equal the UA default" from
+      // "nothing authored it at all" — see collectPortableComputedStyles's
+      // KNOWN CEILING comment. Only an explicit inline declaration (tested
+      // above) resolves that ambiguity; a class-authored one does not.
+      expect(styles?.color).toBeUndefined();
+    },
+  );
+
+  it(
+    "omits a non-px inline size when the cascade is masked by an unreadable cross-origin sheet",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@import url("https://portable-style-unreadable-import.invalid/x.css");</style></head><body style="margin:0">
+        <div data-agent-native-node-id="card" style="width:50%"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The unreadable sheet could hide a matching `!important` rule this
+      // walk has no way to see — fail closed the same as the pixel and
+      // stylesheet-rule branches, instead of trusting the (possibly losing)
+      // inline value.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
     "skips the whole snapshot (never a {}-per-node one) when the bare-tag probe iframe can't be created",
     { timeout: 30_000 },
     async () => {

@@ -2702,7 +2702,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (PORTABLE_STYLE_PX_LENGTH.test(inline)) {
           return typeof computed === "string" && computed.trim() === inline ? inline : null;
         }
-        return collectMatchingPxDeclarations(el, property).importantMatch ? null : inline;
+        var nonPxResult = collectMatchingPxDeclarations(el, property);
+        return nonPxResult.masked || nonPxResult.importantMatch ? null : inline;
       }
       var result = collectMatchingPxDeclarations(el, property);
       if (result.masked || result.values.length !== 1) return null;
@@ -2727,7 +2728,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var value = cs[property] || cs.getPropertyValue(property);
-        if (typeof value === "string" && value.trim() && value !== defaults[property]) {
+        var inlineValue = hostStyle && hostStyle[property];
+        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property])) {
           styles[property] = value;
         }
       });

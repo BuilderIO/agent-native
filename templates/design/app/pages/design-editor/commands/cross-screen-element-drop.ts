@@ -358,9 +358,26 @@ export function runCrossScreenElementDrop(
     // silently keeps the source's own data-agent-native-node-id — two live
     // elements in two files sharing one id, breaking every id-keyed lookup
     // (selection, nudge, the cross-file code-layer owner map) on either.
-    const sourceNodeIds = buildCodeLayerProjection(sourceContent)
-      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
-      .filter((value): value is string => Boolean(value));
+    // For a localhost/fusion source, getScreenContent returns the route URL,
+    // not markup, so the projection above finds nothing — read the clone's
+    // OWN ids too (already stamped by the live bridge) so a runtime/AI-
+    // generated node the persisted source never captured still gets reserved.
+    const sourceNodeIds = [
+      ...buildCodeLayerProjection(sourceContent)
+        .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+        .filter((value): value is string => Boolean(value)),
+      ...Array.from(
+        new DOMParser()
+          .parseFromString(
+            `<template>${sourceCloneHtml}</template>`,
+            "text/html",
+          )
+          .querySelector("template")
+          ?.content.querySelectorAll("[data-agent-native-node-id]") ?? [],
+      )
+        .map((node) => node.getAttribute("data-agent-native-node-id"))
+        .filter((value): value is string => Boolean(value)),
+    ];
     const destinationProjection = buildCodeLayerProjection(rawDestContent);
     const targetAnchor = targetAnchorNodeId
       ? resolveCodeLayerNodeFromBridge(
@@ -732,7 +749,6 @@ export function runCrossScreenElementDrop(
     result.destHtml,
     destNodeAttrId,
     styleSnapshot,
-    sourceContent,
   );
   // Finding 8: board/screen text carrying the auto-applied white default
   // (see BOARD_TEXT_AUTO_COLOR_MARKER / defaultCanvasTextColor) must not
