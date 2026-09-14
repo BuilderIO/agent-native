@@ -35,7 +35,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 ## Search and search autocomplete
 
 - SEARCH-001 — Open search with `/`, Command/Ctrl+K → Search, click, and mobile
-  search. Confirm focus, placeholder, caret, active route, and close behavior.
+  search. Repeat from body/list focus and while a button, input, editor, or
+  compose owns focus. After selecting the palette command, confirm the palette
+  closes, Search mounts and receives focus, the caret/placeholder are correct,
+  and the underlying route/query is not replaced by an empty search. Type a
+  query, submit, dismiss, and reopen by each entry path; record focus, route,
+  close behavior, and whether the query is retained.
 - SEARCH-002 — Type one character, two characters, three characters, spaces,
   quoted text, unicode, punctuation, and a long query. Confirm debounce,
   local-match timing, remote-search timing, and no request for short queries.
@@ -176,6 +181,15 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   send anything. Compare on the same synthetic content; record a feature gap
   when one product lacks an equivalent. Do not use unrelated private mail as
   the prompt fixture.
+- THREAD-015 — Exercise the Contact Pane with a synthetic person and a company
+  address: select/open a message, add a recipient, and hover each sender name
+  and address. Check right-pane appearance, partial/missing profile data, the
+  four recent-message links, and loading/error states. Click a name to search,
+  an address to start a draft, copy controls, and a synthetic social/site link;
+  verify focus and return path.
+  On mobile, open it from the participant area above Subject and swipe between
+  participants. Edit only the signed-in user's profile; do not use referral,
+  team-invite, or other outbound actions.
 
 ## Compose, recipients, and autocomplete
 
@@ -207,8 +221,8 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   feature is off. The reference is desktop-only, English-only, and uses the
   current draft plus a common-phrase library rather than learning from prior
   emails or drafts; record Mail as a gap until it has an intentional equivalent.
-- COMPOSE-008 — Use slash menu, snippets, generate/agent handoff, code block
-  language picker, link dialog, image paste/drop/upload/failure, and toolbar
+- COMPOSE-008 — Use slash menu, generate/agent handoff, code block language
+  picker, link dialog, image paste/drop/upload/failure, and toolbar
   button focus/tooltip states.
 - COMPOSE-009 — Add/remove/reorder attachments via picker, drag/drop, paste,
   reply/forward originals, duplicate files, invalid type, size limit, upload
@@ -250,6 +264,17 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   autosave, close-toast Reopen/Delete, discard, and manage-draft delete/delete-all.
   Repeat on primary and secondary accounts; confirm mutations use the saved
   account metadata even if the default sender account differs.
+- COMPOSE-018 — Create Snippets from scratch, the current draft, and a read
+  message; compare Private and Team visibility. Add a built-in variable and
+  curly-brace placeholder, then attempt Send in a mocked composer and verify an
+  unresolved-placeholder warning appears; record whether it can be dismissed
+  without causing a provider side effect. Insert via Command → Use Snippet,
+  Cmd/Ctrl+;, and inline `;`; type to filter, choose with Enter,
+  and verify body formatting, caret, recipients, and existing draft text.
+  Edit/save with Cmd/Ctrl+Enter and inspect seeded/mocked usage metrics. On mobile,
+  test Add Snippet while composing and record that snippet creation remains a
+  desktop-only reference capability. Use a disposable team fixture; do not
+  share a real snippet or send a message.
 
 ## Send, schedule, and failure recovery
 
@@ -284,6 +309,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   discard, then read back Sent and Drafts to rule out silent loss or duplicate
   delivery. Compare Superhuman's failed-send notification and recovery flow
   manually; do not trigger a real failed send to an external recipient.
+- SEND-009 — Exercise notification Quick Reply with mocked OS notifications on
+  iOS and Android. On iOS, long-press and choose Quick Reply All; on Android,
+  choose Quick Reply All directly. Contrast with a normal notification tap,
+  which opens the thread. Verify Reply-All recipient scope, signature, inline
+  focus/editing, send failure, and Undo (30 seconds on iOS, 20 on Android).
+  Confirm muted threads do not surface a notification action and notification
+  permission denial is distinct from no new mail. Use a mocked provider only;
+  never send a live Quick Reply.
 
 ## Labels, folders, spam, and reminders
 
@@ -292,8 +325,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   rename, delete, apply, remove, move, and remove-label-and-done.
 - ORGANIZE-002 — Compare Archive/Done, All Mail, Inbox, label, Sent, Trash, and
   Spam boundaries. Confirm replies to archived/done threads resurface correctly.
-- ORGANIZE-003 — Report spam, undo, block sender/domain, unsubscribe, mute,
-  restore from Trash/Spam, and test missing/duplicate action targets.
+- ORGANIZE-003 — On synthetic messages, distinguish Delete, Unsubscribe,
+  Block, and Mark Spam. Test Unsubscribe alone, Unsubscribe + Mark Done all, and
+  Unsubscribe + Trash all, including email-based versus provider-page handoff
+  and cancellation. Test Block sender/domain and unblock from Blocked Senders.
+  Test Mark Spam alone, Spam + block full address, and Spam + block domain;
+  verify Spam moves to the Spam/Junk partition and is not silently equivalent
+  to blocking. Cover mute/unmute and reply notification behavior, Undo,
+  future-message handling, restore from Trash/Spam, missing/duplicate targets,
+  and account scope. Use mocked unsubscribe and provider effects; never
+  unsubscribe, block, or report a real personal message.
 - ORGANIZE-004 — Snooze presets, weekday prefixes, natural-language date/time,
   timezone, multi-select, swipe, modal keyboard navigation, cancel, failure,
   resurface, and reminder list.
@@ -337,11 +378,19 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   edits, conflicts, draft labels, comments, send-after-edit, and disconnect.
   Confirm sharing stops access as the reference specifies. Use disposable test
   identities only; do not expose a user's live draft.
-- TEAM-004 — Compare Team Snippets, read/open statuses, teammate reply/scheduled
-  indicators, team scheduling, and CRM sidebars. Test enabled/disabled,
+- TEAM-004 — Compare Team Snippets, teammate reply/scheduled indicators, team
+  scheduling, and CRM sidebars. Test enabled/disabled,
   permission-denied, stale, and competing-writer states. No real mail open
   tracking, team sharing, meeting invitation, or CRM write is part of the live
   test without separate authorization.
+- TEAM-005 — For Read Statuses, test per-account enable/disable via Command,
+  checkmarks beside message headers, hover details (time, device, and opener),
+  and the status below the latest message. Verify only eligible mail sent
+  through the reference is tracked and that tracking-pixel protection suppresses
+  the status. On an eligible Business/Enterprise fixture, open Recent Opens,
+  follow an item to its conversation, and compare individual statuses. Use
+  synthetic pixel/open events; do not enable tracking on a real mailbox or send
+  a tracked email to a real person.
 
 ## Settings, command palette, and agent parity
 
@@ -368,19 +417,29 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   exercise it with focus in the list, thread, To/Cc/Bcc, subject, body, search,
   and modal. Baseline captured from the live desktop reference on 2026-09-13:
 
-  | Surface | Shortcut inventory to compare and exercise |
-  | --- | --- |
-  | Global/navigation | Cmd+K Command; `/` Search; `z` Undo; `?` Ask AI; `j`/`k` next/previous conversation; `n`/`p` next/previous message; Enter Open; Esc Back; Tab/Shift+Tab next/previous Split; Left Arrow label menu; Space/Shift+Space page down/up; Cmd+Up/Down jump top/bottom; Ctrl+1–9 switch account; arrows Superhuman Focus. |
-  | Conversation | `e` Done/Archive; Shift+E not Done; `h` Remind Me; `s` Star; `u` Read/Unread; `i` Summarize; Shift+M Mute; `#` Trash; `!` Spam; Cmd+U Unsubscribe; Cmd+P Print; `x` select; Esc clear selection; Cmd+A select all from here; Cmd+Shift+A select all; Cmd+S share; `m` comment; Cmd+Delete delete comment. |
-  | Labels/messages | `v` Move; `l` Add/Remove Label; `y` Remove Label; `[`/`]` next/previous label; Shift+Y remove all labels; `c` Compose; Enter Reply All; `r` Reply; `f` Forward; Cmd+O Open Links & Attachments; Tab cycle links; `o` Expand Message; Shift+H expand header; Shift+O expand all; Shift+N show new messages; Cmd+; use snippet. |
-  | Compose | Cmd+Shift+O To; Cmd+Shift+C Cc; Cmd+Shift+B Bcc; Cmd+Shift+F From; Cmd+Shift+S Subject; Cmd+J Superhuman AI; Cmd+Shift+U Attach; Cmd+Shift+, Discard; Cmd+Shift+I Instant Intro/Bcc; Cmd+Shift+H Remind Me; Cmd+Shift+L Send Later; `;` insert snippet; `:` insert emoji; Cmd+Enter Send; Cmd+Shift+Z Send Instantly; Cmd+Shift+Enter Send + Done. |
-  | Pop-out and format | Shift+C pop out; Shift+Enter Reply All pop-out; Shift+R Reply pop-out; Shift+F Forward pop-out; Cmd+Shift+P pop in/out; Cmd+/ pop out draft and search; Cmd+D Toggle Focus; Cmd+B bold; Cmd+I italic; Cmd+U underline; Cmd+K hyperlink; Cmd+O color; Cmd+Shift+X strike; Cmd+Shift+7/8/9 numbered list/bullets/quote; Tab/Shift+Tab indent/outdent; Cmd+]/[ increase/decrease indent. |
-  | Folders/filters | G then I Inbox and Important; G then O Other; G then S Starred; G then D Drafts; G then T Sent; G then E Done; G then H Reminders; G then M Muted; G then ; Snippets; G then ! Spam; G then # Trash; G then A All Mail; G then L label; Shift+U Unread; Shift+S Starred; Shift+I Important; Shift+R No reply. Verify the live G-then-I mapping because the reference sheet displayed it for both Inbox and Important. |
-  | Window/calendar | Cmd+T new tab; Cmd+Shift+]/[ next/previous tab; Cmd+W close tab; Cmd+=/-/0 font size up/down/reset; Cmd+F find; Ctrl+/ copy private link; `0` day view; `2` week view; `-` previous day/week; `=` next day/week; Cmd+Shift+A share availability; `b` create event; Shift+B empty event. |
+  | Surface            | Shortcut inventory to compare and exercise                                                                                                                                                                                                                                                                                                                                                                            |
+  | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Global/navigation  | Cmd+K Command; `/` Search; `z` Undo; `?` Ask AI; `j`/`k` next/previous conversation; `n`/`p` next/previous message; Enter Open; Esc Back; Tab/Shift+Tab next/previous Split; Left Arrow label menu; Space/Shift+Space page down/up; Cmd+Up/Down jump top/bottom; Ctrl+1–9 switch account; arrows Superhuman Focus.                                                                                                    |
+  | Conversation       | `e` Done/Archive; Shift+E not Done; `h` Remind Me; `s` Star; `u` Read/Unread; `i` Summarize; Shift+M Mute; `#` Trash; `!` Spam; Cmd+U Unsubscribe; Cmd+P Print; `x` select; Esc clear selection; Cmd+A select all from here; Cmd+Shift+A select all; Cmd+S share; `m` comment; Cmd+Delete delete comment.                                                                                                             |
+  | Labels/messages    | `v` Move; `l` Add/Remove Label; `y` Remove Label; `[`/`]` next/previous label; Shift+Y remove all labels; `c` Compose; Enter Reply All; `r` Reply; `f` Forward; Cmd+O Open Links & Attachments; Tab cycle links; `o` Expand Message; Shift+H expand header; Shift+O expand all; Shift+N show new messages; Cmd+; use snippet.                                                                                         |
+  | Compose            | Cmd+Shift+O To; Cmd+Shift+C Cc; Cmd+Shift+B Bcc; Cmd+Shift+F From; Cmd+Shift+S Subject; Cmd+J Superhuman AI; Cmd+Shift+U Attach; Cmd+Shift+, Discard; Cmd+Shift+I Instant Intro/Bcc; Cmd+Shift+H Remind Me; Cmd+Shift+L Send Later; `;` insert snippet; `:` insert emoji; Cmd+Enter Send; Cmd+Shift+Z Send Instantly; Cmd+Shift+Enter Send + Done.                                                                    |
+  | Pop-out and format | Shift+C pop out; Shift+Enter Reply All pop-out; Shift+R Reply pop-out; Shift+F Forward pop-out; Cmd+Shift+P pop in/out; Cmd+/ pop out draft and search; Cmd+D Toggle Focus; Cmd+B bold; Cmd+I italic; Cmd+U underline; Cmd+K hyperlink; Cmd+O color; Cmd+Shift+X strike; Cmd+Shift+7/8/9 numbered list/bullets/quote; Tab/Shift+Tab indent/outdent; Cmd+]/[ increase/decrease indent.                                 |
+  | Folders/filters    | G then I Inbox and Important; G then O Other; G then S Starred; G then D Drafts; G then T Sent; G then E Done; G then H Reminders; G then M Muted; G then ; Snippets; G then ! Spam; G then # Trash; G then A All Mail; G then L label; Shift+U Unread; Shift+S Starred; Shift+I Important; Shift+R No reply. Verify the live G-then-I mapping because the reference sheet displayed it for both Inbox and Important. |
+  | Window/calendar    | Cmd+T new tab; Cmd+Shift+]/[ next/previous tab; Cmd+W close tab; Cmd+=/-/0 font size up/down/reset; Cmd+F find; Ctrl+/ copy private link; `0` day view; `2` week view; `-` previous day/week; `=` next day/week; Cmd+Shift+A share availability; `b` create event; Shift+B empty event.                                                                                                                               |
 
   Confirm contextual conflicts resolve intentionally (including Enter, Tab,
   Cmd+Shift+A, Cmd+O, Cmd+K, Shift+U, and Shift+R), native text editing is not
   intercepted, and international keyboard layouts have usable alternatives.
+
+- SETTINGS-008 — Compare notification preferences by platform and account.
+  On desktop, toggle Email Notifications from Command and distinguish the app
+  toggle from browser/OS permission; with Important • Other enabled, verify
+  only high-priority mail notifies. On mobile, test per-account All, High
+  Priority, selected Split Inboxes, and Off, plus OS permission denial. Compare
+  desktop badge count (all messages in the active Split, not just unread), iOS
+  badge choices (high-priority unread, unread, off), and Android's fixed badge.
+  Mock notification delivery and device permission state; do not change the
+  user's OS notification settings or emit real notifications.
 
 ## Performance and quality gates
 
@@ -461,3 +520,9 @@ re-open them when the product changes:
 - [Shared Drafts](https://help.superhuman.com/hc/en-us/articles/46005578703885-Shared-Drafts)
 - [Team Features Overview](https://help.superhuman.com/hc/en-us/articles/46005696084109-Team-Features-Overview)
 - [Dates, Deadlines, Done](https://help.superhuman.com/hc/en-us/articles/46005854169357-Dates-Deadlines-Done)
+- [Read Statuses and Recent Opens Feed](https://help.superhuman.com/hc/en-us/articles/46005603745293-Read-Statuses-and-Recent-Opens-Feed)
+- [Email Notifications](https://help.superhuman.com/hc/en-us/articles/46005802618765-Email-Notifications)
+- [Reply to Email on Mobile](https://help.superhuman.com/hc/en-us/articles/46005712692877-Reply-to-Email-on-Mobile)
+- [Contact Pane](https://help.superhuman.com/hc/en-us/articles/46005778939789-Contact-Pane)
+- [Snippets](https://help.superhuman.com/hc/en-us/articles/46005686571149-Snippets)
+- [Dealing with Unwanted Emails](https://help.superhuman.com/hc/en-us/articles/46005635358349-Dealing-with-Unwanted-Emails)

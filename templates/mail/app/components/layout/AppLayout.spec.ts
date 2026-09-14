@@ -89,6 +89,15 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('params.set("filter", filter)');
   });
 
+  it("opens search from the command palette through the existing focus path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'onSearch={() => document.getElementById("mail-search")?.focus()}',
+    );
+    expect(source).toContain("onFocus={() => setSearchFocused(true)}");
+  });
+
   it("uses the tab cog to persist and apply the combined inbox preference", () => {
     const source = appLayoutSource();
 

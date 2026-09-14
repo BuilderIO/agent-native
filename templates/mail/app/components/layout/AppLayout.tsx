@@ -2168,6 +2168,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         onCompose={handleCompose}
+        onSearch={() => document.getElementById("mail-search")?.focus()}
         onSnooze={targetEmail ? handleSnooze : undefined}
         onSpam={handleSpam}
         onBlockSender={handleBlockSender}

@@ -35,6 +35,7 @@ interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCompose: () => void;
+  onSearch: () => void;
   onReply?: () => void;
   onSnooze?: () => void;
   onSpam?: () => void;
@@ -87,6 +88,7 @@ export function CommandPalette({
   open,
   onOpenChange,
   onCompose,
+  onSearch,
   onReply,
   onSnooze,
   onSpam,
@@ -136,10 +138,7 @@ export function CommandPalette({
             <CommandMenu.Shortcut>H</CommandMenu.Shortcut>
           </CommandMenu.Item>
         )}
-        <CommandMenu.Item
-          onSelect={() => navigate(`/all?q=`)}
-          keywords={["search", "find"]}
-        >
+        <CommandMenu.Item onSelect={onSearch} keywords={["search", "find"]}>
           <IconSearch className="h-4 w-4" />
           {t("commandPalette.search")}
           <CommandMenu.Shortcut>/</CommandMenu.Shortcut>
