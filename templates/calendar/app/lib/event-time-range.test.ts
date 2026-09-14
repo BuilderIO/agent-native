@@ -133,6 +133,25 @@ describe("shiftEndForStartChange", () => {
     }
   });
 
+  it("preserves wall-clock duration across a DST boundary, by design", () => {
+    // America/New_York springs forward on 2026-03-08. These are picker values,
+    // so a 1h block stays a 1h block on the face of the clock; the timezone is
+    // resolved at submit. Pinned so switching to elapsed time is a deliberate
+    // change with a timezone argument, not an accident.
+    const acrossDst = {
+      date: "2026-03-08",
+      startTime: "01:00",
+      endDate: "2026-03-08",
+      endTime: "02:00",
+    };
+    expect(shiftEndForStartChange(acrossDst, "03:00")).toEqual({
+      date: "2026-03-08",
+      startTime: "03:00",
+      endDate: "2026-03-08",
+      endTime: "04:00",
+    });
+  });
+
   it("keeps a multi-day end when it is already after the new start", () => {
     const multiDay = { ...range, endDate: "2026-03-12", endTime: "09:00" };
     expect(shiftEndForStartChange(multiDay, "23:45")).toEqual({

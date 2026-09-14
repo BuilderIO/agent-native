@@ -124,6 +124,13 @@ export function buildTimeOptions({
  * Keeps the range valid when the start moves. An end that would land on or
  * before the new start is pushed forward by the duration the draft already
  * had, so the user never holds an end-before-start event.
+ *
+ * Duration here is deliberately wall-clock, not elapsed: these are the picker's
+ * own `YYYY-MM-DD` + `HH:mm` values, and the timezone is applied later at
+ * submit. A 3pm-4pm block stays a 3pm-4pm block when its start moves across a
+ * DST boundary, which is what the visible list implies and what Google Calendar
+ * does. Converting to elapsed time would need a timezone argument and would
+ * silently resize the block the user can see.
  */
 export function shiftEndForStartChange(
   range: EventTimeRange,

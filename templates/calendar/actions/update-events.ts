@@ -41,6 +41,41 @@ function dateOnly(value: string): string {
   return value.split("T")[0] ?? value;
 }
 
+/**
+ * The range actually written for one event. All-day targets take date-only
+ * bounds, so a timed range is truncated here and can collapse to a zero-day
+ * span even when the original timestamps were ordered.
+ */
+function effectiveRange(
+  event: { start: string; end: string; allDay?: boolean },
+  args: { start?: string; end?: string; shiftMinutes?: number },
+): { start: string; end: string } {
+  if (args.shiftMinutes !== undefined) {
+    return {
+      start: shiftedIso(event.start, args.shiftMinutes),
+      end: shiftedIso(event.end, args.shiftMinutes),
+    };
+  }
+  return event.allDay
+    ? { start: dateOnly(args.start!), end: dateOnly(args.end!) }
+    : { start: args.start!, end: args.end! };
+}
+
+function assertEffectiveRangeOrdered(
+  event: { start: string; end: string; allDay?: boolean; title: string },
+  range: { start: string; end: string },
+) {
+  if (!event.allDay) {
+    validateEventTimeOrder({ start: range.start, end: range.end });
+    return;
+  }
+  if (range.end <= range.start) {
+    throw new Error(
+      `All-day events need an end date after the start date, but "${event.title}" would get ${range.start} to ${range.end}. Pass dates at least one day apart for all-day targets.`,
+    );
+  }
+}
+
 export default defineAction({
   description:
     "Update many calendar events in one call. Use shiftMinutes or one shared start/end range with ids or filters; never loop update-event per event. Call once with dryRun true to preview every match, then once more without dryRun to apply the same change.",
@@ -282,24 +317,18 @@ export default defineAction({
       return true;
     });
 
-    const proposed = eligible.map(({ event, accountEmail }) => ({
-      id: `google-${event.googleEventId}`,
-      title: event.title,
-      start:
-        args.shiftMinutes === undefined
-          ? event.allDay
-            ? dateOnly(args.start!)
-            : args.start
-          : shiftedIso(event.start, args.shiftMinutes),
-      end:
-        args.shiftMinutes === undefined
-          ? event.allDay
-            ? dateOnly(args.end!)
-            : args.end
-          : shiftedIso(event.end, args.shiftMinutes),
-      accountEmail,
-      outcome: "matched" as const,
-    }));
+    const proposed = eligible.map(({ event, accountEmail }) => {
+      const range = effectiveRange(event, args);
+      assertEffectiveRangeOrdered(event, range);
+      return {
+        id: `google-${event.googleEventId}`,
+        title: event.title,
+        start: range.start,
+        end: range.end,
+        accountEmail,
+        outcome: "matched" as const,
+      };
+    });
     if (args.dryRun) {
       return {
         dryRun: true,
@@ -315,18 +344,7 @@ export default defineAction({
       eligible,
       BULK_EVENT_CONCURRENCY,
       async ({ event, accountEmail }): Promise<BulkEventResult> => {
-        const start =
-          args.shiftMinutes === undefined
-            ? event.allDay
-              ? dateOnly(args.start!)
-              : args.start!
-            : shiftedIso(event.start, args.shiftMinutes);
-        const end =
-          args.shiftMinutes === undefined
-            ? event.allDay
-              ? dateOnly(args.end!)
-              : args.end!
-            : shiftedIso(event.end, args.shiftMinutes);
+        const { start, end } = effectiveRange(event, args);
         try {
           await googleCalendar.updateEvent(
             event.googleEventId!,
