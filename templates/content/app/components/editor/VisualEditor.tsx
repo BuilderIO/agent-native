@@ -45,9 +45,12 @@ import { TableRow } from "@tiptap/extension-table-row";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import {
+  DOMParser as ProseMirrorDOMParser,
+  DOMSerializer,
   Fragment,
   Slice,
   type Node as ProseMirrorNode,
+  type ResolvedPos,
 } from "@tiptap/pm/model";
 import {
   Plugin,
@@ -235,6 +238,38 @@ function looksLikeMarkdown(text: string): boolean {
   return false;
 }
 
+export function parseMarkdownClipboardSlice(
+  editor: CoreEditor,
+  text: string,
+): Slice | null {
+  if (!looksLikeMarkdown(text)) return null;
+
+  const doc = editor.schema.nodeFromJSON(nfmToDoc(text));
+  return new Slice(doc.content, 0, 0);
+}
+
+function parsePlainTextClipboardSlice(
+  editor: CoreEditor,
+  text: string,
+  context: ResolvedPos,
+): Slice {
+  const container = document.createElement("div");
+  const serializer = DOMSerializer.fromSchema(editor.schema);
+  const marks = context.marks();
+  text.split(/(?:\r\n?|\n)+/).forEach((block) => {
+    const paragraph = container.appendChild(document.createElement("p"));
+    if (block) {
+      paragraph.appendChild(
+        serializer.serializeNode(editor.schema.text(block, marks)),
+      );
+    }
+  });
+  return ProseMirrorDOMParser.fromSchema(editor.schema).parseSlice(container, {
+    preserveWhitespace: true,
+    context,
+  });
+}
+
 /**
  * ProseMirror plugin that intercepts paste events and converts markdown
  * plain text into rich editor content, similar to Notion's paste behavior.
@@ -250,6 +285,13 @@ const MarkdownPasteDetection = Extension.create({
       new Plugin({
         key: new PluginKey("markdownPasteDetection"),
         props: {
+          clipboardTextParser(text, _context, plainText) {
+            if (!plainText) {
+              const markdown = parseMarkdownClipboardSlice(editor, text);
+              if (markdown) return markdown;
+            }
+            return parsePlainTextClipboardSlice(editor, text, _context);
+          },
           handlePaste(view, event) {
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
@@ -257,9 +299,8 @@ const MarkdownPasteDetection = Extension.create({
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
 
-            // Only intercept when there's both HTML and plain text,
-            // and the plain text looks like markdown. If there's no HTML,
-            // tiptap-markdown's transformPastedText handles it already.
+            // Text-only clipboard data is handled by clipboardTextParser above.
+            // This path handles code editors that also provide an HTML wrapper.
             if (!html || !plainText || !looksLikeMarkdown(plainText)) {
               return false;
             }
@@ -280,11 +321,12 @@ const MarkdownPasteDetection = Extension.create({
               return false;
             }
 
-            // Prevent default paste and insert markdown as content —
-            // tiptap-markdown will parse it into rich nodes
+            const slice = parseMarkdownClipboardSlice(editor, plainText);
+            if (!slice) return false;
+
             event.preventDefault();
-            editor.commands.insertContent(
-              (editor.storage as any).markdown.parser.parse(plainText),
+            view.dispatch(
+              view.state.tr.replaceSelection(slice).scrollIntoView(),
             );
             return true;
           },
@@ -2212,12 +2254,11 @@ export function createVisualEditorExtensions({
       MarkdownPasteDetection,
       SelectAllDocument,
       JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
-      // Content's NFM Markdown config — kept exactly as before (html:true) so
-      // tiptap-markdown's paste/copy transforms keep working. The authoritative
-      // serialize/parse for save/load still goes through docToNfm / nfmToDoc.
+      // Content owns paste parsing above so multi-block documents never pass
+      // through tiptap-markdown's inline-only clipboard parser.
       Markdown.configure({
         html: true,
-        transformPastedText: true,
+        transformPastedText: false,
         transformCopiedText: true,
       }),
     ],

@@ -123,6 +123,7 @@ import {
   getRecentEditPresenceMarkerRect,
   hasAncestorType,
   parseNfmForCollabReconcile,
+  parseMarkdownClipboardSlice,
   ensurePendingImageUpload,
   restorePendingImagePicker,
   runIfMediaCreationAllowed,
@@ -351,6 +352,81 @@ function createFullEditor(content = "") {
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
 }
+
+describe("markdown clipboard parsing", () => {
+  it("parses a large multi-block Markdown document as block content", () => {
+    const section = [
+      "## A section heading",
+      "",
+      "A paragraph with **bold text** and [a link](https://example.test).",
+      "",
+      "- First item",
+      "- Second item",
+      "",
+      "```ts",
+      'const message = "still responsive";',
+      "```",
+    ].join("\n");
+    const markdown = ["# Large pasted draft", ...Array(120).fill(section)].join(
+      "\n\n",
+    );
+    const editor = createFullEditor();
+
+    try {
+      expect(markdown.length).toBeGreaterThan(15_000);
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+
+      editor.view.dispatch(
+        editor.state.tr.replaceSelection(slice!).scrollIntoView(),
+      );
+      const saved = docToNfm(editor.state.doc.toJSON());
+      expect(saved).toContain("# Large pasted draft");
+      expect(saved.match(/^## A section heading$/gm)).toHaveLength(120);
+      expect(saved).toContain('const message = "still responsive";');
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves non-Markdown clipboard text to the default paste behavior", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(
+          editor,
+          "An ordinary plain text paragraph.",
+        ),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const markdown = "# Plain paste heading\n\n- first\n- second";
+    try {
+      const slice = editor.view.someProp("clipboardTextParser", (parse) =>
+        parse(markdown, editor.state.selection.$from, true, editor.view),
+      );
+      expect(slice).toBeDefined();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(editor.state.doc.childCount).toBe(3);
+      expect(
+        Array.from(
+          { length: editor.state.doc.childCount },
+          (_, index) => editor.state.doc.child(index).type.name,
+        ),
+      ).toEqual(["paragraph", "paragraph", "paragraph"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 describe("live suggestion presentation", () => {
   function createSuggestionEditor(content: string) {
