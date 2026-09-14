@@ -12,6 +12,7 @@ import {
   extractCanvasPrimitiveHtml,
 } from "./canvas-primitive-insert";
 import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
+import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
 
 describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
@@ -829,5 +830,46 @@ describe("arrow paint target", () => {
     );
     expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
     expect(svg.querySelector("defs path")).not.toBe(shaft);
+  });
+});
+
+// search-icon-2: a freshly drawn shape must expose a `backgroundColor` the
+// Fill inspector can read once the selection is refreshed from SOURCE (not
+// the live iframe) — e.g. right after the draw commits new file content.
+// refreshElementInfoFromContent re-derives computedStyles by parsing the
+// raw inline `style` attribute (parseInlineStyleAttribute) through
+// cssStyleAliases, which only aliases hyphenated longhands
+// (`border-color` -> `borderColor`) — it never expands a shorthand like
+// `background: <color>` into the `backgroundColor` key FillProperties
+// reads, so the shape appeared to have no fill at all after that refresh.
+describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyles refresh", () => {
+  it("an ellipse's background survives cssStyleAliases as backgroundColor", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "ellipse",
+      nodeId: "lens",
+      geometry: { x: 0, y: 0, width: 16, height: 16 },
+    });
+    const el = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector('[data-an-primitive="ellipse"]');
+    if (!el) throw new Error("no ellipse element");
+    const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
+    const aliased = cssStyleAliases(rawStyles);
+    expect(aliased.backgroundColor).toBeTruthy();
+  });
+
+  it("a rectangle's background survives cssStyleAliases as backgroundColor", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "rectangle",
+      nodeId: "box",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+    });
+    const el = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector('[data-an-primitive="rectangle"]');
+    if (!el) throw new Error("no rectangle element");
+    const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
+    const aliased = cssStyleAliases(rawStyles);
+    expect(aliased.backgroundColor).toBeTruthy();
   });
 });

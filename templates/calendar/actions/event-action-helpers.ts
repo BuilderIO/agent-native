@@ -653,6 +653,35 @@ function allDaySpanDays(start: string, end: string): number {
   return Math.round((endMs - startMs) / 86_400_000);
 }
 
+/**
+ * Events must end strictly after they start. Only explicit all-day spans are
+ * excluded, because their end bound is inclusive for out-of-office and
+ * exclusive for working locations; `validateStatusEventTiming` covers those.
+ * A date-only bound on a non-all-day event is still ordered, since that is the
+ * shape a malformed timed update arrives in.
+ */
+export function validateEventTimeOrder(args: {
+  allDay?: boolean;
+  start: string;
+  end: string;
+}) {
+  if (args.allDay === true) return;
+  // Date.parse reads a YYYY-MM-DD bound as UTC midnight, so date-only and
+  // instant bounds order against each other without a separate branch.
+  const startMs = Date.parse(args.start);
+  const endMs = Date.parse(args.end);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    throw new Error(
+      `Event start and end must be valid timestamps: ${args.start} to ${args.end}`,
+    );
+  }
+  if (endMs <= startMs) {
+    throw new Error(
+      `Event end must be after its start: ${args.start} to ${args.end}`,
+    );
+  }
+}
+
 export function validateStatusEventTiming(args: {
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
   allDay?: boolean;

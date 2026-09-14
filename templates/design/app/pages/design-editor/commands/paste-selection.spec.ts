@@ -212,6 +212,45 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(top).toBeLessThan(844);
   });
 
+  it("pastes directly above the source, not appended after a later sibling", async () => {
+    // A source with a later sibling in the same parent is the shape that
+    // distinguishes "insert directly above the source" from "append to the
+    // end of the parent's child list" — with only one child both look
+    // identical (see the frame-1/rect-1 case above).
+    const GROUP_HTML = `<!DOCTYPE html>
+<html lang="en"><head></head><body>
+<div data-agent-native-node-id="group" data-agent-native-layer-name="Group" style="position:absolute;left:0px;top:0px;width:400px;height:300px">
+<div data-agent-native-node-id="original" data-agent-native-layer-name="Original" style="position:absolute;left:0px;top:0px;width:120px;height:60px"></div>
+<div data-agent-native-node-id="sibling" data-agent-native-layer-name="Sibling" style="position:absolute;left:0px;top:80px;width:120px;height:60px"></div>
+</div>
+</body></html>`;
+    const { args, writes } = harness({
+      files: [designFile("home", "index.html", GROUP_HTML)],
+      activeFileId: "home",
+      entries: [
+        {
+          html: `<div data-agent-native-node-id="original" data-agent-native-layer-name="Original" style="position:absolute;left:0px;top:0px;width:120px;height:60px"></div>`,
+          rootNodeId: "original",
+          sourceFileId: "home",
+        },
+      ],
+    });
+
+    await runPasteSelection(args);
+
+    const doc = new DOMParser().parseFromString(
+      writes[0]!.content,
+      "text/html",
+    );
+    const group = doc.querySelector('[data-agent-native-node-id="group"]')!;
+    const childIds = Array.from(group.children).map((el) =>
+      el.getAttribute("data-agent-native-node-id"),
+    );
+    const copyId = childIds.find((id) => id !== "original" && id !== "sibling");
+    expect(copyId).toBeTruthy();
+    expect(childIds).toEqual(["original", copyId, "sibling"]);
+  });
+
   it("pastes a transformed layer inside its source group and preserves size", async () => {
     const { args, writes } = harness({
       files: [

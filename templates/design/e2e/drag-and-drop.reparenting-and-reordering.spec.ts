@@ -59,8 +59,16 @@ test.describe("reparenting and reordering", () => {
     const first = (await node(page, "chip-1").boundingBox())!;
     const third = (await node(page, "chip-3").boundingBox())!;
     // Select on the canvas, not via the tree: the bridge owns drag state and
-    // a Layers-panel selection does not arm it.
+    // a Layers-panel selection does not arm it. A plain click is
+    // container-first (Figma parity: it selects Row, the outermost child of
+    // scope) — drilling into the chip itself needs the double-click that
+    // descends one level, same as structure-selection.spec.ts.
     await page.mouse.click(
+      first.x + first.width / 2,
+      first.y + first.height / 2,
+    );
+    await page.waitForTimeout(600);
+    await page.mouse.dblclick(
       first.x + first.width / 2,
       first.y + first.height / 2,
     );

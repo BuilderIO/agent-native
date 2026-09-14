@@ -504,6 +504,16 @@ export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
   autoLayout?: boolean;
+  /** Defaults to a Group; auto-layout always creates a Frame. */
+  wrapperKind?: "group" | "frame";
+  /**
+   * Live-rendered width/height per target node id, used only as a fallback
+   * when a target's inline style has position/left/top but no explicit
+   * width/height (see computeAbsoluteUnionBounds). Optional: callers with no
+   * live DOM to measure (server-side edits, tests) simply omit it and get
+   * the previous behavior.
+   */
+  sizeHints?: Record<string, { width: number; height: number }>;
 }
 
 /**
@@ -2466,6 +2476,9 @@ function treeTypeForNode(
   node: CodeLayerNode,
   nodesById: ReadonlyMap<string, CodeLayerNode>,
 ): CodeLayerTreeNodeType {
+  if (node.dataAttributes["data-agent-native-group"] === "true") {
+    return "group";
+  }
   // Canvas primitives (drawn shapes / board objects) carry their kind via
   // data-an-primitive so the layers panel shows a true shape/text/frame icon
   // instead of the generic code glyph. The marker wins over tag heuristics:
@@ -4888,27 +4901,33 @@ function stripFlexItemStylingFromChild(
 }
 
 /**
- * L7: sequential "Group N" naming. Counts existing layer names already
- * matching "Group" or "Group <number>" in the projection (via
+ * L7: sequential "<baseName> N" naming. Counts existing layer names already
+ * matching "<baseName>" or "<baseName> <number>" in the projection (via
  * data-agent-native-layer-name / layerName) and returns the next unused
  * name in that sequence, so repeated grouping doesn't leave multiple
- * ambiguous "Group" layers.
+ * ambiguous same-named layers. Figma names a plain ⌘G group "Group" but an
+ * auto-layout wrap (Shift+A) "Frame" — same wrapper mechanics, different
+ * default name — so the base name is threaded in by the caller rather than
+ * hardcoded here.
  */
-function nextSequentialGroupName(nodes: CodeLayerNode[]): string {
-  const groupNamePattern = /^Group(?: (\d+))?$/;
+function nextSequentialWrapperName(
+  nodes: CodeLayerNode[],
+  baseName: string,
+): string {
+  const namePattern = new RegExp(`^${baseName}(?: (\\d+))?$`);
   let highestNumbered = 0;
-  let hasBareGroup = false;
+  let hasBareName = false;
   for (const node of nodes) {
-    const match = groupNamePattern.exec(node.layerName.trim());
+    const match = namePattern.exec(node.layerName.trim());
     if (!match) continue;
     if (match[1]) {
       highestNumbered = Math.max(highestNumbered, Number(match[1]));
     } else {
-      hasBareGroup = true;
+      hasBareName = true;
     }
   }
-  if (!hasBareGroup && highestNumbered === 0) return "Group";
-  return `Group ${Math.max(highestNumbered, hasBareGroup ? 1 : 0) + 1}`;
+  if (!hasBareName && highestNumbered === 0) return baseName;
+  return `${baseName} ${Math.max(highestNumbered, hasBareName ? 1 : 0) + 1}`;
 }
 
 interface AbsoluteUnionBounds {
@@ -4927,6 +4946,16 @@ interface AbsoluteUnionBounds {
  */
 function computeAbsoluteUnionBounds(
   elements: ParsedElement[],
+  /**
+   * Live-rendered width/height fallback, keyed by the element's own
+   * data-agent-native-node-id, for a target whose inline style carries
+   * position/left/top but omits width/height (auto-sized content, e.g. a
+   * Text-tool node sized by its text rather than an explicit box). Never
+   * overrides an explicit inline width/height — only fills the gap that
+   * would otherwise return null and leave the wrapper with no geometry at
+   * all (a frame that doesn't enclose its own content).
+   */
+  sizeHints?: Record<string, { width: number; height: number }>,
 ): AbsoluteUnionBounds | null {
   let minLeft = Infinity;
   let minTop = Infinity;
@@ -4938,8 +4967,10 @@ function computeAbsoluteUnionBounds(
     if (style.position !== "absolute") return null;
     const left = parsePixelLength(style.left);
     const top = parsePixelLength(style.top);
-    const width = parsePixelLength(style.width);
-    const height = parsePixelLength(style.height);
+    const nodeId = attributeValue(element, "data-agent-native-node-id");
+    const hint = nodeId ? sizeHints?.[nodeId] : undefined;
+    const width = parsePixelLength(style.width) ?? hint?.width ?? null;
+    const height = parsePixelLength(style.height) ?? hint?.height ?? null;
     if (left === null || top === null || width === null || height === null) {
       return null;
     }
@@ -5002,6 +5033,7 @@ function applyWrapNodes(
   | { content: string; capability: EditCapability; wrapperNodeId: string }
   | PatchResultStatus {
   const { autoLayout = false } = intent;
+  const wrapperIsFrame = autoLayout || intent.wrapperKind === "frame";
   // A UI selection is unique, but action/tool callers and stale multi-select
   // state can repeat an id. Extracting/removing the same source span twice
   // corrupts the surrounding document and duplicates the node inside the new
@@ -5030,14 +5062,16 @@ function applyWrapNodes(
   targetElements.sort((a, b) => a.start - b.start);
 
   // L6: targets no longer need to be sibling-index-CONTIGUOUS. The removal +
-  // single-reinsertion-point algorithm below already extracts every target
+  // single-reinsertion-point algorithm below extracts every target
   // (regardless of gaps) and re-inserts them together at the topmost
-  // target's position — i.e. it already "moves members adjacent to the
-  // topmost member, then wraps." A non-adjacent same-parent selection (e.g.
-  // sibling indexes 0, 2, 4) closes its own gaps naturally: the un-selected
-  // siblings that were between them (1, 3) end up adjacent to each other
-  // once the targets are pulled out, and the targets end up adjacent to each
-  // other inside the new wrapper. This matches Figma's group behavior.
+  // target's stacking position — the LAST one in source order, since later
+  // source position paints on top for plain siblings with no z-index. A
+  // non-adjacent same-parent selection (e.g. sibling indexes 0, 2, 4) closes
+  // its own gaps naturally: the un-selected siblings that were between them
+  // (1, 3) end up adjacent to each other once the targets are pulled out,
+  // and the targets end up adjacent to each other inside the new wrapper.
+  // This matches Figma's group behavior: the group lands at the z-position
+  // of its topmost selected child, not its bottommost.
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
@@ -5052,10 +5086,14 @@ function applyWrapNodes(
     `wrap:${targetElements.map((el) => el.start).join(":")}`,
   );
 
-  // L7: sequential "Group N" naming — count existing "Group"/"Group N" names
-  // already in the projection so repeated grouping doesn't produce multiple
-  // ambiguous layers all just named "Group".
-  const wrapperLayerName = nextSequentialGroupName(build.projection.nodes);
+  // L7: sequential naming — an auto-layout wrap (Shift+A) reads as a Figma
+  // "Frame", a plain wrap (⌘G) as a "Group"; count existing same-named
+  // layers already in the projection so repeated wraps don't produce
+  // multiple ambiguous layers with the same bare name.
+  const wrapperLayerName = nextSequentialWrapperName(
+    build.projection.nodes,
+    wrapperIsFrame ? "Frame" : "Group",
+  );
 
   // L7: when EVERY target is absolutely positioned with pixel left/top (and
   // ideally width/height), give the wrapper real computed geometry — the
@@ -5065,7 +5103,10 @@ function applyWrapNodes(
   // Falls back to the previous flow/auto-layout wrapper when any child isn't
   // absolutely positioned (there is no meaningful bounding box to compute
   // without a layout pass).
-  const targetGeometry = computeAbsoluteUnionBounds(targetElements);
+  const targetGeometry = computeAbsoluteUnionBounds(
+    targetElements,
+    intent.sizeHints,
+  );
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
@@ -5111,37 +5152,38 @@ function applyWrapNodes(
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
       : null;
   const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperStyleAttr}>`;
+  const wrapperKindAttr = wrapperIsFrame
+    ? ' data-an-primitive="frame"'
+    : ' data-agent-native-group="true"';
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
   // Build the replacement: remove all targets from html (back to front) then
-  // insert the wrapper at the first target's position.
-  // Sort by position descending to remove safely.
+  // insert the wrapper at the LAST target's position — targetElements is
+  // sorted ascending by source position, so the last entry is the topmost in
+  // stacking order. Inserting there (rather than at the first/bottommost
+  // target) is what leaves an un-selected sibling that sat between the
+  // targets (e.g. Green between Red and Blue) BELOW the new group, matching
+  // Figma. Sort by position descending to remove safely.
   const sorted = [...targetElements].sort((a, b) => b.start - a.start);
+  const lastTargetStart = targetElements[targetElements.length - 1]!.start;
 
   // Remove all targets from the html (back to front).
   let result = html;
-  let firstTargetStart = targetElements[0]!.start;
-
   for (const el of sorted) {
-    const start = el.start;
-    const end = el.end;
-    if (start < firstTargetStart) {
-      firstTargetStart = start;
-    }
-    result = `${result.slice(0, start)}${result.slice(end)}`;
+    result = `${result.slice(0, el.start)}${result.slice(el.end)}`;
   }
 
-  // Re-compute firstTargetStart relative to the modified string: all removals
-  // before it shift it. Count how many bytes were removed before firstTargetStart.
+  // Re-compute lastTargetStart relative to the modified string: every other
+  // target removed before it shifts it left by its own length.
   let bytesRemovedBefore = 0;
   for (const el of targetElements) {
-    if (el.start < targetElements[0]!.start) {
+    if (el.start < lastTargetStart) {
       bytesRemovedBefore += el.end - el.start;
     }
   }
-  const insertAt = firstTargetStart - bytesRemovedBefore;
+  const insertAt = lastTargetStart - bytesRemovedBefore;
 
   result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
 

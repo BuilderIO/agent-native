@@ -1,7 +1,35 @@
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+
+// Selects `selector` directly via the bridge's `select-element` postMessage
+// instead of a plain click. Plain clicks resolve container-first (Figma
+// parity — containerFirstSelectionTarget): clicking a row nested more than
+// one level below the screen root selects the scope's direct child on the
+// path to the pointer (here, the shared <ul>), not the row itself — and
+// dragTargetForPointerDown's selectedEl-contains-hit fast path would then
+// drag that container instead of the intended clone row. Copied from
+// bridge.guard.spec.ts's selectElementDirect.
+async function selectElementDirect(page: Page, selector: string) {
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
+  await page.waitForFunction((sel) => {
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-agent-native-edit-overlay="selection"]',
+    );
+    const target = document.querySelector(sel);
+    if (!overlay || !target) return false;
+    if (window.getComputedStyle(overlay).display !== "block") return false;
+    const targetRect = target.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    return (
+      Math.abs(overlayRect.width - targetRect.width) < 2 &&
+      Math.abs(overlayRect.height - targetRect.height) < 2
+    );
+  }, selector);
+}
 
 function hydrated(): string {
   return editorChromeBridgeScript
@@ -55,13 +83,10 @@ it(
       const startX = first.x + first.width / 2;
       const startY = first.y + first.height / 2;
 
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // The row is nested two levels below the screen root (ul > li), so a
+      // plain click would now resolve container-first onto the shared <ul>
+      // instead of this specific clone row. Select the row directly.
+      await selectElementDirect(page, "ul > li:nth-of-type(1)");
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();

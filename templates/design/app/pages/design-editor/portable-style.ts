@@ -33,6 +33,17 @@ export function isEditorInternalCssVar(property: string): boolean {
   );
 }
 
+// The drop/move that carries a portable style snapshot always decides the
+// landed node's placement itself afterward (setRootLayerPosition,
+// setAbsolutePositioningForNodeInHtml, removeAbsolutePositioningFromNodeInHtml).
+// A snapshot that also carries `position` races that placement write: today it
+// happens to apply first and lose, but that's ordering luck, not a contract —
+// and Figma duplicate/cross-screen-move semantics are "same appearance as the
+// source, only position differs", so position was never this snapshot's to
+// carry. Filtered once here so every caller (applyPortableStyleSnapshotToHtml
+// and prepareClonedHtmlLayer's direct call) is protected the same way.
+const DROP_OWNED_STYLE_PROPERTIES = new Set(["position"]);
+
 export function applyPortableStyles(
   element: Element | null,
   styles: Record<string, string>,
@@ -42,6 +53,7 @@ export function applyPortableStyles(
   if (!host) return;
   Object.entries(styles).forEach(([property, value]) => {
     if (!value) return;
+    if (DROP_OWNED_STYLE_PROPERTIES.has(property)) return;
     if (property.startsWith("--")) {
       if (isEditorInternalCssVar(property)) return;
       host.style.setProperty(property, value);
@@ -55,39 +67,20 @@ export function applyPortableStyles(
   });
 }
 
-export function sameStylesheetHead(
-  sourceHtml: string,
-  destHtml: string,
-): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const parser = new DOMParser();
-    const sourceHead = parser.parseFromString(sourceHtml, "text/html").head
-      ?.innerHTML;
-    const destHead = parser.parseFromString(destHtml, "text/html").head
-      ?.innerHTML;
-    return (
-      typeof sourceHead === "string" &&
-      typeof destHead === "string" &&
-      sourceHead === destHead
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function applyPortableStyleSnapshotToHtml(
   content: string,
   nodeAttrId: string,
   snapshot?: PortableStyleSnapshot,
-  sourceContent?: string,
 ): string {
   if (typeof window === "undefined" || !snapshot?.nodes?.length) {
     return content;
   }
-  if (sourceContent && sameStylesheetHead(sourceContent, content)) {
-    return content;
-  }
+  // Do NOT skip based on source/dest stylesheet <head> equality: identical
+  // heads don't prove an identical cascade (body classes, ancestor
+  // selectors, and other document-level context can still differ), and this
+  // apply is idempotent when the values already match — so there is nothing
+  // to gain by trying to detect "already equal" and every way to gain by not
+  // getting it wrong.
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const root = doc.querySelector(
@@ -99,7 +92,10 @@ export function applyPortableStyleSnapshotToHtml(
       const target = elementAtPortableStylePath(root, node);
       if (!target) return;
       const filteredEntries = Object.entries(node.styles).filter(
-        ([property, value]) => value && !isEditorInternalCssVar(property),
+        ([property, value]) =>
+          value &&
+          !isEditorInternalCssVar(property) &&
+          !DROP_OWNED_STYLE_PROPERTIES.has(property),
       );
       if (filteredEntries.length === 0) return;
       applyPortableStyles(target, Object.fromEntries(filteredEntries));

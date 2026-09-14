@@ -126,6 +126,7 @@ export interface GitHubMergeResult {
 export interface GitHubComment {
   id: number;
   htmlUrl: string;
+  author: string;
 }
 
 export interface GitHubIssueCommentObservation {
@@ -332,6 +333,10 @@ function normalizeCheckState(
     case "cancelled":
     case "timed_out":
       return "cancelled";
+    case "neutral":
+    case "skipped":
+    case "stale":
+      return "informational";
     default:
       return "failed";
   }
@@ -1070,6 +1075,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       return {
         id: requiredNumber(item.id, "comment id"),
         htmlUrl: requiredString(item.html_url, "comment URL"),
+        author: loginFromUser(item.user, "issue comment"),
       };
     },
 

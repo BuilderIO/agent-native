@@ -154,13 +154,16 @@ function loadSnapMath(): {
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
 
-// Both functions read only their arguments, so a single brace-extracted
-// declaration evaluates in isolation.
-function loadPureBridgeFn<T>(name: string): T {
+// These functions read only their arguments (plus, for dragTargetForPointerDown,
+// the containerScopeAncestor helper it calls), so brace-extracted declarations
+// evaluate in isolation without the bridge's DOM-wiring body.
+function loadPureBridgeFn<T>(name: string, dependencies: string[] = []): T {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
-  const src = extractFunction(editorChromeBridgeScript, name);
+  const sources = [...dependencies, name].map((fnName) =>
+    extractFunction(editorChromeBridgeScript, fnName),
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const factory = new Function(`${src}\nreturn ${name};`);
+  const factory = new Function(`${sources.join("\n")}\nreturn ${name};`);
   return factory() as T;
 }
 
@@ -182,7 +185,7 @@ interface DragTargetArgs {
 }
 const dragTargetForPointerDown = loadPureBridgeFn<
   (args: DragTargetArgs) => unknown
->("dragTargetForPointerDown");
+>("dragTargetForPointerDown", ["containerScopeAncestor"]);
 const nextStackCandidate =
   loadPureBridgeFn<(keys: string[], current: string | null) => string | null>(
     "nextStackCandidate",
@@ -208,6 +211,22 @@ describe("editor-chrome bridge — dragTargetForPointerDown", () => {
         selectedAlive: true,
         selectedRect: null,
         hitEl,
+        hitRaw,
+        point: { x: 0, y: 0 },
+        preferSelected: false,
+      }),
+    ).toBe(selectedEl);
+  });
+
+  it("keeps the container when the hit is its own background", () => {
+    const hitRaw = { tag: "bg" };
+    const selectedEl = { tag: "sel", contains: (x: unknown) => x === hitRaw };
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: null,
+        hitEl: selectedEl,
         hitRaw,
         point: { x: 0, y: 0 },
         preferSelected: false,
@@ -369,10 +388,14 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "outermostSvgAncestor",
   );
+  const textOverlay = extractFunction(
+    editorChromeBridgeScript,
+    "unwrapTextOverlay",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${textOverlay}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }

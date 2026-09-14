@@ -151,7 +151,7 @@ Instant Reply. Track each as a gap in the matrix until implemented and verified.
 
 - The latest complete Mail suite passes 742 tests across 92 files. Mail
   TypeScript checking, all 73 repository guards, both i18n guards, `oxfmt
-  --check`, and `git diff --check` pass.
+--check`, and `git diff --check` pass.
 - Regression coverage now includes late autosave metadata after close, save-first
   close-all for captured compose IDs, retaining a recoverable draft and its last
   confirmed mailbox ID on save failure, deleting the last saved copy on discard

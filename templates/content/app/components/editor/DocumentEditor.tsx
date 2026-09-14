@@ -26,6 +26,7 @@ import {
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import { canonicalizeNfm } from "@shared/nfm";
 import {
   SuggestionFormattingMappingError,
   suggestionMarkedSourceRanges,
@@ -76,7 +77,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
-import { useComments } from "@/hooks/use-comments";
+import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
   useCreateContentDatabase,
   useDeleteContentDatabase,
@@ -207,6 +208,14 @@ import type {
   VisualEditorPersistenceController,
 } from "./VisualEditor";
 
+const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function documentEditorCommentThreads(
+  threads: CommentThread[] | null | undefined,
+) {
+  return threads ?? NO_COMMENT_THREADS;
+}
+
 const TAB_ID = generateTabId();
 
 export function applyHistoryToDocumentBody(
@@ -256,7 +265,11 @@ export interface PageEditorSurfaceProps extends DocumentEditorProps {
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
-type ContentSaveWatermark = { content: string; updatedAt: string | null };
+type ContentSaveWatermark = {
+  content: string;
+  updatedAt: string | null;
+  revision?: string;
+};
 type DocumentUtilityPanel = "info" | "comments" | null;
 
 export function documentCanonicalMutationsEnabled(
@@ -325,6 +338,19 @@ export function suggestionPresentation(
   }
   const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
   if (!range) return null;
+  const editorMarkdown = canonicalizeNfm(currentMarkdown);
+  const currentText = currentMarkdown.slice(range.from, range.to);
+  const editorRange = resolveMarkdownSuggestionRange(editorMarkdown, {
+    before: { markdown: currentMarkdown, changedText: currentText },
+    after: { markdown: currentMarkdown, changedText: currentText },
+    anchor: {
+      from: range.from,
+      to: range.to,
+      prefix: currentMarkdown.slice(Math.max(0, range.from - 32), range.from),
+      suffix: currentMarkdown.slice(range.to, range.to + 32),
+    },
+  });
+  if (!editorRange) return null;
   return {
     id: suggestion.id,
     kind: operation.kind as VisualEditorSuggestion["kind"],
@@ -341,9 +367,12 @@ export function suggestionPresentation(
       to: operationAnchor.from + after.changedText.length,
     },
     anchor: {
-      from: range.from,
-      prefix: currentMarkdown.slice(Math.max(0, range.from - 32), range.from),
-      suffix: currentMarkdown.slice(range.to, range.to + 32),
+      from: editorRange.from,
+      prefix: editorMarkdown.slice(
+        Math.max(0, editorRange.from - 32),
+        editorRange.from,
+      ),
+      suffix: editorMarkdown.slice(editorRange.to, editorRange.to + 32),
     },
     presentation: "canonical",
   };
@@ -450,7 +479,11 @@ function adoptConfirmedSaveWatermarks({
     };
   }
   if (updates.content !== undefined) {
-    lastSavedContentRef.current = { content, updatedAt: savedAt };
+    lastSavedContentRef.current = {
+      content,
+      updatedAt: savedAt,
+      revision: saved?.revision,
+    };
   } else if (
     (updates.title !== undefined || updates.icon !== undefined) &&
     saved?.content === lastSavedContentRef.current.content
@@ -1103,6 +1136,27 @@ export function positionAnchoredCommentCard({
   };
 }
 
+export type AnchoredCommentPosition = {
+  left: number;
+  top: number;
+  width: number;
+  placement: "above" | "below";
+};
+
+export function sameAnchoredCommentPosition(
+  left: AnchoredCommentPosition | null,
+  right: AnchoredCommentPosition | null,
+) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.left === right.left &&
+    left.top === right.top &&
+    left.width === right.width &&
+    left.placement === right.placement
+  );
+}
+
 export function pendingCommentTargetMatches(
   marked: Iterable<Pick<Element, "textContent">>,
   quotedText: string,
@@ -1251,7 +1305,7 @@ export function documentEditorDefaultIconKind(
 export function databaseMembershipDatabaseTitle(
   membership: Document["databaseMembership"],
 ) {
-  return membership?.databaseTitle?.trim() || "Untitled database";
+  return membership?.databaseTitle?.trim() || "Untitled collection";
 }
 
 export function documentEditorBreadcrumbItems(
@@ -1753,10 +1807,11 @@ function PageEditorSessionBody({
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
-  const lastSavedContentRef = useRef<{
-    content: string;
-    updatedAt: string | null;
-  }>({ content: "", updatedAt: null });
+  const lastSavedContentRef = useRef<ContentSaveWatermark>({
+    content: "",
+    updatedAt: null,
+    revision: undefined,
+  });
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localTitleRef = useRef(localTitle);
@@ -1778,6 +1833,8 @@ function PageEditorSessionBody({
   documentUpdatedAtRef.current = document.updatedAt ?? null;
   const documentContentRef = useRef(document.content);
   documentContentRef.current = document.content;
+  const documentRevisionRef = useRef(document.revision);
+  documentRevisionRef.current = document.revision;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
       toast.error(t("empty.genericError"), {
@@ -2034,6 +2091,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? null,
+        revision: document.revision,
       };
       isInitializedRef.current = true;
       if (!document.title) {
@@ -2110,6 +2168,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: serverContent,
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
+        revision: document.revision,
       };
     }
   }, [
@@ -2145,6 +2204,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
+        revision: document.revision,
       };
     }
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
@@ -2280,6 +2340,10 @@ function PageEditorSessionBody({
             ? ((options.contentBase ?? lastSavedContentRef.current).updatedAt ??
               undefined)
             : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? (options.contentBase ?? lastSavedContentRef.current).revision
+            : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
           loadedUpdatedAt:
@@ -2297,6 +2361,10 @@ function PageEditorSessionBody({
             options.historySessionId ??
             historySessionRef.current.activity(documentId),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? { baseTitle: lastSavedTitleRef.current.title }
+            : {}),
         });
       } catch (error) {
         if (updates.title !== undefined) {
@@ -2347,6 +2415,7 @@ function PageEditorSessionBody({
               }
               if (result.content === lastSavedContentRef.current.content) {
                 lastSavedContentRef.current.updatedAt = result.updatedAt;
+                lastSavedContentRef.current.revision = result.revision;
               }
             }
             for (const field of fields) {
@@ -2503,6 +2572,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: document.content,
       updatedAt: document.updatedAt,
+      revision: document.revision,
     };
   }, [
     document.content,
@@ -2523,6 +2593,7 @@ function PageEditorSessionBody({
         lastSavedContentRef.current = {
           content: documentContentRef.current,
           updatedAt: documentUpdatedAtRef.current,
+          revision: document.revision,
         };
       }
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
@@ -2540,9 +2611,9 @@ function PageEditorSessionBody({
         documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
         !isLinkedLocalSourceDocument &&
-        documentUpdatedAtRef.current &&
-        lastSavedContentRef.current.updatedAt &&
-        documentUpdatedAtRef.current > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!lastSavedContentRef.current.revision &&
+        documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
       const updates: Record<string, string> = {};
       if (title !== lastSavedTitleRef.current.title && !titleIsStale)
@@ -2872,6 +2943,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: restored.content,
       updatedAt: restored.updatedAt ?? null,
+      revision: restored.revision,
     };
     historySessionRef.current.reset();
     return editorApplied
@@ -2971,9 +3043,9 @@ function PageEditorSessionBody({
         !!lastSavedTitleRef.current.updatedAt &&
         serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
-        !!serverUpdatedAt &&
-        !!lastSavedContentRef.current.updatedAt &&
-        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!lastSavedContentRef.current.revision &&
+        documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
       const updates: Record<string, string> = {};
       if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
@@ -3003,6 +3075,10 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (lastSavedContentRef.current.updatedAt ?? undefined)
             : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? lastSavedContentRef.current.revision
+            : undefined;
         const loadedContentWasEmpty =
           updates.content !== undefined
             ? isEffectivelyEmptyDocumentContent(
@@ -3022,6 +3098,10 @@ function PageEditorSessionBody({
             : {}),
           ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? { baseTitle: lastSavedTitleRef.current.title }
+            : {}),
         });
         const ok = fetch(url, {
           method: "POST",
@@ -3046,6 +3126,7 @@ function PageEditorSessionBody({
         }
         if (updates.content !== undefined) {
           lastSavedContentRef.current = {
+            ...lastSavedContentRef.current,
             content: pending.content,
             updatedAt: optimisticAt,
           };
@@ -3758,8 +3839,13 @@ function PageEditorSessionBody({
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
+  // Keyed by the selection, never by the draft text: re-running this on each
+  // keystroke blanks the target back to invalid for a frame, which shows the
+  // "select text" alert and disables Submit inside the open composer.
+  const pendingCommentTargetId = pendingComment?.id ?? null;
+  const pendingCommentQuotedText = pendingComment?.quotedText ?? null;
   useLayoutEffect(() => {
-    if (!pendingComment) {
+    if (!pendingCommentTargetId || pendingCommentQuotedText === null) {
       setPendingCommentTargetValid(true);
       return;
     }
@@ -3777,7 +3863,7 @@ function PageEditorSessionBody({
           ".comment-highlight--pending",
         );
         setPendingCommentTargetValid(
-          pendingCommentTargetMatches(marked, pendingComment.quotedText),
+          pendingCommentTargetMatches(marked, pendingCommentQuotedText),
         );
       });
     };
@@ -3795,7 +3881,7 @@ function PageEditorSessionBody({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [pendingComment]);
+  }, [pendingCommentTargetId, pendingCommentQuotedText]);
   const [focusSuggestionId, setFocusSuggestionId] = useState<string | null>(
     null,
   );
@@ -3806,12 +3892,8 @@ function PageEditorSessionBody({
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
-  const [anchoredCommentPosition, setAnchoredCommentPosition] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    placement: "above" | "below";
-  } | null>(null);
+  const [anchoredCommentPosition, setAnchoredCommentPosition] =
+    useState<AnchoredCommentPosition | null>(null);
   const [commentLaneOffset, setCommentLaneOffset] = useState(0);
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
   const hasInlineCommentSpace = useElementMinWidth(documentLayoutRef, 1088);
@@ -3851,45 +3933,6 @@ function PageEditorSessionBody({
     (utilityPanel === "info" && !showDesktopInfoPanel);
   const hasFocusedCommentReply =
     replyDrafts.focus.current?.documentId === documentId;
-
-  useLayoutEffect(() => {
-    if (!pendingComment) {
-      setPendingCommentTargetValid(true);
-      return;
-    }
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) {
-      setPendingCommentTargetValid(false);
-      return;
-    }
-
-    let frame = 0;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const marked = scrollContainer.querySelectorAll(
-          ".comment-highlight--pending",
-        );
-        setPendingCommentTargetValid(
-          pendingCommentTargetMatches(marked, pendingComment.quotedText),
-        );
-      });
-    };
-    setPendingCommentTargetValid(false);
-    update();
-    const observer = new MutationObserver(update);
-    observer.observe(scrollContainer, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [pendingComment]);
 
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);
@@ -4102,6 +4145,13 @@ function PageEditorSessionBody({
     ) as HTMLElement | null;
     if (!scrollContainer || !scrollContent) return;
     let frame = 0;
+    // The observers below watch the card itself, and the placement is derived
+    // from the card's own measured height. Committing an unchanged position
+    // would feed that measurement back in as a fresh re-render every frame.
+    const commit = (next: AnchoredCommentPosition) =>
+      setAnchoredCommentPosition((previous) =>
+        sameAnchoredCommentPosition(previous, next) ? previous : next,
+      );
     const update = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
@@ -4123,7 +4173,7 @@ function PageEditorSessionBody({
               : ".comment-highlight--pending",
         ) as HTMLElement | null;
         if (!marked) {
-          setAnchoredCommentPosition(
+          commit(
             positionUnanchoredCommentCard({
               containerRect: scrollContent.getBoundingClientRect(),
               boundaryRect: scrollContainer.getBoundingClientRect(),
@@ -4139,7 +4189,7 @@ function PageEditorSessionBody({
         const boundaryRect = scrollContainer.getBoundingClientRect();
         const cardHeight =
           anchoredCommentRef.current?.getBoundingClientRect().height ?? 180;
-        setAnchoredCommentPosition(
+        commit(
           positionAnchoredCommentCard({
             anchorRect,
             containerRect,
@@ -4431,7 +4481,7 @@ function PageEditorSessionBody({
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
-      threads={threads ?? []}
+      threads={documentEditorCommentThreads(threads)}
       isLoading={commentsLoading}
       pendingComment={pendingComment}
       pendingTargetValid={pendingCommentTargetValid}

@@ -33,7 +33,7 @@ Assigned work should gather itself, not require a person to keep a second queue 
 ## Example workflow
 
 A contributor opens My Tasks, filters to due work, edits one task, and opens its Project.
-The task remains its one canonical record in the source Database.
+The task remains its one canonical record in the source Collection.
 
 ## Product contract
 

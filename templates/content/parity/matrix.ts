@@ -437,7 +437,11 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "The database preview uses the shared draft actions to preserve in-progress body edits across hydration and conflict states.",
     status: "action-backed",
-    actions: ["get-preview-document-draft", "update-preview-document-draft"],
+    actions: [
+      "get-preview-document-draft",
+      "resolve-preview-document-draft",
+      "update-preview-document-draft",
+    ],
     exception:
       "These per-user editor-state actions are intentionally hidden from agent tools because preview drafts are a private UI recovery mechanism.",
     reliabilityRisk: "none",
