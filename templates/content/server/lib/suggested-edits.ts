@@ -54,7 +54,9 @@ function markdownPayload(
     typeof value !== "object" ||
     typeof (value as { markdown?: unknown }).markdown !== "string"
   ) {
-    throw new Error(`Content suggestions require ${label}.markdown`);
+    throw new Error(
+      `Content suggestions require ${label} as an object like {"markdown": "<the full current page Markdown>", "changedText": "<just the changed segment>"} — received ${value === null ? "null" : typeof value === "string" ? "a string; pass the object itself, not a JSON-encoded string" : typeof value}.`,
+    );
   }
   const payload = value as MarkdownOperationPayload;
   if (payload.markdown.length > 1_000_000) {
@@ -107,7 +109,9 @@ function operationAnchor(operation: SuggestionOperation) {
     typeof anchor.prefix !== "string" ||
     typeof anchor.suffix !== "string"
   ) {
-    throw new Error("Content suggestions require a contextual body anchor");
+    throw new Error(
+      `Content suggestions require anchor as an object like {"from": <number>, "to": <number>, "prefix": "<text before the change>", "suffix": "<text after the change>"} — received ${anchor === null || anchor === undefined ? "no anchor" : typeof anchor === "string" ? "a string; pass the object itself, not a JSON-encoded string" : typeof anchor}.`,
+    );
   }
   return anchor as MarkdownOperationAnchor;
 }

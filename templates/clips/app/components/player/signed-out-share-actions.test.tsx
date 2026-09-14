@@ -94,6 +94,30 @@ describe("SignedOutShareActions", () => {
     );
   });
 
+  it("preserves ?panel in the visible sign-in and sign-up return paths", () => {
+    // The route's own shareReturnTo (used by the sign-in-prompt dialog)
+    // already forwarded `panel`, but the header's Sign in / free-account
+    // links built their href through this separate helper, which dropped it
+    // - an anonymous viewer using the visible header link from
+    // ?panel=comments would return to Transcript instead.
+    expect(buildShareSignInHref("clip/1", "90", "comments")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments",
+    );
+    expect(buildShareSignUpHref("clip/1", "90", "comments")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments&tab=signup",
+    );
+
+    renderActions({ recordingId: "clip/1", startAt: "90", panel: "comments" });
+
+    const links = container.querySelectorAll("a");
+    expect(links[0]?.getAttribute("href")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments",
+    );
+    expect(links[1]?.getAttribute("href")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments&tab=signup",
+    );
+  });
+
   it("tracks both signed-out header destinations", () => {
     const onCtaClick = vi.fn();
 

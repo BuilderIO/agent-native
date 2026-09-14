@@ -676,6 +676,9 @@ const enUS = {
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
         "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
+      quotaCooldownTitle: "Design paused this import",
+      quotaCooldownBody:
+        "Design is pacing its own Figma requests after hitting a quota limit. This resets automatically.",
       rateLimitTitle: "Figma paused this import",
       rateLimitLowSeat:
         "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
@@ -737,7 +740,7 @@ const enUS = {
     templateSnapshotSummary:
       "{{screens}} screen(s) · {{locks}} locked layer(s) will be preserved",
     saveTemplate: "Save template",
-    templateSaved: "Template saved with {{count}} locked layer(s)",
+    templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
@@ -1440,6 +1443,8 @@ const enUS = {
     untitledDesign: "Untitled Design",
     createFirstDesign: "Create your first design",
     pickStartingPoint: "Pick a starting point or write your own prompt.",
+    searchNoResultsTitle: "No designs match your search",
+    searchNoResultsDescription: "Try a different search.",
     starterSaas: "SaaS landing page",
     starterDashboard: "Dashboard",
     starterPricing: "Pricing page",
@@ -1600,6 +1605,8 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
+      nameConflict:
+        "A design system with this name already exists. Choose a different name and try again.",
       chooseDesignMd: "Please choose a Markdown (.md or .mdx) file.",
       readDesignMd: "Could not read that Markdown file.",
       designMdTooLarge: "The Markdown file must be 2 MB or smaller.",
@@ -2101,6 +2108,7 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
+        nameConflict: "已存在同名设计系统。请更改名称后重试。",
         chooseDesignMd: "请选择 Markdown（.md 或 .mdx）文件。",
         readDesignMd: "无法读取该 Markdown 文件。",
         designMdTooLarge: "Markdown 文件必须不超过 2 MB。",
@@ -2554,6 +2562,8 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
+        nameConflict:
+          "Ya existe un sistema de diseño con este nombre. Elige otro nombre e inténtalo de nuevo.",
         chooseDesignMd: "Elija un archivo Markdown (.md o .mdx).",
         readDesignMd: "No se pudo leer ese archivo Markdown.",
         designMdTooLarge:
@@ -3023,6 +3033,8 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
+        nameConflict:
+          "Un système de design porte déjà ce nom. Choisissez un autre nom, puis réessayez.",
         chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
         readDesignMd: "Impossible de lire ce fichier Markdown.",
         designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
@@ -3492,6 +3504,8 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
+        nameConflict:
+          "Ein Designsystem mit diesem Namen existiert bereits. Wähle einen anderen Namen und versuche es erneut.",
         chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
         readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
         designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
@@ -3957,6 +3971,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
+        nameConflict:
+          "この名前のデザインシステムは既に存在します。別の名前に変更して再試行してください。",
         chooseDesignMd:
           "Markdown（.md または .mdx）ファイルを選択してください。",
         readDesignMd: "その Markdown ファイルを読み込めませんでした。",
@@ -4415,6 +4431,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
+        nameConflict:
+          "이 이름의 디자인 시스템이 이미 있습니다. 다른 이름으로 변경한 뒤 다시 시도하세요.",
         chooseDesignMd: "Markdown(.md 또는 .mdx) 파일을 선택하세요.",
         readDesignMd: "해당 Markdown 파일을 읽을 수 없습니다.",
         designMdTooLarge: "Markdown 파일은 2MB 이하여야 합니다.",
@@ -4873,6 +4891,8 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
+        nameConflict:
+          "Já existe um sistema de design com esse nome. Escolha outro nome e tente novamente.",
         chooseDesignMd: "Escolha um arquivo Markdown (.md ou .mdx).",
         readDesignMd: "Não foi possível ler esse arquivo Markdown.",
         designMdTooLarge: "O arquivo Markdown deve ter no máximo 2 MB.",
@@ -5329,6 +5349,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
+        nameConflict:
+          "इस नाम का डिज़ाइन सिस्टम पहले से मौजूद है। कोई दूसरा नाम चुनकर फिर कोशिश करें।",
         chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
         readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
         designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
@@ -5780,6 +5802,8 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
+        nameConflict:
+          "يوجد بالفعل نظام تصميم بهذا الاسم. اختر اسمًا آخر ثم أعد المحاولة.",
         chooseDesignMd: "يرجى اختيار ملف Markdown (.md أو .mdx).",
         readDesignMd: "تعذر قراءة ملف Markdown هذا.",
         designMdTooLarge: "يجب ألا يتجاوز حجم ملف Markdown ‏2 ميغابايت.",
@@ -6068,6 +6092,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "无标题Design",
       createFirstDesign: "创建您的第一个设计",
       pickStartingPoint: "选择一个起点或编写您自己的提示。",
+      searchNoResultsTitle: "没有符合此搜索条件的设计",
+      searchNoResultsDescription: "请尝试其他搜索。",
       starterSaas: "SaaS 登陆页面",
       starterDashboard: "仪表板",
       starterPricing: "定价页面",
@@ -6233,6 +6259,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Crea tu primer diseño",
       pickStartingPoint:
         "Elija un punto de partida o escriba su propio mensaje.",
+      searchNoResultsTitle: "Ningún diseño coincide con esta búsqueda",
+      searchNoResultsDescription: "Prueba con otra búsqueda.",
       starterSaas: "Página de inicio de SaaS",
       starterDashboard: "Panel",
       starterPricing: "Página de precios",
@@ -6398,6 +6426,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Créez votre premier design",
       pickStartingPoint:
         "Choisissez un point de départ ou rédigez votre propre invite.",
+      searchNoResultsTitle: "Aucun design ne correspond à cette recherche",
+      searchNoResultsDescription: "Essayez une autre recherche.",
       starterSaas: "Page de destination SaaS",
       starterDashboard: "Tableau de bord",
       starterPricing: "Page de tarification",
@@ -6564,6 +6594,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Erstellen Sie Ihr erstes Design",
       pickStartingPoint:
         "Wählen Sie einen Ausgangspunkt oder schreiben Sie Ihre eigene Aufforderung.",
+      searchNoResultsTitle: "Keine Designs entsprechen dieser Suche",
+      searchNoResultsDescription: "Versuche es mit einer anderen Suche.",
       starterSaas: "SaaS-Landingpage",
       starterDashboard: "Dashboard",
       starterPricing: "Preisseite",
@@ -6725,6 +6757,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "無題 Design",
       createFirstDesign: "最初のデザインを作成する",
       pickStartingPoint: "開始点を選択するか、独自のプロンプトを作成します。",
+      searchNoResultsTitle: "この検索に一致するデザインはありません",
+      searchNoResultsDescription: "別の検索をお試しください。",
       starterSaas: "SaaS ランディング ページ",
       starterDashboard: "ダッシュボード",
       starterPricing: "価格ページ",
@@ -6885,6 +6919,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "제목 없음 Design",
       createFirstDesign: "첫 번째 디자인 만들기",
       pickStartingPoint: "시작점을 선택하거나 자신만의 프롬프트를 작성하세요.",
+      searchNoResultsTitle: "이 검색과 일치하는 디자인이 없습니다",
+      searchNoResultsDescription: "다른 검색어를 입력해 보세요.",
       starterSaas: "SaaS 랜딩 페이지",
       starterDashboard: "대시보드",
       starterPricing: "가격 페이지",
@@ -7050,6 +7086,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Crie seu primeiro design",
       pickStartingPoint:
         "Escolha um ponto de partida ou escreva seu próprio prompt.",
+      searchNoResultsTitle: "Nenhum design corresponde a esta busca",
+      searchNoResultsDescription: "Tente outra busca.",
       starterSaas: "Página de destino SaaS",
       starterDashboard: "Painel",
       starterPricing: "Página de preços",
@@ -7210,6 +7248,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "शीर्षक रहित Design",
       createFirstDesign: "अपना पहला डिज़ाइन बनाएं",
       pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
+      searchNoResultsTitle: "इस खोज से मेल खाने वाला कोई डिज़ाइन नहीं है",
+      searchNoResultsDescription: "कोई दूसरी खोज आज़माएँ।",
       starterSaas: "सास लैंडिंग पृष्ठ",
       starterDashboard: "डैशबोर्ड",
       starterPricing: "मूल्य निर्धारण पृष्ठ",
@@ -7370,6 +7410,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "بدون عنوان Design",
       createFirstDesign: "قم بإنشاء تصميمك الأول",
       pickStartingPoint: "اختر نقطة بداية أو اكتب مطالبتك الخاصة.",
+      searchNoResultsTitle: "لا توجد تصميمات تطابق هذا البحث",
+      searchNoResultsDescription: "جرّب بحثًا مختلفًا.",
       starterSaas: "الصفحة المقصودة SaaS",
       starterDashboard: "لوحة المعلومات",
       starterPricing: "صفحة التسعير",
@@ -12793,6 +12835,9 @@ const designImportOverrides = {
   "zh-CN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design 已暂停此导入",
+        quotaCooldownBody:
+          "达到配额上限后，Design 正在限制自身的 Figma 请求速率。配额将自动重置。",
         title: "导入",
         description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
@@ -12860,6 +12905,9 @@ const designImportOverrides = {
   "es-ES": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ha pausado esta importación",
+        quotaCooldownBody:
+          "Design está regulando sus propias solicitudes a Figma tras alcanzar un límite de cuota. Se restablece automáticamente.",
         title: "Importar",
         description:
           "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
@@ -12932,6 +12980,9 @@ const designImportOverrides = {
   "fr-FR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design a mis cet import en pause",
+        quotaCooldownBody:
+          "Design limite ses propres requêtes Figma après avoir atteint un quota. La réinitialisation est automatique.",
         title: "Importer",
         description:
           "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
@@ -13004,6 +13055,9 @@ const designImportOverrides = {
   "de-DE": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design hat diesen Import angehalten",
+        quotaCooldownBody:
+          "Design drosselt seine eigenen Figma-Anfragen, nachdem ein Kontingentlimit erreicht wurde. Das wird automatisch zurückgesetzt.",
         title: "Import",
         description:
           "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
@@ -13075,6 +13129,9 @@ const designImportOverrides = {
   "ja-JP": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design がこのインポートを一時停止しました",
+        quotaCooldownBody:
+          "クォータの上限に達したため、Design が Figma へのリクエストを調整しています。自動的にリセットされます。",
         title: "インポート",
         description:
           "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
@@ -13147,6 +13204,9 @@ const designImportOverrides = {
   "ko-KR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design이 이 가져오기를 일시 중지했습니다",
+        quotaCooldownBody:
+          "할당량 한도에 도달해 Design이 자체 Figma 요청 속도를 조절하고 있습니다. 자동으로 초기화됩니다.",
         title: "가져오기",
         description:
           "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
@@ -13218,6 +13278,9 @@ const designImportOverrides = {
   "pt-BR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "O Design pausou esta importação",
+        quotaCooldownBody:
+          "O Design está limitando suas próprias solicitações ao Figma após atingir um limite de cota. A redefinição é automática.",
         title: "Importar",
         description:
           "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
@@ -13291,6 +13354,9 @@ const designImportOverrides = {
   "hi-IN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ने यह आयात रोक दिया",
+        quotaCooldownBody:
+          "कोटा सीमा तक पहुँचने के बाद Design अपने Figma अनुरोधों को नियंत्रित कर रहा है। यह स्वतः रीसेट हो जाता है।",
         title: "आयात",
         description:
           "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
@@ -13363,6 +13429,9 @@ const designImportOverrides = {
   "ar-SA": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "أوقف Design هذا الاستيراد مؤقتًا",
+        quotaCooldownBody:
+          "يقوم Design بتنظيم طلبات Figma الخاصة به بعد الوصول إلى حد الحصة. تُعاد التهيئة تلقائيًا.",
         title: "استيراد",
         description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",

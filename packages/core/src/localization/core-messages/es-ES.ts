@@ -150,6 +150,7 @@ const messages: AgentChatTranslation = {
     "Abre la aplicación de escritorio para usar este chat.",
   "composer.removeAttachment": "Quitar {{name}}",
   "composer.scrollToBottom": "Desplazarse hasta el final",
+  "composer.suggestedPrompts": "Indicaciones sugeridas",
   "composer.stopResponse": "Detener respuesta",
   "composer.subAgentReadOnly":
     "Envía mensajes al chat del orquestador; este subagente se ejecuta automáticamente",
@@ -225,6 +226,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
   "queue.sendNowHint": "Enviar ahora (detiene la respuesta actual)",
+  "queue.steer": "Dirigir",
+  "queue.steerHint": "Enviar este mensaje a continuación",
+  "queue.moreActions": "Más acciones",
+  "queue.moveToTop": "Mover arriba",
   "recovery.connectingBuilder": "Conectando con Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
@@ -376,6 +381,7 @@ const messages: AgentChatTranslation = {
   "composer.connectAbove":
     "Conecta arriba un proveedor de IA para continuar...",
   "composer.connectBuilder": "Conectar Builder.io",
+  "composer.connectKeys": "Conectar claves",
   "composer.connectingBuilder": "Conectando Builder.io…",
   "composer.costHigher": "Mayor costo",
   "composer.costLower": "Menor costo",
@@ -513,7 +519,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Este navegador no admite conversaciones de voz en tiempo real.",
   "voiceMode.hideChat": "Ocultar chat",
-  "voiceMode.keepDictating": "Dictar",
+  "voiceMode.keepDictating": "Dictar un mensaje",
   "voiceMode.promptDescription":
     "El modo de voz sigue escuchando mientras el agente navega y realiza acciones.",
   "voiceMode.promptTitle": "Usa tu voz",
@@ -555,7 +561,7 @@ const messages: AgentChatTranslation = {
     "Conecta Builder.io para usar el servicio de voz administrado con créditos gratuitos o añade tus propias claves.",
   "voiceMode.setupTitle": "Configurar el modo de voz",
   "voiceMode.showChat": "Mostrar chat",
-  "voiceMode.start": "Voz en tiempo real",
+  "voiceMode.start": "Iniciar chat de voz",
   "voiceMode.startWithOpenAiKey": "Iniciar con una clave de OpenAI",
   "voiceMode.status.connecting": "Conectando",
   "voiceMode.status.ending": "Finalizar el modo de voz",

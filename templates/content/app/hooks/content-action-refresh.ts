@@ -101,12 +101,14 @@ const CONTENT_MUTATIONS = new Set([
 
 const SUGGESTION_MUTATIONS = new Set([
   "create-resource-suggestion",
+  "suggest-document-edit",
   "update-resource-suggestion",
   "decide-resource-suggestion",
 ]);
 
 const REVIEW_MUTATIONS = new Set([
   "create-resource-suggestion",
+  "suggest-document-edit",
   "decide-resource-suggestion",
   "create-review-comment",
   "reply-review-comment",

@@ -42,13 +42,25 @@ interface UseSessionResult {
 }
 
 const SESSION_CACHE_TTL_MS = 30_000;
-const SESSION_RETRY_DELAY_MS = 1_000;
-const SESSION_MAX_ATTEMPTS = 4;
+/**
+ * How long the resolve loop keeps trying before it tells the visitor the
+ * server is unreachable: a wall-clock budget, deliberately not an attempt
+ * count. An attempt count makes patience depend on how the backend fails. A
+ * hung endpoint bought ~66s of retries, while an endpoint answering 503
+ * instantly (a session lookup against a cold database, a deploy swap, a
+ * connection-pool blip) spent every attempt in ~6s and painted the
+ * "couldn't reach the server" screen over a backend that was about to come
+ * back. The fast-failing case is the recoverable one, so it must not be the
+ * impatient one.
+ */
+const SESSION_RETRY_BUDGET_MS = 30_000;
+const SESSION_RETRY_BASE_DELAY_MS = 500;
+const SESSION_RETRY_MAX_DELAY_MS = 5_000;
 const SESSION_INVALIDATION_STORAGE_KEY = "agent-native:session-invalidated";
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 let cachedSession: AuthSession | null | undefined;
 let cachedSessionAt = 0;
-let sessionRequest: Promise<AuthSession | null | undefined> | undefined;
+let sessionRequest: Promise<SessionRead> | undefined;
 let trackedSessionIdentity: string | null | undefined;
 let sessionGeneration = 0;
 let sessionInvalidationListenersInstalled = false;
@@ -57,6 +69,42 @@ const sessionInvalidationSubscribers = new Set<() => void>();
 // reading, so nothing may flip this back — including an in-flight session
 // response that was issued while the cookie was still valid and lands after.
 let signingOut = false;
+
+/**
+ * The outcome of one read of the session endpoint.
+ *
+ * A superseded read is its own state so an ordinary cache invalidation (a tab
+ * focus, a visibility change, a sign-out broadcast from another tab) is not
+ * filed as a failed read. Nothing was unreadable in that case; the answer
+ * simply arrived for a generation nobody is waiting on any more, and the right
+ * response is to ask again rather than to spend the retry budget.
+ */
+type SessionRead =
+  | { state: "resolved"; session: AuthSession | null }
+  | { state: "superseded" }
+  | { state: "unreadable" };
+
+/** Elapsed-time source for the retry budget; immune to wall-clock jumps. */
+function monotonicNow(): number {
+  return performance.now();
+}
+
+const RETRY_BUDGET_EXCEEDED = Symbol("retry-budget-exceeded");
+
+/**
+ * Resolves once `remainingMs` elapses, racing against the actual session
+ * read so a read starting near the retry budget cannot itself run past that
+ * budget on the client request timeout. Distinguishable from a genuine
+ * `SessionRead` so the loser (the still-pending shared request) can be
+ * abandoned rather than left cached for the next caller to reuse.
+ */
+function budgetExceededMarker(
+  remainingMs: number,
+): Promise<typeof RETRY_BUDGET_EXCEEDED> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(RETRY_BUDGET_EXCEEDED), Math.max(remainingMs, 0));
+  });
+}
 
 function hasFreshSessionCache(): boolean {
   return (
@@ -216,31 +264,43 @@ export function completeSignOut(): void {
   notifySessionInvalidated();
 }
 
-function fetchSharedSession(): Promise<AuthSession | null | undefined> {
+function fetchSharedSession(): Promise<SessionRead> {
   // Already leaving: the answer is known, and asking the server again can only
   // reintroduce the session this document just gave up.
-  if (signingOut) return Promise.resolve(null);
-  // A surface with no agent-native backend is genuinely signed out. `undefined`
-  // would read as "unavailable" and retry until it gave up with an error.
-  if (agentNativeApiDisabledReason()) return Promise.resolve(null);
-  if (hasFreshSessionCache()) return Promise.resolve(cachedSession ?? null);
+  if (signingOut) return Promise.resolve({ state: "resolved", session: null });
+  // A surface with no agent-native backend is genuinely signed out, which is a
+  // resolved answer, not an unreadable endpoint to retry until it gives up.
+  if (agentNativeApiDisabledReason()) {
+    return Promise.resolve({ state: "resolved", session: null });
+  }
+  if (hasFreshSessionCache()) {
+    return Promise.resolve({
+      state: "resolved",
+      session: cachedSession ?? null,
+    });
+  }
   if (sessionRequest) return sessionRequest;
 
   const requestGeneration = sessionGeneration;
-  let request: Promise<AuthSession | null | undefined>;
-  const requestResult = (async () => {
+  let request: Promise<SessionRead>;
+  const requestResult = (async (): Promise<SessionRead> => {
     try {
       const result = await fetchAuthSessionStatus();
-      if (result.state === "unavailable") return undefined;
-      if (requestGeneration !== sessionGeneration) return undefined;
+      // Check the generation first: a failed read from an invalidated
+      // generation proved nothing about the current one and must not spend
+      // its retry budget, regardless of which way the stale request failed.
+      if (requestGeneration !== sessionGeneration) {
+        return { state: "superseded" };
+      }
+      if (result.state === "unavailable") return { state: "unreadable" };
       const data = result.value as AuthSession & { error?: unknown };
       const session = data.error ? null : (data as AuthSession);
       cachedSession = session;
       cachedSessionAt = Date.now();
       publishSessionIdentity(session);
-      return session;
+      return { state: "resolved", session };
     } catch {
-      return undefined;
+      return { state: "unreadable" };
     }
   })();
   request = requestResult.finally(() => {
@@ -292,27 +352,60 @@ export function useSession(): UseSessionResult {
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let attempts = 0;
+    let failures = 0;
+    const startedAt = monotonicNow();
 
     const resolveSession = async () => {
-      const resolved = await fetchSharedSession();
+      const remainingAtStart =
+        SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
+      const raced = await Promise.race([
+        fetchSharedSession(),
+        budgetExceededMarker(remainingAtStart),
+      ]);
       if (cancelled) return;
 
-      if (resolved === undefined) {
-        attempts += 1;
-        if (attempts >= SESSION_MAX_ATTEMPTS) {
+      let read: SessionRead;
+      if (raced === RETRY_BUDGET_EXCEEDED) {
+        // The shared request is still pending for whoever else is waiting on
+        // it, but this caller has given up. Invalidate it so a manual retry
+        // (or another consumer) issues a fresh request instead of reusing
+        // the one that just ran out this caller's patience.
+        invalidateSessionCache();
+        read = { state: "unreadable" };
+      } else {
+        read = raced;
+      }
+
+      if (read.state !== "resolved") {
+        if (read.state === "unreadable") failures += 1;
+        const remaining =
+          SESSION_RETRY_BUDGET_MS - (monotonicNow() - startedAt);
+        if (remaining <= 0) {
           setError(
-            new Error(`Could not read the session after ${attempts} attempts.`),
+            new Error(`Could not read the session after ${failures} attempts.`),
           );
           setStatus("unavailable");
           return;
         }
+        // A superseded read cost nothing and proved nothing, so it earns an
+        // immediate re-ask instead of a backoff step. Clamp to what's left of
+        // the budget so a near-boundary backoff step can't itself push the
+        // next check past the advertised wall-clock budget.
+        const delay =
+          read.state === "superseded"
+            ? 0
+            : Math.min(
+                SESSION_RETRY_BASE_DELAY_MS * 2 ** (failures - 1),
+                SESSION_RETRY_MAX_DELAY_MS,
+                remaining,
+              );
         retryTimer = setTimeout(() => {
           void resolveSession();
-        }, SESSION_RETRY_DELAY_MS * attempts);
+        }, delay);
         return;
       }
 
+      const resolved = read.session;
       setSession(resolved);
       setError(null);
       setStatus(resolved ? "authenticated" : "unauthenticated");

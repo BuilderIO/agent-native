@@ -56,6 +56,10 @@ const enUS = {
     draftLabel: "Draft",
     draftDescription:
       "This page is a work in progress. Content may be incomplete or subject to change before publication.",
+    translationLabel: "Machine-translated",
+    translationDescription:
+      "This page was translated automatically and may not be fully accurate.",
+    translationViewOriginal: "View the original in English",
   },
   common: {
     copied: "Copied",
@@ -2251,6 +2255,7 @@ const enUS = {
     dropInAgent: "Drop-in Agent",
     componentApi: "Component API",
     nativeChatUi: "Native Chat UI",
+    agentkit: "AgentKit",
     generativeUi: "Generative UI",
     realTimeCollaboration: "Real-Time Collaboration",
     agentResourcesOverview: "Agent Resources Overview",
@@ -2308,7 +2313,7 @@ const enUS = {
     content: "Content",
     contentOverview: "Overview",
     contentEditing: "Writing & Organizing",
-    contentDatabases: "Databases & Forms",
+    contentDatabases: "Collections & Forms",
     contentSync: "Local Files & Sync",
     contentDevelopers: "Developer Guide",
     plans: "Plans",

@@ -269,8 +269,20 @@ function MailLoadingState({
 
 const RATE_LIMIT_RETRY_MS = 60_000;
 
-function getRateLimitRetryMs(message: string): number {
-  const match = message.match(/retry in\s+(\d+)s/i);
+function getRateLimitRetryMs(error: {
+  message?: string;
+  retryAfterMs?: number;
+}): number {
+  // Prefer the server's Retry-After header — the error message is
+  // deliberately jargon-free and may not carry a parseable delay at all.
+  if (
+    typeof error.retryAfterMs === "number" &&
+    Number.isFinite(error.retryAfterMs) &&
+    error.retryAfterMs > 0
+  ) {
+    return Math.min(Math.max(error.retryAfterMs, 15_000), 5 * 60_000);
+  }
+  const match = (error.message ?? "").match(/retry in\s+(\d+)s/i);
   if (!match) return RATE_LIMIT_RETRY_MS;
   const seconds = Number(match[1]);
   if (!Number.isFinite(seconds) || seconds <= 0) return RATE_LIMIT_RETRY_MS;
@@ -280,18 +292,22 @@ function getRateLimitRetryMs(message: string): number {
 function EmailErrorState({
   isQuotaError,
   message,
+  retryAfterMs,
   isFetching,
   onRetry,
   containerRef,
 }: {
   isQuotaError: boolean;
   message: string;
+  retryAfterMs?: number;
   isFetching: boolean;
   onRetry: () => unknown;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const t = useT();
-  const rateLimitRetryMs = isQuotaError ? getRateLimitRetryMs(message) : 0;
+  const rateLimitRetryMs = isQuotaError
+    ? getRateLimitRetryMs({ message, retryAfterMs })
+    : 0;
   const [cooldownRemaining, setCooldownRemaining] = useState(rateLimitRetryMs);
   const autoRetryFired = useRef(false);
 
@@ -1706,14 +1722,18 @@ export function EmailList({
       );
     }
 
-    const isQuotaError = /\((429|403)\)|quota|rate limit/i.test(
-      emailsError.message ?? "",
-    );
+    // The server signals a Gmail quota cooldown via HTTP 429 and keeps the
+    // message itself deliberately jargon-free, so status is the primary
+    // signal; the regex is a fallback for errors that arrive without one.
+    const isQuotaError =
+      (emailsError as { status?: number }).status === 429 ||
+      /\((429|403)\)|quota|rate limit/i.test(emailsError.message ?? "");
 
     return (
       <EmailErrorState
         isQuotaError={isQuotaError}
         message={emailsError.message ?? ""}
+        retryAfterMs={(emailsError as { retryAfterMs?: number }).retryAfterMs}
         isFetching={isFetching}
         onRetry={refetch}
         containerRef={containerRef}

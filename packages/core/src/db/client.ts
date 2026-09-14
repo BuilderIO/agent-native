@@ -398,7 +398,9 @@ function pgliteClientKey(dataDir: string): string {
   return dataDir === "memory://" ? dataDir : path.resolve(dataDir);
 }
 
-function isProcessAlive(pid: number): boolean {
+/** Exported for the dev action bridge, which does the same liveness check
+ * against a discovery file's `pid` before trusting it. */
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

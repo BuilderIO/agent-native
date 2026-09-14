@@ -58,6 +58,10 @@ const frFR = {
     draftLabel: "Brouillon",
     draftDescription:
       "Cette page est en cours de rédaction. Le contenu peut être incomplet ou sujet à modification avant publication.",
+    translationLabel: "Traduction automatique",
+    translationDescription:
+      "Cette page a été traduite automatiquement et peut ne pas être entièrement exacte.",
+    translationViewOriginal: "Voir l'original en anglais",
   },
   search: {
     dialogLabel: "Rechercher la documentation",
@@ -2281,6 +2285,7 @@ const frFR = {
     dropInAgent: "Agent intégrable",
     componentApi: "API de composants",
     nativeChatUi: "UI de chat native",
+    agentkit: "AgentKit",
     generativeUi: "Interface générative",
     realTimeCollaboration: "Collaboration temps réel",
     agentResourcesOverview: "Vue d'ensemble des ressources de l'agent",
@@ -2335,7 +2340,7 @@ const frFR = {
     content: "Contenu",
     contentOverview: "Vue d'ensemble",
     contentEditing: "Rédaction et organisation",
-    contentDatabases: "Bases de données et formulaires",
+    contentDatabases: "Collections et formulaires",
     contentSync: "Fichiers locaux et synchro",
     contentDevelopers: "Guide développeur",
     plans: "Plans",

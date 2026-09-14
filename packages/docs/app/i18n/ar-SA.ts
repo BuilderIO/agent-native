@@ -58,6 +58,10 @@ const arSA = {
     draftLabel: "مسودة",
     draftDescription:
       "هذه الصفحة قيد الإنشاء. قد يكون المحتوى غير مكتمل أو عرضة للتغيير قبل النشر.",
+    translationLabel: "مترجمة آليًا",
+    translationDescription:
+      "تمت ترجمة هذه الصفحة تلقائيًا وقد لا تكون دقيقة بشكل كامل.",
+    translationViewOriginal: "عرض النسخة الأصلية بالإنجليزية",
   },
   search: {
     dialogLabel: "البحث في الوثائق",
@@ -2241,6 +2245,7 @@ const arSA = {
     dropInAgent: "وكيل جاهز للإضافة",
     componentApi: "واجهة Component API",
     nativeChatUi: "واجهة دردشة أصلية",
+    agentkit: "AgentKit",
     generativeUi: "واجهة توليدية",
     realTimeCollaboration: "تعاون فوري",
     agentResourcesOverview: "نظرة عامة على موارد الوكيل",
@@ -2295,7 +2300,7 @@ const arSA = {
     content: "المحتوى",
     contentOverview: "نظرة عامة",
     contentEditing: "الكتابة والتنظيم",
-    contentDatabases: "قواعد البيانات والنماذج",
+    contentDatabases: "المجموعات والنماذج",
     contentSync: "الملفات المحلية والمزامنة",
     contentDevelopers: "دليل المطور",
     plans: "Plans",

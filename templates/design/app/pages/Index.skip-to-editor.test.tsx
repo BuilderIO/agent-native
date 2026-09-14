@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   generateTitle: vi.fn(),
   navigate: vi.fn(),
   setSearchParams: vi.fn(),
+  headerActions: null as unknown,
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -87,6 +88,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
+    if (key === "home.searchNoResultsTitle") {
+      return "No designs match your search";
+    }
+    if (key === "home.searchNoResultsDescription") {
+      return "Try a different search.";
+    }
     if (key === "promptDialog.skipPrompt") return "Skip prompt";
     if (key === "home.failedToCreateDesign") {
       return "Failed to create design";
@@ -96,7 +103,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/app-shell", () => ({
-  useSetHeaderActions: () => {},
+  useSetHeaderActions: (actions: unknown) => {
+    mocks.headerActions = actions;
+  },
   useSetPageTitle: () => {},
 }));
 
@@ -170,6 +179,8 @@ vi.mock("@/lib/pending-generation", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
+let headerContainer: HTMLDivElement | null = null;
+let headerRoot: Root | null = null;
 
 beforeEach(async () => {
   (
@@ -187,6 +198,7 @@ beforeEach(async () => {
   mocks.generateTitle.mockResolvedValue(undefined);
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
+  mocks.headerActions = null;
   mocks.fullAppBuilding = false;
   container = document.createElement("div");
   document.body.append(container);
@@ -197,7 +209,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await act(async () => root.unmount());
+  await act(async () => {
+    headerRoot?.unmount();
+    root.unmount();
+  });
+  headerRoot = null;
+  headerContainer?.remove();
+  headerContainer = null;
   container.remove();
   document.body.replaceChildren();
 });
@@ -379,5 +397,42 @@ describe("Index skip to editor", () => {
     await act(async () => {
       await skipPromise;
     });
+  });
+});
+
+describe("Index search empty state", () => {
+  it("distinguishes no search matches from a first-time empty state", async () => {
+    expect(container.textContent).toContain("home.createFirstDesign");
+    expect(container.textContent).toContain("home.pickStartingPoint");
+
+    headerContainer = document.createElement("div");
+    document.body.append(headerContainer);
+    headerRoot = createRoot(headerContainer);
+    await act(async () => {
+      headerRoot?.render(mocks.headerActions as ReactNode);
+    });
+
+    const searchInput = headerContainer.querySelector<HTMLInputElement>(
+      'input[aria-label="home.searchPlaceholder"]',
+    );
+    expect(searchInput).not.toBeNull();
+
+    await act(async () => {
+      if (!searchInput) throw new Error("Search input not found");
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(searchInput, "no matching design");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      headerRoot?.render(mocks.headerActions as ReactNode);
+    });
+
+    expect(container.textContent).toContain("No designs match your search");
+    expect(container.textContent).toContain("Try a different search.");
+    expect(container.textContent).not.toContain("home.createFirstDesign");
+    expect(container.textContent).not.toContain("home.pickStartingPoint");
+    expect(container.textContent).not.toContain("home.starterDashboard");
   });
 });

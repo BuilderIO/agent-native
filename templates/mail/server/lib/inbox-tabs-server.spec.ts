@@ -1,4 +1,8 @@
-import type { InboxTabConfig, InboxThreadItem } from "@shared/inbox-threads.js";
+import {
+  IMPORTANT_TAB_ID,
+  type InboxTabConfig,
+  type InboxThreadItem,
+} from "@shared/inbox-threads.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -126,5 +130,25 @@ describe("resolveActiveTabId", () => {
   it("falls back to the first tab when omitted or unknown", () => {
     expect(resolveActiveTabId(undefined, tabs)).toBe("important");
     expect(resolveActiveTabId("not-a-real-tab", tabs)).toBe("important");
+  });
+
+  it("lands on Important, not a pinned label, when clicking Inbox with pinned labels and saved filters present", () => {
+    // Regression: /inbox must never resolve to the user's first pinned
+    // label — Important is always tabs[0] regardless of what's pinned.
+    const configWithPinnedLabels: InboxTabConfig = {
+      pinnedLabels: ["important", "clients", "2-tasks"],
+      savedFilters: [{ id: "f1", name: "Needs reply", query: "is:unread" }],
+      labelAliases: {},
+      combineInbox: false,
+    };
+    const tabsWithPinnedLabels = resolveInboxTabs(
+      configWithPinnedLabels,
+      new Map(),
+    );
+
+    expect(tabsWithPinnedLabels[0]?.id).toBe(IMPORTANT_TAB_ID);
+    expect(resolveActiveTabId(undefined, tabsWithPinnedLabels)).toBe(
+      IMPORTANT_TAB_ID,
+    );
   });
 });

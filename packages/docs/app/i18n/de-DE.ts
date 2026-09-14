@@ -58,6 +58,10 @@ const deDE = {
     draftLabel: "Entwurf",
     draftDescription:
       "Diese Seite befindet sich in Bearbeitung. Der Inhalt kann unvollständig sein oder sich vor der Veröffentlichung ändern.",
+    translationLabel: "Maschinell übersetzt",
+    translationDescription:
+      "Diese Seite wurde automatisch übersetzt und ist möglicherweise nicht vollständig korrekt.",
+    translationViewOriginal: "Original auf Englisch ansehen",
   },
   search: {
     dialogLabel: "Dokumentation durchsuchen",
@@ -2278,6 +2282,7 @@ const deDE = {
     dropInAgent: "Drop-in-Agent",
     componentApi: "Komponenten-API",
     nativeChatUi: "Native Chat-UI",
+    agentkit: "AgentKit",
     generativeUi: "Generative Oberfläche",
     realTimeCollaboration: "Echtzeit-Zusammenarbeit",
     agentResourcesOverview: "Übersicht über Agent-Ressourcen",
@@ -2332,7 +2337,7 @@ const deDE = {
     content: "Inhalt",
     contentOverview: "Überblick",
     contentEditing: "Schreiben und Organisieren",
-    contentDatabases: "Datenbanken und Formulare",
+    contentDatabases: "Sammlungen und Formulare",
     contentSync: "Lokale Dateien und Sync",
     contentDevelopers: "Entwicklerhandbuch",
     plans: "Plans",

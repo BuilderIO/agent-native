@@ -36,6 +36,10 @@ import {
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
 import {
+  parseSavedDraftBackend,
+  resolveSavedDraftBackend,
+} from "../lib/draft-backend.js";
+import {
   collectLinks,
   newClickToken,
   newPixelToken,
@@ -59,6 +63,7 @@ import {
   calendarGetEvent,
   calendarPatchEvent,
   gmailGetAttachment,
+  GmailQuotaCooldownError,
 } from "../lib/google-api.js";
 import {
   isConnected,
@@ -84,6 +89,10 @@ import {
   resolveComposeAttachments,
   splitReplyQuote,
 } from "../lib/outgoing-email.js";
+import {
+  resolveExistingSavedDraftOwnership,
+  SavedDraftOwnershipError,
+} from "../lib/saved-draft-ownership.js";
 import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
 // State-change operations (archive/unarchive/star/trash/untrash/markRead) have
 // been migrated to the action surface; their handlers have been removed. The
@@ -384,6 +393,26 @@ function parseEmailPageLimit(value: string | undefined): number {
   return Math.min(Math.max(Math.floor(n), 10), 50);
 }
 
+// Gmail errors carry their HTTP status in the message text ("(404)"),
+// except quota cooldowns, whose message is deliberately jargon-free — those
+// must be classified by type so the client sees 429 + Retry-After.
+function gmailErrorStatus(error: unknown): {
+  status: number;
+  retryAfterSeconds?: number;
+} {
+  if (error instanceof GmailQuotaCooldownError) {
+    return {
+      status: 429,
+      retryAfterSeconds: Math.min(
+        Math.max(1, Math.ceil(error.retryAfterMs / 1000)),
+        300,
+      ),
+    };
+  }
+  const parsed = (error as any)?.message?.match(/\((\d+)\)/)?.[1];
+  return { status: parsed ? Number(parsed) : 502 };
+}
+
 // ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
@@ -662,10 +691,13 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           });
           return messages;
         } catch (error: any) {
-          const status = error?.message?.match(/\((\d+)\)/)?.[1];
-          if (status === "404") continue;
+          const { status, retryAfterSeconds } = gmailErrorStatus(error);
+          if (status === 404) continue;
           console.error("[getThreadMessages] Gmail error:", error.message);
-          setResponseStatus(event, parseInt(status) || 502);
+          setResponseStatus(event, status);
+          if (retryAfterSeconds !== undefined) {
+            setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+          }
           return { error: error.message };
         }
       }
@@ -710,10 +742,13 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
         );
         return gmailToEmailMessage(msg, acctEmail, labelMap);
       } catch (error: any) {
-        const status = error?.message?.match(/\((\d+)\)/)?.[1];
-        if (status === "404") continue;
+        const { status, retryAfterSeconds } = gmailErrorStatus(error);
+        if (status === 404) continue;
         console.error("[getEmail] Gmail error:", error.message);
-        setResponseStatus(event, parseInt(status) || 502);
+        setResponseStatus(event, status);
+        if (retryAfterSeconds !== undefined) {
+          setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+        }
         return { error: error.message };
       }
     }
@@ -1290,6 +1325,13 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     accountEmail,
   } = reqBody;
 
+  let requestedBackend: ReturnType<typeof parseSavedDraftBackend>;
+  try {
+    requestedBackend = parseSavedDraftBackend(reqBody.savedDraftBackend);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft backend" };
+  }
   // Validate header values after stripCrlf — same protection as sendEmail.
   // Drafts go through the same buildRawEmail path so they need the same
   // header-injection guard.
@@ -1314,16 +1356,55 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "One or more attachments could not be read" };
   }
 
-  // If Gmail is connected, create/update a Gmail draft
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
+  if (
+    draftId !== undefined &&
+    draftId !== null &&
+    typeof draftId !== "string"
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft ID" };
+  }
+  const savedDraftId =
+    typeof draftId === "string" && draftId ? draftId : undefined;
+
+  let draftBackend: "gmail" | "local";
+  let gmailConnected: boolean | undefined;
+  let draftAccountEmail = accountEmail as string | undefined;
+  try {
+    if (savedDraftId) {
+      const ownership = await resolveExistingSavedDraftOwnership({
+        ownerEmail: email,
+        savedDraftId,
+        savedDraftBackend: requestedBackend,
+        accountEmail: draftAccountEmail,
+      });
+      draftBackend = ownership.backend;
+      draftAccountEmail = ownership.accountEmail ?? draftAccountEmail;
+    } else {
+      gmailConnected =
+        requestedBackend === "local" ? false : await isConnected(email);
+      draftBackend = resolveSavedDraftBackend(requestedBackend, gmailConnected);
+    }
+  } catch (error) {
+    if (!(error instanceof SavedDraftOwnershipError)) throw error;
+    setResponseStatus(event, 409);
+    return { error: error.message };
+  }
+
+  // Keep existing drafts on their owning backend when connection state changes.
+  if (draftBackend === "gmail") {
+    if (!(gmailConnected ?? (await isConnected(email)))) {
+      setResponseStatus(event, 401);
+      return { error: "Gmail is not connected for this saved draft" };
+    }
+    const acct = await resolveAccountEmail(draftAccountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
     }
     try {
-      const draftFrom = accountEmail || "me";
+      const draftFrom = draftAccountEmail || "me";
       const raw = buildOutgoingRawEmail({
         from: draftFrom,
         to: to || "",
@@ -1334,11 +1415,11 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         attachments,
       });
 
-      if (draftId) {
+      if (savedDraftId) {
         // Update existing Gmail draft
         try {
           const updated = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(savedDraftId)}`,
             accessToken,
             {
               method: "PUT",
@@ -1346,9 +1427,17 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
               body: JSON.stringify({ message: { raw } }),
             },
           );
-          return { draftId: updated.id, updated: true };
-        } catch {
-          // Draft may have been deleted; create new
+          return {
+            draftId: updated.id,
+            backend: "gmail" as const,
+            accountEmail: acct,
+            updated: true,
+          };
+        } catch (error) {
+          if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
+            throw error;
+          }
+          // A deleted Gmail draft is safe to replace with a new one.
         }
       }
       // Create new Gmail draft
@@ -1361,7 +1450,12 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
           body: JSON.stringify({ message: { raw } }),
         },
       );
-      return { draftId: created.id, created: true };
+      return {
+        draftId: created.id,
+        backend: "gmail" as const,
+        accountEmail: acct,
+        created: true,
+      };
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -1372,9 +1466,13 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   // Local fallback: save as EmailMessage with isDraft=true
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
-    const existingIdx = draftId
-      ? emails.findIndex((e) => e.id === draftId && e.isDraft)
+    const existingIdx = savedDraftId
+      ? emails.findIndex((e) => e.id === savedDraftId && e.isDraft)
       : -1;
+    if (savedDraftId && existingIdx < 0) {
+      setResponseStatus(event, 409);
+      return { error: "Saved local draft was not found" };
+    }
 
     const draftEmail: EmailMessage = {
       id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,
@@ -1443,6 +1541,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
 
     return {
       draftId: draftEmail.id,
+      backend: "local" as const,
       [existingIdx >= 0 ? "updated" : "created"]: true,
     };
   });

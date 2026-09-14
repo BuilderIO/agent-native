@@ -1,4 +1,5 @@
 import { isBoardFile } from "@shared/board-file";
+import { normalizedDesignFileType } from "@shared/design-files";
 import { isClosedPathData } from "@shared/pen-path";
 
 import {
@@ -21,6 +22,8 @@ import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
 
+export { normalizedDesignFileType };
+
 export function nextDuplicatedFilename(
   files: DesignFile[],
   filename: string,
@@ -36,17 +39,6 @@ export function nextDuplicatedFilename(
     index += 1;
   }
   return candidate;
-}
-
-export function normalizedDesignFileType(
-  fileType: string,
-): "html" | "css" | "jsx" | "asset" {
-  return fileType === "css" ||
-    fileType === "jsx" ||
-    fileType === "asset" ||
-    fileType === "html"
-    ? fileType
-    : "html";
 }
 
 export function nextBlankScreenFilename(files: DesignFile[]): string {
@@ -117,6 +109,17 @@ export function reassignDuplicatedNodeIds(content: string): string {
   );
 }
 
+/**
+ * Figma's default text-layer name IS its content. A freshly drawn text
+ * primitive is committed with no content yet (the draft is still empty), so
+ * this only produces the real name once the user's typed value is known —
+ * see `runTextContentChange`'s creation-finalizing commit, which re-derives
+ * the layer name from this same function once typing lands.
+ */
+export function defaultTextLayerName(text: string | undefined): string {
+  return text?.trim() || "Text";
+}
+
 export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -134,7 +137,7 @@ export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
     case "path":
       return "Vector";
     case "text":
-      return primitive.text?.trim() || "Text";
+      return defaultTextLayerName(primitive.text);
     case "rectangle":
     default:
       return "Rectangle";

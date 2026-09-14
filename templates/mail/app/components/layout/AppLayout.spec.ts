@@ -2,13 +2,30 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { buildLabelDisplayNames, reorderById } from "./AppLayout";
+import {
+  buildLabelDisplayNames,
+  labelTreeRows,
+  reorderById,
+} from "./AppLayout";
 
 function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'aria-current={tab.isActive ? "page" : undefined}',
+    );
+    expect(source).toContain(
+      "rounded-md px-3 py-1.5 text-[13px] transition-colors",
+    );
+    expect(source).toContain('"bg-accent text-foreground font-semibold"');
+    expect(source).toContain("hover:bg-accent/50 hover:text-foreground/80");
+  });
+
   it("reads the whole-mailbox unread count off the synced label list, not loaded rows", () => {
     const source = appLayoutSource();
 
@@ -117,6 +134,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
     expect(source).toContain("canCycleTab");
     expect(source).toContain("data-mail-tab-list");
+    expect(
+      source.match(/key: "Tab",[\s\S]{0,200}?skipInInput: false/g),
+    ).toHaveLength(2);
+  });
+
+  it("closes the captured popout drafts through the save-aware close-all path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "compose.closeAll(\n                popoutDrafts.map((draft) => draft.id),\n              )",
+    );
+    expect(source).toContain("compose.setActiveId(snapshot.id)");
+    expect(source).toContain("compose.discard(snapshot.id)");
   });
 
   it("no longer runs a client-side per-tab prefetch loop", () => {
@@ -245,6 +275,58 @@ describe("buildLabelDisplayNames", () => {
       "[Superhuman]/AI/Automated notifications",
     );
     expect(displayNames.get("pitch")).toBe("Pitch");
+  });
+});
+
+describe("labelTreeRows", () => {
+  it("sorts by full path, computes nesting depth, and shows only the leaf name", () => {
+    const rows = labelTreeRows([
+      { id: "2-tasks", name: "2-tasks", type: "user" },
+      { id: "kiwi", name: "1-clients/electric kiwi", type: "user" },
+      { id: "clients", name: "1-clients", type: "user" },
+      { id: "ab", name: "ab", type: "user" },
+    ]);
+
+    expect(rows.map((r) => r.label.id)).toEqual([
+      "clients",
+      "kiwi",
+      "2-tasks",
+      "ab",
+    ]);
+    expect(rows.map((r) => r.depth)).toEqual([0, 1, 0, 0]);
+    expect(rows.map((r) => r.displayName)).toEqual([
+      "1-clients",
+      "electric kiwi",
+      "2-tasks",
+      "ab",
+    ]);
+  });
+
+  it("indents a child under where its missing parent would sort, without synthesizing the parent", () => {
+    const rows = labelTreeRows([
+      { id: "kiwi", name: "1-clients/electric kiwi", type: "user" },
+      { id: "rakuten", name: "1-clients/rakuten", type: "user" },
+    ]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.depth === 1)).toBe(true);
+    expect(rows.some((r) => r.label.id === "1-clients")).toBe(false);
+  });
+
+  it("sorts a/b directly after a, case-insensitively and naturally", () => {
+    const rows = labelTreeRows([
+      { id: "ab-id", name: "ab", type: "user" },
+      { id: "a2-id", name: "a2", type: "user" },
+      { id: "a-slash-b-id", name: "A/b", type: "user" },
+      { id: "a-id", name: "a", type: "user" },
+    ]);
+
+    expect(rows.map((r) => r.label.id)).toEqual([
+      "a-id",
+      "a-slash-b-id",
+      "a2-id",
+      "ab-id",
+    ]);
   });
 });
 

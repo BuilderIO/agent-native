@@ -790,12 +790,21 @@ describe("Builder callback CSRF state", () => {
       const state = createBuilderConnectState();
       const otherState = createBuilderConnectState();
 
-      expect(resolveBuilderConnectCallbackState(null, state)).toBe(state);
-      expect(resolveBuilderConnectCallbackState(state, state)).toBe(state);
-      expect(resolveBuilderConnectCallbackState("returned-state", null)).toBe(
-        "returned-state",
-      );
-      expect(resolveBuilderConnectCallbackState(null, null)).toBeNull();
+      expect(resolveBuilderConnectCallbackState(null, state)).toEqual({
+        state,
+        resetStateCookie: false,
+      });
+      expect(resolveBuilderConnectCallbackState(state, state)).toEqual({
+        state,
+        resetStateCookie: false,
+      });
+      expect(
+        resolveBuilderConnectCallbackState("returned-state", null),
+      ).toEqual({ state: "returned-state", resetStateCookie: false });
+      expect(resolveBuilderConnectCallbackState(null, null)).toEqual({
+        state: null,
+        resetStateCookie: false,
+      });
       expect(BUILDER_CONNECT_STATE_COOKIE).toBe("an_builder_connect_state");
 
       const concurrentCookie = appendBuilderConnectStateCookie(
@@ -803,20 +812,96 @@ describe("Builder callback CSRF state", () => {
         otherState,
       );
       expect(
-        resolveBuilderConnectCallbackState(null, concurrentCookie),
-      ).toBeNull();
-      expect(resolveBuilderConnectCallbackState(state, concurrentCookie)).toBe(
-        state,
+        resolveBuilderConnectCallbackState(state, concurrentCookie),
+      ).toEqual({ state, resetStateCookie: false });
+      expect(removeBuilderConnectStateCookie(concurrentCookie, state)).toBe(
+        otherState,
       );
+    });
+
+    it("resets the cookie when ambiguity is why the callback cannot resolve", () => {
+      const state = createBuilderConnectState();
+      const otherState = createBuilderConnectState();
+      const concurrentCookie = appendBuilderConnectStateCookie(
+        appendBuilderConnectStateCookie(null, state),
+        otherState,
+      );
+
+      // Ambiguous: Builder dropped the query state and two states are live.
+      expect(
+        resolveBuilderConnectCallbackState(null, concurrentCookie),
+      ).toEqual({ state: null, resetStateCookie: true });
+
+      // A callback naming a state this browser never started belongs to
+      // another flow; the live states must survive it.
       expect(
         resolveBuilderConnectCallbackState(
           "unexpected-state",
           concurrentCookie,
         ),
-      ).toBeNull();
-      expect(removeBuilderConnectStateCookie(concurrentCookie, state)).toBe(
-        otherState,
+      ).toEqual({ state: null, resetStateCookie: false });
+    });
+
+    it("lets the next restart succeed after a failed attempt instead of poisoning it", () => {
+      // The reported trap: every "Restart the connection from Settings"
+      // appended another state, so a callback without query state stayed
+      // ambiguous forever and the suggested remedy re-armed the failure.
+      const first = createBuilderConnectState();
+      let cookie = appendBuilderConnectStateCookie(null, first);
+
+      // First attempt fails for its own reason; the route drops its state.
+      cookie = removeBuilderConnectStateCookie(cookie, first);
+      expect(cookie).toBe("");
+
+      const second = createBuilderConnectState();
+      cookie = appendBuilderConnectStateCookie(cookie, second);
+      expect(resolveBuilderConnectCallbackState(null, cookie)).toEqual({
+        state: second,
+        resetStateCookie: false,
+      });
+    });
+
+    it("recovers on the restart after an ambiguous callback clears the cookie", () => {
+      const first = createBuilderConnectState();
+      const second = createBuilderConnectState();
+      let cookie = appendBuilderConnectStateCookie(
+        appendBuilderConnectStateCookie(null, first),
+        second,
       );
+
+      const ambiguous = resolveBuilderConnectCallbackState(null, cookie);
+      expect(ambiguous.state).toBeNull();
+      expect(ambiguous.resetStateCookie).toBe(true);
+      if (ambiguous.resetStateCookie) cookie = "";
+
+      const third = createBuilderConnectState();
+      cookie = appendBuilderConnectStateCookie(cookie, third);
+      expect(cookie).toBe(third);
+      expect(resolveBuilderConnectCallbackState(null, cookie)).toEqual({
+        state: third,
+        resetStateCookie: false,
+      });
+    });
+
+    it("still fails closed for poisoned and oversized state cookies", () => {
+      const state = createBuilderConnectState();
+      const poisoned = `${state},not-a-signed-state`;
+      expect(resolveBuilderConnectCallbackState(null, poisoned)).toEqual({
+        state: null,
+        resetStateCookie: true,
+      });
+      expect(resolveBuilderConnectCallbackState(state, poisoned)).toEqual({
+        state: null,
+        resetStateCookie: true,
+      });
+
+      const oversized = Array.from({ length: 5 }, () =>
+        createBuilderConnectState(),
+      ).join(",");
+      expect(resolveBuilderConnectCallbackState(null, oversized)).toEqual({
+        state: null,
+        resetStateCookie: true,
+      });
     });
 
     it("rejects building a callback URL when the request origin is HTTP in production", () => {

@@ -36,7 +36,10 @@ import {
   createA2AApproval,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
-import type { Message as A2AMessage } from "../a2a/types.js";
+import type {
+  A2AConnectionRequestMetadata,
+  Message as A2AMessage,
+} from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
 import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
@@ -773,6 +776,44 @@ function createAgentChatPluginLifecycle() {
   };
 }
 
+export function resolveAgentCheckpointPaths(
+  cwd: string,
+  changedPaths: readonly string[],
+  events: readonly { event: AgentChatEvent }[],
+): Map<string, string> {
+  const reportedPaths = new Map<string, string>();
+  for (const { event } of events) {
+    if (
+      event.type !== "tool_done" ||
+      event.isError === true ||
+      (event.tool !== "edit" && event.tool !== "write") ||
+      typeof event.input?.path !== "string" ||
+      !event.fileMutation
+    ) {
+      continue;
+    }
+    const relative = nodePath
+      .relative(cwd, nodePath.resolve(cwd, event.input.path))
+      .replaceAll("\\", "/");
+    if (
+      relative &&
+      relative !== ".." &&
+      !relative.startsWith("../") &&
+      event.fileMutation.path.replaceAll("\\", "/") === relative &&
+      /^[0-9a-f]{64}$/.test(event.fileMutation.contentSha256)
+    ) {
+      reportedPaths.set(relative, event.fileMutation.contentSha256);
+    }
+  }
+  const resolved = new Map<string, string>();
+  for (const file of changedPaths) {
+    const contentSha256 = reportedPaths.get(file.replaceAll("\\", "/"));
+    if (!contentSha256) return new Map();
+    resolved.set(file, contentSha256);
+  }
+  return resolved;
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -1184,6 +1225,7 @@ export function createAgentChatPlugin(
 
               // Fallback: bash-based wrapper for CLI-style scripts
               discoveredActionsAll[name] = {
+                cliWrapper: true,
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {
@@ -2546,6 +2588,54 @@ export function createAgentChatPlugin(
             return;
           }
 
+          const connectionRequest = [...a2aEvents]
+            .reverse()
+            .find(
+              (
+                event,
+              ): event is Extract<
+                AgentChatEvent,
+                { type: "connection_required" }
+              > => event.type === "connection_required",
+            );
+          if (connectionRequest) {
+            const requestMetadata: A2AConnectionRequestMetadata = {
+              version: 1,
+              provider: connectionRequest.provider,
+              reason: connectionRequest.reason,
+              ...(connectionRequest.appId
+                ? { appId: connectionRequest.appId }
+                : {}),
+              ...(connectionRequest.detail
+                ? { detail: connectionRequest.detail }
+                : {}),
+            };
+            yield {
+              role: "agent" as const,
+              metadata: {
+                agentNativeTaskState: "input-required",
+                agentNativeConnectionRequest: requestMetadata,
+              },
+              parts: [
+                buildA2AAgentActivityPart(activityState),
+                {
+                  type: "text" as const,
+                  text:
+                    connectionRequest.detail ??
+                    `Connect ${connectionRequest.provider} to continue.`,
+                },
+                {
+                  type: "data" as const,
+                  data: {
+                    kind: "agent-native/connection-required",
+                    ...requestMetadata,
+                  },
+                },
+              ],
+            };
+            return;
+          }
+
           const { responseText, finalText, mutationReceipts } =
             assembleA2AFinalResponse(a2aEvents, a2aToolResults, {
               event: context.event,
@@ -2996,6 +3086,15 @@ export function createAgentChatPlugin(
           actionRouteAuth: options?.actionRouteAuth,
         });
       }
+      // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
+      // have to open the (single-process) local database itself while this
+      // server is already holding it open. Gated internally on deploy
+      // environment, loopback, and a per-process token — see dev-action-bridge.ts.
+      const { mountDevActionForwardRoute } =
+        await import("./dev-action-bridge.js");
+      mountDevActionForwardRoute(nitroApp, httpActions, {
+        appId: options?.appId,
+      });
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,
@@ -3181,9 +3280,8 @@ export function createAgentChatPlugin(
             try {
               const {
                 createCheckpoint: gitCheckpoint,
+                getChangedPaths,
                 isGitRepo,
-                hasUncommittedChanges,
-                getChangedFileNames,
                 getUncommittedStatus,
               } = await import("../checkpoints/service.js");
               const cwd = process.cwd();
@@ -3196,11 +3294,21 @@ export function createAgentChatPlugin(
               // If the tree was already dirty, a checkpoint commit would sweep
               // up the user's unrelated work when a reconnect/refresh finishes.
               const postRunStatus = getUncommittedStatus(cwd);
+              const changedPaths = getChangedPaths(cwd);
+              // Shell commands can mutate arbitrary files, so an unreported
+              // changed path has no safe per-run provenance. Skip the automatic
+              // checkpoint instead of claiming another process's work.
+              const agentModifiedPaths = resolveAgentCheckpointPaths(
+                cwd,
+                changedPaths,
+                run.events ?? [],
+              );
+              const agentModifiedPathList = [...agentModifiedPaths.keys()];
               if (
                 preRunStatus === "" &&
                 postRunStatus?.trim() &&
-                isGitRepo(cwd) &&
-                hasUncommittedChanges(cwd)
+                agentModifiedPaths.size > 0 &&
+                isGitRepo(cwd)
               ) {
                 let summary = "";
 
@@ -3226,7 +3334,9 @@ export function createAgentChatPlugin(
 
                 // Fall back to listing changed files
                 if (!summary) {
-                  const files = getChangedFileNames(cwd);
+                  const files = agentModifiedPathList.map((file) =>
+                    file.split(/[\\/]/).pop(),
+                  );
                   if (files.length > 0) {
                     summary = `Update ${files.join(", ")}`;
                   }
@@ -3236,7 +3346,12 @@ export function createAgentChatPlugin(
                 if (summary.length > 120)
                   summary = summary.slice(0, 117) + "...";
 
-                const sha = gitCheckpoint(cwd, summary);
+                const sha = gitCheckpoint(
+                  cwd,
+                  summary,
+                  agentModifiedPathList,
+                  agentModifiedPaths,
+                );
                 if (sha) {
                   const { insertCheckpoint } =
                     await import("../checkpoints/store.js");

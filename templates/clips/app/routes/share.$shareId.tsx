@@ -399,6 +399,7 @@ export default function ShareRoute() {
   const [searchParams] = useSearchParams();
   const startAt = searchParams.get("at");
   const startMs = useMemo(() => parseTimeParam(startAt), [startAt]);
+  const panelParam = searchParams.get("panel");
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
@@ -554,9 +555,9 @@ export default function ShareRoute() {
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
     if (typeof window === "undefined") return path;
-    const query = buildShareContinuationQuery(attribution, startAt);
+    const query = buildShareContinuationQuery(attribution, startAt, panelParam);
     return query ? `${path}?${query}` : path;
-  }, [attribution, recordingId, startAt]);
+  }, [attribution, recordingId, startAt, panelParam]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
 
   const submitAccessRequest = useCallback(
@@ -692,10 +693,23 @@ export default function ShareRoute() {
 
   const recording = dataQ.data?.data?.recording;
   useEffect(() => {
-    if (recording && !recording.enableComments && panel === "comments") {
-      setPanel("transcript");
+    if (recording && !recording.enableComments) {
+      // Functional update so this branch doesn't need `panel` as a
+      // dependency below - depending on `panel` made this effect re-fire on
+      // every manual tab click (including away from Comments), and
+      // `panelParam === "comments"` would then re-select Comments right
+      // back, trapping the viewer on the deep link for the whole session.
+      setPanel((current) => (current === "comments" ? "transcript" : current));
+      return;
     }
-  }, [panel, recording?.enableComments]);
+    if (panelParam === "comments") {
+      selectCommentsPanel();
+    }
+    // `shareId` is a dependency (not just used inside) so navigating between
+    // shares with the same `panelParam`/`enableComments` values still re-runs
+    // this effect instead of leaving `panel` on whatever the previous share
+    // left it at.
+  }, [panelParam, recording?.enableComments, selectCommentsPanel, shareId]);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
@@ -1406,6 +1420,7 @@ export default function ShareRoute() {
             <SignedOutShareActions
               recordingId={recording.id}
               startAt={startAt}
+              panel={panelParam}
               onCtaClick={fireShareCtaClick}
               onSignup={() => openCreateAccount("continue")}
             />

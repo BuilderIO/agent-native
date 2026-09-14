@@ -735,6 +735,9 @@ const messages = {
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
         "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
+      quotaCooldownTitle: "Design 已暫停此匯入",
+      quotaCooldownBody:
+        "達到配額上限後，Design 正在限制自身的 Figma 請求速率。配額將自動重設。",
       rateLimitTitle: "Figma 已暫停此匯入",
       rateLimitLowSeat:
         "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
@@ -1278,6 +1281,8 @@ const messages = {
     untitledDesign: "無標題Design",
     createFirstDesign: "建立您的第一個設計",
     pickStartingPoint: "選取一個起點或編寫您自己的提示。",
+    searchNoResultsTitle: "找不到符合此搜尋的設計",
+    searchNoResultsDescription: "請嘗試其他搜尋。",
     starterSaas: "SaaS 到達頁面",
     starterDashboard: "儀表板",
     starterPricing: "定價頁面",
@@ -1387,6 +1392,7 @@ const messages = {
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
       githubIndex:
         "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
+      nameConflict: "已存在同名設計系統。請更改名稱後再試一次。",
       chooseDesignMd: "請選取 Markdown（.md 或 .mdx）檔案。",
       readDesignMd: "無法讀取該 Markdown 檔案。",
       designMdTooLarge: "Markdown 檔案必須為 2 MB 或更小。",

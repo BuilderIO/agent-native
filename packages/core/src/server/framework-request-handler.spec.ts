@@ -457,6 +457,19 @@ describe("framework request handler", () => {
     ).resolves.toEqual({ fellThrough: true });
   });
 
+  it("waits for async plugin registration before discovering missing defaults", async () => {
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+    await Promise.resolve();
+    markDefaultPluginProvided(nitroApp, "agent-chat");
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
   it("does not auto-mount a default plugin slot refused by plugins.disabled", async () => {
     process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chat";
     resetAppConfigForTests();

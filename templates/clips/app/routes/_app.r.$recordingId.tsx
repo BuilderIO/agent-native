@@ -1006,7 +1006,9 @@ export default function RecordingPage() {
       return;
     }
     if (panelParam === "comments") {
-      setPanel(recording?.enableComments ? "comments" : "transcript");
+      setPanel(
+        recording && !recording.enableComments ? "transcript" : "comments",
+      );
       if (isCompactLayout) {
         requestAnimationFrame(() => {
           commentsSectionRef.current?.scrollIntoView({ block: "start" });
@@ -2026,7 +2028,7 @@ export default function RecordingPage() {
       className={cn(
         "scroll-mt-14",
         compact
-          ? "flex min-h-0 flex-1 flex-col px-4 pb-5 pt-4"
+          ? "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"
           : "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3",
       )}
     >
