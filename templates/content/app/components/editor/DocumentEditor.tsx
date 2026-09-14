@@ -2316,7 +2316,7 @@ function PageEditorSessionBody({
             historySessionRef.current.activity(documentId),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
           ...(baseRevision !== undefined ? { baseRevision } : {}),
-          ...(updates.content !== undefined && updates.title !== undefined
+          ...(updates.title !== undefined
             ? { baseTitle: lastSavedTitleRef.current.title }
             : {}),
         });
@@ -3053,7 +3053,7 @@ function PageEditorSessionBody({
           ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
           ...(baseRevision !== undefined ? { baseRevision } : {}),
-          ...(updates.content !== undefined && updates.title !== undefined
+          ...(updates.title !== undefined
             ? { baseTitle: lastSavedTitleRef.current.title }
             : {}),
         });

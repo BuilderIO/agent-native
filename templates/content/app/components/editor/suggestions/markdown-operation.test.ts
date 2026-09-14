@@ -42,6 +42,26 @@ describe("cleared text blocks", () => {
       },
     ]);
   });
+
+  it("models a cleared paragraph as a deletion alongside another edit", () => {
+    const before = "Keep this.\nClear this.\nOld ending.";
+    const after = "Keep this.\n<empty-block/>\nNew ending.";
+
+    expect(markdownSuggestionOperations(before, after)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "delete_text",
+          before: expect.objectContaining({ changedText: "Clear this." }),
+          after: expect.objectContaining({ changedText: "<empty-block/>" }),
+        }),
+        expect.objectContaining({
+          kind: "replace_text",
+          before: expect.objectContaining({ changedText: "Old" }),
+          after: expect.objectContaining({ changedText: "New" }),
+        }),
+      ]),
+    );
+  });
 });
 
 describe("mixed text and formatting proposals", () => {

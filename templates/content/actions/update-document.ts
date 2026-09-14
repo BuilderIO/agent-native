@@ -346,7 +346,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Exact title from the caller's base snapshot when a title and body are saved together",
+        "Exact title from the caller's base snapshot for a title update",
       ),
     historySessionId: z
       .string()

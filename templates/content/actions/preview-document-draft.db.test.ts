@@ -242,8 +242,74 @@ describe("private preview document drafts", () => {
     expect(copy).toMatchObject({
       title: "Builder row",
       content: "Local recovery",
+      ownerEmail: OWNER,
     });
   });
+
+  it("preserves a matching leading H1 in a separate recovery page", async () => {
+    const documentId = await createDocument();
+    const content = "# Builder row\n\nLocal recovery";
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload(content), deferredReason: "conflict" },
+      }),
+    );
+
+    const result = await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "save_separately",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: content,
+      }),
+    );
+    const [copy] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId!));
+
+    expect(copy.content).toBe(content);
+  });
+
+  it("saves a directly shared page into the collaborator's personal space", async () => {
+    const documentId = await createDocument();
+    await asUser(COLLABORATOR, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Collaborator recovery"),
+          deferredReason: "conflict",
+        },
+      }),
+    );
+
+    const result = await asUser(COLLABORATOR, () =>
+      resolveDraft.run({
+        choice: "save_separately",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Collaborator recovery",
+      }),
+    );
+    const [copy] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId!));
+
+    expect(copy).toMatchObject({
+      ownerEmail: COLLABORATOR,
+      parentId: null,
+      content: "Collaborator recovery",
+    });
+  });
+
   it("runs the additive migration and projects only the caller's draft fields", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>

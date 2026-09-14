@@ -344,6 +344,30 @@ describe("update-document compare-and-swap", () => {
     });
   });
 
+  it("does not let a title-only save overwrite a concurrently changed title", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: documentId, title: "Concurrent title" }),
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Local title",
+        baseTitle: "Original title",
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Concurrent title",
+      content: "original",
+    });
+  });
+
   it("rejects a content save when the row moved past baseUpdatedAt and returns the current server document", async () => {
     const documentId = await createDocument({ content: "original" });
     const staleSnapshot = await documentRow(documentId);

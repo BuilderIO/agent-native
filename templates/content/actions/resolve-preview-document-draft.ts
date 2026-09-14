@@ -63,52 +63,54 @@ export default defineAction({
       eq(schema.documentPreviewDrafts.title, args.expectedDraftTitle),
       eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
     );
-    const readExactDraft = async () => {
+    const claimExactDraft = async () => {
       const [draft] = await db
-        .select()
-        .from(schema.documentPreviewDrafts)
-        .where(draftFilter)
-        .limit(1);
-      return draft;
-    };
-    const deleteExactDraft = async () => {
-      const deleted = await db
         .delete(schema.documentPreviewDrafts)
         .where(draftFilter)
-        .returning({ id: schema.documentPreviewDrafts.id });
-      if (deleted.length !== 1)
-        conflict("The saved draft changed during recovery.");
+        .returning();
+      if (!draft) conflict("The saved draft changed during recovery.");
+      return draft;
     };
-
-    const draft = await readExactDraft();
-    if (!draft) conflict("The saved draft changed during recovery.");
-
+    const restoreClaimedDraft = async (
+      draft: typeof schema.documentPreviewDrafts.$inferSelect,
+    ) => {
+      await db
+        .insert(schema.documentPreviewDrafts)
+        .values(draft)
+        .onConflictDoNothing();
+    };
     if (args.choice === "keep_mine") {
-      const saved = await updateDocument.run(
-        {
-          id: args.documentId,
-          title: draft.title,
-          content: draft.content,
-          baseUpdatedAt: args.expectedDocumentUpdatedAt,
-          loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
-          loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
-          historySessionId: `draft-recovery:${draft.id}`,
-          reuseLabels: [],
-        },
-        ctx,
-      );
-      if ((saved as DocumentUpdateConflictResponse).conflict === true) {
+      const draft = await claimExactDraft();
+      try {
+        const saved = await updateDocument.run(
+          {
+            id: args.documentId,
+            title: draft.title,
+            content: draft.content,
+            baseUpdatedAt: args.expectedDocumentUpdatedAt,
+            loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
+            loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
+            historySessionId: `draft-recovery:${draft.id}`,
+            reuseLabels: [],
+          },
+          ctx,
+        );
+        if ((saved as DocumentUpdateConflictResponse).conflict === true) {
+          await restoreClaimedDraft(draft);
+          return {
+            status: "document_conflict" as const,
+            document: (saved as DocumentUpdateConflictResponse).document,
+          };
+        }
         return {
-          status: "document_conflict" as const,
-          document: (saved as DocumentUpdateConflictResponse).document,
+          status: "resolved" as const,
+          choice: args.choice,
+          document: saved,
         };
+      } catch (error) {
+        await restoreClaimedDraft(draft);
+        throw error;
       }
-      await deleteExactDraft();
-      return {
-        status: "resolved" as const,
-        choice: args.choice,
-        document: saved,
-      };
     }
 
     if (args.choice === "use_saved") {
@@ -147,50 +149,52 @@ export default defineAction({
       return { status: "resolved" as const, choice: args.choice };
     }
 
+    const draft = await claimExactDraft();
     const destinationId = `recovery-${draft.id}`;
     let created;
     try {
-      created = await createDocument.run(
-        {
-          id: destinationId,
-          title: draft.title,
-          content: draft.content,
-          parentId: access.resource.parentId as string | null,
-          ...((access.resource.spaceId as string | null)
-            ? { spaceId: access.resource.spaceId as string }
-            : {}),
-          reuseLabels: [],
-        },
-        ctx,
-      );
-    } catch (error) {
-      const [existing] = await db
-        .select()
-        .from(schema.documents)
-        .where(eq(schema.documents.id, destinationId))
-        .limit(1);
-      if (
-        !existing ||
-        existing.ownerEmail !== ownerEmail ||
-        existing.title !== draft.title ||
-        existing.content !== draft.content
-      ) {
-        throw error;
+      try {
+        created = await createDocument.run(
+          {
+            id: destinationId,
+            title: draft.title,
+            content: draft.content,
+            preserveLeadingTitleHeading: true,
+            reuseLabels: [],
+          },
+          ctx,
+        );
+      } catch (error) {
+        const [existing] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, destinationId))
+          .limit(1);
+        if (
+          !existing ||
+          existing.ownerEmail !== userEmail ||
+          existing.title !== draft.title ||
+          existing.content !== draft.content
+        ) {
+          throw error;
+        }
+        created = {
+          id: existing.id,
+          urlPath: `/page/${existing.id}`,
+          title: existing.title,
+          content: existing.content,
+        };
       }
-      created = {
-        id: existing.id,
-        urlPath: `/page/${existing.id}`,
-        title: existing.title,
-        content: existing.content,
+      return {
+        status: "resolved" as const,
+        choice: args.choice,
+        document: created,
+        createdDocumentId: created.id,
+        urlPath: `/page/${created.id}`,
       };
+    } catch (error) {
+      await restoreClaimedDraft(draft);
+      throw error;
     }
-    await deleteExactDraft();
-    return {
-      status: "resolved" as const,
-      choice: args.choice,
-      document: created,
-      createdDocumentId: created.id,
-      urlPath: `/page/${created.id}`,
-    };
   },
 });
