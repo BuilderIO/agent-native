@@ -596,12 +596,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Cmd+Shift+A, Cmd+O, Cmd+K, Shift+U, and Shift+R), native text editing is not
   intercepted, and international keyboard layouts have usable alternatives.
   Mail source audit on 2026-09-13 found additional mappings that need paired
-  replay: Shift+I marks read in list/thread rather than Important; G+A routes to
-  Archive while the captured reference inventory says All Mail; G+I routes only
-  to Inbox despite the reference sheet's ambiguous Inbox/Important label; and
-  Cmd+O has a Mail-specific GitHub-link handler when a PR link is detected;
-  compare ordinary attachment/link handling with Superhuman separately. These
-  source findings are gaps to validate, not runtime parity evidence.
+  replay: Shift+I marks read in list/thread rather than Important; G+I routes
+  only to Inbox despite the reference sheet's ambiguous Inbox/Important label;
+  and Cmd+O has a Mail-specific GitHub-link handler when a PR link is detected;
+  compare ordinary attachment/link handling with Superhuman separately. G+A
+  was corrected to `/all` based on the captured shortcut inventory and has a
+  route-mapping regression check; its live side-by-side replay is still pending.
+  The other source findings remain gaps to validate, not runtime parity evidence.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

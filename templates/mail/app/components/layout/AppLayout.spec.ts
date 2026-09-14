@@ -160,6 +160,17 @@ describe("AppLayout inbox tab bar", () => {
     ).toHaveLength(2);
   });
 
+  it("routes G+A to All Mail without changing the separate Archive route", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      '{ keys: ["g", "a"], handler: () => navigate("/all") },',
+    );
+    expect(source).toContain(
+      '{ keys: ["g", "e"], handler: () => navigate("/archive") },',
+    );
+  });
+
   it("closes the captured popout drafts through the save-aware close-all path", () => {
     const source = appLayoutSource();
 

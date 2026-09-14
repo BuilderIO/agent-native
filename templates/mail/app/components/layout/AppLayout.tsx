@@ -1209,7 +1209,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
-    { keys: ["g", "a"], handler: () => navigate("/archive") },
+    { keys: ["g", "a"], handler: () => navigate("/all") },
     { keys: ["g", "e"], handler: () => navigate("/archive") },
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
