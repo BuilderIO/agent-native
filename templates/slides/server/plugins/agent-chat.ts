@@ -233,7 +233,12 @@ exact source and update every affected representation in one hash-guarded
 edits batch. Use exact replace, insert-before/after, replace-between, or
 regex-replace edits; include expectedMatches for ambiguous markers. Use
 exactly one update-slide input mode: edits, legacy find/replace, or
-fullContent. Never combine edits with find, replace, or fullContent. The action
+fullContent. Never combine edits with find, replace, or fullContent. styleOnly
+accepts the edits mode only, so a single style replacement still goes as
+edits: [{"find":"...","replace":"...","occurrence":1}] and never as top-level
+find/replace/objectId or fullContent. Use occurrence for a style declaration
+rather than expectedMatches, which rejects a declaration that repeats on the
+slide; use all=true when every occurrence should change. The action
 applies the whole list atomically under the deck lock, so a failed required
 match writes nothing. After a focused text write, verify with a targeted
 get-deck read of the same slide using slideId and compact=false; do not read

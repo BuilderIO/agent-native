@@ -31,7 +31,7 @@ export function documentRevisionToken(
   return `body:${revision}:${documentContentHash(content)}`;
 }
 
-function parseRevisionToken(
+export function parseDocumentRevisionToken(
   value: string,
 ): { revision: number; contentHash: string } | null {
   const match = /^body:(0|[1-9]\d*):(sha256:[a-f0-9]{64})$/.exec(value);
@@ -148,7 +148,7 @@ export async function mutateDocumentBody(args: {
 }): Promise<DocumentEditMutationResult> {
   const db = args.db ?? getDb();
   const scope = callerScope(args.ctx);
-  const base = parseRevisionToken(args.baseRevision);
+  const base = parseDocumentRevisionToken(args.baseRevision);
   if (base === null) {
     throw new ActionContractError(
       "baseRevision is not a valid document revision token.",
