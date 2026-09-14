@@ -741,13 +741,18 @@ async function requestBuilderDesignSystem(
   const rejection = await builderDesignSystemOAuthRejection(response);
   if (!rejection) return response;
 
+  // Same bar the primary path applies: a legacy credential without its public
+  // key is not a usable design-system credential, so it is not a usable
+  // fallback either. Accepting one here would make the identical credential
+  // set work or refuse depending only on whether an unrelated OAuth grant
+  // happens to exist.
   const legacy = await resolveBuilderLegacyRequestAuthorization();
-  if (!legacy) {
+  if (!legacy?.legacyPublicKey) {
     if (response.body) await response.body.cancel();
     fail(
       "Builder design-system indexing is not reachable with a Builder OAuth connection yet — Builder answered " +
         `${response.status} ${rejection} for /design-systems/v1. ` +
-        "Save a Builder private key as BUILDER_PRIVATE_KEY in Settings > Secrets to index with Builder, " +
+        "Save both BUILDER_PRIVATE_KEY and BUILDER_PUBLIC_KEY in Settings > Secrets to index with Builder, " +
         "or create the design system locally with create-design-system from the sources you already supplied.",
       {
         errorCode: "builder_design_system_oauth_unsupported",

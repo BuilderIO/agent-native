@@ -204,6 +204,35 @@ describe("Builder design-system helpers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses a private-key-only fallback the primary path would also reject", async () => {
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    process.env.BUILDER_PRIVATE_KEY = "bpk-test-private-key";
+    delete process.env.BUILDER_PUBLIC_KEY;
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "route_not_enabled" }), {
+          status: 403,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "builder_design_system_oauth_unsupported",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a genuine permission failure as itself instead of downgrading", async () => {
     process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
       "https://builder.example.test/design-systems/v1";
