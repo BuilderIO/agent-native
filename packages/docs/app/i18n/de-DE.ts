@@ -1073,24 +1073,68 @@ const deDE = {
     },
     content: {
       faq: {
-        question1:
-          "Kann ein KI-Agent meine Dokumente ohne Export oder API bearbeiten?",
+        question1: "Was ist Agent-Native Content?",
         answer1:
-          "Ja. Content arbeitet mit lokalen Markdown-/MDX-Dateien — denselben Dateien wie in Ihrem Repository. Ihr Agent hat sie bereits auf der Festplatte: keine API, keine Synchronisierung und kein Exportschritt.",
-        question2: "Wie unterscheidet sich Content von Notion oder Obsidian?",
+          "Agent-Native Content ist ein kostenloser Open-Source-Arbeitsbereich für Dokumente, Aufgaben und Datenbanken. Er kombiniert einen KI-Dokumenteditor mit strukturierten Tabellen und gemeinsamen Seiten, die Menschen und verbundene KI-Agenten gemeinsam lesen und bearbeiten können.",
+        question2: "Kann ich meinen eigenen KI-Agenten mit Content verwenden?",
         answer2:
-          "Notion speichert Ihre Dokumente in seiner Datenbank hinter seiner API. Content nutzt lokale Dateien wie Obsidian — ergänzt um einen Rich-Text-Editor und einen Agenten, der in Ihrem Stil entwirft, umschreibt und veröffentlicht.",
-        question3: "Kann die KI in meinem Stil schreiben?",
+          "Ja. Content bietet eine MCP-Verbindung für unterstützte Tools wie Claude Code, Codex und Cursor. Nach dem Verbinden und Autorisieren des Zugriffs kann dein Agent mit den Dokumenten und Datenbanken arbeiten, auf die er Zugriff hat. Du kannst auch den in Content integrierten Agenten verwenden.",
+        question3:
+          "Kann ich die KI bitten, meinen Text zu überprüfen, ohne ihn umzuschreiben?",
         answer3:
-          "Ja. Der Agent lernt Ihre Stimme, Ihren Styleguide und Ihren Ton, damit Entwürfe nach Ihnen klingen — und jede Auswahl lässt sich umschreiben, erweitern, zusammenfassen oder im Ton verändern.",
-        question4: "Kann ich in meinem CMS veröffentlichen?",
+          "Ja. Bitte deinen KI-Agenten, Kommentare zu einem Dokument oder einer Textstelle zu hinterlassen. Du kannst das Feedback lesen und die Änderungen selbst vornehmen oder den Agenten bitten, den Text zu bearbeiten. Um Kommentare zu erhalten, musst du den Text nicht aus der Hand geben.",
+        question4: "Kann Content Aufgaben verfolgen und Team-Anfragen sammeln?",
         answer4:
-          "Ja — verbinden Sie jedes Headless-CMS über Skripte. WordPress, Contentful und Builder werden unterstützt, Notion synchronisiert in beide Richtungen, und der Agent führt Veröffentlichungsskripte selbstständig aus.",
-        question5: "Ist Content kostenlos?",
+          "Ja. Erstelle eine Datenbank mit Feldern wie Verantwortlicher, Status, Liefertermin und nächstem Schritt. Füge Beschreibungen hinzu, die erklären, was in jedes Feld gehört. Diese Beschreibungen leiten deinen KI-Agenten beim Erstellen oder Aktualisieren von Einträgen, einschließlich der Nachfrage nach fehlenden Informationen.",
+        question5:
+          "Kann ich kontrollieren, wer meine Arbeit bearbeitet, und eine frühere Version wiederherstellen?",
         answer5:
-          "Ja. Kostenlos und Open Source — und weil Ihre Dokumente einfache lokale Dateien sind, müssen Sie nichts exportieren, falls Sie Content jemals verlassen.",
+          "Ja. Neue Dokumente sind standardmäßig privat. Teile sie mit Betrachter-, Bearbeiter- oder Admin-Zugriff und nutze den Versionsverlauf der Seite, um einen früheren Stand wiederherzustellen. Das Wiederherstellen eines Stands ersetzt den aktuellen Inhalt der Seite.",
       },
       s001: "Screenshot der Vorlage Content",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "Erstelle und organisiere deine Arbeit mit deinem KI-Agenten",
+      heroDescription:
+        "Content ist ein kostenloser Open-Source-Arbeitsbereich für Dokumente, Aufgabenlisten und Datenbanken, die du und deine KI-Agenten gemeinsam lesen und bearbeiten könnt.",
+      heroCta: "Content öffnen",
+      useCasesHeading: "Was kannst du mit Content machen?",
+      useCasesBody:
+        "Arbeite an einem Entwurf, behalte im Blick, was noch zu erledigen ist, oder sammle die Details für eine neue Anfrage.",
+      useCase1Title: "Content schreiben und überarbeiten",
+      useCase1Body:
+        "Bitte deinen KI-Agenten, eine Seite zu entwerfen, eine Passage zu überarbeiten oder Kommentare zu deinem Text zu hinterlassen. Entscheide selbst, wie er dir helfen soll.",
+      useCase2Title: "Arbeit mit deinen Agenten verfolgen",
+      useCase2Body:
+        "Halte Aufgaben, Status und nächste Schritte in einer gemeinsamen Tabelle fest. Bitte deine verbundenen KI-Agenten, sie zu aktualisieren, während du ein Projekt bearbeitest.",
+      useCase3Title: "Projektanfragen sammeln",
+      useCase3Body:
+        "Richte eine Tabelle für Design-Anfragen oder andere Teamarbeit ein. Gib jedem Feld Anweisungen, damit dein KI-Agent nach fehlenden Details fragen kann.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Schreiben, Organisieren und Zusammenarbeiten brauchst",
+      feature1Title: "KI-Schreiben und -Überarbeitung",
+      feature1Body:
+        "Hol dir einen ersten Entwurf, fordere Änderungen an markiertem Text an oder bitte um Kommentare. Dein KI-Agent arbeitet direkt im Dokument.",
+      feature2Title: "Dokumente und verschachtelte Seiten",
+      feature2Body:
+        "Schreibe Seiten mit Überschriften, Tabellen, Bildern und Codeblöcken. Gruppiere zugehörige Dokumente unter einem Projekt und durchsuche Titel und Inhalt, um sie zu finden.",
+      feature3Title: "Datenbanken und Ansichten",
+      feature3Body:
+        "Organisiere Arbeit in Tabellen, Boards oder Kalendern. Füge Felder für Verantwortliche, Termine und Status hinzu — mit einem vollständigen Dokument hinter jeder Zeile.",
+      feature4Title: "Anweisungen für Seiten und Felder",
+      feature4Body:
+        "Beschreibe, was auf eine Seite oder in ein Datenbankfeld gehört. Gib deinen KI-Agenten Hinweise zu den Informationen und dem Format, das du erwartest.",
+      feature5Title: "Verbundene KI-Agenten",
+      feature5Body:
+        "Verbinde Agenten aus Tools wie Claude Code, Codex oder Cursor, um zusammen mit dem integrierten Agenten deine Dokumente und Datenbanken zu lesen und zu aktualisieren.",
+      feature6Title: "Teamzusammenarbeit",
+      feature6Body:
+        "Bearbeite Seiten gemeinsam, kommentiere Textstellen und antworte in Threads. Teile sie mit bestimmten Personen oder deiner Organisation und lege deren Zugriffsebene fest.",
+      finalCtaHeading: "Bring dein nächstes Projekt in Content",
+      finalCtaBody:
+        "Starte mit einem Dokument, einer Aufgabenliste oder einer Tabelle, die dein Team bereits nutzt.",
+      finalCtaButton: "Content öffnen",
       s002: "Alle Vorlagen",
       s003: "Open-Source-Obsidian für MDX",
       s004: "Bearbeiten Sie lokale Markdown/MDX-Dateien wie Obsidian, generieren Sie umfangreiche interaktive benutzerdefinierte Blöcke und schreiben Sie mit einem AI-Agenten, der Ihre Dokumente kennt.",

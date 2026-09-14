@@ -1061,23 +1061,67 @@ const enUS = {
     },
     content: {
       faq: {
-        question1: "Can an AI agent edit my docs without an export or API?",
+        question1: "What is Agent-Native Content?",
         answer1:
-          "Yes. Content works on local Markdown/MDX files — the same ones in your repo. Your agent already has them on disk: no API, no sync, no export step.",
-        question2: "How is Content different from Notion or Obsidian?",
+          "Agent-Native Content is a free and open-source workspace for documents, tasks, and databases. It combines an AI document editor with structured tables and shared pages that people and connected AI agents can read and update together.",
+        question2: "Can I use my own AI agent with Content?",
         answer2:
-          "Notion keeps your docs in its database, behind its API. Content is local files like Obsidian — plus a rich editor on top and an agent that drafts, rewrites, and publishes in your voice.",
-        question3: "Can the AI write in my style?",
+          "Yes. Content provides an MCP connection for supported tools such as Claude Code, Codex, and Cursor. After connecting and authorizing access, your agent can work with the documents and databases available to it. You can also use Content's built-in agent.",
+        question3: "Can I ask the AI to review my writing without rewriting it?",
         answer3:
-          "Yes. The agent learns your voice, style guide, and tone, so drafts sound like you — and rewrite, expand, summarize, or change-tone works on any selection.",
-        question4: "Can I publish to my CMS?",
+          "Yes. Ask your AI agent to leave comments on a document or passage. You can read the feedback and make changes yourself, or ask the agent to edit the text. Requesting comments does not require handing over the writing.",
+        question4: "Can Content track tasks and collect team requests?",
         answer4:
-          "Yes — connect any headless CMS via scripts. WordPress, Contentful, and Builder are supported, Notion syncs two-way, and the agent runs publishing scripts autonomously.",
-        question5: "Is Content free?",
+          "Yes. Create a database with fields such as owner, status, delivery date, and next step. Add descriptions explaining what each field should contain. Those descriptions guide your AI agent when creating or updating entries, including asking for missing information.",
+        question5:
+          "Can I control who edits my work and restore an earlier version?",
         answer5:
-          "Yes. Free and open source — and since your docs are plain local files, there's nothing to export if you ever leave.",
+          "Yes. New documents are private by default. Share them with viewer, editor, or admin access, and use page version history to restore an earlier snapshot. Restoring a snapshot replaces the page's current content.",
       },
       s001: "Content app screenshot",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "Create and organize your work with your AI agent",
+      heroDescription:
+        "Content is a free and open-source workspace for documents, task lists, and databases that you and your AI agents can read and update together.",
+      heroCta: "Open Content",
+      useCasesHeading: "What can you do with Content?",
+      useCasesBody:
+        "Work on a draft, track what needs doing, or collect the details for a new request.",
+      useCase1Title: "Write and review content",
+      useCase1Body:
+        "Ask your AI agent to draft a page, revise a passage, or leave comments on your writing. Choose how you want it to help.",
+      useCase2Title: "Track work with your agents",
+      useCase2Body:
+        "Keep tasks, status, and next steps in a shared table. Ask your connected AI agents to update it as you work through a project.",
+      useCase3Title: "Collect project requests",
+      useCase3Body:
+        "Set up a table for design requests or other team work. Give each field instructions so your AI agent can ask for missing details.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading:
+        "Everything you need to write, organize, and collaborate",
+      feature1Title: "AI writing and review",
+      feature1Body:
+        "Get a first draft, request changes to selected text, or ask for comments. Your AI agent works directly in the document.",
+      feature2Title: "Documents and nested pages",
+      feature2Body:
+        "Write pages with headings, tables, images, and code blocks. Group supporting documents under a project and search titles and content to find them.",
+      feature3Title: "Databases and views",
+      feature3Body:
+        "Organize work in tables, boards, or calendars. Add fields for owners, dates, and status, with a full document behind each row.",
+      feature4Title: "Page and field instructions",
+      feature4Body:
+        "Describe what belongs on a page or in a database field. Give your AI agents guidance on the information and format you expect.",
+      feature5Title: "Connected AI agents",
+      feature5Body:
+        "Connect agents from tools such as Claude Code, Codex, or Cursor to read and update your documents and databases alongside the built-in agent.",
+      feature6Title: "Team collaboration",
+      feature6Body:
+        "Edit pages together, comment on passages, and reply in threads. Share with specific people or your organization and choose their access level.",
+      finalCtaHeading: "Bring your next project into Content",
+      finalCtaBody:
+        "Start with a document, a task list, or a table your team already uses.",
+      finalCtaButton: "Open Content",
       s002: "All Apps",
       s003: "Open-Source Notion/Obsidian alternative",
       s004: "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and write with an AI agent that knows your docs.",

@@ -1023,6 +1023,46 @@ const zhCN = {
     },
     content: {
       s001: "Content 模板屏幕截图",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "和你的 AI 智能体一起创建和整理工作",
+      heroDescription:
+        "Content 是一款免费开源的工作空间，用于文档、任务列表和数据库，你和你的 AI 智能体可以一起阅读和更新。",
+      heroCta: "打开 Content",
+      useCasesHeading: "用 Content 能做什么？",
+      useCasesBody: "处理一份草稿，跟踪待办事项，或收集一项新请求所需的详细信息。",
+      useCase1Title: "撰写和审阅内容",
+      useCase1Body:
+        "让你的 AI 智能体起草一个页面、修改一段文字，或在你的写作上留下评论。你可以选择希望它如何帮忙。",
+      useCase2Title: "和智能体一起跟踪工作",
+      useCase2Body:
+        "把任务、状态和下一步都记录在一张共享表格里。在推进项目的过程中，让连接的 AI 智能体帮你更新它。",
+      useCase3Title: "收集项目请求",
+      useCase3Body:
+        "为设计需求或其他团队工作建一张表格。为每个字段写明说明，这样你的 AI 智能体就能询问缺失的细节。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "写作、整理和协作所需的一切",
+      feature1Title: "AI 写作与审阅",
+      feature1Body:
+        "获取初稿，为选中的文字请求修改，或请求评论。你的 AI 智能体直接在文档中工作。",
+      feature2Title: "文档与嵌套页面",
+      feature2Body:
+        "用标题、表格、图片和代码块撰写页面。把相关文档归入同一个项目，并通过标题和内容进行搜索来查找它们。",
+      feature3Title: "数据库与视图",
+      feature3Body:
+        "以表格、看板或日历的方式整理工作。为负责人、日期和状态添加字段，每一行背后都是一份完整的文档。",
+      feature4Title: "页面与字段说明",
+      feature4Body:
+        "描述一个页面或数据库字段应该包含什么内容，为你的 AI 智能体提供关于所需信息和格式的指引。",
+      feature5Title: "连接的 AI 智能体",
+      feature5Body:
+        "连接来自 Claude Code、Codex 或 Cursor 等工具的智能体，让它们与内置智能体一起读取和更新你的文档与数据库。",
+      feature6Title: "团队协作",
+      feature6Body:
+        "一起编辑页面，在段落上留下评论，并在讨论串中回复。与特定的人或你的组织共享，并选择他们的访问权限。",
+      finalCtaHeading: "把你的下一个项目带进 Content",
+      finalCtaBody: "从一份文档、一个任务列表，或你团队已经在用的表格开始。",
+      finalCtaButton: "打开 Content",
       s002: "所有模板",
       s003: "为 MDX 开源 Obsidian",
       s004: "编辑本地 Markdown/MDX 文件（如 Obsidian），生成丰富的交互式自定义块，并使用了解您文档的 AI 代理进行编写。",
@@ -1085,21 +1125,21 @@ const zhCN = {
       s061: "阅读文档",
       s062: "查看所有模板",
       faq: {
-        question1: "AI 代理无需导出或 API 就能编辑我的文档吗？",
+        question1: "什么是 Agent-Native Content？",
         answer1:
-          "可以。Content 直接处理本地 Markdown/MDX 文件，也就是仓库中的同一批文件。代理已经可以在磁盘上访问它们，无需 API、同步或导出步骤。",
-        question2: "Content 与 Notion 或 Obsidian 有什么不同？",
+          "Agent-Native Content 是一款免费开源的文档、任务和数据库工作空间。它将 AI 文档编辑器与结构化表格和共享页面结合在一起，让你和连接的 AI 智能体可以一起阅读和更新内容。",
+        question2: "我可以在 Content 中使用自己的 AI 智能体吗？",
         answer2:
-          "Notion 将文档保存在自己的数据库中，并通过 API 访问。Content 像 Obsidian 一样使用本地文件，同时提供富文本编辑器，以及能按你的风格起草、重写和发布的代理。",
-        question3: "AI 能用我的风格写作吗？",
+          "可以。Content 为 Claude Code、Codex、Cursor 等受支持的工具提供 MCP 连接。连接并授权访问后，你的智能体就可以处理它能访问的文档和数据库。你也可以使用 Content 内置的智能体。",
+        question3: "我可以让 AI 审阅我的文字而不重写它吗？",
         answer3:
-          "可以。代理会学习你的表达方式、风格指南和语气，让草稿听起来像你；你也可以对任何选区执行重写、扩写、总结或改变语气。",
-        question4: "我可以发布到自己的 CMS 吗？",
+          "可以。让你的 AI 智能体在文档或段落上留下评论。你可以阅读反馈并自己修改，也可以让智能体来编辑文字。只请求评论并不需要把写作工作交出去。",
+        question4: "Content 能跟踪任务并收集团队请求吗？",
         answer4:
-          "可以。通过脚本连接任意无头 CMS。支持 WordPress、Contentful 和 Builder，Notion 可双向同步，代理还能自主运行发布脚本。",
-        question5: "Content 免费吗？",
+          "可以。创建一个数据库，添加负责人、状态、交付日期、下一步等字段，并为每个字段写明应填写的内容。这些说明会在创建或更新条目时指导你的 AI 智能体，包括让它询问缺失的信息。",
+        question5: "我可以控制谁能编辑我的内容，并恢复到较早的版本吗？",
         answer5:
-          "免费且开源。由于文档就是普通的本地文件，即使以后离开，也没有任何内容需要导出。",
+          "可以。新文档默认是私密的。你可以以查看者、编辑者或管理员权限进行共享，并使用页面版本历史恢复到较早的快照。恢复快照会替换页面当前的内容。",
       },
     },
     design: {
