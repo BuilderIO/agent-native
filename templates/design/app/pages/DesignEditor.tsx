@@ -63,6 +63,7 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareTab,
   parseCreativeContexts,
+  useCreativeContextLab,
   useCreativeContexts,
   useCreativeContextState,
   readCreativeContextState,
@@ -3141,6 +3142,7 @@ function DesignEditor() {
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const creativeContextEnabled = useCreativeContextLab();
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
   const canCommentDesign =
     isSignedIn &&
@@ -4748,6 +4750,7 @@ function DesignEditor() {
       runResumePendingGeneration({
         agentSubmit,
         clearGenerationCompleteTimer,
+        creativeContextEnabled,
         design,
         files,
         generationModelRef,
@@ -4762,6 +4765,7 @@ function DesignEditor() {
       id,
       design,
       files.length,
+      creativeContextEnabled,
       agentSubmit,
       markGenerationStale,
       trackAgentGeneration,
@@ -15879,24 +15883,28 @@ function DesignEditor() {
         label: "Send to agent" /* i18n-ignore share tab label */,
         content: shareSendToTab,
       },
-      {
-        value: "context",
-        label: t("creativeContext.share.tabLabel", {
-          defaultValue: "Context",
-        }),
-        content: (
-          <CreativeContextShareTab
-            resource={{
-              appId: "design",
-              resourceType: "design",
-              resourceId: id ?? "",
-              title: design?.title ?? "Untitled design",
-              updatedAt: design?.updatedAt ?? undefined,
-              preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
-            }}
-          />
-        ),
-      },
+      ...(creativeContextEnabled
+        ? [
+            {
+              value: "context",
+              label: t("creativeContext.share.tabLabel", {
+                defaultValue: "Context",
+              }),
+              content: (
+                <CreativeContextShareTab
+                  resource={{
+                    appId: "design",
+                    resourceType: "design",
+                    resourceId: id ?? "",
+                    title: design?.title ?? "Untitled design",
+                    updatedAt: design?.updatedAt ?? undefined,
+                    preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
+                  }}
+                />
+              ),
+            },
+          ]
+        : []),
     ],
   };
 
@@ -22361,12 +22369,16 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const intake = shouldExploreVariants
-            ? null
-            : await (async () => {
-                await creativeContextPersistRef.current?.catch(() => {});
-                return loadIntakeContextFromAppState(readCreativeContextState);
-              })();
+          const intake =
+            shouldExploreVariants || !creativeContextEnabled
+              ? null
+              : await (async () => {
+                  await creativeContextPersistRef.current?.catch(() => {});
+                  return loadIntakeContextFromAppState(
+                    readCreativeContextState,
+                    creativeContextEnabled,
+                  );
+                })();
           const shouldSkipQuestions =
             shouldExploreVariants ||
             (intake ? allIntakeTopicsCovered(intake.coverage) : false);
@@ -22448,12 +22460,18 @@ function DesignEditor() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}
-        creativeContexts={creativeContextOptions}
-        creativeContextsLoading={creativeContextsQuery.isLoading}
-        selectedCreativeContextId={
-          creativeContextState.state.selectedContextId ?? null
+        creativeContexts={creativeContextEnabled ? creativeContextOptions : []}
+        creativeContextsLoading={
+          creativeContextEnabled && creativeContextsQuery.isLoading
         }
-        onCreativeContextChange={handleCreativeContextChange}
+        selectedCreativeContextId={
+          creativeContextEnabled
+            ? (creativeContextState.state.selectedContextId ?? null)
+            : undefined
+        }
+        onCreativeContextChange={
+          creativeContextEnabled ? handleCreativeContextChange : undefined
+        }
         onCreateDesignSystem={() => {
           handlePromptOpenChange(false);
           void navigate("/design-systems/setup");

@@ -33,6 +33,7 @@ export interface ResumePendingGenerationArgs {
     options?: Omit<AgentChatMessage, "message" | "context">,
   ) => string;
   clearGenerationCompleteTimer: () => void;
+  creativeContextEnabled: boolean;
   design: DesignData | null;
   files: DesignFile[];
   generationModelRef: RefObject<{
@@ -51,6 +52,7 @@ export interface ResumePendingGenerationArgs {
 export function runResumePendingGeneration({
   agentSubmit,
   clearGenerationCompleteTimer,
+  creativeContextEnabled,
   design,
   files,
   generationModelRef,
@@ -118,9 +120,12 @@ export function runResumePendingGeneration({
     const usesTemplate = Boolean(pending.templateId);
     const [designSystemContext, intake] = await Promise.all([
       loadDesignSystemGenerationContext(pendingDesignSystemId),
-      usesTemplate || shouldExploreVariants
+      usesTemplate || shouldExploreVariants || !creativeContextEnabled
         ? Promise.resolve(null)
-        : loadIntakeContextFromAppState(readCreativeContextState),
+        : loadIntakeContextFromAppState(
+            readCreativeContextState,
+            creativeContextEnabled,
+          ),
     ]);
     if (cancelled) return;
     const shouldSkipQuestions =
