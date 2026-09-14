@@ -1,4 +1,4 @@
-import type { GuardResult } from "./contracts.js";
+import type { GuardResult, TriageCoverage } from "./contracts.js";
 
 export type OwnerOwnedArea = "clips" | "design" | "content";
 
@@ -25,6 +25,7 @@ export interface PullRequestGovernanceInput {
   clearBug: boolean;
   productUxImplications: boolean;
   checksPassed: boolean;
+  checksCoverage?: TriageCoverage;
   reviewFeedbackHandled: boolean;
   blockingReviewStatesClean: boolean;
   safetyFindingsClean: boolean;
@@ -99,6 +100,7 @@ export function decidePullRequestGovernance(
   const verifiedOwnerException =
     input.internalBuilderMember && !ultraScary ? ownerException : null;
   const internalEvidenceException = input.internalBuilderMember;
+  const checksCoverage = input.checksCoverage ?? "complete";
   const gates: GuardResult[] = [
     {
       code: "identity",
@@ -132,12 +134,17 @@ export function decidePullRequestGovernance(
     },
     {
       code: "security",
-      passed: internalEvidenceException || input.checksPassed,
-      reason: input.checksPassed
-        ? "All observed CI checks passed."
-        : internalEvidenceException
-          ? "CI is failing, cancelled, pending, or unavailable; the verified internal-author exception does not treat that state as clean."
-          : "CI is failing, cancelled, pending, or unavailable.",
+      passed:
+        checksCoverage === "complete" &&
+        (internalEvidenceException || input.checksPassed),
+      reason:
+        checksCoverage !== "complete"
+          ? `CI check evidence is ${checksCoverage}; complete check coverage is required before autonomous approval.`
+          : input.checksPassed
+            ? "All observed CI checks passed."
+            : internalEvidenceException
+              ? "CI is failing, cancelled, pending, or unavailable; the verified internal-author exception does not treat that state as clean."
+              : "CI is failing, cancelled, pending, or unavailable.",
     },
     {
       code: "unknown_change",

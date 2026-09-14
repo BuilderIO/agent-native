@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import {
@@ -217,7 +217,7 @@ export async function hasActiveFeatureFlagRollout(
     return true;
   }
 
-  const table = isPostgres() ? "public.settings" : "settings";
+  const table = "public.settings";
   const { rows } = await getDbExec().execute({
     sql: `SELECT key, value FROM ${table} WHERE key LIKE ?`,
     args: [`o:%:${settingKey(key)}`],
@@ -309,6 +309,19 @@ export async function evaluateFeatureFlag(
     // A feature flag must never become an availability dependency.
     return false;
   }
+}
+
+/** Evaluate a security-sensitive flag without converting store failures to off. */
+export async function evaluateFeatureFlagStrict(
+  key: string,
+  scope: FeatureFlagScope = {},
+): Promise<boolean> {
+  if (!getFeatureFlagDefinition(key)) return false;
+  return evaluateFeatureFlagRules(
+    key,
+    await getFeatureFlagRules(key, scope),
+    scope,
+  );
 }
 
 /** Ergonomic app-action guard. Accepts either a registered definition or its key. */

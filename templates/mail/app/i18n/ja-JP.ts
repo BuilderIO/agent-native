@@ -24,6 +24,9 @@ const messages = {
       extensions: "拡張機能",
       noteToSelf: "自分へのメモ",
     },
+    inbox: {
+      syncing: "受信トレイを同期中…",
+    },
     toolbar: {
       toggleMenu: "メニューを切り替え",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "サイドバーを固定",
       unpinSidebar: "サイドバーの固定を解除",
+      closeSidebar: "サイドバーを閉じる",
       settings: "設定",
     },
     search: {
@@ -44,12 +48,19 @@ const messages = {
       noMatches: "一致する結果はありません",
       localResults: "この受信トレイ内",
       searchingGmail: "Gmail を検索中...",
+      saveAsTab: "タブとして保存",
+      saveAsTabPrompt: "このタブに名前を付ける",
+      saveAsTabFailed:
+        "このタブを保存できませんでした。もう一度お試しください。",
+      filtersLimitReached: "保存できるフィルターは最大20件です。",
     },
     tabSettings: {
       views: "ビュー",
       categories: "カテゴリ",
       rename: "名前を変更",
       renameTab: "タブ名を変更",
+      savedFilters: "保存したフィルター",
+      combinedInbox: "統合受信トレイ",
       help: "チェックした項目はタブとして表示されます。ラベル付きメールは受信トレイから分離されます。",
     },
     accounts: {
@@ -79,6 +90,8 @@ const messages = {
       cancel: "キャンセル",
       code: "コード",
       deleteDraft: "下書きを削除",
+      deleteDrafts: "下書きを削除",
+      reopenDraft: "再度開く",
       discardDraft: "下書きを破棄",
       enterLinkUrl: "リンクの URL を入力してください。",
       forward: "Forward",
@@ -274,6 +287,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "画像のアップロードに失敗しました",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "メッセージを送信しました。",
+      failedToSaveDraft: "下書きを保存できませんでした。",
+      failedToDeleteDraft: "下書きを削除できませんでした。",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -286,6 +302,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "下書きを閉じました。",
+      draftsClosed: "{{count}} 件の下書きを閉じました。",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -307,6 +325,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "読み込めません: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google アカウントを接続",
@@ -381,6 +400,59 @@ const messages = {
         "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
+    },
+    aiFilter: {
+      title: "AI フィルター",
+      subtitle: "判断から学習する、いつでも戻せるラベルです。",
+      lunaBadge: "Luna（利用可能な場合）",
+      toggle: "AI フィルターを切り替え",
+      autoFilterTitle: "確信度の高いメールを自動でフィルター",
+      autoFilterDescription:
+        "明らかに一致するメールだけを受信トレイから移動し、残りはここで確認します。",
+      autoFilterToggle: "確信度の高いメールを自動でフィルター",
+      thresholdLabel: "自動フィルターの確信度しきい値",
+      labelName: "Gmail ラベル",
+      labelHelp:
+        "agent-native-filtered は Gmail や他のクライアントでも表示されます。Gmail の迷惑メールではありません。",
+      reviewLabel: "フィルター済みを確認",
+      instructionsTitle: "指示",
+      instructionCount: "{{count}} 件の指示",
+      instructionPlaceholder:
+        "例：「question for you, Steve」のような件名は不要",
+      addInstruction: "追加",
+      noInstructions: "指示はまだありません。",
+      instructionExample: "「政治キャンペーンのメールはすべて不要」を試す",
+      toggleInstruction: "指示を切り替え：{{instruction}}",
+      deleteInstruction: "指示を削除",
+      activityTitle: "最近のアクティビティ",
+      suggestionCount: "{{count}} 件を確認",
+      viewAll: "すべて表示",
+      noActivity: "AI フィルターのアクティビティはまだありません。",
+      unknownSender: "不明な送信者",
+      noSubject: "（件名なし）",
+      filterTitle: "AI でフィルター",
+      keepTitle: "受信トレイに残す",
+      filterDescription:
+        "{{count}} 件のスレッドをアーカイブし、agent-native-filtered ラベルを追加します。",
+      keepDescription:
+        "{{count}} 件のスレッドを受信トレイに戻し、フィルターに学習させます。",
+      labelNote:
+        "agent-native-filtered ラベルを追加してスレッドをアーカイブします。いつでも元に戻せます。",
+      learningNote:
+        "メールを受信トレイに残し、同じ間違いを繰り返さないようフィルターに学習させます。",
+      rememberLabel: "今後のメールのために記憶（任意）",
+      correctLabel: "何を学習させますか？（任意）",
+      rememberPlaceholder: "例：政治キャンペーンからのこのようなメールは不要",
+      correctPlaceholder:
+        "例：この送信者は顧客なので、今後のメールは受信トレイに残す",
+      commentHint: "メモは編集可能なルールまたは学習例になります。",
+      filterButton: "フィルター",
+      keepButton: "残す",
+      filteredToast: "{{count}} 件のスレッドをフィルターしました。",
+      keptToast: "{{count}} 件のスレッドを受信トレイに残しました。",
+      actionFailed: "AI フィルターを更新できませんでした。",
+      settingsFailed: "AI フィルターの設定を保存できませんでした。",
+      instructionFailed: "AI フィルターの指示を保存できませんでした。",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -560,6 +632,7 @@ const messages = {
     deleteSnippetDescription:
       "スニペット「{{name}}」を削除しますか？元に戻せません。",
     automations: "自動化",
+    aiFilter: "AI フィルター",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",

@@ -31,7 +31,7 @@ function FramePresetCategoryGroup({
     <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
       <button
         type="button"
-        className="flex h-9 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left"
+        className="flex min-h-[var(--design-section-height)] w-full min-w-0 cursor-pointer items-center gap-1.5 px-2 text-left"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
       >
@@ -45,12 +45,12 @@ function FramePresetCategoryGroup({
         </h3>
       </button>
       {open ? (
-        <div className="pb-1.5">
+        <div className="design-sidebar-control-stack pb-2">
           {presets.map((preset) => (
             <button
               key={preset.name}
               type="button"
-              className="flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 px-3 pl-8 text-left hover:bg-[var(--design-editor-control-hover-bg)]"
+              className="flex min-h-[var(--design-row-height)] w-full min-w-0 cursor-pointer items-center gap-2 px-2 ps-8 text-left hover:bg-[var(--design-editor-control-hover-bg)]"
               onClick={() => onPick(preset)}
             >
               <span className="min-w-0 flex-1 truncate !text-[11px] text-foreground">

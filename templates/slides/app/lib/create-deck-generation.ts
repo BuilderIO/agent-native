@@ -1,3 +1,4 @@
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   deleteClientAppState,
@@ -232,8 +233,16 @@ type SubmitAgent = (
     referenceImagePaths?: string[];
     images?: string[];
     attachments?: ReadonlyArray<unknown>;
+    model?: PromptComposerSubmitOptions["model"];
+    engine?: PromptComposerSubmitOptions["engine"];
+    effort?: PromptComposerSubmitOptions["effort"];
   },
 ) => void;
+
+type PromptModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
 
 export interface StartDeckGenerationOptions {
   session: unknown;
@@ -241,6 +250,7 @@ export interface StartDeckGenerationOptions {
   files: UploadedFile[];
   retryFiles?: UploadedFile[];
   attachments?: ReadonlyArray<unknown>;
+  modelSelection?: PromptModelSelection;
   referenceSelection?: NewDeckReferenceSelection;
   selectedDesignSystemId?: string | null;
   selectedReferenceDeckId?: string | null;
@@ -309,6 +319,7 @@ export async function startDeckGeneration({
   files,
   retryFiles = [],
   attachments,
+  modelSelection,
   referenceSelection = {},
   selectedDesignSystemId,
   selectedReferenceDeckId,
@@ -343,6 +354,12 @@ export async function startDeckGeneration({
       : selectedReferenceDeckId && selectedReferenceDeckId !== "none"
         ? selectedReferenceDeckId
         : null;
+  const referenceFilePaths = new Set(
+    referenceSelection.referenceFilePaths ?? [],
+  );
+  const filesForSourceImprovement = filesForGeneration.filter(
+    (file) => !referenceFilePaths.has(file.path),
+  );
   const selectedDesignSystem = designSystemId
     ? designSystems.find((designSystem) => designSystem.id === designSystemId)
     : undefined;
@@ -365,10 +382,10 @@ export async function startDeckGeneration({
   }
 
   let importedSourceDeck: ImportedSourceDeck | null = null;
-  if (isSourceImprovementRequest(prompt, filesForGeneration)) {
+  if (isSourceImprovementRequest(prompt, filesForSourceImprovement)) {
     try {
       importedSourceDeck = await importUploadedDeckIntoDeck(
-        filesForGeneration,
+        filesForSourceImprovement,
         deckId,
       );
     } catch (error) {
@@ -417,8 +434,14 @@ export async function startDeckGeneration({
         "",
         "Design system selection:",
         "- No design system was selected in the picker.",
-        "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-        "- If no workspace default exists, use the product's configured design-system action and report the missing configuration instead of inventing a generic Builder-like palette.",
+        ...(referenceDeckId
+          ? [
+              "- A reference deck is selected above. Follow its visual language as the source of truth. Do not call `get-workspace-defaults` or apply a workspace default design system.",
+            ]
+          : [
+              "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+              "- If no workspace default exists, use a light warm-neutral canvas, dark ink text, Inter or a close sans-serif, 64px by 80px minimum padding, strong title/body scale contrast, and one restrained blue or coral accent. Never default to a black canvas with white text or omit the padded fmd-slide wrapper.",
+            ]),
       ].join("\n");
   const referenceSource = referenceSelection.referenceSource;
   const referenceSourceContext = referenceSource
@@ -480,7 +503,7 @@ export async function startDeckGeneration({
     "The original brief and uploaded/reference handles are persisted on the deck as generationContext. On every continuation or follow-up, call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message.",
     "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
     "Do not report completion until the persisted generationContext targetSlideCount is reached, or, for source-preserving mode, get-deck compact=true reports sourceCoverage.complete=true for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
-    "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
+    "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
     "When no reference deck or hydrated design system is available, use a restrained, content-first visual language. Do not invent colorful cards, boxes, or decorative rectangles behind or over text; add a colored shape only when it has a clear semantic role and leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
     "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
     "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
@@ -531,6 +554,7 @@ export async function startDeckGeneration({
     openSidebar: true,
     ...getUploadedImageAgentOptions(filesForGeneration),
     attachments,
+    ...modelSelection,
   });
   return "started";
 }

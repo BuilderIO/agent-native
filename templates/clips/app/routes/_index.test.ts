@@ -1,7 +1,7 @@
 import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
-import { clientLoader, loader } from "./_index";
+import { clientLoader, loader } from "./_app.home";
 
 function expectLibraryRedirect(
   routeLoader: typeof loader | typeof clientLoader,
@@ -22,7 +22,7 @@ function expectLibraryRedirect(
   expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
 }
 
-describe("Clips root route", () => {
+describe("Clips private home route", () => {
   it("marks the SSR redirect as cacheable HTML", () => {
     expectLibraryRedirect(loader);
   });

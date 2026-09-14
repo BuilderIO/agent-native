@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => {
     listProviderApiCatalog: vi.fn(() => []),
     listWorkspaceConnectionGrants: vi.fn(),
     listWorkspaceConnectionProviders: vi.fn(),
-    listWorkspaceConnections: vi.fn(),
+    listWorkspaceConnectionsForUser: vi.fn(),
     summarizeWorkspaceConnectionProviderReadiness: vi.fn(() => ({
       status: "ready",
       connectionCount: 1,
@@ -55,7 +55,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("@agent-native/core/workspace-connections", () => ({
   getWorkspaceConnectionAppAccess: mocks.getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants: mocks.listWorkspaceConnectionGrants,
-  listWorkspaceConnections: mocks.listWorkspaceConnections,
+  listWorkspaceConnectionsForUser: mocks.listWorkspaceConnectionsForUser,
   summarizeWorkspaceConnectionProviderReadiness:
     mocks.summarizeWorkspaceConnectionProviderReadiness,
 }));
@@ -83,7 +83,7 @@ describe("list-workspace-connections", () => {
       { id: "gmail", label: "Gmail" },
       { id: "slack", label: "Slack" },
     ]);
-    mocks.listWorkspaceConnections.mockResolvedValue([
+    mocks.listWorkspaceConnectionsForUser.mockResolvedValue([
       { id: "google-1", provider: "gmail", allowedApps: [] },
       { id: "slack-1", provider: "slack", allowedApps: [] },
     ]);
@@ -117,6 +117,43 @@ describe("list-workspace-connections", () => {
     expect(result.grants.map((grant) => grant.id)).toEqual([
       "slack-1:all-apps",
       "slack-grant",
+    ]);
+  });
+
+  it("scopes provider catalogs and grants to the requested provider and visible connections", async () => {
+    mocks.listWorkspaceConnectionProviders.mockReturnValue([
+      { id: "slack", label: "Slack" },
+      { id: "github", label: "GitHub" },
+    ]);
+    mocks.listWorkspaceConnectionsForUser.mockResolvedValue([
+      { id: "slack-1", provider: "slack", allowedApps: [] },
+    ]);
+    mocks.listWorkspaceConnectionGrants.mockResolvedValue([
+      {
+        id: "visible-grant",
+        connectionId: "slack-1",
+        provider: "slack",
+        appId: "dispatch",
+      },
+      {
+        id: "hidden-grant",
+        connectionId: "hidden",
+        provider: "slack",
+        appId: "dispatch",
+      },
+    ]);
+
+    const result = await action.run({ provider: "slack" });
+
+    expect(mocks.listWorkspaceConnectionsForUser).toHaveBeenCalledWith({
+      provider: "slack",
+      appId: undefined,
+      includeDisabled: undefined,
+    });
+    expect(result.providers.map((provider) => provider.id)).toEqual(["slack"]);
+    expect(result.grants.map((grant) => grant.id)).toEqual([
+      "slack-1:all-apps",
+      "visible-grant",
     ]);
   });
 });

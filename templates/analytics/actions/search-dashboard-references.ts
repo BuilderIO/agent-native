@@ -10,7 +10,8 @@ import { searchDashboardReferences } from "../server/lib/dashboards-store";
 
 export default defineAction({
   description:
-    "Find a bounded set of accessible saved SQL or explorer dashboards whose id, name, description, or config matches the search text. Use this when the user wants to replicate or adapt an existing dashboard. These are references only: inspect the returned dashboard with the getter for its kind before copying it, and do not assume a first-party Analytics dashboard is the authoritative source for a new question.",
+    "Current certified dashboards are ranked ahead of ordinary references. " +
+    "Find a bounded set of accessible saved SQL or explorer dashboards whose id, name, description, or config matches the search text. Use this when the user wants to replicate or adapt an existing dashboard. A returned `certified: true` dashboard is approved for its current saved version. These are references only: inspect the returned dashboard with the getter for its kind before copying it, and do not assume a first-party Analytics dashboard is the authoritative source for a new question.",
   schema: z.object({
     search: z
       .string()

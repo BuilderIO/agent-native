@@ -419,3 +419,17 @@ Claude Code calls: run-query(sql: "SELECT count(*) FROM signups WHERE created_at
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## fetch-first discovery
+
+Agent-Native `GET /.well-known/mcp.json` पर HTTP compatibility catalog भी देता है।
+Agent इसे `fetch` या `curl` से, बिना running browser के भी प्राप्त कर सकता है।
+यह action endpoints, JSON schemas, read-only status और authentication की जरूरत
+बताता है। Tool को `POST /mcp/tool/:name` से बुलाया जा सकता है; authentication,
+authorization, validation और tenant scoping server पर ही रहते हैं।
+
+यह Agent-Native compatibility convention है, WebMCP या MCP Streamable HTTP का
+भाग नहीं। `/mcp` standard MCP मार्ग बना रहता है और compatible browsers के लिए
+`document.modelContext` के page-local tools भी बने रहते हैं। Clips `agentContextUrl`
+और complete transcript तथा JPEG frame URLs देता है, इसलिए content सीधे HTTP से
+मिल सकता है।

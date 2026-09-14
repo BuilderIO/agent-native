@@ -5,7 +5,6 @@ packages/core/docs/content/locales/ar-SA/actions-access-control.mdx|Needs approv
 packages/core/docs/content/locales/ar-SA/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ar-SA/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ar-SA/file-uploads.mdx|No provider
-packages/core/docs/content/locales/ar-SA/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ar-SA/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/ar-SA/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Another literal.
@@ -56,7 +55,6 @@ packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|route · selection
 packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/de-DE/file-uploads.mdx|No provider
-packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/de-DE/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/de-DE/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Another literal.
@@ -103,7 +101,6 @@ packages/core/docs/content/locales/es-ES/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/es-ES/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/es-ES/file-uploads.mdx|No provider
-packages/core/docs/content/locales/es-ES/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/es-ES/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/es-ES/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Another literal.
@@ -153,7 +150,6 @@ packages/core/docs/content/locales/fr-FR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/fr-FR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/fr-FR/file-uploads.mdx|No provider
-packages/core/docs/content/locales/fr-FR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/fr-FR/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/fr-FR/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Another literal.
@@ -219,7 +215,6 @@ packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|The surface spectrum
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|route · selection
 packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/hi-IN/file-uploads.mdx|No provider
-packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/hi-IN/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/hi-IN/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Another literal.
@@ -269,7 +264,6 @@ packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ja-JP/file-uploads.mdx|No provider
-packages/core/docs/content/locales/ja-JP/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ja-JP/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/ja-JP/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Another literal.
@@ -319,7 +313,6 @@ packages/core/docs/content/locales/ko-KR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/ko-KR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/ko-KR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ko-KR/file-uploads.mdx|No provider
-packages/core/docs/content/locales/ko-KR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ko-KR/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/ko-KR/onboarding.mdx|Hide setup
 packages/core/docs/content/locales/ko-KR/plan-plugin.mdx|OAuth in the browser
@@ -371,7 +364,6 @@ packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/pt-BR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/pt-BR/file-uploads.mdx|No provider
-packages/core/docs/content/locales/pt-BR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/pt-BR/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/pt-BR/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Another literal.
@@ -424,7 +416,6 @@ packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|SQL state
 packages/core/docs/content/locales/zh-CN/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/zh-CN/file-uploads.mdx|No provider
-packages/core/docs/content/locales/zh-CN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-CN/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/zh-CN/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Another literal.
@@ -477,7 +468,6 @@ packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/zh-TW/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/zh-TW/file-uploads.mdx|No provider
-packages/core/docs/content/locales/zh-TW/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-TW/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/zh-TW/plan-plugin.mdx|OAuth in the browser
 packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Another literal.

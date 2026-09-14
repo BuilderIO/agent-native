@@ -3,6 +3,8 @@ import {
   useContext,
   useMemo,
   type ComponentType,
+  type MouseEventHandler,
+  type ReactElement,
   type ReactNode,
 } from "react";
 
@@ -50,8 +52,26 @@ export interface ComposerBuilderConnectFlow {
   envManaged: boolean;
   connecting: boolean;
   statusResolved: boolean;
+  statusReadSettledCount?: number;
   error: string | null;
-  start: () => void;
+  agentNativeProvisioningEnabled?: boolean;
+  accountExists?: boolean;
+  start: (options?: { provisionAccount?: boolean }) => void;
+  /**
+   * Re-read status. Returns true when a read actually started, which is what
+   * lets a Connect click arriving before the first read resolves be held
+   * rather than dropped. A runtime that omits it keeps the old behavior.
+   */
+  retry?: () => boolean | void;
+}
+
+export interface ComposerBuilderConnectPopoverProps {
+  flow: ComposerBuilderConnectFlow;
+  children: ReactElement<{
+    onClick?: MouseEventHandler<HTMLElement>;
+  }>;
+  onConnect?: (provisionAccount: boolean) => void;
+  onTriggerClick?: MouseEventHandler<HTMLElement>;
 }
 
 export interface AgentChatContextItem {
@@ -80,6 +100,7 @@ export interface ComposerAgentChatOpenThreadRequest {
 export interface ComposerBuilderConnectFlowOptions {
   enabled?: boolean;
   popupUrl?: string;
+  provisionAccount?: boolean;
   trackingSource?: string;
   trackingFlow?: string;
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
@@ -147,6 +168,7 @@ export interface ComposerRuntimeAdapters {
     useConnectFlow?: (
       options: ComposerBuilderConnectFlowOptions,
     ) => ComposerBuilderConnectFlow;
+    BuilderConnectPopover?: ComponentType<ComposerBuilderConnectPopoverProps>;
     tryDelegateBuildRequest?: (text: string) => boolean;
     isTrustedFrameMessage?: (event: MessageEvent) => boolean;
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
@@ -221,8 +243,12 @@ const fallbackBuilderFlow = {
   envManaged: false,
   connecting: false,
   statusResolved: false,
+  statusReadSettledCount: 0,
   error: null,
+  agentNativeProvisioningEnabled: false,
+  accountExists: false,
   start: () => {},
+  retry: () => false,
 };
 
 const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &

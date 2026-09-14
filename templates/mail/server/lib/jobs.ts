@@ -27,6 +27,8 @@ import {
   getOAuth2Credentials,
   setAccountDisplayName,
 } from "./google-auth.js";
+import { syncInboxLabelDelta } from "./inbox-store-sync.js";
+import { findThreadIdsByMessageIds } from "./inbox-store.js";
 import {
   readLocalEmails as readEmails,
   withLocalEmailMutationLock,
@@ -90,11 +92,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     try {
       const { clientId, clientSecret } =
         await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(
-        clientId,
-        clientSecret,
-        "http://localhost:8080/_agent-native/google/callback",
-      );
+      const oauth = createOAuth2Client(clientId, clientSecret, "");
       const refreshed = await oauth.refreshToken(tokens.refresh_token);
       const updated = {
         ...tokens,
@@ -196,6 +194,9 @@ async function archiveThreadForSnooze(
       await gmailModifyThread(account.accessToken, threadId, undefined, [
         "INBOX",
       ]);
+      await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
+        remove: ["INBOX"],
+      });
       return;
     }
   }
@@ -253,7 +254,7 @@ export async function listPendingJobs(
   ownerEmail: string,
 ): Promise<ScheduledJobRecord[]> {
   // The scheduled_jobs table is created by the db-migrations plugin at
-  // startup. If migrations failed (e.g. fresh deploy where the DB driver
+  // startup. If migrations failed (e.g. fresh deploy where the database
   // couldn't initialize) the query throws — return an empty list instead
   // of bubbling a 500 to the inbox endpoint.
   try {
@@ -417,6 +418,22 @@ export async function resurfaceEmail(
         await gmailModifyMessage(account.accessToken, emailId, ["INBOX"], []);
       }
       await gmailModifyMessage(account.accessToken, emailId, ["UNREAD"], []);
+      // No threadId hint: resolve it from the store (no extra Gmail
+      // round-trip) so this message-scoped mutation still reaches the
+      // mirror instead of silently skipping it.
+      const mirrorThreadId =
+        threadId ??
+        (
+          await findThreadIdsByMessageIds(ownerEmail, account.email, [emailId])
+        ).get(emailId);
+      if (mirrorThreadId) {
+        await syncInboxLabelDelta(ownerEmail, account.email, [mirrorThreadId], {
+          add: ["INBOX", "UNREAD"],
+          ...(threadId
+            ? {}
+            : { scope: "message" as const, messageIds: [emailId] }),
+        });
+      }
       return;
     }
   }

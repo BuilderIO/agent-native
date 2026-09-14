@@ -4,6 +4,10 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { requestMeetingStartNotificationPermissionMock } = vi.hoisted(() => ({
+  requestMeetingStartNotificationPermissionMock: vi.fn(async () => "granted"),
+}));
+
 vi.mock("@agent-native/core/client/changelog", () => ({
   ChangelogSettingsCard: () => null,
 }));
@@ -65,10 +69,21 @@ vi.mock("@/components/ui/button", () => ({
   Button: ({
     asChild,
     children,
+    disabled,
+    onClick,
   }: {
     asChild?: boolean;
     children?: React.ReactNode;
-  }) => (asChild ? children : <button>{children}</button>),
+    disabled?: boolean;
+    onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  }) =>
+    asChild ? (
+      children
+    ) : (
+      <button disabled={disabled} onClick={onClick}>
+        {children}
+      </button>
+    ),
 }));
 
 vi.mock("@/components/ui/card", () => {
@@ -164,6 +179,12 @@ vi.mock("@/hooks/use-settings", () => ({
   }),
 }));
 
+vi.mock("@/hooks/use-meeting-start-notifications", () => ({
+  getMeetingStartNotificationPermission: () => "default",
+  requestMeetingStartNotificationPermission:
+    requestMeetingStartNotificationPermissionMock,
+}));
+
 vi.mock("@/hooks/use-zoom-auth", () => ({
   useConnectZoom: () => ({ isPending: false, mutate: vi.fn() }),
   useDisconnectZoom: () => ({ isPending: false, mutate: vi.fn() }),
@@ -229,5 +250,27 @@ describe("Calendar Settings", () => {
     expect(container.textContent).toContain("settings.weekStartLabel");
     expect(container.textContent).toContain("settings.weekStartSunday");
     expect(container.textContent).toContain("settings.weekStartMonday");
+  });
+
+  it("requests system notification permission from the settings row", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    const enableButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "settings.enableDesktopNotifications",
+    );
+    expect(enableButton).not.toBeUndefined();
+
+    await act(async () => {
+      enableButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      requestMeetingStartNotificationPermissionMock,
+    ).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(
+      "settings.desktopNotificationsEnabled",
+    );
   });
 });

@@ -24,6 +24,9 @@ const messages = {
       extensions: "Rallonges",
       noteToSelf: "Note à moi-même",
     },
+    inbox: {
+      syncing: "Synchronisation de la boîte...",
+    },
     toolbar: {
       toggleMenu: "Basculer le menu",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Épingler la barre latérale",
       unpinSidebar: "Désépingler la barre latérale",
+      closeSidebar: "Fermer la barre latérale",
       settings: "Paramètres",
     },
     search: {
@@ -44,12 +48,18 @@ const messages = {
       noMatches: "Aucun résultat",
       localResults: "Dans cette boîte de réception",
       searchingGmail: "Recherche dans Gmail...",
+      saveAsTab: "Enregistrer comme onglet",
+      saveAsTabPrompt: "Nommer cet onglet",
+      saveAsTabFailed: "Impossible d’enregistrer cet onglet. Réessayez.",
+      filtersLimitReached: "Vous pouvez enregistrer jusqu’à 20 filtres.",
     },
     tabSettings: {
       views: "Vues",
       categories: "Catégories",
       rename: "Renommer",
       renameTab: "Renommer l’onglet",
+      savedFilters: "Filtres enregistrés",
+      combinedInbox: "Boîte de réception combinée",
       help: "Les éléments cochés s’affichent comme onglets. Les emails libellés sont séparés de la boîte de réception.",
     },
     accounts: {
@@ -79,6 +89,8 @@ const messages = {
       cancel: "Annuler",
       code: "Code",
       deleteDraft: "Supprimer le brouillon",
+      deleteDrafts: "Supprimer les brouillons",
+      reopenDraft: "Rouvrir",
       discardDraft: "Abandonner le brouillon",
       enterLinkUrl: "Saisissez l’URL du lien.",
       forward: "Forward",
@@ -274,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Échec du téléversement de l’image",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Message envoyé.",
+      failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
+      failedToDeleteDraft: "Échec de la suppression du brouillon.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -286,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Brouillon fermé.",
+      draftsClosed: "{{count}} brouillons fermés.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -307,6 +324,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "Impossible de charger : {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Connecter votre compte Google",
@@ -383,6 +401,63 @@ const messages = {
         "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
+    },
+    aiFilter: {
+      title: "Filtre IA",
+      subtitle: "Un libellé réversible qui apprend de vos décisions.",
+      lunaBadge: "Luna si disponible",
+      toggle: "Activer le filtre IA",
+      autoFilterTitle: "Filtrer automatiquement avec une confiance élevée",
+      autoFilterDescription:
+        "Déplacez seulement les correspondances évidentes hors de la boîte de réception ; examinez le reste ici.",
+      autoFilterToggle: "Filtrer automatiquement les messages très probables",
+      thresholdLabel: "Seuil de confiance du filtrage automatique",
+      labelName: "Libellé Gmail",
+      labelHelp:
+        "agent-native-filtered reste visible dans Gmail et les autres clients. Ce n’est pas le Spam de Gmail.",
+      reviewLabel: "Examiner les messages filtrés",
+      instructionsTitle: "Instructions",
+      instructionCount: "{{count}} instruction(s)",
+      instructionPlaceholder:
+        "ex. Les objets comme « question pour vous, Steve » ne sont pas souhaités",
+      addInstruction: "Ajouter",
+      noInstructions: "Aucune instruction pour le moment.",
+      instructionExample:
+        "Essayez « les messages de campagnes politiques ne sont pas souhaités ».",
+      toggleInstruction: "Activer l’instruction : {{instruction}}",
+      deleteInstruction: "Supprimer l’instruction",
+      activityTitle: "Activité récente",
+      suggestionCount: "{{count}} à examiner",
+      viewAll: "Tout afficher",
+      noActivity: "Aucune activité du filtre IA pour le moment.",
+      unknownSender: "Expéditeur inconnu",
+      noSubject: "(sans objet)",
+      filterTitle: "Filtrer avec l’IA",
+      keepTitle: "Garder dans la boîte de réception",
+      filterDescription:
+        "Cela archivera {{count}} conversation(s) et ajoutera le libellé agent-native-filtered.",
+      keepDescription:
+        "Cela restaurera {{count}} conversation(s) dans la boîte de réception et apprendra au filtre.",
+      labelNote:
+        "Ajoute le libellé agent-native-filtered et archive la conversation. Vous pouvez annuler à tout moment.",
+      learningNote:
+        "Garde le message dans la boîte de réception et apprend au filtre à ne pas répéter l’erreur.",
+      rememberLabel: "Mémoriser pour les futurs messages (facultatif)",
+      correctLabel: "Que doit-il apprendre ? (facultatif)",
+      rememberPlaceholder:
+        "ex. Les messages similaires de campagnes politiques ne sont pas souhaités",
+      correctPlaceholder:
+        "ex. Cet expéditeur est un client ; garder ses futurs messages dans la boîte de réception",
+      commentHint:
+        "Votre note devient une règle modifiable ou un exemple d’apprentissage.",
+      filterButton: "Filtrer",
+      keepButton: "Garder",
+      filteredToast: "{{count}} conversation(s) filtrée(s).",
+      keptToast:
+        "{{count}} conversation(s) gardée(s) dans la boîte de réception.",
+      actionFailed: "Impossible de mettre à jour le filtre IA.",
+      settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
+      instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -569,6 +644,7 @@ const messages = {
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
+    aiFilter: "Filtre IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",

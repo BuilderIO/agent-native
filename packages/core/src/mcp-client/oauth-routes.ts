@@ -27,11 +27,13 @@ import {
 } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
+import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer,
   startMcpOAuthAuthorization,
+  type McpOAuthCredentialBundle,
   type McpOAuthDiscoveryState,
   validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
@@ -47,10 +49,39 @@ import {
   normalizeServerName,
   replaceOAuthRemoteServer,
   validateRemoteUrl,
+  type StoredRemoteMcpServer,
   type RemoteMcpScope,
 } from "./remote-store.js";
 
-const FLOW_TTL_SECONDS = 10 * 60;
+export function resolveTrustedMcpOAuthAuthorizationScope(
+  serverUrl: URL,
+): string | undefined {
+  return serverUrl.origin === "https://mcp.builder.io" &&
+    serverUrl.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !serverUrl.search &&
+    !serverUrl.hash
+    ? "mcp:publish:read"
+    : undefined;
+}
+
+function isBuilderPublishMcpServer(serverUrl: URL): boolean {
+  return resolveTrustedMcpOAuthAuthorizationScope(serverUrl) !== undefined;
+}
+
+/**
+ * Which side of the scope contract the request broke. Builder Publish shares one
+ * workspace grant with Content database sources, so it is org-only; managed
+ * OAuth clients authorize one human at a time, so they are personal-only.
+ */
+export type McpOAuthScopeViolation =
+  | "organization-scope-required"
+  | "personal-scope-required";
+
+export type McpOAuthScopeResolution =
+  | { ok: true; scope: RemoteMcpScope }
+  | { ok: false; violation: McpOAuthScopeViolation };
+
+const FLOW_TTL_SECONDS = MCP_OAUTH_FLOW_TTL_SECONDS;
 const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
@@ -97,13 +128,41 @@ export interface McpOAuthFlow {
   codeVerifier: string;
   clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
+  authorizationScope?: string;
   returnUrl?: string;
   replaceServerId?: string;
   expiresAt: number;
 }
 
 export interface McpOAuthRoutesOptions {
-  reconfigure: () => Promise<void>;
+  reconfigure: (target: {
+    scope: RemoteMcpScope;
+    scopeId: string;
+    server: StoredRemoteMcpServer;
+  }) => Promise<boolean>;
+}
+
+export function resolveMcpOAuthReturnPath(
+  connected: boolean,
+  flow: Pick<McpOAuthFlow, "name" | "returnUrl">,
+): string {
+  if (!connected) return "/settings/integrations";
+  return (
+    flow.returnUrl ??
+    `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`
+  );
+}
+
+export function bindMcpOAuthAuthorizationScope(
+  flow: Pick<McpOAuthFlow, "authorizationScope">,
+  credentials: McpOAuthCredentialBundle,
+): McpOAuthCredentialBundle {
+  return flow.authorizationScope && !credentials.tokens.scope
+    ? {
+        ...credentials,
+        tokens: { ...credentials.tokens, scope: flow.authorizationScope },
+      }
+    : credentials;
 }
 
 export function redirectWithStagedCookies(
@@ -213,16 +272,15 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
+  const resolvedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
     allowManagedOrgReconnect:
       reconnectScope === "org" && Boolean(reconnectServer),
   });
-  if (!requestedScope) {
+  if (!resolvedScope.ok) {
     setResponseStatus(event, 400);
-    return {
-      error: "Managed MCP OAuth connections must use personal scope.",
-    };
+    return { error: describeMcpOAuthScopeViolation(resolvedScope.violation) };
   }
+  const requestedScope = resolvedScope.scope;
   const requestedOrgId = text(query.orgId);
   const org =
     requestedScope === "org"
@@ -292,10 +350,14 @@ async function handleMcpOAuthStart(
       if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
         return null;
       }
+      const authorizationScope = resolveTrustedMcpOAuthAuthorizationScope(
+        urlCheck.url!,
+      );
       return startMcpOAuthAuthorization({
         serverUrl: urlCheck.url!.toString(),
         redirectUrl: redirectUri,
         state,
+        ...(authorizationScope ? { scope: authorizationScope } : {}),
         ...(clientInformation ? { clientInformation } : {}),
       });
     });
@@ -320,6 +382,13 @@ async function handleMcpOAuthStart(
       clientInformation: started.clientInformation,
       ...(started.discoveryState
         ? { discoveryState: started.discoveryState }
+        : {}),
+      ...(resolveTrustedMcpOAuthAuthorizationScope(urlCheck.url!)
+        ? {
+            authorizationScope: resolveTrustedMcpOAuthAuthorizationScope(
+              urlCheck.url!,
+            ),
+          }
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
       ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
@@ -367,15 +436,28 @@ export function resolveMcpOAuthScope(
   serverUrl: URL,
   requestedScope: unknown,
   options?: { allowManagedOrgReconnect?: boolean },
-): RemoteMcpScope | null {
+): McpOAuthScopeResolution {
+  if (isBuilderPublishMcpServer(serverUrl)) {
+    return requestedScope === "org"
+      ? { ok: true, scope: "org" }
+      : { ok: false, violation: "organization-scope-required" };
+  }
   if (
     isManagedMcpOAuthServer(serverUrl) &&
     requestedScope === "org" &&
     !options?.allowManagedOrgReconnect
   ) {
-    return null;
+    return { ok: false, violation: "personal-scope-required" };
   }
-  return requestedScope === "org" ? "org" : "user";
+  return { ok: true, scope: requestedScope === "org" ? "org" : "user" };
+}
+
+export function describeMcpOAuthScopeViolation(
+  violation: McpOAuthScopeViolation,
+): string {
+  return violation === "organization-scope-required"
+    ? "This connection must be set up for your workspace instead of a personal account. Ask a workspace owner or admin to set it up for the workspace."
+    : "This connection must be set up as a personal connection instead of a workspace connection. Connect your own account to continue.";
 }
 
 export function stripMcpOAuthAppBasePath(
@@ -473,27 +555,33 @@ async function handleMcpOAuthCallback(
           iss,
         }),
     );
+    const credentials = bindMcpOAuthAuthorizationScope(
+      flow,
+      finished.credentials,
+    );
     const result = flow.replaceServerId
       ? await replaceOAuthRemoteServer(
           flow.scope,
           flow.scopeId,
           flow.replaceServerId,
-          finished.credentials,
+          credentials,
         )
       : await addOAuthRemoteServer(flow.scope, flow.scopeId, {
           name: flow.name,
           url: flow.url,
           description: flow.description,
-          credentials: finished.credentials,
+          credentials,
         });
     if (!result.ok) {
       setResponseStatus(event, 400);
       return { error: result.error };
     }
-    await options.reconfigure();
-    const returnPath =
-      flow.returnUrl ??
-      `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
+    const connected = await options.reconfigure({
+      scope: flow.scope,
+      scopeId: flow.scopeId,
+      server: result.server,
+    });
+    const returnPath = resolveMcpOAuthReturnPath(connected, flow);
     return redirectWithStagedCookies(
       event,
       getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),

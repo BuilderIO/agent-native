@@ -143,7 +143,11 @@ describe("listCalendarEvents booking merge", () => {
   });
 
   it("hides a linked local booking when Google was read successfully but no longer returns the event", async () => {
-    getDbMock.mockReturnValue(createDbMock({ bookings: [bookingRow()] }));
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow()],
+      }),
+    );
 
     const result = await listCalendarEvents({
       from: "2026-06-17",
@@ -322,6 +326,25 @@ describe("list-events inventory contract", () => {
     expect(listGoogleEventsMock).not.toHaveBeenCalled();
   });
 
+  it("forwards opaque calendar source keys without trusting client metadata", async () => {
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+
+    await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+      calendarSourceKeys: ["google-calendar:opaque-source"],
+    });
+
+    expect(listGoogleEventsMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        calendarSourceKeys: ["google-calendar:opaque-source"],
+      }),
+    );
+  });
+
   it("rejects an explicitly empty account selection", async () => {
     await expect(
       (listEventsAction as any).run(
@@ -424,6 +447,57 @@ describe("list-events inventory contract", () => {
       expect.objectContaining({
         accountEmail: "failed@example.com",
         status: "error",
+      }),
+    );
+  });
+
+  it("does not let a shared-calendar provider id hide a local booking", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ calendarAccountId: "working@example.com" })],
+      }),
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-google-calendar:opaque-google-event-1",
+          googleEventId: "google-event-1",
+          title: "Unrelated shared event",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          accountEmail: "working@example.com",
+          calendarSourceKey: "google-calendar:opaque",
+          calendarPrimary: false,
+          calendarReadOnly: true,
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        calendarSourceKeys: ["google-calendar:opaque"],
+      },
+      { caller: "mcp" },
+    );
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((item: any) => item.source)).toEqual(
+      expect.arrayContaining(["google", "booking"]),
+    );
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "google-google-calendar:opaque-google-event-1",
+        calendarSourceKey: "google-calendar:opaque",
+        calendarReadOnly: true,
       }),
     );
   });
@@ -556,6 +630,8 @@ describe("list-events inventory contract", () => {
           googleEventId: "overlay-1",
           accountEmail: "healthy@example.com",
           overlayEmail: "person@example.com",
+          calendarPrimary: false,
+          calendarReadOnly: true,
           createdAt: "2026-06-12T10:13:39.746Z",
           updatedAt: "2026-06-12T10:13:39.746Z",
         },
@@ -594,8 +670,126 @@ describe("list-events inventory contract", () => {
     expect(result.sourceCoverage).toEqual([
       { source: "overlay", id: "person@example.com", status: "ok" },
     ]);
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "overlay-person@example.com-overlay-1",
+        source: "overlay",
+        overlayEmail: "person@example.com",
+        calendarReadOnly: true,
+      }),
+    );
     expect(result.coverageComplete).toBe(false);
     expect(result.complete).toBe(false);
+  });
+
+  it("does not fail the whole request when only an overlay account errors and the primary read is empty", async () => {
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "person@example.com", error: "Refresh token revoked" }],
+      accountErrors: [
+        { email: "steve@example.com", error: "Refresh token revoked" },
+      ],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        overlayEmails: ["person@example.com"],
+      },
+      {},
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it("still fails the whole request when the primary account read itself errors with no events", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "steve@example.com", error: "Refresh token revoked" }],
+    });
+
+    await expect(
+      (listEventsAction as any).run(
+        {
+          from: "2026-06-17",
+          to: "2026-06-18",
+        },
+        {},
+      ),
+    ).rejects.toThrow("Refresh token revoked");
+  });
+
+  it("still fails when the primary read errors even if a supplementary overlay event exists", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "steve@example.com", error: "Refresh token revoked" }],
+    });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "overlay-person@example.com-overlay-1",
+          title: "Some overlay meeting",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          googleEventId: "overlay-1",
+          accountEmail: "steve@example.com",
+          overlayEmail: "person@example.com",
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+      accountErrors: [],
+    });
+
+    await expect(
+      (listEventsAction as any).run(
+        {
+          from: "2026-06-17",
+          to: "2026-06-18",
+          overlayEmails: ["person@example.com"],
+        },
+        {},
+      ),
+    ).rejects.toThrow("Refresh token revoked");
+  });
+
+  it("trusts a successful primary read over a local booking fallback even when an overlay account errors", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ googleEventId: "event-1" })],
+      }),
+    );
+    // Primary Google read succeeds but genuinely has no matching event
+    // (e.g. it was cancelled upstream) - a fully successful, authoritative
+    // read with zero events, not a failure.
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "person@example.com", error: "Refresh token revoked" }],
+      accountErrors: [
+        { email: "steve@example.com", error: "Refresh token revoked" },
+      ],
+    });
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+      overlayEmails: ["person@example.com"],
+    });
+
+    // An unrelated overlay-account error must not make the caller's own
+    // (successful) Google read look non-authoritative and resurrect a
+    // local booking fallback for an event Google no longer has.
+    expect(
+      result.events.filter((event) => event.googleEventId === "event-1"),
+    ).toHaveLength(0);
   });
 
   it("binds inventory cursors to the owner and exact query", async () => {

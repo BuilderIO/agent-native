@@ -15,7 +15,7 @@ import {
 /*
  * COMMENTING + REVIEW MODE — deep, adversarial E2E.
  *
- * The reviewer identity used by the authed project is e2e-tester@plan.test
+ * The reviewer identity used by the authed project is e2e+autoz@plan.test
  * (e2e/global-setup.ts). Comments are written through the same action surface
  * the UI uses (`update-visual-plan` with a `comments: [...]` payload — see
  * app/pages/PlansPage.tsx submitInlineComment / replyToCommentThread /
@@ -33,7 +33,7 @@ const REVIEWER_EMAIL =
       // global-setup writes the actual per-run authed identity here.
       return readFileSync(planE2eAuthEmailPath(), "utf8").trim();
     } catch {
-      return "e2e-tester@plan.test";
+      return "e2e+autoz@plan.test";
     }
   })();
 const EXPECTED_COMMENT_AUTHOR_EMAIL =

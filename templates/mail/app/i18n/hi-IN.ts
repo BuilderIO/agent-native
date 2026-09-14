@@ -24,6 +24,9 @@ const messages = {
       extensions: "एक्सटेंशन",
       noteToSelf: "स्वयं के लिए नोट",
     },
+    inbox: {
+      syncing: "इनबॉक्स सिंक हो रहा है…",
+    },
     toolbar: {
       toggleMenu: "मेनू टॉगल करें",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "साइडबार पिन करें",
       unpinSidebar: "साइडबार अनपिन करें",
+      closeSidebar: "साइडबार बंद करें",
       settings: "सेटिंग्स",
     },
     search: {
@@ -44,12 +48,18 @@ const messages = {
       noMatches: "कोई परिणाम नहीं",
       localResults: "इस इनबॉक्स में",
       searchingGmail: "Gmail खोजा जा रहा है...",
+      saveAsTab: "टैब के रूप में सहेजें",
+      saveAsTabPrompt: "इस टैब का नाम दें",
+      saveAsTabFailed: "यह टैब सहेजा नहीं जा सका। फिर कोशिश करें।",
+      filtersLimitReached: "आप अधिकतम 20 फ़िल्टर सहेज सकते हैं।",
     },
     tabSettings: {
       views: "दृश्य",
       categories: "श्रेणियां",
       rename: "नाम बदलें",
       renameTab: "टैब का नाम बदलें",
+      savedFilters: "सहेजे गए फ़िल्टर",
+      combinedInbox: "संयुक्त इनबॉक्स",
       help: "चुने गए आइटम टैब के रूप में दिखते हैं। लेबल वाले ईमेल इनबॉक्स से अलग हो जाते हैं।",
     },
     accounts: {
@@ -79,6 +89,8 @@ const messages = {
       cancel: "रद्द करें",
       code: "कोड",
       deleteDraft: "ड्राफ़्ट हटाएँ",
+      deleteDrafts: "ड्राफ़्ट हटाएँ",
+      reopenDraft: "फिर से खोलें",
       discardDraft: "ड्राफ़्ट छोड़ें",
       enterLinkUrl: "लिंक का URL दर्ज करें।",
       forward: "Forward",
@@ -274,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "छवि अपलोड करने में विफल",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "संदेश भेज दिया गया।",
+      failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",
+      failedToDeleteDraft: "ड्राफ़्ट हटाया नहीं जा सका।",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -286,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "ड्राफ़्ट बंद किया गया।",
+      draftsClosed: "{{count}} ड्राफ़्ट बंद किए गए।",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -307,6 +324,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "लोड नहीं हो सके: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "अपना Google खाता कनेक्ट करें",
@@ -380,6 +398,58 @@ const messages = {
         "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
+    },
+    aiFilter: {
+      title: "AI फ़िल्टर",
+      subtitle: "एक ऐसा लेबल जिसे पलटा जा सकता है और जो आपके फ़ैसलों से सीखता है।",
+      lunaBadge: "उपलब्ध होने पर Luna",
+      toggle: "AI फ़िल्टर चालू या बंद करें",
+      autoFilterTitle: "उच्च भरोसे वाले संदेश अपने आप फ़िल्टर करें",
+      autoFilterDescription:
+        "सिर्फ़ स्पष्ट मेल को इनबॉक्स से बाहर भेजें; बाकी की समीक्षा यहाँ करें।",
+      autoFilterToggle: "उच्च भरोसे वाले मेल अपने आप फ़िल्टर करें",
+      thresholdLabel: "अपने आप फ़िल्टर करने की भरोसा सीमा",
+      labelName: "Gmail लेबल",
+      labelHelp:
+        "agent-native-filtered Gmail और दूसरे क्लाइंट में दिखाई देता रहेगा। यह Gmail Spam नहीं है।",
+      reviewLabel: "फ़िल्टर किए मेल देखें",
+      instructionsTitle: "निर्देश",
+      instructionCount: "{{count}} निर्देश",
+      instructionPlaceholder:
+        "उदा. “question for you, Steve” जैसे विषय वाले मेल अनचाहे हैं",
+      addInstruction: "जोड़ें",
+      noInstructions: "अभी कोई निर्देश नहीं हैं।",
+      instructionExample: "आज़माएँ: “सभी राजनीतिक अभियान के मेल अनचाहे हैं।”",
+      toggleInstruction: "निर्देश चालू या बंद करें: {{instruction}}",
+      deleteInstruction: "निर्देश हटाएँ",
+      activityTitle: "हाल की गतिविधि",
+      suggestionCount: "{{count}} समीक्षा के लिए",
+      viewAll: "सब देखें",
+      noActivity: "अभी AI फ़िल्टर की कोई गतिविधि नहीं है।",
+      unknownSender: "अज्ञात प्रेषक",
+      noSubject: "(कोई विषय नहीं)",
+      filterTitle: "AI से फ़िल्टर करें",
+      keepTitle: "इनबॉक्स में रखें",
+      filterDescription:
+        "यह {{count}} बातचीत को संग्रहित करेगा और agent-native-filtered लेबल जोड़ेगा।",
+      keepDescription:
+        "यह {{count}} बातचीत को इनबॉक्स में वापस लाएगा और फ़िल्टर को सिखाएगा।",
+      labelNote:
+        "agent-native-filtered लेबल जोड़कर बातचीत को संग्रहित करता है। आप इसे कभी भी वापस ले सकते हैं।",
+      learningNote:
+        "संदेश को इनबॉक्स में रखकर फ़िल्टर को यह गलती दोहराने से रोकना सिखाता है।",
+      rememberLabel: "आने वाले मेल के लिए याद रखें (वैकल्पिक)",
+      correctLabel: "इसे क्या सीखना चाहिए? (वैकल्पिक)",
+      rememberPlaceholder: "उदा. राजनीतिक अभियानों के ऐसे मेल अनचाहे हैं",
+      correctPlaceholder: "उदा. यह प्रेषक ग्राहक है; आगे के मेल इनबॉक्स में रखें",
+      commentHint: "आपकी टिप्पणी एक संपादन योग्य नियम या सीखने का उदाहरण बनती है।",
+      filterButton: "फ़िल्टर करें",
+      keepButton: "रखें",
+      filteredToast: "{{count}} बातचीत फ़िल्टर की गईं।",
+      keptToast: "{{count}} बातचीत इनबॉक्स में रखी गईं।",
+      actionFailed: "AI फ़िल्टर अपडेट नहीं किया जा सका।",
+      settingsFailed: "AI फ़िल्टर सेटिंग सहेजी नहीं जा सकीं।",
+      instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -559,6 +629,7 @@ const messages = {
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
+    aiFilter: "AI फ़िल्टर",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",

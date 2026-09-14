@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,6 +10,7 @@ import {
 } from "../server/lib/generation.js";
 import { extractDominantColors } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import type { StyleBrief } from "../shared/api.js";
 import { serializeLibrary } from "./_helpers.js";
@@ -27,7 +27,7 @@ export default defineAction({
     paletteSize: z.coerce.number().int().min(3).max(12).default(6),
   }),
   run: async ({ libraryId, collectionId, paletteSize }) => {
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Saving a style analysis");
     const db = getDb();
     const [library] = await db
       .select()

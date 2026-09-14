@@ -15,6 +15,43 @@ const mockFrom = vi.hoisted(() =>
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({ from: mockFrom })),
 }));
+const makeLazyDbProxy = vi.hoisted(
+  () =>
+    function makeLazyDbProxy(
+      realDb: any,
+      chain: Array<{ prop: string | symbol; args?: any[] }> = [],
+    ): any {
+      return new Proxy(function () {} as any, {
+        get(_target, prop) {
+          if (prop === "then" || prop === "catch" || prop === "finally") {
+            const promise = Promise.resolve().then(() => {
+              let result: any = realDb;
+              for (const step of chain) {
+                const value = result[step.prop];
+                result =
+                  typeof value === "function"
+                    ? value.apply(result, step.args)
+                    : value;
+              }
+              return result;
+            });
+            return (promise as any)[prop].bind(promise);
+          }
+          if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+            throw new Error("unresolved query chain");
+          }
+          return makeLazyDbProxy(realDb, [...chain, { prop }]);
+        },
+        apply(_target, _thisArg, args) {
+          const last = chain[chain.length - 1];
+          return makeLazyDbProxy(realDb, [
+            ...chain.slice(0, -1),
+            { prop: last!.prop, args },
+          ]);
+        },
+      });
+    },
+);
 const mockNot = vi.hoisted(() =>
   vi.fn((value: unknown) => ({ kind: "not", value })),
 );
@@ -47,11 +84,10 @@ vi.mock("drizzle-orm", () => ({
   isNotNull: (column: unknown) => ({ kind: "is-not-null", column }),
   isNull: (column: unknown) => ({ kind: "is-null", column }),
   not: (...args: unknown[]) => mockNot(...args),
-  notInArray: (column: unknown, values: unknown) => ({
-    kind: "not-in-array",
-    column,
-    values,
-  }),
+  notInArray: (column: unknown, values: unknown) => {
+    typeof (values as { getSQL?: unknown }).getSQL;
+    return { kind: "not-in-array", column, values };
+  },
   sql: (strings: TemplateStringsArray) => ({
     kind: "sql",
     text: strings.join("?"),
@@ -59,7 +95,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => mockDb,
+  getDb: () => makeLazyDbProxy(mockDb),
   schema: {
     meetings: {
       recordingId: "meetings.recordingId",
@@ -68,6 +104,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
       organizationId: "recordings.organizationId",
+      folderId: "recordings.folderId",
       archivedAt: "recordings.archivedAt",
       trashedAt: "recordings.trashedAt",
     },
@@ -223,8 +260,8 @@ describe("list-recordings shared view", () => {
     // Regression (two directions):
     // 1. An earlier version awaited the meeting-recording query into a plain
     //    `string[]` and bound the whole array through notInArray(). That
-    //    grows with the entire meetings table and can hit SQLite variable /
-    //    Postgres parameter limits for large libraries. The fix hands
+    //    grows with the entire meetings table and can hit PostgreSQL parameter
+    //    limits for large libraries. The fix hands
     //    notInArray() the query-builder chain itself (the exact object
     //    mockMeetingWhere() returned), so real drizzle-orm compiles it to
     //    `NOT IN (SELECT ...)` — database-side, no id list in memory.
@@ -245,6 +282,54 @@ describe("list-recordings shared view", () => {
             kind: "not-in-array",
             column: "recordings.id",
             values: meetingQueryResult,
+          },
+        ]),
+      }),
+    );
+  });
+});
+
+describe("list-recordings folder scope", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("excludes foldered recordings from the library root", async () => {
+    const parsed = action.schema.parse({
+      view: "library",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "is-null",
+            column: "recordings.folderId",
+          },
+        ]),
+      }),
+    );
+  });
+
+  it("keeps foldered recordings scoped to the requested folder", async () => {
+    const parsed = action.schema.parse({
+      view: "library",
+      folderId: "folder_1",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "eq",
+            column: "recordings.folderId",
+            value: "folder_1",
           },
         ]),
       }),

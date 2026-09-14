@@ -315,6 +315,34 @@ export const dataSources: DataSource[] = [
       },
     ],
   },
+  {
+    id: "builder",
+    name: "Builder.io Content",
+    description:
+      "Published Builder.io content for content performance analysis",
+    category: "analytics",
+    icon: IconFileText,
+    envKeys: ["BUILDER_PUBLIC_KEY"],
+    docsUrl: "https://www.builder.io/c/docs/content-api",
+    walkthroughSteps: [
+      {
+        title: "Get your Builder.io public API key",
+        description:
+          "Open Builder.io account settings and copy a public API key.",
+        url: "https://builder.io/account/space",
+        linkText: "Builder.io account settings",
+      },
+      {
+        title: "Enter your public API key",
+        description:
+          "Paste the public API key for the space containing your content.",
+        inputKey: "BUILDER_PUBLIC_KEY",
+        inputLabel: "Public API key",
+        inputPlaceholder: "your-builder-public-key",
+        inputType: "password",
+      },
+    ],
+  },
 
   // --- IconDatabase ---
   {

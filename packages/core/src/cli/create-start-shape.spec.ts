@@ -36,7 +36,12 @@ beforeEach(() => {
 
 afterEach(() => {
   process.chdir(originalCwd);
-  fs.rmSync(parentDir, { recursive: true, force: true });
+  fs.rmSync(parentDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 3,
+    retryDelay: 50,
+  });
   vi.clearAllMocks();
 });
 

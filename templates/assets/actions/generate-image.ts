@@ -8,7 +8,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   delimitUntrustedReference,
   getGenerationCreativeContext,
@@ -42,6 +42,12 @@ import {
 } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
+  assertCanDraft,
+  assertCanUseAssets,
+  draftProvenanceAccess,
+  draftScopeForLibrary,
+} from "../server/lib/library-access.js";
+import {
   normalizePresetReferences,
   PRESET_REFERENCE_ROLE_MAP,
   resolvePresetReferenceFills,
@@ -61,6 +67,7 @@ import {
   IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
   STYLE_STRENGTHS,
+  normalizeCallerAppId,
   supportedAspectRatiosForModel,
   type AspectRatio,
   type ImageCategory,
@@ -69,9 +76,10 @@ import {
   type StyleBrief,
 } from "../shared/api.js";
 import {
+  assetUrls,
   imageArtifactLinks,
   requireGenerationSessionInLibrary,
-  serializeAsset,
+  serializeAssetSummary,
 } from "./_helpers.js";
 import { readImageModelDefault } from "./_image-model-default.js";
 import { resolveTemplateAccess } from "./_template-access.js";
@@ -123,7 +131,7 @@ const imageGenerationAgentInputSchema = z.object({
 
 export default defineAction({
   description:
-    "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
+    "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns a compact asset summary with preview/download/embed URLs; use get-asset for full asset details and get-audit-run for prompt, references, and settings. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
   schema: z.object({
     libraryId: z
       .string()
@@ -257,7 +265,11 @@ export default defineAction({
       ...input,
       libraryId,
     };
-    await assertAccess("asset-library", args.libraryId, "editor");
+    const callerAppId = normalizeCallerAppId(args.callerAppId);
+    const draftAccess = await assertCanDraft(args.libraryId);
+    // Inputs answer to the same author rule as reads: another drafter's
+    // candidate must not reach the provider as a reference or a source.
+    const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     const [library] = await db
       .select()
@@ -266,7 +278,11 @@ export default defineAction({
       .limit(1);
     if (!library) throw new Error("Asset library not found.");
     const session = args.sessionId
-      ? await requireGenerationSessionInLibrary(args.sessionId, args.libraryId)
+      ? await requireGenerationSessionInLibrary(
+          args.sessionId,
+          args.libraryId,
+          draftAccess,
+        )
       : null;
     const contextOff = args.contextModeOverride === "off";
     const lineageAssetId = args.sourceAssetId ?? args.subjectAssetId;
@@ -275,6 +291,9 @@ export default defineAction({
           .select({
             id: schema.assets.id,
             libraryId: schema.assets.libraryId,
+            role: schema.assets.role,
+            status: schema.assets.status,
+            generationRunId: schema.assets.generationRunId,
           })
           .from(schema.assets)
           .where(eq(schema.assets.id, lineageAssetId))
@@ -285,6 +304,15 @@ export default defineAction({
       (!lineageAsset || lineageAsset.libraryId !== args.libraryId)
     ) {
       throw new Error("Source asset must belong to this asset library.");
+    }
+    if (lineageAsset) {
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [lineageAsset],
+        "This generation",
+      );
     }
     const sessionCreativeContext =
       session && !contextOff
@@ -491,6 +519,9 @@ export default defineAction({
           id: schema.assets.id,
           libraryId: schema.assets.libraryId,
           mimeType: schema.assets.mimeType,
+          role: schema.assets.role,
+          status: schema.assets.status,
+          generationRunId: schema.assets.generationRunId,
         })
         .from(schema.assets)
         .where(eq(schema.assets.id, args.subjectAssetId))
@@ -501,6 +532,13 @@ export default defineAction({
       if (!subject.mimeType.startsWith("image/")) {
         throw new Error("Subject asset must be an image.");
       }
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [subject],
+        "This generation",
+      );
     }
     const styleBrief = {
       ...parseJson<StyleBrief>(library.styleBrief, {}),
@@ -676,6 +714,7 @@ export default defineAction({
       const guidanceReferences =
         baseReferenceLimit > 0 || args.referenceAssetIds?.length
           ? await selectReferences({
+              draftScope,
               libraryId: args.libraryId,
               collectionId: resolvedCollectionId,
               categories: resolvedCategories,
@@ -707,6 +746,7 @@ export default defineAction({
       const autoReferences =
         referenceLimit > 0 || args.referenceAssetIds?.length
           ? await selectReferences({
+              draftScope,
               libraryId: args.libraryId,
               collectionId: resolvedCollectionId,
               categories: resolvedCategories,
@@ -850,7 +890,7 @@ export default defineAction({
       referenceAssetIds: stringifyJson(references.map((ref) => ref.id)),
       status: "pending",
       source: args.source,
-      callerAppId: args.callerAppId ?? null,
+      callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
       metadata: stringifyJson(baseMetadata),
@@ -864,12 +904,7 @@ export default defineAction({
         ...creativeContextProvenance,
         elementProvenance: elementProvenanceFor(runId),
       },
-      {
-        artifactAccess: {
-          resourceType: "asset-library",
-          resourceId: args.libraryId,
-        },
-      },
+      { artifactAccess: draftProvenanceAccess(args.libraryId) },
     );
 
     await upsertVariantSlot({
@@ -919,7 +954,7 @@ export default defineAction({
             libraryId: args.libraryId,
             collectionId: resolvedCollectionId ?? null,
             source: args.source,
-            callerAppId: args.callerAppId,
+            callerAppId,
             hasBoardReferences: boardRefs.length > 0,
           }),
       );
@@ -1038,12 +1073,7 @@ export default defineAction({
           ...creativeContextProvenance,
           elementProvenance: elementProvenanceFor(asset.id),
         },
-        {
-          artifactAccess: {
-            resourceType: "asset-library",
-            resourceId: args.libraryId,
-          },
-        },
+        { artifactAccess: draftProvenanceAccess(args.libraryId) },
       );
       if (session) {
         const itemCreatedAt = nowIso();
@@ -1094,7 +1124,35 @@ export default defineAction({
           }),
         })
         .where(eq(schema.assetGenerationRuns.id, runId));
-      const serialized = serializeAsset(asset);
+      const serialized = serializeAssetSummary(asset);
+      const urls = assetUrls(asset);
+      track(
+        "media_generated",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: asset.id,
+          output_type: "asset",
+          media_type: "image",
+          library_id: args.libraryId,
+          source_app: callerAppId,
+        },
+        context,
+      );
+      if (callerAppId) {
+        track(
+          "cross_app_used",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            source_app: callerAppId,
+            target_app: "assets",
+            output_id: asset.id,
+            output_type: "asset",
+          },
+          context,
+        );
+      }
       await upsertVariantSlot({
         runId,
         batchId: args.variantBatchId ?? null,
@@ -1109,12 +1167,11 @@ export default defineAction({
         status: "ready",
         assetId: asset.id,
         previewUrl: serialized.previewUrl,
-        thumbnailUrl: serialized.thumbnailUrl,
+        thumbnailUrl: urls.thumbnailUrl,
       });
       return {
         ...serialized,
         runId,
-        artifactType: "image",
         // Cross-app callers embed the artifact in HTML. `url` is the Assets
         // detail page; previewUrl is the actual media response.
         Artifacts: imageArtifactLinks({
@@ -1124,6 +1181,9 @@ export default defineAction({
           downloadUrl: serialized.downloadUrl,
         }),
         ...creativeContextProvenance,
+        // Present only when the caller cannot approve: the candidate exists and
+        // is theirs to iterate on, but saving it into the kit needs an editor.
+        ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
       };
     } catch (err) {
       const message =

@@ -8,7 +8,7 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
 
 const pageTitles: Record<string, string> = {
-  "/": "header.entry",
+  "/home": "header.entry",
   "/entry": "header.entry",
   "/analytics": "header.analytics",
   "/agent": "settings.agentTitle",

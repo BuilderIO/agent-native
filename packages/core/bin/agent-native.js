@@ -6,7 +6,15 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { shouldUseSourceFallback } from "./launcher.js";
+import { shouldUseSourceFallback, supportsNodeVersion } from "./launcher.js";
+
+if (!supportsNodeVersion(process.versions.node)) {
+  console.error(
+    `agent-native requires Node.js 22.22.0 or newer, but you're on Node ${process.versions.node}.\n` +
+      "Upgrade Node (https://nodejs.org) and re-run. With nvm: `nvm install 22.22`.",
+  );
+  process.exit(1);
+}
 
 const binDir = dirname(fileURLToPath(import.meta.url));
 const distEntry = join(binDir, "../dist/cli/index.js");

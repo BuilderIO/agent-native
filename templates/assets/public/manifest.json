@@ -2,7 +2,7 @@
   "name": "Assets",
   "short_name": "Assets",
   "description": "Digital asset libraries for uploaded and generated images and videos",
-  "start_url": "/",
+  "start_url": "./home",
   "background_color": "#111111",
   "theme_color": "#111111",
   "icons": [

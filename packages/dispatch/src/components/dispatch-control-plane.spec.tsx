@@ -26,6 +26,7 @@ const clientState = vi.hoisted(() => ({
     onEffortChange: vi.fn(),
     refreshEngines: vi.fn(),
   })),
+  activeOrgId: "org-a" as string | null,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -43,6 +44,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
+  PromptBar: ({ children }: { children?: React.ReactNode }) => (
+    <div data-prompt-bar="inline">{children}</div>
+  ),
   PromptComposer: (props: Record<string, unknown>) => {
     clientState.promptComposerProps = props;
     const onSubmit = props.onSubmit as (value: string) => void;
@@ -80,7 +84,16 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrgRole: () => ({
+    org: clientState.activeOrgId
+      ? { orgId: clientState.activeOrgId }
+      : undefined,
+  }),
+}));
+
 vi.mock("@agent-native/core/client/host", () => ({
+  getClientSurface: () => "web",
   isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
@@ -127,6 +140,7 @@ describe("DispatchControlPlane", () => {
     clientState.workspaceApps = [];
     clientState.connectedApps = [];
     clientState.curatedTemplates = [];
+    clientState.activeOrgId = "org-a";
     clientState.useChatModels.mockClear();
     queryClient = new QueryClient({
       defaultOptions: {
@@ -177,11 +191,15 @@ describe("DispatchControlPlane", () => {
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
     ).not.toBeNull();
+    expect(
+      container.querySelector('[data-prompt-bar="inline"]'),
+    ).not.toBeNull();
     expect(clientState.useChatModels).toHaveBeenCalledWith({
       storageKey: "agent-native:chat-models:selection:dispatch",
     });
     expect(clientState.promptComposerProps).toMatchObject({
       availableModels: [],
+      draftScope: "dispatch:overview:org-a",
       modelListLoading: false,
       selectedEffort: "medium",
       selectedEngine: "",
@@ -239,6 +257,40 @@ describe("DispatchControlPlane", () => {
         },
       }),
     );
+  });
+
+  it("keeps overview drafts isolated by active organization", async () => {
+    const renderOverview = async () => {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/overview"]}>
+            <TooltipProvider>
+              <QueryClientProvider client={queryClient}>
+                <DispatchControlPlane />
+              </QueryClientProvider>
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await renderOverview();
+    expect(clientState.promptComposerProps).toMatchObject({
+      draftScope: "dispatch:overview:org-a",
+    });
+
+    clientState.activeOrgId = "org-b";
+    await renderOverview();
+    expect(clientState.promptComposerProps).toMatchObject({
+      draftScope: "dispatch:overview:org-b",
+    });
+
+    clientState.activeOrgId = null;
+    await renderOverview();
+    expect(clientState.promptComposerProps).toMatchObject({
+      draftScope: "dispatch:overview",
+    });
   });
 
   it("shows mounted and connected apps together without duplicates", async () => {
@@ -349,7 +401,7 @@ describe("DispatchControlPlane", () => {
         );
     });
     const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
-      'a[href="/onboarding"][target="_blank"]',
+      'a[href="/onboarding/home"][target="_blank"]',
     );
     expect(onboardingNewTabLink).not.toBeNull();
     const clipsHref = Array.from(container.querySelectorAll("a"))

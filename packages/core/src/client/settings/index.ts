@@ -35,6 +35,16 @@ export {
   type BuilderStatus,
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";
+export {
+  BuilderConnectPopover,
+  type BuilderConnectPopoverProps,
+} from "./BuilderConnectPopover.js";
+export {
+  NewKeyMenu,
+  normalizeKeyName,
+  type NewKeyMenuProps,
+  type NewKeyOption,
+} from "./NewKeyMenu.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
 export {
   SettingsGroup,

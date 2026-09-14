@@ -6,6 +6,7 @@ import {
   loadAgentChatMessagesForLocale,
   loadCoreMessagesForLocale,
 } from "./core-messages.js";
+import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 import { SUPPORTED_LOCALES } from "./shared.js";
 
 function placeholders(value: string): string[] {
@@ -15,6 +16,15 @@ function placeholders(value: string): string[] {
 }
 
 describe("built-in Core chat translations", () => {
+  it("localizes environment badge copy in every built-in locale", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      expect(messages.environmentBadge, locale).toEqual(
+        ENVIRONMENT_BADGE_MESSAGES[locale],
+      );
+    }
+  });
+
   it("defines every English key with matching placeholders in every locale", async () => {
     const englishKeys = Object.keys(englishAgentChatMessages)
       .filter((key) => !/_(zero|one|two|few|many|other)$/.test(key))

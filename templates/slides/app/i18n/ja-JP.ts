@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
+    labs: "Labs",
+    labsIntro: "リリース前に実験的な機能をプレビューできます。",
+    labLayoutOverflowWarningDescription:
+      "エディターでレイアウトのはみ出し警告を表示します。",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
       "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
@@ -86,10 +90,8 @@ const messages = {
     cloudConnectedReloading: "接続しました。再読み込み中...",
     cloudConnectionFailed: "接続に失敗しました",
     cloudTestConnect: "テストして接続",
-    cloudSqliteEdge: "エッジのSQLite",
     cloudServerlessPostgres: "サーバーレスPostgres",
     cloudOpenSourceFirebaseAlternative: "Firebaseのオープンソース代替",
-    cloudCloudflareSqliteEdge: "CloudflareエッジのSQLite",
     designSlidePreview: "スライドプレビュー",
     designSlideTitle: "スライドタイトル",
     designSupportingText:
@@ -146,6 +148,8 @@ const messages = {
     clearSelection: "選択を解除",
     sendToAgent: "エージェントに送信",
     saveReconnect: "再接続時に変更が保存されます",
+    saveFailedDescription:
+      "最新の変更はこのデバイスにしかありません。離れる前にバックアップをダウンロードしてください。",
     offline: "オフライン",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",
@@ -205,6 +209,9 @@ const messages = {
     usingDesignSystem: "{{title}} を使用中",
     usingLinkedDesignSystem: "リンクされたデザインシステムを使用中",
     viewOnly: "表示のみ",
+    sourcePreserving: "編集に制限あり",
+    sourcePreservingDescription:
+      "テキストとオブジェクトは編集できます。このインポート済みデッキでは、スライドの追加、削除、並べ替えは無効です。",
     commenterRoleLabel: "コメント可",
     commenterRoleDescription: "表示とコメントの追加ができます",
     slideSettings: "スライド設定",
@@ -261,6 +268,11 @@ const messages = {
     more: "その他",
     importing: "インポート中...",
     importFile: "ファイルをインポート",
+    downloadBackup: "バックアップをダウンロード",
+    importBackup: "バックアップをインポート",
+    backupDownloaded: "バックアップをダウンロードしました",
+    backupDownloadFailed: "バックアップをダウンロードできませんでした",
+    invalidBackup: "有効なSlidesバックアップJSONファイルを選択してください。",
     savedVersions: "保存済みバージョン",
     lightTheme: "ライトテーマ",
     darkTheme: "ダークテーマ",
@@ -268,6 +280,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX ファイルを生成できませんでした。",
     exportFailed: "エクスポートに失敗しました",
+    exporting: "エクスポート中...",
     exportPptxError: "PPTX としてエクスポート中に問題が発生しました。",
     googleSlidesDownloaded: "Google Slides 用にダウンロードしました",
     googleSlidesImportHint:
@@ -285,6 +298,10 @@ const messages = {
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
     openInGoogleSlides: "Google Slides で開く",
+    googleSlidesUnavailable: "利用不可",
+    googleSlidesOpenImporter: "Google Slides のインポートを開く",
+    googleSlidesUnavailableHint:
+      "Google 連携が設定されていないため、Google Slides へのエクスポートは現在利用できません。代わりに PPTX として書き出し、Google Slides にインポートしてください。",
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
       "このデッキのコピーを Google ドライブに作成しました。",
@@ -462,6 +479,10 @@ const messages = {
     rose: "Rose",
     arrange: "配置",
     order: "順序",
+    group: "グループ化",
+    ungroup: "グループ化を解除",
+    bringForward: "前面へ移動",
+    sendBackward: "背面へ移動",
     bringToFront: "最前面へ移動",
     sendToBack: "最背面へ移動",
     copyStyle: "スタイルをコピー",

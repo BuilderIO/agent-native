@@ -9,7 +9,11 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 async function assertParentIsNotDescendant({
   db,
@@ -336,7 +340,7 @@ export default defineAction({
         documentsPositionScope(ownerEmail, parentId),
         async () => {
           const maxPos = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.documents)
             .where(
               parentId
@@ -350,7 +354,7 @@ export default defineAction({
                     sql`parent_id IS NULL`,
                   ),
             );
-          updates.position = (maxPos[0]?.max ?? -1) + 1;
+          updates.position = nextAppendPosition(maxPos[0]?.max);
           await runMoveTransaction();
         },
       );

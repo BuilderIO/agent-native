@@ -1,3 +1,4 @@
+import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
 import { describe, expect, it } from "vitest";
 
 import type { DesignFile } from "../types";
@@ -28,6 +29,7 @@ describe("deriveOverviewScreens", () => {
       files: [
         file({ id: "a" }),
         file({ id: "styles", filename: "styles.css", fileType: "css" }),
+        file({ id: "component", filename: "component.jsx", fileType: "jsx" }),
         file({ id: "board", filename: "__board__.html" }),
       ],
     });
@@ -48,6 +50,27 @@ describe("deriveOverviewScreens", () => {
     expect(screen.layoutGroupId).toBe("grp");
     expect(screen.width).toBe(390);
     expect(screen.height).toBe(844);
+  });
+
+  it("reads only valid persisted breakpoint content heights", () => {
+    const [screen] = deriveOverviewScreens({
+      ...base,
+      designDataJson: {
+        screenMetadata: {
+          a: {
+            breakpointHeights: {
+              "390": 2400,
+              "768": "1800",
+              "0390": 2000,
+              "1440": 0,
+              "500": MAX_SANE_FRAME_DIMENSION_PX + 1,
+            },
+          },
+        },
+      },
+      files: [file({ id: "a" })],
+    });
+    expect(screen.breakpointHeights).toEqual({ "390": 2400 });
   });
 
   it("treats a session-pinned height as pinned even without persisted metadata", () => {

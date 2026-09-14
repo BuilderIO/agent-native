@@ -1,6 +1,7 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -13,12 +14,16 @@ import {
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
+import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
 import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
+import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
@@ -81,7 +86,7 @@ async function loadDeckWithUniqueSlideIds(deckId: string) {
     });
 
     if (repaired) {
-      if (repaired.repaired) notifyClients(deckId);
+      if (repaired.repaired) await notifyClients(deckId);
       return repaired;
     }
   }
@@ -144,12 +149,42 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
+function sourceEditabilityForDeck(
+  sourceImport: ReturnType<typeof sourceImportForDeck>,
+) {
+  if (!sourceImport || sourceImport.editableSnapshot) {
+    return { structuralEdits: "allowed" as const };
+  }
+  return {
+    structuralEdits: "blocked" as const,
+    reason: "source-preserving import",
+    conversion: {
+      action: "patch-deck",
+      parameter: "rewriteSource",
+      description:
+        "Set rewriteSource=true only when the user explicitly asks to rewrite the imported structure; this clears source-preservation metadata.",
+    },
+  };
+}
+
 export default defineAction({
+  title: "Read Slides deck",
   description:
-    "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. For any continuation or follow-up, call this first and use generationContext as the canonical original brief, references, theme, and target slide count. For source-preserving work, the compact result includes sourceCoverage; do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
+    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
   timeoutMs: 60_000,
   schema: z.object({
-    id: z.string().optional().describe("Deck ID (required)"),
+    id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Deck ID. `deckId` is accepted as an alias; pass either one."),
+    deckId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
+      ),
     slideId: z
       .string()
       .optional()
@@ -181,11 +216,14 @@ export default defineAction({
     }),
   },
   run: async (args, ctx) => {
-    if (!args.id) {
-      throw new Error("--id is required.");
+    const deckId = args.deckId ?? args.id;
+    if (!deckId) {
+      fail("Pass the deck id as `id` or `deckId`.", {
+        errorCode: "deck_id_missing",
+        statusCode: 400,
+      });
     }
-
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(args.id);
+    const { row, data, slides } = await loadDeckWithUniqueSlideIds(deckId);
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -216,13 +254,24 @@ export default defineAction({
       sourceImport,
       slides.map((slide: any) => slide.id),
     );
+    const linkedDesignSystemId = resolveDeckDesignSystemId(row, data);
+    const designSystem = await loadAgentDesignSystemContext(
+      linkedDesignSystemId,
+      getDesignSystem,
+    );
+    const { deckStyle, representativeSlideId } = summarizeDeckStyle(
+      slides as any,
+      selectedSlideIndex,
+    );
 
     if (compact) {
       return {
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
-        designSystemId: row.designSystemId ?? null,
+        designSystemId: linkedDesignSystemId,
+        designSystem,
+        ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
         generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
           ? {
@@ -231,13 +280,18 @@ export default defineAction({
               fidelity: data.sourceImport.fidelity,
               slideCount: data.sourceImport.slideCount,
               slideIds: data.sourceImport.slideIds,
+              ...(data.sourceImport.editableSnapshot === true
+                ? { editableSnapshot: true }
+                : {}),
               ...(typeof data.sourceImport.imagesSkipped === "number"
                 ? { imagesSkipped: data.sourceImport.imagesSkipped }
                 : {}),
             }
           : null,
+        sourceEditability: sourceEditabilityForDeck(sourceImport),
         sourceCoverage,
         slideCount: slides.length,
+        appUrl: getDeckUrl(row.id),
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         deepLink: deckDeepLink(row.id),
@@ -284,9 +338,13 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-      designSystemId: row.designSystemId ?? null,
+      designSystemId: linkedDesignSystemId,
+      designSystem,
+      ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
+      sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
       slideCount: slides.length,
+      appUrl: getDeckUrl(row.id),
       slideNumbering:
         'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
       createdAt:
@@ -298,12 +356,16 @@ export default defineAction({
     };
   },
   link: ({ result, args }) => {
-    const id =
-      result && typeof result === "object"
-        ? (result as { id?: string }).id
+    const argId =
+      typeof args.deckId === "string"
+        ? args.deckId
         : typeof args.id === "string"
           ? args.id
           : undefined;
+    const id =
+      result && typeof result === "object"
+        ? (result as { id?: string }).id
+        : argId;
     if (!id) return null;
     return {
       url: deckDeepLink(id),

@@ -77,6 +77,9 @@ struct MeetingsWatcherInner {
     session_cookie: Option<String>,
     /// Legacy framework session token persisted by the desktop renderer.
     auth_token: Option<String>,
+    /// The renderer's entitlement for the experimental meetings experience.
+    /// Keep this off until a successful preference read enables it.
+    lab_enabled: bool,
     /// meetingId -> the scheduledStart we last alerted for. Keyed by start time
     /// so a rescheduled meeting (same id, new time) re-notifies instead of
     /// being suppressed forever; pruned once the start is well in the past.
@@ -99,6 +102,22 @@ pub struct MeetingsSessionSnapshot {
 }
 
 impl MeetingsWatcherState {
+    pub fn set_lab_enabled(&self, enabled: bool) -> Result<(), String> {
+        let mut g = self.inner.lock().map_err(|e| e.to_string())?;
+        g.lab_enabled = enabled;
+        if !enabled {
+            g.notified.clear();
+            g.snoozed_until.clear();
+            g.last_calendar_notify_at.clear();
+        }
+        Ok(())
+    }
+
+    pub fn lab_enabled(&self) -> Result<bool, String> {
+        let g = self.inner.lock().map_err(|e| e.to_string())?;
+        Ok(g.lab_enabled)
+    }
+
     pub fn session_snapshot(&self) -> MeetingsSessionSnapshot {
         let Ok(g) = self.inner.lock() else {
             return MeetingsSessionSnapshot::default();
@@ -131,6 +150,14 @@ impl MeetingsWatcherState {
         };
         chrono::Utc::now().timestamp() - at <= within_secs
     }
+}
+
+#[tauri::command]
+pub async fn meetings_watcher_set_lab_enabled(
+    state: tauri::State<'_, MeetingsWatcherState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.set_lab_enabled(enabled)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -275,10 +302,14 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         return Ok(());
     }
 
+    let state = app
+        .try_state::<MeetingsWatcherState>()
+        .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
+    if !state.lab_enabled()? {
+        return Ok(());
+    }
+
     let (server_url, cookie, auth_token) = {
-        let state = app
-            .try_state::<MeetingsWatcherState>()
-            .ok_or_else(|| "no MeetingsWatcherState".to_string())?;
         let g = state.inner.lock().map_err(|e| e.to_string())?;
         (
             g.server_url.clone(),
@@ -533,7 +564,21 @@ pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
 mod tests {
     use chrono::{TimeZone, Utc};
 
-    use super::{find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings};
+    use super::{
+        find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings,
+        MeetingsWatcherState,
+    };
+
+    #[test]
+    fn meetings_lab_defaults_off_and_can_be_toggled() {
+        let state = MeetingsWatcherState::default();
+
+        assert!(!state.lab_enabled().expect("state lock"));
+        state.set_lab_enabled(true).expect("state lock");
+        assert!(state.lab_enabled().expect("state lock"));
+        state.set_lab_enabled(false).expect("state lock");
+        assert!(!state.lab_enabled().expect("state lock"));
+    }
 
     #[test]
     fn excludes_adhoc_meetings_from_calendar_reminders() {

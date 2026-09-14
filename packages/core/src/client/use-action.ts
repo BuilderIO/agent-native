@@ -43,6 +43,7 @@ import {
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
 
@@ -326,8 +327,10 @@ async function performActionFetch<T>(
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${ACTION_PREFIX}/${name}`;
+  const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Agent-Native-Browser-Tab": browserTabId,
     // Tag browser-originated action calls so the server can set
     // `ctx.caller = "frontend"` (vs a bare programmatic `"http"` POST).
     // Mirrors the X-Agent-Native-Tool-Bridge: 1 convention. The header is
@@ -339,7 +342,7 @@ async function performActionFetch<T>(
           // The server copies this onto the emitted action sync event.
           // useDbSync can then ignore the echo in this tab while other tabs
           // still refresh.
-          "X-Request-Source": getBrowserTabId(),
+          "X-Request-Source": browserTabId,
         }
       : {}),
   };
@@ -491,6 +494,14 @@ async function performActionFetch<T>(
   }
 
   if (!res.ok) {
+    // The server does not recognise this browser any more. Nothing else
+    // tells the session gate that, so without this the shell stays mounted
+    // on a stale authenticated answer and the failure reaches the user as a
+    // generic load error instead of a redirect to sign-in. 403 is
+    // deliberately excluded: that is an authenticated caller being refused
+    // one thing.
+    if (res.status === 401) recheckSessionAfterUnauthorized();
+
     // Text the action itself wrote for the caller, as opposed to transport
     // noise. Only a JSON `error`/`message` qualifies: an HTML error page or a
     // bare status line is not something a UI should ever put in a toast.

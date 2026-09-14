@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 
 export interface ChatThreadScope {
   type: string;
@@ -74,6 +75,8 @@ export interface UseChatThreadsOptions {
   autoCreate?: boolean;
   /** Restore the active thread from localStorage. Defaults to true. */
   restoreActiveThread?: boolean;
+  /** Browser tab id used to isolate the active chat pointer from other tabs. */
+  browserTabId?: string;
   /**
    * Route-owned active thread. `undefined` preserves the legacy localStorage
    * source of truth; a string opens that thread; `null` means the URL is in
@@ -187,11 +190,13 @@ function scopeKeySegment(scope?: ChatThreadScope | null): string {
 function activeThreadStorageKey(
   storageKey?: string,
   scope?: ChatThreadScope | null,
+  browserTabId?: string,
 ): string {
   const scopePart = scopeKeySegment(scope);
+  const tabPart = browserTabId ? `:tab:${browserTabId}` : "";
   return storageKey
-    ? `${ACTIVE_THREAD_KEY}:${storageKey}${scopePart}`
-    : `${ACTIVE_THREAD_KEY}${scopePart}`;
+    ? `${ACTIVE_THREAD_KEY}:${storageKey}${scopePart}${tabPart}`
+    : `${ACTIVE_THREAD_KEY}${scopePart}${tabPart}`;
 }
 
 function activeThreadSeenStorageKey(activeThreadKey: string): string {
@@ -265,6 +270,9 @@ export function useChatThreads(
   const restoreActiveThread = options?.restoreActiveThread !== false;
   const includeExternal = options?.includeExternal === true;
   const isolateHistoryByScope = options?.isolateHistoryByScope === true;
+  const browserTabId =
+    options?.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const isolateHistory = isolateHistoryByScope && Boolean(scope);
   const historyScope = useMemo(
     () => (isolateHistory && scope ? { type: scope.type, id: scope.id } : null),
@@ -280,8 +288,12 @@ export function useChatThreads(
   // key even while the user is looking at a resource, so clicking into a deck,
   // design, form, etc. doesn't make a global conversation vanish.
   const activeThreadKey = useMemo(() => {
-    return activeThreadStorageKey(storageKey, scope);
-  }, [storageKey, scope?.type, scope?.id]);
+    return activeThreadStorageKey(storageKey, scope, browserTabId);
+  }, [browserTabId, storageKey, scope?.type, scope?.id]);
+  const legacyActiveThreadKey = useMemo(
+    () => activeThreadStorageKey(storageKey, scope),
+    [storageKey, scope?.type, scope?.id],
+  );
   // Companion key recording when the saved active thread was last live in
   // this client. A revived orphan tab (id in localStorage but not on the
   // server and not created this session) must keep its real last-seen time
@@ -305,7 +317,10 @@ export function useChatThreads(
       } else {
         try {
           id = restoreActiveThread
-            ? localStorage.getItem(activeThreadKey)
+            ? (localStorage.getItem(activeThreadKey) ??
+              (browserTabId
+                ? localStorage.getItem(legacyActiveThreadKey)
+                : null))
             : null;
         } catch {
           id = null;
@@ -465,15 +480,25 @@ export function useChatThreads(
         const targetKey =
           threadScope === undefined
             ? activeThreadKey
-            : activeThreadStorageKey(storageKey, threadScope);
+            : activeThreadStorageKey(storageKey, threadScope, browserTabId);
         localStorage.setItem(targetKey, id);
         localStorage.setItem(
           activeThreadSeenStorageKey(targetKey),
           String(Date.now()),
         );
+        const legacyScope =
+          threadScope !== undefined ? threadScope : (scopeRef.current ?? null);
+        if (browserTabId) {
+          const legacyKey = activeThreadStorageKey(storageKey, legacyScope);
+          localStorage.setItem(legacyKey, id);
+          localStorage.setItem(
+            activeThreadSeenStorageKey(legacyKey),
+            String(Date.now()),
+          );
+        }
       } catch {}
     },
-    [activeThreadKey, readKnownThreadScope, storageKey],
+    [activeThreadKey, browserTabId, readKnownThreadScope, storageKey],
   );
 
   // Persist active thread ID — and rehydrate on scope flips. When the user
@@ -514,7 +539,9 @@ export function useChatThreads(
       persistedKeyRef.current = activeThreadKey;
       let nextActiveThreadId: string | null = null;
       try {
-        nextActiveThreadId = localStorage.getItem(activeThreadKey);
+        nextActiveThreadId =
+          localStorage.getItem(activeThreadKey) ??
+          (browserTabId ? localStorage.getItem(legacyActiveThreadKey) : null);
       } catch {
         nextActiveThreadId = null;
       }
@@ -548,6 +575,9 @@ export function useChatThreads(
       if (routeControlsActiveThread && !routeThreadId) {
         localStorage.removeItem(activeThreadKey);
         localStorage.removeItem(activeThreadSeenKey);
+        if (!browserTabId && legacyActiveThreadKey !== activeThreadKey) {
+          localStorage.removeItem(legacyActiveThreadKey);
+        }
         return;
       }
       if (activeThreadId) {
@@ -563,9 +593,11 @@ export function useChatThreads(
     activeThreadSeenKey,
     addOptimisticThread,
     autoCreate,
+    browserTabId,
     persistActiveThreadId,
     readKnownThreadScope,
     restoreActiveThread,
+    legacyActiveThreadKey,
     routeControlsActiveThread,
     routeThreadId,
     storageKey,

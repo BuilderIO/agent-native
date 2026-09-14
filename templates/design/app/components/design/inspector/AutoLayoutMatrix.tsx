@@ -246,6 +246,9 @@ export interface AutoLayoutMatrixProps {
   ) => void;
   onPaddingLinkedChange: (linked: boolean) => void;
   onClipContentChange?: (clipContent: boolean) => void;
+  /** Clipping is a container's decision. A drawn rectangle or text node has
+   *  nothing to clip, so the control is meaningless on those. */
+  clipContentSupported?: boolean;
   onDistribute?: (axis: DistributionAxis) => void;
   onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   onChildSizingChange: (
@@ -364,6 +367,7 @@ export function AutoLayoutMatrix({
   onPaddingChange,
   onPaddingLinkedChange,
   onClipContentChange,
+  clipContentSupported = true,
   onDistribute,
   onGapModeChange,
   onChildSizingChange,
@@ -401,6 +405,9 @@ export function AutoLayoutMatrix({
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
+  const canResizeToFit =
+    (availableChildSizing?.horizontal ?? SIZING_OPTIONS).includes("hug") &&
+    (availableChildSizing?.vertical ?? SIZING_OPTIONS).includes("hug");
 
   /** Apply a flow choice, coordinating display + direction + wrap. */
   const selectFlow = (flow: AutoLayoutFlow) => {
@@ -585,30 +592,32 @@ export function AutoLayoutMatrix({
           </InspectorGridCell>
           <InspectorGridCell span={1} ariaHidden />
           <InspectorGridCell span={4} className="flex justify-center">
-            {/* Resize-to-fit icon button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={disabled}
-                  aria-label={
-                    "Resize to fit" /* i18n-ignore inspector tooltip */
-                  }
-                  onClick={() => {
-                    onChildSizingChange("horizontal", "hug");
-                    onChildSizingChange("vertical", "hug");
-                  }}
-                  className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                >
-                  <IconArrowsDiagonalMinimize2 className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Resize to fit" /* i18n-ignore inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
+            {canResizeToFit ? (
+              /* Resize-to-fit only applies when both axes have measurable content. */
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={disabled}
+                    aria-label={
+                      "Resize to fit" /* i18n-ignore inspector tooltip */
+                    }
+                    onClick={() => {
+                      onChildSizingChange("horizontal", "hug");
+                      onChildSizingChange("vertical", "hug");
+                    }}
+                    className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  >
+                    <IconArrowsDiagonalMinimize2 className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Resize to fit" /* i18n-ignore inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </InspectorGridCell>
         </InspectorGrid>
 
@@ -823,7 +832,7 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {/* ── Clip content ── */}
-        {showChildLayoutControls ? (
+        {showChildLayoutControls && clipContentSupported ? (
           <InspectorGrid>
             <InspectorGridCell span={28}>
               <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">

@@ -102,6 +102,8 @@ export default defineAction({
 
 Gardez `link` comme repli pour la CLI et les hôtes MCP sans UI. C’est aussi la cible de lancement de l’intégration. Le pont d’intégration (la session de démarrage d’intégration signée, la transplantation vs. le rendu en frame contrôlée, le pont hôte `ui/*`, le CSP, et l’ajustement de hauteur) est possédé par [Agents externes](/docs/external-agents#mcp-app-bridge).
 
+Il n'existe aucune vérification automatique qu'un modèle possède `view-screen`, `navigate`, ou un ensemble create/read/update/list pour sa ressource principale ; le scaffold fournit `view-screen` et `navigate`, et `pnpm guard:external-result-contract` rejette tout langage « attendre l'utilisateur » dans le `description` ou le `nextRequiredAction` d'une action exposée en externe, et exige un lien profond sur toute nouvelle action `create-*` exposée en externe. Sa présence relève de la revue.
+
 ## Actions standard {#standard-actions}
 
 Chaque template devrait inclure ces deux-là pour la [conscience du contexte](/docs/context-awareness).

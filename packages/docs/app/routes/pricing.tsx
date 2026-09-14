@@ -182,10 +182,10 @@ export default function PricingPage() {
                   <p className="m-0">
                     No. Read the{" "}
                     <Link
-                      to={localizedPath("/docs/database")}
+                      to={localizedPath("/docs/server-database")}
                       className="text-[var(--fg)] underline underline-offset-4"
                     >
-                      adapter docs
+                      PostgreSQL setup docs
                     </Link>
                     .
                   </p>

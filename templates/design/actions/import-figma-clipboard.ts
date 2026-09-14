@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { importFigmaClipboardFromBuffer } from "../server/lib/figma-clipboard-local-decode.js";
 import {
   buildFigmaNodeCandidates,
@@ -9,25 +10,53 @@ import {
   type FigmaClipboardMatchReason,
 } from "../server/lib/figma-clipboard-match.js";
 import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+} from "../server/lib/figma-import-errors.js";
+import {
   buildScreenFilesFromFigmaNodes,
   fetchFileStructure,
   fetchFigmaNodes,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
-import { saveImportedDesignFiles } from "../server/lib/import-design-files.js";
+import {
+  resolveImportDesignId,
+  saveImportedDesignFiles,
+} from "../server/lib/import-design-files.js";
 import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
 import { parseFigmaFileKey } from "../shared/figma-url.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
 
-// Also matches a Figma 403 that occurs when the token is saved but lacks
-// file_content:read scope — the validator only checks current_user:read.
+// A Figma 403 means the token is saved but lacks file_content:read scope -
+// the validator only checks current_user:read. An absent token normally
+// arrives as a typed `figma_auth_required` from the provider wrapper; the
+// raw resolver message is kept so a caller that reaches the provider runtime
+// without that wrapper still degrades to the local fallback instead of
+// surfacing a hard failure.
 const CREDENTIAL_MISSING_RE =
   /credential not configured|figma.*request failed:.*403|figma.*request failed:.*forbidden/i;
 // Transient errors should not block local-kiwi fallback when the buffer is present.
 const TRANSIENT_ERROR_RE =
   /quota cooldown|provider.*quota|rate.?limit|fetch failed|network.*error|timeout|ECONNRESET|ENOTFOUND|ERR_NETWORK/i;
+
+function isMissingFigmaCredential(error: unknown, message: string): boolean {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return (
+    code === FIGMA_IMPORT_ERROR_CODES.authRequired ||
+    CREDENTIAL_MISSING_RE.test(message)
+  );
+}
+
+function isTransientFigmaFailure(error: unknown, message: string): boolean {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return (
+    code === FIGMA_IMPORT_ERROR_CODES.rateLimited ||
+    code === FIGMA_IMPORT_ERROR_CODES.providerQuotaCooldown ||
+    TRANSIENT_ERROR_RE.test(message)
+  );
+}
 const DURABLE_STORAGE_REQUIRED_RE =
   /authenticated user so assets can be stored durably|could not store a Figma image durably|needs durable file storage/i;
 
@@ -125,20 +154,27 @@ export default defineAction({
       ),
     originalName: z.string().optional(),
   }),
-  run: async ({
-    designId,
-    figmetaFileKey,
-    selectedNodeIds,
-    selectedNodeIdsTruncated,
-    clipboardHtml,
-    clipboardBuffer,
-    clipboardBufferOmittedBytes,
-    originalName,
-  }) => {
+  run: async (
+    {
+      designId,
+      figmetaFileKey,
+      selectedNodeIds,
+      selectedNodeIdsTruncated,
+      clipboardHtml,
+      clipboardBuffer,
+      clipboardBufferOmittedBytes,
+      originalName,
+    },
+    context,
+  ) => {
     const fileKey = parseFigmaFileKey(figmetaFileKey);
     if (!fileKey) {
-      throw new Error("The clipboard's Figma file key could not be parsed.");
+      failFigmaImport(
+        "The clipboard's Figma file key could not be parsed.",
+        FIGMA_IMPORT_ERROR_CODES.urlInvalid,
+      );
     }
+    const resolvedDesignId = await resolveImportDesignId(designId);
 
     // Current Figma clipboard HTML commonly contains only figmeta + the
     // private binary figma buffer, with no visible HTML at all. Exact REST ids
@@ -161,8 +197,9 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
-          designId,
+          designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
           files,
         });
@@ -192,8 +229,9 @@ export default defineAction({
 
       if (clipboardTexts.length === 0) {
         matchStatus = "none";
-        throw new Error(
+        failFigmaImport(
           "The Figma clipboard did not include exact node ids or visible text for matching.",
+          FIGMA_IMPORT_ERROR_CODES.clipboardUnmatched,
         );
       }
 
@@ -209,8 +247,9 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
-          designId,
+          designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
           files,
         });
@@ -234,12 +273,16 @@ export default defineAction({
       // The importer intentionally refuses to persist Figma's expiring render
       // URLs. Keep its actionable storage setup error instead of disguising it
       // as an ordinary clipboard-format fallback.
-      if (DURABLE_STORAGE_REQUIRED_RE.test(errorMessage)) {
+      const storageCode = (error as { errorCode?: unknown } | null)?.errorCode;
+      if (
+        storageCode === FIGMA_IMPORT_ERROR_CODES.storageUnavailable ||
+        DURABLE_STORAGE_REQUIRED_RE.test(errorMessage)
+      ) {
         throw error;
       }
       restError = errorMessage;
-      figmaApiKeyMissing = CREDENTIAL_MISSING_RE.test(errorMessage);
-      const isTransient = TRANSIENT_ERROR_RE.test(errorMessage);
+      figmaApiKeyMissing = isMissingFigmaCredential(error, errorMessage);
+      const isTransient = isTransientFigmaFailure(error, errorMessage);
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&
@@ -271,8 +314,9 @@ export default defineAction({
           originalName,
         });
         if (localResult.files.length > 0) {
+          await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
           const saved = await saveImportedDesignFiles({
-            designId,
+            designId: resolvedDesignId,
             sourceType: "figma-clipboard-local-kiwi",
             files: localResult.files,
           });
@@ -325,7 +369,7 @@ export default defineAction({
         ? "Nothing was imported."
         : "This Figma clipboard carried no exact node ids and no browser-readable HTML, so nothing was imported. Paste a frame link, or import the .fig file, for an exact import.";
       return {
-        designId,
+        designId: resolvedDesignId,
         files: [],
         warnings: [],
         strategy: "htmlFallback" as const,
@@ -338,8 +382,9 @@ export default defineAction({
       };
     }
 
+    await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
     const saved = await saveFigmaPasteHtmlFallback({
-      designId,
+      designId: resolvedDesignId,
       clipboardHtml,
       originalName,
     });

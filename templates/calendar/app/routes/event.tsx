@@ -4,6 +4,7 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { CalendarEvent } from "@shared/api";
 import {
@@ -19,7 +20,6 @@ import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { messagesByLocale } from "@/i18n-data";
 
 type EventPreviewResult = CalendarEvent | { error: string };
@@ -197,11 +197,7 @@ export default function EventPreviewRoute() {
   }
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Spinner className="size-6 text-primary" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
   if (error || !result || "error" in result) {

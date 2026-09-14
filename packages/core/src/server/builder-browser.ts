@@ -8,12 +8,18 @@ import {
 import type { H3Event } from "h3";
 import { getHeader, getRequestIP } from "h3";
 
+import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
+import {
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "./builder-api-auth.js";
+import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
@@ -23,10 +29,12 @@ import {
   isAllowedOAuthRedirectUri,
   isConfiguredAppOrigin,
 } from "./google-oauth.js";
+import { isLoopbackOrigin } from "./origin-allowlist.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
+const DEFAULT_BUILDER_TEMPLATE_ID = "agent-native-starter";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent-Native Browser";
@@ -82,6 +90,23 @@ export interface BuilderRelayCredentials {
 export interface BuilderRelayRequestBody {
   relayState: string;
   credentials: BuilderRelayCredentials;
+}
+
+export class BuilderAccountProvisioningError extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "BuilderAccountProvisioningError";
+    this.code = code ?? null;
+  }
+}
+
+export function isBuilderAccountAlreadyExistsError(error: unknown): boolean {
+  return (
+    error instanceof BuilderAccountProvisioningError &&
+    (error.code === "account_incomplete" || error.code === "account_exists")
+  );
 }
 
 function builderRelaySecret(): string {
@@ -597,10 +622,11 @@ export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 export const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
 export const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 export const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
+export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
 
 const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
 
-function parseBuilderConnectStateCookie(
+export function parseBuilderConnectStateCookie(
   value: string | null | undefined,
 ): string[] | null {
   if (!value) return [];
@@ -633,17 +659,38 @@ export function removeBuilderConnectStateCookie(
     .join(",");
 }
 
+export interface BuilderConnectCallbackStateResolution {
+  state: string | null;
+  /**
+   * Set when the cookie itself is why this attempt cannot resolve a state.
+   * Nothing else prunes it on failure, so an unusable cookie would make every
+   * later retry unresolvable too — and the restart the error message asks for
+   * is what appends the next state and keeps the trap armed.
+   */
+  resetStateCookie: boolean;
+}
+
 export function resolveBuilderConnectCallbackState(
   queryState: string | null,
   cookieState: string | null | undefined,
-): string | null {
+): BuilderConnectCallbackStateResolution {
   const cookieStates = parseBuilderConnectStateCookie(cookieState);
-  if (cookieState && !cookieStates) return null;
-  if (queryState !== null) {
-    if (cookieStates?.length && !cookieStates.includes(queryState)) return null;
-    return queryState;
+  if (cookieState && !cookieStates) {
+    return { state: null, resetStateCookie: true };
   }
-  return cookieStates?.length === 1 ? cookieStates[0] : null;
+  if (queryState !== null) {
+    // A callback that names a state the cookie does not hold belongs to
+    // another flow; the states in the cookie are still live for their own
+    // callbacks, so fail this attempt without touching them.
+    if (cookieStates?.length && !cookieStates.includes(queryState)) {
+      return { state: null, resetStateCookie: false };
+    }
+    return { state: queryState, resetStateCookie: false };
+  }
+  if (cookieStates?.length === 1) {
+    return { state: cookieStates[0], resetStateCookie: false };
+  }
+  return { state: null, resetStateCookie: (cookieStates?.length ?? 0) > 1 };
 }
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
@@ -723,6 +770,15 @@ function applyBuilderConnectTrackingParams(
   if (template) params.set(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM, template);
 }
 
+export function withBuilderConnectTrackingParams(
+  url: string,
+  tracking: BuilderConnectTrackingParams,
+): string {
+  const parsed = new URL(url);
+  applyBuilderConnectTrackingParams(parsed.searchParams, tracking);
+  return parsed.toString();
+}
+
 export interface BuilderBrowserStatus {
   configured: boolean;
   builderEnabled: boolean;
@@ -738,13 +794,15 @@ export interface BuilderBrowserStatus {
    */
   envManaged: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
+  /** True only when the current request may revoke the effective grant. */
+  canDisconnect?: boolean;
   /**
    * The currently effective Builder credential was rejected by Builder's API.
    * This is durable status about the credential pair, not a failure of an
    * in-progress cli-auth callback.
    */
   authError?: { message: string; at: number };
-  connectError?: { message: string; at: number };
+  connectError?: { message: string; at: number; code?: string };
   appHost: string;
   apiHost: string;
   /**
@@ -1411,9 +1469,27 @@ function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
     return getConfiguredBuilderFallbackOrigin(event);
   }
-  return isBuilderCloudRequestHost(headerHost)
-    ? getBuilderBrowserOriginForEvent(event)
-    : getOrigin(event, { useForwardedHost: false });
+  if (isBuilderCloudRequestHost(headerHost)) {
+    return getBuilderBrowserOriginForEvent(event);
+  }
+  const configuredOrigin = getOrigin(event, { useForwardedHost: false });
+  if (!isLoopbackOrigin(configuredOrigin)) return configuredOrigin;
+  // Workspace deploys resolve the configured origin to the workspace gateway,
+  // which is a loopback address. Loopback resolves on the visitor's machine,
+  // so when the request itself arrived on a Builder-hosted preview host the
+  // callback would never reach the server holding this flow's pending row and
+  // the user sees "No active Builder connect flow found". Keep the callback on
+  // the preview origin the connect popup was opened on. A genuinely loopback
+  // request keeps the loopback callback: there the browser and the server do
+  // share a machine.
+  if (
+    !isLoopbackBuilderRequestHost(headerHost) &&
+    isTrustedBuilderRequestHost(headerHost)
+  ) {
+    const previewOrigin = getBuilderBrowserOriginForEvent(event);
+    if (previewOrigin && !isLoopbackOrigin(previewOrigin)) return previewOrigin;
+  }
+  return configuredOrigin;
 }
 
 function isRejectedDirectBuilderCloudHost(
@@ -1543,6 +1619,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     branchProjectId: branchProjectId || undefined,
     envManaged,
     credentialSource: envManaged ? "env" : undefined,
+    canDisconnect: false,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
     connectUrl: origin ? getBuilderBrowserConnectUrl(origin) : "",
@@ -1842,9 +1919,10 @@ function safeOriginFromUrl(value: string | null | undefined): string | null {
 
 export function createBuilderBrowserCallbackPage(
   previewUrl: string,
-  opts: { parentOrigin?: string } = {},
+  opts: { parentOrigin?: string; attemptId?: string } = {},
 ): string {
   const escapedUrl = JSON.stringify(previewUrl);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin =
     safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
   // postMessage requires a specific target origin for cross-origin opener
@@ -1887,13 +1965,13 @@ export function createBuilderBrowserCallbackPage(
       // mirror the parent-side listener in useBuilderStatus / useBuilderConnectUrl.
       try {
         var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-        bc.postMessage({ type: "builder-connect-success" });
+        bc.postMessage({ type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined });
         bc.close();
       } catch (e) {}
       try {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
-            { type: "builder-connect-success" },
+            { type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined },
             ${escapedTargetOrigin},
           );
         }
@@ -1936,9 +2014,13 @@ export function createBuilderBrowserCallbackErrorPage(
     body?: string;
     closeHint?: string;
     parentOrigin?: string;
+    code?: string;
+    attemptId?: string;
   } = {},
 ): string {
   const escapedMessage = JSON.stringify(message);
+  const escapedCode = JSON.stringify(opts.code ?? null);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
   const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
@@ -1972,6 +2054,7 @@ export function createBuilderBrowserCallbackErrorPage(
     <script>
       try {
         var msg = ${escapedMessage};
+        var code = ${escapedCode};
         document.getElementById("msg").textContent = msg;
         // Notify the parent tab immediately so its polling loop stops
         // without waiting for the next /builder/status tick.
@@ -1984,13 +2067,13 @@ export function createBuilderBrowserCallbackErrorPage(
         // fallback for non-BroadcastChannel environments.
         try {
           var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-          bc.postMessage({ type: "builder-connect-error", message: msg });
+          bc.postMessage({ type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined });
           bc.close();
         } catch (e) {}
         if (window.opener && !window.opener.closed) {
           try {
             window.opener.postMessage(
-              { type: "builder-connect-error", message: msg },
+              { type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined },
               ${escapedTargetOrigin},
             );
           } catch (e) {}
@@ -2052,7 +2135,7 @@ export interface BuilderProjectLookupArgs {
 export interface BuilderProjectResult {
   projectId: string;
   name: string;
-  repoUrl: string;
+  repoUrl?: string;
   browserUrl: string;
   created: boolean;
 }
@@ -2118,8 +2201,8 @@ function builderProjectBrowserUrl(projectId: string): string {
 
 function builderProjectFromRecord(
   value: unknown,
-  fallbackRepoUrl: string | null,
   created: boolean,
+  fallbackRepoUrl?: string,
 ): BuilderProjectResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -2134,28 +2217,34 @@ function builderProjectFromRecord(
     typeof record.repoUrl === "string" && record.repoUrl.trim()
       ? record.repoUrl.trim()
       : fallbackRepoUrl;
-  if (!repoUrl) return null;
   return {
     projectId: normalizeBuilderProjectString(projectId, "project id"),
     name: normalizeBuilderProjectString(name, "project name"),
-    repoUrl: normalizeBuilderRepoUrl(repoUrl),
+    ...(repoUrl ? { repoUrl } : {}),
     browserUrl: builderProjectBrowserUrl(projectId),
     created,
   };
 }
 
-async function resolveBuilderApiCredentials() {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
+async function resolveBuilderApiAuthorization(
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestAuthorization> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope,
+  });
+  if (!authorization) {
+    throw new ActionContractError(
+      "Builder.io is not connected. Connect Builder.io in Settings.",
+      { errorCode: "builder_not_connected", statusCode: 400 },
+    );
   }
-  return {
-    ...creds,
-    privateKey: creds.privateKey,
-    publicKey: creds.publicKey,
-  };
+  if (authorization.source === "legacy" && !authorization.legacyPublicKey) {
+    throw new ActionContractError(
+      "Builder legacy credentials require BUILDER_PUBLIC_KEY for this request.",
+      { errorCode: "builder_legacy_public_key_required", statusCode: 400 },
+    );
+  }
+  return authorization;
 }
 
 async function fetchBuilderApi(
@@ -2349,11 +2438,12 @@ export async function provisionBuilderAccount(input: {
   );
   const parsed = await readBuilderApiObject(response, "account provisioning");
   if (!response.ok) {
-    throw new Error(
+    throw new BuilderAccountProvisioningError(
       builderApiErrorMessage(
         parsed,
         `Builder account provisioning failed (${response.status})`,
       ),
+      typeof parsed.code === "string" ? parsed.code : undefined,
     );
   }
   return parseBuilderAccountProvisioningResponse(parsed);
@@ -2372,25 +2462,24 @@ function builderApiErrorMessage(
   return fallback;
 }
 
-/**
- * Find an existing Builder project connected to a repository. Dispatch uses
- * this before provisioning so a first app request cannot create a duplicate
- * workspace project when the project id has not been saved yet.
- */
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
 export async function findBuilderProjectForRepo(
   args: BuilderProjectLookupArgs,
 ): Promise<BuilderProjectResult | null> {
   const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
-  const creds = await resolveBuilderApiCredentials();
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:projects:read",
+  );
   const url = new URL("/projects", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
   url.searchParams.set("includeHidden", "true");
 
   const response = await fetchBuilderApi(
     url,
     {
       method: "GET",
-      headers: { Authorization: `Bearer ${creds.privateKey}` },
+      headers: { Authorization: authorization.authorization },
     },
     "project lookup",
   );
@@ -2403,15 +2492,15 @@ export async function findBuilderProjectForRepo(
       ),
     );
   }
-
   if (!Array.isArray(parsed.projects)) {
     throw new Error("Builder project lookup returned no projects list");
   }
+
   const comparableRepoUrl = comparableBuilderRepoUrl(repoUrl);
   for (const project of parsed.projects) {
-    const normalized = builderProjectFromRecord(project, null, false);
+    const normalized = builderProjectFromRecord(project, false);
     if (
-      normalized &&
+      normalized?.repoUrl &&
       comparableBuilderRepoUrl(normalized.repoUrl) === comparableRepoUrl
     ) {
       return normalized;
@@ -2420,31 +2509,41 @@ export async function findBuilderProjectForRepo(
   return null;
 }
 
-/**
- * Create a Builder project connected to a repository through the public
- * projects API. This is the server-side bridge used by Dispatch; online
- * Claude and ChatGPT hosts do not need a separate Builder CMS MCP connector.
- */
+/** Creates from the default template; repoUrl remains for deprecated helpers. */
 export async function createBuilderProject(args: {
   name: string;
-  repoUrl: string;
+  templateId?: string;
+  repoUrl?: string;
 }): Promise<BuilderProjectResult> {
   const name = normalizeBuilderProjectString(args.name, "project name");
-  const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
-  const creds = await resolveBuilderApiCredentials();
+  const repoUrl = args.repoUrl
+    ? normalizeBuilderRepoUrl(args.repoUrl)
+    : undefined;
+  const templateId = repoUrl
+    ? undefined
+    : normalizeBuilderProjectString(
+        args.templateId ?? DEFAULT_BUILDER_TEMPLATE_ID,
+        "template id",
+      );
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:projects:write",
+  );
   const url = new URL("/projects/create", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
 
   const response = await fetchBuilderApi(
     url,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
+        Authorization: authorization.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        source: { kind: "repo", repoUrl },
+        source: repoUrl
+          ? { kind: "repo", repoUrl }
+          : { kind: "template", templateId },
         name,
       }),
     },
@@ -2460,18 +2559,14 @@ export async function createBuilderProject(args: {
     );
   }
 
-  const project = builderProjectFromRecord(parsed.project, repoUrl, true);
+  const project = builderProjectFromRecord(parsed.project, true, repoUrl);
   if (!project) {
     throw new Error("Builder project creation returned no project id");
   }
   return project;
 }
 
-/**
- * Reuse a connected Builder project or create it once when Dispatch is first
- * used for a workspace. The lookup and create calls intentionally stay in
- * this shared server helper so all callers use the same authenticated path.
- */
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
 export async function ensureBuilderProject(args: {
   name: string;
   repoUrl: string;
@@ -2510,12 +2605,8 @@ function normalizeBuilderBranchUrl(value: unknown): string {
 export async function runBuilderAgent(
   args: RunBuilderAgentArgs,
 ): Promise<RunBuilderAgentResult> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
-  }
+  const authorization =
+    await resolveBuilderApiAuthorization("builder:agents:run");
   if (!args.prompt || !args.prompt.trim()) {
     throw new Error("prompt is required");
   }
@@ -2532,7 +2623,7 @@ export async function runBuilderAgent(
   // against Space membership, so fall back to the credential's user id when
   // there is no session email or the email is not a member.
   const requestedEmail = args.userEmail?.trim() || undefined;
-  const fallbackUserId = args.userId || creds.userId || undefined;
+  const fallbackUserId = args.userId || authorization.userId || undefined;
   const builderUserEmail = requestedEmail;
   const builderUserId = requestedEmail ? undefined : fallbackUserId;
   if (!builderUserEmail && !builderUserId) {
@@ -2541,7 +2632,8 @@ export async function runBuilderAgent(
   const userPrompt = buildBuilderAgentUserPrompt(args.prompt, args.context);
 
   const url = new URL("/agents/run", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
 
   const postRun = async (actor: { userEmail?: string; userId?: string }) => {
     const body: Record<string, unknown> = {
@@ -2557,7 +2649,7 @@ export async function runBuilderAgent(
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${creds.privateKey}`,
+          Authorization: authorization.authorization,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
@@ -2613,12 +2705,9 @@ export async function runBuilderAgent(
 export async function requestBuilderBrowserConnection(
   args: BrowserConnectionArgs,
 ): Promise<Record<string, unknown>> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder browser access is not configured");
-  }
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:browser:connect",
+  );
 
   const sessionId = args.sessionId?.trim();
   if (!sessionId) {
@@ -2626,9 +2715,11 @@ export async function requestBuilderBrowserConnection(
   }
 
   const url = new URL("/codegen/get-browser-connection", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
-  if (creds.userId) {
-    url.searchParams.set("userId", creds.userId);
+  if (authorization.legacyPublicKey) {
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+  }
+  if (authorization.userId) {
+    url.searchParams.set("userId", authorization.userId);
   }
 
   const response = await fetchBuilderApi(
@@ -2636,7 +2727,7 @@ export async function requestBuilderBrowserConnection(
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
+        Authorization: authorization.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

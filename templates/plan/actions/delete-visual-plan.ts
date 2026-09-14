@@ -64,14 +64,14 @@ function collabPrefixPattern(planId: string) {
 }
 
 function isMissingCollabTableError(error: unknown) {
-  return /no such table|does not exist/i.test(String(error));
+  return /does not exist/i.test(String(error));
 }
 
 async function deletePlanCollabState(planId: string) {
   await deleteCollabState(`plan:${planId}`);
   try {
     await getDbExec().execute({
-      sql: `DELETE FROM _collab_docs WHERE doc_id LIKE ? ESCAPE '!'`,
+      sql: `DELETE FROM _collab_docs WHERE doc_id LIKE $1 ESCAPE '!'`,
       args: [collabPrefixPattern(planId)],
     });
   } catch (error) {

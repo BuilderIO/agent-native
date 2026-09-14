@@ -2,12 +2,16 @@ import type { H3Event } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
+const mockIsLoopbackRequest = vi.fn(() => true);
 const mockGetOrgContext = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
 const mockWriteAppSecret = vi.fn();
+const mockDeleteAppSecret = vi.fn();
+const mockClearProviderCredentialAuthFailure = vi.fn();
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
+  isLoopbackRequest: (...args: any[]) => mockIsLoopbackRequest(...args),
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -16,12 +20,17 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: unknown[]) => mockWriteAppSecret(...args),
-  deleteAppSecret: vi.fn(),
+  deleteAppSecret: (...args: unknown[]) => mockDeleteAppSecret(...args),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
   isBlockedExtensionUrlWithDns: (...args: unknown[]) =>
     mockIsBlockedExtensionUrlWithDns(...args),
+}));
+
+vi.mock("./credential-provider.js", () => ({
+  clearProviderCredentialAuthFailure: (...args: unknown[]) =>
+    mockClearProviderCredentialAuthFailure(...args),
 }));
 
 import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
@@ -152,8 +161,8 @@ describe("agent engine api-key route helpers", () => {
     });
   });
 
-  it("saves the documented local Ollama endpoint in development", async () => {
-    vi.stubEnv("NODE_ENV", "development");
+  it("saves the documented local Ollama endpoint in a local non-production server", async () => {
+    vi.stubEnv("NODE_ENV", "");
     mockIsBlockedExtensionUrlWithDns.mockClear();
     mockWriteAppSecret.mockClear();
     mockGetSession.mockResolvedValue({ email: "alice@example.test" });
@@ -187,6 +196,32 @@ describe("agent engine api-key route helpers", () => {
     });
     expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
     vi.stubEnv("NODE_ENV", "test");
+  });
+
+  it("rejects a local Ollama endpoint from a non-loopback request", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    mockIsLoopbackRequest.mockReturnValueOnce(false);
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValueOnce(true);
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+
+    const event = {
+      req: new Request("http://example.test/_agent-native/agent-engine-key", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "ollama",
+          baseUrl: "http://localhost:11434",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      error:
+        "Endpoint URL resolves to a private/internal address — SSRF not allowed.",
+    });
   });
 
   it("rejects endpoint URLs for providers without endpoint support", () => {

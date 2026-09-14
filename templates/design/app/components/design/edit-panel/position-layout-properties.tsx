@@ -3,6 +3,7 @@ import {
   composeTransform3D,
   isTransform3DActive,
   parseTransform3DParts,
+  quantizeToStep,
   type Transform3DParts,
 } from "@shared/canvas-math";
 import {
@@ -65,7 +66,6 @@ import {
   PanelSection,
   SubsectionLabel,
 } from "./panel-primitives";
-import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
@@ -113,8 +113,10 @@ function geometryPercent(value: number, total: number): string {
   return `${Number(((value / total) * 100).toFixed(6))}%`;
 }
 
+/** Whole px: every value through here is a coordinate or box edge derived from
+ *  a bounding rect, and its subpixel is never something anyone chose. */
 function geometryPx(value: number): string {
-  return `${Number(value.toFixed(3))}px`;
+  return `${quantizeToStep(value)}px`;
 }
 
 /** Once the bridge supplies an inline-style snapshot, absence is meaningful:
@@ -322,6 +324,7 @@ export function PositionLayoutProperties({
   onStyleChange,
   onStylesChange,
   onAlignSelection,
+  alignSelectionDisabled = false,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -340,6 +343,8 @@ export function PositionLayoutProperties({
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
+  /** True when `onAlignSelection` would refuse this selection. */
+  alignSelectionDisabled?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -350,6 +355,7 @@ export function PositionLayoutProperties({
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
+  const alignmentDisabled = alignSelectionDisabled || !onAlignSelection;
   // NOTE: this row used to also write flex alignment (justifyContent/
   // alignItems) on the selected element when it was a flex container —
   // i.e. it aligned the element's own children. That duplicated exactly
@@ -439,22 +445,25 @@ export function PositionLayoutProperties({
           left={
             <InspectorSegment className="w-full">
               <InspectorIconButton
-                label={t("editPanel.textAligns.left")}
+                label={t("editPanel.positionAligns.left")}
                 shortcut={shortcut("alt+a")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignH("left")}
               >
                 <IconLayoutAlignLeft className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.textAligns.center")}
+                label={t("editPanel.positionAligns.centerHorizontal")}
                 shortcut={shortcut("alt+h")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignH("center")}
               >
                 <IconLayoutAlignCenter className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.textAligns.right")}
+                label={t("editPanel.positionAligns.right")}
                 shortcut={shortcut("alt+d")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignH("right")}
               >
                 <IconLayoutAlignRight className="size-3.5" />
@@ -464,22 +473,25 @@ export function PositionLayoutProperties({
           right={
             <InspectorSegment className="w-full">
               <InspectorIconButton
-                label={t("editPanel.alignSelfOptions.start")}
+                label={t("editPanel.positionAligns.top")}
                 shortcut={shortcut("alt+w")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignV("top")}
               >
                 <IconLayoutAlignTop className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.alignSelfOptions.center")}
+                label={t("editPanel.positionAligns.centerVertical")}
                 shortcut={shortcut("alt+v")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignV("middle")}
               >
                 <IconLayoutAlignMiddle className="size-3.5" />
               </InspectorIconButton>
               <InspectorIconButton
-                label={t("editPanel.alignSelfOptions.end")}
+                label={t("editPanel.positionAligns.bottom")}
                 shortcut={shortcut("alt+s")}
+                disabled={alignmentDisabled}
                 onClick={() => handlePositionAlignV("bottom")}
               >
                 <IconLayoutAlignBottom className="size-3.5" />
@@ -500,6 +512,7 @@ export function PositionLayoutProperties({
               label="X"
               ariaLabel="X-position"
               tooltipLabel="X-position"
+              precision={0}
               value={
                 isMixedValue(authoredLeft)
                   ? MIXED_VALUE
@@ -518,7 +531,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    left: `${roundToOneDecimal(v)}px`,
+                    left: geometryPx(v),
                   },
                   onStyleChange,
                   onStylesChange,
@@ -548,6 +561,7 @@ export function PositionLayoutProperties({
               label="Y"
               ariaLabel="Y-position"
               tooltipLabel="Y-position"
+              precision={0}
               value={
                 isMixedValue(authoredTop)
                   ? MIXED_VALUE
@@ -561,7 +575,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    top: `${roundToOneDecimal(v)}px`,
+                    top: geometryPx(v),
                   },
                   onStyleChange,
                   onStylesChange,

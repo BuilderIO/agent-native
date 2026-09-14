@@ -64,7 +64,18 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionMutation: () => ({
+    isPending: false,
+    mutate: vi.fn(),
+    reset: vi.fn(),
+    error: null,
+  }),
   useChangeVersions: () => 0,
+  useActionQuery: () => ({
+    data: [],
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({

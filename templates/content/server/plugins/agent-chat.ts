@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { A2A_RECEIVER_OWNERSHIP_FLAG } from "../../shared/feature-flags.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -24,11 +23,13 @@ const INJECTED_INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "content",
   durableBackgroundRuns: true,
-  a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
+  selectedA2AReceiverOwnsObjective: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
     externalAgents: { writes: "allowlisted" },
+    instructions:
+      "Find documents with list-documents or search-documents; read one with get-document (pull-document for the raw markdown you will edit). Author content yourself and persist it with create-document, or edit-document for a targeted change and update-document for a full replace. For Notion or other provider data use provider-api-catalog → provider-api-docs → provider-api-request instead of guessing endpoints.",
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,

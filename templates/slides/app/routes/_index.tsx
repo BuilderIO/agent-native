@@ -1,4 +1,5 @@
-import Index from "@/pages/Index";
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
 const SEO_TITLE =
   "Slides - Open Source AI presentation builder and Google Slides alternative";
@@ -8,10 +9,7 @@ const SEO_DESCRIPTION =
 export function meta() {
   return [
     { title: SEO_TITLE },
-    {
-      name: "description",
-      content: SEO_DESCRIPTION,
-    },
+    { name: "description", content: SEO_DESCRIPTION },
     { property: "og:title", content: SEO_TITLE },
     { property: "og:description", content: SEO_DESCRIPTION },
     { name: "twitter:card", content: "summary" },
@@ -20,6 +18,19 @@ export function meta() {
   ];
 }
 
-export default function IndexRoute() {
-  return <Index />;
+export default function MarketingHomeRoute() {
+  return (
+    <MarketingHome
+      appName="Slides"
+      tagline="Your AI agent builds, edits, and refines presentations alongside you."
+      description={SEO_DESCRIPTION}
+      valueProps={[
+        "Generate entire decks from a single prompt",
+        "Make surgical slide edits while you present or review",
+        "Collaborate in real time with your agent",
+      ]}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
+  );
 }

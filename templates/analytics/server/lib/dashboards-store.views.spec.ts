@@ -124,10 +124,6 @@ const dashboard = {
 
 const ctx = { email: "alice@example.com", orgId: null };
 
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
-}));
-
 vi.mock("@agent-native/core/server", () => ({
   recordChange: () => undefined,
 }));

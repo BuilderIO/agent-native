@@ -3,6 +3,89 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-12
+
+### Improved
+
+- Inbox tabs are easier to distinguish
+- New-message compose opens in the main workspace by default
+
+### Fixed
+
+- Closing a draft preserves its saved account and backend so recovery actions affect the correct mailbox.
+- Harden draft close recovery and keyboard interaction states
+- Keep mail autocomplete accessibility references valid while suggestions close or filter
+- Mail keeps saved drafts on their owning backend and preserves them through Send Undo and close-all.
+- Saved drafts stay in their original mailbox when reopened, autosaved, or discarded.
+- Send status now follows provider results, undo stays available only before dispatch, and draft-save failures are visible. Closing drafts no longer claims a save is complete before persistence, and deleting a draft targets the draft endpoint.
+
+## 2026-09-11
+
+### Fixed
+
+- Inbox tabs now load from a synced local index: counts match the rows shown, custom label and filter tabs only show unarchived mail, and the inbox stays fast under Gmail rate limits.
+- Inline images in Gmail emails display reliably, including embedded image data
+- Nested Gmail labels now render under their parent labels in the label list.
+- On mobile the sidebar shows a close button instead of a pin control that did nothing.
+- Opening a label no longer fails with a 502 while Gmail is rate limiting; the app now reports the brief pause with a retry time.
+- The inbox tab bar stays on one line and scrolls instead of wrapping.
+
+## 2026-09-10
+
+### Fixed
+
+- Attachments use your connected Builder.io storage in hosted Mail
+- Fixed Google sign-in being blocked with an 'unverified password account' error for workspace users provisioned through cross-app SSO.
+
+## 2026-09-09
+
+### Improved
+
+- Account avatars use a slimmer border.
+
+### Fixed
+
+- Select the first top label by default on open, cycle labels with Tab from anywhere, and eliminate skeleton flicker on label change
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Mail renders Gmail signature email and social links correctly
+
+## 2026-09-04
+
+### Fixed
+
+- Mail sidebar remains toggleable while agent chat is open.
+
+## 2026-09-03
+
+### Improved
+
+- Faster Mail screen previews
+- Mail keeps Gmail labels and agent-created drafts in sync with the inbox.
+
+### Fixed
+
+- Mail filters exclude archived messages, Tab navigation no longer reloads the page, and inbox tabs open faster.
+
+## 2026-09-02
+
+### Improved
+
+- Mail now links pasted URLs, offers a combined inbox, and restores recipient contact autocomplete.
+
+## 2026-08-28
+
+### Fixed
+
+- Mail Settings now shows scheduled automations created from Mail chat.
+
 ## 2026-08-22
 
 ### Improved

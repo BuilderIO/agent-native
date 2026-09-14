@@ -3,6 +3,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
@@ -526,6 +527,7 @@ export function ReplayStorageHint({
   const builderStatus = useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
     popupUrl: builderStatus.status?.connectUrl,
+    provisionAccount: true,
     trackingSource: "analytics_sessions_storage_hint",
     trackingFlow: "replay_storage",
     onConnected: async () => {
@@ -601,31 +603,27 @@ export function ReplayStorageHint({
             </div>
           ) : null}
           <div className="flex max-w-full flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              size="sm"
-              className="shrink-0"
-              onClick={() =>
-                builderConnect.start({
-                  trackingSource: "analytics_sessions_storage_hint",
-                  trackingFlow: "replay_storage",
-                })
-              }
-              disabled={
-                builderConnect.connecting ||
-                builderStatusLoading ||
-                builderConnected
-              }
-            >
-              {builderConnect.connecting ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : builderConnected ? (
-                <IconCheck className="h-4 w-4" />
-              ) : null}
-              {builderConnected
-                ? t("sessions.storageConnected")
-                : t("sessions.connectBuilder")}
-            </Button>
+            <BuilderConnectPopover flow={builderConnect}>
+              <Button
+                type="button"
+                size="sm"
+                className="shrink-0"
+                disabled={
+                  builderConnect.connecting ||
+                  builderStatusLoading ||
+                  builderConnected
+                }
+              >
+                {builderConnect.connecting ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                ) : builderConnected ? (
+                  <IconCheck className="h-4 w-4" />
+                ) : null}
+                {builderConnected
+                  ? t("sessions.storageConnected")
+                  : t("sessions.connectBuilder")}
+              </Button>
+            </BuilderConnectPopover>
             <CollapsibleTrigger asChild>
               <Button type="button" variant="ghost" size="sm">
                 <IconServer className="h-3.5 w-3.5" />

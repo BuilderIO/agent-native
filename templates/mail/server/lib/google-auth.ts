@@ -20,6 +20,7 @@ import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   createOAuth2Client,
+  GmailQuotaCooldownError,
   gmailGetProfile,
   gmailGetMessage,
   gmailGetThread,
@@ -138,40 +139,28 @@ const PERMANENT_REFRESH_ERRORS = [
   "invalid_client",
 ];
 
-function isPermanentRefreshError(message: string): boolean {
+export function isPermanentRefreshError(message: string): boolean {
   const m = message.toLowerCase();
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
-async function getValidAccessToken(
+// Single-flight refresh per stored token row. Concurrent callers for the same
+// account (labels, emails, settings, google-status all fire on mount) must
+// await one in-flight `oauth2.refreshToken` instead of each racing their own
+// — the loser's write would otherwise stomp the winner's via last-writer-wins
+// `saveOAuthTokens`, silently dropping the account for that caller. Keyed by
+// accountId alone: within provider "google" a row is uniquely identified by
+// accountId (saveOAuthTokens/deleteOAuthTokens resolve owner from the
+// existing row when omitted), and some callers (getAuthStatus) don't pass an
+// owner — keying on owner too would split the exact concurrent callers this
+// exists to coalesce.
+const refreshInflight = new Map<string, Promise<string>>();
+
+async function refreshAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
 ): Promise<string> {
-  if (!tokens.access_token && !tokens.refresh_token) {
-    // The stored record has no usable credentials at all — typically a row
-    // that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
-    // BETTER_AUTH_SECRET rotation (core's parseStoredTokens returns `{}`
-    // instead of throwing). Unlike the missing-refresh-token path below, do
-    // NOT delete the row: a failed decrypt can also mean THIS process holds
-    // the wrong key (e.g. a dev server sharing a prod DB), and deleting
-    // would destroy tokens a correctly configured deployment can still
-    // decrypt. Throw so callers surface a reconnect instead of retrying.
-    throw new Error(
-      `No usable OAuth tokens for ${accountId} — please reconnect.`,
-    );
-  }
-
-  // If token is not expired (with 5-minute buffer), return it directly
-  if (
-    tokens.expiry_date &&
-    tokens.access_token &&
-    Date.now() < tokens.expiry_date - 5 * 60 * 1000
-  ) {
-    return tokens.access_token;
-  }
-
-  // Token is expired or about to expire — refresh it
   if (!tokens.refresh_token) {
     // No refresh_token means we can never recover this account; drop it so
     // the UI prompts a reconnect instead of showing a permanently-broken row.
@@ -182,8 +171,7 @@ async function getValidAccessToken(
   }
 
   const { clientId, clientSecret } = await getOAuth2Credentials(owner);
-  const redirectUri = "http://localhost:8080/_agent-native/google/callback";
-  const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
+  const oauth2 = createOAuth2Client(clientId, clientSecret, "");
   let refreshed;
   try {
     refreshed = await oauth2.refreshToken(tokens.refresh_token);
@@ -226,6 +214,46 @@ async function getValidAccessToken(
   return refreshed.access_token;
 }
 
+async function getValidAccessToken(
+  accountId: string,
+  tokens: GoogleTokens,
+  owner?: string,
+): Promise<string> {
+  if (!tokens.access_token && !tokens.refresh_token) {
+    // The stored record has no usable credentials at all — typically a row
+    // that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
+    // BETTER_AUTH_SECRET rotation (core's parseStoredTokens returns `{}`
+    // instead of throwing). Unlike the missing-refresh-token path below, do
+    // NOT delete the row: a failed decrypt can also mean THIS process holds
+    // the wrong key (e.g. a dev server sharing a prod DB), and deleting
+    // would destroy tokens a correctly configured deployment can still
+    // decrypt. Throw so callers surface a reconnect instead of retrying.
+    throw new Error(
+      `No usable OAuth tokens for ${accountId} — please reconnect.`,
+    );
+  }
+
+  // If token is not expired (with 5-minute buffer), return it directly
+  if (
+    tokens.expiry_date &&
+    tokens.access_token &&
+    Date.now() < tokens.expiry_date - 5 * 60 * 1000
+  ) {
+    return tokens.access_token;
+  }
+
+  // Token is expired or about to expire — refresh it, coalescing concurrent
+  // callers onto one in-flight refresh.
+  const existing = refreshInflight.get(accountId);
+  if (existing) return existing;
+
+  const promise = refreshAccessToken(accountId, tokens, owner).finally(() => {
+    refreshInflight.delete(accountId);
+  });
+  refreshInflight.set(accountId, promise);
+  return promise;
+}
+
 export async function getAuthUrl(
   origin?: string,
   redirectUri?: string,
@@ -235,9 +263,8 @@ export async function getAuthUrl(
   const { clientId, clientSecret } = await getOAuth2Credentials(owner);
   const uri =
     redirectUri ||
-    (origin
-      ? `${origin}/_agent-native/google/callback`
-      : "http://localhost:8080/_agent-native/google/callback");
+    (origin ? `${origin}/_agent-native/google/callback` : undefined);
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     access_type: "offline",
@@ -288,9 +315,8 @@ export async function exchangeCode(
   const { clientId, clientSecret } = await getOAuth2Credentials(owner);
   const uri =
     redirectUri ||
-    (origin
-      ? `${origin}/_agent-native/google/callback`
-      : "http://localhost:8080/_agent-native/google/callback");
+    (origin ? `${origin}/_agent-native/google/callback` : undefined);
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokenResponse = await oauth2.getToken(code);
 
@@ -392,6 +418,31 @@ export async function getClientFromAccount(account: {
 }
 
 /**
+ * Resolve a client for one of an owner's connected Gmail accounts —
+ * `getConnectedAccounts`' per-account counterpart. `getClientForAccount`
+ * only searches per-user OAuth rows, so a managed-only owner (no OAuth row;
+ * connected only via the workspace's shared Gmail grant) got "not
+ * connected" from every caller that resolved credentials that way. Falls
+ * back to the managed client when its email matches `accountEmail`
+ * (case-insensitive, since Google account ids are not guaranteed to be
+ * stored with consistent casing everywhere they're typed in).
+ */
+export async function getClientForConnectedAccount(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<{ accessToken: string; email: string } | null> {
+  const oauthClient = await getClientForAccount(accountEmail);
+  if (oauthClient) return oauthClient;
+  const managed = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+    resolveManagedGmailClient(),
+  );
+  if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
+    return { accessToken: managed.accessToken, email: managed.email };
+  }
+  return null;
+}
+
+/**
  * Get OAuth credentials. When `forEmail` is provided, returns only that
  * user's credentials (multi-user mode). Otherwise returns an empty array.
  *
@@ -445,37 +496,55 @@ export async function getClientsWithErrors(
   }> = [];
   const errors: Array<{ email: string; error: string }> = [];
 
-  for (const account of accounts) {
-    const tokens = account.tokens as unknown as GoogleTokens;
-    if (!tokens) continue;
+  // Refresh accounts in parallel rather than one at a time — sequential
+  // refreshes add seconds (one Google round-trip per account) to a request
+  // that already risks the Lambda timeout. getValidAccessToken's single-flight
+  // map still coalesces this with any concurrent caller refreshing the same
+  // account. Each account keeps its own try/catch, and results are applied
+  // in `accounts` order so `clients` ordering is unaffected by which refresh
+  // finishes first.
+  const results = await Promise.all(
+    accounts.map(async (account) => {
+      const tokens = account.tokens as unknown as GoogleTokens;
+      if (!tokens) return null;
 
-    const accountId = account.accountId;
-    // Preserve the stored owner on token refresh to avoid ownership conflicts
-    const ownerForRefresh: string =
-      forEmail ??
-      ("owner" in account && typeof account.owner === "string"
-        ? account.owner
-        : undefined) ??
-      accountId;
+      const accountId = account.accountId;
+      // Preserve the stored owner on token refresh to avoid ownership conflicts
+      const ownerForRefresh: string =
+        forEmail ??
+        ("owner" in account && typeof account.owner === "string"
+          ? account.owner
+          : undefined) ??
+        accountId;
 
-    try {
-      const accessToken = await getValidAccessToken(
-        accountId,
-        tokens,
-        ownerForRefresh,
-      );
+      try {
+        const accessToken = await getValidAccessToken(
+          accountId,
+          tokens,
+          ownerForRefresh,
+        );
+        return {
+          client: {
+            email: accountId,
+            accessToken,
+            refreshToken: tokens.refresh_token || "",
+          },
+        };
+      } catch (err: any) {
+        return {
+          error: {
+            email: accountId,
+            error: err?.message || "Unknown refresh error",
+          },
+        };
+      }
+    }),
+  );
 
-      clients.push({
-        email: accountId,
-        accessToken,
-        refreshToken: tokens.refresh_token || "",
-      });
-    } catch (err: any) {
-      errors.push({
-        email: accountId,
-        error: err?.message || "Unknown refresh error",
-      });
-    }
+  for (const result of results) {
+    if (!result) continue;
+    if (result.client) clients.push(result.client);
+    else if (result.error) errors.push(result.error);
   }
 
   if (clients.length === 0) {
@@ -627,7 +696,18 @@ export async function disconnect(email?: string): Promise<void> {
 // four identical requests within a second. This layer absorbs those.
 type ListResult = {
   messages: any[];
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{
+    email: string;
+    error: string;
+    /**
+     * Set only when `error` came from a GmailQuotaCooldownError. Callers
+     * must branch on this flag, not on the message text — the text is
+     * deliberately jargon-free for the agent and will never contain
+     * "quota"/"429"/etc. for a regex to match.
+     */
+    isQuotaError?: boolean;
+    retryAfterMs?: number;
+  }>;
   nextPageTokens?: Record<string, string>;
   resultSizeEstimate?: number;
 };
@@ -1715,7 +1795,13 @@ async function listGmailMessagesUncached(
           `[listGmailMessages] Error fetching from ${email}:`,
           error.message,
         );
-        errors.push({ email, error: error.message });
+        errors.push({
+          email,
+          error: error.message,
+          ...(error instanceof GmailQuotaCooldownError
+            ? { isQuotaError: true, retryAfterMs: error.retryAfterMs }
+            : {}),
+        });
         return [];
       }
     }),
@@ -1729,7 +1815,7 @@ async function listGmailMessagesUncached(
   };
 }
 
-function getHeader(
+export function getHeader(
   headers: Array<{ name?: string | null; value?: string | null }> | undefined,
   name: string,
 ): string {
@@ -1739,15 +1825,69 @@ function getHeader(
   );
 }
 
-function parseEmailAddress(raw: string): { name: string; email: string } {
+export function parseEmailAddress(raw: string): {
+  name: string;
+  email: string;
+} {
   const match = raw.match(/^(.+?)\s*<(.+?)>$/);
-  if (match) return { name: match[1].trim(), email: match[2].trim() };
+  if (match) {
+    const name = match[1].trim();
+    return {
+      name:
+        name.startsWith('"') && name.endsWith('"')
+          ? name.slice(1, -1).replace(/\\"/g, '"')
+          : name,
+      email: match[2].trim(),
+    };
+  }
   return { name: raw, email: raw };
 }
 
-function parseAddressList(raw: string): Array<{ name: string; email: string }> {
+function splitAddressList(raw: string): string[] {
+  const addresses: string[] = [];
+  let start = 0;
+  let inQuotes = false;
+  let inAngleBrackets = false;
+  let escaped = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && inQuotes) {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && character === "<") {
+      inAngleBrackets = true;
+      continue;
+    }
+    if (!inQuotes && character === ">") {
+      inAngleBrackets = false;
+      continue;
+    }
+    if (!inQuotes && !inAngleBrackets && character === ",") {
+      addresses.push(raw.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+
+  const last = raw.slice(start).trim();
+  if (last) addresses.push(last);
+  return addresses;
+}
+
+export function parseAddressList(
+  raw: string,
+): Array<{ name: string; email: string }> {
   if (!raw) return [];
-  return raw.split(",").map((a) => parseEmailAddress(a.trim()));
+  return splitAddressList(raw).map(parseEmailAddress);
 }
 
 function getBody(payload: any): string {
@@ -1791,21 +1931,28 @@ function getBodyHtml(payload: any): string | undefined {
   return undefined;
 }
 
-/** Build a map of Content-ID -> attachmentId from inline parts */
+/** Build a map of Content-ID to attachment data or an attachment id. */
 function getInlineAttachments(
   payload: any,
-): Map<string, { attachmentId: string; mimeType: string }> {
-  const map = new Map<string, { attachmentId: string; mimeType: string }>();
+): Map<string, { attachmentId?: string; data?: string; mimeType: string }> {
+  const map = new Map<
+    string,
+    { attachmentId?: string; data?: string; mimeType: string }
+  >();
   function walk(part: any) {
     const headers = part.headers || [];
     const contentId = headers.find(
       (h: any) => h.name.toLowerCase() === "content-id",
     )?.value;
     const attachmentId = part.body?.attachmentId;
-    if (contentId && attachmentId) {
+    const data = part.body?.data;
+    if (contentId && (attachmentId || data)) {
       // Strip angle brackets: <image001> -> image001
-      const cid = contentId.replace(/^<|>$/g, "");
-      map.set(cid, { attachmentId, mimeType: part.mimeType || "image/png" });
+      const cid = contentId.trim().replace(/^<|>$/g, "");
+      map.set(cid, {
+        ...(attachmentId ? { attachmentId } : { data }),
+        mimeType: part.mimeType || "image/png",
+      });
     }
     if (part.parts) {
       for (const p of part.parts) walk(p);
@@ -1819,13 +1966,27 @@ function getInlineAttachments(
 function replaceCidUrls(
   html: string,
   messageId: string,
-  inlineAttachments: Map<string, { attachmentId: string; mimeType: string }>,
+  inlineAttachments: Map<
+    string,
+    { attachmentId?: string; data?: string; mimeType: string }
+  >,
 ): string {
   if (inlineAttachments.size === 0) return html;
   return html.replace(/\bcid:([^\s"'<>]+)/g, (_match, cid) => {
-    const att = inlineAttachments.get(cid);
+    let decodedCid = cid;
+    try {
+      decodedCid = decodeURIComponent(cid);
+    } catch {
+      // coercion-ok: malformed CID escaping stays unresolved and visible.
+    }
+    const att = inlineAttachments.get(decodedCid) || inlineAttachments.get(cid);
     if (att) {
-      return `/api/attachments?messageId=${encodeURIComponent(messageId)}&id=${encodeURIComponent(att.attachmentId)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+      if (att.attachmentId) {
+        return `/api/attachments?messageId=${encodeURIComponent(messageId)}&id=${encodeURIComponent(att.attachmentId)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+      }
+      if (att.data) {
+        return `data:${att.mimeType};base64,${Buffer.from(att.data, "base64url").toString("base64")}`;
+      }
     }
     return _match;
   });
@@ -1967,7 +2128,13 @@ async function getDefaultOwnedAccountAccessToken(
       (candidate) =>
         candidate.accountId.toLowerCase() === ownerEmail.toLowerCase(),
     ) ?? accounts[0];
-  if (!account) throw new Error("No Google account connected");
+  if (!account) {
+    // No per-user OAuth row at all — a managed-only owner has no accounts
+    // here by design (see resolveManagedGmailClient).
+    const managed = await resolveManagedGmailClient();
+    if (managed) return managed.accessToken;
+    throw new Error("No Google account connected");
+  }
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens?.access_token && !tokens?.refresh_token) {
     throw new Error(`No valid access token for ${account.accountId}`);
@@ -1987,6 +2154,10 @@ async function getOwnedAccountAccessToken(
       candidate.accountId.toLowerCase() === accountEmail.toLowerCase(),
   );
   if (!account) {
+    const managed = await resolveManagedGmailClient();
+    if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
+      return managed.accessToken;
+    }
     throw new Error(`Account ${accountEmail} is not connected for this user`);
   }
   const tokens = account.tokens as unknown as GoogleTokens;

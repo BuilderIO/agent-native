@@ -33,12 +33,6 @@
     },
     "plugins": [
       [
-        "expo-router",
-        {
-          "sitemap": false
-        }
-      ],
-      [
         "expo-splash-screen",
         {
           "backgroundColor": "#000000",
@@ -103,7 +97,6 @@
       "./plugins/with-gradle-properties"
     ],
     "extra": {
-      "router": {},
       "eas": {
         "projectId": "b359544d-d83a-4384-8837-d87c02facba6"
       }

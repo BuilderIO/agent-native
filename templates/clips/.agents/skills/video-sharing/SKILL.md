@@ -197,7 +197,7 @@ video bytes:
 | Endpoint                                          | Meaning                                                                                                      |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
-| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source` |
+| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
@@ -248,6 +248,37 @@ or tokenized share page URL, not raw transcript text. Its "Copy agent prompt"
 field may wrap that URL with instructions to fetch transcripts, frames, and
 browser diagnostics, but it should still point agents at the context response so
 they can fetch only the visual context they need.
+
+HTTP access is the default browser-independent path: fetch the agent context
+URL and then use its advertised transcript and frame URLs. It works for
+URL-only clients without loading the share page.
+
+When a `/share/:id`, `/embed/:id`, or public `/r/:id` page is open in a
+WebMCP-capable browser, the page also registers these read-only tools:
+
+| WebMCP tool | Purpose |
+| --- | --- |
+| `clips-get-context` | Clip metadata, readiness, transcript status, and HTTP API URLs |
+| `clips-get-transcript` | Bounded timestamped segments, with optional time bounds and stable-index pagination; may omit fullText |
+| `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
+
+For any client, fetch the agent context URL and use its HTTP API URLs. For
+complete transcript text, use `apis.transcript`. If the page is already open
+in a WebMCP-capable browser, list its current page tools and use them for
+bounded inspection; `clips-get-transcript` may omit `fullText` or return a
+truncated result, so follow its `sourceUrl` for the complete HTTP transcript.
+The transcript tool returns `nextStartIndex` when another page exists; pass
+that value back as `startIndex` so overlapping transcript segments are not
+skipped.
+The URL endpoint accepts the same `startIndex`, `maxSegments`, `startMs`, and
+`endMs` parameters, and keeps `nextStartMs` for older clients. The frame tool
+returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image
+rather than expecting WebMCP to carry binary bytes. WebMCP is optional
+progressive enhancement and page-local. HTTP access remains first-class and
+browser-independent: use the existing `agentContextUrl`, `apis.transcript`,
+and `apis.frame` URLs above. These URLs, password handling, scoped
+`agent_access` tokens, and legacy `t` token support remain the primary URL
+contract.
 
 ## View counting
 

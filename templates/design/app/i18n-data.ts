@@ -1,4 +1,4 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { breakpointBarOverrides } from "./i18n-breakpoints";
@@ -41,6 +41,11 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
+    labs: "Labs",
+    labsIntro:
+      "These are new, unstable features and may have bugs. We value your feedback.",
+    labTweaks: "Design tweaks",
+    labTweaksDescription: "Try AI-powered design tweaks.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -85,6 +90,7 @@ const enUS = {
   },
   editPanel: {
     colorInputLabel: "color",
+    repeatAffectsAll: "Affects all {{count}} copies",
     properties: "Properties",
     pageHelpTitle: "Click any element on the canvas",
     pageHelpDescription:
@@ -95,6 +101,7 @@ const enUS = {
       typography: "Typography",
       autoLayout: "Auto layout",
       positionLayout: "Position",
+      layoutGrid: "Layout grid",
       flexLayout: "Flex Layout",
       layout: "Layout",
       spacing: "Spacing",
@@ -152,6 +159,10 @@ const enUS = {
       removeLayer: "Remove layer",
       showLayer: "Show layer",
       hideLayer: "Hide layer",
+      addGrid: "Add grid",
+      removeGrid: "Remove grid",
+      showGrid: "Show grid",
+      hideGrid: "Hide grid",
       reorderLayer: "Reorder layer",
       stylesComingSoon: "Styles — Coming soon",
       linkSides: "Link sides",
@@ -301,6 +312,14 @@ const enUS = {
       right: "Right",
       justify: "Justify",
     },
+    positionAligns: {
+      left: "Align left",
+      centerHorizontal: "Align horizontal centers",
+      right: "Align right",
+      top: "Align top",
+      centerVertical: "Align vertical centers",
+      bottom: "Align bottom",
+    },
     textDecorations: {
       underline: "Underline",
       strikethrough: "Strikethrough",
@@ -360,6 +379,15 @@ const enUS = {
       absolute: "Absolute",
       fixed: "Fixed",
       sticky: "Sticky",
+    },
+    screenSource: {
+      title: "Source",
+      url: "URL",
+      urlLabel: "Screen URL",
+      urlPlaceholder: "/plans or http://localhost:5173/plans",
+      update: "Update",
+      chooseLocalApp: "Choose local app",
+      remove: "Remove screen",
     },
     borderStyleOptions: {
       none: "None",
@@ -648,6 +676,9 @@ const enUS = {
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
         "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
+      quotaCooldownTitle: "Design paused this import",
+      quotaCooldownBody:
+        "Design is pacing its own Figma requests after hitting a quota limit. This resets automatically.",
       rateLimitTitle: "Figma paused this import",
       rateLimitLowSeat:
         "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
@@ -709,7 +740,7 @@ const enUS = {
     templateSnapshotSummary:
       "{{screens}} screen(s) · {{locks}} locked layer(s) will be preserved",
     saveTemplate: "Save template",
-    templateSaved: "Template saved with {{count}} locked layer(s)",
+    templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
@@ -837,8 +868,12 @@ const enUS = {
         previousSibling: "Previous sibling",
         nextScreen: "Next screen",
         previousScreen: "Previous screen",
+        toggleLayoutGrids: "Show/hide layout grids",
         nudge: "Nudge",
-        nudgeLarge: "Nudge by 10",
+        // i18n-copy-ignore: dropped the hardcoded "10" — every locale's value
+        // for this row is built from the already-translated nudgeAmountBig
+        // label in i18n-keyboard-shortcuts.ts, changed in this same diff.
+        nudgeLarge: "Big nudge",
         copy: "Copy",
         copyPng: "Copy as PNG",
         cut: "Cut",
@@ -1035,12 +1070,12 @@ const enUS = {
       modeAuto: "Auto",
       modePreview: "Preview change",
       modeAsk: "Ask agent",
-      modeRegenerate: "Regenerate",
+      modeRegenerate: "Edit with AI", // i18n-copy-ignore: localized node-rewrite CTA overrides live in app/i18n/*.ts and are updated with this source string
       agentModeOptions: "Choose agent behavior",
       pendingReview: "Review changes · {{count}}",
       pendingReviewMenu: "Changes ready to review",
       reviewCandidate: "Review change",
-      regenerate: "Regenerate…",
+      regenerate: "Edit with AI…",
       sending: "Regenerating…",
       sent: "Regeneration request sent",
       sendFailed: "Could not send the regeneration request",
@@ -1084,7 +1119,7 @@ const enUS = {
       pngClipboardBlocked: "Allow clipboard access to copy this PNG",
       pngClipboardWriteError: "Could not copy PNG to the clipboard",
       pngLivePreviewUnavailable:
-        "PNG capture isn't available for URL-backed screens yet",
+        "PNG export is only available in the desktop app right now.",
       pngReadOnlyUnavailable:
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
@@ -1117,6 +1152,9 @@ const enUS = {
       layerMoveRedirected:
         "Moved next to its original spot — the exact drop target isn't editable",
       duplicateElementFailed: "Could not duplicate that element",
+      repeatListNotEditable: "Couldn't update this repeated list",
+      repeatRowPickOnCanvas:
+        "Double-click a row on the canvas to edit its text",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
@@ -1135,6 +1173,8 @@ const enUS = {
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
+      screenSourceUpdated: "Screen source updated",
+      screenSourceUpdateFailed: "Could not update screen source",
     },
   },
   layersPanel: {
@@ -1265,6 +1305,10 @@ const enUS = {
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
     skipPrompt: "Skip prompt",
+    startBlankCanvas: "Start with a blank canvas",
+    startWithAi: "Start with AI",
+    startWithAiHint: "Describe a page and get a first draft to edit.",
+    startBlankCanvasHint: "Draw it yourself with frames, shapes and text.",
     designSystem: "Design system",
     noDesignSystem: "No design system",
     newDesignSystem: "New",
@@ -1399,6 +1443,8 @@ const enUS = {
     untitledDesign: "Untitled Design",
     createFirstDesign: "Create your first design",
     pickStartingPoint: "Pick a starting point or write your own prompt.",
+    searchNoResultsTitle: "No designs match your search",
+    searchNoResultsDescription: "Try a different search.",
     starterSaas: "SaaS landing page",
     starterDashboard: "Dashboard",
     starterPricing: "Pricing page",
@@ -1559,9 +1605,11 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
-      chooseDesignMd: "Please choose a design.md or design.mdx file.",
-      readDesignMd: "Could not read the design.md file.",
-      designMdTooLarge: "design.md must be 2 MB or smaller.",
+      nameConflict:
+        "A design system with this name already exists. Choose a different name and try again.",
+      chooseDesignMd: "Please choose a Markdown (.md or .mdx) file.",
+      readDesignMd: "Could not read that Markdown file.",
+      designMdTooLarge: "The Markdown file must be 2 MB or smaller.",
       designMdIndex:
         "Could not start design.md indexing. Check your Builder connection.",
       noSources: "Add at least one source before generating a design system.",
@@ -1676,6 +1724,11 @@ const enUS = {
       saving: "Saving...",
       saveChanges: "Save changes",
     },
+    preview: {
+      title: "Preview",
+      description:
+        "This design system is managed by Builder Design System Intelligence. Open the linked project to see the full design system, including all tokens, components, and usage guidance.",
+    },
     tokenPreview: {
       title: "Token preview",
       description:
@@ -1780,6 +1833,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "颜色",
+      repeatAffectsAll: "影响全部 {{count}} 个副本",
       properties: "特性",
       pageHelpTitle: "单击画布上的任意元素",
       pageHelpDescription:
@@ -1849,6 +1903,14 @@ const designLocaleOverrides = {
         center: "中心",
         right: "正确的",
         justify: "证明合法",
+      },
+      positionAligns: {
+        left: "左对齐",
+        centerHorizontal: "水平居中对齐",
+        right: "右对齐",
+        top: "顶部对齐",
+        centerVertical: "垂直居中对齐",
+        bottom: "底部对齐",
       },
       textDecorations: {
         underline: "下划线",
@@ -2046,9 +2108,10 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
-        chooseDesignMd: "请选择 design.md 或 design.mdx 文件。",
-        readDesignMd: "无法读取 design.md 文件。",
-        designMdTooLarge: "design.md 必须不超过 2 MB。",
+        nameConflict: "已存在同名设计系统。请更改名称后重试。",
+        chooseDesignMd: "请选择 Markdown（.md 或 .mdx）文件。",
+        readDesignMd: "无法读取该 Markdown 文件。",
+        designMdTooLarge: "Markdown 文件必须不超过 2 MB。",
         designMdIndex: "无法启动 design.md 索引。请检查 Builder 连接。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
@@ -2162,6 +2225,11 @@ const designLocaleOverrides = {
         saving: "保存...",
         saveChanges: "保存更改",
       },
+      preview: {
+        title: "预览",
+        description:
+          "此设计系统由 Builder 设计系统智能管理。打开关联的项目即可查看完整的设计系统，包括所有令牌、组件和使用指南。",
+      },
       tokenPreview: {
         title: "代币预览",
         description: "当前存储的颜色、类型、间距和资源的快照。",
@@ -2204,6 +2272,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "color",
+      repeatAffectsAll: "Afecta a las {{count}} copias",
       properties: "Propiedades",
       pageHelpTitle: "Haga clic en cualquier elemento del lienzo.",
       pageHelpDescription:
@@ -2273,6 +2342,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Bien",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinear a la izquierda",
+        centerHorizontal: "Centrar horizontalmente",
+        right: "Alinear a la derecha",
+        top: "Alinear arriba",
+        centerVertical: "Centrar verticalmente",
+        bottom: "Alinear abajo",
       },
       textDecorations: {
         underline: "Subrayado",
@@ -2485,9 +2562,12 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
-        chooseDesignMd: "Elija un archivo design.md o design.mdx.",
-        readDesignMd: "No se pudo leer el archivo design.md.",
-        designMdTooLarge: "design.md debe tener un tamaño máximo de 2 MB.",
+        nameConflict:
+          "Ya existe un sistema de diseño con este nombre. Elige otro nombre e inténtalo de nuevo.",
+        chooseDesignMd: "Elija un archivo Markdown (.md o .mdx).",
+        readDesignMd: "No se pudo leer ese archivo Markdown.",
+        designMdTooLarge:
+          "El archivo Markdown debe tener un tamaño máximo de 2 MB.",
         designMdIndex:
           "No se pudo iniciar la indexación de design.md. Comprueba la conexión de Builder.",
         noSources:
@@ -2609,6 +2689,11 @@ const designLocaleOverrides = {
         saving: "Ahorro...",
         saveChanges: "Guardar cambios",
       },
+      preview: {
+        title: "Vista previa",
+        description:
+          "Este sistema de diseño se gestiona con Builder Design System Intelligence. Abre el proyecto vinculado para ver el sistema de diseño completo, incluidos todos los tokens, componentes y guías de uso.",
+      },
       tokenPreview: {
         title: "Vista previa del token",
         description:
@@ -2653,6 +2738,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "couleur",
+      repeatAffectsAll: "Affecte les {{count}} copies",
       properties: "Propriétés",
       pageHelpTitle: "Cliquez sur n'importe quel élément du canevas",
       pageHelpDescription:
@@ -2722,6 +2808,14 @@ const designLocaleOverrides = {
         center: "Centre",
         right: "Droite",
         justify: "Justifier",
+      },
+      positionAligns: {
+        left: "Aligner à gauche",
+        centerHorizontal: "Centrer horizontalement",
+        right: "Aligner à droite",
+        top: "Aligner en haut",
+        centerVertical: "Centrer verticalement",
+        bottom: "Aligner en bas",
       },
       textDecorations: {
         underline: "Souligné",
@@ -2939,9 +3033,11 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
-        chooseDesignMd: "Veuillez choisir un fichier design.md ou design.mdx.",
-        readDesignMd: "Impossible de lire le fichier design.md.",
-        designMdTooLarge: "design.md doit faire 2 Mo ou moins.",
+        nameConflict:
+          "Un système de design porte déjà ce nom. Choisissez un autre nom, puis réessayez.",
+        chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
+        readDesignMd: "Impossible de lire ce fichier Markdown.",
+        designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
         designMdIndex:
           "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
         noSources:
@@ -3063,6 +3159,11 @@ const designLocaleOverrides = {
         saving: "Économie...",
         saveChanges: "Enregistrer les modifications",
       },
+      preview: {
+        title: "Aperçu",
+        description:
+          "Ce système de conception est géré par Builder Design System Intelligence. Ouvrez le projet associé pour voir le système de conception complet, y compris tous les jetons, composants et conseils d’utilisation.",
+      },
       tokenPreview: {
         title: "Aperçu du jeton",
         description:
@@ -3107,6 +3208,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "Farbe",
+      repeatAffectsAll: "Betrifft alle {{count}} Kopien",
       properties: "Eigenschaften",
       pageHelpTitle: "Klicken Sie auf ein beliebiges Element auf der Leinwand",
       pageHelpDescription:
@@ -3176,6 +3278,14 @@ const designLocaleOverrides = {
         center: "Center",
         right: "Rechts",
         justify: "Rechtfertigen",
+      },
+      positionAligns: {
+        left: "Links ausrichten",
+        centerHorizontal: "Horizontal zentrieren",
+        right: "Rechts ausrichten",
+        top: "Oben ausrichten",
+        centerVertical: "Vertikal zentrieren",
+        bottom: "Unten ausrichten",
       },
       textDecorations: {
         underline: "Unterstrichen",
@@ -3394,9 +3504,11 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
-        chooseDesignMd: "Wählen Sie eine design.md- oder design.mdx-Datei aus.",
-        readDesignMd: "Die design.md-Datei konnte nicht gelesen werden.",
-        designMdTooLarge: "design.md darf höchstens 2 MB groß sein.",
+        nameConflict:
+          "Ein Designsystem mit diesem Namen existiert bereits. Wähle einen anderen Namen und versuche es erneut.",
+        chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
+        readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
+        designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
         designMdIndex:
           "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
         noSources:
@@ -3517,6 +3629,11 @@ const designLocaleOverrides = {
         saving: "Sparen...",
         saveChanges: "Änderungen speichern",
       },
+      preview: {
+        title: "Vorschau",
+        description:
+          "Dieses Designsystem wird von Builder Design System Intelligence verwaltet. Öffnen Sie das verknüpfte Projekt, um das vollständige Designsystem einzusehen, einschließlich aller Tokens, Komponenten und Nutzungshinweise.",
+      },
       tokenPreview: {
         title: "Token-Vorschau",
         description:
@@ -3561,6 +3678,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "色",
+      repeatAffectsAll: "{{count}} 件すべてのコピーに適用されます",
       properties: "プロパティ",
       pageHelpTitle: "キャンバス上の任意の要素をクリックします",
       pageHelpDescription:
@@ -3630,6 +3748,14 @@ const designLocaleOverrides = {
         center: "中心",
         right: "右",
         justify: "正当化する",
+      },
+      positionAligns: {
+        left: "左揃え",
+        centerHorizontal: "左右中央揃え",
+        right: "右揃え",
+        top: "上揃え",
+        centerVertical: "上下中央揃え",
+        bottom: "下揃え",
       },
       textDecorations: {
         underline: "下線",
@@ -3845,10 +3971,12 @@ const designLocaleOverrides = {
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
+        nameConflict:
+          "この名前のデザインシステムは既に存在します。別の名前に変更して再試行してください。",
         chooseDesignMd:
-          "design.md または design.mdx ファイルを選択してください。",
-        readDesignMd: "design.md ファイルを読み込めませんでした。",
-        designMdTooLarge: "design.md は 2 MB 以下にしてください。",
+          "Markdown（.md または .mdx）ファイルを選択してください。",
+        readDesignMd: "その Markdown ファイルを読み込めませんでした。",
+        designMdTooLarge: "Markdown ファイルは 2 MB 以下にしてください。",
         designMdIndex:
           "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
         noSources:
@@ -3966,6 +4094,11 @@ const designLocaleOverrides = {
         saving: "保存中...",
         saveChanges: "変更を保存する",
       },
+      preview: {
+        title: "プレビュー",
+        description:
+          "このデザインシステムは Builder Design System Intelligence によって管理されています。リンクされたプロジェクトを開くと、すべてのトークン、コンポーネント、使用ガイダンスを含む完全なデザインシステムを確認できます。",
+      },
       tokenPreview: {
         title: "トークンのプレビュー",
         description:
@@ -4010,6 +4143,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "색상",
+      repeatAffectsAll: "{{count}}개 사본 모두에 적용됩니다",
       properties: "속성",
       pageHelpTitle: "캔버스의 아무 요소나 클릭하세요.",
       pageHelpDescription:
@@ -4079,6 +4213,14 @@ const designLocaleOverrides = {
         center: "센터",
         right: "오른쪽",
         justify: "신이 옳다고 하다",
+      },
+      positionAligns: {
+        left: "왼쪽 정렬",
+        centerHorizontal: "가로 가운데 정렬",
+        right: "오른쪽 정렬",
+        top: "위쪽 정렬",
+        centerVertical: "세로 가운데 정렬",
+        bottom: "아래쪽 정렬",
       },
       textDecorations: {
         underline: "밑줄",
@@ -4289,9 +4431,11 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
-        chooseDesignMd: "design.md 또는 design.mdx 파일을 선택하세요.",
-        readDesignMd: "design.md 파일을 읽을 수 없습니다.",
-        designMdTooLarge: "design.md 파일은 2MB 이하여야 합니다.",
+        nameConflict:
+          "이 이름의 디자인 시스템이 이미 있습니다. 다른 이름으로 변경한 뒤 다시 시도하세요.",
+        chooseDesignMd: "Markdown(.md 또는 .mdx) 파일을 선택하세요.",
+        readDesignMd: "해당 Markdown 파일을 읽을 수 없습니다.",
+        designMdTooLarge: "Markdown 파일은 2MB 이하여야 합니다.",
         designMdIndex:
           "design.md 인덱싱을 시작할 수 없습니다. Builder 연결을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
@@ -4408,6 +4552,11 @@ const designLocaleOverrides = {
         saving: "절약...",
         saveChanges: "변경사항 저장",
       },
+      preview: {
+        title: "미리보기",
+        description:
+          "이 디자인 시스템은 Builder Design System Intelligence에서 관리합니다. 연결된 프로젝트를 열어 모든 토큰, 구성 요소 및 사용 가이드를 포함한 전체 디자인 시스템을 확인하세요.",
+      },
       tokenPreview: {
         title: "토큰 미리보기",
         description: "현재 저장된 색상, 유형, 간격 및 자산의 스냅샷입니다.",
@@ -4451,6 +4600,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "cor",
+      repeatAffectsAll: "Afeta todas as {{count}} cópias",
       properties: "Propriedades",
       pageHelpTitle: "Clique em qualquer elemento na tela",
       pageHelpDescription:
@@ -4520,6 +4670,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Certo",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinhar à esquerda",
+        centerHorizontal: "Centralizar horizontalmente",
+        right: "Alinhar à direita",
+        top: "Alinhar acima",
+        centerVertical: "Centralizar verticalmente",
+        bottom: "Alinhar abaixo",
       },
       textDecorations: {
         underline: "Sublinhado",
@@ -4733,9 +4891,11 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
-        chooseDesignMd: "Escolha um arquivo design.md ou design.mdx.",
-        readDesignMd: "Não foi possível ler o arquivo design.md.",
-        designMdTooLarge: "design.md deve ter no máximo 2 MB.",
+        nameConflict:
+          "Já existe um sistema de design com esse nome. Escolha outro nome e tente novamente.",
+        chooseDesignMd: "Escolha um arquivo Markdown (.md ou .mdx).",
+        readDesignMd: "Não foi possível ler esse arquivo Markdown.",
+        designMdTooLarge: "O arquivo Markdown deve ter no máximo 2 MB.",
         designMdIndex:
           "Não foi possível iniciar a indexação do design.md. Verifique a conexão do Builder.",
         noSources:
@@ -4856,6 +5016,11 @@ const designLocaleOverrides = {
         saving: "Salvando...",
         saveChanges: "Salvar alterações",
       },
+      preview: {
+        title: "Visualização",
+        description:
+          "Este sistema de design é gerenciado pelo Builder Design System Intelligence. Abra o projeto vinculado para ver o sistema de design completo, incluindo todos os tokens, componentes e diretrizes de uso.",
+      },
       tokenPreview: {
         title: "Visualização do token",
         description:
@@ -4900,6 +5065,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "रंग",
+      repeatAffectsAll: "सभी {{count}} प्रतियों पर लागू होता है",
       properties: "गुण",
       pageHelpTitle: "कैनवास पर किसी भी तत्व पर क्लिक करें",
       pageHelpDescription:
@@ -4969,6 +5135,14 @@ const designLocaleOverrides = {
         center: "केंद्र",
         right: "सही",
         justify: "औचित्य",
+      },
+      positionAligns: {
+        left: "बाएँ संरेखित करें",
+        centerHorizontal: "क्षैतिज रूप से मध्य में संरेखित करें",
+        right: "दाएँ संरेखित करें",
+        top: "ऊपर संरेखित करें",
+        centerVertical: "लंबवत रूप से मध्य में संरेखित करें",
+        bottom: "नीचे संरेखित करें",
       },
       textDecorations: {
         underline: "रेखांकित",
@@ -5175,9 +5349,11 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
-        chooseDesignMd: "कृपया design.md या design.mdx फ़ाइल चुनें।",
-        readDesignMd: "design.md फ़ाइल पढ़ी नहीं जा सकी।",
-        designMdTooLarge: "design.md 2 MB या उससे छोटा होना चाहिए।",
+        nameConflict:
+          "इस नाम का डिज़ाइन सिस्टम पहले से मौजूद है। कोई दूसरा नाम चुनकर फिर कोशिश करें।",
+        chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
+        readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
+        designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
         designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
@@ -5293,6 +5469,11 @@ const designLocaleOverrides = {
         saving: "सहेजा जा रहा है...",
         saveChanges: "परिवर्तनों को सुरक्षित करें",
       },
+      preview: {
+        title: "पूर्वावलोकन",
+        description:
+          "इस डिज़ाइन सिस्टम को Builder डिज़ाइन सिस्टम इंटेलिजेंस द्वारा प्रबंधित किया जाता है। सभी टोकन, घटकों और उपयोग मार्गदर्शन सहित पूरा डिज़ाइन सिस्टम देखने के लिए लिंक की गई परियोजना खोलें।",
+      },
       tokenPreview: {
         title: "टोकन पूर्वावलोकन",
         description:
@@ -5337,6 +5518,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "لون",
+      repeatAffectsAll: "يؤثر على جميع النسخ ({{count}})",
       properties: "ملكيات",
       pageHelpTitle: "انقر فوق أي عنصر على اللوحة القماشية",
       pageHelpDescription:
@@ -5406,6 +5588,14 @@ const designLocaleOverrides = {
         center: "مركز",
         right: "يمين",
         justify: "يبرر",
+      },
+      positionAligns: {
+        left: "محاذاة إلى اليسار",
+        centerHorizontal: "توسيط أفقي",
+        right: "محاذاة إلى اليمين",
+        top: "محاذاة إلى الأعلى",
+        centerVertical: "توسيط رأسي",
+        bottom: "محاذاة إلى الأسفل",
       },
       textDecorations: {
         underline: "تسطير",
@@ -5612,9 +5802,11 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
-        chooseDesignMd: "يرجى اختيار ملف design.md أو design.mdx.",
-        readDesignMd: "تعذر قراءة ملف design.md.",
-        designMdTooLarge: "يجب ألا يتجاوز حجم design.md ‏2 ميغابايت.",
+        nameConflict:
+          "يوجد بالفعل نظام تصميم بهذا الاسم. اختر اسمًا آخر ثم أعد المحاولة.",
+        chooseDesignMd: "يرجى اختيار ملف Markdown (.md أو .mdx).",
+        readDesignMd: "تعذر قراءة ملف Markdown هذا.",
+        designMdTooLarge: "يجب ألا يتجاوز حجم ملف Markdown ‏2 ميغابايت.",
         designMdIndex: "تعذر بدء فهرسة design.md. تحقق من اتصال Builder.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },
@@ -5729,6 +5921,11 @@ const designLocaleOverrides = {
         useAsStartingPoint: "استخدم كنقطة انطلاق",
         saving: "توفير...",
         saveChanges: "حفظ التغييرات",
+      },
+      preview: {
+        title: "معاينة",
+        description:
+          "يتم إدارة نظام التصميم هذا بواسطة Builder Design System Intelligence. افتح المشروع المرتبط لعرض نظام التصميم الكامل، بما في ذلك جميع الرموز والمكونات وإرشادات الاستخدام.",
       },
       tokenPreview: {
         title: "معاينة الرمز المميز",
@@ -5895,6 +6092,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "无标题Design",
       createFirstDesign: "创建您的第一个设计",
       pickStartingPoint: "选择一个起点或编写您自己的提示。",
+      searchNoResultsTitle: "没有符合此搜索条件的设计",
+      searchNoResultsDescription: "请尝试其他搜索。",
       starterSaas: "SaaS 登陆页面",
       starterDashboard: "仪表板",
       starterPricing: "定价页面",
@@ -6060,6 +6259,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Crea tu primer diseño",
       pickStartingPoint:
         "Elija un punto de partida o escriba su propio mensaje.",
+      searchNoResultsTitle: "Ningún diseño coincide con esta búsqueda",
+      searchNoResultsDescription: "Prueba con otra búsqueda.",
       starterSaas: "Página de inicio de SaaS",
       starterDashboard: "Panel",
       starterPricing: "Página de precios",
@@ -6225,6 +6426,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Créez votre premier design",
       pickStartingPoint:
         "Choisissez un point de départ ou rédigez votre propre invite.",
+      searchNoResultsTitle: "Aucun design ne correspond à cette recherche",
+      searchNoResultsDescription: "Essayez une autre recherche.",
       starterSaas: "Page de destination SaaS",
       starterDashboard: "Tableau de bord",
       starterPricing: "Page de tarification",
@@ -6391,6 +6594,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Erstellen Sie Ihr erstes Design",
       pickStartingPoint:
         "Wählen Sie einen Ausgangspunkt oder schreiben Sie Ihre eigene Aufforderung.",
+      searchNoResultsTitle: "Keine Designs entsprechen dieser Suche",
+      searchNoResultsDescription: "Versuche es mit einer anderen Suche.",
       starterSaas: "SaaS-Landingpage",
       starterDashboard: "Dashboard",
       starterPricing: "Preisseite",
@@ -6552,6 +6757,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "無題 Design",
       createFirstDesign: "最初のデザインを作成する",
       pickStartingPoint: "開始点を選択するか、独自のプロンプトを作成します。",
+      searchNoResultsTitle: "この検索に一致するデザインはありません",
+      searchNoResultsDescription: "別の検索をお試しください。",
       starterSaas: "SaaS ランディング ページ",
       starterDashboard: "ダッシュボード",
       starterPricing: "価格ページ",
@@ -6712,6 +6919,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "제목 없음 Design",
       createFirstDesign: "첫 번째 디자인 만들기",
       pickStartingPoint: "시작점을 선택하거나 자신만의 프롬프트를 작성하세요.",
+      searchNoResultsTitle: "이 검색과 일치하는 디자인이 없습니다",
+      searchNoResultsDescription: "다른 검색어를 입력해 보세요.",
       starterSaas: "SaaS 랜딩 페이지",
       starterDashboard: "대시보드",
       starterPricing: "가격 페이지",
@@ -6877,6 +7086,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Crie seu primeiro design",
       pickStartingPoint:
         "Escolha um ponto de partida ou escreva seu próprio prompt.",
+      searchNoResultsTitle: "Nenhum design corresponde a esta busca",
+      searchNoResultsDescription: "Tente outra busca.",
       starterSaas: "Página de destino SaaS",
       starterDashboard: "Painel",
       starterPricing: "Página de preços",
@@ -7037,6 +7248,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "शीर्षक रहित Design",
       createFirstDesign: "अपना पहला डिज़ाइन बनाएं",
       pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
+      searchNoResultsTitle: "इस खोज से मेल खाने वाला कोई डिज़ाइन नहीं है",
+      searchNoResultsDescription: "कोई दूसरी खोज आज़माएँ।",
       starterSaas: "सास लैंडिंग पृष्ठ",
       starterDashboard: "डैशबोर्ड",
       starterPricing: "मूल्य निर्धारण पृष्ठ",
@@ -7197,6 +7410,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "بدون عنوان Design",
       createFirstDesign: "قم بإنشاء تصميمك الأول",
       pickStartingPoint: "اختر نقطة بداية أو اكتب مطالبتك الخاصة.",
+      searchNoResultsTitle: "لا توجد تصميمات تطابق هذا البحث",
+      searchNoResultsDescription: "جرّب بحثًا مختلفًا.",
       starterSaas: "الصفحة المقصودة SaaS",
       starterDashboard: "لوحة المعلومات",
       starterPricing: "صفحة التسعير",
@@ -7299,7 +7514,7 @@ const designExactEnglishOverrides = {
         pngClipboardUnsupported: "此浏览器无法将 PNG 图像复制到剪贴板",
         pngClipboardBlocked: "请允许访问剪贴板以复制此 PNG",
         pngClipboardWriteError: "无法将 PNG 复制到剪贴板",
-        pngLivePreviewUnavailable: "URL 支持的屏幕暂不支持 PNG 捕获",
+        pngLivePreviewUnavailable: "PNG 导出目前仅在桌面应用中可用。",
         pngReadOnlyUnavailable: "只读预览不支持 PNG 捕获",
         pngExportError: "无法导出 PNG",
         pngSaveError: "无法保存 PNG",
@@ -7392,7 +7607,7 @@ const designExactEnglishOverrides = {
           "Permite el acceso al portapapeles para copiar este PNG",
         pngClipboardWriteError: "No se pudo copiar el PNG al portapapeles",
         pngLivePreviewUnavailable:
-          "La captura PNG aún no está disponible para pantallas basadas en URL",
+          "La exportación PNG solo está disponible en la aplicación de escritorio por ahora.",
         pngReadOnlyUnavailable:
           "La captura PNG no está disponible en vistas previas de solo lectura",
         pngExportError: "No se pudo exportar PNG",
@@ -7490,7 +7705,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Impossible de copier le PNG dans le presse-papiers",
         pngLivePreviewUnavailable:
-          "La capture PNG n’est pas encore disponible pour les écrans basés sur une URL",
+          "L’exportation PNG est actuellement disponible uniquement dans l’application de bureau.",
         pngReadOnlyUnavailable:
           "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
         pngExportError: "Impossible d’exporter PNG",
@@ -7589,7 +7804,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "PNG konnte nicht in die Zwischenablage kopiert werden",
         pngLivePreviewUnavailable:
-          "PNG-Aufnahmen sind für URL-basierte Bildschirme noch nicht verfügbar",
+          "Der PNG-Export ist derzeit nur in der Desktop-App verfügbar.",
         pngReadOnlyUnavailable:
           "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
         pngExportError: "PNG konnte nicht exportiert werden",
@@ -7687,7 +7902,7 @@ const designExactEnglishOverrides = {
           "この PNG をコピーするにはクリップボードへのアクセスを許可してください",
         pngClipboardWriteError: "PNG をクリップボードにコピーできませんでした",
         pngLivePreviewUnavailable:
-          "URL ベースの画面では PNG キャプチャをまだ利用できません",
+          "PNG のエクスポートは現在デスクトップアプリでのみ利用できます。",
         pngReadOnlyUnavailable:
           "読み取り専用プレビューでは PNG キャプチャを利用できません",
         pngExportError: "PNG をエクスポートできませんでした",
@@ -7782,7 +7997,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "이 PNG를 복사하려면 클립보드 접근을 허용하세요",
         pngClipboardWriteError: "PNG를 클립보드에 복사할 수 없음",
         pngLivePreviewUnavailable:
-          "URL 기반 화면에서는 아직 PNG 캡처를 사용할 수 없음",
+          "PNG 내보내기는 현재 데스크톱 앱에서만 사용할 수 있습니다.",
         pngReadOnlyUnavailable:
           "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
         pngExportError: "PNG를 내보낼 수 없음",
@@ -7878,7 +8093,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Não foi possível copiar o PNG para a área de transferência",
         pngLivePreviewUnavailable:
-          "A captura PNG ainda não está disponível para telas baseadas em URL",
+          "A exportação de PNG está disponível apenas no aplicativo para computador no momento.",
         pngReadOnlyUnavailable:
           "A captura PNG não está disponível em visualizações somente leitura",
         pngExportError: "Não foi possível exportar PNG",
@@ -7973,8 +8188,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked:
           "इस PNG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
         pngClipboardWriteError: "PNG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
-        pngLivePreviewUnavailable:
-          "URL-आधारित स्क्रीन के लिए PNG कैप्चर अभी उपलब्ध नहीं है",
+        pngLivePreviewUnavailable: "PNG निर्यात अभी केवल डेस्कटॉप ऐप में उपलब्ध है।",
         pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
         pngExportError: "PNG निर्यात नहीं किया जा सका",
         pngSaveError: "PNG सहेजा नहीं जा सका",
@@ -8065,7 +8279,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف PNG هذا",
         pngClipboardWriteError: "تعذر نسخ PNG إلى الحافظة",
         pngLivePreviewUnavailable:
-          "التقاط PNG غير متاح بعد للشاشات المستندة إلى عنوان URL",
+          "يتوفر تصدير PNG حاليًا في تطبيق سطح المكتب فقط.",
         pngReadOnlyUnavailable:
           "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
         pngExportError: "تعذر تصدير PNG",
@@ -8098,6 +8312,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自動布局",
         positionLayout: "位置",
+        layoutGrid: "版面格線",
         stroke: "描邊",
         effects: "效果",
         codeConfidence: "程式碼",
@@ -8271,6 +8486,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自动布局",
         positionLayout: "位置",
+        layoutGrid: "布局网格",
         stroke: "描边",
         effects: "效果",
         codeConfidence: "代码",
@@ -8443,6 +8659,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Diseño automático",
         positionLayout: "Posición",
+        layoutGrid: "Cuadrícula de diseño",
         stroke: "Trazo",
         effects: "Efectos",
         codeConfidence: "Código",
@@ -8639,6 +8856,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Mise en page auto",
         positionLayout: "Position",
+        layoutGrid: "Grille de mise en page",
         stroke: "Contour",
         effects: "Effets",
         codeConfidence: "Code",
@@ -8830,6 +9048,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Auto-Layout",
         positionLayout: "Position",
+        layoutGrid: "Layoutraster",
         stroke: "Kontur",
         effects: "Effekte",
         codeConfidence: "Code",
@@ -9028,6 +9247,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "オートレイアウト",
         positionLayout: "位置",
+        layoutGrid: "レイアウトグリッド",
         stroke: "線",
         effects: "効果",
         codeConfidence: "コード",
@@ -9220,6 +9440,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "자동 레이아웃",
         positionLayout: "위치",
+        layoutGrid: "레이아웃 그리드",
         stroke: "획",
         effects: "효과",
         codeConfidence: "코드",
@@ -9409,6 +9630,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Layout automático",
         positionLayout: "Posição",
+        layoutGrid: "Grade de layout",
         stroke: "Traço",
         effects: "Efeitos",
         codeConfidence: "Código",
@@ -9598,6 +9820,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "ऑटो लेआउट",
         positionLayout: "स्थिति",
+        layoutGrid: "लेआउट ग्रिड",
         stroke: "स्ट्रोक",
         effects: "प्रभाव",
         codeConfidence: "कोड",
@@ -9787,6 +10010,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "تخطيط تلقائي",
         positionLayout: "الموضع",
+        layoutGrid: "شبكة التخطيط",
         stroke: "الحد",
         effects: "التأثيرات",
         codeConfidence: "الكود",
@@ -10036,6 +10260,8 @@ const designCanvasFeatureOverrides = {
         layerMoveFailed: "无法移动该图层",
         layerMoveRedirected: "已移动到原位置附近——精确的放置目标不可编辑",
         duplicateElementFailed: "无法复制该元素",
+        repeatListNotEditable: "无法更新此重复列表",
+        repeatRowPickOnCanvas: "在画布上双击某一行以编辑其文本",
         eyedropperUnsupported: "此浏览器不支持取色器",
       },
     },
@@ -10048,6 +10274,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "移除图层",
         showLayer: "显示图层",
         hideLayer: "隐藏图层",
+        addGrid: "添加网格",
+        removeGrid: "移除网格",
+        showGrid: "显示网格",
+        hideGrid: "隐藏网格",
         reorderLayer: "重新排序图层",
         linkSides: "链接四边",
         unlinkSides: "取消链接四边",
@@ -10138,6 +10368,9 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "Se movió cerca de su lugar original — el destino exacto no es editable",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
+        repeatListNotEditable: "No se pudo actualizar esta lista repetida",
+        repeatRowPickOnCanvas:
+          "Haz doble clic en una fila del lienzo para editar su texto",
         eyedropperUnsupported:
           "El cuentagotas no es compatible con este navegador",
       },
@@ -10151,6 +10384,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Eliminar capa",
         showLayer: "Mostrar capa",
         hideLayer: "Ocultar capa",
+        addGrid: "Añadir cuadrícula",
+        removeGrid: "Eliminar cuadrícula",
+        showGrid: "Mostrar cuadrícula",
+        hideGrid: "Ocultar cuadrícula",
         reorderLayer: "Reordenar capa",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10243,6 +10480,10 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "Déplacé à proximité de son emplacement d’origine — la cible exacte n’est pas modifiable",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
+        repeatListNotEditable:
+          "Impossible de mettre à jour cette liste répétée",
+        repeatRowPickOnCanvas:
+          "Double-cliquez sur une ligne du canevas pour modifier son texte",
         eyedropperUnsupported:
           "La pipette n'est pas prise en charge par ce navigateur",
       },
@@ -10256,6 +10497,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Supprimer le calque",
         showLayer: "Afficher le calque",
         hideLayer: "Masquer le calque",
+        addGrid: "Ajouter une grille",
+        removeGrid: "Supprimer la grille",
+        showGrid: "Afficher la grille",
+        hideGrid: "Masquer la grille",
         reorderLayer: "Réorganiser le calque",
         linkSides: "Lier les côtés",
         unlinkSides: "Délier les côtés",
@@ -10348,6 +10593,10 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "In die Nähe der ursprünglichen Stelle verschoben — das genaue Ziel ist nicht bearbeitbar",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
+        repeatListNotEditable:
+          "Diese wiederholte Liste konnte nicht aktualisiert werden",
+        repeatRowPickOnCanvas:
+          "Doppelklicke auf eine Zeile auf der Leinwand, um ihren Text zu bearbeiten",
         eyedropperUnsupported:
           "Die Pipette wird von diesem Browser nicht unterstützt",
       },
@@ -10361,6 +10610,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Ebene entfernen",
         showLayer: "Ebene anzeigen",
         hideLayer: "Ebene ausblenden",
+        addGrid: "Raster hinzufügen",
+        removeGrid: "Raster entfernen",
+        showGrid: "Raster anzeigen",
+        hideGrid: "Raster ausblenden",
         reorderLayer: "Ebene neu anordnen",
         linkSides: "Seiten verknüpfen",
         unlinkSides: "Seiten lösen",
@@ -10450,6 +10703,9 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "元の位置の近くに移動しました — 正確なドロップ先は編集できません",
         duplicateElementFailed: "その要素を複製できませんでした",
+        repeatListNotEditable: "この繰り返しリストを更新できませんでした",
+        repeatRowPickOnCanvas:
+          "キャンバス上の行をダブルクリックしてテキストを編集してください",
         eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
       },
     },
@@ -10462,6 +10718,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "レイヤーを削除",
         showLayer: "レイヤーを表示",
         hideLayer: "レイヤーを非表示",
+        addGrid: "グリッドを追加",
+        removeGrid: "グリッドを削除",
+        showGrid: "グリッドを表示",
+        hideGrid: "グリッドを非表示",
         reorderLayer: "レイヤーを並べ替え",
         linkSides: "辺をリンク",
         unlinkSides: "辺のリンクを解除",
@@ -10551,6 +10811,9 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "원래 위치 근처로 이동되었습니다 — 정확한 놓기 대상은 편집할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
+        repeatListNotEditable: "이 반복 목록을 업데이트할 수 없습니다",
+        repeatRowPickOnCanvas:
+          "캔버스에서 행을 두 번 클릭해 텍스트를 편집하세요",
         eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
       },
     },
@@ -10563,6 +10826,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "레이어 제거",
         showLayer: "레이어 표시",
         hideLayer: "레이어 숨기기",
+        addGrid: "그리드 추가",
+        removeGrid: "그리드 제거",
+        showGrid: "그리드 표시",
+        hideGrid: "그리드 숨기기",
         reorderLayer: "레이어 순서 변경",
         linkSides: "면 연결",
         unlinkSides: "면 연결 해제",
@@ -10653,6 +10920,9 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "Movido para perto do local original — o destino exato não é editável",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
+        repeatListNotEditable: "Não foi possível atualizar esta lista repetida",
+        repeatRowPickOnCanvas:
+          "Clique duas vezes em uma linha na tela para editar o texto",
         eyedropperUnsupported:
           "O conta-gotas não é compatível com este navegador",
       },
@@ -10666,6 +10936,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Remover camada",
         showLayer: "Mostrar camada",
         hideLayer: "Ocultar camada",
+        addGrid: "Adicionar grade",
+        removeGrid: "Remover grade",
+        showGrid: "Mostrar grade",
+        hideGrid: "Ocultar grade",
         reorderLayer: "Reordenar camada",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10755,6 +11029,9 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
+        repeatListNotEditable: "यह दोहराई गई सूची अपडेट नहीं हो सकी",
+        repeatRowPickOnCanvas:
+          "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
         eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
       },
     },
@@ -10767,6 +11044,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "परत हटाएं",
         showLayer: "परत दिखाएं",
         hideLayer: "परत छिपाएं",
+        addGrid: "ग्रिड जोड़ें",
+        removeGrid: "ग्रिड हटाएं",
+        showGrid: "ग्रिड दिखाएं",
+        hideGrid: "ग्रिड छिपाएं",
         reorderLayer: "परत पुनः क्रमित करें",
         linkSides: "किनारे लिंक करें",
         unlinkSides: "किनारे अनलिंक करें",
@@ -10856,6 +11137,8 @@ const designCanvasFeatureOverrides = {
         layerMoveRedirected:
           "تم النقل بالقرب من الموضع الأصلي — الهدف الدقيق للإفلات غير قابل للتحرير",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
+        repeatListNotEditable: "لم يتمكن من تحديث هذه القائمة المتكررة",
+        repeatRowPickOnCanvas: "انقر نقرًا مزدوجًا على صف في اللوحة لتعديل نصه",
         eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       },
     },
@@ -10868,6 +11151,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "إزالة طبقة",
         showLayer: "إظهار الطبقة",
         hideLayer: "إخفاء الطبقة",
+        addGrid: "إضافة شبكة",
+        removeGrid: "إزالة الشبكة",
+        showGrid: "إظهار الشبكة",
+        hideGrid: "إخفاء الشبكة",
         reorderLayer: "إعادة ترتيب الطبقة",
         linkSides: "ربط الجوانب",
         unlinkSides: "إلغاء ربط الجوانب",
@@ -12548,6 +12835,9 @@ const designImportOverrides = {
   "zh-CN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design 已暂停此导入",
+        quotaCooldownBody:
+          "达到配额上限后，Design 正在限制自身的 Figma 请求速率。配额将自动重置。",
         title: "导入",
         description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
@@ -12615,6 +12905,9 @@ const designImportOverrides = {
   "es-ES": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ha pausado esta importación",
+        quotaCooldownBody:
+          "Design está regulando sus propias solicitudes a Figma tras alcanzar un límite de cuota. Se restablece automáticamente.",
         title: "Importar",
         description:
           "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
@@ -12687,6 +12980,9 @@ const designImportOverrides = {
   "fr-FR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design a mis cet import en pause",
+        quotaCooldownBody:
+          "Design limite ses propres requêtes Figma après avoir atteint un quota. La réinitialisation est automatique.",
         title: "Importer",
         description:
           "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
@@ -12759,6 +13055,9 @@ const designImportOverrides = {
   "de-DE": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design hat diesen Import angehalten",
+        quotaCooldownBody:
+          "Design drosselt seine eigenen Figma-Anfragen, nachdem ein Kontingentlimit erreicht wurde. Das wird automatisch zurückgesetzt.",
         title: "Import",
         description:
           "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
@@ -12830,6 +13129,9 @@ const designImportOverrides = {
   "ja-JP": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design がこのインポートを一時停止しました",
+        quotaCooldownBody:
+          "クォータの上限に達したため、Design が Figma へのリクエストを調整しています。自動的にリセットされます。",
         title: "インポート",
         description:
           "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
@@ -12902,6 +13204,9 @@ const designImportOverrides = {
   "ko-KR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design이 이 가져오기를 일시 중지했습니다",
+        quotaCooldownBody:
+          "할당량 한도에 도달해 Design이 자체 Figma 요청 속도를 조절하고 있습니다. 자동으로 초기화됩니다.",
         title: "가져오기",
         description:
           "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
@@ -12973,6 +13278,9 @@ const designImportOverrides = {
   "pt-BR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "O Design pausou esta importação",
+        quotaCooldownBody:
+          "O Design está limitando suas próprias solicitações ao Figma após atingir um limite de cota. A redefinição é automática.",
         title: "Importar",
         description:
           "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
@@ -13046,6 +13354,9 @@ const designImportOverrides = {
   "hi-IN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ने यह आयात रोक दिया",
+        quotaCooldownBody:
+          "कोटा सीमा तक पहुँचने के बाद Design अपने Figma अनुरोधों को नियंत्रित कर रहा है। यह स्वतः रीसेट हो जाता है।",
         title: "आयात",
         description:
           "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
@@ -13118,6 +13429,9 @@ const designImportOverrides = {
   "ar-SA": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "أوقف Design هذا الاستيراد مؤقتًا",
+        quotaCooldownBody:
+          "يقوم Design بتنظيم طلبات Figma الخاصة به بعد الوصول إلى حد الحصة. تُعاد التهيئة تلقائيًا.",
         title: "استيراد",
         description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",
@@ -14963,6 +15277,182 @@ const designMotionAndBreakpointOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
+const designScreenSourceOverrides = {
+  "zh-CN": {
+    editPanel: {
+      screenSource: {
+        title: "来源",
+        url: "URL",
+        urlLabel: "屏幕 URL",
+        urlPlaceholder: "/plans 或 http://localhost:5173/plans",
+        update: "更新",
+        chooseLocalApp: "选择本地应用",
+        remove: "移除屏幕",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "屏幕来源已更新",
+        screenSourceUpdateFailed: "无法更新屏幕来源",
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      screenSource: {
+        title: "Origen",
+        url: "URL",
+        urlLabel: "URL de pantalla",
+        urlPlaceholder: "/plans o http://localhost:5173/plans",
+        update: "Actualizar",
+        chooseLocalApp: "Elegir app local",
+        remove: "Eliminar pantalla",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Fuente de pantalla actualizada",
+        screenSourceUpdateFailed: "No se pudo actualizar la fuente de pantalla",
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      screenSource: {
+        title: "Source",
+        url: "URL",
+        urlLabel: "URL de l’écran",
+        urlPlaceholder: "/plans ou http://localhost:5173/plans",
+        update: "Mettre à jour",
+        chooseLocalApp: "Choisir une app locale",
+        remove: "Supprimer l’écran",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Source de l’écran mise à jour",
+        screenSourceUpdateFailed:
+          "Impossible de mettre à jour la source de l’écran",
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      screenSource: {
+        title: "Quelle",
+        url: "URL",
+        urlLabel: "Screen-URL",
+        urlPlaceholder: "/plans oder http://localhost:5173/plans",
+        update: "Aktualisieren",
+        chooseLocalApp: "Lokale App auswählen",
+        remove: "Screen entfernen",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Screen-Quelle aktualisiert",
+        screenSourceUpdateFailed:
+          "Screen-Quelle konnte nicht aktualisiert werden",
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      screenSource: {
+        title: "ソース",
+        url: "URL",
+        urlLabel: "画面 URL",
+        urlPlaceholder: "/plans または http://localhost:5173/plans",
+        update: "更新",
+        chooseLocalApp: "ローカルアプリを選択",
+        remove: "画面を削除",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "画面ソースを更新しました",
+        screenSourceUpdateFailed: "画面ソースを更新できませんでした",
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      screenSource: {
+        title: "소스",
+        url: "URL",
+        urlLabel: "화면 URL",
+        urlPlaceholder: "/plans 또는 http://localhost:5173/plans",
+        update: "업데이트",
+        chooseLocalApp: "로컬 앱 선택",
+        remove: "화면 삭제",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "화면 소스가 업데이트됨",
+        screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      screenSource: {
+        title: "Fonte",
+        url: "URL",
+        urlLabel: "URL da tela",
+        urlPlaceholder: "/plans ou http://localhost:5173/plans",
+        update: "Atualizar",
+        chooseLocalApp: "Escolher app local",
+        remove: "Remover tela",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Fonte da tela atualizada",
+        screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      screenSource: {
+        title: "स्रोत",
+        url: "URL",
+        urlLabel: "स्क्रीन URL",
+        urlPlaceholder: "/plans या http://localhost:5173/plans",
+        update: "अपडेट करें",
+        chooseLocalApp: "लोकल ऐप चुनें",
+        remove: "स्क्रीन हटाएं",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
+        screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      screenSource: {
+        title: "المصدر",
+        url: "URL",
+        urlLabel: "عنوان URL للشاشة",
+        urlPlaceholder: "/plans أو http://localhost:5173/plans",
+        update: "تحديث",
+        chooseLocalApp: "اختر تطبيقًا محليًا",
+        remove: "إزالة الشاشة",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "تم تحديث مصدر الشاشة",
+        screenSourceUpdateFailed: "تعذر تحديث مصدر الشاشة",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
 // Runtime-layer identity, prompt/comment feedback, and localhost bridge copy.
 // zh-TW lives in app/i18n/zh-TW.ts with the rest of that locale's catalog.
 const designRuntimeIdentityAndBridgeOverrides = {
@@ -14989,6 +15479,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "无法提交提示",
       skipPrompt: "跳过提示",
+      startBlankCanvas: "从空白画布开始",
+      startWithAi: "使用 AI 开始",
+      startWithAiHint: "描述页面，先获得可编辑的初稿。",
+      startBlankCanvasHint: "使用画框、形状和文字自行绘制。",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15019,6 +15513,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "No se pudo enviar el prompt",
       skipPrompt: "Omitir prompt",
+      startBlankCanvas: "Empezar con un lienzo en blanco",
+      startWithAi: "Empezar con IA",
+      startWithAiHint:
+        "Describe una página y obtén un primer borrador editable.",
+      startBlankCanvasHint: "Dibújala tú con marcos, formas y texto.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15050,6 +15549,12 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Impossible d’envoyer le prompt",
       skipPrompt: "Ignorer le prompt",
+      startBlankCanvas: "Commencer avec une toile vierge",
+      startWithAi: "Commencer avec l'IA",
+      startWithAiHint:
+        "Décrivez une page et obtenez un premier jet à modifier.",
+      startBlankCanvasHint:
+        "Dessinez-la vous-même avec cadres, formes et texte.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15080,6 +15585,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
       skipPrompt: "Prompt überspringen",
+      startBlankCanvas: "Mit leerer Zeichenfläche beginnen",
+      startWithAi: "Mit KI beginnen",
+      startWithAiHint:
+        "Beschreibe eine Seite und erhalte einen bearbeitbaren Entwurf.",
+      startBlankCanvasHint: "Zeichne selbst mit Rahmen, Formen und Text.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15111,6 +15621,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "プロンプトを送信できませんでした",
       skipPrompt: "プロンプトをスキップ",
+      startBlankCanvas: "空白のキャンバスから始める",
+      startWithAi: "AI で始める",
+      startWithAiHint: "ページを説明すると、編集できる下書きが作成されます。",
+      startBlankCanvasHint: "フレーム・図形・テキストで自分で描きます。",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15141,6 +15655,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
       skipPrompt: "프롬프트 건너뛰기",
+      startBlankCanvas: "빈 캔버스로 시작",
+      startWithAi: "AI로 시작",
+      startWithAiHint: "페이지를 설명하면 편집 가능한 초안을 만듭니다.",
+      startBlankCanvasHint: "프레임, 도형, 텍스트로 직접 그립니다.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15171,6 +15689,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Não foi possível enviar o prompt",
       skipPrompt: "Pular prompt",
+      startBlankCanvas: "Começar com uma tela em branco",
+      startWithAi: "Começar com IA",
+      startWithAiHint: "Descreva uma página e receba um rascunho editável.",
+      startBlankCanvasHint: "Desenhe você mesmo com molduras, formas e texto.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15202,6 +15724,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
       skipPrompt: "प्रॉम्प्ट छोड़ें",
+      startBlankCanvas: "खाली कैनवास से शुरू करें",
+      startWithAi: "AI से शुरू करें",
+      startWithAiHint: "पेज बताइए और संपादन योग्य पहला ड्राफ़्ट पाइए।",
+      startBlankCanvasHint: "फ़्रेम, आकृतियों और टेक्स्ट से स्वयं बनाइए।",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15232,6 +15758,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "تعذر إرسال المطالبة",
       skipPrompt: "تخطي المطالبة",
+      startBlankCanvas: "ابدأ بلوحة فارغة",
+      startWithAi: "ابدأ باستخدام الذكاء الاصطناعي",
+      startWithAiHint: "صِف الصفحة واحصل على مسودة أولى قابلة للتحرير.",
+      startBlankCanvasHint: "ارسمها بنفسك بالإطارات والأشكال والنص.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15844,6 +16374,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["zh-CN"],
       responsiveInteractOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
+      designScreenSourceOverrides["zh-CN"],
       designRuntimeIdentityAndBridgeOverrides["zh-CN"],
       designComponentInstanceOverrides["zh-CN"],
       designComponentSourceOverrides["zh-CN"],
@@ -15876,6 +16407,10 @@ export const messagesByLocale = {
           languageTitle: "语言",
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
+          labs: "Labs",
+          labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
+          labTweaks: "设计微调",
+          labTweaksDescription: "试用 AI 设计微调功能。",
         },
         designEditor: {
           toasts: {
@@ -15924,6 +16459,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["es-ES"],
       responsiveInteractOverrides["es-ES"],
       motionDockOverrides["es-ES"],
+      designScreenSourceOverrides["es-ES"],
       designRuntimeIdentityAndBridgeOverrides["es-ES"],
       designComponentInstanceOverrides["es-ES"],
       designComponentSourceOverrides["es-ES"],
@@ -15955,6 +16491,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
+          labs: "Labs",
+          labsIntro:
+            "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
+          labTweaks: "Ajustes de diseño",
+          labTweaksDescription: "Prueba los ajustes de diseño con IA.",
         },
         designEditor: {
           toasts: {
@@ -16006,6 +16547,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["fr-FR"],
       responsiveInteractOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
+      designScreenSourceOverrides["fr-FR"],
       designRuntimeIdentityAndBridgeOverrides["fr-FR"],
       designComponentInstanceOverrides["fr-FR"],
       designComponentSourceOverrides["fr-FR"],
@@ -16037,6 +16579,11 @@ export const messagesByLocale = {
           languageTitle: "Langue",
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
+          labs: "Labs",
+          labsIntro:
+            "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
+          labTweaks: "Ajustements de design",
+          labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
         },
         designEditor: {
           toasts: {
@@ -16088,6 +16635,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["de-DE"],
       responsiveInteractOverrides["de-DE"],
       motionDockOverrides["de-DE"],
+      designScreenSourceOverrides["de-DE"],
       designRuntimeIdentityAndBridgeOverrides["de-DE"],
       designComponentInstanceOverrides["de-DE"],
       designComponentSourceOverrides["de-DE"],
@@ -16119,6 +16667,11 @@ export const messagesByLocale = {
           languageTitle: "Sprache",
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
+          labs: "Labs",
+          labsIntro:
+            "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
+          labTweaks: "Design-Anpassungen",
+          labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
         },
         designEditor: {
           toasts: {
@@ -16170,6 +16723,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ja-JP"],
       responsiveInteractOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
+      designScreenSourceOverrides["ja-JP"],
       designRuntimeIdentityAndBridgeOverrides["ja-JP"],
       designComponentInstanceOverrides["ja-JP"],
       designComponentSourceOverrides["ja-JP"],
@@ -16201,6 +16755,11 @@ export const messagesByLocale = {
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
+          labs: "Labs",
+          labsIntro:
+            "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
+          labTweaks: "デザインの調整",
+          labTweaksDescription: "AI によるデザイン調整をお試しください。",
         },
         designEditor: {
           toasts: {
@@ -16253,6 +16812,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ko-KR"],
       responsiveInteractOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
+      designScreenSourceOverrides["ko-KR"],
       designRuntimeIdentityAndBridgeOverrides["ko-KR"],
       designComponentInstanceOverrides["ko-KR"],
       designComponentSourceOverrides["ko-KR"],
@@ -16284,6 +16844,11 @@ export const messagesByLocale = {
           languageTitle: "언어",
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
+          labs: "Labs",
+          labsIntro:
+            "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
+          labTweaks: "디자인 트윅",
+          labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
         },
         designEditor: {
           toasts: {
@@ -16334,6 +16899,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["pt-BR"],
       responsiveInteractOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
+      designScreenSourceOverrides["pt-BR"],
       designRuntimeIdentityAndBridgeOverrides["pt-BR"],
       designComponentInstanceOverrides["pt-BR"],
       designComponentSourceOverrides["pt-BR"],
@@ -16365,6 +16931,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
+          labs: "Labs",
+          labsIntro:
+            "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
+          labTweaks: "Ajustes de design",
+          labTweaksDescription: "Experimente ajustes de design com IA.",
         },
         designEditor: {
           toasts: {
@@ -16416,6 +16987,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["hi-IN"],
       responsiveInteractOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
+      designScreenSourceOverrides["hi-IN"],
       designRuntimeIdentityAndBridgeOverrides["hi-IN"],
       designComponentInstanceOverrides["hi-IN"],
       designComponentSourceOverrides["hi-IN"],
@@ -16447,6 +17019,11 @@ export const messagesByLocale = {
           languageTitle: "भाषा",
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
+          labs: "Labs",
+          labsIntro:
+            "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
+          labTweaks: "डिज़ाइन ट्वीक",
+          labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
         },
         designEditor: {
           toasts: {
@@ -16498,6 +17075,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ar-SA"],
       responsiveInteractOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
+      designScreenSourceOverrides["ar-SA"],
       designRuntimeIdentityAndBridgeOverrides["ar-SA"],
       designComponentInstanceOverrides["ar-SA"],
       designComponentSourceOverrides["ar-SA"],
@@ -16529,6 +17107,11 @@ export const messagesByLocale = {
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",
+          labs: "Labs",
+          labsIntro:
+            "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
+          labTweaks: "تعديلات التصميم",
+          labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
         },
         designEditor: {
           toasts: {

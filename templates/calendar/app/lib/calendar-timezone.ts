@@ -1,13 +1,10 @@
 import type { CalendarEvent } from "@shared/api";
-import { addDaysToDateKey, isCalendarTimezone } from "@shared/timezone";
 import {
-  addDays,
-  endOfMonth,
-  endOfWeek,
-  format,
-  startOfMonth,
-  startOfWeek,
-} from "date-fns";
+  addDaysToDateKey,
+  getCalendarViewDateRange,
+  isCalendarTimezone,
+} from "@shared/timezone";
+import { format } from "date-fns";
 
 import { dateTimeInTimezoneToIso } from "./event-form-utils";
 
@@ -47,9 +44,9 @@ export function normalizeTimezone(timezone?: string): string {
   return isCalendarTimezone(timezone) ? timezone : getBrowserTimezone();
 }
 
-export function isAllDayCalendarEvent(
-  event: Pick<CalendarEvent, "allDay" | "start" | "end">,
-): boolean {
+type CalendarEventTimeBounds = Pick<CalendarEvent, "allDay" | "start" | "end">;
+
+export function isAllDayCalendarEvent(event: CalendarEventTimeBounds): boolean {
   return (
     event.allDay ||
     (DATE_ONLY_PATTERN.test(event.start) && DATE_ONLY_PATTERN.test(event.end))
@@ -171,53 +168,28 @@ export function getViewDateRange(
   timezone: string,
   weekStartsOn: 0 | 1 = 0,
 ): { from: string; to: string } {
-  const normalizedTimezone = normalizeTimezone(timezone);
-  const weekOptions = { weekStartsOn };
-  let rangeStart: Date;
-  let rangeEndExclusive: Date;
-
-  if (viewMode === "month") {
-    rangeStart = startOfWeek(startOfMonth(selectedDate), weekOptions);
-    rangeEndExclusive = addDays(
-      endOfWeek(endOfMonth(selectedDate), weekOptions),
-      1,
-    );
-  } else if (viewMode === "week") {
-    rangeStart = startOfWeek(selectedDate, weekOptions);
-    rangeEndExclusive = addDays(endOfWeek(selectedDate, weekOptions), 1);
-  } else {
-    rangeStart = selectedDate;
-    rangeEndExclusive = addDays(selectedDate, 1);
-  }
-
-  return {
-    from: dateKeyToTimezoneIso(
-      dateToCalendarDateKey(rangeStart),
-      "00:00",
-      normalizedTimezone,
-    ),
-    to: dateKeyToTimezoneIso(
-      dateToCalendarDateKey(rangeEndExclusive),
-      "00:00",
-      normalizedTimezone,
-    ),
-  };
+  return getCalendarViewDateRange(
+    viewMode,
+    dateToCalendarDateKey(selectedDate),
+    normalizeTimezone(timezone),
+    weekStartsOn,
+  );
 }
 
-function dateOnlyPart(value: string | undefined): string | null {
+function eventDatePart(
+  value: string | undefined,
+  timezone: string,
+): string | null {
   if (!value) return null;
   if (DATE_ONLY_PATTERN.test(value)) return value;
-  return value.slice(0, 10);
+  return getDateTimePartsInTimezone(value, timezone)?.date ?? null;
 }
 
-function eventDateRange(
-  event: Pick<CalendarEvent, "start" | "end" | "allDay">,
-  timezone: string,
-) {
+function eventDateRange(event: CalendarEventTimeBounds, timezone: string) {
   if (isAllDayCalendarEvent(event)) {
-    const startDate = dateOnlyPart(event.start);
+    const startDate = eventDatePart(event.start, timezone);
     const endDate =
-      dateOnlyPart(event.end) ??
+      eventDatePart(event.end, timezone) ??
       (startDate ? addCalendarDays(startDate, 1) : null);
     return startDate && endDate ? { startDate, endDate } : null;
   }
@@ -235,17 +207,17 @@ export function getEventDateKey(
 }
 
 export function moveEventToCalendarDate(
-  event: Pick<CalendarEvent, "start" | "end" | "allDay">,
+  event: CalendarEventTimeBounds,
   targetDate: Date,
   timezone: string,
-): { start: string; end: string } | null {
+): { start: string; end: string; allDay?: true } | null {
   const targetDateKey = dateToCalendarDateKey(targetDate);
   const sourceStartDate = getEventDateKey(event, timezone);
   if (!sourceStartDate) return null;
 
   if (isAllDayCalendarEvent(event)) {
     const sourceEndDate =
-      dateOnlyPart(event.end) ?? addCalendarDays(sourceStartDate, 1);
+      eventDatePart(event.end, timezone) ?? addCalendarDays(sourceStartDate, 1);
     const spanDays = Math.max(
       1,
       Math.round(
@@ -257,6 +229,7 @@ export function moveEventToCalendarDate(
     return {
       start: targetDateKey,
       end: addCalendarDays(targetDateKey, spanDays),
+      allDay: true,
     };
   }
 

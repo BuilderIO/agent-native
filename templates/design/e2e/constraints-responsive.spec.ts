@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { designFrame, enterDirectMode, gotoEditor } from "./helpers";
 
 const CONSTRAINTS_HTML = `<!doctype html>
@@ -32,7 +33,7 @@ async function postAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const response = await request.post(
     `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
     { data: input },
@@ -46,12 +47,39 @@ async function postAction(
 }
 
 async function selectFixtureLayer(page: Page, nodeId: string) {
+  // A Constraints popover left open by the previous element swallows this
+  // click, and "the Constraints button is visible" is true for ANY selection —
+  // so without naming the node the next choice silently rewrites the PREVIOUS
+  // element and this element keeps its defaults.
+  await page.keyboard.press("Escape");
   const layer = designFrame(page).locator(
     `[data-agent-native-node-id="${nodeId}"]`,
   );
   await expect(layer).toBeVisible();
   await layer.click({ force: true });
   await expect(page.getByRole("button", { name: "Constraints" })).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const entries =
+            (
+              window as { __designTrace?: { entries?: () => unknown[] } }
+            ).__designTrace?.entries?.() ?? [];
+          for (let index = entries.length - 1; index >= 0; index -= 1) {
+            const entry = entries[index] as {
+              event?: string;
+              data?: { element?: string | null };
+            };
+            if (entry.event === "selection-changed") {
+              return entry.data?.element ?? "";
+            }
+          }
+          return "";
+        }),
+      { timeout: 15_000 },
+    )
+    .toContain(nodeId);
 }
 
 async function chooseConstraint(

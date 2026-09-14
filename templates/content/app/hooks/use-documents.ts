@@ -4,10 +4,12 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import type {
+  ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
   ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
+  DocumentCreateResult,
   DocumentListResponse,
   DocumentPropertiesResponse,
   DocumentUpdateRequest,
@@ -26,6 +28,12 @@ import {
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {
+  documentScopedReadRetryOptions,
+  isWithinCreateSettlingWindow,
+} from "../lib/document-scoped-read-retry";
+import {
+  contentDatabaseConstrainedQueryFilter,
+  contentDatabaseItemsContainingDocumentFilter,
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
 } from "./use-content-database";
@@ -52,11 +60,15 @@ export type PageOwnedDocumentCachePatch = Pick<
   | "visibility"
   | "accessRole"
   | "canComment"
+  | "canSuggest"
   | "canEdit"
   | "canManage"
   | "source"
   | "createdAt"
   | "updatedAt"
+  | "revision"
+  | "bodyRevision"
+  | "contentHash"
 >;
 
 export const LIST_DOCUMENTS_QUERY_KEY = [
@@ -218,7 +230,7 @@ export async function fetchCompleteDocumentList(
 
 export function documentPropertiesQueryKey(
   documentId: string,
-  databaseId: string,
+  databaseId: string | null,
 ) {
   return [
     "action",
@@ -234,6 +246,10 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   id: string;
   /** updatedAt of the snapshot this save is based on; enables CAS for content saves. */
   baseUpdatedAt?: string;
+  /** Opaque body revision from get-document; ignores unrelated metadata writes. */
+  baseRevision?: string;
+  /** Exact title baseline when a title and body are saved together. */
+  baseTitle?: string;
 };
 
 export type DocumentUpdateResult =
@@ -267,11 +283,17 @@ export function mergeDocumentIntoDocumentCache(
     visibility: document.visibility,
     accessRole: document.accessRole,
     canComment: document.canComment,
+    ...(document.canSuggest !== undefined
+      ? { canSuggest: document.canSuggest }
+      : {}),
     canEdit: document.canEdit,
     canManage: document.canManage,
     source: document.source,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    revision: document.revision,
+    bodyRevision: document.bodyRevision,
+    contentHash: document.contentHash,
   };
   return old && typeof old === "object"
     ? { ...old, ...pageOwnedPatch }
@@ -315,11 +337,13 @@ export function setDocumentFavoriteInListCache(
   return patchDocumentInListDocumentsCache(old, documentId, { isFavorite });
 }
 
-export function patchDocumentInDatabaseCache(
-  current: ContentDatabaseResponse | undefined,
+export function patchDocumentInDatabaseCache<
+  T extends ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+>(
+  current: T | undefined,
   documentId: string,
   patch: Partial<Document>,
-): ContentDatabaseResponse | undefined {
+): T | undefined {
   if (!current) return current;
   let changed = false;
   const items = current.items.map((item) => {
@@ -330,7 +354,7 @@ export function patchDocumentInDatabaseCache(
       document: { ...item.document, ...patch },
     };
   });
-  return changed ? { ...current, items } : current;
+  return changed ? ({ ...current, items } as T) : current;
 }
 
 export function setDocumentFavoriteInDatabaseCache(
@@ -374,6 +398,10 @@ export function patchDocumentCaches(
         documentId,
         patch,
       ),
+  );
+  queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+    contentDatabaseItemsContainingDocumentFilter(documentId),
+    (current) => patchDocumentInDatabaseCache(current, documentId, patch),
   );
 }
 
@@ -423,6 +451,9 @@ export function documentUpdateSuccessPatch(
 ): PageOwnedDocumentCachePatch {
   return {
     updatedAt: data.updatedAt,
+    revision: data.revision,
+    bodyRevision: data.bodyRevision,
+    contentHash: data.contentHash,
     ...(variables.title !== undefined ? { title: data.title } : {}),
     ...(variables.content !== undefined ? { content: data.content } : {}),
     ...(variables.description !== undefined
@@ -464,8 +495,11 @@ export function seedDatabaseItemDocumentCaches(
       {
         documentId: item.document.id,
         databaseId: item.databaseId,
+        canEditValues: false,
+        canManageSchema: false,
         properties: item.properties,
       },
+      { updatedAt: 0 },
     );
   }
 }
@@ -533,11 +567,23 @@ export interface PreviewDocumentDraftRecord {
   updatedAt: string;
 }
 
-export function usePreviewDocumentDraft(documentId: string | null) {
+export function usePreviewDocumentDraft(
+  documentId: string | null,
+  options: { enabled?: boolean; createdAt?: string | null } = {},
+) {
   return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
     "get-preview-document-draft",
     documentId ? { documentId } : undefined,
-    { enabled: !!documentId, retry: false },
+    {
+      enabled: !!documentId && options.enabled !== false,
+      // The caller gates this off while it knows creation is pending. A 403/404
+      // that still arrives for a row that young is one this connection cannot
+      // see yet rather than a refusal, so ride it out. Once the row is past its
+      // settling window a 403 is a real authorization answer and stays terminal.
+      ...documentScopedReadRetryOptions(
+        isWithinCreateSettlingWindow(options.createdAt),
+      ),
+    },
   );
 }
 
@@ -571,8 +617,31 @@ export function useUpdatePreviewDocumentDraft() {
   });
 }
 
+export function useResolvePreviewDocumentDraft() {
+  return useActionMutation<
+    {
+      status: "resolved" | "document_conflict";
+      choice?: "keep_mine" | "use_saved" | "save_separately";
+      document?: Document;
+      createdDocumentId?: string;
+      urlPath?: string;
+    },
+    {
+      choice: "keep_mine" | "use_saved" | "save_separately";
+      documentId: string;
+      expectedDraftVersion: number;
+      expectedDraftTitle: string;
+      expectedDraftContent: string;
+      expectedDocumentUpdatedAt?: string;
+    }
+  >("resolve-preview-document-draft");
+}
+
 export function useCreateDocument() {
-  return useActionMutation<Document, DocumentCreateRequest>("create-document");
+  return useActionMutation<DocumentCreateResult, DocumentCreateRequest>(
+    "create-document",
+    { skipActionQueryInvalidation: true },
+  );
 }
 
 export function useUpdateDocument() {
@@ -596,6 +665,9 @@ export function useUpdateDocument() {
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
+        const databasePageFilter = contentDatabaseItemsContainingDocumentFilter(
+          variables.id,
+        );
         const contentSpacesFilter = {
           queryKey: ["action", "list-content-spaces"],
         } as const;
@@ -603,6 +675,7 @@ export function useUpdateDocument() {
           queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
+          queryClient.cancelQueries(databasePageFilter),
           queryClient.cancelQueries(contentSpacesFilter),
         ]);
 
@@ -614,6 +687,9 @@ export function useUpdateDocument() {
           ],
           ...queryClient.getQueriesData<ContentDatabaseResponse>(
             databaseFilter,
+          ),
+          ...queryClient.getQueriesData<ContentDatabaseItemsPageResponse>(
+            databasePageFilter,
           ),
           ...queryClient.getQueriesData(contentSpacesFilter),
         ];
@@ -664,6 +740,15 @@ export function useUpdateDocument() {
                 serverDocument,
               ),
           );
+          queryClient.setQueriesData<ContentDatabaseItemsPageResponse>(
+            contentDatabaseItemsContainingDocumentFilter(variables.id),
+            (current) =>
+              patchDocumentInDatabaseCache(
+                current,
+                variables.id,
+                serverDocument,
+              ),
+          );
           if (renamedContentSpace) {
             patchContentSpaceNameCaches(
               queryClient,
@@ -681,6 +766,9 @@ export function useUpdateDocument() {
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
+          void queryClient.invalidateQueries(
+            contentDatabaseConstrainedQueryFilter(),
+          );
           return;
         }
 
@@ -689,6 +777,11 @@ export function useUpdateDocument() {
           variables.id,
           documentUpdateSuccessPatch(data, variables),
         );
+        if (variables.title !== undefined) {
+          void queryClient.invalidateQueries(
+            contentDatabaseConstrainedQueryFilter(),
+          );
+        }
         if (renamedContentSpace) {
           patchContentSpaceNameCaches(queryClient, variables.id, data.title);
           void queryClient.invalidateQueries({
@@ -712,7 +805,7 @@ export function useUpdateDocument() {
             queryKey: ["action", "list-trashed-content-databases"],
           });
           const databaseIds = data.softDeletedDatabaseIds;
-          toast("Database deleted", {
+          toast("Collection deleted", {
             action: {
               label: "Undo",
               onClick: () => {
@@ -721,7 +814,7 @@ export function useUpdateDocument() {
                     restoreContentDatabase.mutateAsync({ databaseId }),
                   ),
                 ).catch((err) => {
-                  toast.error("Failed to restore database", {
+                  toast.error("Failed to restore collection", {
                     description:
                       err instanceof Error
                         ? err.message

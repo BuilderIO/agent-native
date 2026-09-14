@@ -2,8 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
-  isPostgres,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
@@ -41,9 +39,7 @@ export interface UpdateWorkspaceUserGroupMembersInput {
 }
 
 export function workspaceUserGroupsTable(): string {
-  return isPostgres()
-    ? "public.workspace_user_groups"
-    : "workspace_user_groups";
+  return "public.workspace_user_groups";
 }
 
 function isDuplicateObjectError(err: unknown): boolean {
@@ -140,16 +136,14 @@ async function ensureWorkspaceUserGroupColumns(
     ["name", "TEXT NOT NULL DEFAULT ''"],
     ["member_emails_json", "TEXT NOT NULL DEFAULT '[]'"],
     ["created_by_email", "TEXT NOT NULL DEFAULT ''"],
-    ["created_at", `${intType()} NOT NULL DEFAULT 0`],
-    ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
+    ["created_at", `BIGINT NOT NULL DEFAULT 0`],
+    ["updated_at", `BIGINT NOT NULL DEFAULT 0`],
   ] as const;
   for (const [name, definition] of columns) {
     try {
       await retryOnDdlRace(() =>
         client.execute(
-          isPostgres()
-            ? `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`
-            : `ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`,
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`,
         ),
       );
     } catch (error) {
@@ -172,12 +166,12 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
           name TEXT NOT NULL DEFAULT '',
           member_emails_json TEXT NOT NULL DEFAULT '[]',
           created_by_email TEXT NOT NULL DEFAULT '',
-          created_at ${intType()} NOT NULL DEFAULT 0,
-          updated_at ${intType()} NOT NULL DEFAULT 0
+          created_at BIGINT NOT NULL DEFAULT 0,
+          updated_at BIGINT NOT NULL DEFAULT 0
         )
       `;
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("workspace_user_groups", createSql);
         await ensureWorkspaceUserGroupColumns(client, table);
         await ensureIndexExists(
@@ -276,7 +270,10 @@ export async function workspaceUserGroupRole(
     return null;
   }
   const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [normalizedOrgId, normalizedEmail],
   });
   const role = String(

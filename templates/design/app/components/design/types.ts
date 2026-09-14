@@ -72,7 +72,34 @@ export interface ElementInfo {
    * against this element resolves normally via `sourceId`.
    */
   pendingNodeId?: string;
+  /**
+   * Set when this element is one rendered row of an `x-for`. `selector`
+   * addresses the row (so overlays and geometry follow the row clicked);
+   * `sourceSelector` addresses the single element in the template body that
+   * every row was stamped from, which is the only place a write can land.
+   */
+  repeat?: {
+    sourceSelector: string;
+    instanceCount: number;
+    instanceIndex: number;
+    /** The owning `x-for` expression, so a data edit can find its array. */
+    xFor: string;
+    /** 0-based position in that array; -1 when it could not be determined. */
+    itemIndex: number;
+    /** The `x-text` this element renders; empty when its text is literal. */
+    textBinding: string;
+    /** The repeat's `:key` expression, e.g. `task.id`. */
+    keyExpression: string;
+    /** This row's rendered key value; empty when Alpine did not report one. */
+    itemKey: string;
+  };
   selector?: string;
+  /**
+   * Whether this element holds text directly. A row of dot + label + checkbox
+   * holds none, so it is a container even though `li` usually carries text.
+   * Absent only on hand-built payloads, which keep the tag-only reading.
+   */
+  hasOwnText?: boolean;
   /**
    * The `selector` / `sourceId` the canvas bridge originally reported, kept
    * verbatim when the host canonicalizes the selection onto its own source
@@ -103,6 +130,8 @@ export interface ElementInfo {
    * because older payloads and non-primitive/source-backed elements omit it.
    */
   primitiveKind?: string;
+  /** Closed SVG vectors can render their stroke inside or outside the path. */
+  vectorStrokeCanAlign?: boolean;
   portableStyleSnapshot?: PortableStyleSnapshot;
   boundingRect: { x: number; y: number; width: number; height: number };
   /** Exact bounds of the selected element's direct parent in the same
@@ -114,8 +143,15 @@ export interface ElementInfo {
     width: number;
     height: number;
   };
+  /** Capped at 200 chars by the editor-chrome bridge. `apply-visual-edit`
+   *  kind:"textContent" replaces the element's whole text, so writing this
+   *  value back when `textContentTruncated` is true destroys everything past
+   *  the cap. Read the full text before any textContent overwrite. */
   textContent?: string;
+  textContentTruncated?: boolean;
+  /** Capped at 4000 chars; same overwrite hazard as `textContent`. */
   htmlContent?: string;
+  htmlContentTruncated?: boolean;
   /** Direct element children; text nodes are ignored. */
   childElementCount?: number;
   isFlexChild: boolean;
@@ -164,6 +200,7 @@ export interface CanvasLayerHitCandidate {
   key: string;
   label: string;
   screenId?: string;
+  breakpointWidthPx?: number;
   info: ElementInfo;
 }
 

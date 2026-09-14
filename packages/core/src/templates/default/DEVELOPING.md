@@ -4,7 +4,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 ## Framework Basics
 
-**Client-side-first rendering:** This app uses React Router v8 framework mode with `ssr: true`, but all app content renders **client-side only**. The server renders only the HTML shell (meta tags, styles, scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in `root.tsx` — never remove it. Browser APIs (`window`, `localStorage`, `new Date()`) are safe to use anywhere in app code because components never run on the server.
+**Public SSR, private CSR:** This app uses React Router v8 framework mode with `ssr: true`. The `/` route is a public, server-rendered marketing page and must stay free of session, cookie, and private-data reads. Authenticated app routes start at `/home` and render client-side behind the `ClientOnly` session gate in `root.tsx`; browser APIs are safe there.
 
 **Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO/OG content. The standard pattern is: SSR renders the shell, client hydrates, and React reads/writes normal app data through actions with `useActionQuery` / `useActionMutation`.
 
@@ -14,6 +14,7 @@ Create a file in `app/routes/`. The filename determines the URL path:
 
 ```
 app/routes/_index.tsx              → /
+app/routes/home.tsx                → /home
 app/routes/settings.tsx            → /settings
 app/routes/inbox.tsx               → /inbox
 app/routes/inbox.$threadId.tsx     → /inbox/:threadId
@@ -27,6 +28,7 @@ In a workspace, this app can be mounted under `/<app-id>`. React Router already 
 | Route file              | App-internal route | Mounted browser URL |
 | ----------------------- | ------------------ | ------------------- |
 | `app/routes/_index.tsx` | `/`                | `/<app-id>`         |
+| `app/routes/home.tsx`   | `/home`            | `/<app-id>/home`    |
 | `app/routes/review.tsx` | `/review`          | `/<app-id>/review`  |
 | `app/routes/$id.tsx`    | `/:id`             | `/<app-id>/:id`     |
 
@@ -45,6 +47,11 @@ export default function MyPageRoute() {
   return <MyPage />;
 }
 ```
+
+The root route is the public marketing surface. Use `MarketingHome` from
+`@agent-native/toolkit/marketing` for a reusable SSR page with value props,
+background visuals, action links, and a custom `children` escape hatch. Put
+authenticated app UI and data loads under `/home` or another private route.
 
 ## Adding App Data
 
@@ -134,16 +141,19 @@ the UI and agent share the same capability.
 
 ## Database
 
-Local development defaults to a SQLite file at `data/app.db`. If you want local development to use the Postgres dialect without running a database server, install `@electric-sql/pglite` and set `DATABASE_URL=pglite:./data/pglite`. Both local SQLite and local PGlite are for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
+Local development uses PGlite at `pglite:./data/pglite`, which provides
+PostgreSQL semantics without a separate server. Containers, previews, and
+serverless deploys can reset their filesystem, so production deployments must
+set `DATABASE_URL` to a persistent PostgreSQL database such as Neon, Supabase,
+Railway, or RDS.
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Do not import dialect-specific schema helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`, and do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
+When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's PostgreSQL query builder for reads/writes. Do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
 
-| Variable              | Required                        | Description                                                                                                               |
-| --------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`; local Postgres opt-in: `pglite:./data/pglite`) |
-| `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                                                                             |
+| Variable       | Required                     | Description                                                   |
+| -------------- | ---------------------------- | ------------------------------------------------------------- |
+| `DATABASE_URL` | Production yes, local dev no | PostgreSQL connection string (`pglite:./data/pglite` locally) |
 
 ## Tech Stack
 

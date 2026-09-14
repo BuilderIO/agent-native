@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
+    labs: "Labs",
+    labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
+    labLayoutOverflowWarningDescription:
+      "편집기에서 레이아웃 오버플로 경고를 표시합니다.",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
@@ -86,10 +90,8 @@ const messages = {
     cloudConnectedReloading: "接続しました。再読み込み中...",
     cloudConnectionFailed: "接続に失敗しました",
     cloudTestConnect: "テストして接続",
-    cloudSqliteEdge: "エッジのSQLite",
     cloudServerlessPostgres: "サーバーレスPostgres",
     cloudOpenSourceFirebaseAlternative: "Firebaseのオープンソース代替",
-    cloudCloudflareSqliteEdge: "CloudflareエッジのSQLite",
     designSlidePreview: "スライドプレビュー",
     designSlideTitle: "スライドタイトル",
     designSupportingText:
@@ -146,6 +148,8 @@ const messages = {
     clearSelection: "選択を解除",
     sendToAgent: "에이전트에게 보내기",
     saveReconnect: "再接続時に変更が保存されます",
+    saveFailedDescription:
+      "최신 변경 사항이 이 기기에만 있습니다. 나가기 전에 백업을 다운로드하세요.",
     offline: "오프라인",
     selected: "선택됨",
     chooseDesignSystem: "デザインシステムを選択",
@@ -205,6 +209,9 @@ const messages = {
     usingDesignSystem: "{{title}} 사용 중",
     usingLinkedDesignSystem: "연결된 디자인 시스템 사용 중",
     viewOnly: "보기 전용",
+    sourcePreserving: "제한된 편집",
+    sourcePreservingDescription:
+      "텍스트와 개체는 편집할 수 있습니다. 이 가져온 덱에서는 슬라이드 추가, 삭제 및 순서 변경이 비활성화됩니다.",
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 댓글을 추가할 수 있습니다",
     slideSettings: "슬라이드 설정",
@@ -260,6 +267,11 @@ const messages = {
     more: "더 보기",
     importing: "가져오는 중...",
     importFile: "파일 가져오기",
+    downloadBackup: "백업 다운로드",
+    importBackup: "백업 가져오기",
+    backupDownloaded: "백업을 다운로드했습니다",
+    backupDownloadFailed: "백업을 다운로드할 수 없습니다",
+    invalidBackup: "유효한 Slides 백업 JSON 파일을 선택하세요.",
     savedVersions: "저장된 버전",
     lightTheme: "라이트 테마",
     darkTheme: "다크 테마",
@@ -267,6 +279,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX 파일을 생성할 수 없습니다.",
     exportFailed: "내보내기 실패",
+    exporting: "내보내는 중...",
     exportPptxError: "PPTX로 내보내는 중 문제가 발생했습니다.",
     googleSlidesDownloaded: "Google Slides용으로 다운로드됨",
     googleSlidesImportHint:
@@ -283,6 +296,10 @@ const messages = {
     exportPptx: "PPTX로 내보내기",
     connectGoogle: "Google 연결",
     openInGoogleSlides: "Google Slides에서 열기",
+    googleSlidesUnavailable: "사용 불가",
+    googleSlidesOpenImporter: "Google Slides 가져오기 열기",
+    googleSlidesUnavailableHint:
+      "Google 연결이 설정되지 않아 지금은 Google Slides로 내보낼 수 없습니다. 대신 PPTX로 내보낸 뒤 Google Slides에서 가져오세요.",
     googleSlidesCreated: "Google Slides에서 열었습니다",
     googleSlidesCreatedHint: "이 덱의 사본이 Google 드라이브에 생성되었습니다.",
     duplicateDeck: "덱 복제",
@@ -459,6 +476,10 @@ const messages = {
     rose: "Rose",
     arrange: "정렬",
     order: "순서",
+    group: "그룹화",
+    ungroup: "그룹 해제",
+    bringForward: "앞으로 가져오기",
+    sendBackward: "뒤로 보내기",
     bringToFront: "맨 앞으로 가져오기",
     sendToBack: "맨 뒤로 보내기",
     copyStyle: "스타일 복사",

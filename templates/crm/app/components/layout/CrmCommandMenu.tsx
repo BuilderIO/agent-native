@@ -75,7 +75,7 @@ interface PaletteGroup {
 const GO_TO_ROUTES = [
   {
     id: "overview",
-    to: "/",
+    to: "/home",
     labelKey: "navigation.overview",
     icon: IconLayoutDashboard,
   },

@@ -1034,7 +1034,7 @@ export const navItems: Array<{
   href: string;
   icon: Icon;
 }> = [
-  { view: "ask", label: "Ask", href: "/", icon: IconMessageQuestion },
+  { view: "ask", label: "Ask", href: "/home", icon: IconMessageQuestion },
   { view: "sources", label: "Sources", href: "/sources", icon: IconDatabase },
   { view: "review", label: "Review", href: "/review", icon: IconChecks },
   {
@@ -1110,7 +1110,7 @@ export function pathFromView(view?: string): string {
       return "/settings";
     case "ask":
     default:
-      return "/";
+      return "/home";
   }
 }
 

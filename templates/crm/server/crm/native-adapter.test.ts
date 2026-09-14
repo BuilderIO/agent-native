@@ -17,7 +17,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `native-adapter-${process.pid}-${Date.now()}.sqlite`,
+  `native-adapter-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../db/schema.js");
@@ -25,7 +25,7 @@ let getDb: () => any;
 let schema: Schema;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -34,9 +34,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("native CRM contract", () => {

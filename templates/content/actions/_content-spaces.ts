@@ -15,7 +15,7 @@ import {
   defaultFilesDatabaseViewConfig,
   ensureFilesSystemPropertyDefinitions,
 } from "./_files-system-properties.js";
-import { withPositionLock } from "./_position-utils.js";
+import { nextAppendPosition, withPositionLock } from "./_position-utils.js";
 import {
   defaultDatabaseViewConfig,
   normalizedValueJson,
@@ -688,7 +688,7 @@ async function provisionOwnedContentSpace(
       }
 
       const [maxCatalogPosition] = await tx
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.contentDatabaseItems)
         .where(
           eq(schema.contentDatabaseItems.databaseId, catalogIds.databaseId),
@@ -699,7 +699,7 @@ async function provisionOwnedContentSpace(
         documentId: referenceDocumentId,
         ownerEmail: email,
         orgId: null,
-        position: (maxCatalogPosition?.max ?? -1) + 1,
+        position: nextAppendPosition(maxCatalogPosition?.max),
         now,
       });
       const [mapping] = await tx

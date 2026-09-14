@@ -251,13 +251,13 @@ function branchSpecs(
   return [
     {
       name: "org",
-      predicate: "org_id = ?",
+      predicate: "org_id = $1",
       predicateArgs: [scope.orgId],
       ...queryConfig,
     },
     {
       name: "legacy",
-      predicate: "org_id IS NULL AND owner_email = ?",
+      predicate: "org_id IS NULL AND owner_email = $1",
       predicateArgs: [scope.userEmail],
       ...queryConfig,
     },
@@ -270,8 +270,9 @@ function sourceFilter(spec: BranchSpec): {
 } {
   const clauses: string[] = [];
   const args: string[] = [];
+  let nextParameter = spec.predicateArgs.length + 1;
   if (spec.lookbackStart) {
-    clauses.push("received_at >= ?");
+    clauses.push(`received_at >= $${nextParameter++}`);
     args.push(spec.lookbackStart);
   }
   const excluded = spec.excludedEventNames ?? [];
@@ -283,7 +284,9 @@ function sourceFilter(spec: BranchSpec): {
       clauses.push("event_name IS DISTINCT FROM 'http.response'");
     } else {
       clauses.push(
-        `(event_name IS NULL OR event_name NOT IN (${excluded.map(() => "?").join(", ")}))`,
+        `(event_name IS NULL OR event_name NOT IN (${excluded
+          .map(() => `$${nextParameter++}`)
+          .join(", ")}))`,
       );
       args.push(...excluded);
     }
@@ -320,20 +323,26 @@ export function buildPageKeyQuery(
     state.cutoff.receivedAt,
     state.cutoff.id,
   ];
+  let nextParameter = spec.predicateArgs.length + filters.args.length + 1;
+  const cutoffReceivedAt = `$${nextParameter++}`;
+  const cutoffId = `$${nextParameter++}`;
   let cursorClause = "";
   if (state.cursor) {
-    cursorClause = " AND (received_at, id) > (?, ?)";
+    const cursorReceivedAt = `$${nextParameter++}`;
+    const cursorId = `$${nextParameter++}`;
+    cursorClause = ` AND (received_at, id) > (${cursorReceivedAt}, ${cursorId})`;
     args.push(state.cursor.receivedAt, state.cursor.id);
   }
+  const limitParameter = `$${nextParameter++}`;
   args.push(batchSize);
   return {
     sql: `SELECT received_at, id
       FROM analytics_events
       WHERE ${spec.predicate}
         ${filters.clauses.map((clause) => `AND ${clause}`).join("\n        ")}
-        AND (received_at, id) <= (?, ?)${cursorClause}
+        AND (received_at, id) <= (${cutoffReceivedAt}, ${cutoffId})${cursorClause}
       ORDER BY received_at ASC, id ASC
-      LIMIT ?`,
+      LIMIT ${limitParameter}`,
     args,
     timeoutMs: QUERY_TIMEOUT_MS,
     maxAttempts: 1,
@@ -349,7 +358,7 @@ export function buildHydrationQuery(ids: string[]): DbQuery {
   return {
     sql: `SELECT ${PROJECTED_COLUMNS}
       FROM analytics_events
-      WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      WHERE id IN (${ids.map((_, index) => `$${index + 1}`).join(", ")})`,
     args: ids,
     timeoutMs: QUERY_TIMEOUT_MS,
     maxAttempts: 1,
@@ -952,14 +961,14 @@ async function runApprovedFinalize(
         const now = new Date().toISOString();
         const update = await getDbExec().execute({
           sql: `UPDATE ${JOB_TABLE}
-                  SET status = 'completed', backfill_cursor = ?,
-                      copied_count = ?, lease_token = NULL,
-                      lease_expires_at = NULL, next_run_at = ?,
-                      last_error = NULL, completed_at = ?, updated_at = ?
-                WHERE id = ? AND table_ref = ?
+                  SET status = 'completed', backfill_cursor = $1,
+                      copied_count = $2, lease_token = NULL,
+                      lease_expires_at = NULL, next_run_at = $3,
+                      last_error = NULL, completed_at = $4, updated_at = $5
+                WHERE id = $6 AND table_ref = $7
                   AND (status = 'pending'
                        OR (status = 'running' AND lease_expires_at IS NOT NULL
-                           AND lease_expires_at <= ?))`,
+                           AND lease_expires_at <= $8))`,
           args: [
             cursor ? JSON.stringify(cursor) : null,
             Math.max(

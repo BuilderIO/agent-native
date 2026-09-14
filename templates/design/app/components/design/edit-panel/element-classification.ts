@@ -51,6 +51,17 @@ export function elementIsComponentSelection(
   return componentNameForElementInfo(element).length > 0;
 }
 
+/**
+ * Only the explicit annotation, for gating. React provenance names the
+ * component an element was *rendered by*, which is true of nearly every
+ * element — using it to gate made "Create component" impossible app-wide.
+ */
+export function elementHasComponentAnnotation(
+  element: ElementInfo | null | undefined,
+): boolean {
+  return Boolean(element?.componentName?.trim());
+}
+
 export function displayLabel(value: string | undefined): string {
   const normalized = value?.trim();
   if (!normalized || normalized === "normal") return "flow";
@@ -169,7 +180,7 @@ const LEAF_TAGS = new Set([
  */
 function hasExplicitTextIdentity(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
-  if (TEXT_TAGS.has(tag)) return true;
+  if (TEXT_TAGS.has(tag)) return element.hasOwnText !== false;
   if (element.primitiveKind) return element.primitiveKind === "text";
   const nodeId = element.sourceId || element.pendingNodeId || "";
   return nodeId.startsWith("draft-text-");
@@ -260,9 +271,39 @@ export function parentFlexDirection(
   return isParentFlex(element) ? "horizontal" : null;
 }
 
+/** Drawn vector primitives — an `<svg>` wrapper around one shape child. */
+const VECTOR_PRIMITIVE_KINDS = new Set([
+  "path",
+  "line",
+  "arrow",
+  "polygon",
+  "star",
+  "rect",
+  "rectangle",
+  "ellipse",
+  "circle",
+]);
+
+/**
+ * True for SVG vector wrappers. Their paint is SVG `fill`/`stroke` on the
+ * shape child, not `background`/`border` on the box — see `vectorPaintTarget`
+ * (bridge) and `vectorPaintChild` (code-layer).
+ */
+export function isVectorShapeElement(element: ElementInfo): boolean {
+  // The board's migrated polygons and stars are plain divs carrying the same
+  // primitiveKind, and their paint really is background/border — only an
+  // <svg> has a shape child for `vectorPaintTarget` to redirect to.
+  if ((element.tagName || "").toLowerCase() !== "svg") return false;
+  return VECTOR_PRIMITIVE_KINDS.has(element.primitiveKind ?? "");
+}
+
 export function isTextElement(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
-  if (TEXT_TAGS.has(tag)) return true;
+  // A tag that usually carries text but holds none of its own is a container:
+  // a row of dot + label + checkbox paints nothing, so its Fill is a
+  // background and the Text layer inside owns the text colour. `undefined`
+  // keeps the tag-only reading for hand-built payloads.
+  if (TEXT_TAGS.has(tag)) return element.hasOwnText !== false;
   // T-tool text primitives are plain `div`s stamped with
   // data-an-primitive="text" (see DesignEditor primitive creation). The
   // bridge forwards that marker as ElementInfo.primitiveKind — prefer it
@@ -280,6 +321,10 @@ export function isTextElement(element: ElementInfo): boolean {
   if (nodeId.startsWith("draft-rect-") || nodeId.startsWith("draft-frame-")) {
     return false;
   }
+  // A selected element can own a text node and also contain inline children,
+  // as with a headline split by a styled span. The bridge reports direct text
+  // ownership explicitly; the childless fallback below cannot recognize it.
+  if (element.hasOwnText !== undefined) return element.hasOwnText;
   // Fallback for payloads with no primitive marker at all: approximate a
   // text node with a content heuristic — a childless div that has its own
   // text content. This intentionally excludes empty frames/shapes (no text)

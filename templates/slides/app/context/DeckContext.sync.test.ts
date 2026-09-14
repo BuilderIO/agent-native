@@ -138,6 +138,29 @@ function deckCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   ).length;
 }
 
+/**
+ * happy-dom reports a `visible` document and offers no way to background it.
+ * Backgrounded is the state an external agent always drives the editor in, so
+ * the poll's behavior there has to be assertable.
+ */
+let restoreVisibility: (() => void) | null = null;
+function hideDocument() {
+  const original = Object.getOwnPropertyDescriptor(
+    Document.prototype,
+    "visibilityState",
+  );
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => "hidden",
+  });
+  restoreVisibility = () => {
+    delete (document as unknown as Record<string, unknown>).visibilityState;
+    if (original && !("visibilityState" in document)) {
+      Object.defineProperty(Document.prototype, "visibilityState", original);
+    }
+  };
+}
+
 async function lastEventSource(): Promise<MockEventSource> {
   await waitFor(() => expect(MockEventSource.lastInstance).not.toBeNull());
   return MockEventSource.lastInstance!;
@@ -252,6 +275,11 @@ describe("DeckContext fallback polling", () => {
   });
 
   afterEach(() => {
+    // Unmount before restoring timers: a provider left mounted keeps its poll
+    // loop running and inflates the request counts a later test asserts on.
+    cleanup();
+    restoreVisibility?.();
+    restoreVisibility = null;
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -327,5 +355,184 @@ describe("DeckContext fallback polling", () => {
     });
 
     expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps reconciling the open deck while the tab is hidden", async () => {
+    // An external agent (MCP / WebMCP / CDP) writes into a tab nobody is
+    // looking at. Skipping the poll while hidden left an agent's add-slide
+    // unseen for 33s on beta — the write had landed, the editor never asked.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reads the deck back when a page-local WebMCP write announces itself", async () => {
+    // The WebMCP bridge dispatches `agentNative:refresh-data` after every
+    // mutating page-local call. On beta an add-slide called through
+    // `window.__agentNativeWebMcp` in a hidden tab returned ok and the new
+    // slide was still missing 152s later: the writing tab was waiting out the
+    // 60s SSE fallback interval and nothing here listened for the write.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallCount(api.fetchMock)).toBeGreaterThan(deckBefore);
+  });
+
+  it("adopts the agent-added slide's own content, not a sibling's", async () => {
+    // beta.slides: an external agent called add-slide through
+    // `window.__agentNativeWebMcp` in a hidden tab. The refetch fired and the
+    // sidebar gained a second thumbnail, but slide 2 rendered slide 1's body
+    // — a wrong slide, not a slow one.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide">Final check</div>',
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    api.setServerDecks([
+      {
+        ...deck,
+        updatedAt: "2026-07-25T00:01:00.000Z",
+        slides: [
+          deck.slides[0]!,
+          {
+            id: "slide-2",
+            content: '<div class="fmd-slide">Hidden tab slide ZQX</div>',
+            notes: "",
+            layout: "content",
+          },
+        ],
+      },
+    ]);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("open-deck")?.slides).toHaveLength(2),
+    );
+    const slides = result.current.getDeck("open-deck")!.slides;
+    expect(slides[1]!.id).toBe("slide-2");
+    expect(slides[1]!.content).toContain("Hidden tab slide ZQX");
+    expect(slides[0]!.content).toContain("Final check");
+  });
+
+  it("stops polling a hidden tab that has no deck open", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    api.setServerDecks([]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const listBefore = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(listCallCount(api.fetchMock)).toBe(listBefore);
+  });
+
+  it("still reads once on an announced write in a hidden tab with no deck open", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    api.setServerDecks([]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const listBefore = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const listAfterWrite = listCallCount(api.fetchMock);
+    expect(listAfterWrite).toBeGreaterThan(listBefore);
+
+    // One read, not a resumed poll loop: the idle gate is skipped for the
+    // announced write only.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(listCallCount(api.fetchMock)).toBe(listAfterWrite);
   });
 });

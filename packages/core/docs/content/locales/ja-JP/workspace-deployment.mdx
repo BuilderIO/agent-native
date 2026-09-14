@@ -334,8 +334,8 @@ agents.example.com {
   `A2A_SECRET`、その他の本番シークレットをアプリのコンテナ間で同一に保ちます。
 - `BETTER_AUTH_URL` は、そのアプリのパスに対応する公開 URL に設定します。OAuth コールバック URL
   も同じ公開 URL を使用するべきです。
-- 本番データをコンテナのファイルシステムに依存させないでください。`DATABASE_URL` には Postgres（または
-  他の永続的な SQL バックエンド）を使用してください。
+- 本番データをコンテナのファイルシステムに依存させないでください。`DATABASE_URL` には
+  PostgreSQL を使用してください。
 - Cloudflare が VPS の前段で TLS を終端する場合は、通常の `X-Forwarded-Proto` / `X-Forwarded-Host`
   ヘッダーを送信し、公開ホストをプロキシコンテナにルーティングするよう Cloudflare を設定してください。
 

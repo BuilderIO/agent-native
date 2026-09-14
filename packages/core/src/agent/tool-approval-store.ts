@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
@@ -26,32 +26,21 @@ let policyInitPromise: Promise<void> | undefined;
 export async function ensureAgentToolApprovalTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const createSql =
-        AGENT_TOOL_APPROVAL_TABLE_SQL[isPostgres() ? "postgres" : "sqlite"];
-      if (isPostgres()) {
-        await ensureTableExists("agent_tool_approvals", createSql);
-        await ensureIndexExists(
-          "idx_agent_tool_approvals_binding",
-          AGENT_TOOL_APPROVAL_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "idx_agent_tool_approvals_logical",
-          AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "idx_agent_tool_approvals_recovery",
-          AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
-        );
-        return;
-      }
-      const client = getDbExec();
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() => client.execute(AGENT_TOOL_APPROVAL_INDEX_SQL));
-      await retryOnDdlRace(() =>
-        client.execute(AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL),
+      await ensureTableExists(
+        "agent_tool_approvals",
+        AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
       );
-      await retryOnDdlRace(() =>
-        client.execute(AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL),
+      await ensureIndexExists(
+        "idx_agent_tool_approvals_binding",
+        AGENT_TOOL_APPROVAL_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "idx_agent_tool_approvals_logical",
+        AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "idx_agent_tool_approvals_recovery",
+        AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
       );
     })().catch((error) => {
       initPromise = undefined;
@@ -64,22 +53,13 @@ export async function ensureAgentToolApprovalTable(): Promise<void> {
 export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
   if (!policyInitPromise) {
     policyInitPromise = (async () => {
-      const createSql =
-        AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL[
-          isPostgres() ? "postgres" : "sqlite"
-        ];
-      if (isPostgres()) {
-        await ensureTableExists("agent_tool_approval_policies", createSql);
-        await ensureIndexExists(
-          "idx_agent_tool_approval_policies_scope",
-          AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
-        );
-        return;
-      }
-      const client = getDbExec();
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL),
+      await ensureTableExists(
+        "agent_tool_approval_policies",
+        AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
+      );
+      await ensureIndexExists(
+        "idx_agent_tool_approval_policies_scope",
+        AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
       );
     })().catch((error) => {
       policyInitPromise = undefined;
@@ -217,11 +197,11 @@ export async function resolveAgentToolApprovalTurnId(binding: {
 
   const turnIds = new Set(
     (result.rows ?? [])
-      .map((row) => {
+      .map((row: unknown) => {
         const value = (row as { turn_id?: unknown }).turn_id;
         return typeof value === "string" && value.trim() ? value.trim() : null;
       })
-      .filter((turnId): turnId is string => turnId !== null),
+      .filter((turnId: string | null): turnId is string => turnId !== null),
   );
   const requestedTurnId = binding.requestedTurnId?.trim();
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;

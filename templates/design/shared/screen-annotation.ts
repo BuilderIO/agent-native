@@ -18,7 +18,28 @@
  * before the client ever sees the screen — new designs are born annotated
  * instead of depending on a client-side backfill.
  */
-import { ensureCodeLayerNodeIdsInHtml } from "./code-layer.js";
+import {
+  type CodeLayerSource,
+  ensureCodeLayerNodeIdsInHtml,
+  wrapBareTextLeavesInHtml,
+} from "./code-layer.js";
+
+/**
+ * The one place the two normalization passes are ordered. Wrapping must run
+ * first: a span minted after the id pass carries no node id, and every
+ * id-keyed operation on it then silently targets nothing.
+ */
+export function normalizeScreenHtml(
+  html: string,
+  options: { source?: CodeLayerSource } = {},
+): { content: string; changed: boolean } {
+  const wrapped = wrapBareTextLeavesInHtml(html, options);
+  const stamped = ensureCodeLayerNodeIdsInHtml(wrapped.content, options);
+  return {
+    content: stamped.content,
+    changed: wrapped.changed || stamped.changed,
+  };
+}
 
 /**
  * Stamp missing `data-agent-native-node-id` attributes on an HTML screen
@@ -39,7 +60,7 @@ export function annotateScreenHtmlForPersist(
   if ((fileType ?? "html") !== "html") return content;
   if (typeof content !== "string" || !content.trim()) return content;
   try {
-    return ensureCodeLayerNodeIdsInHtml(content).content;
+    return normalizeScreenHtml(content).content;
   } catch {
     return content;
   }

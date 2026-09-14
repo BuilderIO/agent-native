@@ -703,6 +703,19 @@ export function isSelectedA2AReceiver(
   return selected.length > 0 && selected === normalize(appId);
 }
 
+export function shouldSelectedA2AReceiverOwnObjective(options: {
+  authenticatedCallerEmail: string;
+  enabled: boolean;
+  selectedReceiverApp: string | undefined;
+  appId: string | undefined;
+}): boolean {
+  return (
+    options.authenticatedCallerEmail.trim().length > 0 &&
+    options.enabled &&
+    isSelectedA2AReceiver(options.selectedReceiverApp, options.appId)
+  );
+}
+
 export function buildSelectedA2AReceiverContext(appId: string): string {
   return `
 <selected-a2a-receiver>

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runWithRequestContext } from "../server/request-context.js";
+import { isQaTestEmail } from "../shared/qa-test-email.js";
 import {
   flushTracking,
+  identify,
   registerTrackingProvider,
   track,
   unregisterTrackingProvider,
@@ -25,6 +27,7 @@ describe("tracking registry", () => {
     unregisterTrackingProvider("qa-throwing-track");
     unregisterTrackingProvider("qa-rejecting-flush");
     unregisterTrackingProvider("qa-capture");
+    unregisterTrackingProvider("qa-identify");
     vi.restoreAllMocks();
   });
 
@@ -77,6 +80,112 @@ describe("tracking registry", () => {
     });
 
     expect(events[0]?.sessionId).toBe("session-2");
+  });
+
+  it("emits a canonical output event alongside legacy share telemetry", () => {
+    const events = captureEvents();
+
+    track(
+      "share_link_copied",
+      {
+        app: "agent-native-clips",
+        recording_id: "recording-1",
+        resource_type: "clip",
+      },
+      { userId: "alice@example.com", sessionId: "session-share" },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.name).toBe("share_link_copied");
+    expect(events[1]).toMatchObject({
+      name: "output_shared",
+      userId: "alice@example.com",
+      sessionId: "session-share",
+      properties: {
+        app_name: "clips",
+        output_id: "recording-1",
+        output_type: "clip",
+        session_id: "session-share",
+        share_method: "copy_link",
+      },
+    });
+  });
+
+  it("classifies the pre-navigation deck event as a CTA", () => {
+    const events = captureEvents();
+
+    track("generate deck", { app: "agent-native-docs" });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.name).toBe("generate deck");
+    expect(events[1]).toMatchObject({
+      name: "cta_clicked",
+      properties: {
+        app_name: "docs",
+        cta_name: "generate_deck",
+      },
+    });
+  });
+
+  it("suppresses reserved QA identities before track or identify reaches providers", () => {
+    const events = captureEvents();
+    const identified: string[] = [];
+    registerTrackingProvider({
+      name: "qa-identify",
+      track() {},
+      identify(userId) {
+        identified.push(userId);
+      },
+    });
+    const email = "signup+autoz-run-123@example.com";
+
+    expect(isQaTestEmail(email)).toBe(true);
+    track("signup", { email }, { userId: email });
+    track("client_event", undefined, { userId: email });
+    track("property_event", { userEmail: email });
+    track("canonical_property_event", { user_email: email });
+    identify(email, { email });
+    identify("auth-user-qa", { email });
+    identify("auth-user-qa", { userEmail: email });
+
+    expect(events).toEqual([]);
+    expect(identified).toEqual([]);
+  });
+
+  it("suppresses +autoz identities from ambient request tracking", async () => {
+    const events = captureEvents();
+    const email = "signup+autoz-run-123@example.com";
+
+    expect(isQaTestEmail(email)).toBe(true);
+    await runWithRequestContext({ userEmail: email }, () => {
+      track("ambient_event");
+      identify("auth-user");
+    });
+
+    expect(events).toEqual([]);
+  });
+
+  it("suppresses synthetic browser traffic before providers", async () => {
+    const events = captureEvents();
+    await runWithRequestContext(
+      { isSyntheticTraffic: true, userEmail: "alice@example.com" },
+      () => {
+        track("synthetic_event", { source: "beta-e2e" });
+        identify("alice@example.com");
+      },
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  it("keeps ordinary plus-addresses trackable", () => {
+    const events = captureEvents();
+    const email = "signup+experiment-123@example.com";
+
+    expect(isQaTestEmail(email)).toBe(false);
+    track("signup", { email }, { userId: email });
+
+    expect(events).toHaveLength(1);
   });
 
   it("leaves the session absent for callers with no browser", () => {

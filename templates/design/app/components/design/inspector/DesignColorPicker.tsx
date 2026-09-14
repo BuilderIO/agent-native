@@ -31,6 +31,7 @@ import {
   type ElementType,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -231,8 +232,22 @@ export interface DesignColorPickerProps {
   /** Notified when a shader fill is applied/tuned (descriptor + CSS fallback). */
   onShaderChange?: (descriptor: ShaderDescriptor, css: string) => void;
   labels?: Partial<DesignColorPickerLabels>;
+  /** Allow Design history chords while the picker owns focus in its portal. */
+  allowDesignHistoryHotkeys?: boolean;
   disabled?: boolean;
   className?: string;
+  /**
+   * Replaces the default swatch+hex+opacity trigger button with a
+   * caller-provided one (e.g. a fill-layer row showing "Linear 1" +
+   * opacity instead of a hex value), while still opening this component's
+   * own single `Popover`. Always render exactly one `DesignColorPicker` per
+   * fill row rather than wrapping it in a second, independent `Popover` for
+   * a custom-looking trigger — two nested popovers each dismiss on the
+   * other's portaled content, which both requires an extra click to reach
+   * the real picker and closes it the instant the gradient editor inside is
+   * touched.
+   */
+  trigger?: ReactNode;
 }
 
 // ─── Internal types ────────────────────────────────────────────────────────────
@@ -558,11 +573,18 @@ export function DesignColorPicker({
   glslShaderContext,
   onShaderChange,
   labels,
+  allowDesignHistoryHotkeys = false,
   disabled = false,
   className,
+  trigger,
 }: DesignColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
-  const color = parseCssColorExtended(value) ?? FALLBACK_COLOR;
+  // Memoized because it is a memo/effect dependency below: an object rebuilt
+  // every render churns those dependencies and re-mints gradient stop ids.
+  const color = useMemo(
+    () => parseCssColorExtended(value) ?? FALLBACK_COLOR,
+    [value],
+  );
   const hsv = rgbaToHsv(color);
 
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
@@ -718,16 +740,6 @@ export function DesignColorPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedImageFill?.url, parsedImageFill?.fit]);
 
-  // Ensure a selected stop id exists whenever a gradient is active.
-  useEffect(() => {
-    if (!activeGradient) return;
-    const ids = activeGradient.stops.map((s) => s.id);
-    if (!ids.includes(selectedStopId)) {
-      setSelectedStopId(activeGradient.stops[0]?.id ?? "");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeGradient?.stops.map((s) => s.id).join(",")]);
-
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
   // Tracks the last CSS value handed to onChange/onPaintValueChange, so a
@@ -813,9 +825,12 @@ export function DesignColorPicker({
     emitPaintValue(gradientToCss(next));
   };
 
+  // Derived, never written back: `defaultGradient` mints fresh random stop ids,
+  // so an effect that repaired this id would set state on every render forever.
   const selectedStop =
     activeGradient?.stops.find((s) => s.id === selectedStopId) ??
     activeGradient?.stops[0];
+  const effectiveSelectedStopId = selectedStop?.id ?? "";
 
   // The 2D field edits the selected gradient stop's color when in gradient mode.
   const fieldColor: RgbaColor = activeGradient
@@ -845,7 +860,7 @@ export function DesignColorPicker({
     const parsed = parseCssColorExtended(selectedStopColor);
     if (parsed) setHexDraft(toDisplayHex(parsed));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStopColor, selectedStopId]);
+  }, [selectedStopColor, effectiveSelectedStopId]);
 
   const emitStopColor = (nextColor: RgbaColor) => {
     if (!activeGradient || !selectedStop) return;
@@ -1170,29 +1185,31 @@ export function DesignColorPicker({
     <div className={cn("space-y-1.5", className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          {/* Trigger: compact swatch + hex + opacity% — matches the design editor's fill row */}
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={copy.trigger}
-            className={cn(
-              "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
-              "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-              disabled && "pointer-events-none opacity-50",
-            )}
-          >
-            {/* Flat swatch chip — no shadow-inner (the design editor uses a flat chip) */}
-            <span
-              className="size-4 shrink-0 rounded-[3px] border border-border/60"
-              style={triggerSwatchStyle(value, color)}
-            />
-            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
-              {triggerLabel(effectivePaintType, color)}
-            </span>
-            <span className="tabular-nums text-muted-foreground !text-[11px]">
-              {effectiveOpacity}%
-            </span>
-          </button>
+          {trigger ?? (
+            /* Trigger: compact swatch + hex + opacity% — matches the design editor's fill row */
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={copy.trigger}
+              className={cn(
+                "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
+                "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                disabled && "pointer-events-none opacity-50",
+              )}
+            >
+              {/* Flat swatch chip — no shadow-inner (the design editor uses a flat chip) */}
+              <span
+                className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                style={triggerSwatchStyle(value, color)}
+              />
+              <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
+                {triggerLabel(effectivePaintType, color)}
+              </span>
+              <span className="tabular-nums text-muted-foreground !text-[11px]">
+                {effectiveOpacity}%
+              </span>
+            </button>
+          )}
         </PopoverTrigger>
 
         {/* design popover: ~240px wide, uniform 12px padding, tight controls */}
@@ -1201,6 +1218,9 @@ export function DesignColorPicker({
           align="start"
           sideOffset={8}
           className="z-[10000] w-[252px] p-0 shadow-xl"
+          data-design-history-hotkeys={
+            allowDesignHistoryHotkeys ? "true" : undefined
+          }
           // Keep the picker open when the style change triggered by a paint-type
           // switch causes the canvas to re-project the element. Without this,
           // Radix treats the resulting focus shift as an "interact outside" event
@@ -1398,7 +1418,7 @@ export function DesignColorPicker({
                   <div>
                     <GradientEditor
                       value={activeGradient}
-                      selectedStopId={selectedStopId}
+                      selectedStopId={effectiveSelectedStopId}
                       disabled={disabled}
                       onSelectStop={setSelectedStopId}
                       onChange={emitGradient}

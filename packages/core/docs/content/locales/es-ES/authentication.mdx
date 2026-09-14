@@ -163,8 +163,8 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 Cuando se establece esta marca, el registro de correo electrónico/contraseña no requiere correo electrónico
 no se envía la verificación y el correo electrónico de verificación de registro. Úselo solo para control de calidad
-o obtener una vista previa de los entornos y nombrar cuentas de prueba con una dirección `+qa`
-(`name+qa@example.com`) para que sean fáciles de identificar.
+o obtener una vista previa de los entornos y nombrar cuentas de prueba con una dirección `+autoz`
+(`name+autoz@example.com`) para que sean fáciles de identificar.
 
 ## Política de verificación de correo electrónico {#email-verification-policy}
 
@@ -478,5 +478,5 @@ La ruta `/_agent-native/google/auth-url` predeterminada hace esto automáticamen
 
 La marca de Dispatch `desktop.workspace-sso`, desactivada de forma predeterminada, solo controla la disponibilidad; las comprobaciones de autenticación, firma, nonce, origen, callback, sesión y revocación siguen siendo obligatorias. Si la marca está desactivada o no se puede leer, Desktop no cambia el inicio de sesión, el cierre de sesión ni los ajustes de cada app.
 La marca Canary del agente de usuario es solo una señal de disponibilidad, no una atestación remota; la autenticación y la autorización no confían en ella.
-Las apps alojadas canónicas reconocen las solicitudes de Desktop SSO Canary empaquetado sin configuración del centro de identidad por app. Los navegadores normales y las apps autoalojadas aún requieren `AGENT_NATIVE_IDENTITY_HUB_URL`. Las compilaciones estables de Desktop no inicializan el intermediario hasta que una versión posterior se apruebe por separado.
+Las apps alojadas canónicas reconocen las solicitudes de Desktop SSO Canary empaquetado sin configuración del centro de identidad por app. Los navegadores normales usan el inicio de sesión habitual de cada app. Las apps autoalojadas solo requieren `AGENT_NATIVE_IDENTITY_HUB_URL` para la ruta explícita restante de Desktop o la federación del servidor. Las compilaciones estables de Desktop no inicializan el intermediario hasta que una versión posterior se apruebe por separado.
 La versión Canary no intercepta la navegación de inicio de sesión anónima de las aplicaciones. El usuario debe elegir explícitamente el inicio de sesión del espacio de trabajo en Ajustes de Desktop para la aplicación registrada activa; el inicio de sesión normal de la aplicación sigue siendo la ruta predeterminada.

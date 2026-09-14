@@ -10,7 +10,47 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import type { SlideStyleSnapshot } from "./slide-style";
 import { SlideContextToolbar } from "./SlideContextToolbar";
+
+function objectSnapshot(
+  overrides: Partial<SlideStyleSnapshot> = {},
+): SlideStyleSnapshot {
+  return {
+    selector: '[data-slide-object-id="object-a"]',
+    label: "Object",
+    tagName: "DIV",
+    textPreview: "Object",
+    isText: false,
+    isImage: false,
+    isAbsolute: true,
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    rotation: 0,
+    slideWidth: 1280,
+    slideHeight: 720,
+    color: "#000000",
+    fontFamily: "sans-serif",
+    backgroundColor: "#ffffff",
+    fontSize: 16,
+    fontWeight: "400",
+    fontStyle: "normal",
+    textDecoration: "none",
+    listKind: null,
+    lineHeight: 1.2,
+    textAlign: "left",
+    opacity: 100,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: "#000000",
+    paddingX: 0,
+    paddingY: 0,
+    zIndex: 1,
+    ...overrides,
+  };
+}
 
 function renderMultiToolbar(
   objectSelectionCount: number,
@@ -76,6 +116,53 @@ describe("contextual toolbar object layout", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Vertical" }));
 
     expect(onDistributeObjects).toHaveBeenCalledWith("vertical");
+  });
+
+  it("dispatches group and one-step z-order actions for a multi-selection", () => {
+    const onGroup = vi.fn();
+    const onArrange = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot()}
+          background="#000000"
+          objectSelectionCount={2}
+          canGroup
+          onGroup={onGroup}
+          onArrange={onArrange}
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bring forward" }));
+
+    expect(onGroup).toHaveBeenCalledOnce();
+    expect(onArrange).toHaveBeenCalledWith("forward");
+  });
+
+  it("dispatches ungroup for a selected group", () => {
+    const onUngroup = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot()}
+          background="#000000"
+          canUngroup
+          onUngroup={onUngroup}
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Ungroup" }));
+
+    expect(onUngroup).toHaveBeenCalledOnce();
   });
 
   it("keeps zoom controls inside the style toolbar", () => {

@@ -8,6 +8,7 @@ import {
   personalContentSpaceId,
   systemIdsForContentSpace,
 } from "./_content-spaces.js";
+import { nextAppendPosition } from "./_position-utils.js";
 
 type Db = any;
 
@@ -67,7 +68,7 @@ export async function setFavoriteMembership(args: {
   if (existing) return true;
 
   const [position] = await args.db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, favoritesDatabaseId));
   const id = `content_database_item_${createHash("sha256")
@@ -82,7 +83,7 @@ export async function setFavoriteMembership(args: {
       orgId: null,
       databaseId: favoritesDatabaseId,
       documentId: args.documentId,
-      position: Number(position?.max ?? -1) + 1,
+      position: nextAppendPosition(position?.max),
       createdAt: args.now,
       updatedAt: args.now,
     })

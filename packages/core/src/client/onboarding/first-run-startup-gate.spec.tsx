@@ -43,6 +43,13 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+let nextMountId = 0;
+
+function StatefulApp() {
+  const [mountId] = React.useState(() => ++nextMountId);
+  return <div data-testid="stateful-app" data-mount-id={mountId} />;
+}
+
 describe("FirstRunOnboardingStartupGate", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -54,6 +61,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     mocks.preview.mockReset();
     mocks.enabled.mockReturnValue(true);
     mocks.preview.mockReturnValue(false);
+    nextMountId = 0;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -113,6 +121,34 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-testid='first-run-onboarding']"),
     ).toBeNull();
+  });
+
+  it("does not remount the app when eligibility resolves", async () => {
+    const status = deferred<boolean>();
+    mocks.fetchStatus.mockReturnValue(status.promise);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <StatefulApp />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    const mountId = container
+      .querySelector("[data-testid='stateful-app']")
+      ?.getAttribute("data-mount-id");
+
+    await act(async () => {
+      status.resolve(false);
+      await status.promise;
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='stateful-app']")
+        ?.getAttribute("data-mount-id"),
+    ).toBe(mountId);
   });
 
   it("keeps the app hidden and owns the onboarding surface for a new user", async () => {

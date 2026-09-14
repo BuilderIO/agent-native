@@ -2,7 +2,6 @@ import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import * as coreDb from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
@@ -40,18 +39,15 @@ vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-database-row-migration-${process.pid}-${Date.now()}.sqlite`,
+  `content-database-row-migration-${process.pid}-${Date.now()}.pglite`,
 );
-const PGLITE_DB_PATH = `${TEST_DB_PATH}.pglite`;
-const TEST_DATABASE_URL =
-  process.env.CONTENT_MIGRATION_TEST_BACKEND === "pglite"
-    ? `pglite:${PGLITE_DB_PATH}`
-    : `file:${TEST_DB_PATH}`;
+const TEST_DATABASE_URL = `pglite:${TEST_DB_PATH}`;
 const OWNER = "synthetic-migration-owner@example.test";
 const OUTSIDER = "synthetic-migration-outsider@example.test";
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let action: typeof import("./migrate-content-database-rows.js").default;
+let terminalAction: typeof import("./manage-content-database-migration.js").default;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let touchContentDatabase: typeof import("./_content-database-mutation-lock.js").touchContentDatabase;
 let serializeMigrationValue: typeof import("./_content-database-row-migration.js").serializeMigrationValue;
@@ -66,6 +62,8 @@ beforeAll(async () => {
     await import("./_content-database-row-migration.js")
   ).serializeMigrationValue;
   action = (await import("./migrate-content-database-rows.js")).default;
+  terminalAction = (await import("./manage-content-database-migration.js"))
+    .default;
   ({ lockContentDatabaseMutation, touchContentDatabase } =
     await import("./_content-database-mutation-lock.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
@@ -79,16 +77,8 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  if (TEST_DATABASE_URL.startsWith("file:")) {
-    for (const suffix of ["", "-wal", "-shm"])
-      rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-    for (const suffix of ["", "-wal", "-shm"])
-      expect(existsSync(`${TEST_DB_PATH}${suffix}`)).toBe(false);
-  }
-  if (TEST_DATABASE_URL.startsWith("pglite:")) {
-    rmSync(PGLITE_DB_PATH, { force: true, recursive: true });
-    expect(existsSync(PGLITE_DB_PATH)).toBe(false);
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+  expect(existsSync(TEST_DB_PATH)).toBe(false);
 });
 
 async function fixture(rowCount = 20) {
@@ -322,6 +312,17 @@ async function readFixtureState(seed: Awaited<ReturnType<typeof fixture>>) {
   };
 }
 
+function withoutDocumentBodyRevisions<T extends { documents: any[] }>(
+  state: T,
+) {
+  return {
+    ...state,
+    documents: state.documents.map(
+      ({ bodyRevision: _bodyRevision, ...document }) => document,
+    ),
+  };
+}
+
 /**
  * Terminal replays must be observationally inert. Keep timestamps and the
  * receipt here: stripping them would hide a lock or receipt rewrite.
@@ -405,7 +406,7 @@ describe("migrate-content-database-rows", () => {
       await runWithRequestContext({ userEmail: OWNER }, () =>
         phase === "apply"
           ? action.run({ phase: "apply", plan: input })
-          : action.run({
+          : terminalAction.run({
               phase: "rollback",
               databaseId: seed.databaseId,
               idempotencyKey: input.idempotencyKey,
@@ -482,42 +483,6 @@ describe("migrate-content-database-rows", () => {
     expect(durableLock.entered).toBe(false);
     releaseSecond();
     await expect(operation).rejects.toThrow("Synthetic flush failure");
-  });
-
-  it("fails closed on shared SQLite before flushing but permits a terminal replay", async () => {
-    const seed = await fixture(1);
-    const input = plan(seed);
-    const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
-      action.run({ phase: "apply", plan: input }),
-    );
-    const beforeReplay = await readDurableMigrationState(seed);
-    const localSpy = vi.spyOn(coreDb, "isLocalDatabase").mockReturnValue(false);
-    const postgresSpy = vi.spyOn(coreDb, "isPostgres").mockReturnValue(false);
-    try {
-      flushOpenDocumentEditorToSql.mockClear();
-      const replayed = await runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({ phase: "apply", plan: input }),
-      );
-      expect(replayed).toMatchObject({
-        receiptId: applied.receiptId,
-        replayed: true,
-      });
-      expect(flushOpenDocumentEditorToSql).not.toHaveBeenCalled();
-      expect(await readDurableMigrationState(seed)).toEqual(beforeReplay);
-
-      const fresh = await fixture(1);
-      await expect(
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          action.run({ phase: "apply", plan: plan(fresh) }),
-        ),
-      ).rejects.toThrow(
-        "requires PostgreSQL or a local SQLite/PGlite database",
-      );
-      expect(flushOpenDocumentEditorToSql).not.toHaveBeenCalled();
-    } finally {
-      localSpy.mockRestore();
-      postgresSpy.mockRestore();
-    }
   });
 
   it("validates without writes, applies all 20 synthetic rows, and replays without versions", async () => {
@@ -711,69 +676,83 @@ describe("migrate-content-database-rows", () => {
     ).toHaveLength(0);
   });
 
-  it.skipIf(TEST_DATABASE_URL.startsWith("pglite:"))(
-    "rejects same-key changed plans and rolls all writes back on an abort trigger",
-    async () => {
-      const seed = await fixture();
-      const input: any = structuredClone(plan(seed));
-      const db = getDb();
-      const before = await readFixtureState(seed);
-      await db.run(
-        sql.raw(
-          `CREATE TRIGGER synthetic_migration_abort BEFORE UPDATE ON documents WHEN NEW.id = '${seed.rows[8].documentId}' BEGIN SELECT RAISE(ABORT, 'synthetic migration abort'); END`,
-        ),
-      );
-      await expect(
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          action.run({ phase: "apply", plan: input }),
-        ),
-      ).rejects.toThrow("synthetic migration abort");
-      expect(await readFixtureState(seed)).toEqual(before);
-      expect(
-        await db
-          .select()
-          .from(schema.documentVersions)
-          .where(
-            inArray(
-              schema.documentVersions.documentId,
-              seed.rows.map((row: any) => row.documentId),
-            ),
+  it("rejects same-key changed plans and rolls all writes back on an abort trigger", async () => {
+    const seed = await fixture();
+    const input: any = structuredClone(plan(seed));
+    const db = getDb();
+    const before = await readFixtureState(seed);
+    await db.execute(
+      sql.raw(`
+        CREATE FUNCTION synthetic_migration_abort_fn() RETURNS trigger
+        LANGUAGE plpgsql AS $migration$
+        BEGIN
+          IF NEW.id = '${seed.rows[8].documentId}' THEN
+            RAISE EXCEPTION 'synthetic migration abort';
+          END IF;
+          RETURN NEW;
+        END;
+        $migration$
+      `),
+    );
+    await db.execute(
+      sql.raw(`
+        CREATE TRIGGER synthetic_migration_abort
+        BEFORE UPDATE ON documents
+        FOR EACH ROW EXECUTE FUNCTION synthetic_migration_abort_fn()
+      `),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+    ).rejects.toThrow(/Failed query: update/);
+    expect(await readFixtureState(seed)).toEqual(before);
+    expect(
+      await db
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          inArray(
+            schema.documentVersions.documentId,
+            seed.rows.map((row: any) => row.documentId),
           ),
-      ).toHaveLength(0);
-      expect(
-        await db
-          .select()
-          .from(schema.documentPropertyDefinitions)
-          .where(
-            eq(schema.documentPropertyDefinitions.databaseId, seed.databaseId),
-          ),
-      ).toHaveLength(3);
-      expect(
-        await db
-          .select()
-          .from(schema.contentDatabaseMigrationReceipts)
-          .where(
-            eq(
-              schema.contentDatabaseMigrationReceipts.databaseId,
-              seed.databaseId,
-            ),
-          ),
-      ).toHaveLength(0);
-      await db.run(sql`DROP TRIGGER synthetic_migration_abort`);
-      const applied: any = await runWithRequestContext(
-        { userEmail: OWNER },
-        () => action.run({ phase: "apply", plan: input }),
-      );
-      const changed = structuredClone(input);
-      changed.rows[0].content = "# Different synthetic body";
-      await expect(
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          action.run({ phase: "apply", plan: changed }),
         ),
-      ).rejects.toThrow("different migration plan");
-      expect(applied.state).toBe("applied");
-    },
-  );
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          eq(schema.documentPropertyDefinitions.databaseId, seed.databaseId),
+        ),
+    ).toHaveLength(3);
+    expect(
+      await db
+        .select()
+        .from(schema.contentDatabaseMigrationReceipts)
+        .where(
+          eq(
+            schema.contentDatabaseMigrationReceipts.databaseId,
+            seed.databaseId,
+          ),
+        ),
+    ).toHaveLength(0);
+    await db.execute(
+      sql.raw(`DROP TRIGGER synthetic_migration_abort ON documents`),
+    );
+    await db.execute(sql.raw(`DROP FUNCTION synthetic_migration_abort_fn()`));
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    const changed = structuredClone(input);
+    changed.rows[0].content = "# Different synthetic body";
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: changed }),
+      ),
+    ).rejects.toThrow("different migration plan");
+    expect(applied.state).toBe("applied");
+  });
 
   it("serializes simultaneous same-key applies into one commit and one replay", async () => {
     const seed = await fixture();
@@ -1042,7 +1021,7 @@ describe("migrate-content-database-rows", () => {
 
     await expect(
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: seed.databaseId,
           idempotencyKey: input.idempotencyKey,
@@ -1074,7 +1053,7 @@ describe("migrate-content-database-rows", () => {
     const rolledBack: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: rollbackSeed.databaseId,
           idempotencyKey: rollbackPlan.idempotencyKey,
@@ -1085,13 +1064,21 @@ describe("migrate-content-database-rows", () => {
       state: "rolled_back",
       postDigest: applied.preDigest,
     });
-    expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
+    const afterRollback = await readFixtureState(rollbackSeed);
+    expect(
+      afterRollback.documents.map(({ bodyRevision }) => bodyRevision),
+    ).toEqual(
+      beforeRollback.documents.map(({ bodyRevision }) => bodyRevision + 2),
+    );
+    expect(withoutDocumentBodyRevisions(afterRollback)).toEqual(
+      withoutDocumentBodyRevisions(beforeRollback),
+    );
     const rollbackStateBeforeReplay =
       await readDurableMigrationState(rollbackSeed);
     const rollbackReplay: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: rollbackSeed.databaseId,
           idempotencyKey: rollbackPlan.idempotencyKey,
@@ -1103,13 +1090,13 @@ describe("migrate-content-database-rows", () => {
       replayed: true,
       postDigest: applied.preDigest,
     });
-    expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
+    expect(await readFixtureState(rollbackSeed)).toEqual(afterRollback);
     expect(await readDurableMigrationState(rollbackSeed)).toEqual(
       rollbackStateBeforeReplay,
     );
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: rollbackSeed.databaseId,
           idempotencyKey: rollbackPlan.idempotencyKey,
@@ -1117,7 +1104,7 @@ describe("migrate-content-database-rows", () => {
         }),
       ),
     ).rejects.toThrow("drifted");
-    expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
+    expect(await readFixtureState(rollbackSeed)).toEqual(afterRollback);
     expect(
       await db
         .select()
@@ -1137,7 +1124,7 @@ describe("migrate-content-database-rows", () => {
     );
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: finalizeSeed.databaseId,
           idempotencyKey: finalizePlan.idempotencyKey,
@@ -1179,7 +1166,7 @@ describe("migrate-content-database-rows", () => {
     const finalized: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: finalizeSeed.databaseId,
           idempotencyKey: finalizePlan.idempotencyKey,
@@ -1192,7 +1179,7 @@ describe("migrate-content-database-rows", () => {
     const finalizeReplay: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: finalizeSeed.databaseId,
           idempotencyKey: finalizePlan.idempotencyKey,
@@ -1246,7 +1233,7 @@ describe("migrate-content-database-rows", () => {
       .where(eq(schema.documents.id, driftSeed.rows[0].documentId));
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: driftSeed.databaseId,
           idempotencyKey: driftPlan.idempotencyKey,
@@ -1273,7 +1260,7 @@ describe("migrate-content-database-rows", () => {
 
     const transitions = await Promise.allSettled([
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: seed.databaseId,
           idempotencyKey: input.idempotencyKey,
@@ -1281,7 +1268,7 @@ describe("migrate-content-database-rows", () => {
         }),
       ),
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: seed.databaseId,
           idempotencyKey: input.idempotencyKey,

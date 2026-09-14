@@ -12,19 +12,18 @@ import {
   IconMinus,
   IconPlus,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
+import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-
-import { DesignColorPicker, imageFillToBackgroundStyles } from "../inspector";
+  DesignColorPicker,
+  imageFillToBackgroundStyles,
+  type DesignPaintType,
+} from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
-import { isTextElement } from "./element-classification";
+import { isTextElement, isVectorShapeElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
@@ -62,10 +61,58 @@ import type {
 } from "./style-change-types";
 
 /**
+ * Paint types an existing stacked `backgroundImage` layer's own picker can
+ * coherently become. Unlike the base fill row, a layer has no CSS
+ * representation for "solid" or "none" — solid color lives in the base
+ * `fillProperty` and removing a layer already has this row's own eye/minus
+ * controls. `DesignColorPicker`'s internal `setPaintType` routes those two
+ * types through `emitColor`/`onChange` (a solid-color-only path), which this
+ * row wires to a gradient-stop-color patch instead — clicking either tab
+ * here silently discarded the click rather than doing anything coherent, so
+ * both are excluded per the `supportedPaintTypes` contract documented on
+ * `DesignColorPickerProps` ("never shown rather than shown and then silently
+ * discarded on write").
+ */
+const EXISTING_LAYER_PAINT_TYPES: DesignPaintType[] = [
+  "linear",
+  "radial",
+  "angular",
+  "diamond",
+  "image",
+  "video",
+  "shader",
+  "noise",
+  "pattern",
+];
+
+const TEXT_GRADIENT_PAINT_TYPES: DesignPaintType[] = [
+  "linear",
+  "radial",
+  "angular",
+  "diamond",
+];
+
+const TEXT_BASE_PAINT_TYPES: DesignPaintType[] = [
+  "solid",
+  ...TEXT_GRADIENT_PAINT_TYPES,
+];
+
+// Stable identity for a fill-layer row's own DesignColorPicker, independent
+// of both the layer's position (which shifts under a preceding row's
+// reorder/removal) and its CSS content (rewritten by every edit, including a
+// paint-type switch). See the layerKeysRef sync below.
+let layerKeyCounter = 0;
+function nextLayerKey(): string {
+  layerKeyCounter += 1;
+  return `fill-layer-${layerKeyCounter}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
  * The four `backgroundImage`/`backgroundSize`/`backgroundRepeat`/
  * `backgroundPosition` prop values fed to the base fill row's `<ColorInput>`.
- * Text fills ("color") can't hold a layered paint at all, so every value
- * collapses to "" for them.
+ * SVG shape fills use `fill` rather than the CSS background stack, so their
+ * values collapse to "". Text elements can use gradient backgrounds clipped
+ * to their glyphs and must receive the actual layer values.
  *
  * Factored out (rather than inlined ternaries in the JSX below) as a
  * regression guard: `ColorInput.onImageFillLayerChange` builds its commit
@@ -82,14 +129,14 @@ import type {
  */
 export function baseFillLayerSourceProps(
   styles: Record<string, string>,
-  isTextFillElement: boolean,
+  isVectorFillElement: boolean,
 ): {
   backgroundImage: string;
   backgroundSize: string;
   backgroundRepeat: string;
   backgroundPosition: string;
 } {
-  if (isTextFillElement) {
+  if (isVectorFillElement) {
     return {
       backgroundImage: "",
       backgroundSize: "",
@@ -134,7 +181,12 @@ export function FillProperties({
   const t = useT();
   const styles = element.computedStyles;
   const isTextFillElement = isTextElement(element);
-  const fillProperty = isTextFillElement ? "color" : "backgroundColor";
+  const isVectorFillElement = isVectorShapeElement(element);
+  const fillProperty = isTextFillElement
+    ? "color"
+    : isVectorFillElement
+      ? "fill"
+      : "backgroundColor";
   // Stash for a hidden layer's real pre-hide backgroundSize (e.g. a custom
   // cover/contain/percentage) so re-showing it restores that value instead
   // of permanently discarding it for "auto" — the same React-state stash
@@ -145,34 +197,68 @@ export function FillProperties({
     Record<string, string>
   >({});
   const fillStashKey = elementStableKey(element);
+  // Per-layer row identity, keyed to survive content edits but NOT survive a
+  // reorder/removal at a different position. key={index} alone (this row's
+  // earlier fix for the content-derived-key remount bug) attaches the row's
+  // uncontrolled DesignColorPicker instance to a position rather than a
+  // layer, so removing or reordering a preceding row leaves an open
+  // picker's local paint-type/gradient/selected-stop state attached to
+  // whatever layer now occupies that position. reorderFillLayers,
+  // removeLayer, and the "+" add handler below explicitly keep this array
+  // in lockstep with the same splice/insert they apply to the CSS layers -
+  // the resync below only reseeds it (fresh ids, positionally) when the
+  // selected element changes, or the count drifts out of sync with those
+  // tracked mutations (e.g. an external/agent-driven style edit).
+  const layerKeysRef = useRef<{ elementKey: string; keys: string[] }>({
+    elementKey: "",
+    keys: [],
+  });
   const fillValue = isTextFillElement
     ? styles.color || ""
-    : styles.backgroundColor || "";
-  const backgroundLayers = isTextFillElement
+    : isVectorFillElement
+      ? styles.fill || ""
+      : styles.backgroundColor || "";
+  const backgroundLayers = isVectorFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
-  const backgroundSizeLayers = isTextFillElement
+  const backgroundSizeLayers = isVectorFillElement
     ? []
     : splitCssLayers(styles.backgroundSize || "");
-  const backgroundRepeatLayers = isTextFillElement
+  const backgroundRepeatLayers = isVectorFillElement
     ? []
     : splitCssLayers(styles.backgroundRepeat || "");
-  const backgroundPositionLayers = isTextFillElement
+  const backgroundPositionLayers = isVectorFillElement
     ? []
     : splitCssLayers(styles.backgroundPosition || "");
   const baseFillLayerProps = baseFillLayerSourceProps(
     styles,
-    isTextFillElement,
+    isVectorFillElement,
   );
   const fillIsMixed =
     isMixedValue(fillValue) ||
     isMixedValue(styles.backgroundImage) ||
     isMixedValue(styles.backgroundSize) ||
     isMixedValue(styles.backgroundRepeat) ||
-    isMixedValue(styles.backgroundPosition);
-  const hasBackgroundLayer = !isTextFillElement && backgroundLayers.length > 0;
+    isMixedValue(styles.backgroundPosition) ||
+    (isTextFillElement && isMixedValue(styles.backgroundClip));
+  const hasBackgroundLayer =
+    !isVectorFillElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextFillElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
+  if (
+    layerKeysRef.current.elementKey !== fillStashKey ||
+    layerKeysRef.current.keys.length !== backgroundLayers.length
+  ) {
+    const previousKeys =
+      layerKeysRef.current.elementKey === fillStashKey
+        ? layerKeysRef.current.keys
+        : [];
+    layerKeysRef.current = {
+      elementKey: fillStashKey,
+      keys: backgroundLayers.map((_, i) => previousKeys[i] ?? nextLayerKey()),
+    };
+  }
+  const layerKeys = layerKeysRef.current.keys;
 
   // Non-destructive fill hide: instead of stashing the pre-hide color in
   // React state (lost on unmount — e.g. deselect then reselect the same
@@ -192,7 +278,10 @@ export function FillProperties({
         ? rgbaToCss(withColorOpacity(parsed, 100))
         : isTextFillElement
           ? "#000000"
-          : "#ffffff";
+          : isVectorFillElement
+            ? DEFAULT_SHAPE_FILL
+            : // guard:allow-raw-color — restores an authored fill, not editor chrome.
+              "#ffffff";
       onStyleChange(fillProperty, restored);
     } else if (parsed) {
       onStyleChange(fillProperty, rgbaToCss(withColorOpacity(parsed, 0)));
@@ -218,6 +307,7 @@ export function FillProperties({
       next.splice(to, 0, moved);
       return next;
     };
+    layerKeysRef.current.keys = reorder(layerKeysRef.current.keys);
     const patch = {
       backgroundImage: joinCssLayers(reorder(backgroundLayers)),
       backgroundSize: joinCssLayers(reorder(backgroundSizeLayers)),
@@ -265,6 +355,24 @@ export function FillProperties({
     },
   );
 
+  const commitBackgroundImageChange = (backgroundImage: string) => {
+    if (!isTextFillElement) {
+      onStyleChange("backgroundImage", backgroundImage);
+      return;
+    }
+    const hasGradient = splitCssLayers(backgroundImage).some((layer) =>
+      Boolean(parseGradientLayer(layer)),
+    );
+    commitStylePatch(
+      {
+        backgroundImage,
+        backgroundClip: hasGradient ? "text" : "border-box",
+      },
+      onStyleChange,
+      onStylesChange,
+    );
+  };
+
   return (
     <PanelSection
       title={t("editPanel.sections.fill")}
@@ -279,43 +387,51 @@ export function FillProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
-          <SectionIconButton
-            label={t("editPanel.labels.addFill")}
-            onClick={() => {
-              if (fillIsMixed) {
-                commitStylePatch(
-                  {
-                    color: "#000000",
-                    backgroundColor: "#ffffff",
-                    backgroundImage: "none",
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                );
-                return;
-              }
-              if (isTextFillElement) {
-                onStyleChange(
-                  "color",
-                  cssColorOrFallback(styles.color, "#000000"),
-                );
-                return;
-              }
-              commitStylePatch(
-                addFillLayerPatch({
+          {!isTextFillElement || fillIsMixed ? (
+            <SectionIconButton
+              label={t("editPanel.labels.addFill")}
+              onClick={() => {
+                if (fillIsMixed) {
+                  const replacement: Record<string, string> = isTextFillElement
+                    ? {
+                        color: "#000000", // guard:allow-raw-color - CSS paint fallback for mixed selections.
+                        backgroundImage: "none",
+                        backgroundClip: "border-box",
+                      }
+                    : {
+                        color: "#000000", // guard:allow-raw-color - CSS paint fallback for mixed selections.
+                        backgroundColor: "#ffffff", // guard:allow-raw-color - CSS paint fallback for mixed selections.
+                        backgroundImage: "none",
+                      };
+                  commitStylePatch(replacement, onStyleChange, onStylesChange);
+                  return;
+                }
+                if (isVectorFillElement) {
+                  onStyleChange(
+                    "fill",
+                    cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
+                  );
+                  return;
+                }
+                const addFillPatch = addFillLayerPatch({
                   backgroundColor: styles.backgroundColor,
                   backgroundLayers,
                   backgroundSizeLayers,
                   backgroundRepeatLayers,
                   backgroundPositionLayers,
-                }),
-                onStyleChange,
-                onStylesChange,
-              );
-            }}
-          >
-            <IconPlus className="size-3.5" />
-          </SectionIconButton>
+                });
+                if (addFillPatch.backgroundImage !== undefined) {
+                  layerKeysRef.current.keys = [
+                    nextLayerKey(),
+                    ...layerKeysRef.current.keys,
+                  ];
+                }
+                commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
+              }}
+            >
+              <IconPlus className="size-3.5" />
+            </SectionIconButton>
+          ) : null}
         </>
       }
     >
@@ -327,7 +443,9 @@ export function FillProperties({
         </p>
       ) : hasVisibleFill ? (
         <div className="space-y-2">
-          {isTextFillElement || colorHasVisibleAlpha(fillValue) ? (
+          {isTextFillElement ||
+          colorHasVisibleAlpha(fillValue) ||
+          hasBackgroundLayer ? (
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
             <InspectorPaintRow>
               <InspectorGridCell span={20}>
@@ -346,30 +464,20 @@ export function FillProperties({
                   // why all four are sourced together.
                   {...baseFillLayerProps}
                   blendMode={
-                    isTextFillElement
+                    isVectorFillElement || isTextFillElement
                       ? undefined
                       : styles.backgroundBlendMode || "normal"
                   }
                   onBlendModeChange={
-                    isTextFillElement
+                    isVectorFillElement || isTextFillElement
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
-                  // Text fill ("color") can't hold a gradient/image paint —
-                  // there is no background-clip:text support here — so never
-                  // offer layered fills for it; the picker's Gradient/Image
-                  // tabs remain reachable as raw UI (it manages that tab
-                  // selection as local state independent of these props) but
-                  // ColorInput's setNext guard rejects non-color writes back
-                  // into `color` when supportsLayeredFills is false. For any
-                  // other element the base fill is a real backgroundImage
-                  // layer stack, so wire the same layered-fill handlers the
-                  // page background row uses (see PageProperties above).
-                  supportsLayeredFills={!isTextFillElement}
+                  supportsLayeredFills={!isVectorFillElement}
                   onBackgroundImageChange={
-                    isTextFillElement
+                    isVectorFillElement
                       ? undefined
-                      : (v) => onStyleChange("backgroundImage", v)
+                      : commitBackgroundImageChange
                   }
                   // Layer-index-aware: ColorInput merges the edited image
                   // into the correct backgroundImage/backgroundSize/
@@ -380,10 +488,13 @@ export function FillProperties({
                   // rebuilding a single-layer patch that would silently wipe
                   // those siblings.
                   onImageFillLayerChange={
-                    isTextFillElement
+                    isVectorFillElement || isTextFillElement
                       ? undefined
                       : (patch) =>
                           commitStylePatch(patch, onStyleChange, onStylesChange)
+                  }
+                  supportedPaintTypes={
+                    isTextFillElement ? TEXT_BASE_PAINT_TYPES : undefined
                   }
                   documentColors={documentColors}
                   pickerKey={[
@@ -396,7 +507,9 @@ export function FillProperties({
                   // Code-backed GLSL Shader paint type — text fills can't
                   // host a shader canvas, so only container fills get it.
                   glslShaderContext={
-                    isTextFillElement ? undefined : glslShaderContext
+                    isVectorFillElement || isTextFillElement
+                      ? undefined
+                      : glslShaderContext
                   }
                 />
               </InspectorGridCell>
@@ -431,7 +544,7 @@ export function FillProperties({
                   <IconMinus className="size-3.5" />
                 </SectionIconButton>
               </InspectorGridCell>
-              {!isTextFillElement ? (
+              {!isVectorFillElement && !isTextFillElement ? (
                 <InspectorGridCell span={1} className="flex justify-center">
                   <FieldTrailer
                     element={element}
@@ -444,7 +557,7 @@ export function FillProperties({
               ) : null}
             </InspectorPaintRow>
           ) : null}
-          {!isTextFillElement
+          {!isVectorFillElement
             ? backgroundLayers.map((layer, index) => {
                 const gradient = parseGradientLayer(layer);
                 // Hidden state itself lives in the real, persisted
@@ -471,7 +584,7 @@ export function FillProperties({
                 const replaceLayer = (nextLayer: string) => {
                   const nextLayers = [...backgroundLayers];
                   nextLayers[index] = nextLayer;
-                  onStyleChange("backgroundImage", joinCssLayers(nextLayers));
+                  commitBackgroundImageChange(joinCssLayers(nextLayers));
                 };
                 // Remove one fill layer by index. Mirrors reorderFillLayers:
                 // all four index-aligned parallel arrays (image/size/repeat/
@@ -484,7 +597,7 @@ export function FillProperties({
                 // leaving backgroundRepeat and backgroundPosition
                 // unfiltered/misaligned.
                 const removeLayer = () => {
-                  const patch = removeFillLayerAtIndex(
+                  const patch: Record<string, string> = removeFillLayerAtIndex(
                     {
                       backgroundImage: backgroundLayers,
                       backgroundSize: backgroundSizeLayers,
@@ -493,13 +606,25 @@ export function FillProperties({
                     },
                     index,
                   );
-                  if (onStylesChange) {
-                    onStylesChange(patch);
-                    return;
+                  if (isTextFillElement) {
+                    const remainingLayers = splitCssLayers(
+                      patch.backgroundImage,
+                    );
+                    const hasGradient = remainingLayers.some((remainingLayer) =>
+                      Boolean(parseGradientLayer(remainingLayer)),
+                    );
+                    patch.backgroundClip = hasGradient ? "text" : "border-box";
+                    if (
+                      !hasGradient &&
+                      remainingLayers.length === 0 &&
+                      gradient &&
+                      !colorHasVisibleAlpha(fillValue)
+                    ) {
+                      patch.color = gradient.stops[0]?.color ?? "#000000"; // guard:allow-raw-color - authored text fallback if a gradient has no stops.
+                    }
                   }
-                  Object.entries(patch).forEach(([property, value]) =>
-                    onStyleChange(property, value),
-                  );
+                  layerKeysRef.current.keys.splice(index, 1);
+                  commitStylePatch(patch, onStyleChange, onStylesChange);
                 };
                 const sizeStashKey = `${fillStashKey}:fill-size:${index}`;
                 const setLayerHidden = (nextHidden: boolean) => {
@@ -549,7 +674,15 @@ export function FillProperties({
                 return (
                   /* design row: [grip] [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <InspectorPaintRow
-                    key={`${layer}-${index}`}
+                    // Keyed by a stable per-layer id (see layerKeysRef
+                    // above), not by position and not by the layer's own CSS
+                    // content: a content-derived key remounts this row's
+                    // DesignColorPicker on every edit (dropping its open
+                    // popover/paint-type selection/gradient-editor state),
+                    // and a plain positional key transfers that same state
+                    // onto whichever layer now occupies this position after
+                    // a reorder or a preceding row's removal.
+                    key={layerKeys[index]}
                     draggable
                     {...fillDrag.getRowProps(index)}
                   >
@@ -568,8 +701,20 @@ export function FillProperties({
                       />
                     </InspectorGridCell>
                     <InspectorGridCell span={20}>
-                      <Popover>
-                        <PopoverTrigger asChild>
+                      {/* Single Popover, owned by DesignColorPicker itself
+                          (via the `trigger` prop) — this row previously
+                          wrapped DesignColorPicker in a *second*,
+                          independent outer Popover for this custom-looking
+                          trigger. Two nested popovers meant the outer one
+                          opened first (showing DesignColorPicker's own
+                          default trigger, requiring a second click to
+                          actually reach the picker), and the outer popover's
+                          dismissable layer treated clicks on the inner
+                          picker's portaled content as "outside", closing
+                          both popovers the instant the gradient editor was
+                          touched or the fill type was switched. */}
+                      <DesignColorPicker
+                        trigger={
                           <button
                             type="button"
                             className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 pl-8 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
@@ -585,87 +730,88 @@ export function FillProperties({
                               {hidden ? 0 : opacity}%
                             </span>
                           </button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          side="left"
-                          align="start"
-                          sideOffset={8}
-                          className="w-80 p-0"
-                        >
-                          <DesignColorPicker
-                            value={layer}
-                            onPaintValueChange={replaceLayer}
-                            onChange={(nextColor) => {
-                              if (!gradient) return;
-                              const firstStop = gradient.stops[0];
-                              if (!firstStop) return;
-                              replaceLayer(
-                                buildGradientLayer(
-                                  gradient.type,
-                                  [
-                                    { ...firstStop, color: nextColor },
-                                    ...gradient.stops.slice(1),
-                                  ],
-                                  gradient.prefix,
-                                ),
-                              );
-                            }}
-                            // Editing an existing image layer's URL/fit
-                            // through its own row popover previously had no
-                            // `onImageFillChange` wired at all, so it fell
-                            // through to `emitPaintValue(imageFillToCss(...))`
-                            // — a single-property `background` SHORTHAND
-                            // string (e.g. `url(...) center / cover no-repeat`)
-                            // written into `backgroundImage` alone, which is
-                            // invalid CSS for that longhand and left
-                            // backgroundSize/backgroundRepeat/backgroundPosition
-                            // untouched. Merge into this layer's own index
-                            // across all four parallel arrays instead (same
-                            // helper the base-row fix uses — see
-                            // `imageFillChangePatch` in panel-primitives.tsx).
-                            onImageFillChange={(value) =>
-                              commitStylePatch(
-                                setImageFillLayerPatch(
-                                  {
-                                    backgroundImage: backgroundLayers,
-                                    backgroundSize: backgroundSizeLayers,
-                                    backgroundRepeat: backgroundRepeatLayers,
-                                    backgroundPosition:
-                                      backgroundPositionLayers,
-                                  },
-                                  index,
-                                  imageFillToBackgroundStyles(value),
-                                ),
-                                onStyleChange,
-                                onStylesChange,
-                              )
-                            }
-                            paintType={gradient?.type ?? "image"}
-                            backgroundImage={layer}
-                            backgroundSize={backgroundSizeLayers[index]}
-                            backgroundRepeat={backgroundRepeatLayers[index]}
-                            backgroundPosition={backgroundPositionLayers[index]}
-                            gradientType={gradient?.type}
-                            onGradientTypeChange={(type) => {
-                              if (!gradient) return;
-                              replaceLayer(
-                                buildGradientLayer(type, gradient.stops),
-                              );
-                            }}
-                            fillRows={[
-                              {
-                                id: `layer-${index}`,
-                                label,
-                                value: layer,
-                                type: gradient ? "gradient" : "image",
-                                selected: true,
-                                swatch: layer,
-                              },
-                            ]}
-                            selectedFillId={`layer-${index}`}
-                          />
-                        </PopoverContent>
-                      </Popover>
+                        }
+                        className="w-80"
+                        value={layer}
+                        onPaintValueChange={replaceLayer}
+                        onChange={(nextColor) => {
+                          if (!gradient) return;
+                          const firstStop = gradient.stops[0];
+                          if (!firstStop) return;
+                          replaceLayer(
+                            buildGradientLayer(
+                              gradient.type,
+                              [
+                                { ...firstStop, color: nextColor },
+                                ...gradient.stops.slice(1),
+                              ],
+                              gradient.prefix,
+                            ),
+                          );
+                        }}
+                        // Editing an existing image layer's URL/fit
+                        // through its own row popover previously had no
+                        // `onImageFillChange` wired at all, so it fell
+                        // through to `emitPaintValue(imageFillToCss(...))`
+                        // — a single-property `background` SHORTHAND
+                        // string (e.g. `url(...) center / cover no-repeat`)
+                        // written into `backgroundImage` alone, which is
+                        // invalid CSS for that longhand and left
+                        // backgroundSize/backgroundRepeat/backgroundPosition
+                        // untouched. Merge into this layer's own index
+                        // across all four parallel arrays instead (same
+                        // helper the base-row fix uses — see
+                        // `imageFillChangePatch` in panel-primitives.tsx).
+                        onImageFillChange={
+                          isTextFillElement
+                            ? undefined
+                            : (value) => {
+                                commitStylePatch(
+                                  setImageFillLayerPatch(
+                                    {
+                                      backgroundImage: backgroundLayers,
+                                      backgroundSize: backgroundSizeLayers,
+                                      backgroundRepeat: backgroundRepeatLayers,
+                                      backgroundPosition:
+                                        backgroundPositionLayers,
+                                    },
+                                    index,
+                                    imageFillToBackgroundStyles(value),
+                                  ),
+                                  onStyleChange,
+                                  onStylesChange,
+                                );
+                              }
+                        }
+                        paintType={gradient?.type ?? "image"}
+                        supportedPaintTypes={
+                          isTextFillElement
+                            ? TEXT_GRADIENT_PAINT_TYPES
+                            : EXISTING_LAYER_PAINT_TYPES
+                        }
+                        backgroundImage={layer}
+                        backgroundSize={backgroundSizeLayers[index]}
+                        backgroundRepeat={backgroundRepeatLayers[index]}
+                        backgroundPosition={backgroundPositionLayers[index]}
+                        gradientType={gradient?.type}
+                        onGradientTypeChange={(type) => {
+                          if (!gradient) return;
+                          replaceLayer(
+                            buildGradientLayer(type, gradient.stops),
+                          );
+                        }}
+                        fillRows={[
+                          {
+                            id: `layer-${index}`,
+                            label,
+                            value: layer,
+                            type: gradient ? "gradient" : "image",
+                            selected: true,
+                            swatch: layer,
+                          },
+                        ]}
+                        selectedFillId={`layer-${index}`}
+                      />
                     </InspectorGridCell>
                     <InspectorGridCell span={4} className="flex justify-center">
                       <SectionIconButton

@@ -8,7 +8,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery,
 }));
 
-import { useUpdatePreviewDocumentDraft } from "./use-documents";
+import {
+  useCreateDocument,
+  useUpdatePreviewDocumentDraft,
+} from "./use-documents";
 
 describe("useUpdatePreviewDocumentDraft", () => {
   beforeEach(() => {
@@ -23,6 +26,26 @@ describe("useUpdatePreviewDocumentDraft", () => {
 
     expect(useActionMutation).toHaveBeenCalledWith(
       "update-preview-document-draft",
+      expect.objectContaining({
+        skipActionQueryInvalidation: true,
+      }),
+    );
+  });
+});
+
+describe("useCreateDocument", () => {
+  beforeEach(() => {
+    useActionMutation.mockReset();
+    useActionQuery.mockReset();
+  });
+
+  it("lets creation flows invalidate document lists after optimistic writes settle", () => {
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useCreateDocument();
+
+    expect(useActionMutation).toHaveBeenCalledWith(
+      "create-document",
       expect.objectContaining({
         skipActionQueryInvalidation: true,
       }),

@@ -153,7 +153,30 @@ describe("LayoutContextProperties", () => {
     expect(markup).toContain("Flow");
     expect(markup).toContain("Normal flow");
     expect(markup).toContain("Padding");
-    expect(markup).toContain("Clip content");
+    // Clipping belongs to containers. A rectangle has nothing to clip, so the
+    // control is not offered here — see the frame case below.
+    expect(markup).not.toContain("Clip content");
+  });
+
+  it("offers Clip content on a frame, not on a drawn shape or text", () => {
+    // Clipping is a container's decision. A screen is clipped from birth (see
+    // blankScreenHtml) rather than through this toggle.
+    const shown = (info: Parameters<typeof element>[0]) =>
+      renderToStaticMarkup(
+        createElement(LayoutContextProperties, {
+          element: element(info),
+          onStyleChange: vi.fn(),
+        }),
+      ).includes("Clip content");
+
+    expect(shown({ primitiveKind: "frame", sourceId: "frame-1" })).toBe(true);
+    expect(shown({ primitiveKind: "rectangle", sourceId: "rect-1" })).toBe(
+      false,
+    );
+    // What a board-drawn rectangle actually looks like here: no primitiveKind,
+    // so a container-tag test cannot tell it apart from a generated `div`.
+    expect(shown({ tagName: "div", sourceId: "draft-rect-1" })).toBe(false);
+    expect(shown({ primitiveKind: "text", sourceId: "text-1" })).toBe(false);
   });
 
   it("maps gap-mode Auto to space-between and restores the last packed alignment on Fixed", () => {
@@ -195,6 +218,9 @@ describe("LayoutContextProperties", () => {
       createElement(LayoutContextProperties, {
         element: element({
           tagName: "div",
+          // A frame, so the mixed overflow this asserts on has a control to
+          // render into — clipping is offered on containers only.
+          primitiveKind: "frame",
           computedStyles: {
             display: "Mixed",
             flexDirection: "Mixed",

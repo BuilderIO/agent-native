@@ -41,6 +41,17 @@ below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
+## Merge policy
+
+The purpose of `/ship` is to land the PR. A branch being behind `origin/main`
+is observational only; it never triggers a merge, rebase, or maintenance
+commit. Check GitHub's live `mergeable` state before updating from `main`, and
+merge `origin/main` only when GitHub reports `CONFLICTING` or a local merge
+proves a real conflict. After conflict recovery, wait for the new checks and
+do not repeat the merge while the PR is conflict-free or checks are pending.
+Never enable GitHub auto-merge; use the explicit admin merge below once the
+gates pass.
+
 When a ship run also reviews the open PR queue, it may merge a non-draft PR
 authored by the exact Dependabot bot login when the `review-prs` Dependabot
 merge exception passes. That exception is limited to patch/minor,
@@ -116,29 +127,46 @@ source seam and focused verification, with one explicit disposition: fixed,
 awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
 
+The handoff must preserve the feedback workflow's automation disclosure:
+every Slack reply it posts ends with `this was sent from a bot.`
+After every Slack reply, re-read the complete thread through its current end
+before continuing. If anyone replies to that message, treat it as new evidence,
+re-investigate, make and verify any needed fix, post another disclosed update,
+and repeat the read-back. Before treating the sweep as fully wrapped, audit
+every replied-to thread until no unprocessed follow-up remains. Do not merge
+while this reply follow-up pass is incomplete.
+
 Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
 
 - Never add or duplicate `👀` on a Slack parent. If the latest readable parent
   already has an `👀` reaction from anyone, preserve that fact as an existing
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified disposition from the
-  invoking Slack identity - **Fixed**, **In progress**, or **Clarification
-  needed**; an eye-only or stale eye-only item remains actionable for that
-  handoff check. For items
+  an actionable in-scope item, require a verified feedback-ledger disposition
+  and reaction state - **Fixed**, **Shipped**, **Resolved elsewhere**,
+  **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
+  **Open - no reply** after this workflow's eye has been released with `✅`;
+  **In progress** or **Clarification needed** while this workflow's eye is
+  held. Silent terminal states do not require a Slack reply; never manufacture
+  one just to satisfy this handoff check. An eye-only or stale eye-only item
+  remains actionable for that handoff check. For items
   routed to Sid or Alice, or classified as external, duplicate, deferred, or
   informational, honor that owning disposition and do not turn the eye into a
   merge blocker. If the reaction state is unavailable, record the item as
   unavailable/unverified and refresh the feedback thread instead of guessing.
-- Concrete small UI or interaction bugs in the Design app are an additional
-  in-scope category for this workflow and follow the same feedback handoff,
-  verification, and merge gates as other repo-owned fixes. Do not narrow the
-  ship ledger to Design when Design is added to a cross-app sweep. Route broad
-  redesigns or subjective Design suggestions to Sid. All Content app feedback
-  remains owned by Alice; keep those source links and ownership decisions in
-  the ship ledger, but do not include them as this workflow's fixes,
-  investigation, clarification requests, replies, dispatches, or merge
-  blockers.
+- Design feedback, including small UI or interaction bugs, Design clips, and
+  imported-design usability, is in scope when the user assigns concrete Design
+  fixes. Claim, investigate, reply, and ship those items when explicitly in
+  scope; preserve foreign ownership for other feedback. All Content app
+  feedback remains owned by Alice; keep those source links and ownership
+  decisions in the ship ledger, but do not
+  include them as this workflow's fixes, investigation, clarification
+  requests, replies, dispatches, or merge blockers.
+
+If a prior run mistakenly added an eye to an out-of-scope or already-owned
+parent, release it with `✅` when reactions are available. Do not add a new
+reply or investigate it. If the release marker is unavailable, record the exact
+parent for manual cleanup and keep it out of the ship ledger's actionable work.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
@@ -190,14 +218,18 @@ The ship report and PR description must keep source-tested, built, and merged
 claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
-review item has a fix or a concise reply and that no new evidence has been left
-without a disposition. Items routed to Sid or Alice remain outside this
-workflow's ownership. External, duplicate, deferred, and informational items
+review item has a fix, a concise reply, or an explicit terminal disposition
+with its `✅` release marker, and that no new evidence has been left without a
+disposition. Items routed to Alice remain outside this workflow's ownership;
+explicitly assigned Design items are included. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
-parent marked with `👀` is not thereby complete or non-actionable: preserve the
-reaction without duplicating it, and for actionable in-scope items do not merge
-while an eye-only or stale eye-only item lacks a verified disposition from the
-invoking Slack identity.
+  parent marked with `👀` is not thereby complete or non-actionable: preserve the
+  reaction without duplicating it, and for actionable in-scope items do not merge
+  while an active eye-only or stale eye-only item lacks a verified disposition.
+  A foreign valid workflow eye is owned elsewhere and must not be released by
+  this workflow; exclude it from this handoff unless this PR depends on that
+  item, in which case preserve it as a handoff blocker. A released terminal
+  item is not a merge blocker.
 
 ## Worktree and branch setup
 
@@ -319,11 +351,31 @@ branch, stay on it.
    tree, `origin/main` drift, queued checks, or a timer tick is not a safe
    slice and must not produce a commit or push.
 
-6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
-   tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 checks the current nonignored branch snapshot and
-   publishes only actionable work, then checks mergeability, every unaddressed
-   review comment by reply state, and CI.
+6. **Babysit immediately and durably**: run `/babysit-pr <number>` and follow
+   that skill’s tick loop exactly. Before yielding after PR creation, confirm
+   that the task-scoped durable heartbeat
+   `babysit-pr-<number>-<this task's threadId>` is active and targets this task,
+   following the babysit ownership check, successful PR-scoped lease claim, and
+   atomic conditional-update or serialized-coordinator requirement. The lease
+   is the remote `agent-native-babysit-lock-<number>` ref described by
+   `/babysit-pr`; never create the task-scoped heartbeat until that lease is
+   held. An ACTIVE legacy per-PR heartbeat or task-scoped heartbeat targeting
+   another task is owned by that task: do not overwrite, pause, or duplicate it.
+   For a task-scoped foreign heartbeat, read the PR lease ref before treating it
+   as blocking. It blocks only while its owner matches the current unexpired
+   lease record; a missing, expired, released, or owner-mismatched lease makes
+   the heartbeat stale. Do not mutate the stale heartbeat, but take over the
+   lease with the documented atomic precondition and let `/babysit-pr` create
+   the current watcher. If the lease cannot be read or the legacy retirement
+   fence cannot be verified, keep this ship invocation in the foreground and
+   do not overwrite the heartbeat. Treat `babysit-pr` as the source of truth for
+   how to watch the PR.
+   Its Step 0 checks the current nonignored branch snapshot and publishes only
+   actionable work, then checks mergeability, every unaddressed review comment
+   by reply state, and CI.
+   If the heartbeat cannot be created or updated, stay in the foreground
+   babysit loop and report the exact failure; never end the ship task after
+   opening the PR without an active watcher.
    Keep going until the PR is either merged/closed or the user explicitly tells
    you to stop.
 

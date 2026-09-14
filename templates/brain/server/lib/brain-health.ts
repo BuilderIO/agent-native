@@ -630,7 +630,7 @@ export async function readBrainHealth() {
       detail: "Load the product-decision demo or run a bounded first sync.",
       done: hasDemo || hasSyncedOrImported,
       action: "seed-demo-data",
-      href: "/",
+      href: "/home",
     },
     {
       id: "ask-decision-question",
@@ -639,7 +639,7 @@ export async function readBrainHealth() {
         "Try the suggested product-decision question and inspect citations.",
       done: hasPublishedKnowledge && Boolean(lastEval),
       action: "ask-demo-question",
-      href: "/?demo=product-decisions",
+      href: "/home?demo=product-decisions",
     },
   ]);
 

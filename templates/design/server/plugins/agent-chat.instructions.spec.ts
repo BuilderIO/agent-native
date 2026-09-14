@@ -33,6 +33,49 @@ describe("design review agent instructions", () => {
   });
 });
 
+describe("external design authoring catalog", () => {
+  it("keeps context reads and writes on the compact connector surface", () => {
+    for (const name of [
+      "list-designs",
+      "list-design-systems",
+      "get-design-snapshot",
+      "create-design",
+      "create-design-from-template",
+      "edit-design",
+      "generate-design",
+    ]) {
+      expect(agentChatSource).toContain(`\"${name}\"`);
+    }
+    expect(agentChatSource).toContain(
+      "connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES",
+    );
+    expect(agentChatSource).toContain(
+      'externalAgents: { writes: "allowlisted" }',
+    );
+    expect(agentChatSource).toContain("designSystem.agentContext");
+  });
+});
+
+describe("design autosave tool coverage", () => {
+  it("treats screen renames as persisted design edits", () => {
+    const editToolsStart = agentChatSource.indexOf("const DESIGN_EDIT_TOOLS");
+    const fileTargetStart = agentChatSource.indexOf(
+      "const DESIGN_FILE_TARGET_TOOLS",
+    );
+    const helperStart = agentChatSource.indexOf("function eventRecord");
+
+    expect(agentChatSource.slice(editToolsStart, fileTargetStart)).toContain(
+      '"rename-screen"',
+    );
+    expect(agentChatSource.slice(fileTargetStart, helperStart)).toContain(
+      '"rename-screen"',
+    );
+    expect(agentChatSource).toContain(
+      'tool === "delete-file" || tool === "rename-screen" || tool === "update-file"',
+    );
+  });
+});
+
 describe("select and reprompt agent contract", () => {
   it("keeps the preview-only rule in every always-visible instruction surface", () => {
     expect(agentChatSource).toContain(

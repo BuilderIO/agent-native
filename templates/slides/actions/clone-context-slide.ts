@@ -274,7 +274,7 @@ export default defineAction({
           { db: tx },
         );
       });
-      notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
+      await notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
       return {
         deckId,
         slideId: newSlideId,

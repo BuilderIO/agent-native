@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers } from "./helpers";
+
 /**
  * Constraints assert Figma parity (doc-quoted). Breakpoints assert Design's
  * OWN Framer-model contract from .agents/skills/responsive-breakpoints — they
@@ -110,15 +113,9 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let i = 0; i < 5; i += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
@@ -155,7 +152,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
 });
 
 test.describe("constraints (Figma parity)", () => {
@@ -205,10 +202,13 @@ test.describe("constraints (Figma parity)", () => {
 
     const after = await rendered(page, "child");
     const parentAfter = await rendered(page, "parent");
-    test.skip(
-      Math.abs(parentAfter.width - parentBefore.width) < 1,
-      "the parent did not actually resize, so constraints are untestable here",
-    );
+    // peer PR (screen-frame resize) owns setWidth actually resizing the
+    // parent; observed: width went ${parentBefore.width} -> ${parentAfter.width}.
+    expect(
+      Math.abs(parentAfter.width - parentBefore.width),
+      `precondition: the parent must actually resize for this constraint to be testable. ` +
+        `width went ${parentBefore.width} -> ${parentAfter.width}.`,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       Math.round(after.left - parentAfter.left),
       `Figma: Top+Left "will stay in the same position relative to the top left corner of ` +
@@ -225,13 +225,15 @@ test.describe("constraints (Figma parity)", () => {
     await layerRow(page, "Child").click();
     await page.waitForTimeout(1500);
     const opened = await openConstraints(page);
-    test.skip(!opened, "no Constraints control to set Scale with");
+    // peer PR (inspector) owns the Constraints control's presence.
+    expect(opened, "no Constraints control to set Scale with").toBe(true);
 
-    const scaleOption = page
-      .getByRole("option", { name: /Scale/i })
-      .or(page.getByRole("menuitem", { name: /Scale/i }));
-    const hasScale = await scaleOption.count();
-    test.skip(hasScale === 0, "no Scale constraint option exposed");
+    // Scale lives inside the Horizontal axis Select, not on the widget itself:
+    // its options are not in the DOM until that trigger is opened, so the old
+    // `count() === 0` check skipped this test on every run.
+    await page.getByRole("combobox", { name: "Horizontal" }).first().click();
+    const scaleOption = page.getByRole("option", { name: /Scale/i });
+    await expect(scaleOption.first()).toBeVisible({ timeout: 10_000 });
     await scaleOption.first().click();
     await page.waitForTimeout(1500);
 
@@ -401,10 +403,14 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
     const widths = (data.breakpointSet?.breakpoints ?? []).map(
       (b: any) => b.widthPx,
     );
-    test.skip(
-      widths.length === 0,
-      "create-design injects no breakpointSet; the documented default applies to generate-design",
-    );
+    // Not skipped: if create-design still injects no breakpointSet (the
+    // documented default is applied by generate-design, per the skill), that
+    // is a real product/test-scope gap this assertion should surface rather
+    // than silently pass.
+    expect(
+      widths.length,
+      "the default device set (desktop base plus mobile) must exist on a newly created design",
+    ).toBeGreaterThan(0);
     expect(
       widths,
       `skill: the default injected set is "a Desktop base plus a single Mobile (390) ` +

@@ -6,8 +6,10 @@ import {
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import { trace } from "@/components/design/design-trace";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { defaultTextLayerName } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerNodeMatchesBridgeTarget,
@@ -17,12 +19,15 @@ import {
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
   DesignTool,
   EditorMode,
 } from "@/pages/design-editor/types";
+
+import { runRepeatItemEdit } from "./repeat-item-edit";
 
 export interface TextContentChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
@@ -115,6 +120,49 @@ export function runTextContentChange(
   const targetNode = targetInfo
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
     : resolveCodeLayerNodeFromBridge(projection, selector);
+  // An x-text row shows a value from the collection, so its text has one home:
+  // the item. A markup edit changes nothing — the next render puts the data
+  // back. Read from the projection, not from the bridge payload, so this does
+  // not depend on which bridge build the iframe happens to be running.
+  const repeatXFor = targetNode?.repeatXFor;
+  const textBinding =
+    typeof targetNode?.attributes["x-text"] === "string"
+      ? targetNode.attributes["x-text"]
+      : "";
+  if (repeatXFor && textBinding) {
+    const edit = runRepeatItemEdit({
+      content: baseContent,
+      target: {
+        xFor: repeatXFor,
+        itemIndex: elementInfo?.repeat?.itemIndex ?? -1,
+        keyExpression: elementInfo?.repeat?.keyExpression,
+        itemKey: elementInfo?.repeat?.itemKey,
+      },
+      operation: { kind: "set-value", binding: textBinding, value },
+    });
+    if (edit.status === "written") {
+      applyLocalContentUpdate(edit.content, {
+        forcePreviewFullDocument: true,
+      });
+      setActiveTool("move");
+      setMode("edit");
+      return;
+    }
+    if (edit.status === "refused") {
+      trace("structure", "repeat-item-refused", {
+        operation: "set-value",
+        reason: edit.reason,
+      });
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
+      return;
+    }
+  }
   const isEmpty = value.trim().length === 0;
   const removedContent =
     isEmpty && targetNode
@@ -142,6 +190,31 @@ export function runTextContentChange(
     );
     return;
   }
+  const nextProjection = buildCodeLayerProjection(nextContent);
+  const nextNode = targetNode
+    ? nextProjection.nodes.find((node) =>
+        codeLayerNodeMatchesBridgeTarget(
+          node,
+          selector,
+          bridgeSourceIdForCodeLayerNode(targetNode),
+        ),
+      )
+    : null;
+  // Figma names a freshly typed text layer after its own content. The
+  // primitive is drawn with an empty draft (primitiveLayerName's text case
+  // stamps the "Text" placeholder), so the real name is only knowable once
+  // this — the creation's first content commit — lands. Computed eagerly but
+  // only ever applied below when finalizePendingTextCreation confirms this
+  // commit really is that first commit, so editing an already-named text
+  // layer later never re-syncs its name to its content.
+  const namedContent = nextNode
+    ? (setCodeLayerAttributeInHtml(
+        nextContent,
+        nextNode,
+        "data-agent-native-layer-name",
+        defaultTextLayerName(value),
+      ) ?? nextContent)
+    : nextContent;
   const finalizedCreation = finalizePendingTextCreation(
     activeFile.id,
     [
@@ -149,14 +222,15 @@ export function runTextContentChange(
       targetNode?.id,
       targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
     ],
-    nextContent,
+    namedContent,
   );
+  const contentToApply = finalizedCreation ? namedContent : nextContent;
   if (activeLiveSnapshot) {
-    updateLiveScreenSnapshotContent(activeFile.id, nextContent, {
+    updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
       recordHistory: !finalizedCreation,
     });
   } else {
-    applyLocalContentUpdate(nextContent, {
+    applyLocalContentUpdate(contentToApply, {
       skipPreview: true,
       recordHistory: !finalizedCreation,
     });
@@ -172,16 +246,6 @@ export function runTextContentChange(
     setSelectedLayerIdsState([]);
     return;
   }
-  const nextProjection = buildCodeLayerProjection(nextContent);
-  const nextNode = targetNode
-    ? nextProjection.nodes.find((node) =>
-        codeLayerNodeMatchesBridgeTarget(
-          node,
-          selector,
-          bridgeSourceIdForCodeLayerNode(targetNode),
-        ),
-      )
-    : null;
   if (nextNode) setSelectedLayerIdsState([nextNode.id]);
   setSelectedElement((previous) => {
     const base =

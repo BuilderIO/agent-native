@@ -4,7 +4,25 @@ import * as jose from "jose";
 
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
+import { getRequestContext } from "../server/request-context.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 import { canonicalA2AAudience } from "./audience.js";
+import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import type {
+  A2AApprovedAction,
+  A2ACorrelationMetadata,
+  A2ASourceContextReference,
+  A2AReadOnlyActionResult,
+  AgentCard,
+  JsonRpcRequest,
+  JsonRpcResponse,
+  Message,
+  Task,
+} from "./types.js";
 
 /**
  * A workspace serves every app from one gateway on loopback, so sibling A2A
@@ -48,18 +66,6 @@ function workspacePrivateOrigins(): string[] {
   }
   return origins;
 }
-import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
-import type {
-  A2AApprovedAction,
-  A2ACorrelationMetadata,
-  A2ASourceContextReference,
-  A2AReadOnlyActionResult,
-  AgentCard,
-  JsonRpcRequest,
-  JsonRpcResponse,
-  Message,
-  Task,
-} from "./types.js";
 
 const DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_A2A_DISCOVERY_TIMEOUT_MS = 3_000;
@@ -200,11 +206,16 @@ export class A2AClient {
   private endpointCandidates: string[] = [];
   private endpointResolved = false;
   private requestTimeoutMs?: number;
+  private transportHeaders?: Record<string, string>;
 
   constructor(
     baseUrl: string,
     apiKey?: string,
-    options?: { requestTimeoutMs?: number; fallbackApiKeys?: string[] },
+    options?: {
+      requestTimeoutMs?: number;
+      fallbackApiKeys?: string[];
+      transportHeaders?: Record<string, string>;
+    },
   ) {
     const normalized = baseUrl.replace(/\/$/, "");
     const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
@@ -219,6 +230,12 @@ export class A2AClient {
       ...(options?.fallbackApiKeys ?? []),
     ]);
     this.requestTimeoutMs = options?.requestTimeoutMs;
+    this.transportHeaders = {
+      ...(options?.transportHeaders ?? {}),
+      ...(getRequestContext()?.isSyntheticTraffic === true
+        ? { [SYNTHETIC_TRAFFIC_HEADER]: SYNTHETIC_TRAFFIC_BETA_E2E }
+        : {}),
+    };
   }
 
   /**
@@ -231,10 +248,20 @@ export class A2AClient {
 
     for (const endpoint of this.endpointCandidates) {
       try {
+        const headers = this.transportHeadersFor(endpoint);
         const res = await ssrfSafeFetch(
           endpoint,
-          { method: "OPTIONS" },
-          { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
+          {
+            method: "OPTIONS",
+            headers,
+          },
+          {
+            maxRedirects: 3,
+            allowedPrivateOrigins: workspacePrivateOrigins(),
+            ...(headers["x-vercel-protection-bypass"]
+              ? { followRedirects: false }
+              : {}),
+          },
         );
         if (res.status !== 404 && res.status !== 405) {
           this.endpointCandidates = [endpoint];
@@ -264,8 +291,15 @@ export class A2AClient {
     this.apiKeyAttempts = uniqueAuthTokens([apiKey, ...fallbackApiKeys]);
   }
 
-  private headers(apiKey = this.apiKey): Record<string, string> {
-    const h: Record<string, string> = { "Content-Type": "application/json" };
+  private headers(
+    apiKey = this.apiKey,
+    targetUrl = this.baseUrl,
+  ): Record<string, string> {
+    const h: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(this.transportHeaders ?? {}),
+      ...resolveVercelDeploymentProtectionHeaders(targetUrl),
+    };
     if (apiKey) {
       h["Authorization"] = `Bearer ${apiKey}`;
     }
@@ -416,17 +450,25 @@ export class A2AClient {
      */
     token?: string;
   }): Promise<AgentCard> {
+    const headers: Record<string, string> = {
+      ...this.transportHeadersFor(this.baseUrl),
+      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+    };
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
       {
         ...(options?.timeoutMs
           ? { signal: AbortSignal.timeout(options.timeoutMs) }
           : {}),
-        ...(options?.token
-          ? { headers: { Authorization: `Bearer ${options.token}` } }
+        headers,
+      },
+      {
+        maxRedirects: 3,
+        allowedPrivateOrigins: workspacePrivateOrigins(),
+        ...(headers["x-vercel-protection-bypass"]
+          ? { followRedirects: false }
           : {}),
       },
-      { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
@@ -779,19 +821,33 @@ export class A2AClient {
         ? setTimeout(() => controller.abort(), requestTimeoutMs)
         : undefined;
     try {
+      const headers = this.headers(apiKey, url);
       return await ssrfSafeFetch(
         url,
         {
           method: "POST",
-          headers: this.headers(apiKey),
+          headers,
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
-        { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
+        {
+          maxRedirects: 3,
+          allowedPrivateOrigins: workspacePrivateOrigins(),
+          ...(headers["x-vercel-protection-bypass"]
+            ? { followRedirects: false }
+            : {}),
+        },
       );
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  private transportHeadersFor(targetUrl: string): Record<string, string> {
+    return {
+      ...(this.transportHeaders ?? {}),
+      ...resolveVercelDeploymentProtectionHeaders(targetUrl),
+    };
   }
 }
 
@@ -1021,6 +1077,8 @@ export async function callAgent(
     apiKeyFallbacks?: string[];
     /** Additional transport metadata. Receivers must not use it as identity. */
     metadata?: Record<string, unknown>;
+    /** Trusted server-side headers to carry across the A2A transport. */
+    transportHeaders?: Record<string, string>;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
@@ -1103,6 +1161,7 @@ export async function callAgent(
         .filter((token): token is string => token !== undefined);
       const client = new A2AClient(url, apiKeyAttempts[i], {
         fallbackApiKeys,
+        transportHeaders: opts?.transportHeaders,
       });
       let task: Task;
       if (useAsync) {

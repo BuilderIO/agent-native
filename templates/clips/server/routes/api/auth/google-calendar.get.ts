@@ -25,7 +25,6 @@ import {
 import {
   defineEventHandler,
   getQuery,
-  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -106,7 +105,10 @@ export default defineEventHandler(async (event: H3Event) => {
     // this route (popup, direct nav, etc.). Only return JSON when the
     // caller explicitly wants the URL string.
     if (q.json === "1") return { url };
-    return sendRedirect(event, url, 302);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: url },
+    });
   } catch (err: any) {
     setResponseStatus(event, 500);
     return { error: err?.message ?? "Unknown error" };

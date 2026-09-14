@@ -13,6 +13,7 @@ import {
   CreativeContextSettingsLink,
   createCreativeContextAgentTab,
 } from "@agent-native/creative-context/client";
+import { DESIGN_LABS } from "@shared/labs";
 import { useMemo } from "react";
 
 import { messagesByLocale } from "@/i18n-data";
@@ -28,6 +29,15 @@ export default function SettingsRoute() {
     agentAdditionalTabFactories: [createCreativeContextAgentTab],
   });
   const t = useT();
+  const labs = useMemo(
+    () =>
+      DESIGN_LABS.map((lab) => ({
+        ...lab,
+        displayName: t("settings.labTweaks"),
+        description: t("settings.labTweaksDescription"),
+      })),
+    [t],
+  );
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -46,6 +56,9 @@ export default function SettingsRoute() {
       <SettingsTabsPage
         account={<AccountSettingsCard />}
         extraTabs={agentSettingsTabs}
+        labs={labs}
+        labsIntro={t("settings.labsIntro")}
+        labsLabel={t("settings.labs")}
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">

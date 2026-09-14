@@ -16,7 +16,7 @@ import {
 } from "./builder-image-urls";
 import {
   DEFAULT_DOCS_LOCALE,
-  localizeDocsHref,
+  localizeSiteHref,
   type DocsLocale,
 } from "./docs-locale";
 import { slugifyHeading } from "./heading-slug";
@@ -328,7 +328,7 @@ function createRenderer(locale: DocsLocale) {
     const text = this.parser.parseInline(token.tokens);
     if (!isSafeUrl(token.href, "link")) return text;
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-    const href = localizeDocsHref(token.href, locale);
+    const href = localizeSiteHref(token.href, locale);
     return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
   };
 
@@ -422,7 +422,14 @@ export function renderMarkdownToHtml(
   }
 
   const renderer = createRenderer(locale);
-  const html = marked(markdown, { renderer, async: false }) as string;
+  // Cloudflare's email obfuscation rewrites any plain-text address it finds
+  // into a `/cdn-cgi/l/email-protection` link that only resolves via its
+  // client-side decode script. Docs content is full of example addresses in
+  // code samples (owner_email, JWT subjects, etc.) that aren't real mailtos,
+  // so wrapping the output opts the whole block out and keeps crawlers that
+  // don't run JS from following a dead link. See Cloudflare's `email_off`
+  // convention.
+  const html = `<!--email_off-->${marked(markdown, { renderer, async: false }) as string}<!--/email_off-->`;
   if (renderedMarkdownCache.size >= MAX_RENDERED_MARKDOWN_CACHE_ENTRIES) {
     const oldest = renderedMarkdownCache.keys().next().value;
     if (oldest !== undefined) renderedMarkdownCache.delete(oldest);

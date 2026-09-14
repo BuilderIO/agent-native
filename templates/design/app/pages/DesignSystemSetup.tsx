@@ -99,6 +99,15 @@ interface BuilderIndexInput {
 
 const MAX_INLINE_DESIGN_MD_BYTES = 2 * 1024 * 1024;
 
+function isDesignSystemNameConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === "design_system_name_conflict"
+  );
+}
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -134,7 +143,7 @@ export default function DesignSystemSetup() {
 
   const { data: designsData } = useActionQuery<{
     designs: Array<{ id: string; title: string; designSystemId?: string }>;
-  }>("list-designs");
+  }>("list-designs", { includeAll: true });
 
   const { data: designSystemsData } = useActionQuery<{
     designSystems: Array<{ id: string; title: string }>;
@@ -426,7 +435,7 @@ export default function DesignSystemSetup() {
       if (!file) return;
       const uploadGeneration = ++designMdUploadGenerationRef.current;
       setDesignMdFiles([]);
-      if (!isDesignMdFile({ name: file.name })) {
+      if (!isMarkdownFile({ name: file.name })) {
         setValidationError(t("designSystemSetup.errors.chooseDesignMd"));
         return;
       }
@@ -636,9 +645,11 @@ export default function DesignSystemSetup() {
         toast.success(t("designSystemSetup.githubIndexStarted"));
       } catch (error) {
         setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.githubIndex"),
+          isDesignSystemNameConflict(error)
+            ? t("designSystemSetup.errors.nameConflict")
+            : error instanceof Error
+              ? error.message
+              : t("designSystemSetup.errors.githubIndex"),
         );
       }
       return;
@@ -686,9 +697,11 @@ export default function DesignSystemSetup() {
         toast.success(t("designSystemSetup.designMdIndexStarted"));
       } catch (error) {
         setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.designMdIndex"),
+          isDesignSystemNameConflict(error)
+            ? t("designSystemSetup.errors.nameConflict")
+            : error instanceof Error
+              ? error.message
+              : t("designSystemSetup.errors.designMdIndex"),
         );
       }
       return;
@@ -1767,8 +1780,19 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+function uploadedFileBasename(file: Pick<UploadedFile, "name">): string {
+  return file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+}
+
+function isMarkdownFile(file: Pick<UploadedFile, "name">): boolean {
+  const name = uploadedFileBasename(file);
+  return name.endsWith(".md") || name.endsWith(".mdx");
+}
+
+// Only the exact name, because this classifies a bulk code-file drop: widening it
+// to any Markdown silently promotes a README into design-system guidance.
 function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
-  const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+  const name = uploadedFileBasename(file);
   return name === "design.md" || name === "design.mdx";
 }
 

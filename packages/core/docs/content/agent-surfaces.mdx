@@ -486,8 +486,8 @@ Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSO
 
 This is not a no-database or stateless mode. The app-agent loop stores sessions,
 threads, runs, settings, credentials, application state, and share records in
-SQL. Local development defaults to SQLite; hosted automation-first apps should
-use a persistent SQL database.
+SQL. Local development uses PGlite; hosted automation-first apps should use a
+persistent PostgreSQL database.
 
 If you need the whole agent loop headlessly from the project folder, use:
 

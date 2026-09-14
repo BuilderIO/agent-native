@@ -9,9 +9,15 @@ import {
 import { readBody, getSession } from "@agent-native/core/server";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { mailLabelMatches } from "@shared/gmail-labels.js";
+import {
+  isInboxScopedAppLabel,
+  mailLabelMatches,
+} from "@shared/gmail-labels.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import {
   createError,
@@ -30,13 +36,20 @@ import {
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
 import {
+  parseSavedDraftBackend,
+  resolveSavedDraftBackend,
+} from "../lib/draft-backend.js";
+import {
   collectLinks,
   newClickToken,
   newPixelToken,
   persistTracking,
   type TrackingContext,
 } from "../lib/email-tracking.js";
-import { filterInboxScopedThreadMessages } from "../lib/gmail-query.js";
+import {
+  filterInboxScopedThreadMessages,
+  filterLabelMessages,
+} from "../lib/gmail-query.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -50,6 +63,7 @@ import {
   calendarGetEvent,
   calendarPatchEvent,
   gmailGetAttachment,
+  GmailQuotaCooldownError,
 } from "../lib/google-api.js";
 import {
   isConnected,
@@ -60,6 +74,7 @@ import {
   getOAuth2Credentials,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
+import { syncInboxLabelDelta } from "../lib/inbox-store-sync.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 import { listInboxEmails } from "../lib/list-inbox-emails.js";
 import {
@@ -74,6 +89,10 @@ import {
   resolveComposeAttachments,
   splitReplyQuote,
 } from "../lib/outgoing-email.js";
+import {
+  resolveExistingSavedDraftOwnership,
+  SavedDraftOwnershipError,
+} from "../lib/saved-draft-ownership.js";
 import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
 // State-change operations (archive/unarchive/star/trash/untrash/markRead) have
 // been migrated to the action surface; their handlers have been removed. The
@@ -182,11 +201,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     try {
       const { clientId, clientSecret } =
         await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(
-        clientId,
-        clientSecret,
-        "http://localhost:8080/_agent-native/google/callback",
-      );
+      const oauth = createOAuth2Client(clientId, clientSecret, "");
       const refreshed = await oauth.refreshToken(tokens.refresh_token);
       const updated = {
         ...tokens,
@@ -217,8 +232,14 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
  */
 async function getAccountTokens(
   forEmail: string,
+  requestedAccountEmails?: readonly string[],
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const requested = requestedAccountEmails
+    ? new Set(requestedAccountEmails.map((account) => account.toLowerCase()))
+    : undefined;
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => !requested || requested.has(account.accountId.toLowerCase()),
+  );
 
   const results: Array<{ email: string; accessToken: string }> = [];
 
@@ -354,8 +375,12 @@ function recomputeUnreadCounts(
   labels: Label[],
 ): Label[] {
   return labels.map((label) => {
+    const inboxScoped = label.id === "inbox" || isInboxScopedAppLabel(label.id);
     const active = emails.filter(
-      (e) => !e.isArchived && !e.isTrashed && e.labelIds.includes(label.id),
+      (e) =>
+        !e.isTrashed &&
+        (!inboxScoped || !e.isArchived) &&
+        e.labelIds.includes(label.id),
     );
     const unread = active.filter((e) => !e.isRead).length;
     return { ...label, unreadCount: unread, totalCount: active.length };
@@ -366,6 +391,26 @@ function parseEmailPageLimit(value: string | undefined): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 50;
   return Math.min(Math.max(Math.floor(n), 10), 50);
+}
+
+// Gmail errors carry their HTTP status in the message text ("(404)"),
+// except quota cooldowns, whose message is deliberately jargon-free — those
+// must be classified by type so the client sees 429 + Retry-After.
+function gmailErrorStatus(error: unknown): {
+  status: number;
+  retryAfterSeconds?: number;
+} {
+  if (error instanceof GmailQuotaCooldownError) {
+    return {
+      status: 429,
+      retryAfterSeconds: Math.min(
+        Math.max(1, Math.ceil(error.retryAfterMs / 1000)),
+        300,
+      ),
+    };
+  }
+  const parsed = (error as any)?.message?.match(/\((\d+)\)/)?.[1];
+  return { status: parsed ? Number(parsed) : 502 };
 }
 
 // ─── Email list ───────────────────────────────────────────────────────────────
@@ -418,6 +463,15 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
+      const isPlainInboxRequest = view === "inbox" && !q && !label;
+      const settings = isPlainInboxRequest
+        ? await readSettings(email)
+        : undefined;
+      const hasAttachmentSavedFilter =
+        isPlainInboxRequest &&
+        (settings?.savedFilters ?? []).some((filter) =>
+          searchQueryNeedsAttachmentMetadata(filter.query),
+        );
 
       const listResult = await listInboxEmails({
         ownerEmail: email,
@@ -426,7 +480,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         label,
         limit: pageLimit,
         pageTokens,
-        threadFormat: view === "drafts" ? "full" : "metadata",
+        // Metadata responses omit MIME parts. Saved-filter partitioning
+        // needs attachment filenames for has:attachment/filename queries.
+        threadFormat:
+          view === "drafts" || hasAttachmentSavedFilter ? "full" : "metadata",
         threadCandidateLimit: q ? 80 : undefined,
         accountTokens,
         labelMap,
@@ -522,6 +579,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         emails = emails.filter((e) => e.isTrashed);
         break;
       case "all":
+        if (label) emails = filterLabelMessages(emails, label);
         break;
       default:
         // label: prefixed or raw label id
@@ -633,10 +691,13 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           });
           return messages;
         } catch (error: any) {
-          const status = error?.message?.match(/\((\d+)\)/)?.[1];
-          if (status === "404") continue;
+          const { status, retryAfterSeconds } = gmailErrorStatus(error);
+          if (status === 404) continue;
           console.error("[getThreadMessages] Gmail error:", error.message);
-          setResponseStatus(event, parseInt(status) || 502);
+          setResponseStatus(event, status);
+          if (retryAfterSeconds !== undefined) {
+            setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+          }
           return { error: error.message };
         }
       }
@@ -681,10 +742,13 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
         );
         return gmailToEmailMessage(msg, acctEmail, labelMap);
       } catch (error: any) {
-        const status = error?.message?.match(/\((\d+)\)/)?.[1];
-        if (status === "404") continue;
+        const { status, retryAfterSeconds } = gmailErrorStatus(error);
+        if (status === 404) continue;
         console.error("[getEmail] Gmail error:", error.message);
-        setResponseStatus(event, parseInt(status) || 502);
+        setResponseStatus(event, status);
+        if (retryAfterSeconds !== undefined) {
+          setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+        }
         return { error: error.message };
       }
     }
@@ -731,6 +795,10 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       // Report spam on entire thread
       await gmailModifyThread(accessToken, threadId!, ["SPAM"], ["INBOX"]);
       invalidateThreadCache(email, threadId!);
+      await syncInboxLabelDelta(email, acct, [threadId!], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+      });
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -814,6 +882,10 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
       invalidateThreadCache(email, msg.threadId);
+      await syncInboxLabelDelta(email, acct, [msg.threadId], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+      });
 
       // Create a filter to auto-delete future emails from this sender
       try {
@@ -919,6 +991,9 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
       // Gmail "mute" = remove from inbox; future replies also skip inbox
       await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
       invalidateThreadCache(email, threadId);
+      await syncInboxLabelDelta(email, acct, [threadId], {
+        remove: ["INBOX"],
+      });
       return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);
@@ -1250,6 +1325,13 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     accountEmail,
   } = reqBody;
 
+  let requestedBackend: ReturnType<typeof parseSavedDraftBackend>;
+  try {
+    requestedBackend = parseSavedDraftBackend(reqBody.savedDraftBackend);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft backend" };
+  }
   // Validate header values after stripCrlf — same protection as sendEmail.
   // Drafts go through the same buildRawEmail path so they need the same
   // header-injection guard.
@@ -1274,16 +1356,55 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "One or more attachments could not be read" };
   }
 
-  // If Gmail is connected, create/update a Gmail draft
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
+  if (
+    draftId !== undefined &&
+    draftId !== null &&
+    typeof draftId !== "string"
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft ID" };
+  }
+  const savedDraftId =
+    typeof draftId === "string" && draftId ? draftId : undefined;
+
+  let draftBackend: "gmail" | "local";
+  let gmailConnected: boolean | undefined;
+  let draftAccountEmail = accountEmail as string | undefined;
+  try {
+    if (savedDraftId) {
+      const ownership = await resolveExistingSavedDraftOwnership({
+        ownerEmail: email,
+        savedDraftId,
+        savedDraftBackend: requestedBackend,
+        accountEmail: draftAccountEmail,
+      });
+      draftBackend = ownership.backend;
+      draftAccountEmail = ownership.accountEmail ?? draftAccountEmail;
+    } else {
+      gmailConnected =
+        requestedBackend === "local" ? false : await isConnected(email);
+      draftBackend = resolveSavedDraftBackend(requestedBackend, gmailConnected);
+    }
+  } catch (error) {
+    if (!(error instanceof SavedDraftOwnershipError)) throw error;
+    setResponseStatus(event, 409);
+    return { error: error.message };
+  }
+
+  // Keep existing drafts on their owning backend when connection state changes.
+  if (draftBackend === "gmail") {
+    if (!(gmailConnected ?? (await isConnected(email)))) {
+      setResponseStatus(event, 401);
+      return { error: "Gmail is not connected for this saved draft" };
+    }
+    const acct = await resolveAccountEmail(draftAccountEmail, email);
     const accessToken = await getAccessToken(acct);
     if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "No valid access token for account" };
     }
     try {
-      const draftFrom = accountEmail || "me";
+      const draftFrom = draftAccountEmail || "me";
       const raw = buildOutgoingRawEmail({
         from: draftFrom,
         to: to || "",
@@ -1294,11 +1415,11 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         attachments,
       });
 
-      if (draftId) {
+      if (savedDraftId) {
         // Update existing Gmail draft
         try {
           const updated = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(savedDraftId)}`,
             accessToken,
             {
               method: "PUT",
@@ -1306,9 +1427,17 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
               body: JSON.stringify({ message: { raw } }),
             },
           );
-          return { draftId: updated.id, updated: true };
-        } catch {
-          // Draft may have been deleted; create new
+          return {
+            draftId: updated.id,
+            backend: "gmail" as const,
+            accountEmail: acct,
+            updated: true,
+          };
+        } catch (error) {
+          if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
+            throw error;
+          }
+          // A deleted Gmail draft is safe to replace with a new one.
         }
       }
       // Create new Gmail draft
@@ -1321,7 +1450,12 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
           body: JSON.stringify({ message: { raw } }),
         },
       );
-      return { draftId: created.id, created: true };
+      return {
+        draftId: created.id,
+        backend: "gmail" as const,
+        accountEmail: acct,
+        created: true,
+      };
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -1332,9 +1466,13 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   // Local fallback: save as EmailMessage with isDraft=true
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
-    const existingIdx = draftId
-      ? emails.findIndex((e) => e.id === draftId && e.isDraft)
+    const existingIdx = savedDraftId
+      ? emails.findIndex((e) => e.id === savedDraftId && e.isDraft)
       : -1;
+    if (savedDraftId && existingIdx < 0) {
+      setResponseStatus(event, 409);
+      return { error: "Saved local draft was not found" };
+    }
 
     const draftEmail: EmailMessage = {
       id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,
@@ -1403,6 +1541,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
 
     return {
       draftId: draftEmail.id,
+      backend: "local" as const,
       [existingIdx >= 0 ? "updated" : "created"]: true,
     };
   });
@@ -1731,7 +1870,14 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
   const email = await userEmail(_event);
   if (await isConnected(email)) {
     try {
-      const accountTokens = await getAccountTokens(email);
+      const { accountEmails: accountEmailsQuery } = getQuery(_event) as {
+        accountEmails?: string;
+      };
+      const accountEmails = accountEmailsQuery
+        ?.split(",")
+        .map((account) => account.trim())
+        .filter(Boolean);
+      const accountTokens = await getAccountTokens(email, accountEmails);
       // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
@@ -1848,7 +1994,10 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       return { error: "Unable to load Gmail labels. Please retry." };
     }
   }
-  return readLabels(email);
+  return recomputeUnreadCounts(
+    await readEmails(email),
+    await readLabels(email),
+  );
 });
 
 // ─── Calendar RSVP ───────────────────────────────────────────────────────────

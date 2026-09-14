@@ -340,7 +340,7 @@ agents.example.com {
 - Définissez `BETTER_AUTH_URL` sur l'URL publique pour ce chemin d'application. Les URL de
   rappel OAuth doivent utiliser la même URL publique.
 - Ne comptez pas sur le système de fichiers du conteneur pour les données de production. Utilisez
-  Postgres (ou un autre backend SQL persistant) pour `DATABASE_URL`.
+  PostgreSQL pour `DATABASE_URL`.
 - Si Cloudflare termine TLS devant le VPS, configurez Cloudflare pour envoyer
   des en-têtes `X-Forwarded-Proto` / `X-Forwarded-Host` normaux et acheminer l'hôte
   public vers le conteneur proxy.

@@ -38,8 +38,8 @@ a different port.
 
 ### Configure production
 
-Use a persistent SQL database and set `DATABASE_URL` before the first
-production start. Add a stable `BETTER_AUTH_SECRET` and the provider variables
+Use a persistent PostgreSQL database and set `DATABASE_URL` before the first
+production start. Local development uses PGlite when the URL is unset. Add a stable `BETTER_AUTH_SECRET` and the provider variables
 your app uses. The [deployment environment reference](/docs/deployment-environment-variables)
 covers the full production configuration.
 

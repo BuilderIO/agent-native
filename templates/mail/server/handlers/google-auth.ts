@@ -11,6 +11,7 @@ import {
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   createOAuthSession,
@@ -26,6 +27,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
   getHeader,
@@ -48,6 +50,8 @@ import {
 } from "../lib/google-auth.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
+const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
+  "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
 
 async function syncGoogleSignInIdentity(email: string): Promise<void> {
   let client;
@@ -110,6 +114,14 @@ function googleOAuthErrorPayload(
   }
 
   const msg = error?.message || "Unknown error";
+  if (
+    /Cannot link Google to an unverified email\/password identity/i.test(msg)
+  ) {
+    return {
+      message: UNVERIFIED_EMAIL_ACCOUNT_MESSAGE,
+      code: "unverified_email_account",
+    };
+  }
   const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
     error?.oauthErrorCode === "access_denied" ||
@@ -188,7 +200,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       }
     }
     const requestedReturn =
-      typeof q.return === "string" ? safeReturnPath(q.return) : "/";
+      typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
     // Use the named-arg overload — the positional form smuggled `flowId`
     // into the `returnUrl` slot in earlier revisions, which broke desktop
@@ -233,6 +245,12 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       flowId = state.flowId;
       if (
@@ -283,6 +301,17 @@ export const handleGoogleCallback = defineEventHandler(
       const email = await exchangeCode(code, undefined, redirectUri, owner);
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      track(
+        "account_connected",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          connector_name: "google_mail",
+          is_additional_account: isAddAccount,
+          source: "oauth",
+        },
+        { userId: owner ?? email },
+      );
       if (!isAddAccount) await syncGoogleSignInIdentity(email);
 
       // 2b. Auto-populate display name in settings if not set
@@ -459,6 +488,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       flowId = state.flowId;
       if (
@@ -503,6 +538,17 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         undefined,
         redirectUri,
         ownerEmail,
+      );
+      track(
+        "account_connected",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          connector_name: "google_mail",
+          is_additional_account: true,
+          source: "oauth",
+        },
+        { userId: ownerEmail },
       );
 
       return oauthCallbackResponse(event, addedEmail, {

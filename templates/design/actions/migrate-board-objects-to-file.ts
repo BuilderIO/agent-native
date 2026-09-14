@@ -39,6 +39,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   BOARD_FILENAME,
   backfillBoardPrimitiveMarkers,
@@ -60,8 +61,9 @@ export default defineAction({
       .string()
       .describe("Design project ID to migrate board objects for."),
   }),
-  run: async ({ designId }) => {
+  run: async ({ designId }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
 

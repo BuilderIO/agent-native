@@ -28,6 +28,11 @@ const messages = {
   settings: {
     title: "Paramètres",
     description: "Préférences de langue et d’espace de travail pour cette app.",
+    labs: "Labs",
+    labsIntro:
+      "Essayez les fonctionnalités expérimentales avant leur lancement.",
+    labLayoutOverflowWarningDescription:
+      "Afficher l’avertissement de débordement de la mise en page dans l’éditeur.",
     emailNotifications: "Notifications par e-mail",
     emailNotificationsDescription:
       "Recevez un e-mail lorsqu’une personne commente votre deck ou répond dans un fil.",
@@ -87,10 +92,8 @@ const messages = {
     cloudConnectedReloading: "Connexion réussie. Rechargement...",
     cloudConnectionFailed: "Échec de la connexion",
     cloudTestConnect: "Tester et connecter",
-    cloudSqliteEdge: "SQLite en périphérie",
     cloudServerlessPostgres: "Postgres serverless",
     cloudOpenSourceFirebaseAlternative: "Alternative open source à Firebase",
-    cloudCloudflareSqliteEdge: "SQLite en périphérie Cloudflare",
     designSlidePreview: "Aperçu de la diapositive",
     designSlideTitle: "Titre de la diapositive",
     designSupportingText:
@@ -149,6 +152,8 @@ const messages = {
     clearSelection: "Effacer la sélection",
     sendToAgent: "Envoyer à l’agent",
     saveReconnect: "Les changements seront enregistrés à la reconnexion",
+    saveFailedDescription:
+      "Vos dernières modifications sont uniquement sur cet appareil. Téléchargez une sauvegarde avant de partir.",
     offline: "Hors ligne",
     selected: "sélectionné",
     chooseDesignSystem: "Choisir un système de design",
@@ -213,6 +218,9 @@ const messages = {
     usingDesignSystem: "Utilisation de {{title}}",
     usingLinkedDesignSystem: "Utilisation d’un système de design lié",
     viewOnly: "Lecture seule",
+    sourcePreserving: "Édition limitée",
+    sourcePreservingDescription:
+      "Les modifications de texte et d’objets sont disponibles. L’ajout, la suppression ou le réordonnancement des diapositives est désactivé pour ce deck importé.",
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription: "Peut consulter et ajouter des commentaires",
     slideSettings: "Paramètres de la diapositive",
@@ -269,6 +277,11 @@ const messages = {
     more: "Plus",
     importing: "Importation...",
     importFile: "Importer un fichier",
+    downloadBackup: "Télécharger la sauvegarde",
+    importBackup: "Importer la sauvegarde",
+    backupDownloaded: "Sauvegarde téléchargée",
+    backupDownloadFailed: "Impossible de télécharger la sauvegarde",
+    invalidBackup: "Choisissez un fichier JSON de sauvegarde Slides valide.",
     savedVersions: "Versions enregistrées",
     lightTheme: "Thème clair",
     darkTheme: "Thème sombre",
@@ -276,6 +289,7 @@ const messages = {
   editorExport: {
     pptxFailed: "Impossible de générer le fichier PPTX.",
     exportFailed: "Échec de l’export",
+    exporting: "Exportation...",
     exportPptxError: "Une erreur est survenue lors de l’export en PPTX.",
     googleSlidesDownloaded: "Téléchargé pour Google Slides",
     googleSlidesImportHint:
@@ -293,6 +307,10 @@ const messages = {
     exportPptx: "Exporter en PPTX",
     connectGoogle: "Connecter Google",
     openInGoogleSlides: "Ouvrir dans Google Slides",
+    googleSlidesUnavailable: "Indisponible",
+    googleSlidesOpenImporter: "Ouvrir l'import Google Slides",
+    googleSlidesUnavailableHint:
+      "L'export vers Google Slides est indisponible pour le moment car la connexion Google n'est pas configurée. Exportez en PPTX puis importez le fichier dans Google Slides.",
     googleSlidesCreated: "Ouvert dans Google Slides",
     googleSlidesCreatedHint:
       "Une copie de cette présentation a été créée dans votre Google Drive.",
@@ -471,6 +489,10 @@ const messages = {
     rose: "Rose",
     arrange: "Disposition",
     order: "Ordre",
+    group: "Grouper",
+    ungroup: "Dissocier",
+    bringForward: "Avancer",
+    sendBackward: "Reculer",
     bringToFront: "Mettre au premier plan",
     sendToBack: "Mettre à l'arrière-plan",
     copyStyle: "Copier le style",

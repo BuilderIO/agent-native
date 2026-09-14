@@ -16,16 +16,21 @@
  * - `deployFusionProject`       — trigger a hosted deploy of the project.
  * - `getFusionDeploys`          — list deploys (poll deploy status).
  *
- * All calls authenticate the same way as `runBuilderAgent`: the Builder
- * private key as a bearer token plus the space/public key as the `apiKey`
- * query param, resolved through the shared credential provider.
+ * All calls use the shared Builder authorization resolver. OAuth tokens use
+ * bearer authentication alone; legacy private keys also require the
+ * space/public key as the `apiKey` query param.
  *
  * Endpoints match ai-services `packages/service/main.ts`; streaming endpoints
  * respond with newline-delimited JSON over chunked HTTP.
  */
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
+import {
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "./builder-api-auth.js";
 import { getBuilderApiHost, getBuilderAppHost } from "./builder-browser.js";
+import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
 
 export interface FusionBranchRef {
   projectId: string;
@@ -52,32 +57,37 @@ export interface SendFusionMessageResult {
   error?: string;
 }
 
-async function resolveFusionAuth(): Promise<{
-  privateKey: string;
-  publicKey: string;
-  userId: string | null;
-}> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
+async function resolveFusionAuth(
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestAuthorization> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope,
+  });
+  if (!authorization) {
+    throw new Error(
+      "Builder.io is not connected. Connect Builder.io in Settings.",
+    );
   }
-  return {
-    privateKey: creds.privateKey,
-    publicKey: creds.publicKey,
-    userId: creds.userId,
-  };
+  if (authorization.source === "legacy" && !authorization.legacyPublicKey) {
+    throw new Error(
+      "Builder legacy credentials require BUILDER_PUBLIC_KEY for this request.",
+    );
+  }
+  return authorization;
 }
 
 function fusionUrl(
   path: string,
-  auth: { publicKey: string; userId: string | null },
+  authorization: BuilderRequestAuthorization,
   params?: Record<string, string>,
 ): URL {
   const url = new URL(path, getBuilderApiHost());
-  url.searchParams.set("apiKey", auth.publicKey);
-  if (auth.userId) url.searchParams.set("userId", auth.userId);
+  if (authorization.legacyPublicKey) {
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+    if (authorization.userId) {
+      url.searchParams.set("userId", authorization.userId);
+    }
+  }
   for (const [key, value] of Object.entries(params ?? {})) {
     url.searchParams.set(key, value);
   }
@@ -156,7 +166,7 @@ const DEFAULT_ENSURE_CONTAINER_TIMEOUT_MS = 25_000;
 export async function ensureFusionContainer(
   args: FusionBranchRef & { timeoutMs?: number },
 ): Promise<EnsureFusionContainerResult> {
-  const auth = await resolveFusionAuth();
+  const auth = await resolveFusionAuth("builder:projects:write");
   const controller = new AbortController();
   const timeoutMs = args.timeoutMs ?? DEFAULT_ENSURE_CONTAINER_TIMEOUT_MS;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -171,7 +181,7 @@ export async function ensureFusionContainer(
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${auth.privateKey}`,
+          Authorization: auth.authorization,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -244,7 +254,7 @@ export async function sendFusionBranchMessage(
 ): Promise<SendFusionMessageResult> {
   const prompt = args.prompt?.trim();
   if (!prompt) throw new Error("prompt is required");
-  const auth = await resolveFusionAuth();
+  const auth = await resolveFusionAuth("builder:projects:write");
   const fireAndForget = args.fireAndForget ?? true;
   const controller = new AbortController();
   const timeoutMs = args.timeoutMs ?? DEFAULT_SEND_MESSAGE_TIMEOUT_MS;
@@ -258,7 +268,7 @@ export async function sendFusionBranchMessage(
     const response = await fetch(fusionUrl("/projects/branch/message", auth), {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${auth.privateKey}`,
+        Authorization: auth.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -344,14 +354,15 @@ export async function sendFusionBranchMessage(
 
 async function fusionJsonRequest(
   path: string,
+  requiredScope: BuilderOAuthPermissionScope,
   init: { method: "GET" | "POST" | "DELETE"; body?: Record<string, unknown> },
   params?: Record<string, string>,
 ): Promise<Record<string, unknown>> {
-  const auth = await resolveFusionAuth();
+  const auth = await resolveFusionAuth(requiredScope);
   const response = await fetch(fusionUrl(path, auth, params), {
     method: init.method,
     headers: {
-      Authorization: `Bearer ${auth.privateKey}`,
+      Authorization: auth.authorization,
       ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
     ...(init.body ? { body: JSON.stringify(init.body) } : {}),
@@ -386,10 +397,14 @@ async function fusionJsonRequest(
 export async function pushFusionBranch(
   ref: FusionBranchRef,
 ): Promise<Record<string, unknown>> {
-  return fusionJsonRequest("/projects/branch/push-to-remote", {
-    method: "POST",
-    body: { projectId: ref.projectId, branchName: ref.branchName },
-  });
+  return fusionJsonRequest(
+    "/projects/branch/push-to-remote",
+    "builder:projects:write",
+    {
+      method: "POST",
+      body: { projectId: ref.projectId, branchName: ref.branchName },
+    },
+  );
 }
 
 /** Reserve a hosting slug (`<slug>.builder.cloud`) for the project. */
@@ -397,10 +412,14 @@ export async function reserveFusionHostingSlug(args: {
   projectId: string;
   slug: string;
 }): Promise<{ slug: string }> {
-  const result = await fusionJsonRequest("/projects/hosting/reserve-slug", {
-    method: "POST",
-    body: { projectId: args.projectId, slug: args.slug },
-  });
+  const result = await fusionJsonRequest(
+    "/projects/hosting/reserve-slug",
+    "builder:projects:write",
+    {
+      method: "POST",
+      body: { projectId: args.projectId, slug: args.slug },
+    },
+  );
   const slug = asString(result.slug);
   if (!slug) throw new Error("Slug reservation returned no slug");
   return { slug };
@@ -415,13 +434,17 @@ export async function deployFusionProject(args: {
   projectId: string;
   checkoutBranch?: string;
 }): Promise<{ deployId: string; status: string }> {
-  const result = await fusionJsonRequest("/projects/deploy", {
-    method: "POST",
-    body: {
-      projectId: args.projectId,
-      ...(args.checkoutBranch ? { checkoutBranch: args.checkoutBranch } : {}),
+  const result = await fusionJsonRequest(
+    "/projects/deploy",
+    "builder:projects:write",
+    {
+      method: "POST",
+      body: {
+        projectId: args.projectId,
+        ...(args.checkoutBranch ? { checkoutBranch: args.checkoutBranch } : {}),
+      },
     },
-  });
+  );
   const deployId = asString(result.deployId);
   if (!deployId) throw new Error("Deploy did not return a deployId");
   return { deployId, status: asString(result.status) ?? "queued" };
@@ -434,6 +457,7 @@ export async function getFusionDeploys(args: {
 }): Promise<Array<Record<string, unknown>>> {
   const result = await fusionJsonRequest(
     "/projects/deploys",
+    "builder:projects:read",
     { method: "GET" },
     {
       projectId: args.projectId,

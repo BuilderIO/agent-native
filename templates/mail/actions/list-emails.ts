@@ -81,7 +81,10 @@ function toInventoryItem(
   };
 }
 
-function inventoryError(message: unknown): MailInventoryError {
+function inventoryError(
+  message: unknown,
+  opts?: { rateLimited?: boolean },
+): MailInventoryError {
   const bounded = (
     typeof message === "string" ? message : "Provider request failed"
   )
@@ -91,7 +94,12 @@ function inventoryError(message: unknown): MailInventoryError {
       "$1=[redacted]",
     )
     .slice(0, 240);
-  const rateLimited = /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
+  // A quota cooldown's message is deliberately jargon-free (no "429"/"quota"
+  // — see GmailQuotaCooldownError in google-api.ts), so the regex alone
+  // misses it; the caller passes the structured isQuotaError flag instead.
+  const rateLimited =
+    opts?.rateLimited === true ||
+    /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
   const auth = /\b(?:401|403|auth|token|credential|permission)\b/i.test(
     bounded,
   );
@@ -310,6 +318,11 @@ export default defineAction({
         "Set to true to include thread/page unread counts and Gmail total estimate",
       ),
     compact: cliBoolean.optional().describe("Set to true for compact output"),
+    expandThreads: cliBoolean
+      .optional()
+      .describe(
+        "Set to true to return every message in each matching thread instead of one latest message per thread",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -333,6 +346,7 @@ export default defineAction({
     const limit = args.limit ?? 50;
     const includeCounts = args.includeCounts === true;
     const compact = args.compact !== false;
+    const expandThreads = args.expandThreads === true;
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -530,7 +544,9 @@ export default defineAction({
               errors: Object.fromEntries(
                 accountEmails.map((email) => [
                   email.toLowerCase(),
-                  inventoryError(listResult.message),
+                  inventoryError(listResult.message, {
+                    rateLimited: listResult.isQuotaError,
+                  }),
                 ]),
               ),
               nextPageTokens: {},
@@ -543,7 +559,9 @@ export default defineAction({
             errors: Object.fromEntries(
               listResult.errors.map((error) => [
                 error.email.toLowerCase(),
-                inventoryError(error.error),
+                inventoryError(error.error, {
+                  rateLimited: error.isQuotaError,
+                }),
               ]),
             ),
             nextPageTokens: Object.fromEntries(
@@ -649,7 +667,10 @@ export default defineAction({
         );
       }
 
-      emails = latestPerThread(emails).slice(0, limit);
+      emails = (expandThreads ? emails : latestPerThread(emails)).slice(
+        0,
+        limit,
+      );
 
       const payload = compact ? toCompact(emails) : emails;
       if (includeCounts) {
@@ -772,7 +793,7 @@ export default defineAction({
         args.cursor,
       );
     }
-    emails = latestPerThread(emails).slice(0, limit);
+    emails = (expandThreads ? emails : latestPerThread(emails)).slice(0, limit);
     const payload = compact ? toCompact(emails) : emails;
     if (includeCounts) {
       return JSON.stringify(

@@ -103,6 +103,8 @@ export function readConfigEnvironment(
       process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY,
     AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT:
       process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT,
+    AGENT_NATIVE_BUILD_ENGINE_PACKAGES:
+      process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES,
   },
 ): Record<string, string | undefined> {
   const env = { ...process.env };

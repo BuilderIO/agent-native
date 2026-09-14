@@ -24,6 +24,9 @@ const messages = {
       extensions: "Erweiterungen",
       noteToSelf: "Notiz an mich",
     },
+    inbox: {
+      syncing: "Posteingang wird synchronisiert…",
+    },
     toolbar: {
       toggleMenu: "Menü umschalten",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Seitenleiste anheften",
       unpinSidebar: "Seitenleiste lösen",
+      closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
     },
     search: {
@@ -44,12 +48,19 @@ const messages = {
       noMatches: "Keine Treffer",
       localResults: "In diesem Posteingang",
       searchingGmail: "Gmail wird durchsucht...",
+      saveAsTab: "Als Tab speichern",
+      saveAsTabPrompt: "Diesen Tab benennen",
+      saveAsTabFailed:
+        "Tab konnte nicht gespeichert werden. Versuche es erneut.",
+      filtersLimitReached: "Du kannst bis zu 20 Filter speichern.",
     },
     tabSettings: {
       views: "Ansichten",
       categories: "Kategorien",
       rename: "Umbenennen",
       renameTab: "Tab umbenennen",
+      savedFilters: "Gespeicherte Filter",
+      combinedInbox: "Kombinierter Posteingang",
       help: "Markierte Elemente werden als Tabs angezeigt. Label-E-Mails werden vom Posteingang getrennt.",
     },
     accounts: {
@@ -79,6 +90,8 @@ const messages = {
       cancel: "Abbrechen",
       code: "Code",
       deleteDraft: "Entwurf löschen",
+      deleteDrafts: "Entwürfe löschen",
+      reopenDraft: "Wieder öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",
@@ -275,6 +288,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Nachricht gesendet.",
+      failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
+      failedToDeleteDraft: "Entwurf konnte nicht gelöscht werden.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -287,6 +303,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Entwurf geschlossen.",
+      draftsClosed: "{{count}} Entwürfe geschlossen.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -308,6 +326,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "Konnte nicht laden: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",
@@ -383,6 +402,64 @@ const messages = {
         "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
+    },
+    aiFilter: {
+      title: "KI-Filter",
+      subtitle: "Ein umkehrbares Label, das aus deinen Entscheidungen lernt.",
+      lunaBadge: "Luna, wenn verfügbar",
+      toggle: "KI-Filter aktivieren",
+      autoFilterTitle: "Mit hoher Sicherheit automatisch filtern",
+      autoFilterDescription:
+        "Verschiebe nur eindeutige Treffer aus dem Posteingang; den Rest prüfst du hier.",
+      autoFilterToggle: "Nachrichten mit hoher Sicherheit automatisch filtern",
+      thresholdLabel: "Vertrauensschwelle für automatische Filterung",
+      labelName: "Gmail-Label",
+      labelHelp:
+        "agent-native-filtered bleibt in Gmail und anderen Clients sichtbar. Es ist nicht Gmails Spam-Ordner.",
+      reviewLabel: "Gefilterte prüfen",
+      instructionsTitle: "Anweisungen",
+      instructionCount: "{{count}} Anweisung(en)",
+      instructionPlaceholder:
+        "z. B. Betreffzeilen wie „question for you, Steve“ sind unerwünscht",
+      addInstruction: "Hinzufügen",
+      noInstructions: "Noch keine Anweisungen.",
+      instructionExample:
+        "Probiere „Alle E-Mails politischer Kampagnen sind unerwünscht.“",
+      toggleInstruction: "Anweisung aktivieren: {{instruction}}",
+      deleteInstruction: "Anweisung löschen",
+      activityTitle: "Letzte Aktivität",
+      suggestionCount: "{{count}} zu prüfen",
+      viewAll: "Alle anzeigen",
+      noActivity: "Noch keine Aktivität des KI-Filters.",
+      unknownSender: "Unbekannter Absender",
+      noSubject: "(kein Betreff)",
+      filterTitle: "Mit KI filtern",
+      keepTitle: "Im Posteingang behalten",
+      filterDescription:
+        "Dadurch werden {{count}} Unterhaltung(en) archiviert und das Label agent-native-filtered hinzugefügt.",
+      keepDescription:
+        "Dadurch werden {{count}} Unterhaltung(en) im Posteingang wiederhergestellt und der Filter lernt dazu.",
+      labelNote:
+        "Fügt das Label agent-native-filtered hinzu und archiviert die Unterhaltung. Du kannst dies jederzeit rückgängig machen.",
+      learningNote:
+        "Behält die Nachricht im Posteingang und bringt dem Filter bei, den Fehler nicht zu wiederholen.",
+      rememberLabel: "Für zukünftige Nachrichten merken (optional)",
+      correctLabel: "Was soll der Filter lernen? (optional)",
+      rememberPlaceholder:
+        "z. B. Ähnliche Nachrichten politischer Kampagnen sind unerwünscht",
+      correctPlaceholder:
+        "z. B. Dieser Absender ist ein Kunde; zukünftige Nachrichten im Posteingang behalten",
+      commentHint:
+        "Deine Notiz wird zu einer bearbeitbaren Regel oder einem Lernbeispiel.",
+      filterButton: "Filtern",
+      keepButton: "Behalten",
+      filteredToast: "{{count}} Unterhaltung(en) gefiltert.",
+      keptToast: "{{count}} Unterhaltung(en) im Posteingang behalten.",
+      actionFailed: "Der KI-Filter konnte nicht aktualisiert werden.",
+      settingsFailed:
+        "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
+      instructionFailed:
+        "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -569,6 +646,7 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
+    aiFilter: "KI-Filter",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",

@@ -16,6 +16,60 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
+  it("keeps review overlays out of single-screen pan gestures", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="<!doctype html><html><body></body></html>"
+            contentKey="review-overlay-pan-guard"
+            screenId="screen-review"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+            editMode
+            handToolActive
+          />,
+        ),
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(scrollSurface).not.toBeNull();
+
+      const canvasTarget = document.createElement("div");
+      const reviewTarget = document.createElement("button");
+      reviewTarget.dataset.reviewPopover = "";
+      scrollSurface!.append(canvasTarget, reviewTarget);
+
+      const canvasMouseDown = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      });
+      canvasTarget.dispatchEvent(canvasMouseDown);
+      expect(canvasMouseDown.defaultPrevented).toBe(true);
+      window.dispatchEvent(new MouseEvent("mouseup"));
+
+      const reviewMouseDown = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      });
+      reviewTarget.dispatchEvent(reviewMouseDown);
+      expect(reviewMouseDown.defaultPrevented).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("keeps editor shell semantic tokens out of the prototype document", async () => {
     const container = document.createElement("div");
     document.body.append(container);

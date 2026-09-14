@@ -50,6 +50,20 @@ export function shouldApplyComposeContent({
   return !typingRightNow;
 }
 
+export function isSameScheduledDraft(
+  draft: ComposeState,
+  snapshot: ComposeState,
+): boolean {
+  const comparable = ({
+    id: _id,
+    savedDraftId: _savedDraftId,
+    savedDraftBackend: _savedDraftBackend,
+    savedDraftAccountEmail: _savedDraftAccountEmail,
+    ...state
+  }: ComposeState) => JSON.stringify(state);
+  return comparable(draft) === comparable(snapshot);
+}
+
 export function splitQuotedContent(body: string): [string, string] {
   const replyMatch = body.match(/\n*— On .+? wrote:\n/);
   const fwdMatch = body.match(/\n*— Forwarded message —\n/);

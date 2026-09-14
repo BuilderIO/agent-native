@@ -29,8 +29,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.tmp/
 
 # Data
+**/data/
 data/uploads/
 data/settings.json
 data/.sessions.json

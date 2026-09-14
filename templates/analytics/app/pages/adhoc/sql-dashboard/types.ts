@@ -166,9 +166,17 @@ export interface SqlPanel {
   tab?: string;
 }
 
+export interface DashboardCertification {
+  status: "certified";
+  certifiedAt: string;
+  certifiedBy: string;
+  certifiedForUpdatedAt: string;
+}
+
 export interface SqlDashboardConfig {
   name: string;
   description?: string;
+  certification?: DashboardCertification;
   /**
    * Optional id of another dashboard this one nests under. When set, the
    * sidebar renders this dashboard indented beneath its parent instead of at

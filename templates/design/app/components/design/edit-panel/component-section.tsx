@@ -3,6 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { propNameToDataAttribute } from "@shared/component-model";
 import {
@@ -110,10 +114,25 @@ function MakeItRealCard({
   featureLabel: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const { data, isLoading } = useActionQuery<ConnectBuilderAppResult>(
     "connect-builder-app",
     { designId },
   );
+  const builderConnect = useBuilderConnectFlow({
+    popupUrl:
+      data?.cta?.kind === "connect-builder" ? data.cta.connectUrl : undefined,
+    provisionAccount: true,
+    trackingSource: "design_editor_make_real",
+    trackingFlow: "design_migration",
+    onConnected: () => {
+      if (data?.cta?.kind === "connect-builder") {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "connect-builder-app", { designId }],
+        });
+      }
+    },
+  });
 
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
 
@@ -139,12 +158,6 @@ function MakeItRealCard({
 
   // "Make it real" primary action: open the connect URL or migrate.
   const handlePrimary = () => {
-    if (cta.kind === "connect-builder") {
-      // Open the Builder OAuth connect flow in a new tab.  The user completes
-      // it there and comes back; the card will re-query on next render.
-      window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
     if (cta.kind === "configure-project") {
       window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
       return;
@@ -211,16 +224,30 @@ function MakeItRealCard({
         >
           {summary}
         </p>
-        <Button
-          type="button"
-          size="sm"
-          onClick={handlePrimary}
-          title={cta.primaryAction}
-          className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-white hover:bg-[var(--design-editor-accent-hover-color)]"
-        >
-          {primaryLabel}
-          <IconArrowRight className="size-2.5" />
-        </Button>
+        {cta.kind === "connect-builder" ? (
+          <BuilderConnectPopover flow={builderConnect}>
+            <Button
+              type="button"
+              size="sm"
+              title={cta.primaryAction}
+              className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-primary-foreground hover:bg-[var(--design-editor-accent-hover-color)]"
+            >
+              {primaryLabel}
+              <IconArrowRight className="size-2.5" />
+            </Button>
+          </BuilderConnectPopover>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            onClick={handlePrimary}
+            title={cta.primaryAction}
+            className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-primary-foreground hover:bg-[var(--design-editor-accent-hover-color)]"
+          >
+            {primaryLabel}
+            <IconArrowRight className="size-2.5" />
+          </Button>
+        )}
 
         {/* When Builder is fully connected, also offer direct migration */}
         {data.connected && data.builderEnabled && (
@@ -762,10 +789,10 @@ export function ComponentSection({
   if (isLoading) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
-        <div className="flex min-h-8 items-center gap-2 px-2">
+        <div className="flex min-h-[var(--design-section-height)] items-center gap-2 px-2">
           <div className="h-3 w-24 animate-pulse rounded bg-muted/50" />
         </div>
-        <div className="space-y-2 px-2 pb-2 pt-0.5">
+        <div className="design-sidebar-section-content pt-0">
           <div className="h-5 w-full animate-pulse rounded bg-muted/40" />
           <div className="h-5 w-3/4 animate-pulse rounded bg-muted/40" />
         </div>
@@ -889,7 +916,10 @@ export function ComponentSection({
     >
       {/* ── Section header ── */}
       <div className="px-2">
-        <InspectorGrid className="min-h-8 items-center" layout="header-actions">
+        <InspectorGrid
+          className="min-h-[var(--design-section-height)] items-center"
+          layout="header-actions"
+        >
           <InspectorGridCell span={20}>
             <div className="flex min-w-0 items-center gap-2">
               {/* Accent diamond matching the workbench artboard component rows */}
@@ -1063,7 +1093,7 @@ export function ComponentSection({
       </div>
 
       {/* ── Body ── */}
-      <div className="space-y-2 px-2 pb-2 pt-0.5 !text-[11px]">
+      <div className="design-sidebar-section-content !text-[11px]">
         {/* Source path chip */}
         {sourceChip && (
           <div
@@ -1081,7 +1111,7 @@ export function ComponentSection({
             through apply-component-prop-edit; real-app sources are read-only
             until the deeper source-prop controls land. */}
         {hasRows && (
-          <div className="space-y-1">
+          <div className="design-sidebar-control-stack">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
               {t("designEditor.componentProps.label")}
             </p>

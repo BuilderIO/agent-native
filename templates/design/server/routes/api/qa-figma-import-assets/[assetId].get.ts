@@ -2,7 +2,12 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 
 import { getSession, streamFile } from "@agent-native/core/server";
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
 
 import {
   isLocalFigmaQaUploadEnabled,
@@ -36,11 +41,12 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
-  event.node!.res!.setHeader("Content-Type", mimeType);
-  event.node!.res!.setHeader(
+  setResponseHeader(event, "Content-Type", mimeType);
+  setResponseHeader(
+    event,
     "Cache-Control",
     "private, max-age=31536000, immutable",
   );
-  event.node!.res!.setHeader("X-Content-Type-Options", "nosniff");
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   return streamFile(createReadStream(filepath));
 });

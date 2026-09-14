@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   workspaceAppAudience: "internal",
-  workspaceAppPublicPaths: [],
+  workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Brain",
     tagline:

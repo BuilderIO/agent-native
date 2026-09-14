@@ -80,14 +80,6 @@ export function Countdown() {
           <IconPlayerSkipForwardFilled size={28} />
         </button>
       </div>
-      <div className="countdown-hint" aria-label="Countdown shortcuts">
-        <span>
-          <kbd>Esc</kbd> cancel
-        </span>
-        <span>
-          <kbd>Return</kbd> start now
-        </span>
-      </div>
     </div>
   );
 }

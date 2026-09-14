@@ -57,6 +57,11 @@ export const credentialKeys: CredentialKeyConfig[] = [
   { key: "POSTHOG_API_KEY", label: "PostHog API Key", required: false },
   { key: "POSTHOG_PROJECT_ID", label: "PostHog Project ID", required: false },
   { key: "POSTHOG_HOST", label: "PostHog Host", required: false },
+  {
+    key: "BUILDER_PUBLIC_KEY",
+    label: "Builder.io Public API Key",
+    required: false,
+  },
   // FullStory Server API fallback for structured reads
   { key: "FULLSTORY_API_KEY", label: "FullStory API key", required: false },
   // PostgreSQL (user's external DB, not the app's DATABASE_URL)
@@ -218,6 +223,11 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     optionalKeys: ["POSTHOG_HOST"],
   },
   {
+    provider: "builder",
+    label: "Builder.io Content",
+    requiredKeys: ["BUILDER_PUBLIC_KEY"],
+  },
+  {
     provider: "postgresql",
     label: "PostgreSQL",
     requiredKeys: ["POSTGRES_URL"],
@@ -326,6 +336,7 @@ const credentialAliases: Record<string, string[]> = {
   amplitude: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
   apollo: ["APOLLO_API_KEY"],
   bigquery: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "BIGQUERY_PROJECT_ID"],
+  builder: ["BUILDER_PUBLIC_KEY"],
   clay: ["CLAY_PUBLIC_API_KEY"],
   commonroom: ["COMMONROOM_API_TOKEN"],
   dataforseo: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],

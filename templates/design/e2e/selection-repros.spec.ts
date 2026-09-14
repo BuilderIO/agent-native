@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { EDGE_HANDLE_HIT_INWARD_PX } from "../app/components/design/multi-screen/handle-hit-zones";
+import { canvasZoom, expandAllLayers } from "./helpers";
+
 /**
  * Selection reachability: everything a click can select, a rubber band must be
  * able to sweep, and a hairline must be grabbable. Each test drives the gesture
@@ -102,15 +105,9 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let i = 0; i < 4; i += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
@@ -118,6 +115,15 @@ async function screenCard(page: Page) {
   const box = await page.locator("[data-screen-card]").first().boundingBox();
   if (!box) throw new Error("no screen card");
   return box;
+}
+
+/**
+ * Leftmost x that is screen background rather than chrome. The frame's edge
+ * resize handles keep a constant on-screen inward reach, so a sweep that
+ * starts nearer the edge than that grabs a resize and selects the frame.
+ */
+function insideScreenX(card: { x: number }, preferred: number): number {
+  return Math.max(card.x + EDGE_HANDLE_HIT_INWARD_PX + 2, preferred);
 }
 
 /** Sweeps a rubber band between two page points, clamped inside the screen. */
@@ -172,10 +178,11 @@ test.describe("marquee reachability", () => {
     const a = (await node(page, "box-a").boundingBox())!;
     const b = (await node(page, "box-b").boundingBox())!;
     const card = await screenCard(page);
+    const px = await canvasZoom(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, a.x - 10), y: a.y - 20 },
-      { x: b.x + b.width + 10, y: b.y + b.height + 10 },
+      { x: insideScreenX(card, a.x - 10 * px), y: a.y - 20 * px },
+      { x: b.x + b.width + 10 * px, y: b.y + b.height + 10 * px },
     );
 
     const names = await selectedRows(page).allTextContents();
@@ -203,17 +210,23 @@ test.describe("marquee reachability", () => {
       .first()
       .boundingBox())!;
     const card = await screenCard(page);
+    const px = await canvasZoom(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, target.x - 10), y: target.y - 14 },
-      { x: target.x + target.width + 10, y: target.y + target.height + 14 },
+      { x: insideScreenX(card, target.x - 10 * px), y: target.y - 14 * px },
+      {
+        x: target.x + target.width + 10 * px,
+        y: target.y + target.height + 14 * px,
+      },
     );
 
     const swept = (await selectedRows(page).allTextContents()).join("|");
+    // Naming the target is what makes this fail for the bug it exists to
+    // catch: "not empty" is also satisfied by the frame selecting itself.
     expect(
       swept,
       "an id attribute is a persistence detail; a click selects this element, so a band must too",
-    ).not.toBe("");
+    ).toContain("Unnamed");
     expect(swept, "the enclosing wrapper is not the target").not.toContain(
       "Wrapper",
     );
@@ -224,10 +237,11 @@ test.describe("marquee reachability", () => {
     await openEditor(page, id);
     const flat = (await node(page, "flat").boundingBox())!;
     const card = await screenCard(page);
+    const px = await canvasZoom(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, flat.x - 10), y: flat.y - 18 },
-      { x: flat.x + flat.width + 10, y: flat.y + 30 },
+      { x: insideScreenX(card, flat.x - 10 * px), y: flat.y - 18 * px },
+      { x: flat.x + flat.width + 10 * px, y: flat.y + 30 * px },
     );
 
     expect(
@@ -279,6 +293,43 @@ test.describe("clicking into a selected screen", () => {
   });
 });
 
+/**
+ * Where box-a is actually painted, across every preview surface. Returned with
+ * the frame index and position so a caller can prove a drag moved it: the
+ * survival checks below (exists / not hidden / no leftover transform / in
+ * viewport) are all satisfied by a drag that never happened.
+ */
+async function paintedBoxA(page: Page) {
+  return page.evaluate(() => {
+    const frames = Array.from(document.querySelectorAll("iframe"));
+    for (let index = 0; index < frames.length; index += 1) {
+      const frame = frames[index]!;
+      const el = frame.contentDocument?.querySelector(
+        '[data-agent-native-node-id="box-a"]',
+      );
+      if (!el) continue;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return {
+        frameIndex: index,
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        hidden:
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          Number(style.opacity) === 0,
+        transform: style.transform,
+        inViewport:
+          rect.right > 0 &&
+          rect.bottom > 0 &&
+          rect.x < frame.clientWidth &&
+          rect.y < frame.clientHeight,
+      };
+    }
+    return null;
+  });
+}
+
 test.describe("dragging an element out of a screen", () => {
   test("the element stays visible somewhere instead of vanishing", async ({
     page,
@@ -290,6 +341,9 @@ test.describe("dragging an element out of a screen", () => {
     await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
     await page.waitForTimeout(1800);
 
+    const beforeDrag = await paintedBoxA(page);
+    expect(beforeDrag, "box-a must be painted before the drag").not.toBeNull();
+
     const card = await screenCard(page);
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
@@ -298,34 +352,20 @@ test.describe("dragging an element out of a screen", () => {
     await page.mouse.up();
     await page.waitForTimeout(4000);
 
-    const painted = await page.evaluate(() => {
-      for (const frame of Array.from(document.querySelectorAll("iframe"))) {
-        const el = frame.contentDocument?.querySelector(
-          '[data-agent-native-node-id="box-a"]',
-        );
-        if (!el) continue;
-        const style = getComputedStyle(el);
-        const rect = el.getBoundingClientRect();
-        return {
-          hidden:
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            Number(style.opacity) === 0,
-          transform: style.transform,
-          inViewport:
-            rect.right > 0 &&
-            rect.bottom > 0 &&
-            rect.x < frame.clientWidth &&
-            rect.y < frame.clientHeight,
-        };
-      }
-      return null;
-    });
+    const painted = await paintedBoxA(page);
 
     expect(
       painted,
       "the dragged element must still exist somewhere",
     ).not.toBeNull();
+    expect(
+      painted!.frameIndex !== beforeDrag!.frameIndex ||
+        Math.abs(painted!.x - beforeDrag!.x) > 20 ||
+        Math.abs(painted!.y - beforeDrag!.y) > 20,
+      `the drag must actually relocate box-a, or every survival check below ` +
+        `passes for free (frame ${beforeDrag!.frameIndex}@${beforeDrag!.x},${beforeDrag!.y} ` +
+        `-> ${painted!.frameIndex}@${painted!.x},${painted!.y})`,
+    ).toBe(true);
     expect(painted!.hidden, "a drop must never leave the element hidden").toBe(
       false,
     );
@@ -534,7 +574,7 @@ test.describe("hidden layers", () => {
     const card = await screenCard(page);
     await sweep(
       page,
-      { x: Math.max(card.x + 4, a.x - 10), y: a.y + a.height + 4 },
+      { x: insideScreenX(card, a.x - 10), y: a.y + a.height + 4 },
       { x: rule.x + rule.width, y: rule.y - 4 },
     );
 

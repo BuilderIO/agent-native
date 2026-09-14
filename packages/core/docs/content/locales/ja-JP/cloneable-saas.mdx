@@ -156,7 +156,7 @@ sign-in、seed data、provider の要件を記載してください。インス�
 
 - **機能するエージェント** — アプリに組み込まれ、データに対して actions を実行でき、見ているものを認識しています。[Messaging the agent](/docs/messaging) を参照してください。
 - **認証** — サインイン、セッション、組織、マルチテナント分離。
-- **データベース** — すぐに使えるスキーマ、クエリ、マイグレーション。独自の SQL データベース (Postgres、SQLite、Turso、D1) を持ち込めます。フレームワークが適応します。
+- **データベース** — すぐに使えるスキーマ、クエリ、マイグレーション。開発中はローカル PGlite、デプロイ環境ではホストされた PostgreSQL を使用します。
 - **リアルタイム UI** — 画面はエージェントと同期したままになります。たとえば、チャットでメールを下書きすると、受信トレイがすぐに更新されます。
 - **デプロイ準備完了** — Netlify、Vercel、Cloudflare、AWS、または Node を実行する任意のホストにデプロイできます。
 - **ブランディングフック** — 名前、色、ロゴ、コピーを変更できます。
@@ -302,6 +302,6 @@ CLI は最初に **どのように始めますか？** と尋ねます。Chat �
 
 `.env` (`ANTHROPIC_API_KEY` と `DATABASE_URL`) を入力し、`pnpm install` と `pnpm dev` を実行してください。実装が必要なログインやプレースホルダー ルートはありません。
 
-デプロイターゲット: Nitro 互換ホスト (Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun) および Drizzle 互換 SQL データベース (SQLite、Postgres、Turso、D1、Supabase、Neon)。ワークスペースの場合、`npx @agent-native/core@latest deploy` はすべてのアプリを一度に構築し、単一のオリジンの背後で出荷します。 [Deployment](/docs/deployment) を参照してください。
+デプロイ先: サポートされる Nitro 互換ホストとホストされた PostgreSQL データベース。ワークスペースでは、`npx @agent-native/core@latest deploy` がすべてのアプリを一度にビルドし、単一のオリジンの背後にデプロイします。[Deployment](/docs/deployment) を参照してください。
 
 独自のアプリテンプレートを作成して公開するには、[Creating Templates](/docs/creating-templates) を参照してください。

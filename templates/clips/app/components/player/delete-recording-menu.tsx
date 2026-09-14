@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconDotsVertical, IconDownload, IconTrash } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
@@ -29,6 +29,7 @@ interface DeleteRecordingMenuProps {
 }
 
 interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
+  children?: ReactNode;
   canDelete?: boolean;
   canDownload?: boolean;
   downloadPending?: boolean;
@@ -38,6 +39,7 @@ interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
 }
 
 export function RecordingOptionsMenu({
+  children,
   recordingId,
   onDeleted,
   canDelete = true,
@@ -54,6 +56,7 @@ export function RecordingOptionsMenu({
   const pendingDeleteConfirmRef = useRef(false);
   const showDownload = canDownload && Boolean(onDownload);
   const showDelete = canDelete;
+  const showCustomItems = Boolean(children);
   const trashRecording = useActionMutation<any, { id: string }>(
     "trash-recording",
     {
@@ -80,7 +83,7 @@ export function RecordingOptionsMenu({
     onDownload?.();
   }, [onDownload]);
 
-  if (!showDownload && !showDelete) return null;
+  if (!showCustomItems && !showDownload && !showDelete) return null;
 
   return (
     <AlertDialog
@@ -94,7 +97,7 @@ export function RecordingOptionsMenu({
           <Button
             variant="ghost"
             size="icon"
-            className="h-auto w-auto shrink-0 px-0.5 py-1.5"
+            className="order-last h-8 w-8 shrink-0"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDotsVertical className="h-4 w-4" />
@@ -102,7 +105,7 @@ export function RecordingOptionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="w-44"
+          className={showCustomItems ? "w-64" : "w-44"}
           onCloseAutoFocus={(event) => {
             // Opening the AlertDialog while this menu is still tearing down
             // leaves `pointer-events: none` stuck on <body>: two dismissable
@@ -116,6 +119,10 @@ export function RecordingOptionsMenu({
             }
           }}
         >
+          {children}
+          {showCustomItems && (showDownload || showDelete) ? (
+            <DropdownMenuSeparator />
+          ) : null}
           {showDownload ? (
             <DropdownMenuItem
               onSelect={handleDownload}

@@ -6,6 +6,8 @@ import type { ElementInfo } from "@/components/design/types";
 import type { SelectedLayerTarget } from "@/pages/design-editor/code-layer-state";
 import { shouldSkipVisualStyleCommitForPreview } from "@/pages/design-editor/editor-state";
 
+import { styleWriteTarget } from "./style-write-target";
+
 export interface StylesChangeArgs {
   commitInteractionStateStyles: (
     state: InteractionState,
@@ -87,6 +89,7 @@ export function runStylesChange(
   const selector = selectedElement?.selector ?? "body";
   const entries = Object.entries(styles).filter(([, value]) => Boolean(value));
   if (entries.length === 0) return;
+  const target = styleWriteTarget({ selector, selectedElement });
   // T10: mirror handleStyleChange's text-range routing here. Without
   // this, a multi-property style commit (e.g. EditPanel's typography
   // controls, which batch fontSize/lineHeight/etc into one call) while a
@@ -124,7 +127,7 @@ export function runStylesChange(
     const sendStyleChange = (window as any).__designCanvasSendStyle;
     if (typeof sendStyleChange === "function") {
       entries.forEach(([property, value]) => {
-        sendStyleChange(selector, property, value, {
+        sendStyleChange(target, property, value, {
           selectorCandidates: selectedCanvasSelectorCandidates,
           nodeId: selectedElement?.sourceId,
         });
@@ -151,5 +154,5 @@ export function runStylesChange(
     commitStylesToSelectedLayers(Object.fromEntries(entries))
   )
     return;
-  commitVisualStyles(selector, Object.fromEntries(entries));
+  commitVisualStyles(target, Object.fromEntries(entries));
 }

@@ -20,7 +20,7 @@ import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Duplicate multiple page rows in a content database in one atomic batch. Use this for two or more selected/named rows instead of looping duplicate-database-item.",
+    "Duplicate multiple page rows in a content collection in one atomic batch. Use this for two or more selected/named rows instead of looping duplicate-database-item.",
   schema: databaseRowBatchSchema,
   run: async (args) => {
     const db = getDb();

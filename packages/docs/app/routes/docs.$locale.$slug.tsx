@@ -3,13 +3,16 @@ import {
   redirect,
   useLoaderData,
   useParams,
+  type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 
 import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
+  hasLocalizedDoc,
   loadDocRespectingDraftVisibility,
+  preloadDocBlocksForDoc,
   type DocEntry,
 } from "../components/docs-content";
 import {
@@ -21,6 +24,7 @@ import {
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import { DOCS_SLUG_REDIRECTS } from "../components/docs-slug-redirects";
 import DocsLayout from "../components/DocsLayout";
+import DocTranslationBanner from "../components/DocTranslationBanner";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 function requireLocale(value: unknown): DocsLocale {
@@ -56,6 +60,11 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
     throw new Response("Not Found", { status: 404 });
   }
   return doc;
+}
+
+export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
+  const doc = (await serverLoader()) as DocEntry;
+  return preloadDocBlocksForDoc(doc);
 }
 
 export const meta = ({
@@ -102,6 +111,11 @@ export default function LocalizedDocPage() {
     >
       {doc.draft && <DocDraftBanner />}
       <DocContent markdown={doc.body} locale={locale} />
+      {hasLocalizedDoc(locale, doc.slug) && (
+        <DocTranslationBanner
+          originalHref={docsPathForSlug(doc.slug, DEFAULT_DOCS_LOCALE)}
+        />
+      )}
     </DocsLayout>
   );
 }

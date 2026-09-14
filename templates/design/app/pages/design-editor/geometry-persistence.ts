@@ -2,6 +2,10 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { quantizeToStep } from "@shared/canvas-math";
+import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
+
+export { MAX_SANE_FRAME_DIMENSION_PX };
 
 export function frameGeometryEquals(
   a: CanvasFrameGeometry | undefined,
@@ -21,7 +25,31 @@ export function geometrySnapshotsEqual(
   return aKeys.every((key) => key in b && frameGeometryEquals(a[key], b[key]));
 }
 
-export const MAX_SANE_FRAME_DIMENSION_PX = 100000;
+/** Separate from the sanity check below on purpose: an out-of-range frame is
+ *  refused, a fractional one is repaired. Rewrites only what changes, so a
+ *  whole-pixel board stays reference-equal and never dirties a save. */
+export function quantizeCanvasFrameGeometryForPersist(
+  geometryById: CanvasFrameGeometryById,
+): CanvasFrameGeometryById {
+  let quantized: CanvasFrameGeometryById | null = null;
+  for (const [frameId, geometry] of Object.entries(geometryById)) {
+    const next: CanvasFrameGeometry = { ...geometry };
+    let changed = false;
+    for (const key of ["x", "y", "width", "height"] as const) {
+      const value = geometry[key];
+      if (value === undefined) continue;
+      const rounded = quantizeToStep(value);
+      if (rounded === value) continue;
+      next[key] = rounded;
+      changed = true;
+    }
+    if (!changed) continue;
+    if (quantized === null) quantized = { ...geometryById };
+    quantized[frameId] = next;
+  }
+  return quantized ?? geometryById;
+}
+
 export const MAX_SANE_FRAME_ASPECT_RATIO = 50;
 
 export function isSaneCanvasFrameGeometryForPersist(

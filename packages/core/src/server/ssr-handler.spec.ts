@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -81,7 +85,13 @@ function expectNoDefaultCdnCacheHeaders(response: Response) {
 }
 
 describe("createH3SSRHandler", () => {
+  beforeEach(() => {
+    resetAppConfigForTests();
+    defineAppConfig({ app: { homePath: "/home" } });
+  });
+
   afterEach(() => {
+    resetAppConfigForTests();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.SENTRY_CLIENT_DSN;
@@ -272,6 +282,26 @@ describe("createH3SSRHandler", () => {
     expect(response.headers.get("speculation-rules")).toBe(
       DEFAULT_SPECULATION_RULES_HEADER,
     );
+    const html = await response.text();
+    const handoff = html.indexOf("data-agent-native-auth-redirect");
+    expect(handoff).toBeGreaterThan(html.indexOf("<head>"));
+    expect(handoff).toBeLessThan(html.indexOf("</head>"));
+    expect(handoff).toBeLessThan(html.indexOf("<body>"));
+  });
+
+  it("only adds the auth handoff to the public root shell", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>app</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/home"));
+
+    expect(await response.text()).not.toContain(
+      "data-agent-native-auth-redirect",
+    );
   });
 
   it("narrows Netlify query variation on public SSR HTML", async () => {
@@ -383,6 +413,40 @@ describe("createH3SSRHandler", () => {
 
     expect(await response.text()).toContain("no-cookie:no-auth");
     expectDefaultSsrCacheHeaders(response);
+  });
+
+  it("renders byte-identical public HTML across the session-cookie boundary", async () => {
+    const publicHtml =
+      "<html><head></head><body><main>public shell</main></body></html>";
+    mocks.requestHandler
+      .mockResolvedValueOnce(
+        new Response(publicHtml, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(publicHtml, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const anonymous = await handler(createEvent("/"));
+    const authenticated = await handler(
+      createEvent("/", "GET", { headers: { cookie: "an_session=active" } }),
+    );
+
+    expect(await anonymous.text()).toBe(await authenticated.text());
+    expect(anonymous.headers.get("cache-control")).toBe(
+      authenticated.headers.get("cache-control"),
+    );
+    expect(anonymous.headers.get("vary")).toBe(
+      authenticated.headers.get("vary"),
+    );
+    expect(mocks.requestHandler.mock.calls).toHaveLength(2);
+    for (const [request] of mocks.requestHandler.mock.calls) {
+      expect((request as Request).headers.get("cookie")).toBeNull();
+    }
   });
 
   it("replaces React Router's default no-cache policy on .data responses", async () => {

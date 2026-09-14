@@ -67,6 +67,11 @@ export async function addInlineImageFallbacks(
       result.push(uploadedFile);
       continue;
     }
+    if (uploadedFile.url) {
+      const { dataUrl: _dataUrl, ...withoutDataUrl } = uploadedFile;
+      result.push(withoutDataUrl);
+      continue;
+    }
     if (uploadedFile.dataUrl) {
       if (canAddInlineImageToPayload(inlineDataUrls, uploadedFile.dataUrl)) {
         inlineDataUrls.push(uploadedFile.dataUrl);
@@ -132,6 +137,12 @@ export async function createPromptChatAttachments(
     }
 
     const uploadedFile = uploaded[uploadedIndex++];
+    const isImage =
+      uploadedFile?.type.startsWith("image/") ||
+      Boolean(attachment.file?.type.startsWith("image/"));
+    if (uploadedFile && isImage && (uploadedFile.url || uploadedFile.dataUrl)) {
+      continue;
+    }
     result.push({
       type: "file",
       name: uploadedFile?.originalName ?? name,
@@ -380,6 +391,11 @@ export interface PromptAttachmentActions {
 
 export type PromptSubmitResult = "commit" | "retain" | "discard";
 
+type PromptModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -391,6 +407,7 @@ interface PromptPopoverProps {
     prompt: string,
     files: UploadedFile[],
     attachments: PromptAttachmentActions,
+    options?: PromptComposerSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
@@ -399,11 +416,14 @@ interface PromptPopoverProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
+  initialModelSelection?: PromptModelSelection;
   onBeforeUpload?: (
     prompt: string,
     files: File[],
     context?: string,
     attachments?: ReadonlyArray<PromptChatAttachment>,
+    options?: PromptComposerSubmitOptions,
   ) => boolean | void;
   onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (
@@ -428,6 +448,7 @@ export default function PromptPopover({
   draftScope,
   initialText,
   initialTextKey,
+  initialModelSelection,
   onBeforeUpload,
   onRetainedAttachmentsAbandoned,
   onImport,
@@ -449,9 +470,28 @@ export default function PromptPopover({
   );
   const [importingSource, setImportingSource] =
     useState<PromptImportSource | null>(null);
+  const activeAttachmentFilesRef = useRef<File[]>([]);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [modelSelection, setModelSelection] = useState<
+    PromptModelSelection | undefined
+  >(initialModelSelection);
+
+  useEffect(() => {
+    if (initialModelSelection) setModelSelection(initialModelSelection);
+  }, [initialModelSelection]);
+
+  const handleModelChange = useCallback((model: string, engine: string) => {
+    setModelSelection((current) => ({ ...current, model, engine }));
+  }, []);
+
+  const handleEffortChange = useCallback(
+    (effort: NonNullable<PromptModelSelection["effort"]>) => {
+      setModelSelection((current) => ({ ...current, effort }));
+    },
+    [],
+  );
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
@@ -546,14 +586,27 @@ export default function PromptPopover({
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
       if (files.length === 0 && retainingAttachmentsRef.current) return;
+      activeAttachmentFilesRef.current = files;
       syncFiles(files);
       if (files.length === 0) return;
       if (
-        onBeforeUpload?.(promptText, files, googleDocContext || undefined) ===
-        false
+        onBeforeUpload?.(
+          promptText,
+          files,
+          googleDocContext || undefined,
+          undefined,
+          modelSelection,
+        ) === false
       )
         return;
-      void uploadFiles(files).catch((error) => {
+      const uploadBatch = files;
+      void uploadFiles(uploadBatch).catch((error) => {
+        if (
+          !uploadBatch.some((file) =>
+            activeAttachmentFilesRef.current.includes(file),
+          )
+        )
+          return;
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
@@ -562,7 +615,15 @@ export default function PromptPopover({
         });
       });
     },
-    [googleDocContext, onBeforeUpload, promptText, syncFiles, t, uploadFiles],
+    [
+      googleDocContext,
+      modelSelection,
+      onBeforeUpload,
+      promptText,
+      syncFiles,
+      t,
+      uploadFiles,
+    ],
   );
 
   const handleSubmit = useCallback(
@@ -581,6 +642,7 @@ export default function PromptPopover({
           files,
           googleDocContext || undefined,
           preUploadChatAttachments,
+          options,
         ) === false
       ) {
         return;
@@ -594,20 +656,25 @@ export default function PromptPopover({
           uploaded,
         );
         retainFiles(files);
-        const result = await onSubmit(text, uploaded, {
-          commit: () => {
-            commitFiles(files);
-            retainingAttachmentsRef.current = false;
-            setRetainingAttachments(false);
+        const result = await onSubmit(
+          text,
+          uploaded,
+          {
+            commit: () => {
+              commitFiles(files);
+              retainingAttachmentsRef.current = false;
+              setRetainingAttachments(false);
+            },
+            discard: () => {
+              discardFiles(files);
+              retainingAttachmentsRef.current = false;
+              setRetainingAttachments(false);
+            },
+            attachments: chatAttachments,
+            context: googleDocContext || undefined,
           },
-          discard: () => {
-            discardFiles(files);
-            retainingAttachmentsRef.current = false;
-            setRetainingAttachments(false);
-          },
-          attachments: chatAttachments,
-          context: googleDocContext || undefined,
-        });
+          options,
+        );
         if (result === "retain") {
           retainingAttachmentsRef.current = true;
           setRetainingAttachments(true);
@@ -703,6 +770,7 @@ export default function PromptPopover({
       setSelectedImportFile(null);
       setImportingSource(null);
       if (!submitting && !retainingAttachmentsRef.current) {
+        activeAttachmentFilesRef.current = [];
         setSubmitting(false);
         resetEagerUploads();
       }
@@ -812,6 +880,22 @@ export default function PromptPopover({
                 draftScope={draftScope}
                 initialText={initialText}
                 initialTextKey={initialTextKey}
+                selectedModel={
+                  initialModelSelection ? modelSelection?.model : undefined
+                }
+                selectedEngine={
+                  initialModelSelection ? modelSelection?.engine : undefined
+                }
+                selectedEffort={
+                  initialModelSelection ? modelSelection?.effort : undefined
+                }
+                onModelChange={
+                  initialModelSelection ? handleModelChange : undefined
+                }
+                onEffortChange={
+                  initialModelSelection ? handleEffortChange : undefined
+                }
+                onModelSelectionChange={setModelSelection}
               />
             </div>
 

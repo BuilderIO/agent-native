@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  agentChatStreamingUrl,
   agentNativePath,
   appApiPath,
   appBasePath,
@@ -100,6 +101,22 @@ describe("agentNativePath", () => {
     expect(agentNativePath("/_agent-native/poll")).toBe(
       "/diagrams/_agent-native/poll",
     );
+  });
+
+  it("accepts an HTTP streaming origin and rejects executable URL schemes", () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL",
+      "https://stream.example.test/_agent-native/agent-chat-stream",
+    );
+    expect(agentChatStreamingUrl()).toBe(
+      "https://stream.example.test/_agent-native/agent-chat-stream",
+    );
+
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL",
+      "javascript:alert(1)",
+    );
+    expect(agentChatStreamingUrl()).toBeUndefined();
   });
 
   it("uses the live workspace route segment for app API paths under nested routes", () => {

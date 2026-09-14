@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    labs: "المختبرات",
+    labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+    labLayoutOverflowWarningDescription: "إظهار تحذير تجاوز التخطيط في المحرر.",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
@@ -85,10 +88,8 @@ const messages = {
     cloudConnectedReloading: "Conectado com sucesso. Recarregando...",
     cloudConnectionFailed: "Falha na conexão",
     cloudTestConnect: "Testar e conectar",
-    cloudSqliteEdge: "SQLite na borda",
     cloudServerlessPostgres: "Postgres serverless",
     cloudOpenSourceFirebaseAlternative: "Alternativa open source ao Firebase",
-    cloudCloudflareSqliteEdge: "SQLite na borda da Cloudflare",
     designSlidePreview: "Prévia do slide",
     designSlideTitle: "Título do slide",
     designSupportingText:
@@ -145,6 +146,8 @@ const messages = {
     clearSelection: "Limpar seleção",
     sendToAgent: "إرسال إلى الوكيل",
     saveReconnect: "As alterações serão salvas ao reconectar",
+    saveFailedDescription:
+      "توجد أحدث تعديلاتك على هذا الجهاز فقط. نزّل نسخة احتياطية قبل المغادرة.",
     offline: "غير متصل",
     selected: "محدد",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -208,6 +211,9 @@ const messages = {
     usingDesignSystem: "يتم استخدام {{title}}",
     usingLinkedDesignSystem: "يتم استخدام نظام تصميم مرتبط",
     viewOnly: "عرض فقط",
+    sourcePreserving: "تحرير محدود",
+    sourcePreservingDescription:
+      "يمكن تعديل النصوص والعناصر. تمت تعطيل إضافة الشرائح أو حذفها أو إعادة ترتيبها في هذا العرض المستورد.",
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة التعليقات",
     slideSettings: "إعدادات الشريحة",
@@ -263,6 +269,11 @@ const messages = {
     more: "المزيد",
     importing: "جارٍ الاستيراد...",
     importFile: "استيراد ملف",
+    downloadBackup: "تنزيل نسخة احتياطية",
+    importBackup: "استيراد نسخة احتياطية",
+    backupDownloaded: "تم تنزيل النسخة الاحتياطية",
+    backupDownloadFailed: "تعذر تنزيل النسخة الاحتياطية",
+    invalidBackup: "اختر ملف JSON صالحًا لنسخة Slides الاحتياطية.",
     savedVersions: "الإصدارات المحفوظة",
     lightTheme: "السمة الفاتحة",
     darkTheme: "السمة الداكنة",
@@ -270,6 +281,7 @@ const messages = {
   editorExport: {
     pptxFailed: "تعذر إنشاء ملف PPTX.",
     exportFailed: "فشل التصدير",
+    exporting: "جارٍ التصدير...",
     exportPptxError: "حدث خطأ أثناء التصدير بصيغة PPTX.",
     googleSlidesDownloaded: "تم التنزيل من أجل Google Slides",
     googleSlidesImportHint:
@@ -286,6 +298,10 @@ const messages = {
     exportPptx: "تصدير بصيغة PPTX",
     connectGoogle: "توصيل Google",
     openInGoogleSlides: "فتح في Google Slides",
+    googleSlidesUnavailable: "غير متاح",
+    googleSlidesOpenImporter: "فتح استيراد Google Slides",
+    googleSlidesUnavailableHint:
+      "تصدير Google Slides غير متاح حاليًا لأن اتصال Google غير مُهيأ. صدّر الملف بصيغة PPTX واستورده إلى Google Slides بدلاً من ذلك.",
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
@@ -462,6 +478,10 @@ const messages = {
     rose: "Rose",
     arrange: "ترتيب",
     order: "الترتيب",
+    group: "تجميع",
+    ungroup: "إلغاء التجميع",
+    bringForward: "إحضار للأمام",
+    sendBackward: "إرسال للخلف",
     bringToFront: "إحضار إلى الأمام",
     sendToBack: "إرسال إلى الخلف",
     copyStyle: "نسخ النمط",

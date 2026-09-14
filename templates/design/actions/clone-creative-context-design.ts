@@ -13,6 +13,7 @@ import {
 } from "@agent-native/creative-context/store";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   resolveImportDesignId,
   saveImportedDesignFiles,
@@ -33,7 +34,10 @@ export default defineAction({
       .describe("Design id. Defaults to the active editor navigation state."),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async ({ itemId, itemVersionId, designId: explicitDesignId }) => {
+  run: async (
+    { itemId, itemVersionId, designId: explicitDesignId },
+    context,
+  ) => {
     const contextState = (await readAppState("creative-context").catch(
       () => null,
     )) as { contextMode?: "auto" | "off" } | null;
@@ -80,6 +84,7 @@ export default defineAction({
         reason: "Exact native artifact reuse",
       })),
     });
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const saved = await saveImportedDesignFiles({
       designId,
       sourceType: "creative-context-clone",

@@ -3,9 +3,10 @@ import {
   navigateWithAgentChatViewTransition,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptBar, PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { IconChevronDown, IconClockHour4, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -68,6 +69,10 @@ function SectionHeader({
 
 function CommandPanel() {
   const t = useT();
+  const { org } = useOrgRole();
+  const draftScope = org?.orgId?.trim()
+    ? `dispatch:overview:${org.orgId}`
+    : "dispatch:overview";
   const {
     availableModels,
     isLoading: modelListLoading,
@@ -120,20 +125,24 @@ function CommandPanel() {
             })}
           </p>
         </div>
-        <PromptComposer
-          availableModels={availableModels}
-          modelListLoading={modelListLoading}
-          placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
-            defaultValue: "Ask Dispatch anything...",
-          })}
-          selectedEffort={selectedEffort}
-          selectedEngine={selectedEngine}
-          selectedModel={selectedModel}
-          rootClassName="bg-card"
-          onEffortChange={onEffortChange}
-          onModelChange={onModelChange}
-          onSubmit={(text) => send(text)}
-        />
+        <PromptBar mode="inline" className="contents">
+          <PromptComposer
+            availableModels={availableModels}
+            draftScope={draftScope}
+            modelListLoading={modelListLoading}
+            placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
+              defaultValue: "Ask Dispatch anything...",
+            })}
+            selectedEffort={selectedEffort}
+            selectedEngine={selectedEngine}
+            selectedModel={selectedModel}
+            layoutVariant="hero"
+            rootClassName="bg-card"
+            onEffortChange={onEffortChange}
+            onModelChange={onModelChange}
+            onSubmit={(text) => send(text)}
+          />
+        </PromptBar>
         <div className="mt-3 flex flex-wrap justify-center gap-2">
           {promptSuggestions.map((suggestion) => (
             <button

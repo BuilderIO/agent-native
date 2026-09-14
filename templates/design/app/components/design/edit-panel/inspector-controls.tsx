@@ -248,12 +248,14 @@ export function RowDragHandle({
 export function InspectorIconButton({
   label,
   active,
+  disabled,
   onClick,
   children,
   shortcut,
 }: {
   label: string;
   active?: boolean;
+  disabled?: boolean;
   onClick?: () => void;
   children: ReactNode;
   /** Optional keyboard-shortcut hint (e.g. "⌥A") appended to the tooltip only — aria-label stays plain text. */
@@ -266,8 +268,9 @@ export function InspectorIconButton({
           type="button"
           variant="ghost"
           size="icon"
+          disabled={disabled}
           className={cn(
-            "h-6 min-w-6 flex-1 cursor-pointer rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground disabled:cursor-not-allowed",
+            "h-6 min-w-6 flex-1 cursor-pointer rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40",
             active &&
               "bg-[var(--design-editor-panel-bg)] text-[var(--design-editor-accent-color)] shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]",
           )}

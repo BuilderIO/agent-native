@@ -53,6 +53,7 @@ import {
 } from "@/lib/local-folder-live-sync";
 import {
   hasInterruptedNativeFolderPickerAttempt,
+  isUserCancelledFolderPickerError,
   runNativeFolderPickerWithCrashSentinel,
 } from "@/lib/local-folder-picker-safety";
 import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
@@ -1163,6 +1164,10 @@ export default function LocalFilesRoute() {
       toast.success(t("localFiles.pulledLocalFiles"));
       await connectLocalComponentWorkspaces([selected]);
     } catch (err) {
+      if (isUserCancelledFolderPickerError(err)) {
+        // Backing out of the native picker isn't a failure worth surfacing.
+        return;
+      }
       setStatus({
         kind: "error",
         title: t("localFiles.folderAddFailed"),

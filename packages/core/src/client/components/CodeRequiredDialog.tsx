@@ -8,10 +8,10 @@ import {
 import { useEffect, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
-import { withBuilderConnectTrackingParams } from "../settings/useBuilderStatus.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
 
@@ -20,31 +20,6 @@ export interface CodeRequiredDialogProps {
   onClose: () => void;
   /** Label describing the feature that requires code changes */
   featureLabel?: string;
-}
-
-function useBuilderConnected() {
-  const [connected, setConnected] = useState(false);
-  const [cloudAgentsAvailable, setCloudAgentsAvailable] = useState(false);
-  const [connectUrl, setConnectUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(agentNativePath("/_agent-native/builder/status"))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data) {
-          setConnected(!!data.configured);
-          setCloudAgentsAvailable(
-            !!data.builderEnabled &&
-              !!data.privateKeyConfigured &&
-              !!data.publicKeyConfigured,
-          );
-          setConnectUrl(data.connectUrl || null);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  return { connected, cloudAgentsAvailable, connectUrl };
 }
 
 /**
@@ -59,18 +34,19 @@ export function CodeRequiredDialog({
   featureLabel,
 }: CodeRequiredDialogProps) {
   const t = useT();
-  const {
-    connected: builderConnected,
-    cloudAgentsAvailable,
-    connectUrl,
-  } = useBuilderConnected();
+  const builderFlow = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "code_required_dialog",
+    trackingFlow: "background_agent",
+  });
+  const builderConnected = builderFlow.statusResolved && builderFlow.configured;
+  const cloudAgentsAvailable =
+    builderFlow.statusResolved &&
+    builderFlow.builderEnabled &&
+    builderFlow.codeChangeConfigured;
   const [submitting, setSubmitting] = useState(false);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const builderHref = withBuilderConnectTrackingParams(
-    connectUrl || agentNativePath("/_agent-native/builder/connect"),
-    { source: "code_required_dialog", flow: "background_agent" },
-  );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -243,44 +219,45 @@ export function CodeRequiredDialog({
               <span style={s.badge}>{t("codeRequired.codeChangeBadge")}</span>
             </div>
           ) : (
-            <a
-              href={builderHref}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => {
-                trackEvent("builder connect clicked", {
-                  feature: "builder",
-                  stage: "client",
-                  source: "code_required_dialog",
-                  flow: "background_agent",
-                  connect_url_kind: connectUrl ? "provided" : "default",
-                });
-              }}
-              style={{ ...s.optionCard, ...s.optionLink }}
-              onMouseEnter={(e) =>
-                Object.assign(e.currentTarget.style, s.optionCardHover)
-              }
-              onMouseLeave={(e) =>
-                Object.assign(e.currentTarget.style, {
-                  borderColor: "hsl(var(--border))",
-                })
-              }
-            >
-              <div style={s.optionIcon}>
-                <IconExternalLink size={24} />
-              </div>
-              <div style={s.optionText}>
-                <span style={s.optionTitle}>
-                  {t("codeRequired.connectBuilderTitle")}
-                </span>
-                <span style={s.optionDesc}>
-                  {t("codeRequired.connectBuilderDescription")}
-                </span>
-              </div>
-              {!connectUrl && (
+            <BuilderConnectPopover flow={builderFlow}>
+              <button
+                type="button"
+                disabled={builderFlow.connecting}
+                style={{
+                  ...s.optionCard,
+                  ...s.optionLink,
+                  ...(builderFlow.connecting ? s.optionCardDisabled : {}),
+                }}
+                onMouseEnter={(e) =>
+                  Object.assign(e.currentTarget.style, s.optionCardHover)
+                }
+                onMouseLeave={(e) =>
+                  Object.assign(e.currentTarget.style, {
+                    borderColor: "hsl(var(--border))",
+                  })
+                }
+              >
+                <div style={s.optionIcon}>
+                  {builderFlow.connecting ? (
+                    <IconLoader2
+                      size={24}
+                      style={{ animation: "spin 1s linear infinite" }}
+                    />
+                  ) : (
+                    <IconExternalLink size={24} />
+                  )}
+                </div>
+                <div style={s.optionText}>
+                  <span style={s.optionTitle}>
+                    {t("codeRequired.connectBuilderTitle")}
+                  </span>
+                  <span style={s.optionDesc}>
+                    {t("codeRequired.connectBuilderDescription")}
+                  </span>
+                </div>
                 <span style={s.badge}>{t("codeRequired.setupRequired")}</span>
-              )}
-            </a>
+              </button>
+            </BuilderConnectPopover>
           )}
         </div>
 
@@ -404,6 +381,10 @@ const s: Record<string, React.CSSProperties> = {
   },
   optionCardHover: {
     borderColor: "hsl(var(--ring))",
+  },
+  optionCardDisabled: {
+    opacity: 0.7,
+    cursor: "wait",
   },
   optionLink: {
     textDecoration: "none",

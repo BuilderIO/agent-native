@@ -8,6 +8,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   INLINE_DEFAULT_CAPABILITIES,
   hasCapability,
@@ -100,8 +101,9 @@ export default defineAction({
           "write-back. Omit for inline designs.",
       ),
   }),
-  run: async ({ designId, edits, sourceRef }) => {
+  run: async ({ designId, edits, sourceRef }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     // ------------------------------------------------------------------
     // Capability check — real-app write-back (writeTokens) is gated

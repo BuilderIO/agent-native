@@ -22,6 +22,7 @@ Read the relevant skill in `.agents/skills/` before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
   base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
@@ -50,6 +51,7 @@ Read the relevant skill in `.agents/skills/` before deeper work:
 - Keep inline previews and picker outputs lightweight; fetch full asset details
   through actions when needed.
 - Use framework sharing/collaboration primitives for ownable assets.
+- Kit viewers may generate drafts; saving one into the kit needs editor.
 
 ## Application State
 

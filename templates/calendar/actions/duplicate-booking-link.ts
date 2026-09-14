@@ -181,7 +181,7 @@ export default defineAction({
           isActive: source.isActive,
           ownerEmail,
           orgId,
-          visibility: source.visibility,
+          visibility: "private",
           createdAt: now,
           updatedAt: now,
         });

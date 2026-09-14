@@ -1,5 +1,4 @@
 import { createDashboardStorageSchema } from "@agent-native/core/dashboard-storage";
-import { getDialect } from "@agent-native/core/db";
 import {
   createSharesTable,
   integer,
@@ -10,7 +9,6 @@ import {
   text,
 } from "@agent-native/core/db/schema";
 import { customType as pgCustomType } from "drizzle-orm/pg-core";
-import { integer as sqliteInteger } from "drizzle-orm/sqlite-core";
 
 import { CRM_ATTRIBUTE_TYPES } from "../../shared/crm-attributes.js";
 
@@ -23,13 +21,7 @@ const pgIntegerBoolean = pgCustomType<{
   toDriver: (value) => (value ? 1 : 0),
 });
 
-const sqliteBoolean = <TName extends string>(name: TName) =>
-  sqliteInteger(name, { mode: "boolean" });
-
-const portableBoolean: typeof sqliteBoolean = ((name: string) =>
-  getDialect() === "postgres"
-    ? pgIntegerBoolean(name)
-    : sqliteBoolean(name)) as unknown as typeof sqliteBoolean;
+const booleanColumn = pgIntegerBoolean;
 
 export const crmConnections = table("crm_connections", {
   id: text("id").primaryKey(),
@@ -76,12 +68,12 @@ export const crmObjects = table("crm_objects", {
   }).notNull(),
   label: text("label").notNull(),
   pluralLabel: text("plural_label").notNull(),
-  custom: portableBoolean("custom").notNull().default(false),
-  queryable: portableBoolean("queryable").notNull().default(true),
-  searchable: portableBoolean("searchable").notNull().default(true),
-  createable: portableBoolean("createable").notNull().default(false),
-  updateable: portableBoolean("updateable").notNull().default(false),
-  deleteable: portableBoolean("deleteable").notNull().default(false),
+  custom: booleanColumn("custom").notNull().default(false),
+  queryable: booleanColumn("queryable").notNull().default(true),
+  searchable: booleanColumn("searchable").notNull().default(true),
+  createable: booleanColumn("createable").notNull().default(false),
+  updateable: booleanColumn("updateable").notNull().default(false),
+  deleteable: booleanColumn("deleteable").notNull().default(false),
   capabilitiesJson: text("capabilities_json").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -108,11 +100,11 @@ export const crmFieldPolicies = table("crm_field_policies", {
   })
     .notNull()
     .default("remote-only"),
-  sensitive: portableBoolean("sensitive").notNull().default(false),
-  readable: portableBoolean("readable").notNull().default(true),
-  createable: portableBoolean("createable").notNull().default(false),
-  updateable: portableBoolean("updateable").notNull().default(false),
-  required: portableBoolean("required").notNull().default(false),
+  sensitive: booleanColumn("sensitive").notNull().default(false),
+  readable: booleanColumn("readable").notNull().default(true),
+  createable: booleanColumn("createable").notNull().default(false),
+  updateable: booleanColumn("updateable").notNull().default(false),
+  required: booleanColumn("required").notNull().default(false),
   metadataJson: text("metadata_json").notNull().default("{}"),
   // --- typed attribute surface (additive; `crm_field_policies` IS the attribute table) ---
   attributeType: text("attribute_type", { enum: CRM_ATTRIBUTE_TYPES })
@@ -127,21 +119,21 @@ export const crmFieldPolicies = table("crm_field_policies", {
   targetId: text("target_id"),
   apiSlug: text("api_slug"),
   description: text("description"),
-  multi: portableBoolean("multi").notNull().default(false),
+  multi: booleanColumn("multi").notNull().default(false),
   inverseAttributeId: text("inverse_attribute_id"),
   authority: text("authority", {
     enum: ["provider", "derived-local", "local-authoritative"],
   })
     .notNull()
     .default("provider"),
-  historyTracked: portableBoolean("history_tracked").notNull().default(true),
+  historyTracked: booleanColumn("history_tracked").notNull().default(true),
   fillMode: text("fill_mode", {
     enum: ["agent-summarize", "agent-classify", "agent-research", "formula"],
   }),
   fillConfigJson: text("fill_config_json").notNull().default("{}"),
   configJson: text("config_json").notNull().default("{}"),
-  uniqueValue: portableBoolean("unique_value").notNull().default(false),
-  archived: portableBoolean("archived").notNull().default(false),
+  uniqueValue: booleanColumn("unique_value").notNull().default(false),
+  archived: booleanColumn("archived").notNull().default(false),
   position: integer("position").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -159,11 +151,11 @@ export const crmAttributeOptions = table("crm_attribute_options", {
   title: text("title").notNull(),
   color: text("color"),
   position: integer("position").notNull().default(0),
-  archived: portableBoolean("archived").notNull().default(false),
+  archived: booleanColumn("archived").notNull().default(false),
   /** `status` attributes only: stage SLA in days. */
   targetDays: integer("target_days"),
   /** `status` attributes only. */
-  celebrate: portableBoolean("celebrate").notNull().default(false),
+  celebrate: booleanColumn("celebrate").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -201,7 +193,7 @@ export const crmRecords = table("crm_records", {
   lastSyncedAt: text("last_synced_at"),
   accessScopeKey: text("access_scope_key").notNull(),
   accessScopeJson: text("access_scope_json").notNull().default("{}"),
-  tombstone: portableBoolean("tombstone").notNull().default(false),
+  tombstone: booleanColumn("tombstone").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -234,9 +226,9 @@ export const crmRecordFields = table("crm_record_fields", {
   }).notNull(),
   stringValue: text("string_value"),
   numberValue: real("number_value"),
-  booleanValue: portableBoolean("boolean_value"),
+  booleanValue: booleanColumn("boolean_value"),
   jsonValue: text("json_value"),
-  // ISO 8601, not the `datetime('now')` SQL default the older timestamp columns
+  // ISO 8601, not the `CURRENT_TIMESTAMP` SQL default the older timestamp columns
   // use: this column is ordered against `activeUntil` in history queries, and
   // `"… 20:56:04"` sorts before `"…T20:56:04Z"` for the same instant.
   activeFrom: text("active_from")
@@ -250,8 +242,7 @@ export const crmRecordFields = table("crm_record_fields", {
     .notNull()
     .default("system"),
   actorId: text("actor_id"),
-  // Sparse composite sub-fields. Columns, not json_extract: a WHERE clause over
-  // JSON is dialect-divergent, and these are what the grid filters on.
+  // Sparse composite sub-fields keep the grid filters indexable.
   emailLocal: text("email_local"),
   emailDomain: text("email_domain"),
   emailRootDomain: text("email_root_domain"),
@@ -286,7 +277,7 @@ export const crmLists = table("crm_lists", {
   parentObjectType: text("parent_object_type").notNull(),
   description: text("description").notNull().default(""),
   defaultViewId: text("default_view_id"),
-  archived: portableBoolean("archived").notNull().default(false),
+  archived: booleanColumn("archived").notNull().default(false),
   position: integer("position").notNull().default(0),
   source: text("source", { enum: ["local", "imported"] })
     .notNull()
@@ -333,7 +324,7 @@ export const crmRelationships = table("crm_relationships", {
   sourceField: text("source_field"),
   remoteRelationshipId: text("remote_relationship_id"),
   remoteRevision: text("remote_revision"),
-  tombstone: portableBoolean("tombstone").notNull().default(false),
+  tombstone: booleanColumn("tombstone").notNull().default(false),
   lastSyncedAt: text("last_synced_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -359,7 +350,7 @@ export const crmInteractions = table("crm_interactions", {
   title: text("title").notNull(),
   summary: text("summary").notNull().default(""),
   occurredAt: text("occurred_at").notNull(),
-  meaningful: portableBoolean("meaningful").notNull().default(true),
+  meaningful: booleanColumn("meaningful").notNull().default(true),
   providerObjectType: text("provider_object_type"),
   providerRemoteId: text("provider_remote_id"),
   sourceApp: text("source_app"),
@@ -402,8 +393,8 @@ export const crmSignalTrackers = table("crm_signal_trackers", {
   kind: text("kind", { enum: ["keyword", "smart"] }).notNull(),
   keywordsJson: text("keywords_json").notNull().default("[]"),
   classifierPrompt: text("classifier_prompt").notNull().default(""),
-  enabled: portableBoolean("enabled").notNull().default(true),
-  isDefault: portableBoolean("is_default").notNull().default(false),
+  enabled: booleanColumn("enabled").notNull().default(true),
+  isDefault: booleanColumn("is_default").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -516,7 +507,7 @@ export const crmSavedViews = table("crm_saved_views", {
   columnsJson: text("columns_json").notNull().default("[]"),
   sortJson: text("sort_json").notNull().default("[]"),
   dataProgramId: text("data_program_id"),
-  pinned: portableBoolean("pinned").notNull().default(false),
+  pinned: booleanColumn("pinned").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),

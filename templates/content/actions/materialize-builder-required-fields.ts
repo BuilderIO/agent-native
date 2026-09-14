@@ -25,6 +25,7 @@ import {
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { createAppendPositionAllocator } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 import {
   propertyTypeForSourceField,
@@ -360,7 +361,7 @@ export default defineAction({
           .filter((itemId) => itemId.length > 0),
       );
       const [maxPosition] = await tx
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.documentPropertyDefinitions)
         .where(
           and(
@@ -371,7 +372,7 @@ export default defineAction({
             eq(schema.documentPropertyDefinitions.databaseId, database.id),
           ),
         );
-      let position = maxPosition?.max ?? -1;
+      const allocatePosition = createAppendPositionAllocator(maxPosition?.max);
       const now = new Date().toISOString();
       const canonicalSourceRows = currentSourceRows.flatMap((row) => {
         const sourceValues = parseSourceValues(row.sourceValuesJson);
@@ -482,7 +483,6 @@ export default defineAction({
               sourceFieldKey: field.sourceFieldKey,
             });
         const propertyId = nanoid();
-        position += 1;
         await tx.insert(schema.documentPropertyDefinitions).values({
           id: propertyId,
           ownerEmail: database.ownerEmail,
@@ -492,7 +492,7 @@ export default defineAction({
           type,
           visibility: normalizePropertyVisibility(undefined),
           optionsJson: serializePropertyOptions(options),
-          position,
+          position: allocatePosition(),
           createdAt: now,
           updatedAt: now,
         });

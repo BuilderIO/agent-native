@@ -37,6 +37,7 @@ export interface Document {
   accessRole?: DocumentAccessRole;
   canView?: boolean;
   canComment?: boolean;
+  canSuggest?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;
@@ -47,6 +48,11 @@ export interface Document {
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
+  /** Opaque token for optimistic document-body reconciliation. */
+  revision?: string;
+  bodyRevision?: number;
+  collabContentRevision?: string | null;
+  contentHash?: string;
   contentFidelity?: NfmFidelityReport;
 }
 
@@ -83,6 +89,19 @@ export interface DocumentSyncStatus {
   warnings: string[];
 }
 
+export interface NotionMcpConnectionStatus {
+  connected: boolean;
+  servers: Array<{ id: string; name: string; url: string; scope: string }>;
+  /** Scopes whose saved MCP server list could not be read. */
+  unreadableScopes: string[];
+}
+
+/**
+ * `connected` is the per-user Notion OAuth account Content links and syncs
+ * documents with. `mcp` is the separate Notion MCP server shown under Settings
+ * > Integrations. Neither implies the other, so anything that reports Notion
+ * status to a human must read both.
+ */
 export interface NotionConnectionStatus {
   connected: boolean;
   workspaceName: string | null;
@@ -90,6 +109,8 @@ export interface NotionConnectionStatus {
   authUrl: string | null;
   error?: "missing_credentials";
   mode?: "oauth" | null;
+  mcp?: NotionMcpConnectionStatus;
+  statusSummary?: string;
 }
 
 export interface LinkNotionPageRequest {
@@ -104,9 +125,15 @@ export interface ResolveDocumentSyncConflictRequest {
   direction: "pull" | "push";
 }
 
+/** `create-document` also reports the workspace it resolved the page into. */
+export interface DocumentCreateResult extends Document {
+  spaceId: string;
+}
+
 export interface DocumentCreateRequest {
   id?: string;
   spaceId?: string;
+  spaceName?: string;
   title?: string;
   parentId?: string | null;
   content?: string;
@@ -117,6 +144,7 @@ export interface DocumentCreateRequest {
 export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
+  historySessionId?: string;
   description?: string;
   icon?: string | null;
   isFavorite?: boolean;
@@ -214,6 +242,8 @@ export interface DocumentProperty {
 export interface DocumentPropertiesResponse {
   documentId: string;
   databaseId: string | null;
+  canEditValues?: boolean;
+  canManageSchema?: boolean;
   properties: DocumentProperty[];
 }
 
@@ -361,10 +391,13 @@ export interface ContentDatabaseView {
   endDatePropertyId?: string | null;
   hiddenPropertyIds?: string[];
   propertyOrderIds?: string[];
+  tableColumnOrderIds?: string[];
   collapsedGroupIds?: string[];
   hideEmptyGroups?: boolean;
   calculations?: Record<string, ContentDatabaseColumnCalculation>;
   wrapCells?: boolean;
+  columnWrapOverrides?: Record<string, boolean>;
+  frozenThroughColumnId?: string | null;
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
   formQuestions?: ContentDatabaseFormQuestion[];
@@ -423,10 +456,11 @@ export interface UpdateContentDatabasePersonalViewRequest {
 }
 
 export interface ContentDatabaseMembership {
-  databaseId: string;
-  databaseDocumentId: string;
-  databaseTitle: string;
-  position: number;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+  databaseTitle: string | null;
+  systemRole?: string | null;
+  position: number | null;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
 }
@@ -450,7 +484,21 @@ export interface ContentDatabaseBodyHydration {
   attemptedAt: string | null;
   error: string | null;
   version: string | null;
+  reason?: ContentDatabaseBodyHydrationReason | null;
+  providerStatus?: string | null;
+  attemptCount?: number;
+  retryable?: boolean | null;
 }
+
+export type ContentDatabaseBodyHydrationReason =
+  | "empty_body"
+  | "not_found"
+  | "auth_failed"
+  | "access_denied"
+  | "transient_read_failure"
+  | "malformed_body"
+  | "unsupported_content"
+  | "conversion_failed";
 
 export interface ContentDatabaseBodyHydrationSummary {
   pending: number;
@@ -458,6 +506,7 @@ export interface ContentDatabaseBodyHydrationSummary {
   hydrated: number;
   unavailable?: number;
   error: number;
+  retryableErrors?: number;
   total: number;
 }
 
@@ -828,8 +877,8 @@ export interface ContentDatabaseSource {
   rows: ContentDatabaseSourceRow[];
   changeSets: ContentDatabaseSourceChangeSet[];
   projection?: {
-    rows: "complete" | "page";
-    changeSets: "complete" | "page";
+    rows: "complete" | "page" | "omitted";
+    changeSets: "complete" | "page" | "omitted";
   };
   bodyHydration?: ContentDatabaseBodyHydrationSummary;
 }
@@ -882,6 +931,8 @@ export interface NotionDatabaseSourcesResponse {
 }
 
 export interface ContentDatabaseResponse {
+  configurationRevision?: string;
+  setupContract?: ContentDatabaseSetupContract;
   database: ContentDatabase;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -955,7 +1006,9 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 }
 
 export interface CreateDatabaseRequest {
+  idempotencyKey?: string;
   documentId?: string;
+  newDocumentId?: string;
   spaceId?: string;
   parentId?: string | null;
   title?: string;
@@ -1024,6 +1077,24 @@ export interface DatabaseItemsBatchRequest {
   documentId?: string;
   itemIds?: string[];
   documentIds?: string[];
+}
+
+export interface UpdateDatabaseItemsRequest extends DatabaseItemsBatchRequest {
+  propertyId: string;
+  value: DocumentPropertyValue;
+}
+
+export interface UpdateDatabaseItemsResponse {
+  databaseId: string;
+  propertyId: string;
+  updated: number;
+  failed: number;
+  results: Array<{
+    itemId: string;
+    documentId: string;
+    success: boolean;
+    error?: string;
+  }>;
 }
 
 export interface MoveDatabaseItemRequest {
@@ -1119,9 +1190,28 @@ export interface ContentSystemCollectionSummary {
 }
 
 export interface ContentDatabaseDescriptionResponse {
+  configurationRevision?: string;
+  mutationContract?: ContentDatabaseMutationContract;
+  setupContract?: ContentDatabaseSetupContract;
   database: ContentDatabase;
   contextPath: ContentContextPathEntry[];
   properties: DocumentProperty[];
+}
+
+export interface ContentDatabaseSetupContract {
+  target: { spaceId: string; databaseId: string; databaseDocumentId: string };
+  databaseUrl: string;
+  viewUrls: Array<{ viewId: string; url: string }>;
+  supportedPropertyTypes: string[];
+  canEditSchema: boolean;
+  canEditViews: boolean;
+  canManageLifecycle: boolean;
+  sourceComposition: "unsupported";
+  properties: Array<{
+    propertyId: string;
+    editable: boolean;
+    reason: string | null;
+  }>;
 }
 
 export interface ListContentDatabasesResponse {
@@ -1131,6 +1221,8 @@ export interface ListContentDatabasesResponse {
 }
 
 export interface TrashedContentDatabaseSummary {
+  spaceId?: string | null;
+  configurationRevision?: string;
   databaseId: string;
   title: string;
   documentId: string;
@@ -1141,6 +1233,8 @@ export interface TrashedContentDatabaseSummary {
 
 export interface ListTrashedContentDatabasesResponse {
   databases: TrashedContentDatabaseSummary[];
+  hasMore?: boolean;
+  nextOffset?: number | null;
 }
 
 export interface TrashedDocumentSummary {
@@ -1480,6 +1574,7 @@ export interface ProcessBuilderBodyHydrationRequest {
   sourceId: string;
   documentId?: string;
   limit?: number;
+  retryFailed?: boolean;
 }
 
 export interface ProcessBuilderBodyHydrationResponse {
@@ -1488,4 +1583,6 @@ export interface ProcessBuilderBodyHydrationResponse {
   succeeded: number;
   failed: number;
   remaining: number;
+  ready: number;
+  nextAttemptAt: string | null;
 }

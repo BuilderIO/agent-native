@@ -27,7 +27,7 @@ cd my-calendar
 pnpm install
 ```
 
-इसके लिए पहले [Node.js](https://nodejs.org) 22 या उसके बाद का वर्शन और
+इसके लिए पहले [Node.js](https://nodejs.org) 22.22 या उसके बाद का वर्शन और
 [pnpm](https://pnpm.io) इंस्टॉल होना चाहिए। अगर आपने अभी तक इनमें से कोई
 इंस्टॉल नहीं किया है, या आपके पास कोई LLM कनेक्शन (Builder.io, कोई
 Anthropic/OpenAI key, या लोकल Ollama) सेट अप नहीं है, तो [शुरुआत
@@ -502,9 +502,7 @@ team management एक अलग पेज पर नहीं बल्कि S
 - `templates/calendar/actions/` — एजेंट और फ्रंटएंड दोनों को नई क्षमता
   एक्सपोज़ करने के लिए `defineAction` के साथ एक नई फ़ाइल जोड़ें।
 - `templates/calendar/app/routes/` — UI, जो ऊपर लिस्ट किया गया है।
-- `templates/calendar/server/db/schema.ts` — Drizzle के साथ columns या
-  tables जोड़ें। कोड को dialect-agnostic रखें ताकि टेम्पलेट SQLite, Postgres,
-  Turso, D1, और Neon पर चले।
+- `templates/calendar/server/db/schema.ts` — Drizzle से कॉलम या टेबल जोड़ें। कोड को PostgreSQL-compatible रखें ताकि टेम्पलेट PGlite और Postgres पर चले।
 - `templates/calendar/server/lib/` — provider integrations: `google-calendar.ts`, `zoom.ts`, `people-search.ts`, `ical-fetcher.ts`, `find-time.ts`, `provider-api.ts`।
 - `templates/calendar/AGENTS.md` — एजेंट के निर्देश। जब भी आप एजेंट को नई
   क्षमताएं या conventions सिखाएं, इसे अपडेट करें।

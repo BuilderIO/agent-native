@@ -107,6 +107,9 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  // source-workspace narrows on this class, so the mock has to expose it or
+  // the `instanceof` check throws instead of classifying the error.
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
@@ -157,13 +160,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   // collapse to just the eq predicate — the fake matches() below only needs
   // the id filter, and real and() drops undefined operands.
   accessFilter: vi.fn().mockReturnValue(undefined),
-}));
-
-// update-file.ts imports isPostgres via the public "@agent-native/core/db"
-// specifier (unlike the collab package's internal relative import), so this
-// mock DOES intercept it: force the SQLite branch (no LOCK TABLE path).
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -249,6 +245,9 @@ vi.mock("../server/db/index.js", () => {
     return withLimit;
   };
   const db = {
+    execute: async () => ({ rows: [], rowsAffected: 1 }),
+    transaction: async (callback: (tx: typeof db) => Promise<unknown>) =>
+      callback(db),
     select: (_projection: unknown) => ({
       from: (_table: unknown) => ({
         where: whereBuilder,

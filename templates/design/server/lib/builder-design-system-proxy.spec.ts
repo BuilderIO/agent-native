@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { reconcileBuilderProxyData } from "./builder-design-system-proxy.js";
+import {
+  isBuilderDesignSystemReady,
+  reconcileBuilderProxyData,
+} from "./builder-design-system-proxy.js";
+
+describe("isBuilderDesignSystemReady", () => {
+  it("does not treat an in-progress DSI job as a usable default", () => {
+    expect(isBuilderDesignSystemReady("in-progress")).toBe(false);
+    expect(isBuilderDesignSystemReady("ready")).toBe(true);
+    expect(isBuilderDesignSystemReady("complete")).toBe(true);
+    expect(isBuilderDesignSystemReady("completed")).toBe(true);
+  });
+});
 
 describe("reconcileBuilderProxyData", () => {
   const reference = {

@@ -24,6 +24,9 @@ const messages = {
       extensions: "Extensions",
       noteToSelf: "Note to Self",
     },
+    inbox: {
+      syncing: "Syncing inbox…",
+    },
     toolbar: {
       toggleMenu: "Toggle menu",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Pin sidebar",
       unpinSidebar: "Unpin sidebar",
+      closeSidebar: "Close sidebar",
       settings: "Settings",
     },
     search: {
@@ -44,12 +48,18 @@ const messages = {
       noMatches: "No matches",
       localResults: "In this inbox",
       searchingGmail: "Searching Gmail...",
+      saveAsTab: "Save as tab",
+      saveAsTabPrompt: "Name this tab",
+      saveAsTabFailed: "Couldn't save this tab. Try again.",
+      filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
       views: "Views",
       categories: "Categories",
       rename: "Rename",
       renameTab: "Rename tab",
+      savedFilters: "Saved filters",
+      combinedInbox: "Combined inbox",
       help: "Checked items show as tabs. Label emails split from inbox.",
     },
     accounts: {
@@ -79,6 +89,8 @@ const messages = {
       cancel: "Cancel",
       code: "Code",
       deleteDraft: "Delete draft",
+      deleteDrafts: "Delete drafts",
+      reopenDraft: "Reopen",
       discardDraft: "Discard draft",
       enterLinkUrl: "Enter the URL for the link.",
       forward: "Forward",
@@ -272,6 +284,9 @@ const messages = {
       failedToAttachFile: "Failed to attach file",
       failedToUploadImage: "Failed to upload image",
       failedToSendEmail: "Failed to send email",
+      messageSent: "Message sent.",
+      failedToSaveDraft: "Failed to save draft.",
+      failedToDeleteDraft: "Failed to delete draft.",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",
       pleaseAddRecipient: "Please add at least one recipient",
@@ -284,6 +299,8 @@ const messages = {
       draftDismissed: "Draft dismissed.",
       openedInCompose: "Opened in compose.",
       draftSent: "Draft sent.",
+      draftClosed: "Draft closed.",
+      draftsClosed: "{{count}} drafts closed.",
       failedToSendDraft: "Failed to send draft.",
       snoozeDbNotReady:
         "Snooze DB not ready. Run: pnpm db:push in the mail template.",
@@ -305,6 +322,7 @@ const messages = {
       missingGoogleCredentials:
         "Could not find client_id and client_secret in JSON",
       failedToSaveCredentials: "Failed to save credentials",
+      someAccountsFailed: "Couldn't load: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Connect your Google account",
@@ -378,6 +396,60 @@ const messages = {
         "Server-side Gmail rules for simple sender, subject, and search patterns.",
       newFilter: "New filter",
       noFilters: "No Gmail filters yet.",
+    },
+    aiFilter: {
+      title: "AI filter",
+      subtitle: "A reversible label that learns from your decisions.",
+      lunaBadge: "Luna when available",
+      toggle: "Toggle AI filter",
+      autoFilterTitle: "Auto-filter high confidence",
+      autoFilterDescription:
+        "Move only clear matches out of Inbox; review the rest here.",
+      autoFilterToggle: "Auto-filter high-confidence mail",
+      thresholdLabel: "Auto-filter confidence threshold",
+      labelName: "Gmail label",
+      labelHelp:
+        "agent-native-filtered stays visible in Gmail and other clients. It is not Gmail Spam.",
+      reviewLabel: "Review filtered",
+      instructionsTitle: "Instructions",
+      instructionCount: "{{count}} instruction(s)",
+      instructionPlaceholder:
+        "e.g. Subjects like “question for you, Steve” are unwanted",
+      addInstruction: "Add",
+      noInstructions: "No instructions yet.",
+      instructionExample: "Try “all political campaign emails are unwanted.”",
+      toggleInstruction: "Toggle instruction: {{instruction}}",
+      deleteInstruction: "Delete instruction",
+      activityTitle: "Recent activity",
+      suggestionCount: "{{count}} to review",
+      viewAll: "View all",
+      noActivity: "No AI filter activity yet.",
+      unknownSender: "Unknown sender",
+      noSubject: "(no subject)",
+      filterTitle: "Filter with AI",
+      keepTitle: "Keep in inbox",
+      filterDescription:
+        "This archives {{count}} conversation(s) and adds the agent-native-filtered label.",
+      keepDescription:
+        "This restores {{count}} conversation(s) to Inbox and teaches the filter.",
+      labelNote:
+        "Adds the agent-native-filtered label and archives the conversation. You can undo it anytime.",
+      learningNote:
+        "Keeps the message in Inbox and teaches the filter not to repeat the mistake.",
+      rememberLabel: "Remember for future mail (optional)",
+      correctLabel: "What should it learn? (optional)",
+      rememberPlaceholder:
+        "e.g. Messages like this from political campaigns are unwanted",
+      correctPlaceholder:
+        "e.g. This sender is a customer; keep future messages in Inbox",
+      commentHint: "Your note becomes an editable rule or learning example.",
+      filterButton: "Filter",
+      keepButton: "Keep",
+      filteredToast: "Filtered {{count}} conversation(s).",
+      keptToast: "Kept {{count}} conversation(s) in Inbox.",
+      actionFailed: "Could not update the AI filter.",
+      settingsFailed: "Could not save AI filter settings.",
+      instructionFailed: "Could not save AI filter instruction.",
     },
     draftQueue: {
       title: "Draft queue",
@@ -556,6 +628,7 @@ const messages = {
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
+    aiFilter: "AI filter",
     gmailFilters: "Gmail Filters",
     aliases: "Aliases",
     tracking: "Tracking",

@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import { settleAuthGate } from "../lib/app";
 import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
+import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
 /**
  * The signed-out auth surface, in the shapes users actually hit it.
@@ -13,6 +14,10 @@ import { mustRespond, parseJson } from "../lib/http";
  */
 
 const sites = selectedSites();
+
+test.beforeEach(async ({ page }) => {
+  await installBetaE2ETrafficMarker(page.context());
+});
 
 test.describe.configure({ mode: "parallel" });
 

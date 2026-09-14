@@ -188,7 +188,11 @@ function formatSlackLinkRequiredMessage(): string {
 }
 
 function formatSlackIdentityVerificationFailedMessage(): string {
-  return "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.";
+  const identitiesUrl = configuredDispatchIdentitiesUrl();
+  const recovery = identitiesUrl
+    ? ` If this keeps happening, open ${identitiesUrl} while signed in and link Slack.`
+    : " If this keeps happening, open Dispatch while signed in and link Slack from Identities.";
+  return `I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.${recovery}`;
 }
 
 function formatSlackIdentityDeniedMessage(): string {

@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "設定",
     description: "此應用的語言和工作區偏好設定。",
+    labs: "實驗室",
+    labsIntro: "在正式發布前預覽實驗性功能。",
+    labLayoutOverflowWarningDescription: "在編輯器中顯示版面溢位警告。",
     emailNotifications: "郵件通知",
     emailNotificationsDescription:
       "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
@@ -83,10 +86,8 @@ const messages = {
     cloudConnectedReloading: "已連線。正在重新載入...",
     cloudConnectionFailed: "連線失敗",
     cloudTestConnect: "測試並連線",
-    cloudSqliteEdge: "邊緣 SQLite",
     cloudServerlessPostgres: "無伺服器 Postgres",
     cloudOpenSourceFirebaseAlternative: "Firebase 的開放原始碼替代方案",
-    cloudCloudflareSqliteEdge: "Cloudflare 邊緣 SQLite",
     designSlidePreview: "幻燈片預覽",
     designSlideTitle: "幻燈片標題",
     designSupportingText:
@@ -141,6 +142,8 @@ const messages = {
     clearSelection: "清除選取",
     sendToAgent: "傳送給代理",
     saveReconnect: "重新連線時會儲存變更",
+    saveFailedDescription:
+      "你最近的編輯內容僅儲存在此裝置上。離開前請下載備份。",
     offline: "離線",
     selected: "已選取",
     chooseDesignSystem: "選取設計系統",
@@ -196,6 +199,9 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已關聯的設計系統",
     viewOnly: "僅檢視",
+    sourcePreserving: "有限編輯",
+    sourcePreservingDescription:
+      "可以編輯文字和物件。此匯入的簡報已停用新增、刪除或重新排序投影片。",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增評論",
     slideSettings: "幻燈片設定",
@@ -251,6 +257,11 @@ const messages = {
     more: "更多",
     importing: "正在匯入...",
     importFile: "匯入檔案",
+    downloadBackup: "下載備份",
+    importBackup: "匯入備份",
+    backupDownloaded: "備份已下載",
+    backupDownloadFailed: "無法下載備份",
+    invalidBackup: "請選擇有效的 Slides 備份 JSON 檔案。",
     savedVersions: "已儲存版本",
     lightTheme: "淺色主題",
     darkTheme: "深色主題",
@@ -258,6 +269,7 @@ const messages = {
   editorExport: {
     pptxFailed: "無法生成 PPTX 檔案。",
     exportFailed: "匯出失敗",
+    exporting: "正在匯出...",
     exportPptxError: "匯出為 PPTX 時出了點問題。",
     googleSlidesDownloaded: "已為 Google Slides 下載",
     googleSlidesImportHint:
@@ -274,6 +286,10 @@ const messages = {
     exportPptx: "匯出為 PPTX",
     connectGoogle: "連接 Google",
     openInGoogleSlides: "在 Google Slides 中開啟",
+    googleSlidesUnavailable: "無法使用",
+    googleSlidesOpenImporter: "開啟 Google Slides 匯入",
+    googleSlidesUnavailableHint:
+      "由於尚未設定 Google 連線，目前無法匯出至 Google Slides。請改為匯出 PPTX，再將檔案匯入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中開啟",
     googleSlidesCreatedHint: "已在你的 Google 雲端硬碟中建立此簡報的副本。",
     duplicateDeck: "複製幻燈片",
@@ -449,6 +465,10 @@ const messages = {
     rose: "Rose",
     arrange: "排列",
     order: "順序",
+    group: "群組",
+    ungroup: "取消群組",
+    bringForward: "向前移動",
+    sendBackward: "向後移動",
     bringToFront: "移到最上層",
     sendToBack: "移到最下層",
     copyStyle: "複製樣式",

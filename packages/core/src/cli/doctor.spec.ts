@@ -481,7 +481,7 @@ describe("--strict escalation (shouldFailBuild / runDoctorBuildHook)", () => {
         scripts: { build: "drizzle-kit push" },
       }),
       "apps/bad/server/db/schema.ts":
-        'export const todos = sqliteTable("todos", {});\n',
+        'export const todos = table("todos", {});\n',
     });
     const { io } = captureIo();
 

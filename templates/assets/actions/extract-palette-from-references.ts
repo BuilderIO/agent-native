@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { extractDominantColors } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import type { StyleBrief } from "../shared/api.js";
 
@@ -16,7 +16,7 @@ export default defineAction({
     libraryId: z.string(),
   }),
   run: async ({ libraryId }) => {
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Saving a palette");
     const db = getDb();
     const [library] = await db
       .select()

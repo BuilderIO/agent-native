@@ -1,7 +1,8 @@
 import path from "path";
 
+import { isActionContractError } from "@agent-native/core";
 import { readBody, runWithRequestContext } from "@agent-native/core/server";
-import { defineEventHandler, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseHeader, setResponseStatus } from "h3";
 
 import exportHtmlAction from "../../../../actions/export-html.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
@@ -36,8 +37,11 @@ export default defineEventHandler(async (event) => {
       return { error: result.error };
     }
 
-    event.node!.res!.setHeader("Content-Type", "text/html; charset=utf-8");
-    event.node!.res!.setHeader(
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(event, "Cache-Control", "no-store");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    setResponseHeader(
+      event,
       "Content-Disposition",
       `attachment; filename="${path.basename(result.filename)}"`,
     );
@@ -48,10 +52,22 @@ export default defineEventHandler(async (event) => {
     // "file doesn't exist on site".
     return result.html;
   } catch (error) {
+    // The action raises caller-correctable failures through `fail()`, so take
+    // the status and the stable code from the contract instead of sniffing the
+    // message. Clients get the same `errorCode` the action transport returns.
+    if (isActionContractError(error)) {
+      setResponseStatus(event, error.statusCode);
+      return {
+        error: error.message,
+        errorCode: error.errorCode,
+      };
+    }
     const message =
       error instanceof Error
         ? error.message
         : "Something went wrong exporting as HTML.";
+    // `native-creative-context` still raises a bare "Deck not found", so the
+    // prefix check stays until that producer is typed too.
     setResponseStatus(event, message.startsWith("Deck not found") ? 404 : 500);
     return {
       error: message,

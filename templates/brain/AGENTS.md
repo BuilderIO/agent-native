@@ -22,6 +22,7 @@ Read the matching skill before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Never put large payloads in SQL — no base64, `data:` URLs, images,
   video/audio, PDFs, ZIPs, screenshots, thumbnails, or replay chunks in app
   tables, `application_state`, `settings`, or `resources`. Use configured

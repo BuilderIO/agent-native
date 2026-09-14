@@ -3,6 +3,7 @@ import type {
   EqualGapGuide,
   FrameBounds,
 } from "@shared/canvas-math";
+import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { ReactNode } from "react";
 
@@ -47,6 +48,7 @@ export interface ScreenFile {
    * edit scope (Tailwind prefix: base / md: / lg: / xl:).
    */
   breakpointWidths?: number[];
+  breakpointHeights?: Record<string, number>;
   /** Id of the currently active breakpoint frame for this screen. */
   activeBreakpointWidth?: number;
   /** Generated variation-set membership. Used only to preserve/reflow the
@@ -108,6 +110,7 @@ export interface ScreenMetadata {
   width?: number;
   height?: number;
   heightPinned?: boolean;
+  breakpointHeights?: Record<string, number>;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -168,6 +171,18 @@ export interface MultiScreenCanvasProps {
     before: FrameGeometryById,
     after: FrameGeometryById,
   ) => void;
+  onBreakpointContentHeightChange?: (
+    screenId: string,
+    widthPx: number,
+    heightPx: number,
+  ) => void;
+  // Fires whenever a PRIMARY (non-breakpoint) inline screen iframe reports a
+  // measured content height taller than its persisted canvasFrames geometry —
+  // the same content-fit signal canvasFrames already applies to what's drawn
+  // on screen (see the `autoHeight` derivation), surfaced so callers whose
+  // fit math reads persisted geometry directly (camera zoom-to-fit/selection)
+  // can fit the height actually rendered instead of a stale default.
+  onPrimaryContentHeightChange?: (screenId: string, heightPx: number) => void;
   onCreatePrimitive?: (
     screenId: string,
     primitive: CanvasPrimitiveInsert,
@@ -205,6 +220,13 @@ export interface MultiScreenCanvasProps {
    * element inside a screen, and this canvas still lists that screen in
    * `selectedIds`. Same veto `onDeleteSelection` uses. */
   onNudgeSelection?: (ids: string[]) => boolean | void;
+  /** The editor's configured small/big arrow-key steps. Board frames and
+   *  in-screen elements must nudge by the same amounts, so this comes from the
+   *  one preference rather than a second default living out here. */
+  nudgeAmounts?: { small: number; big: number };
+  /** Per-frame layout grids, keyed by frame id. A frame with no entry keeps the
+   *  whole-pixel floor. Absent entirely means the host has not loaded them. */
+  layoutGrids?: LayoutGridById;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,
@@ -239,6 +261,9 @@ export interface MultiScreenCanvasProps {
    *  the same widths, and a per-screen parameter here only ever promised
    *  scoping the action cannot deliver. */
   onAddBreakpoint?: (widthPx: number) => void;
+  /** True while an add/remove breakpoint mutation is in flight — disables the
+   *  "+" affordance and shows a brief spinner so the click is acknowledged. */
+  breakpointMutationPending?: boolean;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -277,7 +302,11 @@ export interface MultiScreenCanvasProps {
   onSelectionChange?: (selectedIds: string[]) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
-    intent: ElementSelectionIntent,
+    // `final` is true only for the one report each marquee gesture sends at
+    // mouseup (every mousemove tick omits it) — see
+    // coalesceMarqueeSelectionHistory's doc comment for why the host needs
+    // it to record one undo step per drag instead of one per tick.
+    intent: ElementSelectionIntent & { final?: boolean },
   ) => void;
   selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
   /**
@@ -316,8 +345,18 @@ export interface MultiScreenCanvasProps {
     sourcePointerOffset?: Point;
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
+    /** True when the source bridge is carrying an Alt-drag copy. */
+    duplicate?: boolean;
+    /** Runtime HTML for an Alt-drag copy whose source must remain in place. */
+    sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
+    /** True when the source bridge could not measure the bare-tag probe
+     *  (portableStyleTagDefaults returned null) — distinct from a legitimately
+     *  absent snapshot (`styleSnapshot === undefined`, nothing to carry). The
+     *  drop command must refuse the move rather than silently drop a
+     *  class-only appearance it never got a chance to carry. */
+    styleSnapshotCaptureFailed?: boolean;
   }) => void;
   // ── Board file (new model) ───────────────────────────────────────────────
   /**
@@ -326,6 +365,8 @@ export interface MultiScreenCanvasProps {
    * the screen iframes so board elements are editable through the bridge.
    */
   boardFileId?: string;
+  /** Host CSS vars do not reach the board iframe; omit this and coverage stays themed. */
+  canvasBackground?: string | null;
   /**
    * The current HTML content of the board file.
    * Passed as `content` to the board <DesignCanvas> instance.
@@ -423,12 +464,22 @@ export interface MultiScreenCanvasProps {
   ) => boolean | "pending" | void;
   /**
    * Called when a style property changes on a board element.
-   * Target file is boardFileId.
+   * Target file is boardFileId. `metadata` must mirror DesignCanvas's own
+   * `onVisualStyleChange` signature exactly — this callback is wired
+   * straight through from that event (see MultiScreenCanvas's board
+   * DesignCanvas) — or a resize/drag commit's `phase`/`originalStyles`
+   * silently drops before it reaches undo history, leaving one Cmd+Z
+   * unable to restore the pre-drag geometry.
    */
   onBoardVisualStyleChange?: (
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
+    metadata?: {
+      phase?: "preview" | "commit";
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   /**
    * Called when an alt-drag clone is created on the board surface.
@@ -520,6 +571,18 @@ export interface MultiScreenCanvasProps {
     paddingScreenPx?: number;
     nonce: number;
   } | null;
+  /**
+   * Screen-px width of fixed chrome the caller renders OVER this canvas's
+   * left/right edges (e.g. the left workspace rail+panel shell, the right
+   * inspector panel) — both are absolutely-positioned overlays, not flex
+   * siblings, so this component's own measured surface rect never shrinks
+   * for them. Every camera-fit computation (the default overview lineup
+   * recenter and the explicit `cameraCommand` fit) must center content in
+   * the space actually free of that chrome, or the first screen and its
+   * frame label render unreachable underneath it. Defaults to 0.
+   */
+  chromeInsetLeft?: number;
+  chromeInsetRight?: number;
 }
 
 export interface FrameGeometry {

@@ -45,6 +45,63 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "Outro",
   "onboarding.skipForNow": "Pular por enquanto",
   "onboarding.saveRoleError": "Não foi possível salvar sua função.",
+  "onboarding.builderActivateCredits":
+    "Ativar créditos gratuitos do Builder.io",
+  "onboarding.builderConnectCredits":
+    "Conectar créditos gratuitos do Builder.io",
+  "onboarding.builderActivateDescription":
+    "Crie ou reutilize sua conta do Builder.io e ative os créditos gratuitos com um clique.",
+  "onboarding.builderActiveCredits":
+    "Incluído nos créditos gratuitos ativos do Builder.io",
+  "onboarding.builderCredits": "Incluído nos créditos gratuitos do Builder.io",
+  "onboarding.builderActivateTitle": "Ativar créditos gratuitos",
+  "onboarding.builderAccountExistsTitle": "Você já tem uma conta do Builder.io",
+  "onboarding.builderAccountExistsDescription": "Faça login para conectá-la.",
+  "onboarding.builderActivationDescription":
+    "Criaremos automaticamente sua conta do Builder.io com um clique.",
+  "onboarding.builderCreateAndActivate": "Criar e ativar",
+  "onboarding.builderConsentPrefix": "Ao continuar, você concorda com os",
+  "onboarding.builderTerms": "Termos",
+  "onboarding.builderPrivacy": "Privacidade",
+  "onboarding.builderConsentAnd": "e",
+  "onboarding.builderExistingAccount": "Tenho uma conta do Builder.io",
+  "onboarding.builderActivating":
+    "Ativando os créditos gratuitos do Builder.io",
+  "onboarding.builderConnecting":
+    "Conectando os créditos gratuitos do Builder.io",
+  "onboarding.builderProvisioningDescription":
+    "Criando ou reutilizando sua conta do Builder.io. Isso geralmente leva alguns segundos.",
+  "onboarding.builderConnectionDescription":
+    "Conclua a conexão com um clique na nova janela.",
+  "onboarding.capability.llm.keySummary":
+    "Conecte um provedor de IA ou modelo local",
+  "onboarding.capability.fileStorage.keySummary":
+    "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.capability.voiceInput.label": "Entrada de voz",
+  "onboarding.capability.voiceInput.keySummary":
+    "Reconhecimento de voz do navegador ou conversão de fala em texto",
+  "onboarding.capability.voiceInput.why":
+    "A entrada de voz transforma solicitações faladas em texto; digitar sempre funciona.",
+  "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Créditos Builder ou chave de provedor de imagens",
+  "onboarding.capability.assetsImageGeneration.why":
+    "A geração de imagens é o fluxo principal para criar assets alinhados à marca.",
+  "onboarding.capability.assetsVideoGeneration.label": "Geração de vídeo",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Chave de API do Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "A geração de vídeo é opcional; o fluxo principal do Assets é a geração de imagens.",
+  "onboarding.capability.clipsObjectStorage.label": "Armazenamento de objetos",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Vídeos gravados precisam de armazenamento de objetos durável antes de serem reproduzidos ou compartilhados.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Chave de provedor de conversão de fala em texto",
+  "onboarding.capability.about": "Sobre {{label}}",
+  "onboarding.capability.why": "Por que {{label}} é necessário",
+  "onboarding.openAiKeySettings": "Abrir configurações de chaves de IA",
   "aboutAgentNative.title": "Sobre o Agent-Native",
   "aboutAgentNative.version": "Versão",
   "aboutAgentNative.environment": "Ambiente",
@@ -54,6 +111,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agente",
   "agentPanel.mode": "Modo",
   "agentPanel.uiMode": "Interface",
+  "agentHostNudge.sidebarTitle": "Usar o chat do {{agent}}",
+  "agentHostNudge.sidebarDescription":
+    "Você já está conversando com {{agent}}. Peça para ele trabalhar diretamente com este app.",
+  "agentHostNudge.promptTitle": "Perguntar ao {{agent}} em vez disso",
+  "agentHostNudge.promptDescription":
+    "Você pode pedir ao {{agent}} para criar ou alterar isto aqui.",
+  "agentHostNudge.useThisChat": "Usar este chat",
+  "agentHostNudge.useThisPrompt": "Usar este prompt",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",
   "common.connect": "Conectar",
@@ -81,6 +146,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "Abra o aplicativo para desktop para usar este chat.",
   "composer.removeAttachment": "Remover {{name}}",
   "composer.scrollToBottom": "Rolar até o final",
+  "composer.suggestedPrompts": "Prompts sugeridos",
   "composer.stopResponse": "Parar resposta",
   "composer.subAgentReadOnly":
     "Envie mensagens ao chat do orquestrador — este subagente é executado automaticamente",
@@ -100,6 +166,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "Pesquisando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ontem",
+  "integrations.availableSection": "Integrações disponíveis",
+  "integrations.connectedSection": "Conectado",
+  "integrations.goToApiKeys": "Ir para chaves de API",
+  "integrations.goToIntegrations": "Ir para integrações",
+  "integrations.lookingForApiKeys": "Procurando uma chave de API em vez disso?",
+  "integrations.lookingForProviders": "Procurando provedores OAuth ou MCP?",
+  "integrations.manage": "Gerenciar",
+  "integrations.recommended": "Recomendado",
+  "integrations.subtitle": "Conecte as ferramentas que seu agente pode usar.",
   "limit.account": "sua conta",
   "limit.descriptionAll":
     "O agente usou todas as etapas disponíveis. Continue em uma nova interação ou aumente primeiro o limite de {{scope}}.",
@@ -147,6 +222,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Remover da fila",
   "queue.sendNow": "Enviar agora",
   "queue.sendNowHint": "Enviar agora (interrompe a resposta atual)",
+  "queue.steer": "Orientar",
+  "queue.steerHint": "Enviar esta mensagem em seguida",
+  "queue.moreActions": "Mais ações",
+  "queue.moveToTop": "Mover para o topo",
   "recovery.connectingBuilder": "Conectando ao Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
@@ -169,6 +248,32 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "O fluxo anterior do agente terminou durante a recuperação. Continue ou tente novamente para se reconectar à execução.",
   "recovery.reconnectBuilder": "Reconectar o Builder.io",
+  "secrets.addCustomKeyNamed": 'Adicionar "{{name}}" como chave personalizada',
+  "secrets.chooseKey": "Escolha uma chave",
+  "secrets.customKey": "Chave personalizada",
+  "secrets.customKeyHint": "Adicione qualquer chave pelo nome",
+  "secrets.emptyHint": "Adicione uma chave para usar suas próprias contas.",
+  "secrets.emptyMore":
+    "e mais {{count}} em Novo, ou adicione qualquer chave personalizada",
+  "secrets.emptyTitle": "Nenhuma chave ainda.",
+  "secrets.fromEnvironment": "Fornecido pelo ambiente de implantação.",
+  "secrets.managedInVault":
+    "Gerenciado no Vault do espaço de trabalho. Todos os apps deste espaço de trabalho usam este valor.",
+  "secrets.openVault": "Abrir Vault",
+  "secrets.newKey": "Novo",
+  "secrets.noKeysFound": "Nenhuma chave encontrada.",
+  "secrets.overridesVault":
+    "Esta chave pessoal substitui o valor do Vault do espaço de trabalho. Remova-a para usar a chave do Vault.",
+  "secrets.overridesWorkspace":
+    "Esta chave pessoal substitui o valor do espaço de trabalho. Remova-a para usar a chave compartilhada.",
+  "secrets.setForWorkspace": "Definido para todos neste espaço de trabalho.",
+  "secrets.sourceEnvironment": "Ambiente",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Espaço de trabalho",
+  "secrets.statusUnavailable": "Indisponível",
+  "secrets.required": "Obrigatório",
+  "secrets.searchKeys": "Pesquisar chaves...",
+  "secrets.usePersonalKey": "Usar uma chave pessoal",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
   "setup.addOwnKeys": "Adicionar suas próprias chaves",
@@ -268,6 +373,7 @@ const messages: AgentChatTranslation = {
     "Configurar Anthropic, OpenAI ou outro provedor",
   "composer.connectAbove": "Conecte um provedor de IA acima para continuar...",
   "composer.connectBuilder": "Conectar Builder.io",
+  "composer.connectKeys": "Conectar chaves",
   "composer.connectingBuilder": "Conectando Builder.io…",
   "composer.costHigher": "Custo mais alto",
   "composer.costLower": "Menor custo",
@@ -404,7 +510,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Este navegador não oferece suporte a conversas de voz em tempo real.",
   "voiceMode.hideChat": "Ocultar bate-papo",
-  "voiceMode.keepDictating": "Ditar",
+  "voiceMode.keepDictating": "Ditar uma mensagem",
   "voiceMode.promptDescription":
     "O modo de voz continua ouvindo enquanto o agente navega e executa ações.",
   "voiceMode.promptTitle": "Use sua voz",
@@ -446,7 +552,7 @@ const messages: AgentChatTranslation = {
     "Conecte Builder.io para usar voz gerenciada com créditos gratuitos ou adicione suas próprias chaves.",
   "voiceMode.setupTitle": "Configurar o modo de voz",
   "voiceMode.showChat": "Mostrar bate-papo",
-  "voiceMode.start": "Voz em tempo real",
+  "voiceMode.start": "Iniciar conversa por voz",
   "voiceMode.startWithOpenAiKey": "Iniciar com uma chave da OpenAI",
   "voiceMode.status.connecting": "Conectando",
   "voiceMode.status.ending": "Encerrando o modo de voz",
@@ -490,6 +596,8 @@ const messages: AgentChatTranslation = {
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
+  "errorMessages.creditsLimitReached":
+    "Você atingiu o limite de créditos de IA.",
   "errorMessages.inactivityTimeout":
     "A conexão com o agente expirou antes da conclusão. Você pode continuar a partir do trabalho parcial ou tentar novamente.",
   "errorMessages.invalidToolSchema":
@@ -507,6 +615,8 @@ const messages: AgentChatTranslation = {
     "Não foi possível acessar o provedor do modelo. Verifique sua conexão e tente novamente.",
   "errorMessages.providerRateLimit":
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
+  "errorMessages.providerTransientRejection":
+    "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
   "errorMessages.startNewChat": "Iniciar novo chat",
   "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
   "feedback.inaccurate": "Impreciso",
@@ -514,6 +624,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Pouco útil",
   "feedback.placeholder": "Conte-nos o que deu errado...",
   "feedback.submit": "Enviar",
+  "feedback.submitted": "Feedback enviado",
   "feedback.thumbsDown": "Não gostei",
   "feedback.thumbsUp": "Gostei",
   "feedback.tooSlow": "Muito lento",

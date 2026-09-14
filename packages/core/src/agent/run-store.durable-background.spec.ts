@@ -67,7 +67,7 @@ function norm(sql: string): string {
   return sql.replace(/\s+/g, " ").trim();
 }
 
-const mockDb = {
+const mockDb: any = {
   execute: vi.fn(async (q: string | { sql: string; args?: unknown[] }) => {
     const sql = norm(typeof q === "string" ? q : q.sql);
     const args = (typeof q === "string" ? [] : (q.args ?? [])) as any[];
@@ -89,7 +89,9 @@ const mockDb = {
       ] = args;
       if (rows.some((r) => r.id === id)) {
         // Emulate a PK-collision throw so the .catch(() => {}) path is real.
-        throw new Error("UNIQUE constraint failed: agent_runs.id");
+        throw new Error(
+          "duplicate key value violates unique constraint agent_runs_pkey",
+        );
       }
       rows.push({
         id,
@@ -238,12 +240,16 @@ const mockDb = {
 
     return { rows: [], rowsAffected: 0 };
   }),
+  transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => fn(mockDb)),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -375,7 +381,7 @@ describe("run-store durable background", () => {
     // background window still covers a 30s cold-start gap.
     rows.find((r) => r.id === "r-hold-bg")!.heartbeat_at = now - 30_000;
 
-    const slot = await tryClaimRunSlot("thread-bg");
+    const slot = await tryClaimRunSlot("thread-bg", "run-contender-bg");
     // Background-aware window → the cold-starting run still holds the slot.
     expect(slot.claimed).toBe(false);
     expect(slot.activeRunId).toBe("r-hold-bg");
@@ -386,7 +392,7 @@ describe("run-store durable background", () => {
     await insertRun("r-stale-fg", "thread-fg");
     markProducerDead(rows.find((r) => r.id === "r-stale-fg")!, now - 30_000);
 
-    const slot = await tryClaimRunSlot("thread-fg");
+    const slot = await tryClaimRunSlot("thread-fg", "run-contender-fg");
     expect(slot.claimed).toBe(true);
     expect(slot.activeRunId).toBeNull();
   });

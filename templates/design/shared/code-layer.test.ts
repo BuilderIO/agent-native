@@ -10,6 +10,7 @@ import {
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
+  wrapBareTextLeavesInHtml,
   type EditIntent,
 } from "./code-layer";
 
@@ -439,7 +440,7 @@ describe("code-layer projection", () => {
     expect(tree).toEqual([]);
   });
 
-  it("keeps explicitly named document shell rows in the layer tree", () => {
+  it("omits a named document shell too, since a screen IS its body", () => {
     const html = `
       <!doctype html>
       <html data-agent-native-layer-name="Document">
@@ -453,18 +454,469 @@ describe("code-layer projection", () => {
 
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
 
+    // The screen frame carries the document's fill, stroke and effects now, so
+    // a shell row would only repeat the screen under a second name.
     expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
-      { tag: "html", name: "Document" },
+      { tag: "main", name: "Home" },
     ]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
+  });
+});
+
+describe("code layer projection of a drawn vector", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;background-color:#782323;border-width:1px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none" stroke-width="2"/></svg></body>`;
+
+  function vectorNode() {
+    const projection = buildCodeLayerProjection(html);
+    const node = projection.nodes.find(
+      (candidate) => candidate.dataAttributes["data-an-primitive"] === "path",
+    );
+    if (!node) throw new Error("vector node missing from projection");
+    return node;
+  }
+
+  it("carries the shape child's paint on the addressable wrapper node", () => {
+    // The child is skipped by hasSvgAncestor and has no node id, so a reader
+    // that only sees the wrapper would report a shape with no fill at all.
+    expect(vectorNode().style).toMatchObject({
+      fill: "rgb(218 218 218)",
+      stroke: "none",
+      "stroke-width": "2",
+    });
+  });
+
+  it("keeps data-an-primitive so a projection-only selection stays a vector", () => {
+    expect(vectorNode().dataAttributes["data-an-primitive"]).toBe("path");
+  });
+});
+
+describe("applyVisualEdit vector paint", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;width:80px;height:60px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none"/></svg></body>`;
+
+  it("paints the shape child, not the svg bounding box", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    expect(patch.result.status).toBe("applied");
+    expect(path).toContain(`style="fill: #ff0000"`);
     expect(
-      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
-    ).toEqual([{ tag: "body", name: "Body" }]);
+      patch.content.slice(0, patch.content.indexOf("<path")),
+    ).not.toContain("fill");
+  });
+
+  it("wins over the child's own fill presentation attribute", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#0000ff",
+    });
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    // A presentation attribute loses to any CSS declaration on the same
+    // element, so the stale `stroke="none"` alongside it is inert.
+    expect(path).toContain(`style="stroke: #0000ff"`);
+    expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
+  });
+
+  it("persists inside and outside vector strokes with logical weight", () => {
+    const overflowHidden = html.replace(
+      'style="position:absolute;',
+      'style="overflow:hidden !important;position:absolute;',
+    );
+    const color = applyVisualEdit(overflowHidden, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#0000ff",
+    });
+    const width = applyVisualEdit(color.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-width",
+      value: "3px",
+    });
+    const inside = applyVisualEdit(width.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "inside",
+    });
+
+    expect(inside.result.status).toBe("applied");
+    expect(inside.content).toContain('data-an-vector-stroke-position="inside"');
+    expect(inside.content).toContain('data-an-vector-stroke-overlay=""');
+    expect(inside.content).toContain(
+      "clip-path: url(#an-vector-stroke-pen-1-inside)",
+    );
+    expect(inside.content).toContain("stroke-width: 6px");
+    const projected = buildCodeLayerProjection(inside.content).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+    expect(projected?.style).toMatchObject({
+      stroke: "#0000ff",
+      "stroke-width": "3px",
+      "--an-vector-stroke-position": "inside",
+      "--an-vector-stroke-can-align": "true",
+    });
+
+    const outside = applyVisualEdit(inside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    expect(outside.result.status).toBe("applied");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-position="outside"',
+    );
+    expect(outside.content).toContain(
+      "mask: url(#an-vector-stroke-pen-1-outside)",
+    );
+    expect(outside.content).toContain('mask-type="luminance"');
+    expect(outside.content).toContain("overflow: visible !important");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow="hidden"',
+    );
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow-priority="important"',
+    );
     expect(
-      tree[0]?.children[0]?.children.map((node) => ({
-        tag: node.tag,
-        name: node.name,
-      })),
-    ).toEqual([{ tag: "main", name: "Home" }]);
+      outside.content.match(/data-an-vector-stroke-overlay=""/g),
+    ).toHaveLength(1);
+
+    const center = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    expect(center.result.status).toBe("applied");
+    expect(center.content).toContain("overflow: hidden !important");
+    expect(center.content).not.toContain(
+      "data-an-vector-stroke-original-overflow=",
+    );
+
+    const resized = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-width",
+      value: "4px",
+    });
+    expect(resized.result.status).toBe("applied");
+    expect(resized.content).toContain('data-an-vector-logical-width="4px"');
+    expect(resized.content).toContain("stroke-width: 8px");
+    expect(resized.content).toContain(
+      'x="-16" y="-16" width="332" height="182"',
+    );
+
+    const mitered = applyVisualEdit(resized.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-miterlimit",
+      value: "10",
+    });
+    expect(mitered.result.status).toBe("applied");
+    expect(mitered.content).toContain("stroke-miterlimit: 10");
+    expect(mitered.content).toContain(
+      'x="-40" y="-40" width="380" height="230"',
+    );
+  });
+
+  it("rejects alignment for an open vector path", () => {
+    const openPath = html.replace("L 80 60 Z", "L 80 60");
+    const patch = applyVisualEdit(openPath, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "inside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(openPath);
+  });
+
+  it("rejects an open path tagged as a polygon", () => {
+    const content =
+      '<svg data-agent-native-node-id="open-polygon" data-an-primitive="polygon" ' +
+      'viewBox="0 0 100 80"><path d="M 0 0 L 80 60" fill="none" ' +
+      'stroke="#000000" stroke-width="2"/></svg>';
+    const patch = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "open-polygon" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+  });
+
+  it("preserves dash offset and miter limit on the aligned stroke", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      stroke: "#123456",
+      strokeWidth: "3px",
+      strokeDasharray: "8 2",
+      strokeDashoffset: "-3px",
+      strokeMiterlimit: "9",
+    });
+    const overlay = patch.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+
+    expect(patch.result.status).toBe("applied");
+    expect(overlay).toContain("stroke-dasharray: 8 2");
+    expect(overlay).toContain("stroke-dashoffset: -3px");
+    expect(overlay).toContain("stroke-miterlimit: 9");
+  });
+
+  it("preserves the vector shape opacity on the aligned stroke", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      opacity: "0.5",
+    });
+    const overlay = patch.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+    const node = buildCodeLayerProjection(patch.content).nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(overlay).toContain("opacity: 0.5");
+    expect(node?.style.vectorOpacity).toBe("0.5");
+  });
+
+  it("falls back to shape opacity when refreshing a legacy overlay", () => {
+    const styledShape = html.replace(
+      "<path d=",
+      '<path style="opacity: 0.5" d=',
+    );
+    const outside = applyVisualEdit(styledShape, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    const legacyOverlay = outside.content.replace("opacity: 0.5; ", "");
+    const refreshed = applyVisualEdit(legacyOverlay, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    const overlay = refreshed.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+
+    expect(outside.result.status).toBe("applied");
+    expect(refreshed.result.status).toBe("applied");
+    expect(overlay).toContain("opacity: 0.5");
+  });
+
+  it("restores an absent inline overflow after outside alignment", () => {
+    const withCssOverflow =
+      '<style>svg[data-agent-native-node-id="pen-1"]{overflow:hidden!important}</style>' +
+      html;
+    const outside = applyVisualEdit(withCssOverflow, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    const center = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    const svg = center.content.match(/<svg\b[^>]*>/)?.[0];
+
+    expect(outside.result.status).toBe("applied");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow=""',
+    );
+    expect(outside.content).toContain("overflow: visible !important");
+    expect(center.result.status).toBe("applied");
+    expect(svg).not.toContain("overflow:");
+    expect(center.content).not.toContain(
+      "data-an-vector-stroke-original-overflow=",
+    );
+  });
+
+  it("pads outside masks for the doubled stroke and acute miter joins", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      strokeWidth: "3px",
+      strokeMiterlimit: "9",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('x="-27" y="-27" width="354" height="204"');
+  });
+
+  it("uses computed transform on the geometry proxy without duplicating its transform attribute", () => {
+    const transformed = html.replace(
+      '<path d="M 0 0 L 80 60 Z"',
+      '<path transform="translate(4 5)" d="M 0 0 L 80 60 Z"',
+    );
+    const patch = applyVisualEdit(transformed, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      transform: "matrix(1, 0, 0, 1, 4, 5)",
+      transformOrigin: "0px 0px",
+      transformBox: "view-box",
+    });
+    const geometry = patch.content.match(
+      /<path[^>]*data-an-vector-stroke-geometry=""[^>]*\/>/,
+    )?.[0];
+
+    expect(patch.result.status).toBe("applied");
+    expect(geometry).not.toContain("transform=");
+    expect(geometry).toContain(
+      'style="transform: matrix(1, 0, 0, 1, 4, 5); transform-origin: 0px 0px; transform-box: view-box"',
+    );
+  });
+
+  it.each([
+    {
+      kind: "rect",
+      tag: "rect",
+      geometry: 'x="4" y="6" width="80" height="30" rx="5" ry="7"',
+    },
+    {
+      kind: "ellipse",
+      tag: "ellipse",
+      geometry: 'cx="40" cy="25" rx="32" ry="18"',
+    },
+    {
+      kind: "circle",
+      tag: "circle",
+      geometry: 'cx="40" cy="25" r="18"',
+    },
+    {
+      kind: "circle",
+      tag: "ellipse",
+      geometry: 'cx="40" cy="25" rx="18" ry="18"',
+    },
+    {
+      kind: "ellipse",
+      tag: "circle",
+      geometry: 'cx="40" cy="25" r="18"',
+    },
+    {
+      kind: "polygon",
+      tag: "path",
+      geometry: 'd="M 50 5 L 95 95 L 5 95 Z"',
+    },
+    {
+      kind: "star",
+      tag: "path",
+      geometry: 'd="M 50 5 L 60 40 L 95 50 Z"',
+    },
+  ])(
+    "aligns SVG $kind geometry and preserves its attributes",
+    ({ kind, tag, geometry }) => {
+      const content =
+        `<svg data-agent-native-node-id="${kind}-1" data-an-primitive="${kind}" ` +
+        `viewBox="0 0 100 80"><${tag} ${geometry} fill="none" ` +
+        `stroke="#123456" stroke-width="2"/></svg>`;
+      const patch = applyVisualEdit(content, {
+        kind: "style",
+        target: { nodeId: `${kind}-1` },
+        property: "--an-vector-stroke-position",
+        value: "outside",
+      });
+      const proxy = patch.content.match(
+        new RegExp(`<${tag}[^>]*data-an-vector-stroke-geometry=""[^>]*/>`),
+      )?.[0];
+
+      expect(patch.result.status).toBe("applied");
+      expect(proxy).toContain(geometry);
+      expect(patch.content).toContain(
+        'data-an-vector-stroke-position="outside"',
+      );
+      expect(
+        buildCodeLayerProjection(patch.content).nodes.find(
+          (node) =>
+            node.dataAttributes["data-agent-native-node-id"] === `${kind}-1`,
+        )?.style["--an-vector-stroke-can-align"],
+      ).toBe("true");
+    },
+  );
+
+  it("does not enable stroke alignment for canvas div primitives", () => {
+    const content =
+      '<div data-agent-native-node-id="rect-1" data-an-primitive="rectangle" ' +
+      'style="width:80px;height:30px;border:1px solid #123456"></div>';
+    const patch = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "rect-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+  });
+
+  it("clears box paint the wrapper should never have carried", () => {
+    const corrupted = html.replace(
+      'style="position:absolute',
+      'style="background-color:#782323;border-width:1px;position:absolute',
+    );
+    const patch = applyVisualEdit(corrupted, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+    const wrapper = patch.content.slice(0, patch.content.indexOf("<path"));
+
+    expect(wrapper).not.toContain("background-color");
+    expect(wrapper).not.toContain("border-width");
+    expect(wrapper).toMatch(/position:\s*absolute/);
+  });
+
+  it("leaves geometry edits on the svg wrapper", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "left",
+      value: "40px",
+    });
+
+    expect(patch.content).toContain("left: 40px");
+    expect(patch.content).toContain(`<path d="M 0 0 L 80 60 Z"`);
+    expect(patch.content.slice(patch.content.indexOf("<path"))).not.toContain(
+      "left: 40px",
+    );
   });
 });
 
@@ -496,6 +948,11 @@ describe("applyVisualEdit", () => {
     let html = `<section data-layer-name="Card" style="width: 240px">Hello</section>`;
     const edits = [
       { property: "fontSize", cssProperty: "font-size", value: "24px" },
+      {
+        property: "backgroundClip",
+        cssProperty: "background-clip",
+        value: "text",
+      },
       { property: "borderRadius", cssProperty: "border-radius", value: "12px" },
       { property: "opacity", cssProperty: "opacity", value: "0.64" },
       {
@@ -623,6 +1080,112 @@ describe("applyVisualEdit", () => {
     expect(patch.result.after?.classes).toEqual(["px-4", "bg-black"]);
   });
 
+  it("rejects executable attribute URLs and style payloads", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of ["javascript:alert(1)", "java&#x73;cript:alert(1)"]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+
+    const stylePatch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "style",
+      value: "background: url(javascript:alert(1))",
+    });
+    expect(stylePatch.result.status).toBe("unsupported");
+    expect(stylePatch.content).toBe(html);
+  });
+
+  it("allows safe attribute values", () => {
+    const patch = applyVisualEdit(`<a id="link">Open</a>`, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "https://example.com",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('href="https://example.com"');
+  });
+
+  it("rejects vbscript: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "vbscript:msgbox(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("rejects non-image data: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "data:text/html,<script>alert(1)</script>",
+      "data:image/svg+xml,<svg onload=alert(1)>",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("allows safe data:image attribute URLs", () => {
+    const patch = applyVisualEdit(`<img id="pic" />`, {
+      kind: "attribute",
+      target: { selector: "#pic" },
+      name: "src",
+      value: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    expect(patch.result.status).toBe("applied");
+  });
+
+  it("rejects control-character and whitespace evasions of javascript:", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "java\tscript:alert(1)",
+      "java\nscript:alert(1)",
+      " javascript:alert(1)",
+      " javascript:alert(1)",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status, `value ${JSON.stringify(value)}`).toBe(
+        "unsupported",
+      );
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("rejects on* event-handler attribute names outright, regardless of value", () => {
+    const html = `<button id="btn">Click</button>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#btn" },
+      name: "onclick",
+      value: "alert(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
   it("applies textContent edits only to leaf elements", () => {
     const html = `<div><button data-testid="cta">Buy now</button></div>`;
     const patch = applyVisualEdit(html, {
@@ -715,9 +1278,9 @@ describe("applyVisualEdit", () => {
     expect(
       stamped.content.match(/<script>[\s\S]*?<\/script>/)?.[0],
     ).not.toContain("data-agent-native-node-id");
-    expect(
-      stamped.content.match(/<template>[\s\S]*?<\/template>/)?.[0],
-    ).not.toContain("data-agent-native-node-id");
+    expect(stamped.content).toContain(
+      `<div class="ghost" data-agent-native-node-id=`,
+    );
   });
 
   it("repairs duplicate stable node ids and uses them before duplicate HTML ids", () => {
@@ -1163,7 +1726,10 @@ describe("wrapNodes", () => {
     expect(patch.content).toBe(html);
   });
 
-  it("groups non-contiguous same-parent siblings by moving them adjacent to the topmost member first (L6)", () => {
+  it("groups non-contiguous same-parent siblings at the TOPMOST member's z-position, not the bottommost (L6)", () => {
+    // a (bottom), b (middle, unselected), c (top) — later source position
+    // paints on top for plain siblings. Figma places the resulting group at
+    // c's stacking position, so b ends up BELOW the group, not above it.
     const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
     const patch = applyVisualEdit(html, {
       kind: "wrapNodes",
@@ -1184,10 +1750,10 @@ describe("wrapNodes", () => {
     const bIdx = patch.content.indexOf(`data-agent-native-node-id="b"`);
     expect(wrapperIdx).toBeLessThan(aIdx);
     expect(aIdx).toBeLessThan(cIdx);
-    // b (not selected) is left behind in the original parent, outside the wrapper.
-    expect(bIdx).toBeGreaterThan(
-      patch.content.indexOf("</div>", cIdx) /* end of wrapper's C child */,
-    );
+    // b (not selected) is left behind in the original parent, BEFORE the
+    // wrapper — i.e. below the new group, matching Figma's topmost-child
+    // z-position placement.
+    expect(bIdx).toBeLessThan(wrapperIdx);
   });
 
   it("returns conflict when a target node id is not found", () => {
@@ -1593,8 +2159,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
     expect(patch.content).not.toContain("position: absolute");
   });
 
@@ -1625,8 +2191,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
   });
 
   it("returns conflict when targetId is not found", () => {
@@ -2559,5 +3125,126 @@ describe("style edit property normalization for fill layers", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("background: #f5f5f5");
+  });
+});
+
+describe("design node classification", () => {
+  const typeOf = (html: string, tag: string) => {
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const found: Array<{ type: string; name: string; isComponent?: boolean }> =
+      [];
+    const walk = (nodes: ReturnType<typeof buildCodeLayerTree>) => {
+      for (const node of nodes) {
+        if (node.tag === tag) {
+          found.push({
+            type: node.type,
+            name: node.name,
+            isComponent: node.isComponent,
+          });
+        }
+        walk(node.children);
+      }
+    };
+    walk(tree);
+    return found[0];
+  };
+
+  it("classifies a painted, padded text leaf as a frame, not text", () => {
+    const node = typeOf(
+      `<div><button class="px-6 py-3 bg-blue-600 rounded">Get Started</button></div>`,
+      "button",
+    );
+    expect(node?.type).toBe("frame");
+    expect(node?.isComponent).toBe(true);
+  });
+
+  it("keeps a plain text leaf as text", () => {
+    expect(typeOf(`<div><a href="/x">Features</a></div>`, "a")?.type).toBe(
+      "text",
+    );
+    expect(
+      typeOf(`<div><h1 class="text-4xl">Hello</h1></div>`, "h1")?.type,
+    ).toBe("text");
+  });
+
+  it("keeps a heading with inline runs as one text layer", () => {
+    const html = `<div><h1 class="text-4xl">Transform <span class="text-blue-400">Your</span> Workflow</h1></div>`;
+    const heading = typeOf(html, "h1");
+    expect(heading?.type).toBe("text");
+    expect(heading?.name).toBe("Transform Your Workflow");
+    expect(typeOf(html, "span")).toBeUndefined();
+  });
+
+  it("classifies painted void leaves by their radius", () => {
+    const dot = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-3 h-3 rounded-full bg-red-500"></div><div class="h-px w-full bg-border"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(dot?.[0]?.type).toBe("ellipse");
+    expect(dot?.[1]?.type).toBe("shape");
+  });
+
+  it("treats a wide rounded-full box as a pill, not an ellipse", () => {
+    const shapes = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-20 h-6 rounded-full bg-slate-200"></div><div class="size-3 rounded-full bg-red-500"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(shapes?.[0]?.type).toBe("shape");
+    expect(shapes?.[1]?.type).toBe("ellipse");
+  });
+
+  it("does not treat a colour utility as a component marker", () => {
+    const card = typeOf(
+      `<section><div class="p-6 rounded-lg border bg-card"><p>Body</p></div></section>`,
+      "div",
+    );
+    expect(card?.type).toBe("frame");
+    expect(card?.isComponent).toBe(false);
+  });
+
+  it("never names a layer after a tailwind utility", () => {
+    const tree = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="flex flex-col opacity-90 top-0"><p class="text-lg">Body</p></div></section>`,
+      ),
+    );
+    expect(tree[0]?.children[0]?.name).toBe("Frame");
+  });
+});
+
+describe("wrapBareTextLeavesInHtml", () => {
+  it("gives a painted text leaf its own text layer", () => {
+    const wrapped = wrapBareTextLeavesInHtml(
+      `<div><button class="px-6 py-3 bg-blue-600">Get Started</button></div>`,
+    );
+    expect(wrapped.wrapped).toBe(1);
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(wrapped.content));
+    const button = tree[0]?.children[0];
+    expect(button?.type).toBe("frame");
+    expect(button?.children[0]?.type).toBe("text");
+    expect(button?.children[0]?.name).toBe("Get Started");
+  });
+
+  it("is idempotent", () => {
+    const html = `<div><button class="px-6 py-3 bg-blue-600">Save</button></div>`;
+    const once = wrapBareTextLeavesInHtml(html);
+    expect(once.changed).toBe(true);
+    expect(once.wrapped).toBe(1);
+    const twice = wrapBareTextLeavesInHtml(once.content);
+    expect(twice.changed).toBe(false);
+    expect(twice.content).toBe(once.content);
+  });
+
+  it("leaves unpainted text and mixed content alone", () => {
+    const result = wrapBareTextLeavesInHtml(
+      `<div><h1 class="text-4xl">Title</h1><p class="p-4 bg-muted">Hi <b>there</b></p><button class="px-4 py-2 bg-blue-600">Save</button></div>`,
+    );
+    expect(result.wrapped).toBe(1);
+    expect(result.content).toContain(`<h1 class="text-4xl">Title</h1>`);
+    expect(result.content).toContain(
+      `<p class="p-4 bg-muted">Hi <b>there</b></p>`,
+    );
   });
 });

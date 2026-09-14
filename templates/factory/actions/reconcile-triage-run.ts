@@ -53,7 +53,7 @@ const observationSchema: z.ZodType<PullRequestObservation> = z.object({
 
 export default defineAction({
   description:
-    "Reconcile an observe-only pull-request monitoring run from ai-services callback and provider observations. Missing callbacks or provider reads remain typed failure states; no executor or GitHub write occurs.",
+    "Reconcile an observe-only pull-request monitoring run from provider observations. Missing provider reads remain typed failure states; no GitHub write occurs.",
   schema: z.object({
     itemId: z.string().min(1),
     factoryId: factoryIdSchema.optional(),

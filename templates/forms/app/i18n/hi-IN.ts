@@ -96,6 +96,9 @@ const messages = {
     conditionContains: "में शामिल है",
     conditionValue: "उत्तर",
     conditionValuePlaceholder: "उत्तर दर्ज करें...",
+    allowMultiple: "एक से अधिक फ़ाइलें अनुमति दें",
+    accept: "स्वीकार किए गए फ़ाइल प्रकार",
+    acceptPlaceholder: "उदा. image/*, .pdf",
     fieldTypes: {
       text: "लघु पाठ",
       email: "ईमेल",
@@ -108,6 +111,7 @@ const messages = {
       date: "तारीख",
       rating: "रेटिंग",
       scale: "पैमाना",
+      file: "फ़ाइल अपलोड",
     },
   },
   builder: {
@@ -178,6 +182,7 @@ const messages = {
       dateLabel: "तारीख",
       ratingLabel: "रेटिंग",
       scaleLabel: "पैमाना",
+      fileLabel: "फ़ाइल अपलोड",
       option1: "विकल्प 1",
       option2: "विकल्प 2",
       option3: "विकल्प 3",
@@ -319,12 +324,9 @@ const messages = {
     sharePubliclyDescription:
       "सामग्री को सार्वजनिक रूप से साझा करने के लिए क्लाउड डेटाबेस कनेक्ट करें।",
     providerDescriptions: {
-      turso: "एज पर SQLite",
       neon: "सर्वरलेस Postgres",
       supabase: "Firebase का ओपन सोर्स विकल्प",
-      d1: "एज पर SQLite",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "सेटअप चरण",
     authToken: "प्रमाणीकरण टोकन",
     connectedReloading: "सफलतापूर्वक कनेक्ट हुआ। फिर से लोड हो रहा है...",
@@ -390,6 +392,13 @@ const messages = {
     page: "Page",
     source: "स्रोत",
     sortBy: "Sort by {{label}}",
+    communityReview: "समीक्षा",
+    communityPublish: "साइट पर प्रकाशित करें",
+    communityPublishing: "प्रकाशित हो रहा है...",
+    communityPublished: "प्रकाशित",
+    communityView: "साइट पर देखें",
+    communityNeedsCheck: "पुनः प्रयास करने से पहले Builder जाँचें",
+    communityPromotionFailed: "इस सबमिशन को प्रकाशित नहीं किया जा सका।",
   },
 };
 

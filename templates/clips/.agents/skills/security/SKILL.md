@@ -292,7 +292,7 @@ export default defineEventHandler(async (event) => {
 
 In production, the framework automatically restricts all agent SQL queries to the current user's data using temporary views. This is enforced at the SQL level — the agent cannot bypass it.
 
-The `db-query` / `db-exec` tools (and the extension SQL bridge, which shares the same path) reject schema-qualified table references like `public.<table>` or `main.<table>` — a qualified name resolves to the base table and would skip the temp view. Use bare table names; scoping is applied automatically.
+The `db-query` / `db-exec` tools (and the extension SQL bridge, which shares the same path) reject schema-qualified table references like `public.<table>` — a qualified name resolves to the base table and would skip the temp view. Use bare table names; scoping is applied automatically.
 
 ### Per-User Scoping (`owner_email`)
 

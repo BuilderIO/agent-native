@@ -180,6 +180,54 @@ export function isWorkspaceAppPath(path: string): boolean {
   );
 }
 
+/** Resolve the live app mount from the route already visible in the browser. */
+export function appMountPath(appLocalRoute: string): string {
+  const basePath = appBasePath();
+  if (typeof window === "undefined") return basePath;
+
+  const pathname = window.location.pathname;
+  if (basePath && pathMatchesBasePath(pathname, basePath)) return basePath;
+
+  const marker = normalizeBasePath(appLocalRoute);
+  if (!marker) return basePath;
+  const markerSegment = marker.slice(1);
+
+  const mounts = workspaceAppMountPaths();
+  const candidates: string[] = [];
+  for (
+    let index = pathname.indexOf(markerSegment);
+    index >= 0;
+    index = pathname.indexOf(markerSegment, index + 1)
+  ) {
+    const boundary = index + markerSegment.length;
+    if (
+      (index === 0 || pathname[index - 1] === "/") &&
+      (boundary === pathname.length || pathname[boundary] === "/")
+    ) {
+      candidates.push(normalizeBasePath(pathname.slice(0, index)));
+    }
+  }
+
+  const knownCandidates = mounts
+    ? candidates.filter((candidate) => mounts.has(candidate))
+    : candidates;
+  if (mounts && knownCandidates.length) {
+    return knownCandidates.sort((a, b) => b.length - a.length)[0];
+  }
+  return candidates[0] ?? basePath;
+}
+
+/** Prefix an app-local browser URL with the mount resolved from the live route. */
+export function appMountedPath(path: string, appLocalRoute: string): string {
+  if (!path.startsWith("/")) return path;
+  const mountPath = appMountPath(appLocalRoute);
+  if (!mountPath) return path;
+
+  const mounted = `${mountPath}${normalizeBasePath(appLocalRoute)}`;
+  if (path === mounted || path.startsWith(`${mounted}/`)) return path;
+  return `${mountPath}${path}`;
+}
+
 export function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
   const basePath = appBasePath();
@@ -199,4 +247,26 @@ export function appApiPath(path: string): string {
 export function agentNativePath(path: string): string {
   if (!path.startsWith(FRAMEWORK_ROUTE_PREFIX)) return path;
   return appPath(path);
+}
+
+/**
+ * Optional cross-origin response-streaming endpoint. The browser uses the
+ * normal same-origin chat route to mint a short-lived bearer token first.
+ */
+export function agentChatStreamingUrl(): string | undefined {
+  const value = clientEnv()?.VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const candidate = value.trim();
+  const base =
+    typeof window === "undefined"
+      ? "http://agent-native.invalid"
+      : window.location.href;
+  if (!URL.canParse(candidate, base)) {
+    return undefined;
+  }
+  const url = new URL(candidate, base);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return undefined;
+  }
+  return candidate;
 }

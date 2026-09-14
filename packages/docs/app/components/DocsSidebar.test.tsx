@@ -102,6 +102,7 @@ describe("DocsSidebar", () => {
       "deploy-an-app",
       "workspace-deployment",
       "deployment-providers",
+      "database-providers",
       "deployment-production",
     ]);
     const providerGroup = deployment?.items.find(
@@ -118,6 +119,17 @@ describe("DocsSidebar", () => {
       "azure-static-web-apps",
       "koyeb",
       "render",
+    ]);
+    const databaseGroup = deployment?.items.find(
+      (item) => item.id === "database-providers",
+    );
+    expect(databaseGroup?.children?.map((item) => item.id)).toEqual([
+      "database-neon",
+      "database-supabase",
+      "database-aws-rds",
+      "database-cloud-sql",
+      "database-azure-postgres",
+      "database-postgres",
     ]);
     const productionGroup = deployment?.items.find(
       (item) => item.id === "deployment-production",
@@ -139,9 +151,37 @@ describe("DocsSidebar", () => {
       "environment-variables",
       "agent-native-config",
     ]);
-    expect(sectionIds.indexOf("toolkits")).toBeLessThan(
-      sectionIds.indexOf("apps"),
+    expect(sectionIds.slice(0, 5)).toEqual([
+      "overview",
+      "deployment",
+      "toolkits",
+      "core-architecture",
+      "apps",
+    ]);
+
+    const apps = sections.find((section) => section.id === "apps");
+    expect(apps?.items.slice(0, 4).map((item) => item.id)).toEqual([
+      "cloneable-saas",
+      "creating-templates",
+      "syncing-template-changes",
+      "pure-agent-apps",
+    ]);
+    expect(sectionIds).not.toContain("build-apps");
+
+    const usingYourAgent = sections.find(
+      (section) => section.id === "using-your-agent",
     );
+    expect(usingYourAgent?.items.map((item) => item.id)).toContain(
+      "embedding-sdk",
+    );
+
+    const agentResources = sections.find(
+      (section) => section.id === "agent-resources",
+    );
+    expect(agentResources?.items.map((item) => item.id)).toContain(
+      "writing-agent-instructions",
+    );
+    expect(getDocsNavItems().map((item) => item.id)).not.toContain("frames");
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {
@@ -198,6 +238,7 @@ describe("DocsSidebar", () => {
     for (const item of toolkitLinks) {
       expect(html).toContain(`href="${item.to}"`);
     }
+    expect(html).not.toContain('href="/docs/custom-design-system/"');
 
     const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration/");
     expect(activeLink).toContain("is-active");

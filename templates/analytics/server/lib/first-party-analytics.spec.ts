@@ -15,13 +15,16 @@ const backendMocks = vi.hoisted(() => ({
   get: vi.fn(),
   table: vi.fn(),
   insert: vi.fn(),
+  insertWithResults: vi.fn(),
   query: vi.fn(),
 }));
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
 }));
-const dialectMocks = vi.hoisted(() => ({
-  isPostgres: vi.fn(() => false),
+const deliveryMocks = vi.hoisted(() => ({
+  queueMissing: vi.fn(),
+  fallbackKey: (eventId: string) =>
+    `first-party-analytics-bigquery-fallback:${eventId}`,
 }));
 const analyticsDbMocks = vi.hoisted(() => {
   const getDb = vi.fn();
@@ -31,6 +34,7 @@ const analyticsDbMocks = vi.hoisted(() => {
   const updateWhere = vi.fn();
   const updateReturning = vi.fn();
   const db: Record<string, any> = {};
+  db.execute = vi.fn();
   db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
     callback(db),
   );
@@ -61,6 +65,7 @@ const analyticsDbMocks = vi.hoisted(() => {
     insertOnConflictDoNothing,
     updateWhere,
     updateReturning,
+    transactionExecute: db.execute,
     db,
   };
 });
@@ -68,7 +73,6 @@ const analyticsDbMocks = vi.hoisted(() => {
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({ execute }),
-  isPostgres: dialectMocks.isPostgres,
 }));
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
@@ -86,10 +90,15 @@ vi.mock("./first-party-analytics-health.js", () => ({
   queryOutcomeFromError: healthMocks.outcome,
   recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
 }));
+vi.mock("./first-party-analytics-delivery.js", () => ({
+  firstPartyAnalyticsDeliveryFallbackKey: deliveryMocks.fallbackKey,
+  isFirstPartyAnalyticsDeliveryQueueMissingError: deliveryMocks.queueMissing,
+}));
 vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsBackend: backendMocks.get,
   getFirstPartyAnalyticsTable: backendMocks.table,
   insertFirstPartyAnalyticsRows: backendMocks.insert,
+  insertFirstPartyAnalyticsRowsWithResults: backendMocks.insertWithResults,
   queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
@@ -100,7 +109,6 @@ import {
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
-  toSqliteCompatibleFirstPartySql,
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
@@ -109,6 +117,9 @@ beforeEach(() => {
   execute.mockReset();
   analyticsDbMocks.getDb.mockReset();
   analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
+  analyticsDbMocks.db.transaction.mockClear();
+  analyticsDbMocks.transactionExecute.mockReset();
+  analyticsDbMocks.transactionExecute.mockResolvedValue({ rowsAffected: 1 });
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
   analyticsDbMocks.insertOnConflictDoNothing.mockReset();
@@ -136,10 +147,17 @@ beforeEach(() => {
   backendMocks.get.mockReset();
   backendMocks.table.mockReset();
   backendMocks.insert.mockReset();
+  backendMocks.insertWithResults
+    .mockReset()
+    .mockImplementation(async (rows: Array<{ id: string }>) => ({
+      acceptedIds: rows.map((row) => row.id),
+      rejectedIds: [],
+      error: null,
+    }));
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
-  dialectMocks.isPostgres.mockReset();
-  dialectMocks.isPostgres.mockReturnValue(false);
+  deliveryMocks.queueMissing.mockReset();
+  deliveryMocks.queueMissing.mockReturnValue(false);
   backendMocks.get.mockResolvedValue({
     sink: "postgres",
     table: null,
@@ -242,6 +260,21 @@ describe("resolveAnalyticsEventDimensions", () => {
         hostname: "mail.agent-native.com",
       }),
     ).toEqual({ app: "analytics", template: "docs" });
+  });
+
+  it("prefers canonical app/template properties", () => {
+    expect(
+      resolveAnalyticsEventDimensions({
+        properties: {
+          app_name: "clips",
+          template_name: "clips",
+          app: "analytics",
+          template: "docs",
+        },
+        context: {},
+        hostname: "mail.agent-native.com",
+      }),
+    ).toEqual({ app: "clips", template: "clips" });
   });
 });
 
@@ -359,7 +392,7 @@ describe("recordAnalyticsEvents", () => {
     ]);
   });
 
-  it("stops Postgres event and rollup writes after the org cuts over", async () => {
+  it("stages cutover events durably until the warehouse confirms delivery", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
       table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
@@ -369,12 +402,47 @@ describe("recordAnalyticsEvents", () => {
 
     await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
 
-    expect(backendMocks.insert).toHaveBeenCalledWith(
+    expect(backendMocks.insert).not.toHaveBeenCalled();
+    expect(analyticsDbMocks.insertValues).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({ eventName: "pageview" }),
+    ]);
+    expect(analyticsDbMocks.insertValues).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({
+        eventId: expect.any(String),
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        tableRef: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      }),
+    ]);
+    expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("retains events while the delivery queue migration is pending", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+    deliveryMocks.queueMissing.mockReturnValueOnce(true);
+    analyticsDbMocks.db.transaction.mockRejectedValueOnce(
+      new Error('relation "analytics_bigquery_delivery_queue" does not exist'),
+    );
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).resolves.toMatchObject({ accepted: 1 });
+
+    expect(analyticsDbMocks.db.transaction).toHaveBeenCalledTimes(3);
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
+    expect(analyticsDbMocks.transactionExecute).toHaveBeenCalledTimes(2);
+    expect(analyticsDbMocks.transactionExecute).toHaveBeenLastCalledWith(
+      expect.objectContaining({ queryChunks: expect.any(Array) }),
+    );
+    expect(backendMocks.insertWithResults).toHaveBeenCalledWith(
       [expect.objectContaining({ eventName: "pageview" })],
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
     );
-    expect(analyticsDbMocks.insertValues).not.toHaveBeenCalled();
-    expect(rollupMocks.upsert).not.toHaveBeenCalled();
   });
 
   it("enforces the Postgres volume limit during dual writes", async () => {
@@ -397,7 +465,10 @@ describe("recordAnalyticsEvents", () => {
       recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
     ).rejects.toThrow("volume limit reached");
 
-    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(backendMocks.insert).toHaveBeenCalledWith(
+      [expect.objectContaining({ eventName: "pageview" })],
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
     expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
   });
@@ -417,7 +488,7 @@ describe("recordAnalyticsEvents", () => {
       },
     ]);
 
-    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(backendMocks.insert).not.toHaveBeenCalled();
     expect(exceptionMocks.ingest).toHaveBeenCalledWith(
       {
         ownerEmail: "owner@example.com",
@@ -428,16 +499,13 @@ describe("recordAnalyticsEvents", () => {
     );
   });
 
-  it("preserves SQL exception issues when BigQuery fails after cutover", async () => {
-    const warehouseError = new Error("warehouse unavailable");
+  it("preserves SQL exception issues while warehouse delivery is pending", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
       table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
       backfillCursor: "evt_last",
       backfillCompleted: true,
     });
-    backendMocks.insert.mockRejectedValueOnce(warehouseError);
-
     await expect(
       recordAnalyticsEvents("anpk_test", [
         {
@@ -445,8 +513,9 @@ describe("recordAnalyticsEvents", () => {
           properties: { error: "boom", app: "analytics" },
         },
       ]),
-    ).rejects.toBe(warehouseError);
+    ).resolves.toMatchObject({ accepted: 1 });
 
+    expect(backendMocks.insert).not.toHaveBeenCalled();
     expect(exceptionMocks.ingest).toHaveBeenCalledWith(
       {
         ownerEmail: "owner@example.com",
@@ -521,7 +590,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
   it("rejects comma-separated sources instead of leaving the extra table unscoped", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        "SELECT name FROM analytics_events, sqlite_master",
+        "SELECT name FROM analytics_events, information_schema.tables",
       ),
     ).toThrow("Comma-separated table sources");
   });
@@ -529,7 +598,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
   it("rejects quoted table sources that the scoping rewriter cannot replace", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        'SELECT name FROM analytics_events, "sqlite_master"',
+        'SELECT name FROM analytics_events, "information_schema"',
       ),
     ).toThrow("Comma-separated table sources");
     expect(() =>
@@ -575,17 +644,17 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_events WHERE org_id = ?",
+      "FROM (SELECT * FROM analytics_events WHERE org_id = $1",
     );
     expect(scoped.sql).toContain(
-      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = ?",
+      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = $3",
     );
     expect(
       scoped.sql.match(
-        /COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?/g,
+        /COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \$\d+/g,
       ),
     ).toHaveLength(2);
-    expect(scoped.sql).not.toContain("org_id = ? OR");
+    expect(scoped.sql).not.toContain("org_id = $1 OR");
     expect(scoped.args).toEqual([
       "org_123",
       "2026-07-01",
@@ -601,7 +670,7 @@ describe("scopedAnalyticsSql", () => {
       "2026-07-01",
     );
 
-    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= ?");
+    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $2");
     expect(scoped.args).toEqual(["alice@example.com", "2026-07-01"]);
   });
 
@@ -613,9 +682,9 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ? UNION ALL SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ?)",
+      "FROM (SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = $1 AND event_date <= $2 UNION ALL SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = $3 AND event_date <= $4)",
     );
-    expect(scoped.sql).not.toContain("event_date >= ?");
+    expect(scoped.sql).not.toContain("event_date >= $1");
     expect(scoped.args).toEqual([
       "org:org_123",
       "2026-07-01",
@@ -632,7 +701,7 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = ? AND event_date <= ?)",
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2)",
     );
     expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
   });
@@ -823,97 +892,5 @@ describe("queryFirstPartyAnalytics", () => {
       rows: [{ count: "1" }],
       schema: [{ name: "count", type: "string" }],
     });
-  });
-
-  // Production evidence 2026-08-22: the seeded first-party dashboard's panel
-  // SQL is authored against Postgres (to_char/INTERVAL/::jsonb ->>), so on a
-  // local SQLite dev database every panel 500'd with
-  // `SqliteError: near "'7 days'": syntax error` /
-  // `SqliteError: unrecognized token: ":"`. This must translate before the
-  // query reaches a non-Postgres sql-store, and must leave Postgres SQL
-  // byte-for-byte alone.
-  it("translates seeded Postgres date/JSON panel SQL for a non-Postgres sql-store", async () => {
-    dialectMocks.isPostgres.mockReturnValue(false);
-    execute.mockResolvedValue({ rows: [{ signups: 0 }], rowsAffected: 0 });
-
-    await queryFirstPartyAnalytics(
-      "SELECT COUNT(*) AS signups FROM analytics_events WHERE event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), 'unknown')) = 'analytics'",
-      { userEmail: "dialect@example.com", orgId: null },
-    );
-
-    const sentSql = execute.mock.calls[0][0].sql as string;
-    expect(sentSql).not.toContain("to_char(");
-    expect(sentSql).not.toContain("INTERVAL");
-    expect(sentSql).not.toContain("::jsonb");
-    expect(sentSql).toContain("json_extract(properties, '$.\"templateId\"')");
-  });
-
-  it("leaves Postgres panel SQL untouched when the sql-store is Postgres", async () => {
-    dialectMocks.isPostgres.mockReturnValue(true);
-    execute.mockResolvedValue({ rows: [{ signups: 0 }], rowsAffected: 0 });
-
-    await queryFirstPartyAnalytics(
-      "SELECT COUNT(*) AS signups FROM analytics_events WHERE event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
-      { userEmail: "postgres@example.com", orgId: null },
-    );
-
-    const sentSql = execute.mock.calls[0][0].sql as string;
-    expect(sentSql).toContain(
-      "to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
-    );
-  });
-});
-
-describe("toSqliteCompatibleFirstPartySql", () => {
-  it("rewrites to_char(CURRENT_DATE - INTERVAL 'N days', ...) to julian-day arithmetic", () => {
-    expect(
-      toSqliteCompatibleFirstPartySql(
-        "event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
-      ),
-    ).toBe("event_date >= date(julianday('now') - 7)");
-  });
-
-  it("rewrites properties::jsonb ->> 'key' to json_extract, including PostHog-style $-prefixed keys", () => {
-    expect(
-      toSqliteCompatibleFirstPartySql("properties::jsonb ->> 'templateId'"),
-    ).toBe(`json_extract(properties, '$."templateId"')`);
-    expect(
-      toSqliteCompatibleFirstPartySql("properties::jsonb ->> '$ai_model'"),
-    ).toBe(`json_extract(properties, '$."$ai_model"')`);
-  });
-
-  it("keeps a date-arithmetic comparison in text form on both sides", () => {
-    // Regression: an earlier version left the left side as a bare
-    // julian-day number, which SQLite always treats as less than any text
-    // value — the WHERE clause silently matched everything.
-    const rewritten = toSqliteCompatibleFirstPartySql(
-      "bounds.start_date + offsets.n <= bounds.end_date",
-    );
-    expect(rewritten).toBe(
-      "date(julianday(bounds.start_date) + offsets.n) <= bounds.end_date",
-    );
-  });
-
-  it("rewrites to_char(date_trunc('week', X), 'YYYY-MM-DD') to a Monday-anchored date()", () => {
-    expect(
-      toSqliteCompatibleFirstPartySql(
-        "to_char(date_trunc('week', event_date), 'YYYY-MM-DD')",
-      ),
-    ).toBe("date(event_date, 'weekday 0', '-6 days')");
-  });
-
-  it("drops Postgres type casts other than ::jsonb", () => {
-    expect(toSqliteCompatibleFirstPartySql("cohort_date::date")).toBe(
-      "cohort_date",
-    );
-    expect(
-      toSqliteCompatibleFirstPartySql("SUM(retained)::float / count"),
-    ).toBe("SUM(retained) / count");
-  });
-
-  it("leaves ordinary SQL with no Postgres-only syntax unchanged", () => {
-    const sql =
-      "SELECT COUNT(*) AS n FROM analytics_events WHERE event_name = 'signup'";
-    expect(toSqliteCompatibleFirstPartySql(sql)).toBe(sql);
   });
 });

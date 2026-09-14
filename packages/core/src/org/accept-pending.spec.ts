@@ -40,8 +40,10 @@ describe("acceptPendingInvitationsForEmail", () => {
     const out = await acceptPendingInvitationsForEmail("a@b.com");
 
     const calls = mockExecute.mock.calls.map((c) => c[0]);
-    expect(calls[0].sql).toContain("SELECT id, org_id");
-    expect(calls[1].sql).toContain("SELECT 1 FROM org_members");
+    expect(calls[0].sql).toContain("SELECT i.id, i.org_id");
+    expect(calls[1].sql).toContain(
+      "SELECT federation_removal_pending_at FROM org_members",
+    );
     expect(calls[2].sql).toContain("INSERT INTO org_members");
     expect(calls[3].sql).toContain("UPDATE org_invitations");
     expect(out.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
@@ -64,6 +66,18 @@ describe("acceptPendingInvitationsForEmail", () => {
     const sqls = mockExecute.mock.calls.map((c) => c[0].sql);
     expect(sqls.some((s) => s.includes("INSERT INTO org_members"))).toBe(false);
     expect(sqls.some((s) => s.includes("UPDATE org_invitations"))).toBe(true);
+  });
+
+  it("leaves an invitation pending while membership removal is unresolved", async () => {
+    queueSelect(
+      [{ id: "inv1", orgId: "org1" }],
+      [{ federation_removal_pending_at: Date.now() }],
+    );
+
+    const out = await acceptPendingInvitationsForEmail("a@b.com");
+
+    expect(out).toEqual({ accepted: [], activeOrgId: null });
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it("handles multiple pending invites and picks most recent for active-org", async () => {
@@ -89,7 +103,7 @@ describe("acceptPendingInvitationsForEmail", () => {
 
   it("swallows missing-table errors (template without org module)", async () => {
     mockExecute.mockRejectedValueOnce(
-      new Error("no such table: org_invitations"),
+      new Error('relation "org_invitations" does not exist'),
     );
     const out = await acceptPendingInvitationsForEmail("a@b.com");
     expect(out).toEqual({ accepted: [], activeOrgId: null });

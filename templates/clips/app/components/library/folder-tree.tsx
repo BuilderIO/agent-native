@@ -53,6 +53,7 @@ export interface FolderNode {
   parentId: string | null;
   spaceId: string | null;
   name: string;
+  recordingCount?: number;
   children?: FolderNode[];
 }
 
@@ -80,6 +81,8 @@ interface FolderTreeProps {
   /** Build the URL for a folder — allows library or space-scoped trees. */
   buildPath: (folderId: string) => string;
   activeFolderId?: string | null;
+  /** Use the single-indent spacing expected by a sidebar submenu. */
+  compact?: boolean;
 }
 
 export function FolderTree({
@@ -88,6 +91,7 @@ export function FolderTree({
   spaceId = null,
   buildPath,
   activeFolderId,
+  compact = false,
 }: FolderTreeProps) {
   const t = useT();
   const tree = useMemo(() => buildTree(folders), [folders]);
@@ -111,6 +115,7 @@ export function FolderTree({
           activeFolderId={activeFolderId}
           organizationId={organizationId}
           spaceId={spaceId}
+          compact={compact}
         />
       ))}
     </ul>
@@ -124,6 +129,7 @@ interface FolderItemProps {
   activeFolderId?: string | null;
   organizationId?: string;
   spaceId?: string | null;
+  compact: boolean;
 }
 
 function FolderItem({
@@ -133,6 +139,7 @@ function FolderItem({
   activeFolderId,
   organizationId,
   spaceId,
+  compact,
 }: FolderItemProps) {
   const t = useT();
   const [open, setOpen] = useState(true);
@@ -159,88 +166,132 @@ function FolderItem({
                 "group flex items-center gap-1 rounded px-1.5 py-1 text-xs",
                 isActive
                   ? "bg-primary/10 text-primary"
-                  : "text-foreground hover:bg-accent/60",
+                  : "text-primary hover:bg-accent/60",
               )}
-              style={{ paddingInlineStart: 6 + depth * 12 }}
+              style={{
+                paddingInlineStart: compact ? 8 + depth * 12 : 6 + depth * 12,
+              }}
             >
-              <CollapsibleTrigger asChild disabled={!hasChildren}>
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded p-0.5 text-muted-foreground",
-                    !hasChildren && "invisible",
-                  )}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`${t(open ? "settings.collapse" : "settings.expand")}: ${node.name}`}
-                >
-                  <IconChevronRight
+              {!compact && (
+                <CollapsibleTrigger asChild disabled={!hasChildren}>
+                  <button
+                    type="button"
                     className={cn(
-                      "h-3 w-3 transition-transform motion-reduce:transition-none rtl:-scale-x-100",
-                      open && "rotate-90",
+                      "rounded p-0.5 text-primary",
+                      !hasChildren && "invisible",
                     )}
-                  />
-                </button>
-              </CollapsibleTrigger>
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`${t(open ? "settings.collapse" : "settings.expand")}: ${node.name}`}
+                  >
+                    <IconChevronRight
+                      className={cn(
+                        "h-3 w-3 transition-transform motion-reduce:transition-none rtl:-scale-x-100",
+                        open && "rotate-90",
+                      )}
+                    />
+                  </button>
+                </CollapsibleTrigger>
+              )}
               <NavLink
                 to={buildPath(node.id)}
-                className="flex min-w-0 flex-1 items-center gap-1.5"
-              >
-                {open && hasChildren ? (
-                  <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                ) : (
-                  <IconFolder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                className={cn(
+                  "flex min-w-0 flex-1 items-center",
+                  compact ? "gap-0" : "gap-1.5",
                 )}
+              >
+                {!compact &&
+                  (open && hasChildren ? (
+                    <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  ) : (
+                    <IconFolder className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  ))}
                 <span className="truncate" title={node.name}>
                   {node.name}
                 </span>
               </NavLink>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+              {compact && hasChildren && (
+                <CollapsibleTrigger asChild>
                   <button
                     type="button"
-                    aria-label={`${node.name}: ${t("root.commandActions")}`}
-                    title={`${node.name}: ${t("root.commandActions")}`}
-                    className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                    className="rounded p-0.5 text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`${t(open ? "settings.collapse" : "settings.expand")}: ${node.name}`}
                   >
-                    <IconDots className="h-3.5 w-3.5" />
+                    <IconChevronRight
+                      className={cn(
+                        "h-3 w-3 transition-transform motion-reduce:transition-none rtl:-scale-x-100",
+                        open && "rotate-90",
+                      )}
+                    />
                   </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="right">
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setTimeout(() => {
-                        setRenameValue(node.name);
-                        setRenameOpen(true);
-                      }, 0);
-                    }}
-                  >
-                    <IconEdit className="h-3.5 w-3.5 me-2" />{" "}
-                    {t("folderTree.rename")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setTimeout(() => {
-                        setNewValue("");
-                        setNewOpen(true);
-                      }, 0);
-                    }}
-                  >
-                    <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
-                    {t("folderTree.newSubfolder")}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() => setTimeout(() => setConfirmDelete(true), 0)}
-                    className="text-destructive"
-                  >
-                    <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
-                    {t("folderTree.delete")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </CollapsibleTrigger>
+              )}
+              <div className="relative size-5 shrink-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`${node.name}: ${t("root.commandActions")}`}
+                      title={`${node.name}: ${t("root.commandActions")}`}
+                      className="peer absolute inset-0 flex items-center justify-center rounded text-primary opacity-0 transition-opacity hover:bg-accent hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <IconDots className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="right">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setTimeout(() => {
+                          setRenameValue(node.name);
+                          setRenameOpen(true);
+                        }, 0);
+                      }}
+                    >
+                      <IconEdit className="h-3.5 w-3.5 me-2" />{" "}
+                      {t("folderTree.rename")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setTimeout(() => {
+                          setNewValue("");
+                          setNewOpen(true);
+                        }, 0);
+                      }}
+                    >
+                      <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
+                      {t("folderTree.newSubfolder")}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() =>
+                        setTimeout(() => setConfirmDelete(true), 0)
+                      }
+                      className="text-destructive"
+                    >
+                      <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
+                      {t("folderTree.delete")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {(node.recordingCount ?? 0) > 0 && (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-end tabular-nums text-[11px] text-primary/80 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 peer-data-[state=open]:opacity-0">
+                    {node.recordingCount}
+                    <span className="sr-only">
+                      {t("navigation.recordings")}
+                    </span>
+                  </span>
+                )}
+              </div>
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
+            <ContextMenuItem asChild>
+              <NavLink to={buildPath(node.id)}>
+                <IconFolder className="h-4 w-4 me-2" />
+                {t("clipsFinalRaw.view")}
+              </NavLink>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem
               onSelect={() => {
                 setTimeout(() => {
@@ -285,6 +336,7 @@ function FolderItem({
                   activeFolderId={activeFolderId}
                   organizationId={organizationId}
                   spaceId={spaceId}
+                  compact={compact}
                 />
               ))}
             </ul>

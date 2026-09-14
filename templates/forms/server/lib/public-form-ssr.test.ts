@@ -104,7 +104,7 @@ describe("public form SSR", () => {
       '<meta property="og:description" content="Tell us what you need.">',
     );
     expect(html).toContain(
-      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z",
+      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z-background-v1",
     );
   });
 
@@ -265,6 +265,52 @@ describe("public form SSR", () => {
     expect(html).toContain('"session"');
     expect(html).toContain("Array.from(params.keys()).forEach(function(key)");
     expect(html).toContain('params.set(key, "<redacted>")');
+  });
+
+  it("renders file fields and uploads references before JSON submission", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "form-files-123",
+          slug: "file-feedback",
+          title: "File feedback",
+          description: null,
+          ownerEmail: "owner@example.test",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: JSON.stringify([
+            {
+              id: "screenshots",
+              type: "file",
+              label: "Screenshots",
+              required: true,
+              multiple: true,
+              accept: "image/png,.webp",
+              maxSizeBytes: 5242880,
+              maxFiles: 3,
+            },
+          ]),
+          settings: "{}",
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      "https://forms.example.test/f/file-feedback",
+    );
+
+    expect(html).toContain(
+      '<input type="file" name="screenshots" class="fi fi-file" accept="image/png,.webp" multiple required>',
+    );
+    expect(html).toContain('var UPLOAD_PATH = "/api/upload/";');
+    expect(html).toContain('"maxSizeBytes":5242880');
+    expect(html).toContain('"maxFiles":3');
+    expect(html).toContain("function collectFiles()");
+    expect(html).toContain('body.append("fieldId", f.id);');
+    expect(html).toContain('body.append("file", file, file.name);');
+    expect(html).toContain("uploadFiles(filesByField)");
+    expect(html).toContain('btn.textContent = "Uploading...";');
   });
 
   it.each([

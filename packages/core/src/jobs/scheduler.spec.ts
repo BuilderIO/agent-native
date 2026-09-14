@@ -116,11 +116,28 @@ vi.mock("./remote-execution.js", () => ({
   getRemoteAutomationStatus: getRemoteAutomationStatusMock,
 }));
 
+const recordAutomationSchedulerHealthMock = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
+
+vi.mock("./scheduler-health.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./scheduler-health.js")>();
+  return {
+    ...actual,
+    recordAutomationSchedulerHealth: recordAutomationSchedulerHealthMock,
+  };
+});
+
 vi.mock("../integrations/adapters/index.js", () => ({
   getDefaultAdapter: () => ({
     formatAgentResponse: (text: string) => ({ text, platformContext: {} }),
     sendMessageToTarget: sendMessageToTargetMock,
   }),
+}));
+
+vi.mock("../server/onboarding-html.js", () => ({
+  getOnboardingHtml: vi.fn(),
+  getResetPasswordHtml: vi.fn(),
 }));
 
 // Partial-mock db/client so the user/membership validation lookup is
@@ -450,6 +467,136 @@ Process the feedback.`,
       engine: testEngine,
       model: "test-model",
       appId: "mail",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("claims a recovered factory-folder org job that lost appId", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-recovered-factory-job",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalled();
+    expect(resourcePutMock.mock.calls[0]?.[1]).toBe(
+      "jobs/factories/demo-factory/factory-slack-feedback.md",
+    );
+  });
+
+  it("records scheduler health under the owner org for a recovered Factory job without orgId", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-recovered-factory-job-no-org",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalled();
+    expect(recordAutomationSchedulerHealthMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "factory",
+        orgId: "org-1",
+      }),
+    );
+  });
+
+  it("does not claim a personal job on a Factory-looking path", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-personal-factory-path",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not claim a Factory-path job whose orgId does not match its owner", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-mismatched-org",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-2
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
     });
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
@@ -1421,7 +1568,7 @@ Post the revised digest.`,
 
     const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
     expect(putContent).toContain('schedule: "0 21 * * *"');
-    expect(putContent).toContain('timezone: "Asia/Tokyo"');
+    expect(putContent).toContain("timezone: Asia/Tokyo");
     expect(putContent).toContain("Post the revised digest.");
     expect(putContent).toContain("lastStatus: success");
     // nextRun follows the edited schedule: 21:00 Tokyo is 12:00 UTC.
@@ -1575,5 +1722,53 @@ Do some work.`,
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
     expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("patches claim and completion status without dropping application-owned frontmatter", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-factory-job",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: schedule
+domain: factory
+appId: factory
+orgId: org-1
+factoryId: demo-factory
+displayName: Slack feedback
+maxIterations: 32
+createdBy: alice+jobs@agent-native.test
+---
+
+Observe Slack.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of resourcePutMock.mock.calls) {
+      const putContent: string = call[2];
+      expect(putContent).toContain("triggerType: schedule");
+      expect(putContent).toContain("domain: factory");
+      expect(putContent).toContain("appId: factory");
+      expect(putContent).toContain("factoryId: demo-factory");
+      expect(putContent).toContain("displayName: Slack feedback");
+      expect(putContent).toContain("maxIterations: 32");
+      expect(putContent).toContain("Observe Slack.");
+    }
+    expect(resourcePutMock.mock.calls.at(-1)![2]).toContain(
+      "lastStatus: success",
+    );
   });
 });

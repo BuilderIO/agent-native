@@ -78,6 +78,17 @@ function isUnauthenticatedPayload(value: unknown): boolean {
   );
 }
 
+function isWorkspaceAppInventory(value: unknown): boolean {
+  return (
+    Array.isArray(value) ||
+    Boolean(
+      value &&
+      typeof value === "object" &&
+      Array.isArray((value as { apps?: unknown }).apps),
+    )
+  );
+}
+
 async function getCookieHeader(
   session: WorkspaceSession,
   origin: string,
@@ -130,16 +141,21 @@ export async function loadDesktopWorkspaceApps(options: {
       origin,
       WORKSPACE_APPS_PATH,
     );
+    if (!isWorkspaceAppInventory(inventory)) {
+      throw new Error("Workspace app inventory response was malformed");
+    }
     const apps = normalizeWorkspaceAppConfigs(inventory, { baseUrl: origin });
     return {
       enabled: true,
       apps,
     };
   } catch (error) {
-    // Native shells fail closed while the rollout or session is unavailable.
+    // Preserve the last usable inventory while the rollout or session is
+    // temporarily unavailable. An empty list would look like the feature was
+    // intentionally disabled and make every app disappear.
     console.warn("[desktop workspace apps] failed to load inventory", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
-    return { enabled: false, apps: [] };
+    return { enabled: true, apps: [], unavailable: true };
   }
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   type DesignClipboardPayload,
+  figmaHydrationErrorMessage,
   getFigmaClipboardContent,
   hasFigmaClipboardPayload,
   importResultNotification,
@@ -10,6 +11,7 @@ import {
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
   parseUploadResponse,
+  readFigmaImportFailure,
   serializeDesignClipboardPayload,
 } from "./design-import";
 
@@ -255,6 +257,7 @@ describe("design clipboard marker round-trip", () => {
       {
         html: "<div>Hello</div>",
         rootNodeId: "node-1",
+        sourceParentNodeId: "group-1",
         sourceFileId: "file-1",
         portableStyleSnapshot: {
           version: 1,
@@ -492,5 +495,131 @@ describe("parseUploadResponse", () => {
         "Upload failed",
       ),
     ).rejects.toThrow(SyntaxError);
+  });
+});
+
+describe("readFigmaImportFailure", () => {
+  it("reads rate-limit facts from the details the transport preserves", () => {
+    const error = Object.assign(
+      new Error("Action import-figma-frame failed: Figma nodes request failed"),
+      {
+        actionMessage: "Figma nodes request failed: Rate limit exceeded",
+        errorCode: "figma_rate_limited",
+        details: {
+          retryAfterSeconds: 90,
+          planTier: "starter",
+          rateLimitType: "low",
+          upgradeUrl: "https://www.figma.com/pricing",
+        },
+      },
+    );
+
+    const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
+
+    expect(isRateLimited).toBe(true);
+    expect(result.error).toBe(
+      "Figma nodes request failed: Rate limit exceeded",
+    );
+    expect(result.rateLimitRetryAfter).toBe(90);
+    expect(result.rateLimitPlanTier).toBe("starter");
+    expect(result.rateLimitType).toBe("low");
+    expect(result.rateLimitUpgradeUrl).toBe("https://www.figma.com/pricing");
+  });
+
+  it("does not treat a non-rate-limit failure as rate limited", () => {
+    const error = Object.assign(new Error("Action x failed: nope"), {
+      actionMessage: "Figma nodes request failed: Invalid token",
+      errorCode: "figma_request_failed",
+      details: { figmaStatus: 401 },
+    });
+
+    const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
+
+    expect(isRateLimited).toBe(false);
+    expect(result.error).toBe("Figma nodes request failed: Invalid token");
+    expect(result.rateLimitRetryAfter).toBeUndefined();
+  });
+
+  it("falls back to the caller's copy when the failure carried no message", () => {
+    const { result } = readFigmaImportFailure({}, "Something went wrong");
+    expect(result.error).toBe("Something went wrong");
+  });
+
+  it("marks our own provider quota cooldown as design-sourced, not Figma", () => {
+    const error = Object.assign(new Error("Action x failed: cooldown"), {
+      actionMessage: "Design is pacing its own Figma requests",
+      errorCode: "figma_provider_quota_cooldown",
+      details: { retryAfterSeconds: 42 },
+    });
+
+    const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
+
+    // Still a banner state so the countdown and the no-quota alternatives
+    // render, but attributed to Design so no Figma plan copy or upgrade link.
+    expect(isRateLimited).toBe(true);
+    expect(result.quotaSource).toBe("design");
+    expect(result.rateLimitRetryAfter).toBe(42);
+    expect(result.rateLimitUpgradeUrl).toBeUndefined();
+    expect(result.rateLimitPlanTier).toBeUndefined();
+  });
+
+  it("attributes a Figma rate limit to Figma", () => {
+    const error = Object.assign(new Error("Action x failed: rate limited"), {
+      errorCode: "figma_rate_limited",
+      details: { retryAfterSeconds: 90, planTier: "starter" },
+    });
+
+    const { result } = readFigmaImportFailure(error, "fallback");
+    expect(result.quotaSource).toBe("figma");
+    expect(result.rateLimitPlanTier).toBe("starter");
+  });
+});
+
+describe("figmaHydrationErrorMessage", () => {
+  const fallback = "common.genericError";
+  const forbidden = "figma token scope guidance";
+
+  it("uses the typed provider message for rate limits", () => {
+    const error = Object.assign(
+      new Error("Action hydrate-figma-paste-images failed: action error"),
+      {
+        actionMessage: "Figma image fills request failed: Rate limit exceeded",
+        errorCode: "figma_rate_limited",
+        details: { retryAfterSeconds: 60 },
+      },
+    );
+
+    expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
+      "Figma image fills request failed: Rate limit exceeded",
+    );
+  });
+
+  it("does not label an unrelated internal error as Figma rate limiting", () => {
+    const error = Object.assign(
+      new Error(
+        "Action hydrate-figma-paste-images failed: Internal server error",
+      ),
+      { errorCode: "action_failed" },
+    );
+
+    expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
+      fallback,
+    );
+  });
+
+  it("keeps actionable guidance for a typed Figma permission denial", () => {
+    const error = Object.assign(
+      new Error("Action hydrate-figma-paste-images failed: Access denied"),
+      {
+        actionMessage: "Figma image fills request failed: Access denied",
+        errorCode: "figma_request_failed",
+        statusCode: 403,
+        details: { figmaStatus: 403 },
+      },
+    );
+
+    expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
+      forbidden,
+    );
   });
 });

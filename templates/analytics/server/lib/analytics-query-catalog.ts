@@ -1,6 +1,14 @@
-import { getAllSettings, listOrgSettings } from "@agent-native/core/settings";
+import {
+  getAllSettings,
+  getUserSetting,
+  listOrgSettings,
+} from "@agent-native/core/settings";
 
 import { dashboardCatalogEntries } from "./dashboard-catalog";
+import {
+  isDashboardCertified,
+  type DashboardCertification,
+} from "./dashboard-certification";
 import {
   listDashboardSummaries,
   loadDashboardCatalogDashboards,
@@ -92,6 +100,9 @@ export type AnalyticsQueryCatalogCandidate =
       /** Absent for extension/embed panels, which are matched on title and description. */
       query?: string | Record<string, unknown>;
       timeScope?: string;
+      dashboardCertification?: DashboardCertification;
+      dashboardCertified: boolean;
+      favorite?: boolean;
     }
   | {
       kind: "data-dictionary";
@@ -116,6 +127,19 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+async function listFavoriteDashboardIds(email: string): Promise<Set<string>> {
+  const value = await getUserSetting(email, "favorites");
+  const ids =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>).ids
+      : null;
+  return new Set(
+    Array.isArray(ids)
+      ? ids.filter((id): id is string => typeof id === "string")
+      : [],
+  );
+}
+
 function compactQuery(value: unknown): string | Record<string, unknown> | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -130,6 +154,7 @@ function compactQuery(value: unknown): string | Record<string, unknown> | null {
 function summaryScore(
   search: string,
   dashboard: DashboardSummaryRecord,
+  favoriteIds: ReadonlySet<string>,
 ): number {
   const { score } = matchScore(search, [
     { value: dashboard.name, weight: 24 },
@@ -138,13 +163,20 @@ function summaryScore(
     { value: dashboard.catalogTemplateId, weight: 6 },
     { value: dashboard.demoId, weight: 6 },
   ]);
-  return score;
+  const certified = isDashboardCertified(
+    dashboard.certification,
+    dashboard.updatedAt,
+  );
+  return (
+    score + (certified ? 60 : 0) + (favoriteIds.has(dashboard.id) ? 20 : 0)
+  );
 }
 
 function shortlistDashboardSummaries(
   search: string,
   dashboards: DashboardSummaryRecord[],
   limit: number,
+  favoriteIds: ReadonlySet<string>,
 ): DashboardSummaryRecord[] {
   const maxHydration = Math.min(
     Math.max(limit * 4, 12),
@@ -153,7 +185,7 @@ function shortlistDashboardSummaries(
   return dashboards
     .map((dashboard) => ({
       dashboard,
-      score: summaryScore(search, dashboard),
+      score: summaryScore(search, dashboard, favoriteIds),
     }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
@@ -303,6 +335,9 @@ function dashboardPanelCandidates(args: {
   config: Record<string, unknown>;
   origin: "saved-dashboard" | "dashboard-template";
   search: string;
+  certification: DashboardCertification | null;
+  dashboardUpdatedAt?: string;
+  favorite: boolean;
 }): AnalyticsQueryCatalogCandidate[] {
   const panels = Array.isArray(args.config.panels)
     ? (args.config.panels as DashboardPanel[])
@@ -371,12 +406,18 @@ function dashboardPanelCandidates(args: {
       text(panel.chartType) === "metric"
         ? 20
         : 0;
-    const score =
+    const relevanceScore =
       rawScore -
       titleSpecificityPenalty -
       missingQueryPenalty +
       aggregateIntent;
-    if (score <= 0) return [];
+    if (relevanceScore <= 0) return [];
+    const dashboardCertified = Boolean(
+      args.dashboardUpdatedAt &&
+      isDashboardCertified(args.certification, args.dashboardUpdatedAt),
+    );
+    const score =
+      relevanceScore + (dashboardCertified ? 60 : 0) + (args.favorite ? 20 : 0);
 
     return [
       {
@@ -397,6 +438,11 @@ function dashboardPanelCandidates(args: {
         ...(text(panelConfig.timeScope)
           ? { timeScope: text(panelConfig.timeScope) }
           : {}),
+        ...(args.certification
+          ? { dashboardCertification: args.certification }
+          : {}),
+        dashboardCertified,
+        ...(args.favorite ? { favorite: true } : {}),
       },
     ];
   });
@@ -479,6 +525,12 @@ function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
     .toLowerCase()}`;
 }
 
+function candidateTrustTier(candidate: AnalyticsQueryCatalogCandidate): number {
+  if (candidate.kind !== "dashboard-panel") return 0;
+  if (candidate.dashboardCertified) return 2;
+  return candidate.favorite ? 1 : 0;
+}
+
 export function rankAnalyticsQueryCatalog(args: {
   search: string;
   dashboards: Array<{
@@ -487,6 +539,9 @@ export function rankAnalyticsQueryCatalog(args: {
     description?: string;
     config: Record<string, unknown>;
     origin: "saved-dashboard" | "dashboard-template";
+    certification?: DashboardCertification | null;
+    updatedAt?: string;
+    favorite?: boolean;
   }>;
   dictionaryEntries: DictionaryEntry[];
   limit: number;
@@ -500,12 +555,18 @@ export function rankAnalyticsQueryCatalog(args: {
         config: dashboard.config,
         origin: dashboard.origin,
         search: args.search,
+        certification: dashboard.certification ?? null,
+        dashboardUpdatedAt: dashboard.updatedAt,
+        favorite: dashboard.favorite === true,
       }),
     ),
     ...dictionaryCandidates(args.dictionaryEntries, args.search),
   ];
 
   const ranked = candidates.sort((a, b) => {
+    const aTrustTier = candidateTrustTier(a);
+    const bTrustTier = candidateTrustTier(b);
+    if (bTrustTier !== aTrustTier) return bTrustTier - aTrustTier;
     if (b.score !== a.score) return b.score - a.score;
     // Prefer something the agent can run over something it must look up again.
     const aRunnable = candidateIsRunnable(a);
@@ -568,6 +629,9 @@ function savedDashboardInput(
     description: summary.description ?? undefined,
     config: dashboard.config,
     origin: "saved-dashboard" as const,
+    certification: dashboard.certification,
+    ...(dashboard.updatedAt ? { updatedAt: dashboard.updatedAt } : {}),
+    favorite: summary.favorite === true,
   };
 }
 
@@ -577,7 +641,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   orgId: string | null;
   limit: number;
 }): Promise<AnalyticsQueryCatalogCandidate[]> {
-  const [savedSummariesResult, dictionaryEntriesResult] =
+  const [savedSummariesResult, dictionaryEntriesResult, favoriteIdsResult] =
     await Promise.allSettled([
       listDashboardSummaries(
         { email: args.email, orgId: args.orgId },
@@ -589,7 +653,12 @@ export async function searchAnalyticsQueryCatalog(args: {
         },
       ),
       listDictionaryEntries({ email: args.email, orgId: args.orgId }),
+      listFavoriteDashboardIds(args.email),
     ]);
+  const favoriteIds =
+    favoriteIdsResult.status === "fulfilled"
+      ? favoriteIdsResult.value
+      : new Set<string>();
   const savedSummaries =
     savedSummariesResult.status === "fulfilled"
       ? savedSummariesResult.value
@@ -606,6 +675,7 @@ export async function searchAnalyticsQueryCatalog(args: {
     args.search,
     savedSummaries,
     args.limit,
+    favoriteIds,
   );
   const shortlistedIds = shortlistedSummaries.map((dashboard) => dashboard.id);
   const savedDashboardsResult = await loadDashboardCatalogDashboards(
@@ -643,7 +713,12 @@ export async function searchAnalyticsQueryCatalog(args: {
       ...shortlistedSummaries.flatMap((summary) => {
         const dashboard = savedDashboards.get(summary.id);
         if (!dashboard) return [];
-        return [savedDashboardInput(summary, dashboard)];
+        return [
+          savedDashboardInput(
+            { ...summary, favorite: favoriteIds.has(summary.id) },
+            dashboard,
+          ),
+        ];
       }),
       ...templateDashboards,
     ],

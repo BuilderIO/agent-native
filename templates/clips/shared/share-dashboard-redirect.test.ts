@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CLIP_SHARE_REF,
-  DASHBOARD_REDIRECT_PARAM,
-  DASHBOARD_REDIRECT_VALUE,
-  REF_PARAM,
-} from "./share-attribution.js";
+import { CLIP_SHARE_REF, REF_PARAM } from "./share-attribution.js";
 import { resolveDashboardRedirect } from "./share-dashboard-redirect.js";
 
 describe("resolveDashboardRedirect", () => {
@@ -47,16 +42,6 @@ describe("resolveDashboardRedirect", () => {
         search: `?${REF_PARAM}=${CLIP_SHARE_REF}`,
       }),
     ).toBe("/r/rec_1");
-  });
-
-  it("does not bounce back when /r already redirected here", () => {
-    expect(
-      resolveDashboardRedirect({
-        recordingId: "rec_1",
-        canOpenDashboard: true,
-        search: `?${REF_PARAM}=${CLIP_SHARE_REF}&${DASHBOARD_REDIRECT_PARAM}=${DASHBOARD_REDIRECT_VALUE}`,
-      }),
-    ).toBeNull();
   });
 
   it("forwards deep-link params and drops everything else", () => {

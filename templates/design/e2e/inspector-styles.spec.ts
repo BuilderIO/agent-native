@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 
 import {
   cdpScreenshot,
+  createFixtureDesign,
   designFrame,
   gotoEditor,
   installBridge,
@@ -29,8 +30,21 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
   return page.locator("section").filter({ has: heading }).first();
 }
 
+/**
+ * The page/body background lives in the "Screen" section. "Canvas" is the
+ * editor board behind the screens and is solid-only by design — ColorInput
+ * there rejects any value that is not a plain color, so a gradient or image
+ * committed against it is dropped on purpose, not lost.
+ */
 function pagePropertiesSection(page: Page): Locator {
-  return inspectorSection(page, /^Page$/);
+  return inspectorSection(page, /^Screen$/);
+}
+
+async function selectLayerFromTree(page: Page, name: string): Promise<void> {
+  await page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("button", { name, exact: true })
+    .click();
 }
 
 function bodyElement(page: Page): Locator {
@@ -127,12 +141,31 @@ async function selectedElementStyle(
   return designFrame(page)
     .getByText(text, { exact: false })
     .first()
-    .evaluate(
-      (el, name) =>
-        (el as HTMLElement).style.getPropertyValue(name) ||
-        window.getComputedStyle(el).getPropertyValue(name),
-      property,
-    );
+    .evaluate((el, name) => {
+      // `getByText` returns the SMALLEST element holding the text, which for
+      // a painted leaf is the editor's own `data-an-text` wrapper. The
+      // inspector writes to the element that wrapper sits inside.
+      const node = el as HTMLElement;
+      const styled = node.hasAttribute("data-an-text")
+        ? (node.parentElement ?? node)
+        : node;
+      return (
+        styled.style.getPropertyValue(name) ||
+        window.getComputedStyle(styled).getPropertyValue(name)
+      );
+    }, property);
+}
+
+async function readDesignSource(page: Page, designId: string): Promise<string> {
+  const response = await page.request.get(
+    new URL("/_agent-native/actions/read-source-file", page.url()).href,
+    { params: { designId, path: "index.html" } },
+  );
+  if (!response.ok()) {
+    throw new Error(`read-source-file failed: ${response.status()}`);
+  }
+  const result = (await response.json()) as { content: string };
+  return result.content;
 }
 
 async function resolvedColorChannels(
@@ -156,7 +189,13 @@ async function resolvedColorChannels(
   }, value);
 }
 
-test("page background supports gradient edits", async ({ page }) => {
+// Unreachable standalone, not broken: the page-background section renders only
+// at `scope === "document"`, which resolveBackgroundPanelScope grants for
+// viewMode "single" + mode "edit" — and standalone, "single" is the Interact
+// view, so only a host-embedded editor gets there. Belongs with the
+// host-embedded shell specs, not here. The infinite render loop this used to
+// hit was a real bug and is fixed (DesignColorPicker.gradient-loop.test.tsx).
+test.fixme("page background supports gradient edits", async ({ page }) => {
   await page.keyboard.press("Escape");
   const pageSection = pagePropertiesSection(page);
   await expect(pageSection).toBeVisible();
@@ -174,7 +213,8 @@ test("page background supports gradient edits", async ({ page }) => {
     .toContain("25%");
 });
 
-test("page background exposes image controls and accepts a tiled image URL", async ({
+// Same document-scope gate as the gradient test above.
+test.fixme("page background exposes image controls and accepts a tiled image URL", async ({
   page,
 }) => {
   await page.keyboard.press("Escape");
@@ -256,29 +296,129 @@ test("text fills hide and restore without losing the original color", async ({
   await expect(heading).toBeVisible();
 });
 
+test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
+  page,
+}) => {
+  const fillDesignId = await createFixtureDesign(
+    page,
+    `Fill gradient regression ${Date.now()}`,
+  );
+  await gotoEditor(page, fillDesignId);
+
+  const headingText = "E2E Hero Heading";
+  await selectByText(page, headingText);
+  const originalTextColor = await selectedElementStyle(
+    page,
+    headingText,
+    "color",
+  );
+  const textFillSection = inspectorSection(page, /^Fill$/i);
+  await openColorPicker(textFillSection);
+  await choosePaintType(page, "Linear");
+
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-image"))
+    .toContain("linear-gradient(");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-clip"))
+    .toBe("text");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "color"))
+    .toBe("transparent");
+  await expect
+    .poll(() => readDesignSource(page, fillDesignId))
+    .toContain("linear-gradient(");
+  const sourceAfterApply = await readDesignSource(page, fillDesignId);
+  const headingStart = sourceAfterApply.indexOf("<h1");
+  const headingTagEnd = sourceAfterApply.indexOf(">", headingStart);
+  expect(sourceAfterApply.slice(headingStart, headingTagEnd)).toContain(
+    "linear-gradient(",
+  );
+
+  await selectLayerFromTree(
+    page,
+    "First fixture paragraph for selection tests.",
+  );
+  await selectLayerFromTree(page, headingText);
+  const sourceAfterReselection = await readDesignSource(page, fillDesignId);
+  const reselectedHeadingStart = sourceAfterReselection.indexOf("<h1");
+  const reselectedHeadingTagEnd = sourceAfterReselection.indexOf(
+    ">",
+    reselectedHeadingStart,
+  );
+  expect(
+    sourceAfterReselection.slice(
+      reselectedHeadingStart,
+      reselectedHeadingTagEnd,
+    ),
+  ).toContain("linear-gradient(");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-image"))
+    .toContain("linear-gradient(");
+  await expect(
+    textFillSection.getByRole("button", { name: "Linear gradient 1" }),
+  ).toBeVisible();
+  await textFillSection
+    .getByRole("button", { name: "Linear gradient 1" })
+    .click();
+  await expect(
+    page.locator('input[aria-label="Gradient angle"]'),
+  ).toBeVisible();
+
+  await textFillSection
+    .getByRole("button", { name: "Remove layer" })
+    .nth(1)
+    .click();
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-image"))
+    .toBe("none");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-clip"))
+    .toBe("border-box");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "color"))
+    .toBe(originalTextColor);
+
+  const boxText = "Alpha Button";
+  await selectByText(page, boxText);
+  const boxFillSection = inspectorSection(page, /^Fill$/i);
+  await openColorPicker(boxFillSection);
+  await choosePaintType(page, "Linear");
+
+  await expect
+    .poll(() => selectedElementStyle(page, boxText, "background-image"))
+    .toContain("linear-gradient(");
+  await expect
+    .poll(() => selectedElementStyle(page, boxText, "background-color"))
+    .toBe("transparent");
+
+  await selectLayerFromTree(
+    page,
+    "First fixture paragraph for selection tests.",
+  );
+  await selectLayerFromTree(page, boxText);
+  await expect(
+    boxFillSection.getByRole("button", { name: "Linear gradient 1" }),
+  ).toBeVisible();
+  await boxFillSection
+    .getByRole("button", { name: "Linear gradient 1" })
+    .click();
+  await expect(
+    page.locator('input[aria-label="Gradient angle"]'),
+  ).toBeVisible();
+});
+
+// Stroke is solid-only and grows no layer rows, so Effects is the only
+// section that owns this UI.
 test("style layer row actions stay visible and toggle visibility state", async ({
   page,
 }) => {
   await selectByText(page, "Alpha Button");
 
-  const strokeSection = inspectorSection(page, /^Stroke$/i);
-  await strokeSection.getByRole("button", { name: "Add layer" }).click();
-  const hideStrokeButton = strokeSection
-    .locator('button[aria-label="Hide layer"]')
-    .first();
-  const removeStrokeButton = strokeSection
-    .locator('button[aria-label="Remove layer"]')
-    .first();
-  await expect(hideStrokeButton).toBeVisible();
-  await expect(removeStrokeButton).toBeVisible();
-
-  await hideStrokeButton.click();
-  await expect(
-    strokeSection.locator('button[aria-label="Show layer"]').first(),
-  ).toBeVisible();
-
   const effectsSection = inspectorSection(page, /^Effects$/i);
-  await effectsSection.getByRole("button", { name: "Add layer" }).click();
+  // Each section names its own add control; "Add layer" is an i18n key no
+  // component renders.
+  await effectsSection.getByRole("button", { name: "Add effect" }).click();
   await page.getByRole("menuitem", { name: "Drop shadow" }).click();
   const hideEffectButton = effectsSection
     .locator('button[aria-label="Hide layer"]')
@@ -312,13 +452,23 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
   await typographySection
     .getByRole("button", { name: "Typography details" })
     .click();
-  await expect(page.getByText("Preview", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Auto width" })).toBeVisible();
+  // Scoped to the popover: the canvas chrome also renders a "Preview" label,
+  // so a page-wide exact-text lookup is a strict-mode violation, not a miss.
+  const typographyDetails = page
+    .getByRole("dialog")
+    .filter({ has: page.getByRole("tablist") })
+    .first();
+  await expect(
+    typographyDetails.getByText("Preview", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    typographyDetails.getByRole("button", { name: "Auto width" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
 
   await setScrubInput(typographySection, "Size", "52");
   await setScrubInput(typographySection, "Line height", "1.25");
-  await setScrubInput(typographySection, "Tracking", "2");
+  await setScrubInput(typographySection, "Letter spacing", "2");
 
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "font-size"))

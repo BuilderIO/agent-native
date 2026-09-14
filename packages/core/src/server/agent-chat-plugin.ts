@@ -36,7 +36,10 @@ import {
   createA2AApproval,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
-import type { Message as A2AMessage } from "../a2a/types.js";
+import type {
+  A2AConnectionRequestMetadata,
+  Message as A2AMessage,
+} from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
 import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
@@ -88,12 +91,12 @@ import {
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+import type { ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
 import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
-import type { UnclaimedBackgroundRunRow } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -113,6 +116,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
   AgentChatEvent,
+  AgentChatScope,
   MentionItemMedia,
   MentionProvider,
 } from "../agent/types.js";
@@ -154,7 +158,6 @@ import {
   isProductionServerlessFunctionRuntime,
   isTransientDatabaseError,
 } from "../db/client.js";
-import { isFeatureFlagEnabled } from "../feature-flags/index.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -200,13 +203,24 @@ import {
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
+  AGENT_CHAT_STREAM_PATH,
+  AGENT_CHAT_STREAM_TOKEN_SUFFIX,
+  AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
+  createAgentChatStreamToken,
+  isAgentChatStreamingRuntime,
+  readAgentChatStreamBearerToken,
+  verifyAgentChatStreamToken,
+} from "./agent-chat-stream.js";
+import {
   handleSharedThreadRequest,
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
+  resolveAgentRunOrgId,
   resolveAgentRunOwnerContext,
   runWithAgentRunContext,
+  seedAgentRunOwnerContext,
   seedBackgroundAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -323,6 +337,7 @@ import {
   filterDirectA2AActions,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
+  shouldSelectedA2AReceiverOwnObjective,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -428,6 +443,43 @@ export { resolveRecurringJobsBuildMarker };
 export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+function hasSuccessfulSideEffect(run: Pick<ActiveRun, "events">): boolean {
+  return run.events.some(
+    ({ event }) =>
+      event.type === "tool_done" &&
+      event.completedSideEffect === true &&
+      event.isError !== true,
+  );
+}
+
+export async function runPostAgentTurnAutosave(
+  callback: AgentChatPluginOptions["onAgentTurnComplete"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: ActiveRun,
+): Promise<void> {
+  if (!callback || !scope || !hasSuccessfulSideEffect(run)) return;
+
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "post-agent-turn-autosave",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+        scopeType: scope.type,
+        scopeId: scope.id,
+      },
+    });
+    console.error("[agent-chat] post-agent-turn autosave failed:", error);
+  }
+}
 
 /**
  * The model this mount runs with, when the caller does not pass one per request.
@@ -664,10 +716,109 @@ export function resolveHostedBuilderHandoff(
   return connectBuilder ? { "connect-builder": connectBuilder } : {};
 }
 
+type AgentChatPluginCleanup = () => void | Promise<void>;
+
+function createAgentChatPluginLifecycle() {
+  const cleanups = new Set<AgentChatPluginCleanup>();
+  const pendingCleanups = new Set<Promise<void>>();
+  let closed = false;
+
+  const runCleanup = (cleanup: AgentChatPluginCleanup): void => {
+    const pending = Promise.resolve()
+      .then(cleanup)
+      .catch((error: unknown) => {
+        console.warn("[agent-chat] Plugin cleanup failed:", error);
+      });
+    pendingCleanups.add(pending);
+    void pending.finally(() => pendingCleanups.delete(pending));
+  };
+
+  const addCleanup = (cleanup: AgentChatPluginCleanup): void => {
+    if (closed) {
+      runCleanup(cleanup);
+      return;
+    }
+    cleanups.add(cleanup);
+  };
+
+  return {
+    addCleanup,
+    startTimeout(
+      callback: () => void,
+      delayMs: number,
+    ): ReturnType<typeof setTimeout> | undefined {
+      if (closed) return undefined;
+      const timer = setTimeout(callback, delayMs);
+      addCleanup(() => clearTimeout(timer));
+      return timer;
+    },
+    startInterval(
+      callback: () => void,
+      intervalMs: number,
+    ): ReturnType<typeof setInterval> | undefined {
+      if (closed) return undefined;
+      const timer = setInterval(callback, intervalMs);
+      addCleanup(() => clearInterval(timer));
+      return timer;
+    },
+    beginClose(): void {
+      if (closed) return;
+      closed = true;
+      const registered = [...cleanups];
+      cleanups.clear();
+      for (const cleanup of registered) runCleanup(cleanup);
+    },
+    async drainCleanups(): Promise<void> {
+      while (pendingCleanups.size > 0) {
+        await Promise.allSettled([...pendingCleanups]);
+      }
+    },
+  };
+}
+
+export function resolveAgentCheckpointPaths(
+  cwd: string,
+  changedPaths: readonly string[],
+  events: readonly { event: AgentChatEvent }[],
+): Map<string, string> {
+  const reportedPaths = new Map<string, string>();
+  for (const { event } of events) {
+    if (
+      event.type !== "tool_done" ||
+      event.isError === true ||
+      (event.tool !== "edit" && event.tool !== "write") ||
+      typeof event.input?.path !== "string" ||
+      !event.fileMutation
+    ) {
+      continue;
+    }
+    const relative = nodePath
+      .relative(cwd, nodePath.resolve(cwd, event.input.path))
+      .replaceAll("\\", "/");
+    if (
+      relative &&
+      relative !== ".." &&
+      !relative.startsWith("../") &&
+      event.fileMutation.path.replaceAll("\\", "/") === relative &&
+      /^[0-9a-f]{64}$/.test(event.fileMutation.contentSha256)
+    ) {
+      reportedPaths.set(relative, event.fileMutation.contentSha256);
+    }
+  }
+  const resolved = new Map<string, string>();
+  for (const file of changedPaths) {
+    const contentSha256 = reportedPaths.get(file.replaceAll("\\", "/"));
+    if (!contentSha256) return new Map();
+    resolved.set(file, contentSha256);
+  }
+  return resolved;
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return (nitroApp: any) => {
+    const lifecycle = createAgentChatPluginLifecycle();
     markDefaultPluginProvided(nitroApp, "agent-chat");
     // Nitro v3 calls plugins synchronously and doesn't await async return
     // values. We track the async init so the framework's readiness gate
@@ -687,6 +838,9 @@ export function createAgentChatPlugin(
         (env === "development" || env === "test") &&
         getAppConfig().agent.mode !== "production";
       const routePath = options?.path ?? "/_agent-native/agent-chat";
+      const streamTokenPath =
+        routePath.replace(/\/+$/, "") + AGENT_CHAT_STREAM_TOKEN_SUFFIX;
+      const streamingRuntime = isAgentChatStreamingRuntime();
       const a2aAgentDelegationEnabled =
         resolveA2AAgentDelegationEnabled(options);
 
@@ -764,7 +918,10 @@ export function createAgentChatPlugin(
           );
         }
         await mcpManager.reconfigure(mcpConfig);
-        startMcpConfigRefresh(mcpManager);
+        const stopMcpConfigRefresh = startMcpConfigRefresh(mcpManager);
+        if (stopMcpConfigRefresh) {
+          lifecycle.addCleanup(stopMcpConfigRefresh);
+        }
       };
       /**
        * Start MCP initialization at most once, and return the run in flight.
@@ -881,6 +1038,8 @@ export function createAgentChatPlugin(
       } catch {
         // Package action registration is optional.
       }
+      const { mergeCoreSharingActions } = await import("./action-discovery.js");
+      await mergeCoreSharingActions(templateScriptsAll);
 
       // Resource, chat, docs, db, and cross-agent scripts are available in both
       // prod and dev modes, unless the app switched the group off through
@@ -971,6 +1130,7 @@ export function createAgentChatPlugin(
             "_utils",
             "db-connect",
             "db-status",
+            "migrate-production",
           ]);
 
           for (const dir of ["actions", "scripts"]) {
@@ -1065,6 +1225,7 @@ export function createAgentChatPlugin(
 
               // Fallback: bash-based wrapper for CLI-style scripts
               discoveredActionsAll[name] = {
+                cliWrapper: true,
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {
@@ -1082,8 +1243,81 @@ export function createAgentChatPlugin(
                   const bashEntry =
                     devScriptsForA2A.bash ?? devScriptsForA2A.shell;
                   if (!bashEntry) return "Error: bash not available";
+                  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+                    return "Error: invalid action name";
+                  }
+
+                  const tokens: string[] = [];
+                  if (typeof input?.args === "string" && input.args.trim()) {
+                    let current = "";
+                    let inSingle = false;
+                    let inDouble = false;
+                    let escape = false;
+                    for (let i = 0; i < input.args.length; i++) {
+                      const char = input.args[i];
+                      if (escape) {
+                        current += char;
+                        escape = false;
+                        continue;
+                      }
+                      if (char === "\\") {
+                        if (inSingle) {
+                          current += char;
+                        } else {
+                          escape = true;
+                        }
+                        continue;
+                      }
+                      if (char === "'" && !inDouble) {
+                        inSingle = !inSingle;
+                        continue;
+                      }
+                      if (char === '"' && !inSingle) {
+                        inDouble = !inDouble;
+                        continue;
+                      }
+                      if (/\s/.test(char) && !inSingle && !inDouble) {
+                        if (current.length > 0) {
+                          tokens.push(current);
+                          current = "";
+                        }
+                        continue;
+                      }
+                      current += char;
+                    }
+                    if (current.length > 0) {
+                      tokens.push(current);
+                    }
+                  } else if (input && typeof input === "object") {
+                    for (const [k, v] of Object.entries(input)) {
+                      if (k === "args" || v === undefined || v === null)
+                        continue;
+                      const strVal =
+                        typeof v === "object" ? JSON.stringify(v) : String(v);
+                      tokens.push(`--${k}`, strVal);
+                    }
+                  }
+
+                  const BLOCKED_OPERATORS = new Set([
+                    ";",
+                    "&&",
+                    "||",
+                    "|",
+                    "&",
+                    ">",
+                    ">>",
+                    "<",
+                  ]);
+                  if (tokens.some((token) => BLOCKED_OPERATORS.has(token))) {
+                    return "Error: shell operators are not permitted in action arguments";
+                  }
+
+                  const escapedArgs = tokens
+                    .map((arg) => "'" + arg.replace(/'/g, "'\\''") + "'")
+                    .join(" ");
+
                   return bashEntry.run({
-                    command: `pnpm action ${name} ${input.args || ""}`.trim(),
+                    command: `pnpm action ${name} ${escapedArgs}`.trim(),
                   });
                 },
                 ...(httpConfig !== undefined ? { http: httpConfig } : {}),
@@ -1288,14 +1522,14 @@ export function createAgentChatPlugin(
             await import("../extensions/web-search-tool.js");
           const {
             getBuilderWebSearchBaseUrl,
-            resolveBuilderGatewayCredentials,
+            resolveBuilderGatewayAuth,
             resolveSecret,
           } = await import("./credential-provider.js");
           const { getBuilderGatewayRequestHeaders } =
             await import("../agent/engine/builder-gateway-headers.js");
           webSearchTool = createWebSearchToolEntry({
             resolveSecret,
-            resolveBuilderCredentials: resolveBuilderGatewayCredentials,
+            resolveBuilderCredentials: resolveBuilderGatewayAuth,
             getBuilderWebSearchBaseUrl,
             getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
           });
@@ -1711,6 +1945,7 @@ export function createAgentChatPlugin(
             callId: `a2a-action-${invocationId}`,
             ownerEmail: getRequestUserEmail(),
             orgId: getRequestOrgId() ?? null,
+            appId: options?.appId,
             caller: "a2a",
             networkProtocol: "a2a",
             networkId: invocationId,
@@ -1731,6 +1966,7 @@ export function createAgentChatPlugin(
             callId: approval.callId,
             ownerEmail: approval.ownerEmail,
             orgId: approval.orgId ?? null,
+            appId: options?.appId,
             approvedToolCalls: [approval.approvalKey],
           });
           if (result.status === "approval_required") {
@@ -1951,17 +2187,12 @@ export function createAgentChatPlugin(
           const extra = await resolveExtraContext(context.event, owner);
 
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
-          const receiverOwnsObjective =
-            isSelectedA2AReceiver(
-              correlation.selectedReceiverApp,
-              options?.appId,
-            ) &&
-            !!options?.a2aReceiverOwnershipFlag &&
-            (await isFeatureFlagEnabled(options.a2aReceiverOwnershipFlag, {
-              userEmail,
-              userKey: userEmail,
-              orgId: getRequestOrgId() ?? undefined,
-            }));
+          const receiverOwnsObjective = shouldSelectedA2AReceiverOwnObjective({
+            authenticatedCallerEmail: userEmail,
+            enabled: !!options?.selectedA2AReceiverOwnsObjective,
+            selectedReceiverApp: correlation.selectedReceiverApp,
+            appId: options?.appId,
+          });
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });
@@ -2217,6 +2448,7 @@ export function createAgentChatPlugin(
                     result: event.result,
                     isError: event.isError,
                     completedSideEffect: event.completedSideEffect,
+                    artifacts: event.artifacts,
                   });
                   const artifactBaseUrl = resolveArtifactBaseUrl(context.event);
                   const recoverableArtifactMessage =
@@ -2349,6 +2581,54 @@ export function createAgentChatPlugin(
                     approvalId: pending.id,
                     tool: approval.tool,
                     approvalUrl,
+                  },
+                },
+              ],
+            };
+            return;
+          }
+
+          const connectionRequest = [...a2aEvents]
+            .reverse()
+            .find(
+              (
+                event,
+              ): event is Extract<
+                AgentChatEvent,
+                { type: "connection_required" }
+              > => event.type === "connection_required",
+            );
+          if (connectionRequest) {
+            const requestMetadata: A2AConnectionRequestMetadata = {
+              version: 1,
+              provider: connectionRequest.provider,
+              reason: connectionRequest.reason,
+              ...(connectionRequest.appId
+                ? { appId: connectionRequest.appId }
+                : {}),
+              ...(connectionRequest.detail
+                ? { detail: connectionRequest.detail }
+                : {}),
+            };
+            yield {
+              role: "agent" as const,
+              metadata: {
+                agentNativeTaskState: "input-required",
+                agentNativeConnectionRequest: requestMetadata,
+              },
+              parts: [
+                buildA2AAgentActivityPart(activityState),
+                {
+                  type: "text" as const,
+                  text:
+                    connectionRequest.detail ??
+                    `Connect ${connectionRequest.provider} to continue.`,
+                },
+                {
+                  type: "data" as const,
+                  data: {
+                    kind: "agent-native/connection-required",
+                    ...requestMetadata,
                   },
                 },
               ],
@@ -2521,6 +2801,8 @@ export function createAgentChatPlugin(
           description:
             mcpOptions.description ??
             `Agent-Native ${options?.appId ?? "app"} agent`,
+          instructions: mcpOptions.instructions,
+          keyToolNames: mcpOptions.keyToolNames,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
           actions: externalActions,
@@ -2694,6 +2976,7 @@ export function createAgentChatPlugin(
                       result: event.result,
                       isError: event.isError,
                       completedSideEffect: event.completedSideEffect,
+                      artifacts: event.artifacts,
                     });
                   }
                 },
@@ -2754,11 +3037,11 @@ export function createAgentChatPlugin(
       const getOrgIdFromEvent = async (
         event: any,
       ): Promise<string | undefined> => {
-        if (options?.resolveOrgId) {
-          return (await options.resolveOrgId(event)) ?? undefined;
-        }
-        const session = await getSession(event).catch(() => null);
-        return session?.orgId ?? undefined;
+        return resolveAgentRunOrgId({
+          event,
+          ownerContext: await resolveOwnerContext(event),
+          resolveOrgId: options?.resolveOrgId,
+        });
       };
 
       registerChatThreadsShareable();
@@ -2786,9 +3069,9 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      const { mountActionRoutes, mountWebMcpActionRoutes } =
+        await import("./action-routes.js");
       if (Object.keys(httpActions).length > 0) {
-        const { mountActionRoutes, mountWebMcpActionRoutes } =
-          await import("./action-routes.js");
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
             options.actionRoutePublicPaths,
@@ -2802,14 +3085,37 @@ export function createAgentChatPlugin(
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
         });
-        mountWebMcpActionRoutes(nitroApp, httpActions, {
-          getOwnerFromEvent,
-          getUserNameFromEvent,
-          appId: options?.appId,
-          resolveOrgId: options?.resolveOrgId,
-          actionRouteAuth: options?.actionRouteAuth,
-        });
       }
+      // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
+      // have to open the (single-process) local database itself while this
+      // server is already holding it open. Gated internally on deploy
+      // environment, loopback, and a per-process token — see dev-action-bridge.ts.
+      const { mountDevActionForwardRoute } =
+        await import("./dev-action-bridge.js");
+      mountDevActionForwardRoute(nitroApp, httpActions, {
+        appId: options?.appId,
+      });
+      mountWebMcpActionRoutes(nitroApp, httpActions, {
+        getOwnerFromEvent,
+        getOwnerContextFromEvent: resolveOwnerContext,
+        getUserNameFromEvent,
+        appId: options?.appId,
+        resolveOrgId: options?.resolveOrgId,
+        actionRouteAuth: options?.actionRouteAuth,
+        manifest: {
+          name: options?.appId
+            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+            : "Agent",
+          title: mcpOptions.title,
+          description:
+            mcpOptions.description ??
+            `Agent-Native ${options?.appId ?? "app"} agent`,
+          instructions: mcpOptions.instructions,
+          keyToolNames: mcpOptions.keyToolNames,
+          websiteUrl: mcpOptions.websiteUrl,
+          icons: mcpOptions.icons,
+        },
+      });
 
       const preRunGitStatusByThread = new Map<string, string | null>();
 
@@ -2830,12 +3136,16 @@ export function createAgentChatPlugin(
 
       // Callback to persist agent response when run finishes (even if client disconnected).
       // Reconstructs the assistant message from buffered events and appends to thread_data.
-      const onRunComplete = async (run: any, threadId: string | undefined) => {
+      const onRunComplete = async (
+        run: ActiveRun,
+        threadId: string | undefined,
+      ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         if (!threadId) {
           if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
           return;
         }
+        const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
         // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
@@ -2852,6 +3162,7 @@ export function createAgentChatPlugin(
             run.events ?? [],
             run.runId,
             {
+              scope: chatScope,
               suppressInternalContinuation: true,
               turnId:
                 typeof run.turnId === "string" && run.turnId
@@ -2893,6 +3204,7 @@ export function createAgentChatPlugin(
               typeof run.turnId === "string" && run.turnId
                 ? run.turnId
                 : undefined,
+            parentId: run.parentId,
           });
 
           // Store debug metadata so we can inspect what the LLM actually
@@ -2917,9 +3229,18 @@ export function createAgentChatPlugin(
           );
         });
 
-        // Keep SQL run completion gated only on durable thread data. Follow-up
-        // hooks are useful, but they should never leave agent_runs stuck
-        // "running" if an automation/checkpoint path stalls.
+        // Checkpoint creation is part of durable turn completion. The helper
+        // catches and reports its own failures, so a broken app checkpoint does
+        // not strand the run while a successful checkpoint cannot be lost when
+        // a serverless invocation exits.
+        await runPostAgentTurnAutosave(
+          options?.onAgentTurnComplete,
+          chatScope,
+          run,
+        );
+
+        // Event triggers and local git checkpoints remain best effort and do
+        // not extend the durable chat persistence gate.
         void (async () => {
           // Emit agent.turn.completed for automation triggers.
           //
@@ -2959,9 +3280,8 @@ export function createAgentChatPlugin(
             try {
               const {
                 createCheckpoint: gitCheckpoint,
+                getChangedPaths,
                 isGitRepo,
-                hasUncommittedChanges,
-                getChangedFileNames,
                 getUncommittedStatus,
               } = await import("../checkpoints/service.js");
               const cwd = process.cwd();
@@ -2974,11 +3294,21 @@ export function createAgentChatPlugin(
               // If the tree was already dirty, a checkpoint commit would sweep
               // up the user's unrelated work when a reconnect/refresh finishes.
               const postRunStatus = getUncommittedStatus(cwd);
+              const changedPaths = getChangedPaths(cwd);
+              // Shell commands can mutate arbitrary files, so an unreported
+              // changed path has no safe per-run provenance. Skip the automatic
+              // checkpoint instead of claiming another process's work.
+              const agentModifiedPaths = resolveAgentCheckpointPaths(
+                cwd,
+                changedPaths,
+                run.events ?? [],
+              );
+              const agentModifiedPathList = [...agentModifiedPaths.keys()];
               if (
                 preRunStatus === "" &&
                 postRunStatus?.trim() &&
-                isGitRepo(cwd) &&
-                hasUncommittedChanges(cwd)
+                agentModifiedPaths.size > 0 &&
+                isGitRepo(cwd)
               ) {
                 let summary = "";
 
@@ -3004,7 +3334,9 @@ export function createAgentChatPlugin(
 
                 // Fall back to listing changed files
                 if (!summary) {
-                  const files = getChangedFileNames(cwd);
+                  const files = agentModifiedPathList.map((file) =>
+                    file.split(/[\\/]/).pop(),
+                  );
                   if (files.length > 0) {
                     summary = `Update ${files.join(", ")}`;
                   }
@@ -3014,7 +3346,12 @@ export function createAgentChatPlugin(
                 if (summary.length > 120)
                   summary = summary.slice(0, 117) + "...";
 
-                const sha = gitCheckpoint(cwd, summary);
+                const sha = gitCheckpoint(
+                  cwd,
+                  summary,
+                  agentModifiedPathList,
+                  agentModifiedPaths,
+                );
                 if (sha) {
                   const { insertCheckpoint } =
                     await import("../checkpoints/store.js");
@@ -3327,6 +3664,7 @@ export function createAgentChatPlugin(
             callId: request.callId,
             ownerEmail: request.userEmail,
             orgId: request.orgId,
+            appId: options?.appId,
             threadId: request.sessionId
               ? `realtime:${request.sessionId}`
               : `realtime:${request.callId}`,
@@ -3808,7 +4146,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.runId = runId;
           }
         },
-        onRunComplete: async (run: any, threadId: string | undefined) => {
+        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
@@ -3866,7 +4204,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.runId = runId;
                 }
               },
-              onRunComplete: async (run: any, threadId: string | undefined) => {
+              onRunComplete: async (
+                run: ActiveRun,
+                threadId: string | undefined,
+              ) => {
                 if (threadId) _runSendByThread.delete(threadId);
                 await onRunComplete(run, threadId);
               },
@@ -4124,7 +4465,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.runId = runId;
             }
           },
-          onRunComplete: async (run: any, threadId: string | undefined) => {
+          onRunComplete: async (
+            run: ActiveRun,
+            threadId: string | undefined,
+          ) => {
             if (threadId) _runSendByThread.delete(threadId);
             await onRunComplete(run, threadId);
           },
@@ -6305,6 +6649,74 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       };
 
+      // A Function URL is a separate origin, so the browser cannot send the
+      // Amplify session cookie with the stream request. Mint a short-lived,
+      // audience-bound handoff on the authenticated foreground origin.
+      getH3App(nitroApp).use(
+        streamTokenPath,
+        defineEventHandler(async (event) => {
+          setResponseHeader(event, "Cache-Control", "private, no-store");
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const session = await getSession(event);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+          try {
+            return {
+              token: await createAgentChatStreamToken({
+                ownerEmail: session.email,
+                orgId: session.orgId ?? null,
+              }),
+              ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
+            };
+          } catch (error) {
+            console.error("[agent-chat] stream token unavailable:", error);
+            setResponseStatus(event, 503);
+            return { error: "Agent-chat streaming is not configured" };
+          }
+        }),
+      );
+
+      if (streamingRuntime) {
+        // The exact public-path registry bypasses the normal cookie guard for
+        // this one route. The route immediately below still verifies the
+        // purpose-bound bearer token before entering the shared chat handler.
+        const app = getH3App(nitroApp);
+        registerAuthPublicPaths([AGENT_CHAT_STREAM_PATH], app);
+        app.use(
+          AGENT_CHAT_STREAM_PATH,
+          withTransientDatabaseFallback(
+            AGENT_CHAT_STREAM_PATH,
+            async (event) => {
+              setResponseHeader(event, "Cache-Control", "private, no-store");
+              if (getMethod(event) !== "POST") {
+                setResponseStatus(event, 405);
+                return { error: "Method not allowed" };
+              }
+              const principal = await verifyAgentChatStreamToken(
+                readAgentChatStreamBearerToken(
+                  getHeader(event, "authorization"),
+                ) ?? "",
+              );
+              if (!principal) {
+                setResponseStatus(event, 401);
+                return { error: "Authentication required" };
+              }
+              seedAgentRunOwnerContext(event, {
+                owner: principal.ownerEmail,
+                anonymous: false,
+                orgId: principal.orgId,
+              });
+              return invokeAgentChatHandler(event);
+            },
+          ),
+        );
+      }
+
       // ─── Durable background agent-chat run processor ──────────────────────
       // Self-fire target for a long chat turn. The foreground POST claims the
       // run slot, inserts the run row, and `fireInternalDispatch`es here; this
@@ -6490,9 +6902,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 : null;
             if (preparedMarkerRecord?.payloadRef === true) {
               const runStore = await import("../agent/run-store.js");
-              const rawPayload = await runStore
-                .readRunDispatchPayload(prepared.runId)
-                .catch(() => null);
+              const rawPayload = await runStore.readRunDispatchPayload(
+                prepared.runId,
+              );
               let parsedPayload: Record<string, unknown> | null = null;
               if (rawPayload) {
                 try {
@@ -6758,13 +7170,51 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const { sweepUnclaimedBackgroundRuns } =
+              await import("./unclaimed-background-runs.js");
+            const unclaimedBackgroundRuns = await sweepUnclaimedBackgroundRuns({
+              reapExpired: true,
+            }).catch((error: unknown) => {
+              console.error(
+                "[agent-chat] durable unclaimed-run sweep failed:",
+                error,
+              );
+              return null;
+            });
+            const triggerAvailability = scheduledTriggerAvailability();
+            if (unclaimedBackgroundRuns === null) {
+              setResponseStatus(event, 500);
+              return {
+                ok: false,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+                jobsSkipped: true,
+                jobsSkippedReason: "unclaimed-background-sweep-failed",
+              };
+            }
+            if (!triggerAvailability.available) {
+              return {
+                ok: true,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+                jobsSkipped: true,
+                jobsSkippedReason: triggerAvailability.reason,
+              };
+            }
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true, staleRunsReaped, chatHealth };
+              return {
+                ok: true,
+                staleRunsReaped,
+                chatHealth,
+                unclaimedBackgroundRuns,
+              };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
@@ -6772,6 +7222,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
                 chatHealth,
+                unclaimedBackgroundRuns,
               };
             }
           }),
@@ -6791,8 +7242,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
         } else {
           // Start after a 10-second delay to let the server fully initialize
-          setTimeout(() => {
-            setInterval(() => {
+          lifecycle.startTimeout(() => {
+            lifecycle.startInterval(() => {
               processRecurringJobs(schedulerDeps).catch((err) => {
                 console.error(
                   "[recurring-jobs] Scheduler error:",
@@ -6837,8 +7288,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               inFlight = false;
             }
           };
-          setTimeout(() => void sweep(), 15_000);
-          setInterval(() => void sweep(), 30_000);
+          lifecycle.startTimeout(() => void sweep(), 15_000);
+          lifecycle.startInterval(() => void sweep(), 30_000);
         })();
       }
 
@@ -6868,8 +7319,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
-        setTimeout(() => {
-          setInterval(() => {
+        lifecycle.startTimeout(() => {
+          lifecycle.startInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
@@ -6952,89 +7403,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // edit one site without the others (producer: chainServerDrivenContinuation
       // in production-agent.ts; guard + wire signal: run-manager.ts; recovery
       // actors: here).
-      const attemptUnclaimedBackgroundRunRedispatch = async (row: {
-        id: string;
-        startedAt: number;
-        hasDispatchPayload: boolean;
-      }): Promise<void> => {
-        // Eligibility for this sweep does not mean the row is redispatchable.
-        // The marker below asserts `payloadRef: true`, and a worker that then
-        // finds no payload fails the run as `dispatch_payload_missing` — so
-        // redispatching a payload-less row does not recover it, it destroys it.
-        // Leave it for the slow sweep's reap, which reports the true cause
-        // (`background_worker_never_started`) and is client-recoverable.
-        if (!row.hasDispatchPayload) return;
-        const { updateRunHeartbeat } = await import("../agent/run-store.js");
-        const { resolveAgentChatProcessRunDispatchPath } =
-          await import("../agent/durable-background.js");
-        const { fireInternalDispatch } = await import("./self-dispatch.js");
-        // Bump liveness BEFORE attempting the redispatch so the row doesn't
-        // look freshly-stale again the instant this tick returns —
-        // best-effort, the CAS is what actually matters for correctness, not
-        // this timing.
-        await updateRunHeartbeat(row.id).catch(() => {});
-        try {
-          // DELIBERATE: this marker omits `continuationCount`.
-          // `chainServerDrivenContinuation` (production-agent.ts) reads
-          // `backgroundRunMarker.continuationCount` to compute
-          // `backgroundContinuationCount`, defaulting to 0 when absent — so a
-          // chunk recovered here always starts a fresh nested-dispatch
-          // segment at depth 0, regardless of how deep the chain was before
-          // this sweep picked it up. This is what makes the sweep a genuine
-          // CHAIN BREAK, not just a retry: this redispatch fires from an
-          // unrelated, timer-driven invocation rather than from inside the
-          // prior chain's own live execution, so starting its nested-depth
-          // count over at 0 here is correct — see
-          // `MAX_NESTED_SELF_DISPATCH_DEPTH` in production-agent.ts for why
-          // nested depth is bounded and how this reset keeps a long turn
-          // progressing past Netlify's undocumented self-invocation
-          // loop-protection limit instead of dying at it. Do not "fix" this
-          // by adding `continuationCount` back without re-reading that
-          // constant's doc comment.
-          await fireInternalDispatch({
-            path: resolveAgentChatProcessRunDispatchPath(),
-            taskId: row.id,
-            body: {
-              internalContinuation: true,
-              [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                runId: row.id,
-                payloadRef: true,
-              },
-            },
-            awaitResponse: true,
-            responseTimeoutMs: 15_000,
-          });
-          console.error(
-            "[agent-chat] redispatched unclaimed background run (handoff recovery):",
-            row.id,
-          );
-        } catch (redispatchErr) {
-          console.error(
-            "[agent-chat] unclaimed background run redispatch attempt failed (retrying until the redispatch bound, then reaping):",
-            row.id,
-            redispatchErr instanceof Error
-              ? redispatchErr.message
-              : redispatchErr,
-          );
-        }
-      };
-
       // FAST sweep — redispatch-only, tight cadence. See the invariant
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
         if (isBackgroundRuntime || sweepsDisabled) return;
-        setTimeout(() => {
+        lifecycle.startTimeout(() => {
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
               await import("../agent/run-store.js");
-            startIntervalJob(
+            const job = startIntervalJob(
               async () => {
-                const {
-                  listUnclaimedBackgroundRunRows,
-                  shouldRedispatchUnclaimedBackgroundRun,
-                  reapAllStaleRuns,
-                } = await import("../agent/run-store.js");
+                const { reapAllStaleRuns } =
+                  await import("../agent/run-store.js");
                 // The unclaimed-background sweep below only matches
                 // dispatch_mode='background' — handoffs a worker never
                 // claimed. Once a worker CLAIMS a row nothing periodic looked
@@ -7057,24 +7438,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     error,
                   );
                 });
-                let rows: UnclaimedBackgroundRunRow[];
-                try {
-                  rows = await listUnclaimedBackgroundRunRows();
-                } catch {
-                  return; // Table may not exist yet on first boot
-                }
-                for (const row of rows) {
-                  if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
-                  await attemptUnclaimedBackgroundRunRedispatch(row).catch(
-                    () => {},
+                const { sweepUnclaimedBackgroundRuns } =
+                  await import("./unclaimed-background-runs.js");
+                await sweepUnclaimedBackgroundRuns({
+                  reapExpired: false,
+                }).catch((error: unknown) => {
+                  console.error(
+                    "[agent-chat] in-process unclaimed-run redispatch sweep failed:",
+                    error,
                   );
-                }
+                });
               },
               { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
             );
-          })().catch(() => {
-            // best-effort — if run-store fails to load, the slow sweep below
-            // still provides eventual (loud) recovery.
+            lifecycle.addCleanup(() => job.stop());
+          })().catch((error: unknown) => {
+            console.error(
+              "[agent-chat] in-process unclaimed-run redispatch sweep initialization failed:",
+              error,
+            );
           });
         }, 10_000); // Start 10s after init — before the slow sweep's first tick.
       })();
@@ -7090,53 +7472,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
-        setTimeout(() => {
-          setInterval(() => {
+        lifecycle.startTimeout(() => {
+          lifecycle.startInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
 
             (async () => {
-              const {
-                listUnclaimedBackgroundRunRows,
-                reapUnclaimedBackgroundRun,
-                shouldRedispatchUnclaimedBackgroundRun,
-              } = await import("../agent/run-store.js");
-              let rows: UnclaimedBackgroundRunRow[];
-              try {
-                rows = await listUnclaimedBackgroundRunRows();
-              } catch {
-                return; // Table may not exist yet on first boot
-              }
-              for (const row of rows) {
-                try {
-                  // A row with no `dispatch_payload` can never be rehydrated by
-                  // a redispatched worker, so waiting out the redispatch bound
-                  // buys nothing — fall straight through to the reap below and
-                  // fail it loudly with its real cause.
-                  if (
-                    row.hasDispatchPayload &&
-                    shouldRedispatchUnclaimedBackgroundRun(row)
-                  ) {
-                    await attemptUnclaimedBackgroundRunRedispatch(row);
-                    continue;
-                  }
-                  // Redispatch bound exceeded — this handoff is not
-                  // recovering. Fall back to the pre-existing loud reap so
-                  // the turn fails loud instead of retrying forever.
-                  const reaped = await reapUnclaimedBackgroundRun(row.id);
-                  if (reaped) {
-                    console.error(
-                      "[agent-chat] swept unclaimed background run (handoff lost, redispatch bound exceeded):",
-                      row.id,
-                    );
-                  }
-                } catch {
-                  // best-effort per run
-                }
-              }
-            })().catch(() => {
-              // best-effort — never break the server
+              const { sweepUnclaimedBackgroundRuns } =
+                await import("./unclaimed-background-runs.js");
+              await sweepUnclaimedBackgroundRuns({
+                reapExpired: true,
+              }).catch((error: unknown) => {
+                console.error(
+                  "[agent-chat] in-process unclaimed-run sweep failed:",
+                  error,
+                );
+              });
+            })().catch((error: unknown) => {
+              console.error(
+                "[agent-chat] in-process unclaimed-run sweep initialization failed:",
+                error,
+              );
             });
           }, 30_000); // Check every 30s but only sweep once per 2min
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
@@ -7155,49 +7512,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       });
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
-      if (disableRecurringJobsRuntime) {
-        if (process.env.DEBUG) {
-          console.log(
-            "[triggers] Trigger dispatcher disabled for local development",
+      // Event and webhook automations remain live when the recurring scheduler
+      // is disabled; only the cron driver is gated above.
+      const { initTriggerDispatcher } =
+        await import("../triggers/dispatcher.js");
+      await initTriggerDispatcher({
+        getActions: getBackgroundActionEntries,
+        getSystemPrompt: async (owner: string) => {
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+            undefined,
+            { disabledFrameworkGroups },
           );
-        }
-      } else {
-        try {
-          const { initTriggerDispatcher } =
-            await import("../triggers/dispatcher.js");
-          await initTriggerDispatcher({
-            getActions: getBackgroundActionEntries,
-            getSystemPrompt: async (owner: string) => {
-              const resources = await loadResourcesForPrompt(
-                owner,
-                lazyContext,
-                options?.appId,
-                undefined,
-                { disabledFrameworkGroups },
-              );
-              const schemaBlock = lazyContext
-                ? ""
-                : await buildSchemaBlock(owner, databaseToolsMode);
-              return basePrompt + resources + schemaBlock;
-            },
-            // See the matching comment on schedulerDeps.getInitialToolNames
-            // above — same shared `basePrompt`, same reasoning.
-            getInitialToolNames: (automation?: RecurringJobContext) => [
-              ...effectiveInitialToolNames,
-              "manage-jobs",
-              "manage-progress",
-              ...(automation?.meta.mcpTools ?? []),
-            ],
-            apiKey: options?.apiKey,
-            model: resolveConfiguredAgentModel(options),
-            appId: options?.appId,
-          });
-          if (process.env.DEBUG)
-            console.log("[triggers] Trigger dispatcher initialized");
-        } catch {
-          // Triggers module not available — skip silently
-        }
-      }
+          const schemaBlock = lazyContext
+            ? ""
+            : await buildSchemaBlock(owner, databaseToolsMode);
+          return basePrompt + resources + schemaBlock;
+        },
+        // See the matching comment on schedulerDeps.getInitialToolNames
+        // above — same shared `basePrompt`, same reasoning.
+        getInitialToolNames: (automation?: RecurringJobContext) => [
+          ...effectiveInitialToolNames,
+          "manage-jobs",
+          "manage-progress",
+          ...(automation?.meta.mcpTools ?? []),
+        ],
+        apiKey: options?.apiKey,
+        model: resolveConfiguredAgentModel(options),
+        appId: options?.appId,
+      });
     })().catch((err) => {
       // If the init fails, the routes never get registered and requests
       // to /_agent-native/agent-chat silently 404. Register a fallback
@@ -7227,6 +7572,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/.well-known/agent-card.json",
         "/_agent-native/a2a",
       ],
+    });
+    nitroApp.hooks?.hook?.("close", async () => {
+      lifecycle.beginClose();
+      await initPromise;
+      await lifecycle.drainCleanups();
     });
   };
 }

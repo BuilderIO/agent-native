@@ -62,6 +62,8 @@ export const IPC = {
   DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
   /** Loopback relay for discovering a local app's PTY WebSocket */
   DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
+  /** Local CLI MCP tool → renderer app-sidebar request */
+  DESKTOP_CHAT_OPEN_APP: "desktop-chat:open-app",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -161,6 +163,12 @@ export const IPC = {
   QUICK_PROMPT_HIDDEN: "quick-prompt:hidden",
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
+
+export interface DesktopTerminalContext {
+  appId: string;
+  path?: string;
+  view?: string;
+}
 
 export type CodeAgentScheduleScope = "global" | "thread";
 export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
@@ -316,6 +324,7 @@ export interface DesktopIdentityMagicLinkResult {
 export interface DesktopWorkspaceAppListResult {
   enabled: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
+  unavailable?: boolean;
 }
 
 export interface DesktopPrepareLocalCodeChangeRequest {
@@ -1132,6 +1141,12 @@ export interface DesktopOpenRequest {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+}
+
+export interface DesktopChatOpenAppRequest {
+  app: string;
+  path?: string;
+  view?: string;
 }
 
 export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {

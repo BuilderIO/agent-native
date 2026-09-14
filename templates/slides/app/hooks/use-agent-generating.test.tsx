@@ -8,6 +8,9 @@ const agentChatState = vi.hoisted(() => ({
   stopReason: null as "stopped" | null,
   send: vi.fn(),
 }));
+const agentEngineState = vi.hoisted(() => ({
+  state: "configured" as "configured" | "missing",
+}));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   useAgentChatGenerating: () =>
@@ -16,6 +19,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
       agentChatState.send,
       agentChatState.stopReason,
     ] as const,
+  useAgentEngineConfigured: () => ({
+    state: agentEngineState.state,
+    missing: agentEngineState.state === "missing",
+  }),
 }));
 
 import {
@@ -28,6 +35,7 @@ afterEach(() => {
   agentChatState.generating = false;
   agentChatState.stopReason = null;
   agentChatState.send.mockReset();
+  agentEngineState.state = "configured";
 });
 
 describe("useAgentGenerating", () => {
@@ -79,6 +87,19 @@ describe("useAgentGenerating", () => {
     act(() => {
       vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
     });
+    expect(result.current.generating).toBe(false);
+  });
+
+  it("clears generation when the agent provider is missing", () => {
+    const { result, rerender } = renderHook(() => useAgentGenerating());
+
+    agentChatState.generating = true;
+    rerender();
+    expect(result.current.generating).toBe(true);
+
+    agentEngineState.state = "missing";
+    rerender();
+
     expect(result.current.generating).toBe(false);
   });
 });

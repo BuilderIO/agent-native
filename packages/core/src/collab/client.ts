@@ -72,6 +72,22 @@ export interface UseCollaborativeDocOptions {
   user?: CollabUser;
 }
 
+export type CollabInitializationErrorCategory =
+  | "forbidden-or-not-found"
+  | "server"
+  | "network"
+  | "invalid-payload";
+
+export type CollabInitializationState =
+  | { status: "loading" }
+  | { status: "ready" }
+  | { status: "error"; category: CollabInitializationErrorCategory };
+
+export type CollaborativeDocSyncResult =
+  | { status: "synced" }
+  | { status: "failed"; error: Error }
+  | { status: "unavailable" };
+
 export interface UseCollaborativeDocResult {
   /** The Yjs document instance. Stable per docId — never changes identity. */
   ydoc: Y.Doc | null;
@@ -81,6 +97,15 @@ export interface UseCollaborativeDocResult {
   isLoading: boolean;
   /** Whether the doc is synced with the server. */
   isSynced: boolean;
+  /** Typed initial-state outcome. A document is writable only when ready. */
+  initialization: CollabInitializationState;
+  /** Retry a failed initial-state read. No transport starts until it succeeds. */
+  retry: () => void;
+  /**
+   * Request a fresh catch-up with canonical server state. Resolves as synced
+   * only after the response has been applied to this active document.
+   */
+  requestSync: () => Promise<CollaborativeDocSyncResult>;
   /** Active users on this document (from awareness). */
   activeUsers: CollabUser[];
   /** True briefly when the AI agent makes an edit (for presence indicator). */
@@ -183,6 +208,9 @@ const UPDATE_DEBOUNCE_MS = 80;
 /** Fetch state-vector every N poll cycles as a low-frequency safety net. */
 const STATE_VECTOR_FETCH_INTERVAL = 15;
 
+/** Bound state-vector recovery so a hung request cannot block fresh receipts. */
+const STATE_VECTOR_FETCH_TIMEOUT_MS = 15_000;
+
 /** Poll ring-buffer size on the server (MAX_BUFFER in poll.ts). */
 const POLL_RING_BUFFER_SIZE = 200;
 
@@ -280,6 +308,7 @@ function scheduleAwarenessPush(
 interface CollabDocSnapshot {
   isLoading: boolean;
   isSynced: boolean;
+  initialization: CollabInitializationState;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -308,10 +337,14 @@ interface CollabDocSubscription {
 const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
   isLoading: false,
   isSynced: false,
+  initialization: { status: "loading" as const },
   activeUsers: [],
   agentActive: false,
   agentPresent: false,
 });
+
+const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
+  Promise.resolve({ status: "unavailable" });
 
 /**
  * How long a connection with zero subscribers lingers before disposal.
@@ -348,6 +381,8 @@ class CollabDocConnection {
   private pollCycleCount = 0;
   private pollVersion = 0;
   private lastPolledVersion = 0;
+  private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
+  private stateVectorAbortControllers = new Set<AbortController>();
   private sseActive = false;
   // Whether the active SSE stream actually forwards awareness. The hosted
   // Realtime Gateway advertises `no-awareness` (it can't see the in-process
@@ -376,6 +411,7 @@ class CollabDocConnection {
     this.snapshot = {
       isLoading: true,
       isSynced: false,
+      initialization: { status: "loading" },
       activeUsers: [],
       agentActive: false,
       agentPresent: false,
@@ -452,6 +488,10 @@ class CollabDocConnection {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const controller of this.stateVectorAbortControllers) {
+      controller.abort();
+    }
+    this.stateVectorAbortControllers.clear();
     if (this.disposeTimer) {
       clearTimeout(this.disposeTimer);
       this.disposeTimer = null;
@@ -621,7 +661,12 @@ class CollabDocConnection {
     // storm that gets worse as more people join the doc). Only active once a
     // local user identity has been published (matches the previous per-hook
     // gating on `user`). The poll cycle remains the authoritative baseline.
-    if (this.lastSetUser && origin === "local" && !this.disposed) {
+    if (
+      this.lastSetUser &&
+      this.snapshot.isSynced &&
+      origin === "local" &&
+      !this.disposed
+    ) {
       scheduleAwarenessPush(
         this.baseUrl,
         this.docId,
@@ -636,8 +681,11 @@ class CollabDocConnection {
   // -------------------------------------------------------------------------
 
   private start(): void {
-    this.attachUpdateHandler();
     this.fetchInitialState();
+  }
+
+  private startTransport(): void {
+    this.attachUpdateHandler();
     this.startSync();
 
     // SSE fast-path for awareness: listen on the SHARED framework transport
@@ -653,44 +701,115 @@ class CollabDocConnection {
   }
 
   private fetchInitialState(): void {
-    fetch(`${this.baseUrl}/${this.docId}/state`)
-      .then(async (res) => {
+    fetch(`${this.baseUrl}/${this.docId}/state`).then(
+      async (res) => {
         if (this.disposed) return;
         if (res.status === 404 || res.status === 403) {
-          this.markDocMissing();
+          this.markInitializationFailed("forbidden-or-not-found");
+          return;
+        }
+        if (!res.ok) {
+          this.markInitializationFailed("server");
           return;
         }
         const data = (await res.json().catch(() => null)) as {
           state?: string;
         } | null;
         if (this.disposed) return;
-        if (data?.state) {
-          const binary = base64ToUint8Array(data.state);
-          if (binary.length > 4) {
+        if (typeof data?.state !== "string" || data.state.length === 0) {
+          this.markInitializationFailed("invalid-payload");
+          return;
+        }
+        if (data.state) {
+          try {
+            const binary = base64ToUint8Array(data.state);
+            // Y.applyUpdate is not transactional: a malformed update can
+            // mutate a document before throwing. Validate against a disposable
+            // document so retries always start from the last authoritative
+            // live state.
+            const validationDoc = new Y.Doc();
+            try {
+              Y.applyUpdate(validationDoc, binary, "remote");
+            } finally {
+              validationDoc.destroy();
+            }
             Y.applyUpdate(this.ydoc, binary, "remote");
+          } catch {
+            this.markInitializationFailed("invalid-payload");
+            return;
           }
         }
-        this.setSnapshot({ isLoading: false, isSynced: true });
-      })
-      .catch(() => {
+        this.setSnapshot({
+          isLoading: false,
+          isSynced: true,
+          initialization: { status: "ready" },
+        });
+        this.startTransport();
+      },
+      () => {
         if (this.disposed) return;
-        this.setSnapshot({ isLoading: false, isSynced: true });
-      });
+        this.markInitializationFailed("network");
+      },
+    );
   }
 
   /**
-   * The initial state fetch returned 404/403 — the doc doesn't exist or isn't
-   * accessible. Stop doc-update traffic (poll loop, update POSTs, collab SSE
-   * handling) so we don't spam the console with errors against it. The
-   * awareness SSE subscription stays (matches previous behavior).
+   * A failed initial state must never turn an uninitialized Y.Doc into a
+   * writable empty document. Keep every outbound channel detached until an
+   * retry completes with a validated state payload.
    */
-  private markDocMissing(): void {
+  private markInitializationFailed(
+    category: CollabInitializationErrorCategory,
+  ): void {
     this.docMissing = true;
-    this.flushPendingUpdates(true);
+    this.pendingUpdates = [];
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
     this.detachUpdateHandler();
     this.stopSync();
-    this.setSnapshot({ isLoading: false, isSynced: true });
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
+    this.setSnapshot({
+      isLoading: false,
+      isSynced: false,
+      initialization: { status: "error", category },
+    });
   }
+
+  private retryInitialization(): void {
+    if (this.disposed) return;
+    this.detachUpdateHandler();
+    this.stopSync();
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
+    this.docMissing = false;
+    this.setSnapshot({
+      isLoading: true,
+      isSynced: false,
+      initialization: { status: "loading" },
+    });
+    this.fetchInitialState();
+  }
+
+  retry = (): void => {
+    this.retryInitialization();
+  };
+
+  requestSync = (): Promise<CollaborativeDocSyncResult> => {
+    if (
+      this.disposed ||
+      this.subscribers.size === 0 ||
+      this.snapshot.initialization.status !== "ready"
+    ) {
+      return Promise.resolve({ status: "unavailable" });
+    }
+
+    // Do not join a transport recovery already in flight: it may have started
+    // before the durable revision whose receipt the caller is requesting.
+    return this.performStateVectorFetch();
+  };
 
   // -------------------------------------------------------------------------
   // Local update batching
@@ -896,26 +1015,86 @@ class CollabDocConnection {
     this.schedulePoll();
   }
 
-  private async fetchStateVector(): Promise<void> {
+  private fetchStateVector(): Promise<CollaborativeDocSyncResult> {
+    if (this.stateVectorFetch) return this.stateVectorFetch;
+    if (this.disposed || this.snapshot.initialization.status !== "ready") {
+      return Promise.resolve({ status: "unavailable" });
+    }
+
+    return this.startStateVectorFetch();
+  }
+
+  private startStateVectorFetch(): Promise<CollaborativeDocSyncResult> {
+    const request = this.performStateVectorFetch();
+    this.stateVectorFetch = request;
+    void request.finally(() => {
+      if (this.stateVectorFetch === request) this.stateVectorFetch = null;
+    });
+    return request;
+  }
+
+  private async performStateVectorFetch(): Promise<CollaborativeDocSyncResult> {
+    const controller = new AbortController();
+    this.stateVectorAbortControllers.add(controller);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      STATE_VECTOR_FETCH_TIMEOUT_MS,
+    );
     try {
       const stateVector = uint8ArrayToBase64(Y.encodeStateVector(this.ydoc));
       const stateRes = await fetch(
         `${this.baseUrl}/${this.docId}/state?stateVector=${encodeURIComponent(stateVector)}`,
+        { cache: "no-store", signal: controller.signal },
       );
-      if (stateRes.ok) {
-        const stateData = (await stateRes.json().catch(() => null)) as {
-          state?: string;
-        } | null;
-        if (this.disposed) return;
-        if (stateData?.state) {
-          const binary = base64ToUint8Array(stateData.state);
-          if (binary.length > 2) {
-            Y.applyUpdate(this.ydoc, binary, "remote");
-          }
-        }
+      if (!stateRes.ok) {
+        return {
+          status: "failed",
+          error: new Error(
+            `State-vector request failed: HTTP ${stateRes.status}`,
+          ),
+        };
       }
-    } catch {
+      const stateData = (await stateRes.json()) as {
+        state?: string;
+      };
+      if (
+        this.disposed ||
+        this.subscribers.size === 0 ||
+        this.snapshot.initialization.status !== "ready"
+      ) {
+        return { status: "unavailable" };
+      }
+      if (
+        typeof stateData?.state !== "string" ||
+        stateData.state.length === 0
+      ) {
+        return {
+          status: "failed",
+          error: new Error("State-vector response did not contain state"),
+        };
+      }
+      const binary = base64ToUint8Array(stateData.state);
+      Y.applyUpdate(this.ydoc, binary, "remote");
+      return { status: "synced" };
+    } catch (error) {
       // Non-fatal; the next poll cycle will retry
+      if (
+        this.disposed ||
+        this.subscribers.size === 0 ||
+        this.snapshot.initialization.status !== "ready"
+      ) {
+        return { status: "unavailable" };
+      }
+      return {
+        status: "failed",
+        error:
+          error instanceof Error
+            ? error
+            : new Error("State-vector request failed"),
+      };
+    } finally {
+      clearTimeout(timeout);
+      this.stateVectorAbortControllers.delete(controller);
     }
   }
 
@@ -1259,10 +1438,27 @@ export function useCollaborativeDoc(
   }, [conn, resolvedUser]);
 
   return {
-    ydoc: conn ? conn.ydoc : null,
-    awareness: conn ? conn.awareness : null,
+    // The document is authoritative only after a validated initial state has
+    // been applied. Hiding it while loading or failed also prevents a caller
+    // from contaminating a later retry with pre-initialization local edits.
+    ydoc: conn && snapshot.initialization.status === "ready" ? conn.ydoc : null,
+    awareness:
+      conn && snapshot.initialization.status === "ready"
+        ? conn.awareness
+        : null,
     isLoading: snapshot.isLoading,
     isSynced: snapshot.isSynced,
+    initialization: snapshot.initialization,
+    retry: conn
+      ? () => {
+          if (conn.disposed) {
+            setGeneration((current) => current + 1);
+            return;
+          }
+          conn.retry();
+        }
+      : () => {},
+    requestSync: conn ? conn.requestSync : requestSyncUnavailable,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

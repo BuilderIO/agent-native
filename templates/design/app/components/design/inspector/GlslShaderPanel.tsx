@@ -480,7 +480,9 @@ export function GlslShaderKnobs({
   };
   const roomy = presentation === "popover";
   return (
-    <div className={cn("grid", roomy ? "gap-2.5" : "gap-1")}>
+    <div
+      className={cn(roomy ? "design-inspector-popover-stack" : "grid gap-1")}
+    >
       {entries.map(([name, u]) => {
         const label = u.label ?? name.replace(/^u_/, "").replace(/_/g, " ");
         const current = values[name] ?? u.value;
@@ -586,7 +588,7 @@ export function GlslShaderKnobs({
           const step = u.step ?? 0.01;
           return (
             <InspectorControlField key={name} label={label}>
-              <div className="grid h-6 min-w-0 grid-cols-[minmax(0,1fr)_56px] overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
+              <div className="design-inspector-popover-slider grid h-6 min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
                 <div className="flex min-w-0 items-center px-2">
                   <Slider
                     value={[numericValue]}
@@ -842,88 +844,87 @@ export function GlslShaderPanel({
   if (activeDef) {
     return (
       <div className="flex flex-col">
-        <div
-          className={cn(
-            "flex items-center",
-            roomy ? "h-12 gap-2 px-4" : "h-6 gap-1.5 px-3",
-          )}
-        >
-          <button
-            type="button"
-            aria-label={t("editPanel.shaders.backToBrowser")}
-            onClick={() => {
-              setBrowsing(true);
-              setJustAppliedId(null);
-              setDraftValues(null);
-            }}
-            className={cn(
-              "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              roomy ? "size-7" : "size-5",
-            )}
-          >
-            <IconArrowLeft className="size-3.5" />
-          </button>
-          <span
-            className={cn(
-              "flex-1 truncate font-semibold text-foreground",
-              roomy ? "text-sm" : "!text-[11px]",
-            )}
-          >
-            {activeDef.name}
-          </span>
-          {context.onEditCode ? (
+        {!roomy ? (
+          <div className="flex h-6 items-center gap-1.5 px-3">
+            <button
+              type="button"
+              aria-label={t("editPanel.shaders.backToBrowser")}
+              onClick={() => {
+                setBrowsing(true);
+                setJustAppliedId(null);
+                setDraftValues(null);
+              }}
+              className={cn(
+                "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                roomy ? "size-7" : "size-5",
+              )}
+            >
+              <IconArrowLeft className="size-3.5" />
+            </button>
+            <span
+              className={cn(
+                "flex-1 truncate font-semibold text-foreground",
+                roomy ? "text-sm" : "!text-[11px]",
+              )}
+            >
+              {activeDef.name}
+            </span>
+            {context.onEditCode ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("editPanel.shaders.editCode")}
+                    onClick={() => context.onEditCode?.(activeDef.id)}
+                    className={cn(
+                      "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      roomy ? "size-7" : "size-5",
+                    )}
+                  >
+                    <IconCode className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editPanel.shaders.editCode")}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  aria-label={t("editPanel.shaders.editCode")}
-                  onClick={() => context.onEditCode?.(activeDef.id)}
+                  aria-label={t("editPanel.shaders.removeShader")}
+                  disabled={disabled || busy || !nodeMount}
+                  onClick={() => void removeFromNode()}
                   className={cn(
-                    "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
                     roomy ? "size-7" : "size-5",
                   )}
                 >
-                  <IconCode className="size-3.5" />
+                  <IconTrash className="size-3" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{t("editPanel.shaders.editCode")}</TooltipContent>
+              <TooltipContent>
+                {t("editPanel.shaders.removeShader")}
+              </TooltipContent>
             </Tooltip>
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("editPanel.shaders.removeShader")}
-                disabled={disabled || busy || !nodeMount}
-                onClick={() => void removeFromNode()}
-                className={cn(
-                  "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
-                  roomy ? "size-7" : "size-5",
-                )}
-              >
-                <IconTrash className="size-3" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("editPanel.shaders.removeShader")}
-            </TooltipContent>
-          </Tooltip>
-          <button
-            type="button"
-            aria-label={t("editPanel.shaders.closePanel")}
-            onClick={() => onBack(Boolean(nodeMount))}
-            className={cn(
-              "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              roomy ? "size-7" : "size-5",
-            )}
-          >
-            <IconX className="size-3" />
-          </button>
-        </div>
+            <button
+              type="button"
+              aria-label={t("editPanel.shaders.closePanel")}
+              onClick={() => onBack(Boolean(nodeMount))}
+              className={cn(
+                "flex items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                roomy ? "size-7" : "size-5",
+              )}
+            >
+              <IconX className="size-3" />
+            </button>
+          </div>
+        ) : null}
         <div
           className={cn(
-            "grid border-t border-border/70",
-            roomy ? "gap-3 p-4" : "gap-2 p-2",
+            "grid",
+            roomy ? "gap-2" : "gap-2 border-t border-border/70 p-2",
           )}
         >
           <GlslShaderKnobs

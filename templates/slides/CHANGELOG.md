@@ -3,6 +3,60 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-12
+
+### Fixed
+
+- Multi-object rotation keeps translated objects aligned
+- Objects keep their position when ungrouping a rotated group.
+- Preserve scaled child transforms and fractional matrix angles when ungrouping rotated groups
+
+## 2026-09-10
+
+### Fixed
+
+- When Google Slides export falls back to downloading a .pptx, it now says so instead of offering a button that opens an empty Google Slides tab.
+
+## 2026-09-09
+
+### Improved
+
+- Comment and editor avatars use a slimmer border.
+- Slides use a polished light visual style by default when no brand system is selected.
+
+### Fixed
+
+- Google Slides export is now marked unavailable instead of sending you to a broken Google sign-in page when the Google connection cannot be used.
+- When an agent's slide edit does not match the slide, it now says so instead of reporting an internal server error, so the agent can correct the edit rather than retrying the same one.
+
+## 2026-09-03
+
+### Fixed
+
+- Send to front and send to back now restack a slide layer above or below the
+  layers it overlaps, instead of quietly doing nothing or nudging the layer down
+  the slide.
+- Dragging a text box's left or right handle now changes only its width, so the box grows and shrinks as the text rewraps. Corner handles still set the height manually.
+
+## 2026-08-29
+
+### Improved
+
+- Slides chat can import attached PDF and PPTX files when requested, while ordinary attachments remain reference material.
+- Slides loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- Slides loading placeholders and AI editing previews now use a softer whole-surface shine.
+
+### Fixed
+
+- Image position and size edits persist while dropped images finish uploading.
+- A slide containing a `<style>` block no longer renders empty on shared and presented links — the block and everything after it now survive.
+- Keep the standard app layout visible when a Slides workspace has no decks.
+
 ## 2026-08-27
 
 ### Added
@@ -15,6 +69,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Image fit controls now apply cover crops and let you choose their position.
 - Copying a slide in Slides now makes it available to paste into another deck.
 - PowerPoint exports now embed the deck's own fonts and pin every text box, so a deck opened in PowerPoint or moved into Google Slides keeps the type and layout it had in the editor.
 

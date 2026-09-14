@@ -129,6 +129,12 @@ pnpm action manage-draft --action=delete --id=draft1
 pnpm action manage-draft --action=delete-all
 ```
 
+When the compose state is already closed and only its saved mailbox copy remains,
+use `manage-draft` with `action: "delete-saved"`, the exact `savedDraftId`,
+`savedDraftBackend` when known (`gmail` or `local`), and `accountEmail` when known.
+Use `action: "delete"` when the compose draft itself still exists; that also
+removes its saved mailbox copy.
+
 ## Listing All Drafts
 
 ```bash
@@ -217,6 +223,10 @@ It branches on whether the user has a connected Google account:
 Scheduled sends use job ids prefixed `scheduled-`; `send-scheduled-email-now`
 and `cancel-scheduled-email` both strip that prefix internally before looking
 up the job — pass the id as shown to the user either way.
+
+Use `create-scheduled-send` to create one from an agent call. It is approval
+gated like `send-email` and is not a page-local WebMCP tool. `create-scheduled-job`
+is the page-local action for snoozes.
 
 ## Snippets
 

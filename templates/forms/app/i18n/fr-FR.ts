@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contient",
     conditionValue: "Réponse",
     conditionValuePlaceholder: "Saisir une réponse...",
+    allowMultiple: "Autoriser plusieurs fichiers",
+    accept: "Types de fichiers acceptés",
+    acceptPlaceholder: "ex. image/*, .pdf",
     fieldTypes: {
       text: "Texte court",
       email: "E-mail",
@@ -110,6 +113,7 @@ const messages = {
       date: "Date",
       rating: "Notation",
       scale: "Échelle",
+      file: "Téléversement de fichiers",
     },
   },
   builder: {
@@ -182,6 +186,7 @@ const messages = {
       dateLabel: "Date",
       ratingLabel: "Note",
       scaleLabel: "Échelle",
+      fileLabel: "Téléversement de fichiers",
       option1: "Choix 1",
       option2: "Choix 2",
       option3: "Choix 3",
@@ -331,12 +336,9 @@ const messages = {
     sharePubliclyDescription:
       "Pour partager du contenu publiquement, connectez une base de données cloud.",
     providerDescriptions: {
-      turso: "SQLite en périphérie",
       neon: "Postgres sans serveur",
       supabase: "Alternative open source à Firebase",
-      d1: "SQLite en périphérie",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Étapes de configuration",
     authToken: "Jeton d’authentification",
     connectedReloading: "Connexion réussie. Rechargement...",
@@ -407,6 +409,13 @@ const messages = {
     page: "Page",
     source: "Code source",
     sortBy: "Sort by {{label}}",
+    communityReview: "Réviser",
+    communityPublish: "Publier sur le site",
+    communityPublishing: "Publication...",
+    communityPublished: "Publié",
+    communityView: "Voir sur le site",
+    communityNeedsCheck: "Vérifiez Builder avant de réessayer",
+    communityPromotionFailed: "Impossible de publier cette soumission.",
   },
 };
 

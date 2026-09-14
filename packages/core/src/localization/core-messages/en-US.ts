@@ -43,6 +43,59 @@ const messages = {
   "onboarding.roleOther": "Other",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
+  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
+  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderActivateDescription":
+    "Create or reuse your Builder.io account and activate its free credits in one click.",
+  "onboarding.builderActiveCredits":
+    "Included with active Builder.io free credits",
+  "onboarding.builderCredits": "Included with Builder.io free credits",
+  "onboarding.builderActivateTitle": "Activate free credits",
+  "onboarding.builderAccountExistsTitle":
+    "You already have a Builder.io account",
+  "onboarding.builderAccountExistsDescription": "Log in to connect it.",
+  "onboarding.builderActivationDescription":
+    "We'll automatically create your Builder.io account for you in one click.",
+  "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConsentPrefix": "By continuing, you agree to Builder.io's",
+  "onboarding.builderTerms": "Terms",
+  "onboarding.builderPrivacy": "Privacy",
+  "onboarding.builderConsentAnd": "and",
+  "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.builderActivating": "Activating Builder.io free credits",
+  "onboarding.builderConnecting": "Connecting Builder.io free credits",
+  "onboarding.builderProvisioningDescription":
+    "Creating or reusing your Builder.io account. This usually takes a few seconds.",
+  "onboarding.builderConnectionDescription":
+    "Finish the one-click connection in the new window.",
+  "onboarding.capability.llm.keySummary":
+    "Connect an AI provider or local model",
+  "onboarding.capability.fileStorage.keySummary":
+    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.voiceInput.label": "Voice input",
+  "onboarding.capability.voiceInput.keySummary":
+    "Browser speech recognition or speech-to-text",
+  "onboarding.capability.voiceInput.why":
+    "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.assetsImageGeneration.label": "Image generation",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder credits or an image provider key",
+  "onboarding.capability.assetsImageGeneration.why":
+    "Image generation is the core workflow for creating on-brand assets.",
+  "onboarding.capability.assetsVideoGeneration.label": "Video generation",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API key",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "Video generation is optional; the core Assets workflow is image generation.",
+  "onboarding.capability.clipsObjectStorage.label": "Object storage",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder storage or an S3-compatible bucket",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Recorded videos need durable object storage before they can be played back or shared.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Speech-to-text provider key",
+  "onboarding.capability.about": "About {{label}}",
+  "onboarding.capability.why": "Why {{label}} is needed",
+  "onboarding.openAiKeySettings": "Open AI key settings",
   "aboutAgentNative.title": "About Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environment",
@@ -52,6 +105,14 @@ const messages = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
+  "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
+  "agentHostNudge.sidebarDescription":
+    "You're already chatting with {{agent}}. Ask it to work with this app directly.",
+  "agentHostNudge.promptTitle": "Ask {{agent}} instead",
+  "agentHostNudge.promptDescription":
+    "You can prompt {{agent}} to create or change this here.",
+  "agentHostNudge.useThisChat": "Use this chat",
+  "agentHostNudge.useThisPrompt": "Use this prompt",
   "common.cancel": "Cancel",
   "common.collapse": "Collapse",
   "common.connect": "Connect",
@@ -79,6 +140,7 @@ const messages = {
   "composer.openDesktop": "Open Desktop to use this chat.",
   "composer.removeAttachment": "Remove {{name}}",
   "composer.scrollToBottom": "Scroll to bottom",
+  "composer.suggestedPrompts": "Suggested prompts",
   "composer.stopResponse": "Stop response",
   "composer.subAgentReadOnly":
     "Send messages to the orchestrator chat — this sub-agent runs automatically",
@@ -107,6 +169,7 @@ const messages = {
     "Configure Anthropic, OpenAI, or another provider",
   "composer.connectAbove": "Connect AI above to continue...",
   "composer.connectBuilder": "Connect Builder.io",
+  "composer.connectKeys": "Connect keys",
   "composer.connectingBuilder": "Connecting Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",
@@ -233,7 +296,7 @@ const messages = {
   "voiceMode.errors.unsupported":
     "This browser does not support realtime voice conversations.",
   "voiceMode.hideChat": "Hide chat",
-  "voiceMode.keepDictating": "Dictate",
+  "voiceMode.keepDictating": "Dictate a message",
   "voiceMode.promptDescription":
     "Voice mode keeps listening while the agent navigates and takes actions.",
   "voiceMode.promptTitle": "Use your voice",
@@ -275,7 +338,7 @@ const messages = {
     "Connect Builder.io to use managed voice with free credits, or add your own keys.",
   "voiceMode.setupTitle": "Set up voice mode",
   "voiceMode.showChat": "Show chat",
-  "voiceMode.start": "Real-time voice",
+  "voiceMode.start": "Start voice chat",
   "voiceMode.startWithOpenAiKey": "Start with OpenAI key",
   "voiceMode.status.connecting": "Connecting",
   "voiceMode.status.ending": "Ending voice mode",
@@ -304,6 +367,7 @@ const messages = {
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
+  "errorMessages.creditsLimitReached": "You've reached your AI credits limit.",
   "errorMessages.inactivityTimeout":
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
@@ -320,6 +384,8 @@ const messages = {
     "The model provider could not be reached. Check your connection and retry.",
   "errorMessages.providerRateLimit":
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+  "errorMessages.providerTransientRejection":
+    "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
   "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
   "feedback.inaccurate": "Inaccurate",
@@ -327,6 +393,7 @@ const messages = {
   "feedback.notHelpful": "Not helpful",
   "feedback.placeholder": "Tell us what went wrong...",
   "feedback.submit": "Submit",
+  "feedback.submitted": "Feedback submitted",
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",
@@ -343,6 +410,15 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "integrations.availableSection": "Available integrations",
+  "integrations.connectedSection": "Connected",
+  "integrations.goToApiKeys": "Go to API keys",
+  "integrations.goToIntegrations": "Go to Integrations",
+  "integrations.lookingForApiKeys": "Looking for an API key instead?",
+  "integrations.lookingForProviders": "Looking for OAuth or MCP providers?",
+  "integrations.manage": "Manage",
+  "integrations.recommended": "Recommended",
+  "integrations.subtitle": "Connect the tools your agent can use.",
   "limit.account": "your account",
   "limit.descriptionAll":
     "The agent used all available steps. Keep going in a fresh turn, or raise the {{scope}} limit first.",
@@ -451,6 +527,10 @@ const messages = {
   "queue.remove": "Remove from queue",
   "queue.sendNow": "Send now",
   "queue.sendNowHint": "Send now (stops the current response)",
+  "queue.steer": "Steer",
+  "queue.steerHint": "Send this message next",
+  "queue.moreActions": "More actions",
+  "queue.moveToTop": "Move to top",
   "recovery.connectingBuilder": "Connecting Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
@@ -472,6 +552,31 @@ const messages = {
   "recovery.streamEnded":
     "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run.",
   "recovery.reconnectBuilder": "Reconnect Builder.io",
+  "secrets.addCustomKeyNamed": "Add “{{name}}” as a custom key",
+  "secrets.chooseKey": "Choose a key",
+  "secrets.customKey": "Custom key",
+  "secrets.customKeyHint": "Add any key by name",
+  "secrets.emptyHint": "Add a key to use your own accounts.",
+  "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
+  "secrets.emptyTitle": "No keys yet.",
+  "secrets.fromEnvironment": "Provided by the deployment environment.",
+  "secrets.managedInVault":
+    "Managed in the workspace Vault. Every app in this workspace uses this value.",
+  "secrets.openVault": "Open Vault",
+  "secrets.newKey": "New",
+  "secrets.noKeysFound": "No keys found.",
+  "secrets.overridesVault":
+    "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
+  "secrets.overridesWorkspace":
+    "This personal key overrides the workspace value. Remove it to use the shared key.",
+  "secrets.setForWorkspace": "Set for everyone in this workspace.",
+  "secrets.sourceEnvironment": "Environment",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Workspace",
+  "secrets.statusUnavailable": "Unavailable",
+  "secrets.required": "Required",
+  "secrets.searchKeys": "Search keys...",
+  "secrets.usePersonalKey": "Use a personal key instead",
   "selection.attached": "{{formattedCount}} characters of selection attached",
   "selection.attached_one":
     "{{formattedCount}} character of selection attached",

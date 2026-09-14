@@ -133,7 +133,10 @@ export function runPasteOverSelection({
     getFreshActiveContent(),
     entries.map((entry) => entry.html),
     {
-      positions,
+      positions: positions.map((position) => ({
+        ...position,
+        space: "layout" as const,
+      })),
       styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
       managedStyleSnapshots: entries.map((entry) => entry.managedStyleSnapshot),
     },

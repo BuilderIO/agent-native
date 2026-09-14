@@ -5,6 +5,7 @@ import {
   renderEmail,
   sendEmail,
 } from "@agent-native/core/server";
+import { isAutozQaEmail } from "@agent-native/core/shared";
 import { eq } from "drizzle-orm";
 
 import {
@@ -35,6 +36,7 @@ function normalizeEmail(email: string | null | undefined): string | null {
 function isSyntheticQaEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
   if (trimmed === SOURCE_AUTHOR_COMMENT_MENTION_EMAIL) return true;
+  if (isAutozQaEmail(trimmed)) return true;
   const at = trimmed.lastIndexOf("@");
   if (at <= 0) return false;
   const local = trimmed.slice(0, at);

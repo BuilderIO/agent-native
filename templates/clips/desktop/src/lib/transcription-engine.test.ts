@@ -9,6 +9,7 @@ import {
   appendFinalTranscript,
   recordingTranscriptionLanguage,
   isMicEcho,
+  resetTranscriptionTimeline,
   restartTranscriptionEngine,
   startTranscriptionEngine,
   transcriptFullText,
@@ -465,6 +466,15 @@ describe("meeting microphone capture", () => {
       emitPartials: false,
       owner: "meeting",
     });
+  });
+
+  it("rebases a resumed Whisper session to the recording timeline", async () => {
+    await resetTranscriptionTimeline("whisper", 12_345.4);
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "audio_transcription_reset_timeline",
+      { offsetMs: 12_345 },
+    );
   });
 
   it("falls back to native speech when the local Whisper capture cannot start", async () => {

@@ -7,6 +7,9 @@ const createAssetFromBufferMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 const serializeAssetMock = vi.hoisted(() => vi.fn((row: unknown) => row));
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -18,6 +21,34 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  // The draft-input guards have their own tests; these specs exercise the
+  // surrounding behavior with an approver's unrestricted scope.
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -113,6 +144,7 @@ const pngContentHash = () =>
 describe("import-asset-from-url", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     // Fresh Response per call — a Response body stream can only be read once.
     ssrfSafeFetchMock.mockImplementation(async () =>
@@ -145,11 +177,8 @@ describe("import-asset-from-url", () => {
       description: "Imported from the launch post.",
     });
 
-    expect(assertAccessMock).toHaveBeenCalledWith(
-      "asset-library",
-      "lib-1",
-      "editor",
-    );
+    // Importing adds kit content, so it stays approving-class.
+    expect(libraryAccessMock).toHaveBeenCalledWith("lib-1", expect.any(String));
     expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
       "https://cdn.example.test/blog-hero.png",
       { signal: expect.any(AbortSignal) },
@@ -258,7 +287,7 @@ describe("import-asset-from-url", () => {
   });
 
   it("rejects callers without editor access", async () => {
-    assertAccessMock.mockRejectedValue(new Error("No access"));
+    libraryAccessMock.mockRejectedValue(new Error("No access"));
 
     await expect(
       action.run({

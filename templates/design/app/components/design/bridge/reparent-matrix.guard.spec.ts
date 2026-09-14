@@ -54,6 +54,36 @@ async function installBridge(page: Page): Promise<void> {
   });
 }
 
+// Selects `selector` directly via the bridge's `select-element` postMessage
+// instead of a plain click. Plain clicks resolve container-first (Figma
+// parity — containerFirstSelectionTarget): clicking a descendant nested more
+// than one level below the current container scope selects that scope's
+// direct child on the path to the pointer, not the descendant itself. Copied
+// from bridge.guard.spec.ts's selectElementDirect — see that file for the
+// full rationale.
+async function selectElementDirect(
+  page: Page,
+  selector: string,
+): Promise<void> {
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
+  await page.waitForFunction((sel) => {
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-agent-native-edit-overlay="selection"]',
+    );
+    const target = document.querySelector(sel);
+    if (!overlay || !target) return false;
+    if (window.getComputedStyle(overlay).display !== "block") return false;
+    const targetRect = target.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    return (
+      Math.abs(overlayRect.width - targetRect.width) < 2 &&
+      Math.abs(overlayRect.height - targetRect.height) < 2
+    );
+  }, selector);
+}
+
 async function dragCenterTo(
   page: Page,
   selector: string,
@@ -64,7 +94,11 @@ async function dragCenterTo(
   expect(box).not.toBeNull();
   const startX = box!.x + box!.width / 2;
   const startY = box!.y + box!.height / 2;
-  await page.mouse.click(startX, startY);
+  // A plain mouse.click() here would resolve container-first for a nested
+  // drag target, and dragTargetForPointerDown's selectedEl-contains-hit fast
+  // path would then drag that container instead of the intended descendant.
+  // Select the real target explicitly so the drag operates on it.
+  await selectElementDirect(page, selector);
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   if (modifier) await page.keyboard.down(modifier);
@@ -665,12 +699,18 @@ describe("Chromium reparent matrix", () => {
           position: getComputedStyle(item).position,
           left: rect.left,
           top: rect.top,
+          inlineLeft: Number.parseFloat(item.style.left),
+          inlineTop: Number.parseFloat(item.style.top),
         };
       });
       expect(after.parent).toBe("target");
       expect(after.position).toBe("absolute");
-      expect(after.left).toBeCloseTo(beforeRelease.left, 1);
-      expect(after.top).toBeCloseTo(beforeRelease.top, 1);
+      // Whole authored offsets cost up to a scaled half-pixel of drop accuracy
+      // under a rotate+scale parent. That trade is deliberate.
+      expect(Number.isInteger(after.inlineLeft)).toBe(true);
+      expect(Number.isInteger(after.inlineTop)).toBe(true);
+      expect(Math.abs(after.left - beforeRelease.left)).toBeLessThan(1);
+      expect(Math.abs(after.top - beforeRelease.top)).toBeLessThan(1);
       await page.close();
     },
   );
@@ -765,6 +805,66 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
+    "inserts a deselected live copy inside its stable source-group anchor",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        #source-group { position:absolute;left:0;top:0;width:390px;height:844px; }
+      </style></head><body>
+        <div id="source-group" data-agent-native-node-id="runtime-group" data-agent-native-group-wrapper="true">
+          <div id="source-child" data-agent-native-node-id="runtime-child">Source</div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 45,
+              html: '<div data-agent-native-node-id="runtime-copy" style="position:absolute;left:50px;top:130px;width:200px;height:100px;transform:rotate(12deg)"></div>',
+              anchorSelector: "",
+              anchorSourceId: "runtime-group",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const inserted = await page
+        .locator('[data-agent-native-node-id="runtime-copy"]')
+        .evaluate((element) => {
+          const item = element as HTMLElement;
+          return {
+            parent: item.parentElement?.id ?? null,
+            left: item.style.left,
+            top: item.style.top,
+            width: item.style.width,
+            height: item.style.height,
+            transform: item.style.transform,
+          };
+        });
+
+      expect(inserted).toEqual({
+        parent: "source-group",
+        left: "50px",
+        top: "130px",
+        width: "200px",
+        height: "100px",
+        transform: "rotate(12deg)",
+      });
+      await page.close();
+    },
+  );
+
+  it(
     "answers an unresolvable insert anchor instead of dropping the gesture silently",
     { timeout: 30_000 },
     async () => {
@@ -803,6 +903,78 @@ describe("Chromium reparent matrix", () => {
         requestId: 42,
         reason: "anchor-unresolved",
       });
+      await page.close();
+    },
+  );
+
+  it(
+    "inserts a live copy into the screen root when the hit-test has no anchor identity",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body><div id="existing">Existing</div></body></html>`,
+      );
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 43,
+              html: '<div data-agent-native-node-id="root-copy">Copy</div>',
+              anchorSelector: "",
+              anchorSourceId: "",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 44,
+              html: '<div data-agent-native-node-id="stale-copy">Stale</div>',
+              anchorSelector: "",
+              anchorSourceId: "stale-source",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const result = await page.evaluate(() => {
+        const copy = document.querySelector(
+          '[data-agent-native-node-id="root-copy"]',
+        );
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        return {
+          parent: copy?.parentElement?.tagName ?? null,
+          rejected: messages.filter(
+            (message) => message.type === "runtime-structure-insert-rejected",
+          ),
+          structures: messages.filter(
+            (message) => message.type === "visual-structure-change",
+          ),
+        };
+      });
+
+      expect(result.parent).toBe("BODY");
+      expect(result.rejected).toHaveLength(1);
+      expect(result.rejected[0]).toMatchObject({
+        requestId: 44,
+        reason: "anchor-unresolved",
+      });
+      expect(result.structures).toHaveLength(1);
       await page.close();
     },
   );

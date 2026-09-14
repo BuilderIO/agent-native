@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { createDreamReport } from "../server/lib/dreams-store.js";
@@ -73,5 +74,17 @@ export default defineAction({
       .describe("Per-thread debug timeout in milliseconds."),
     title: z.string().optional().describe("Optional title for the dream pass."),
   }),
-  run: async (input) => createDreamReport(input),
+  run: async (input, ctx) => {
+    const result = await createDreamReport(input);
+    track(
+      "memory_used",
+      {
+        app_name: "dispatch",
+        template_name: "dispatch",
+        scope: input.ownerEmail === "*" ? "org" : "user",
+      },
+      ctx,
+    );
+    return result;
+  },
 });

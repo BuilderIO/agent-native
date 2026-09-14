@@ -1,5 +1,11 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
-import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isCreditsLimitErrorCode,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+} from "../agent/engine/error-detail.js";
+
+export { isCreditsLimitErrorCode } from "../agent/engine/error-detail.js";
 
 /**
  * Append a Builder CTA markdown link to gateway errors that users can fix
@@ -56,6 +62,13 @@ const PROVIDER_CREDENTIAL_REJECTED_FRAGMENT =
  */
 const GATEWAY_INTERNAL_ERROR_MESSAGE =
   "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.";
+/**
+ * Shared between the mapping below and `KNOWN_CHAT_ERROR_KEYS`, so the two
+ * copies of this sentence cannot drift apart.
+ */
+const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
+  "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -73,6 +86,11 @@ export function formatChatErrorText(
   errorCode?: string,
 ): string {
   const normalized = normalizeChatError(errorMessage, errorCode);
+  if (normalized.message === CREDITS_LIMIT_REACHED_MESSAGE) {
+    return upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
+      ? `${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`
+      : normalized.message;
+  }
   if (
     !isServerChosenVisitorMessage(normalized.message) &&
     (errorCode === "gateway_not_enabled" ||
@@ -110,8 +128,8 @@ export interface NormalizedChatError {
  * Settings" to someone with no account. This is an identity check against the
  * exported constant, not a keyword match: the rewrite is the whole message.
  *
- * Deliberately not a `KNOWN_CHAT_ERROR_KEYS` entry: that map localizes copy,
- * while this returns before any mapping runs at all.
+ * Quota copy is resolved by its safe code before this message guard. Other
+ * visitor messages return unchanged before any copy mapping runs.
  */
 function isServerChosenVisitorMessage(text: string): boolean {
   return text === GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
@@ -123,6 +141,10 @@ type ErrorTranslate = (
 ) => string;
 
 const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
+  [
+    CREDITS_LIMIT_REACHED_MESSAGE,
+    "agentChat.errorMessages.creditsLimitReached",
+  ],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
@@ -154,6 +176,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
     "agentChat.errorMessages.providerRateLimit",
+  ],
+  [
+    PROVIDER_TRANSIENT_REJECTION_MESSAGE,
+    "agentChat.errorMessages.providerTransientRejection",
   ],
   [
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -296,7 +322,9 @@ export function isProviderAuthenticationError(
   return (
     code === "authentication_error" ||
     code === "http_401" ||
+    code === "http_403" ||
     /^401 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /^403 status code(?:\s*\(no body\))?$/i.test(text) ||
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
       text,
     ) ||
@@ -331,13 +359,16 @@ export function normalizeChatError(
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
+  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
 
-  // Ahead of every mapping below, including the provider-payload fallback: the
-  // server already chose this reader's message, and any re-derivation from a
-  // code hands a visitor the owner instruction it deliberately removed.
+  // Quota is the one safe recovery detail exposed by the Builder-credits lane;
+  // other server-selected visitor messages stay opaque below.
+  if (isCreditsLimitErrorCode(code)) {
+    return { message: CREDITS_LIMIT_REACHED_MESSAGE };
+  }
+  // The server-selected visitor message must not reveal owner-only details.
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
-  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."
@@ -387,6 +418,17 @@ export function normalizeChatError(
     };
   }
 
+  // The gateway sent no reason with this 403 — load-shedding, not a revoked
+  // key. Must be checked ahead of `isProviderAuthenticationError`: the raw
+  // detail text this code carries (a bare "Forbidden" / "403 status code")
+  // is the exact shape that predicate matches.
+  if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) {
+    return {
+      message: PROVIDER_TRANSIENT_REJECTION_MESSAGE,
+      details: text,
+    };
+  }
+
   if (isProviderRateLimit(text, code)) {
     return {
       message:
@@ -396,7 +438,7 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderAuthenticationError(text, errorCode)) {
+  if (isProviderAuthenticationError(text, code)) {
     return {
       message: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
       details: text,

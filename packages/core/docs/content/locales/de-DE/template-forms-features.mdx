@@ -56,11 +56,11 @@ Erstellen Sie Formulare direkt per Skript, statt sie im Chat zu beschreiben? Die
 
 Ein Formular durchläuft drei Status:
 
-| Status      | Bedeutung                                     | Öffentlicher Zugriff        |
-| ----------- | ---------------------------------------------- | ---------------------------- |
-| `draft`     | In Bearbeitung, nicht öffentlich verfügbar     | Nein                          |
-| `published` | Live und nimmt Antworten entgegen              | Ja                            |
-| `closed`    | Nimmt keine Antworten mehr entgegen            | Zeigt eine Abschlussmeldung   |
+| Status      | Bedeutung                                  | Öffentlicher Zugriff        |
+| ----------- | ------------------------------------------ | --------------------------- |
+| `draft`     | In Bearbeitung, nicht öffentlich verfügbar | Nein                        |
+| `published` | Live und nimmt Antworten entgegen          | Ja                          |
+| `closed`    | Nimmt keine Antworten mehr entgegen        | Zeigt eine Abschlussmeldung |
 
 Ein Formular kann nicht veröffentlicht werden, wenn es keine Felder hat, einem Feld eine Beschriftung fehlt oder ein `select`-, `multiselect`- oder `radio`-Feld keine Optionen hat. Wird die Veröffentlichung abgelehnt, erhalten Sie einen konkreten Grund.
 
@@ -133,12 +133,12 @@ Sie können den Agenten auch um „eine CSV dieses Formulars“ oder „einen JS
 
 Aktivieren Sie die automatische Zustellung, damit neue Antworten dort erscheinen, wo Ihr Team bereits arbeitet, statt dass jemand den Antworten-Tab prüft. Das ist eine formularspezifische Einstellung, konfiguriert im Integrationen-Tab des Builders.
 
-| Ziel          | Was benötigt wird                                                                                |
-| ------------- | -------------------------------------------------------------------------------------------------- |
-| Slack         | Eine Incoming-Webhook-URL für den gewünschten Kanal                                                |
-| Discord       | Eine Webhook-URL für den gewünschten Kanal                                                          |
+| Ziel          | Was benötigt wird                                                                                                      |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Slack         | Eine Incoming-Webhook-URL für den gewünschten Kanal                                                                    |
+| Discord       | Eine Webhook-URL für den gewünschten Kanal                                                                             |
 | Google Sheets | Eine Google-Apps-Script-URL, eingerichtet zum Empfangen von Einreichungen. Ein reiner Tabellenlink funktioniert nicht. |
-| Webhook       | Jede Webadresse, die die Einreichung als Daten empfangen kann                                       |
+| Webhook       | Jede Webadresse, die die Einreichung als Daten empfangen kann                                                          |
 
 Das ist getrennt davon, Slack zu verbinden, damit der Agent selbst dort postet, was unter [Messaging](/docs/messaging) behandelt wird. Verbinden Sie das zuerst, wenn der Agent selbst Updates an Slack posten soll. Jede Zieladresse wird geprüft, um sicherzustellen, dass sie nicht auf ein privates Netzwerk oder eine interne Adresse zeigt, sowohl beim Speichern als auch bei jeder eingehenden Antwort, sodass ein Formular nicht dazu missbraucht werden kann, Ihr eigenes Netzwerk auszuspähen.
 

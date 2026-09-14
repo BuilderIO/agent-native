@@ -1,16 +1,47 @@
-// guard:allow-unscoped — in-memory test fixture, not a request path.
-import { createClient, type Client } from "@libsql/client";
+// guard:allow-unscoped - test fixture, not a request path.
+import { createRequire } from "node:module";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real in-memory sqlite behind getDbExec: the bug class this replaces was
+// Real PostgreSQL test database behind getDbExec: the bug class this replaces was
 // "the sweep selected the wrong population", so the reaper's population has to
 // be exercised against a real table rather than an asserted SQL string.
-let sqlite: Client;
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+let client: PGliteClient;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(db: PGliteClient, statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      results.push(await db.query(postgresSql(sql)));
+    }
+    return results[results.length - 1];
+  }
+  const result = await db.query(
+    postgresSql(statement.sql),
+    statement.args ?? [],
+  );
+  return { ...result, rowsAffected: result.affectedRows };
+}
+
 const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => sqlite,
-  isPostgres: () => false,
+  getDbExec: () => ({
+    execute: (statement: SqlStatement) => execute(client, statement),
+  }),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -37,7 +68,7 @@ async function insertRecording(row: {
   lease?: string | null;
   updatedAt?: string;
 }) {
-  await sqlite.execute({
+  await execute(client, {
     sql: `INSERT INTO recordings (id, owner_email, status, upload_lease_expires_at, updated_at)
           VALUES (?, ?, ?, ?, ?)`,
     args: [
@@ -51,7 +82,7 @@ async function insertRecording(row: {
 }
 
 async function insertChunk(recordingId: string, index: number) {
-  await sqlite.execute({
+  await execute(client, {
     sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
     args: [
       `recording-chunks-${recordingId}-${String(index).padStart(6, "0")}`,
@@ -61,14 +92,15 @@ async function insertChunk(recordingId: string, index: number) {
 }
 
 async function chunkKeys(): Promise<string[]> {
-  const { rows } = await sqlite.execute(
+  const { rows } = await execute(
+    client,
     `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%' ORDER BY key`,
   );
   return rows.map((row: any) => String(row.key));
 }
 
 async function statusOf(id: string) {
-  const { rows } = await sqlite.execute({
+  const { rows } = await execute(client, {
     sql: `SELECT status, failure_reason FROM recordings WHERE id = ?`,
     args: [id],
   });
@@ -78,9 +110,11 @@ async function statusOf(id: string) {
 
 describe("upload lease", () => {
   beforeEach(async () => {
-    sqlite = createClient({ url: ":memory:" });
+    client = await PGlite.create("memory://");
     mockAbortResumableUploadSession.mockResolvedValue(true);
-    await sqlite.execute(`CREATE TABLE recordings (
+    await execute(
+      client,
+      `CREATE TABLE recordings (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -88,11 +122,15 @@ describe("upload lease", () => {
       upload_lease_expires_at TEXT,
       upload_generation_id TEXT,
       updated_at TEXT NOT NULL
-    )`);
-    await sqlite.execute(`CREATE TABLE application_state (
+    )`,
+    );
+    await execute(
+      client,
+      `CREATE TABLE application_state (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
-    )`);
+    )`,
+    );
   });
 
   it("leaves a leased, actively-uploading recording alone", async () => {
@@ -141,11 +179,11 @@ describe("upload lease", () => {
       status: "uploading",
       lease: iso(-1_000),
     });
-    await sqlite.execute({
+    await execute(client, {
       sql: `UPDATE recordings SET upload_generation_id = ? WHERE id = ?`,
       args: ["generation-1", "fenced-dead"],
     });
-    await sqlite.execute({
+    await execute(client, {
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
       args: [
         "resumable-session-fenced-dead-generation-1",
@@ -157,7 +195,7 @@ describe("upload lease", () => {
         }),
       ],
     });
-    await sqlite.execute({
+    await execute(client, {
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
       args: ["resumable-session-fenced-dead", "{}"],
     });
@@ -165,12 +203,14 @@ describe("upload lease", () => {
     const result = await reapExpiredUploads({ now: NOW });
 
     expect(result.failed).toBe(1);
-    const { rows } = await sqlite.execute({
+    const { rows } = await execute(client, {
       sql: `SELECT key FROM application_state WHERE key LIKE ? ORDER BY key`,
       args: ["resumable-session-fenced-dead%"],
     });
     expect(
-      rows.map((row) => (typeof row.key === "string" ? row.key : "")),
+      rows.map((row: { key?: unknown }) =>
+        typeof row.key === "string" ? row.key : "",
+      ),
     ).toEqual(["resumable-session-fenced-dead"]);
     expect(result.resumableSessionsAborted).toBe(1);
     expect(mockAbortResumableUploadSession).toHaveBeenCalledWith(
@@ -202,25 +242,31 @@ describe("upload lease", () => {
       lease: iso(-1_000),
     });
     await insertChunk("renewing", 0);
-    await sqlite.execute({
+    await execute(client, {
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
       args: ["resumable-session-renewing", "{}"],
     });
 
     // The writer renews between the reaper's probe and its compare-and-set.
-    const realExecute = sqlite.execute.bind(sqlite);
+    const realQuery = client.query.bind(client);
     let renewed = false;
-    vi.spyOn(sqlite, "execute").mockImplementation(async (stmt: any) => {
-      const sql = typeof stmt === "string" ? stmt : stmt.sql;
-      if (!renewed && /^\s*UPDATE recordings/i.test(sql)) {
-        renewed = true;
-        await realExecute({
-          sql: `UPDATE recordings SET upload_lease_expires_at = ? WHERE id = ?`,
-          args: [iso(60 * 60 * 1000), "renewing"],
-        });
-      }
-      return realExecute(stmt);
-    });
+    vi.spyOn(client, "query").mockImplementation(
+      async (...queryArgs: unknown[]) => {
+        const [sql, args] = queryArgs;
+        if (
+          typeof sql === "string" &&
+          !renewed &&
+          /^\s*UPDATE recordings/i.test(sql)
+        ) {
+          renewed = true;
+          await realQuery(
+            `UPDATE recordings SET upload_lease_expires_at = $1 WHERE id = $2`,
+            [iso(60 * 60 * 1000), "renewing"],
+          );
+        }
+        return realQuery(sql as string, args as any[] | undefined);
+      },
+    );
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -230,7 +276,8 @@ describe("upload lease", () => {
     expect((await statusOf("renewing")).status).toBe("uploading");
     // Its streaming session must survive too — losing it strands the upload
     // just as thoroughly as failing the row would.
-    const { rows } = await realExecute(
+    const { rows } = await execute(
+      client,
       `SELECT key FROM application_state WHERE key = 'resumable-session-renewing'`,
     );
     expect(rows).toHaveLength(1);

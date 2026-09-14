@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import { act, useState } from "react";
+import { act, type ReactNode, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -63,6 +64,25 @@ function dispatchMouseAlt(
       clientX,
       clientY,
       altKey: true,
+    }),
+  );
+}
+
+function dispatchMouseShift(
+  target: EventTarget,
+  type: "mousedown" | "mousemove" | "mouseup",
+  clientX: number,
+  clientY: number,
+) {
+  target.dispatchEvent(
+    new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: type === "mouseup" ? 0 : 1,
+      clientX,
+      clientY,
+      shiftKey: true,
     }),
   );
 }
@@ -151,7 +171,107 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return { frame: frame!, label: label! };
   }
 
-  it("reports an unchanged empty layer marquee selection once per drag", async () => {
+  async function expectPortaledReviewTargetDoesNotStartGesture(
+    target: ReactNode,
+    selector: string,
+  ) {
+    const onLayerMarqueeSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper">
+              {createPortal(target, document.body)}
+            </div>
+          )}
+          onPick={() => {}}
+          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+        />,
+      );
+    });
+    const reviewTarget = document.querySelector<HTMLElement>(selector);
+    expect(reviewTarget).not.toBeNull();
+
+    await act(async () => {
+      dispatchMouse(reviewTarget!, "mousedown", 160, 160);
+      dispatchMouse(window, "mouseup", 160, 160);
+    });
+
+    expect(onLayerMarqueeSelectionChange).not.toHaveBeenCalled();
+  }
+
+  it("does not steal focus from review controls rendered over a screen", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content:
+                "<!doctype html><html><body><button>Layer</button></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="comment"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper">
+              <div data-review-popover>
+                <textarea aria-label="Edit prompt" />
+              </div>
+            </div>
+          )}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const editPrompt = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Edit prompt"]',
+    );
+    expect(editPrompt).not.toBeNull();
+    editPrompt!.focus();
+
+    await act(async () => {
+      dispatchMouse(editPrompt!, "mousedown", 160, 160);
+    });
+
+    expect(document.activeElement).toBe(editPrompt);
+  });
+
+  it("does not start a canvas gesture from the portaled review click plane", async () => {
+    await expectPortaledReviewTargetDoesNotStartGesture(
+      <div data-review-click-plane />,
+      "[data-review-click-plane]",
+    );
+  });
+
+  it("does not start a canvas gesture from a portaled review menu", async () => {
+    await expectPortaledReviewTargetDoesNotStartGesture(
+      <button type="button" data-review-popover />,
+      "[data-review-popover]",
+    );
+  });
+
+  it("dedupes an unchanged empty layer marquee selection across ticks, then always sends one final report at mouseup", async () => {
     const onLayerMarqueeSelectionChange = vi.fn();
     await act(async () => {
       root.render(
@@ -174,10 +294,26 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       dispatchMouse(window, "mouseup", 180, 180);
     });
 
-    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(1);
-    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledWith(
+    // Figma parity: one drag = one selection-history entry. The two
+    // unchanged in-drag ticks dedupe to a single report, but the host must
+    // still be told the gesture actually ENDED (`final: true`) — otherwise
+    // it can never record that one entry (coalesceMarqueeSelectionHistory) —
+    // so mouseup always sends one more report even when nothing changed.
+    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(2);
+    // Call 1 is the mousedown-time "clear whatever was selected" report;
+    // every later in-drag tick reporting the same empty set dedupes away.
+    expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
+      1,
       [],
       expect.objectContaining({ source: "marquee" }),
+    );
+    // Call 2 is the mouseup-forced final report — required even though the
+    // set never changed, or the gesture would never close out its history
+    // entry (coalesceMarqueeSelectionHistory).
+    expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
+      2,
+      [],
+      expect.objectContaining({ source: "marquee", final: true }),
     );
   });
 
@@ -315,6 +451,52 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     await act(async () => {
       dispatchMouse(window, "mouseup", 355, 765);
     });
+  });
+
+  it("arms a shift+drag on a screen frame and constrains it to the dominant axis", async () => {
+    const { frame } = await renderSelectedFrame();
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    const before = { left: frame.style.left, top: frame.style.top };
+
+    // Regression for beginFrameDrag's old `if (e.shiftKey) return;` bail,
+    // which silently dropped shift+drag instead of arming a move. dx (80)
+    // dominates dy (10), so the constrained move must land purely on X.
+    await act(async () => {
+      dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
+      dispatchMouseShift(window, "mousemove", 400, 750);
+      await nextAnimationFrame();
+    });
+
+    expect(frame.style.left).not.toBe(before.left);
+    expect(frame.style.top).toBe(before.top);
+
+    await act(async () => {
+      dispatchMouseShift(window, "mouseup", 400, 750);
+    });
+  });
+
+  it("toggles an already-selected screen out of the selection on a no-move Shift+click via the drag surface", async () => {
+    await renderSelectedFrame();
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+
+    // Regression: this overlay owns the mousedown for an already-selected
+    // frame and stops it from ever reaching handleFrameClick underneath, so
+    // a no-move Shift release must replicate its toggle-out itself.
+    await act(async () => {
+      dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
+      dispatchMouseShift(window, "mouseup", 320, 740);
+    });
+
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
   });
 
   it("drags every screen in a multi-selection from the group outline", async () => {
@@ -774,37 +956,87 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     // of the selection.
     const origin = clientPointForCanvas(321, 300);
     const jittered = clientPointForCanvas(319, 300);
-    const dispatchShiftMouse = (
-      target: EventTarget,
-      type: "mousedown" | "mousemove" | "mouseup",
-      clientX: number,
-      clientY: number,
-    ) =>
-      target.dispatchEvent(
-        new MouseEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          button: 0,
-          buttons: type === "mouseup" ? 0 : 1,
-          clientX,
-          clientY,
-          shiftKey: true,
-        }),
-      );
 
     await act(async () => {
-      dispatchShiftMouse(surface!, "mousedown", origin.clientX, origin.clientY);
-      dispatchShiftMouse(
+      dispatchMouseShift(surface!, "mousedown", origin.clientX, origin.clientY);
+      dispatchMouseShift(
         window,
         "mousemove",
         jittered.clientX,
         jittered.clientY,
       );
-      dispatchShiftMouse(window, "mouseup", jittered.clientX, jittered.clientY);
+      dispatchMouseShift(window, "mouseup", jittered.clientX, jittered.clientY);
     });
 
     expect(
       container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+  });
+
+  it("requires full enclosure to marquee-select a top-level screen, unlike a shape's intersect rule", async () => {
+    // screen-a spans canvas x:[0,320] y:[0,640] (renderSelectedFrame's
+    // default geometry). Ground truth: a top-level frame only joins the
+    // marquee selection once the box fully contains it — mere intersection
+    // (Figma's rule for shapes/board objects) must not select it.
+    await renderSelectedFrame(320, false);
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+
+    const worldLayer = surface!.firstElementChild as HTMLElement;
+    const transformMatch = worldLayer.style.transform.match(
+      /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/,
+    );
+    expect(transformMatch).not.toBeNull();
+    const [, panXStr, panYStr, scaleStr] = transformMatch!;
+    const panX = Number.parseFloat(panXStr);
+    const panY = Number.parseFloat(panYStr);
+    const scale = Number.parseFloat(scaleStr);
+    const clientPointForCanvas = (canvasX: number, canvasY: number) => ({
+      clientX: panX + (SURFACE_PADDING + canvasX) * scale,
+      clientY: panY + (SURFACE_PADDING + canvasY) * scale,
+    });
+
+    // A marquee box that only clips the frame's right edge (well above the
+    // frame's top so the mousedown starts on empty canvas, not the label).
+    const partialOrigin = clientPointForCanvas(340, -100);
+    const partialEnd = clientPointForCanvas(300, 40);
+    await act(async () => {
+      dispatchMouse(
+        surface!,
+        "mousedown",
+        partialOrigin.clientX,
+        partialOrigin.clientY,
+      );
+      dispatchMouse(
+        window,
+        "mousemove",
+        partialEnd.clientX,
+        partialEnd.clientY,
+      );
+      dispatchMouse(window, "mouseup", partialEnd.clientX, partialEnd.clientY);
+    });
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+      "a marquee that only clips the screen's edge must not select it",
+    ).toBeNull();
+
+    // Now fully enclose the frame.
+    const fullOrigin = clientPointForCanvas(-40, -100);
+    const fullEnd = clientPointForCanvas(360, 700);
+    await act(async () => {
+      dispatchMouse(
+        surface!,
+        "mousedown",
+        fullOrigin.clientX,
+        fullOrigin.clientY,
+      );
+      dispatchMouse(window, "mousemove", fullEnd.clientX, fullEnd.clientY);
+      dispatchMouse(window, "mouseup", fullEnd.clientX, fullEnd.clientY);
+    });
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+      "fully enclosing the screen with the marquee must select it",
     ).not.toBeNull();
   });
 
@@ -906,7 +1138,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.transform).toBe(before.boxTransform);
   });
 
-  it("resizes a frame's DOM imperatively and restores it when Escape cancels the drag", async () => {
+  it("resizes a frame and restores it when Escape cancels the drag", async () => {
     const { frame } = await renderSelectedFrame();
     const selectionBox = container.querySelector<HTMLElement>(
       "[data-frame-selection-box]",
@@ -927,11 +1159,10 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       boxHeight: selectionBox!.style.height,
     };
 
-    // PERF9: resize now writes the live geometry straight to the frame
-    // shell + screen-card + selection box via updateFrameGeometryRefOnly
-    // (mirroring beginFrameDrag), instead of committing full React state on
-    // every native mousemove. Confirm those DOM writes actually happen mid-
-    // gesture (not just at the eventual React commit).
+    // Resize commits through the shared geometry state during the gesture, so
+    // the frame, screen card, and selection box all stay on the same geometry
+    // boundary. Confirm those surfaces update during the live gesture rather
+    // than only when the gesture ends.
     await act(async () => {
       dispatchMouse(resizeHandle!, "mousedown", 400, 400);
       dispatchMouse(window, "mousemove", 450, 450);
@@ -943,9 +1174,8 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.width).not.toBe(before.boxWidth);
     expect(selectionBox!.style.height).not.toBe(before.boxHeight);
 
-    // Escape must roll back every DOM node the live resize mutated
-    // imperatively, not just the (already-reverted) React geometry state —
-    // otherwise the frame stays visually stuck at its last dragged size.
+    // Escape must roll back the shared geometry state, otherwise the frame
+    // stays visually stuck at its last dragged size.
     await act(async () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -962,6 +1192,98 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(screenCard!.style.height).toBe(before.cardHeight);
     expect(selectionBox!.style.width).toBe(before.boxWidth);
     expect(selectionBox!.style.height).toBe(before.boxHeight);
+  });
+
+  it("keeps content-fit height and breakpoint companions in sync during a side resize", async () => {
+    const onGeometryChange = vi.fn();
+    const onGeometryCommit = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          metadataById={{ "screen-a": { width: 1440, height: 900 } }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 200 },
+          }}
+          onPick={() => {}}
+          onGeometryChange={onGeometryChange}
+          onGeometryCommit={onGeometryCommit}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const primaryIframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    const selectionBox = container.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    const resizeHandle = selectionBox?.querySelector<HTMLElement>(
+      '[data-resize-handle="e"]',
+    );
+    const screenCard = frame?.querySelector<HTMLElement>("[data-screen-card]");
+    const breakpointFrame = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame]",
+    );
+    expect(primaryIframe).not.toBeNull();
+    expect(resizeHandle).not.toBeNull();
+    expect(screenCard).not.toBeNull();
+    expect(breakpointFrame).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:content-size",
+            width: 1440,
+            height: 1200,
+            viewportHeight: 900,
+          },
+          source: primaryIframe!.contentWindow,
+        }),
+      );
+    });
+
+    expect(screenCard!.style.height).toBe("1200px");
+    expect(selectionBox!.style.height).toBe("1200px");
+    const beforeCompanionLeft = breakpointFrame!.style.left;
+
+    await act(async () => {
+      dispatchMouse(resizeHandle!, "mousedown", 400, 400);
+      dispatchMouse(window, "mousemove", 450, 400);
+      await nextAnimationFrame();
+    });
+
+    expect(screenCard!.style.width).toBe("370px");
+    expect(screenCard!.style.height).toBe("1200px");
+    expect(selectionBox!.style.width).toBe("370px");
+    expect(selectionBox!.style.height).toBe("1200px");
+    expect(breakpointFrame!.style.left).not.toBe(beforeCompanionLeft);
+    expect(onGeometryChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 450, 400);
+    });
+
+    expect(onGeometryChange).toHaveBeenCalledTimes(1);
+    expect(onGeometryCommit).toHaveBeenCalledTimes(1);
+    expect(onGeometryCommit.mock.calls[0]?.[1]).toMatchObject({
+      "screen-a": { width: 370, height: 1200 },
+    });
   });
 
   it("moves the alt-drag duplicate ghost imperatively on every tick and unmounts it on release", async () => {
@@ -1256,7 +1578,13 @@ describe("canvas iframe identity", () => {
       expect(iframe!.srcdoc).toContain(
         "body > [data-agent-native-node-id]{translate:4096px 4096px;}",
       );
-      expect(iframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
+      // The board colour is painted on the layer, not baked into the srcdoc:
+      // inside the document it would be part of the iframe's identity, so every
+      // colour-picker tick would rebuild the frame and drop in-iframe state.
+      expect(boardLayer!.style.background).toBe(
+        "var(--design-editor-canvas-bg)",
+      );
+      expect(iframe!.srcdoc).not.toContain("background:hsl(");
       expect(iframe!.getAttribute("data-screen-iframe-id")).toBeNull();
     } finally {
       await act(async () => root.unmount());
@@ -1419,8 +1747,12 @@ describe("canvas iframe identity", () => {
       );
       expect(staticIframe!.srcdoc).toContain("left-edge");
       expect(staticIframe!.srcdoc).toContain("right-edge");
-      expect(staticIframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
-      expect(staticIframe!.style.background).toBe("hsl(0, 0%, 10%)");
+      expect(staticIframe!.srcdoc).toContain(
+        "html,body{background:transparent!important",
+      );
+      expect(staticIframe!.style.background).toBe(
+        "var(--design-editor-canvas-bg)",
+      );
       expect(staticIframe!.srcdoc).not.toContain("<script");
 
       const initialActiveIframe = activeIframe!;
@@ -1431,11 +1763,36 @@ describe("canvas iframe identity", () => {
         "postMessage",
       );
 
-      // pan=0 and zoom=2: screenX=(SURFACE_PADDING+boardX)*0.02.
-      // right-edge is visible near the viewport's right edge but outside the
-      // centered 24,576-world-pixel live iframe.
+      // The mount-time board-fit effect centers the lone board content in
+      // the viewport, so pan is not {0,0} here — derive the click point from
+      // the transform it actually committed rather than assuming a fixed
+      // pan. right-edge sits at canvas (35000, 100) (see the fixture above):
+      // visible near the viewport's right edge but outside the centered
+      // 24,576-world-pixel live iframe.
+      const worldLayer = container.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      );
+      expect(worldLayer).not.toBeNull();
+      const transformMatch = worldLayer!.style.transform.match(
+        /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/,
+      );
+      expect(transformMatch).not.toBeNull();
+      const [, panXStr, panYStr, scaleStr] = transformMatch!;
+      const panX = Number.parseFloat(panXStr);
+      const panY = Number.parseFloat(panYStr);
+      const scale = Number.parseFloat(scaleStr);
+      const rightEdgeClick = {
+        clientX: panX + (SURFACE_PADDING + 35000) * scale,
+        clientY: panY + (SURFACE_PADDING + 100) * scale,
+      };
+
       await act(async () => {
-        dispatchMouse(surface!, "mousedown", 706, 8);
+        dispatchMouse(
+          surface!,
+          "mousedown",
+          rightEdgeClick.clientX,
+          rightEdgeClick.clientY,
+        );
         await nextAnimationFrame();
         await nextAnimationFrame();
       });

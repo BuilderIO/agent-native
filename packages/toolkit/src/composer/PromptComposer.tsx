@@ -86,7 +86,13 @@ export interface PromptComposerProps {
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
   placeholder?: string;
+  /** Accessible name forwarded to the rich text editor. */
+  ariaLabel?: string;
   disabled?: boolean;
+  /** Prevent submission while preserving editor focus and draft entry. */
+  submitting?: boolean;
+  /** Present the primary action as queueing instead of immediate send. */
+  willQueue?: boolean;
   /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
@@ -129,6 +135,10 @@ export interface PromptComposerProps {
   initialTextKey?: string | number;
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
+  /** Current agent execution mode shown in the shared composer toolbar. */
+  execMode?: "build" | "plan";
+  /** Called when the user switches between acting and read-only planning. */
+  onExecModeChange?: (mode: "build" | "plan") => void;
   /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
   /** Custom attachment button to render instead of the default "+" affordance. */
@@ -177,6 +187,10 @@ export interface PromptComposerProps {
   onTextChange?: (text: string) => void;
   /** Called whenever attached files change, before the composer is submitted. */
   onAttachmentsChange?: (files: PromptComposerFile[]) => void;
+  /** Called whenever the composer resolves a model, engine, or effort choice. */
+  onModelSelectionChange?: (
+    selection: Pick<PromptComposerSubmitOptions, "model" | "engine" | "effort">,
+  ) => void;
   /**
    * Override the Builder.io connect action in the model picker. When provided,
    * clicking "Connect Builder.io" calls this instead of opening a browser popup.
@@ -238,8 +252,14 @@ class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
 
 function isInlineableTextFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
-  if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
+  if (
+    file.type === "application/json" ||
+    file.type === "application/x-yaml" ||
+    file.type === "message/rfc822"
+  ) {
+    return true;
+  }
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml|eml)$/i.test(
     file.name,
   );
 }
@@ -500,7 +520,10 @@ function PromptAttachmentStrip() {
 function PromptComposerInner({
   onSubmit,
   placeholder,
+  ariaLabel,
   disabled,
+  submitting,
+  willQueue = false,
   onDisabledClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
@@ -522,6 +545,8 @@ function PromptComposerInner({
   initialText,
   initialTextKey,
   modeControl,
+  execMode,
+  onExecModeChange,
   toolbarSlot,
   attachButton,
   actionButton,
@@ -547,6 +572,7 @@ function PromptComposerInner({
   modelStatusChecksEnabled,
   onTextChange,
   onAttachmentsChange,
+  onModelSelectionChange,
   onConnectProvider,
   onConnectLocalRuntime,
   composerRef,
@@ -592,6 +618,17 @@ function PromptComposerInner({
   const composerEffort = showModelSelector
     ? (selectedEffort ?? models.selectedEffort)
     : undefined;
+  const onModelSelectionChangeRef = useRef(onModelSelectionChange);
+  useEffect(() => {
+    onModelSelectionChangeRef.current = onModelSelectionChange;
+  }, [onModelSelectionChange]);
+  useEffect(() => {
+    onModelSelectionChangeRef.current?.({
+      model: composerModel,
+      engine: composerEngine,
+      effort: composerEffort,
+    });
+  }, [composerEffort, composerEngine, composerModel]);
   const composerModelGroups = showModelSelector
     ? (availableModels ?? models.availableModels)
     : undefined;
@@ -710,8 +747,11 @@ function PromptComposerInner({
       >
         <PromptAttachmentStrip />
         <TiptapComposer
+          ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}
+          submitting={submitting}
+          willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
           placeholder={
@@ -732,6 +772,8 @@ function PromptComposerInner({
           extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
+          execMode={execMode}
+          onExecModeChange={onExecModeChange}
           toolbarSlot={toolbarSlot}
           actionButton={actionButton}
           extraActionButton={extraActionButton}
@@ -745,6 +787,7 @@ function PromptComposerInner({
           onTextChange={onTextChange}
           draftScope={draftScope}
           selectedModel={composerModel}
+          selectedEngine={composerEngine}
           modelSelectorOpen={modelSelectorOpen}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
@@ -777,7 +820,7 @@ function PromptComposerInner({
  * its own minimal assistant-ui runtime so it can be dropped into any subtree
  * without needing the outer chat to be mounted.
  */
-export function PromptComposer(props: PromptComposerProps) {
+function PromptComposerRuntime(props: PromptComposerProps) {
   const StaleIndexBoundary =
     useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
   const attachmentAdapter = useMemo(
@@ -815,4 +858,8 @@ export function PromptComposer(props: PromptComposerProps) {
       </AssistantRuntimeProvider>
     </TooltipProvider>
   );
+}
+
+export function PromptComposer(props: PromptComposerProps) {
+  return <PromptComposerRuntime key={props.draftScope ?? ""} {...props} />;
 }

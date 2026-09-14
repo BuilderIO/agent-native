@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
+
 /**
  * Design has no component template: an instance is any node carrying
  * `data-agent-native-component="Name"`, and same-named instances are
@@ -80,7 +82,7 @@ test.beforeAll(async ({}, testInfo) => {
   baseURL =
     (testInfo.project.use as { baseURL?: string }).baseURL ??
     process.env.E2E_BASE_URL ??
-    "http://127.0.0.1:9333";
+    e2eBaseURL();
 });
 
 test.describe("promoting to a component", () => {

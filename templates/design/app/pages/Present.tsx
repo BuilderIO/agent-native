@@ -256,7 +256,6 @@ export default function Present() {
           </SheetHeader>
           <ReviewCommentsPanel
             designId={id}
-            activeFileId={activeFile.id}
             canComment={canPost}
             canResolve={canResolve}
             canDeleteComment={(comment) =>
@@ -264,7 +263,6 @@ export default function Present() {
               ("canDelete" in comment && comment.canDelete === true) ||
               comment.authorEmail === session?.email
             }
-            showComposer={false}
             signInHref={signInHref}
             className="min-h-0 flex-1"
           />

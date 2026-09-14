@@ -19,7 +19,7 @@ export default function NotFound() {
           {t("notFound.pageMissing")}
         </p>
         <Link
-          to="/"
+          to="/home"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent/80 text-sm text-accent-foreground transition-colors"
         >
           <IconArrowLeft className="w-4 h-4" />

@@ -1,13 +1,8 @@
+import { PromptBar } from "@agent-native/toolkit/composer";
 import { Button } from "@agent-native/toolkit/ui/button";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useCallback } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "./components/ui/popover.js";
-import { PromptComposer } from "./composer/index.js";
 import { useT } from "./i18n.js";
 
 export interface AgentAskPopoverProps {
@@ -18,6 +13,7 @@ export interface AgentAskPopoverProps {
   context?: string;
   className?: string;
   icon?: ReactNode;
+  draftScope?: string;
 }
 
 /** A low-emphasis entry point for asking the agent without losing the current surface. */
@@ -29,9 +25,9 @@ export function AgentAskPopover({
   context,
   className,
   icon,
+  draftScope,
 }: AgentAskPopoverProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const handleSubmit = useCallback(
     (text: string) => {
       const trimmed = text.trim();
@@ -42,14 +38,28 @@ export function AgentAskPopover({
         submit: true,
         newTab: true,
       });
-      setOpen(false);
     },
     [context],
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+    <PromptBar
+      autoFocus
+      attachmentsEnabled={false}
+      draftScope={draftScope}
+      initialText={prompt}
+      initialTextKey={prompt}
+      placeholder={
+        placeholder ??
+        t("agentPanel.askAgentPlaceholder", {
+          defaultValue: "Tell the agent what you want to do…",
+        })
+      }
+      showModelSelector={false}
+      voiceEnabled={false}
+      onSubmit={handleSubmit}
+      className={className ?? "cursor-pointer"}
+      trigger={
         <Button
           type="button"
           variant="outline"
@@ -59,34 +69,13 @@ export function AgentAskPopover({
           {icon}
           {label ?? t("agentPanel.askAgent", { defaultValue: "Ask the agent" })}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        sideOffset={8}
-        collisionPadding={12}
-        className="z-[260] w-[calc(100vw-32px)] max-w-[420px] p-3"
-      >
-        <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-          {title ??
-            t("agentPanel.askAgentTitle", { defaultValue: "Ask the agent" })}
-        </p>
-        <PromptComposer
-          autoFocus
-          attachmentsEnabled={false}
-          initialText={prompt}
-          initialTextKey={prompt}
-          layoutVariant="compact"
-          placeholder={
-            placeholder ??
-            t("agentPanel.askAgentPlaceholder", {
-              defaultValue: "Tell the agent what you want to do…",
-            })
-          }
-          showModelSelector={false}
-          voiceEnabled={false}
-          onSubmit={handleSubmit}
-        />
-      </PopoverContent>
-    </Popover>
+      }
+    >
+      {title ? (
+        <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+          {title}
+        </div>
+      ) : null}
+    </PromptBar>
   );
 }

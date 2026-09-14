@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { applyVisualEdit } from "@shared/code-layer";
+import { createCornerNode, type PenPath } from "@shared/pen-path";
 import { describe, expect, it } from "vitest";
 
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
@@ -9,6 +11,8 @@ import {
   blankScreenHtml,
   extractCanvasPrimitiveHtml,
 } from "./canvas-primitive-insert";
+import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
+import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
 
 describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
@@ -21,6 +25,10 @@ describe("blankScreenHtml", () => {
     expect(html).not.toMatch(/display:\s*grid/);
     expect(html).not.toMatch(/place-items:\s*center/);
     expect(html).not.toContain("<main");
+  });
+
+  it("clips the screen by default so content past its edge stays out of frame", () => {
+    expect(html).toMatch(/body\s*\{[^}]*overflow:\s*hidden/);
   });
 
   it("names the screen root and escapes the title", () => {
@@ -452,23 +460,24 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
   });
 
-  it("is not white on a board whose surface has been set to white", () => {
-    // isBoardTarget assumes the board is always dark; the body can say otherwise.
-    const white =
+  it("ignores a background on the board body, which is never painted", () => {
+    // The board renderer forces its document transparent, so this white is
+    // invisible: judging it would put dark text on the dark canvas in front.
+    const whiteBody =
       "<!doctype html><html><head><title>S</title></head>" +
       '<body style="background-color: #ffffff"></body></html>';
     const html =
       appendCanvasPrimitiveToHtml(
-        white,
+        whiteBody,
         {
           kind: "text",
           nodeId: "t",
           geometry: { x: 10, y: 10, width: 120, height: 24 },
           text: "sfasfsadfsa",
         },
-        { isBoardTarget: true },
+        { isBoardTarget: true, boardBackground: "hsl(0 0% 10%)" },
       ) ?? "";
-    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
   it("is still white when dropped straight onto the dark board", () => {
@@ -481,9 +490,28 @@ describe("text takes its colour from what it lands on", () => {
           geometry: { x: 10, y: 10, width: 120, height: 24 },
           text: "on the board",
         },
-        { isBoardTarget: true },
+        { isBoardTarget: true, boardBackground: "hsl(0 0% 10%)" },
       ) ?? "";
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("inherits instead of going white on a light canvas", () => {
+    // The board document is transparent, so its colour can only arrive from
+    // the host — without it the light canvas reads as the old dark board and
+    // the text lands white-on-light.
+    const html =
+      appendCanvasPrimitiveToHtml(
+        blankScreenHtml("S"),
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 10, y: 10, width: 120, height: 24 },
+          text: "on a light canvas",
+        },
+        { isBoardTarget: true, boardBackground: "rgb(235, 235, 235)" },
+      ) ?? "";
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
   });
 });
 
@@ -526,5 +554,322 @@ describe("nesting follows where you started, not whether the box fits", () => {
     expect(html.indexOf('data-agent-native-node-id="r"')).toBeGreaterThan(
       html.indexOf("</div>", hostAt),
     );
+  });
+});
+
+describe("pen path paint defaults", () => {
+  const penPath = (pathData: string): CanvasPrimitiveInsert => ({
+    kind: "path",
+    nodeId: "pen-1",
+    geometry: { x: 10, y: 10, width: 80, height: 60 },
+    pathData,
+  });
+
+  const committedPath = (primitive: CanvasPrimitiveInsert) => {
+    const html = appendCanvasPrimitiveToHtml(
+      blankScreenHtml("Screen 1"),
+      primitive,
+    );
+    const path = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("path");
+    if (!path) throw new Error("no <path> committed");
+    return path;
+  };
+
+  it("commits a closed pen path like a drawn rectangle: filled, unstroked", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
+    expect(path.getAttribute("fill")).toBe("rgb(218 218 218)");
+    expect(path.getAttribute("stroke")).toBe("none");
+  });
+
+  it("keeps the stroke on an open pen path, which is only its stroke", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70"));
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("#000000");
+  });
+
+  it("still honours an explicitly chosen fill and stroke", () => {
+    const path = committedPath({
+      ...penPath("M 10 10 L 90 10 L 50 70 Z"),
+      fill: "#ff0000",
+      stroke: "#00ff00",
+      strokeWidth: 4,
+    });
+    expect(path.getAttribute("fill")).toBe("#ff0000");
+    expect(path.getAttribute("stroke")).toBe("#00ff00");
+    expect(path.getAttribute("stroke-width")).toBe("4");
+  });
+
+  it("gives a polygon the same unstroked shape paint", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "polygon",
+      nodeId: "poly-1",
+      geometry: { x: 0, y: 0, width: 40, height: 40 },
+    });
+    const polygon = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("polygon");
+    expect(polygon?.getAttribute("fill")).toBe("rgb(218 218 218)");
+    expect(polygon?.getAttribute("stroke")).toBe("none");
+  });
+});
+
+describe("reopening and reclosing a pen path", () => {
+  const svgHtml = (fill: string, stroke: string, extra = "") =>
+    `<!doctype html><html><body><svg data-agent-native-node-id="pen-1" ` +
+    `data-an-primitive="path" style="position:absolute;left:0px;top:0px" ${extra}>` +
+    `<path d="M 0 0 L 10 0 L 5 10 Z" fill="${fill}" stroke="${stroke}"/></svg></body></html>`;
+
+  const openPath: PenPath = {
+    closed: false,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      createCornerNode({ x: 10, y: 0 }),
+      createCornerNode({ x: 5, y: 10 }),
+    ],
+  };
+  const closedPath: PenPath = { ...openPath, closed: true };
+  const extendedClosedPath: PenPath = {
+    closed: true,
+    nodes: [
+      createCornerNode({ x: -20, y: -15 }),
+      createCornerNode({ x: 40, y: -15 }),
+      createCornerNode({ x: 10, y: 35 }),
+    ],
+  };
+
+  const alignOutside = (content: string) => {
+    const result = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    expect(result.result.status).toBe("applied");
+    return result.content;
+  };
+
+  const pathAttributes = (html: string) => {
+    const path = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path");
+    if (!path) throw new Error("no <path>");
+    return {
+      fill: path.getAttribute("fill"),
+      stroke: path.getAttribute("stroke"),
+    };
+  };
+
+  it("drops the stroke it added for visibility when the path closes again", () => {
+    // A path drawn closed commits unstroked; reopening has to paint something,
+    // but reclosing must land back on the closed default, not keep the outline.
+    const reopened = writeBackVectorEditedPenPath(
+      svgHtml("rgb(218 218 218)", "none"),
+      "pen-1",
+      openPath,
+    );
+    expect(pathAttributes(reopened)).toEqual({
+      fill: "none",
+      stroke: "#000000",
+    });
+
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened,
+      "pen-1",
+      closedPath,
+    );
+    expect(pathAttributes(reclosed)).toEqual({
+      fill: "rgb(218 218 218)",
+      stroke: "none",
+    });
+  });
+
+  it("keeps a stroke the user chose when the path closes", () => {
+    const reclosed = writeBackVectorEditedPenPath(
+      svgHtml("none", "#ff0000"),
+      "pen-1",
+      closedPath,
+    );
+    expect(pathAttributes(reclosed).stroke).toBe("#ff0000");
+  });
+
+  it("restores SVG overflow when reopening an outside-aligned path", () => {
+    const content = svgHtml(
+      "rgb(218 218 218)",
+      "none",
+      'data-an-vector-stroke-position="outside" data-an-vector-stroke-original-overflow="hidden" data-an-vector-stroke-original-overflow-priority="important"',
+    ).replace(
+      "</svg>",
+      '<defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#ff0000;stroke-width:8px"></use></svg>',
+    );
+
+    const reopened = writeBackVectorEditedPenPath(content, "pen-1", openPath);
+    const svg = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("svg");
+
+    expect(svg?.style.getPropertyValue("overflow")).toBe("hidden");
+    expect(svg?.style.getPropertyPriority("overflow")).toBe("important");
+    expect(svg?.hasAttribute("data-an-vector-stroke-original-overflow")).toBe(
+      false,
+    );
+    expect(
+      svg?.hasAttribute("data-an-vector-stroke-original-overflow-priority"),
+    ).toBe(false);
+    expect(
+      svg?.querySelector(
+        ":scope > defs[data-an-vector-stroke-defs], :scope > use[data-an-vector-stroke-overlay]",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps hidden overflow visible while a closed outside stroke is mounted", () => {
+    const content = alignOutside(
+      svgHtml("rgb(218 218 218)", "#ff0000").replace(
+        'style="position:absolute;left:0px;top:0px"',
+        'style="position:absolute;left:0px;top:0px;overflow:hidden!important"',
+      ),
+    );
+
+    const edited = writeBackVectorEditedPenPath(content, "pen-1", closedPath);
+    const svg = new DOMParser()
+      .parseFromString(edited, "text/html")
+      .querySelector("svg");
+
+    expect(svg?.style.getPropertyValue("overflow")).toBe("visible");
+    expect(svg?.getAttribute("data-an-vector-stroke-original-overflow")).toBe(
+      "hidden",
+    );
+    expect(
+      svg?.getAttribute("data-an-vector-stroke-original-overflow-priority"),
+    ).toBe("important");
+    expect(
+      svg?.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]"),
+    ).toHaveLength(1);
+  });
+
+  it("rebuilds outside mask bounds after a closed edit extends the path", () => {
+    const content = alignOutside(svgHtml("rgb(218 218 218)", "#ff0000"));
+
+    const edited = writeBackVectorEditedPenPath(
+      content,
+      "pen-1",
+      extendedClosedPath,
+    );
+    const doc = new DOMParser().parseFromString(edited, "text/html");
+    const svg = doc.querySelector("svg");
+    const mask = svg?.querySelector("mask");
+    const viewBox = svg?.getAttribute("viewBox")?.split(/[ ,]+/).map(Number);
+    if (!mask || !viewBox || viewBox.length !== 4) {
+      throw new Error("outside stroke mask or updated viewBox missing");
+    }
+    const [viewX, viewY, viewWidth, viewHeight] = viewBox;
+    const maskX = Number(mask.getAttribute("x"));
+    const maskY = Number(mask.getAttribute("y"));
+    const maskWidth = Number(mask.getAttribute("width"));
+    const maskHeight = Number(mask.getAttribute("height"));
+
+    expect(maskX + (maskWidth - viewWidth!) / 2).toBeCloseTo(viewX!);
+    expect(maskY + (maskHeight - viewHeight!) / 2).toBeCloseTo(viewY!);
+    expect(
+      svg?.querySelectorAll(":scope > defs[data-an-vector-stroke-defs]"),
+    ).toHaveLength(1);
+    expect(
+      svg?.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]"),
+    ).toHaveLength(1);
+  });
+
+  it("removes every direct generated pair when reopening and keeps overlay paint", () => {
+    const content = svgHtml(
+      "rgb(218 218 218)",
+      "#ff0000",
+      'data-an-vector-stroke-position="outside"',
+    ).replace(
+      "</svg>",
+      '<defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#00ff00;stroke-width:8px;stroke-dashoffset:3px;stroke-miterlimit:7"></use><defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#0000ff;stroke-width:8px;stroke-dashoffset:5px;stroke-miterlimit:9"></use></svg>',
+    );
+
+    const reopened = writeBackVectorEditedPenPath(content, "pen-1", openPath);
+    const doc = new DOMParser().parseFromString(reopened, "text/html");
+    const svg = doc.querySelector("svg");
+    const path = svg?.querySelector("path");
+
+    expect(path?.style.getPropertyValue("stroke")).toBe("#00ff00");
+    expect(path?.style.getPropertyValue("stroke-dashoffset")).toBe("3px");
+    expect(path?.style.getPropertyValue("stroke-miterlimit")).toBe("7");
+    expect(
+      svg?.querySelectorAll(
+        ":scope > defs[data-an-vector-stroke-defs], :scope > use[data-an-vector-stroke-overlay]",
+      ),
+    ).toHaveLength(0);
+  });
+});
+
+describe("arrow paint target", () => {
+  it("is the shaft, not the arrowhead buried in <defs>", () => {
+    // The marker's <path> is appended before the shaft, so a descendant
+    // search finds the arrowhead first — the bridge must match direct
+    // children only, like code-layer's childIndexes walk.
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "arrow",
+      nodeId: "arrow-1",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg[data-an-primitive='arrow']");
+    if (!svg) throw new Error("no arrow svg");
+
+    const shaft = svg.querySelector(
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+    );
+    expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
+    expect(svg.querySelector("defs path")).not.toBe(shaft);
+  });
+});
+
+// search-icon-2: a freshly drawn shape must expose a `backgroundColor` the
+// Fill inspector can read once the selection is refreshed from SOURCE (not
+// the live iframe) — e.g. right after the draw commits new file content.
+// refreshElementInfoFromContent re-derives computedStyles by parsing the
+// raw inline `style` attribute (parseInlineStyleAttribute) through
+// cssStyleAliases, which only aliases hyphenated longhands
+// (`border-color` -> `borderColor`) — it never expands a shorthand like
+// `background: <color>` into the `backgroundColor` key FillProperties
+// reads, so the shape appeared to have no fill at all after that refresh.
+describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyles refresh", () => {
+  it("an ellipse's background survives cssStyleAliases as backgroundColor", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "ellipse",
+      nodeId: "lens",
+      geometry: { x: 0, y: 0, width: 16, height: 16 },
+    });
+    const el = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector('[data-an-primitive="ellipse"]');
+    if (!el) throw new Error("no ellipse element");
+    const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
+    const aliased = cssStyleAliases(rawStyles);
+    expect(aliased.backgroundColor).toBeTruthy();
+  });
+
+  it("a rectangle's background survives cssStyleAliases as backgroundColor", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "rectangle",
+      nodeId: "box",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+    });
+    const el = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector('[data-an-primitive="rectangle"]');
+    if (!el) throw new Error("no rectangle element");
+    const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
+    const aliased = cssStyleAliases(rawStyles);
+    expect(aliased.backgroundColor).toBeTruthy();
   });
 });

@@ -1,8 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const transcriptionEngineMocks = vi.hoisted(() => ({
+  onFinalTranscript: vi.fn(),
+  resetTranscriptionTimeline: vi.fn(),
+  startTranscriptionEngine: vi.fn(),
+  stopTranscriptionEngine: vi.fn(),
+}));
+
+vi.mock("./transcription-engine", async () => ({
+  ...(await vi.importActual("./transcription-engine")),
+  ...transcriptionEngineMocks,
+}));
+
 import {
   __test,
   shouldStartLocalRecordingTranscription,
+  startTranscriptionCapture,
 } from "./transcription-capture";
 
 function result(transcript: string, isFinal: boolean) {
@@ -74,6 +87,11 @@ class FakeSpeechRecognition {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  transcriptionEngineMocks.onFinalTranscript.mockReset();
+  transcriptionEngineMocks.resetTranscriptionTimeline.mockReset();
+  transcriptionEngineMocks.startTranscriptionEngine.mockReset();
+  transcriptionEngineMocks.stopTranscriptionEngine.mockReset();
   delete (globalThis as { window?: unknown }).window;
   FakeSpeechRecognition.instance = null;
   FakeSpeechRecognition.starts = 0;
@@ -114,5 +132,167 @@ describe("local recording transcription", () => {
   it("does not open a microphone capture for a system-audio-only recording", () => {
     expect(shouldStartLocalRecordingTranscription(false)).toBe(false);
     expect(shouldStartLocalRecordingTranscription(true)).toBe(true);
+  });
+
+  it("keeps active recording time continuous while a pause is excluded", () => {
+    let now = 1_000;
+    const timeline = __test.createActiveTimeline(() => now);
+
+    now = 6_000;
+    timeline.pause();
+    expect(timeline.current()).toBe(5_000);
+
+    now = 26_000;
+    expect(timeline.current()).toBe(5_000);
+
+    timeline.resume();
+    now = 29_000;
+    expect(timeline.current()).toBe(8_000);
+  });
+
+  it("rebases the active timeline to the actual recording start", () => {
+    let now = 1_000;
+    const timeline = __test.createActiveTimeline(() => now);
+
+    now = 4_000;
+    timeline.reset();
+    now = 5_250;
+
+    expect(timeline.current()).toBe(1_250);
+  });
+
+  it("freezes the timeline before native pause shutdown latency", async () => {
+    let now = 1_000;
+    let finishPause!: () => void;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
+      "whisper",
+    );
+    transcriptionEngineMocks.stopTranscriptionEngine
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishPause = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
+      undefined,
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+
+    now = 6_000;
+    const pause = capture?.pause();
+    now = 16_000;
+    finishPause();
+    await pause;
+    now = 26_000;
+    await capture?.resume();
+
+    expect(
+      transcriptionEngineMocks.resetTranscriptionTimeline,
+    ).toHaveBeenLastCalledWith("whisper", 5_000);
+    await capture?.cancel();
+  });
+
+  it("keeps the timeline live when the native pause fails", async () => {
+    let now = 1_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
+      "whisper",
+    );
+    transcriptionEngineMocks.stopTranscriptionEngine
+      .mockRejectedValueOnce(new Error("pause failed"))
+      .mockResolvedValue(undefined);
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
+      undefined,
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+
+    now = 6_000;
+    await capture?.pause();
+    now = 26_000;
+    await capture?.resume();
+    now = 29_000;
+    await capture?.pause();
+    now = 40_000;
+    await capture?.resume();
+
+    expect(
+      transcriptionEngineMocks.resetTranscriptionTimeline,
+    ).toHaveBeenLastCalledWith("whisper", 28_000);
+  });
+
+  it("stops a resumed engine when cleanup wins during timeline rebasing", async () => {
+    let finishReset!: () => void;
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine
+      .mockResolvedValueOnce("whisper")
+      .mockResolvedValueOnce("macos-native");
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
+      undefined,
+    );
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReset = resolve;
+        }),
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+    await capture?.pause();
+
+    const resume = capture?.resume();
+    await vi.waitFor(() => {
+      expect(
+        transcriptionEngineMocks.resetTranscriptionTimeline,
+      ).toHaveBeenCalledWith("macos-native", expect.any(Number));
+    });
+    await capture?.cancel();
+    finishReset();
+    await resume;
+
+    expect(
+      transcriptionEngineMocks.stopTranscriptionEngine,
+    ).toHaveBeenLastCalledWith("macos-native");
+  });
+
+  it("keeps the timeline paused when the native resume fails", async () => {
+    let now = 1_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine
+      .mockResolvedValueOnce("whisper")
+      .mockRejectedValueOnce(new Error("resume failed"))
+      .mockResolvedValueOnce("whisper");
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
+      undefined,
+    );
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
+      undefined,
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+
+    now = 6_000;
+    await capture?.pause();
+    now = 26_000;
+    await capture?.resume();
+    now = 29_000;
+    await capture?.resume();
+
+    expect(
+      transcriptionEngineMocks.resetTranscriptionTimeline,
+    ).toHaveBeenLastCalledWith("whisper", 5_000);
   });
 });

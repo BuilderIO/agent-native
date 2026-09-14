@@ -2,6 +2,7 @@ import {
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   dataWidgetResultSchema,
   defineAction,
+  fail,
 } from "@agent-native/core";
 import {
   createDataChartWidgetResult,
@@ -10,6 +11,7 @@ import {
 } from "@agent-native/core/data-widgets";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -310,14 +312,17 @@ export default defineAction({
       view: "response-insights",
     };
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const formId = args.formId ?? args.form;
     const db = getDb();
     const forms = await loadForms(args);
     const formIds = forms.map((form) => form.id);
 
     if (formId && forms.length === 0) {
-      throw new Error(`Form ${formId} not found`);
+      fail(`Form ${formId} not found`, {
+        errorCode: "form_not_found",
+        statusCode: 404,
+      });
     }
 
     const responseFilter =
@@ -441,6 +446,23 @@ export default defineAction({
         },
       },
     };
+
+    track(
+      "submissions_viewed",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        ...(targetForm
+          ? { output_id: targetForm.id, form_id: targetForm.id }
+          : {}),
+        output_type: "form",
+        view_type: args.displayMode,
+        form_count: forms.length,
+        response_count: totalResponses,
+        sampled_response_count: responses.length,
+      },
+      ctx,
+    );
 
     if (args.displayMode === "chart") {
       return createDataChartWidgetResult({

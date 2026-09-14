@@ -1,7 +1,6 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { IconLayoutGrid } from "@tabler/icons-react-native";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
-import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -12,6 +11,7 @@ import {
 } from "@/components/AppCard";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useMobileNavigation } from "@/lib/navigation";
 import { useApps } from "@/lib/use-apps";
 
 const PANEL_RADIUS = 28;
@@ -33,14 +33,14 @@ export function AppLauncherMenu({
   /** Clears the tab bar so the grid sits directly above it. */
   bottomOffset: number;
 }) {
-  const router = useRouter();
+  const navigation = useMobileNavigation();
   const { border, card, foreground, mutedForeground, theme } =
     useMobileThemeColors();
   const { enabledApps } = useApps();
 
   const go = (href: string) => {
     onClose();
-    router.push(href as never);
+    navigation.push(href);
   };
 
   const tile = (

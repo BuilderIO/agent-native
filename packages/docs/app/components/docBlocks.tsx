@@ -52,6 +52,7 @@ import { comparisonBlock } from "./blocks/comparison";
 import { gettingStartedPathsBlock } from "./blocks/getting-started-paths";
 import { imageBlock } from "./blocks/image";
 import { noticeBlock } from "./blocks/notice";
+import { sequenceBlock } from "./blocks/sequence";
 import { signatureBlock } from "./blocks/signature";
 import { stepsBlock } from "./blocks/steps";
 import { videoBlock } from "./blocks/video";
@@ -60,7 +61,7 @@ import {
   localizeDocsHref,
   type DocsLocale,
 } from "./docs-locale";
-import { renderMarkdownToHtml } from "./MarkdownRenderer";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 export {
   DOC_BLOCK_LANGUAGES,
@@ -90,6 +91,7 @@ function getDocBlockRegistry(): BlockRegistry {
   registry.register(stepsBlock);
   registry.register(cardsBlock);
   registry.register(comparisonBlock);
+  registry.register(sequenceBlock);
   registry.register(gettingStartedPathsBlock);
   registry.register(signatureBlock);
   registry.register(imageBlock);
@@ -105,23 +107,6 @@ function getDocBlockRegistry(): BlockRegistry {
 /* -------------------------------------------------------------------------- */
 /* Render context                                                              */
 /* -------------------------------------------------------------------------- */
-
-function MarkdownInline({
-  markdown,
-  locale,
-}: {
-  markdown: string;
-  locale: DocsLocale;
-}): ReactNode {
-  return (
-    <div
-      className="docs-content"
-      dangerouslySetInnerHTML={{
-        __html: renderMarkdownToHtml(markdown, locale),
-      }}
-    />
-  );
-}
 
 /**
  * The read-only render context shared by every docs block. Wires markdown-bearing
@@ -139,7 +124,7 @@ function useDocBlockContext(locale: DocsLocale): BlockRenderContext {
       showCodeAnnotationOverlays: false,
       localizeHref: (href) => localizeDocsHref(href, locale),
       renderMarkdown: (markdown) => (
-        <MarkdownInline markdown={markdown} locale={locale} />
+        <MarkdownRenderer markdown={markdown} locale={locale} />
       ),
       renderBlock: ({ block, compactVisuals }) => (
         <DocNestedBlock

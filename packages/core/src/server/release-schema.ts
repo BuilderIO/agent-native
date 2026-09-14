@@ -86,6 +86,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     () => import("../jobs/run-history.js").then((m) => m.ensureTable()),
   ],
   [
+    "AutomationWebhookTokens",
+    () => import("../triggers/webhook-store.js").then((m) => m.ensureTable()),
+  ],
+  [
     "AwaitingInputs",
     () =>
       import("../integrations/awaiting-input-store.js").then((m) =>
@@ -299,6 +303,13 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
   [
     "Review",
     () => import("../review/store.js").then((m) => m.ensureReviewTables()),
+  ],
+  [
+    "ReviewSuggestions",
+    () =>
+      import("../review/suggestions/store.js").then((m) =>
+        m.ensureSuggestionTables(),
+      ),
   ],
   [
     "SandboxExecutions",

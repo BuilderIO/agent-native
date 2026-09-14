@@ -19,6 +19,7 @@ import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
   normalizeOAuthScope,
+  parseMcpOAuthOrgIdClaim,
   scopeList,
   signMcpOAuthAccessToken,
   verifyMcpOAuthAccessToken,
@@ -131,6 +132,48 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
     expect(result?.orgId).toBeUndefined();
     expect(result?.orgDomain).toBeUndefined();
+  });
+
+  it("preserves an explicit Personal org claim as null", async () => {
+    const token = await signMcpOAuthAccessToken({
+      ...baseSign,
+      orgId: null,
+    });
+    const decoded = jose.decodeJwt(token);
+    expect(decoded.org_id).toBeNull();
+    const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
+    expect(result?.orgId).toBeNull();
+  });
+
+  it.each([123, { id: "org-1" }, ""])(
+    "rejects a malformed org claim: %j",
+    async (orgId) => {
+      const token = await new jose.SignJWT({
+        typ: "agent-native-mcp-oauth",
+        sub: baseSign.ownerEmail,
+        org_id: orgId,
+        scope: baseSign.scope,
+        client_id: baseSign.clientId,
+        resource: baseSign.resource,
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer(baseSign.issuer)
+        .setAudience(baseSign.resource)
+        .setExpirationTime("1h")
+        .setIssuedAt()
+        .sign(new TextEncoder().encode("fallback-auth-secret"));
+
+      expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
+    },
+  );
+
+  it("distinguishes absent, Personal, and organization org claims", () => {
+    expect(parseMcpOAuthOrgIdClaim({})).toEqual({ orgId: undefined });
+    expect(parseMcpOAuthOrgIdClaim({ org_id: null })).toEqual({ orgId: null });
+    expect(parseMcpOAuthOrgIdClaim({ org_id: "org-1" })).toEqual({
+      orgId: "org-1",
+    });
+    expect(parseMcpOAuthOrgIdClaim({ org_id: 123 })).toBeNull();
   });
 
   it("sets the typ marker, issuer, audience, jti, and an expiry", async () => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockReadAppSecret = vi.fn();
 const mockGetSetting = vi.fn();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
+const mockGetRequestContext = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -13,6 +14,7 @@ vi.mock("../settings/store.js", () => ({
 }));
 
 vi.mock("../server/request-context.js", () => ({
+  getRequestContext: () => mockGetRequestContext(),
   getRequestOrgId: () => mockGetRequestOrgId(),
   getRequestUserEmail: () => undefined,
 }));
@@ -23,6 +25,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockReadAppSecret.mockResolvedValue(null);
   mockGetSetting.mockResolvedValue(undefined);
+  mockGetRequestContext.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
 });
 

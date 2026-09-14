@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./lib/test-traffic";
+
 /**
  * Browser E2E against the deployed Agent-Native beta fleet.
  *
@@ -10,10 +12,9 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * Two lanes:
  *   public  no credentials, every host, zero model spend. Always runs.
- *   authed  needs BETA_E2E_SESSION_TOKENS (or BETA_E2E_STORAGE_STATE) and
- *           BETA_E2E_OPENAI_API_KEY. Spends luna tokens. Skipped only when the
- *           run was not asked for it — never when it was asked for and the
- *           credential is absent, which fails in global setup instead.
+ *   authenticated  needs BETA_E2E_SESSION_TOKENS (or BETA_E2E_STORAGE_STATE)
+ *                  and BETA_E2E_OPENAI_API_KEY for chat. Spends
+ *                  luna tokens only in those clusters.
  *
  * `ignoreHTTPSErrors` is deliberately left unset: "the connection isn't
  * private" was a real beta report, and only a browser that still checks
@@ -88,6 +89,7 @@ export default defineConfig({
   outputDir: `test-results/${REPORT_SLOT}`,
   use: {
     ...devices["Desktop Chrome"],
+    extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -113,10 +115,16 @@ export default defineConfig({
       testMatch: /specs\/fleet-wide\.spec\.ts$/,
     },
     {
-      name: "authed",
-      testMatch: /specs\/(registry|chat|a2a)\.spec\.ts$/,
-      // One retry, not two: each retry of a chat spec is another paid agent
-      // turn, and a turn that fails twice is a finding rather than a flake.
+      name: "registry",
+      testMatch: /specs\/registry\.spec\.ts$/,
+      // Registry checks do not spend model tokens, but one retry still
+      // separates a cold host from a deterministic authentication failure.
+      retries: 1,
+      use: { ...AUTHED_ARTIFACTS },
+    },
+    {
+      name: "chat",
+      testMatch: /specs\/(chat|a2a)\.spec\.ts$/,
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },

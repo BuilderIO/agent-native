@@ -5,7 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useShellSettled } from "./shell-ready";
 
-const { agentSidebarSpy } = vi.hoisted(() => ({ agentSidebarSpy: vi.fn() }));
+const { agentSidebarSpy, docsWebMcpActions, navigateMock, routerRootHref } =
+  vi.hoisted(() => ({
+    agentSidebarSpy: vi.fn(),
+    docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
+    navigateMock: vi.fn(),
+    routerRootHref: { value: "/" },
+  }));
 
 function ShellSettledProbe() {
   const settled = useShellSettled();
@@ -24,6 +30,24 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/host", () => ({
   AgentNativeRouteWarmup: () => null,
+  defineClientAction: (action: unknown) => action,
+  isClientRouteUrl: (url: { pathname: string }) =>
+    !url.pathname.startsWith("/cdn-cgi/"),
+}));
+vi.mock("@agent-native/core/client/hooks", () => ({
+  AgentNativeWebMcpActionRegistration: () => null,
+}));
+vi.mock("@agent-native/core/client/webmcp", () => ({
+  createAgentNativeWebMcpRegistration: ({
+    actions,
+  }: {
+    actions: unknown[];
+  }) => {
+    docsWebMcpActions.push(
+      ...(actions as Array<{ run: (args: unknown) => unknown }>),
+    );
+    return { start: vi.fn(async () => {}), stop: vi.fn() };
+  },
 }));
 // Only the core boundary is stubbed; the app's own modules stay real so this
 // exercises the shell React actually renders.
@@ -39,8 +63,20 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     children,
 }));
 vi.mock("react-router", () => ({
-  Outlet: () => <ShellSettledProbe />,
+  Outlet: () => (
+    <>
+      <ShellSettledProbe />
+      <a data-testid="content-link" href="/docs/actions-overview/">
+        Shared actions
+      </a>
+      <a data-testid="protected-link" href="/cdn-cgi/l/email-protection#abc">
+        Protected email
+      </a>
+    </>
+  ),
   useLocation: () => ({ pathname: "/", hash: "", search: "" }),
+  useHref: () => routerRootHref.value,
+  useNavigate: () => navigateMock,
   useNavigation: () => ({ state: "idle" }),
   useMatches: () => [],
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
@@ -59,6 +95,9 @@ vi.mock("./components/website-redesign/footer", () => ({ Footer: () => null }));
 afterEach(() => {
   cleanup();
   agentSidebarSpy.mockClear();
+  docsWebMcpActions.length = 0;
+  navigateMock.mockClear();
+  routerRootHref.value = "/";
 });
 
 describe("RootShell tree stability", () => {
@@ -86,5 +125,57 @@ describe("RootShell tree stability", () => {
     // on the settled signal must not see it as settled here.
     expect(screen.queryByTestId("real-sidebar")).toBeNull();
     expect(screen.getByTestId("settled").textContent).toBe("false");
+  });
+
+  it("registers same-origin documentation navigation as a page tool", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+
+    await vi.waitFor(() => expect(docsWebMcpActions).toHaveLength(1));
+    expect(
+      docsWebMcpActions[0]!.run({ path: "/docs/webmcp#automatic-actions" }),
+    ).toEqual({ path: "/docs/webmcp#automatic-actions" });
+    expect(navigateMock).toHaveBeenCalledWith("/docs/webmcp#automatic-actions");
+
+    expect(() =>
+      docsWebMcpActions[0]!.run({ path: "https://example.com" }),
+    ).toThrow("absolute path");
+    expect(() => docsWebMcpActions[0]!.run({ path: "//example.com" })).toThrow(
+      "current site",
+    );
+    expect(() => docsWebMcpActions[0]!.run({ path: 42 })).toThrow(
+      "string path",
+    );
+  });
+
+  it("navigates rendered content links through the router", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+
+    screen.getByTestId("content-link").click();
+
+    expect(navigateMock).toHaveBeenCalledWith("/docs/actions-overview/");
+  });
+
+  it("strips the router basename before navigating content links", async () => {
+    const { RootShell } = await import("./root");
+    routerRootHref.value = "/docs/";
+    render(<RootShell mounted />);
+
+    screen
+      .getByTestId("content-link")
+      .setAttribute("href", "/docs/docs/actions-overview/");
+    screen.getByTestId("content-link").click();
+
+    expect(navigateMock).toHaveBeenCalledWith("/docs/actions-overview/");
+  });
+
+  it("leaves non-route same-origin links to the browser", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+
+    screen.getByTestId("protected-link").click();
+
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 ---
 title: "Kernkonzepte"
-description: "Wie Agent-Native-Apps über drei Ebenen hinweg funktionieren: das Core-Framework, optionale Toolkit-Bausteine und optionale Templates, sowie die gemeinsamen Aktionen, die SQL-Datenbank, die App-Agent-Schleife und die Portabilitätsregeln."
+description: "Wie Agent-Native-Apps über drei Ebenen hinweg funktionieren: das Core-Framework, optionale Toolkit-Bausteine und optionale Templates, sowie die gemeinsamen Aktionen, die PostgreSQL-Datenbank, die App-Agent-Schleife und die Regeln für PGlite und Postgres."
 ---
 
 # Kernkonzepte
@@ -13,7 +13,7 @@ Agent-Native ist ein Framework mit drei Ebenen:
 
 | Ebene                                              | Was es ist                                                                                                                                                                                                                                  |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: das Framework**                            | Der grundlegende Laufzeitvertrag: Aktionen, SQL- und Drizzle-Hilfsfunktionen, Auth, Anwendungsstatus, Agentenausführung, Zugriffsprüfungen, Routing und Live-Synchronisierung. Jede App kann Core direkt verwenden.                         |
+| **Core: das Framework**                            | Der grundlegende Laufzeitvertrag: Aktionen, PostgreSQL/PGlite- und Drizzle-Hilfsfunktionen, Auth, Anwendungsstatus, Agentenausführung, Zugriffsprüfungen, Routing und Live-Synchronisierung. Jede App kann Core direkt verwenden.           |
 | **Toolkit: optionale wiederverwendbare Bausteine** | Gemeinsame UI- und Produktsysteme zum App-Bau, etwa Primitives, Editoren, Freigabe, Zusammenarbeit, Einstellungen und Agent-UX. Apps können die benötigten Bausteine verwenden, kombinieren oder forken.                                    |
 | **Templates: optionale Apps auf Core-Basis**       | Vollständige, domänenspezifische Apps mit Routen, Schema, Aktionen, Anweisungen und visueller Identität. Erstanbieter- und benutzerdefinierte Templates verwenden häufig Toolkit und können geforkt und als Ausgangspunkt verwendet werden. |
 
@@ -135,11 +135,11 @@ die eigentlichen Daten abrufen und schreiben.
 
 Fünf Regeln bestimmen die Architektur:
 
-1. **Daten leben in SQL:** Der gesamte App-Zustand lebt in der Datenbank via Drizzle ORM.
+1. **Daten leben in PostgreSQL:** Der gesamte App-Zustand lebt in der Datenbank via Drizzle ORM.
 2. **Alle KI läuft über den Agenten:** keine Inline-LLM-Aufrufe; jede KI-Interaktion läuft über die Agent-Chat-Bridge.
 3. **Aktionen für Agentenoperationen:** komplexe Arbeit läuft als typisierte Aktion, nicht als Inline-Code.
 4. **Live Sync hält die UI synchron:** Datenbankänderungen werden über SSE gestreamt, mit Polling als universellem Fallback.
-5. **Anwendungsstatus in SQL:** flüchtiger UI-Zustand lebt in der Datenbank, lesbar sowohl von Agent als auch UI.
+5. **Anwendungsstatus in PostgreSQL:** flüchtiger UI-Zustand lebt in der Datenbank, lesbar sowohl von Agent als auch UI.
 
 ## Die Vier-Bereiche-Checkliste {#four-area-checklist}
 
@@ -168,13 +168,13 @@ Das Framework zu übernehmen ist vor allem deshalb wertvoll, weil man dadurch vi
 | MCP-Client + -Server, beide Richtungen     | Die App nimmt MCP-Server auf (lokal, remote, Hub-geteilt) _und_ stellt ihre eigenen Aktionen als MCP-Server bereit. Siehe [MCP Clients](/docs/mcp-clients) und [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                              |
 | App-übergreifende Delegation               | Agenten in unterschiedlichen Apps kommunizieren über [A2A](/docs/a2a-protocol). Same-Origin-Deployments überspringen JWT; Cross-Origin verwendet ein gemeinsames `A2A_SECRET`.                                                                                                                                                                                                                                  |
 | Sub-Agent-Teams                            | Erzeugen Sie einen Sub-Agenten mit eigenem Thread und eigenen Tools, dargestellt als Chip inline im Chat. Siehe [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                               |
-| Portabilität                               | Jede von Drizzle unterstützte SQL-Datenbank, jeder Nitro-kompatible Host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                                   |
+| Portabilität                               | PostgreSQL mit lokalem PGlite und gehostetem Postgres sowie jeder Nitro-kompatible Host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                    |
 
-## Daten in SQL {#data-in-sql}
+## Daten in PostgreSQL {#data-in-sql}
 
-Der gesamte Anwendungsstatus lebt in einer SQL-Datenbank via Drizzle ORM. Schemas sind anbieteragnostisch; die unterstützten Datenbanken, die `DATABASE_URL`-Konfiguration und die Portabilitätsregeln finden Sie unter [Database](/docs/server-database).
+Der gesamte Anwendungsstatus lebt über Drizzle ORM in PostgreSQL. Die Schemas verwenden die PostgreSQL- und PGlite-Helfer; `DATABASE_URL` und die Betriebsregeln finden Sie unter [Database](/docs/server-database).
 
-Core-SQL-Stores werden automatisch erstellt und sind in jedem Template verfügbar:
+Core-PostgreSQL-Stores werden automatisch erstellt und sind in jedem Template verfügbar:
 
 - `application_state`: flüchtiger UI-Zustand (Navigation, Entwürfe, Auswahlen)
 - `settings`: persistente Key-Value-Konfiguration
@@ -185,7 +185,7 @@ Jede Zeile unten lässt sich aufklappen, um ihre Felder anzuzeigen:
 
 <DataModel
   id="doc-block-4w0fu8"
-  title="Core-SQL-Stores"
+  title="Core-PostgreSQL-Stores"
   summary={
     "Automatisch in jedem Template erstellt. Sowohl der Agent als auch die UI lesen und schreiben diese."
   }
@@ -432,15 +432,6 @@ Das Diagramm zeichnet genau diese Abfolge von Anfang bis Ende nach:
 
 Das funktioniert in allen Deployment-Umgebungen, einschließlich serverlos und Edge, weil die Datenbank verwendet wird statt In-Memory-Zustand oder Dateisystem-Watcher.
 
-## Frames {#frames}
-
-Ein _Frame_ ist die Umgebung, die den Agenten neben Ihrer App hostet. Lokal ist das embedded Panel; in der Cloud ist es die verwaltete Oberfläche von Builder.io. Siehe [Frames](/docs/frames).
-
-Agent-Native-Apps enthalten ein eingebettetes Agent-Panel, das den KI-Agenten neben der App-UI bereitstellt. Das ist es, was die Architektur funktionieren lässt: Der Agent braucht einen Computer (Datenbank, Browser, Codeausführung), und die App braucht den Agenten für KI-Arbeit.
-
-- **Embedded Agent Panel:** Chat und optionales CLI-Terminal, in jede App eingebaut. Unterstützt Claude Code, Codex, Gemini, OpenCode und Builder.io. Läuft lokal, kostenlos und Open Source.
-- **Cloud:** In jeder Cloud bereitstellen, mit Echtzeit-Zusammenarbeit, visuellem Bearbeiten, Rollen und Berechtigungen. Am besten für Teams.
-
 ## Kontextbewusstsein {#context-awareness}
 
 Der Agent weiß immer, was der Benutzer gerade betrachtet. Die UI schreibt bei jeder Routenänderung einen `navigation`-Key in den Anwendungsstatus. Der Agent liest ihn über die Aktion `view-screen`, bevor er handelt.
@@ -475,11 +466,11 @@ gewährt wird. Templates sind vollständige Apps, die Sie in Ihrem eigenen Repos
 Entwicklungsworkflow forken und anpassen können, so oder so. Für Laufzeitanpassung
 ohne Quellcodeänderungen verwenden Sie [Extensions](/docs/extensions).
 
-## Standardmäßig portabel {#hosting-agnostic}
+## PostgreSQL als Standard {#hosting-agnostic}
 
-Zwei architektonische Regeln halten Apps über Datenbanken und Hosts hinweg portabel:
+Zwei Architekturregeln halten Apps zwischen lokalem PGlite, gehostetem Postgres und den verschiedenen Hosting-Zielen konsistent:
 
-- **Datenbankagnostisch.** Schreiben Sie Schemas mit `@agent-native/core/db/schema` und Lese-/Schreibvorgänge mit Drizzles portabler Query-DSL, sodass derselbe Code auf jedem unterstützten Anbieter läuft. Verwenden Sie rohes SQL nur für additive Migrationen oder einmalige Wartung, parametrisiert und dialektagnostisch gehalten. Siehe [Database](/docs/server-database).
+- **PostgreSQL.** Schreiben Sie Schemas mit `@agent-native/core/db/schema` und erledigen Sie Lese- und Schreibvorgänge mit Drizzle. Verwenden Sie rohes PostgreSQL-SQL nur für additive Migrationen oder einmalige Wartung und halten Sie es mit PGlite kompatibel. Siehe [Database](/docs/server-database).
 - **Hosting-agnostisch.** Der Server läuft auf Nitro und kompiliert zu jedem Deployment-Ziel. Verwenden Sie in Server-Routen oder -Plugins niemals Node-spezifische APIs (`fs`, `child_process`, `path`), und gehen Sie niemals von einem dauerhaften Serverprozess aus. Serverless und Edge sind zustandslos, also halten Sie den gesamten Zustand in SQL. Siehe [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

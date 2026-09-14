@@ -41,6 +41,7 @@ import {
   IconApps,
   IconUsersGroup,
   IconTool,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -53,7 +54,10 @@ import React, {
 } from "react";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
-import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import {
   saveAgentEngineProviderSettings,
@@ -66,7 +70,7 @@ import {
   providerIdForEngine,
   type AgentProviderId,
 } from "../agent-provider-catalog.js";
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appMountedPath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
   fetchAgentEngineStatus,
@@ -86,20 +90,20 @@ import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
-import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
+import { BuilderConnectionMenu } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { cn } from "../utils.js";
 import {
   AGENT_SETTINGS_SECTIONS,
   ALL_SETTINGS_SECTIONS,
-  INTEGRATION_SETTINGS_SECTIONS,
   WORKSPACE_SETTINGS_SECTIONS,
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
 } from "./agent-settings-search.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
+import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
@@ -278,164 +282,6 @@ function SettingsSelect({
   );
 }
 
-// ─── Disconnect button for the Builder card's connected state ───────────────
-//
-// Two-step confirmation: first click arms the button ("Confirm?"), second
-// click actually disconnects. Arm auto-reverts after 4s of idle so a user
-// who wandered off doesn't come back to a disconnect waiting for them.
-//
-// Hits /_agent-native/builder/disconnect which removes request-scoped
-// Builder credentials from app_secrets. Deployment env credentials are left
-// alone and remain as fallback. On success we dispatch
-// `agent-engine:configured-changed` so dependent cards refresh inline.
-function DisconnectBuilderButton() {
-  const { status } = useBuilderStatus();
-  const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
-  const [err, setErr] = useState<string | null>(null);
-  const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearArmedTimer = useCallback(() => {
-    if (armedTimerRef.current) {
-      clearTimeout(armedTimerRef.current);
-      armedTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => clearArmedTimer();
-  }, [clearArmedTimer]);
-
-  const performDisconnect = useCallback(async () => {
-    setPhase("busy");
-    setErr(null);
-    clearArmedTimer();
-    try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/builder/disconnect"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-      // Parse defensively — a nitro 404 fallback returns HTML, not JSON,
-      // and res.json() on that would throw.
-      const text = await res.text();
-      let body: {
-        ok?: boolean;
-        error?: string;
-        warnings?: Record<string, string>;
-      } = {};
-      if (text) {
-        try {
-          body = JSON.parse(text);
-        } catch {
-          // Non-JSON response — likely a 404/HTML fallback.
-        }
-      }
-      if (!res.ok) {
-        throw new Error(
-          body.error ||
-            `Failed (${res.status}). Is your dev server up to date?`,
-        );
-      }
-      if (body.ok !== true) {
-        throw new Error(body.error || "Disconnect didn't confirm ok");
-      }
-      if (body.warnings && Object.keys(body.warnings).length > 0) {
-        // Disconnect flag persisted (we only reach here when ok:true), so
-        // the user IS disconnected — but some ancillary cleanup failed.
-        // Log so it's visible during dev; don't block the success path.
-        console.warn(
-          "[builder-disconnect] completed with warnings:",
-          body.warnings,
-        );
-      }
-      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
-      setPhase("idle");
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Disconnect failed");
-      setPhase("idle");
-    }
-  }, [clearArmedTimer]);
-
-  const handleDisconnectClick = useCallback(() => {
-    if (phase === "busy") return;
-    if (phase === "idle") {
-      // First click — arm the button. Auto-revert after 4s to avoid a
-      // stale "confirm" state someone else could hit by accident.
-      setPhase("armed");
-      setErr(null);
-      clearArmedTimer();
-      armedTimerRef.current = setTimeout(() => {
-        setPhase("idle");
-        armedTimerRef.current = null;
-      }, 4000);
-      return;
-    }
-    // phase === "armed" — user confirmed, actually disconnect.
-    void performDisconnect();
-  }, [phase, performDisconnect, clearArmedTimer]);
-
-  const handleCancel = useCallback(() => {
-    clearArmedTimer();
-    setPhase("idle");
-  }, [clearArmedTimer]);
-
-  // When only the deploy fallback is active there is nothing request-scoped
-  // for this button to remove. The early return MUST come after every hook
-  // above to satisfy rules-of-hooks.
-  if (status?.credentialSource === "env") return null;
-
-  if (phase === "armed") {
-    return (
-      <>
-        <Button
-          type="button"
-          intent="danger"
-          emphasis="solid"
-          onClick={handleDisconnectClick}
-          className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
-        >
-          Confirm disconnect
-        </Button>
-        <Button
-          type="button"
-          intent="neutral"
-          emphasis="outline"
-          onClick={handleCancel}
-          className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
-        >
-          Cancel
-        </Button>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <Button
-        type="button"
-        intent="danger"
-        emphasis="outline"
-        onClick={handleDisconnectClick}
-        disabled={phase === "busy"}
-        className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60 disabled:cursor-wait"
-        aria-busy={phase === "busy"}
-      >
-        {phase === "busy" ? (
-          <>
-            <IconLoader2 size={10} className="animate-spin" />
-            Disconnecting…
-          </>
-        ) : (
-          "Disconnect"
-        )}
-      </Button>
-      {err && <span className="text-[10px] text-destructive">{err}</span>}
-    </>
-  );
-}
-
 // ─── "Connect Builder.io" card (shared across all sections) ─────────────────
 
 function UseBuilderCard({
@@ -469,6 +315,8 @@ function UseBuilderCard({
   const isPage = useSettingsSurface() === "page";
   const effectiveConnected = connected || builderFlow.configured;
   const effectiveOrgName = builderFlow.orgName ?? orgName;
+  const effectiveCredentialSource =
+    credentialSource ?? builderFlow.credentialSource;
   const bgClass = dim ? "" : "bg-accent/30";
   const titleCls = isPage ? "text-sm" : "text-[11px]";
   const bodyCls = isPage ? "text-xs" : "text-[10px]";
@@ -515,27 +363,14 @@ function UseBuilderCard({
               : "Using your connected Builder account. Deployment fallback is still available."}
           </p>
         ) : null}
-        {connectUrl || credentialSource !== "env" ? (
-          <div className="flex items-center gap-2 mt-2.5">
-            {connectUrl && (
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="ghost"
-                onClick={() =>
-                  builderFlow.start({ trackingSource, trackingFlow })
-                }
-                disabled={builderFlow.connecting}
-                className={cn(pillButtonClass(isPage, "ghost"), "no-underline")}
-              >
-                {builderFlow.connecting
-                  ? "Connecting..."
-                  : credentialSource === "env"
-                    ? "Connect account"
-                    : "Reconnect"}
-              </Button>
-            )}
-            {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
+        {connectUrl || effectiveCredentialSource !== "env" ? (
+          <div className="mt-2.5 flex items-center justify-end">
+            <BuilderConnectionMenu
+              flow={builderFlow}
+              credentialSource={effectiveCredentialSource}
+              trackingSource={trackingSource}
+              trackingFlow={trackingFlow}
+            />
           </div>
         ) : null}
       </div>
@@ -544,19 +379,29 @@ function UseBuilderCard({
 
   if (compact) {
     return (
-      <Button
-        type="button"
-        intent="primary"
-        emphasis="solid"
-        onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
-        disabled={builderFlow.connecting}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+      <BuilderConnectPopover
+        flow={builderFlow}
+        onConnect={(provisionAccount) =>
+          builderFlow.start({
+            trackingSource,
+            trackingFlow,
+            provisionAccount,
+          })
+        }
       >
-        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
-        {builderFlow.connecting ? (
-          <IconLoader2 size={14} className="animate-spin" />
-        ) : null}
-      </Button>
+        <Button
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          disabled={builderFlow.connecting}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+        >
+          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting ? (
+            <IconLoader2 size={14} className="animate-spin" />
+          ) : null}
+        </Button>
+      </BuilderConnectPopover>
     );
   }
 
@@ -609,22 +454,32 @@ function UseBuilderCard({
           )}
         </div>
       </div>
-      <Button
-        type="button"
-        intent="neutral"
-        emphasis="outline"
-        onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
-        disabled={builderFlow.connecting}
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-medium text-foreground hover:bg-accent/40 disabled:cursor-wait disabled:opacity-70",
-          isPage ? "text-sm" : "text-[11px]",
-        )}
+      <BuilderConnectPopover
+        flow={builderFlow}
+        onConnect={(provisionAccount) =>
+          builderFlow.start({
+            trackingSource,
+            trackingFlow,
+            provisionAccount,
+          })
+        }
       >
-        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
-        {builderFlow.connecting ? (
-          <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
-        ) : null}
-      </Button>
+        <Button
+          type="button"
+          intent="neutral"
+          emphasis="outline"
+          disabled={builderFlow.connecting}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-medium text-foreground hover:bg-accent/40 disabled:cursor-wait disabled:opacity-70",
+            isPage ? "text-sm" : "text-[11px]",
+          )}
+        >
+          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting ? (
+            <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
+          ) : null}
+        </Button>
+      </BuilderConnectPopover>
     </div>
   );
 }
@@ -723,7 +578,8 @@ function ManualSetupCard({
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="max-h-[min(640px,calc(100vh-2rem))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
+        collisionPadding={16}
+        className="max-h-[min(640px,calc(100dvh-2rem),var(--radix-popover-content-available-height))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
       >
         <div className="space-y-3">
           {summaryContent}
@@ -923,6 +779,7 @@ interface EngineInfo {
   requiredEnvVars: string[];
   installPackage?: string;
   packageInstalled?: boolean;
+  configured?: boolean;
 }
 
 const PROVIDER_DOCS: Record<string, string> = {
@@ -966,19 +823,33 @@ function LLMSectionInner({
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
-  const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
-  const [currentEngine, setCurrentEngine] = useState("anthropic");
-  const [currentModel, setCurrentModel] = useState("");
-  const [selectedEngine, setSelectedEngine] = useState("anthropic");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [
+    {
+      currentEngine,
+      currentModel,
+      selectedEngine,
+      selectedModel,
+      apiKey,
+      baseUrl,
+      clearBaseUrl,
+    },
+    setSelectionState,
+  ] = useState({
+    currentEngine: "anthropic",
+    currentModel: "",
+    selectedEngine: "anthropic",
+    selectedModel: "",
+    apiKey: "",
+    baseUrl: "",
+    clearBaseUrl: false,
+  });
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
-  const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -988,8 +859,12 @@ function LLMSectionInner({
   >(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>(null);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
+  const [providerSettingsError, setProviderSettingsError] = useState<
+    string | null
+  >(null);
   const [envProbeAvailable, setEnvProbeAvailable] = useState(false);
   const [enginesLoaded, setEnginesLoaded] = useState(false);
+  const [engineCatalogAvailable, setEngineCatalogAvailable] = useState(false);
   const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
   const probeGenerationRef = useRef({ env: 0, status: 0 });
 
@@ -1073,22 +948,52 @@ function LLMSectionInner({
   }, [refreshEnvKeys, refreshSettingsStatus]);
 
   useEffect(() => {
-    callAction("manage-agent-engine" as any, { action: "list" } as any)
-      .then((data) => {
-        if (!data) return;
-        const engineData = data as {
-          engines?: EngineInfo[];
-          current?: { engine?: string; model?: string };
-        };
-        setEngines(engineData.engines ?? []);
-        const cur = engineData.current ?? {};
-        setCurrentEngine(cur.engine ?? "anthropic");
-        setCurrentModel(cur.model ?? "");
-        setSelectedEngine(cur.engine ?? "anthropic");
-        setSelectedModel(cur.model ?? "");
-      })
-      .catch(() => {})
-      .finally(() => setEnginesLoaded(true));
+    let generation = 0;
+    const refresh = () => {
+      const request = ++generation;
+      setEngineCatalogAvailable(false);
+      void callAction("manage-agent-engine" as any, { action: "list" } as any)
+        .then((data) => {
+          if (request !== generation || !data) return;
+          const engineData = data as {
+            engines?: EngineInfo[];
+            current?: { engine?: string; model?: string };
+          };
+          if (!Array.isArray(engineData.engines)) return;
+          setEngines(engineData.engines);
+          setEngineCatalogAvailable(true);
+          const cur = engineData.current ?? {};
+          setSelectionState((previous) => {
+            const dirty =
+              previous.selectedEngine !== previous.currentEngine ||
+              previous.selectedModel !== previous.currentModel ||
+              !!previous.apiKey.trim() ||
+              !!previous.baseUrl.trim() ||
+              previous.clearBaseUrl;
+            const engine = cur.engine ?? "anthropic";
+            const model = cur.model ?? "";
+            return {
+              ...previous,
+              currentEngine: engine,
+              currentModel: model,
+              selectedEngine: dirty ? previous.selectedEngine : engine,
+              selectedModel: dirty ? previous.selectedModel : model,
+            };
+          });
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (request === generation) setEnginesLoaded(true);
+        });
+    };
+    refresh();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      generation++;
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
@@ -1107,6 +1012,10 @@ function LLMSectionInner({
   const configuredProviderIds = useMemo(() => {
     const configured = new Set<AgentProviderId>();
     for (const option of AGENT_PROVIDER_CATALOG) {
+      const engine = engines.find((entry) => entry.name === option.engine);
+      if (engine?.packageInstalled === false || engine?.configured === false) {
+        continue;
+      }
       if (
         option.key &&
         envKeys.some((entry) => entry.key === option.key && entry.configured)
@@ -1114,7 +1023,15 @@ function LLMSectionInner({
         configured.add(option.id);
       }
     }
-    if (settingsStatus) {
+    if (
+      settingsStatus &&
+      engines.some(
+        (engine) =>
+          engine.name === settingsStatus.engine &&
+          engine.packageInstalled !== false &&
+          engine.configured !== false,
+      )
+    ) {
       const statusProvider = providerIdForEngine(settingsStatus.engine);
       if (statusProvider) configured.add(statusProvider);
       if (settingsStatus.envVar) {
@@ -1125,10 +1042,11 @@ function LLMSectionInner({
       }
     }
     return configured;
-  }, [envKeys, settingsStatus]);
+  }, [engines, envKeys, settingsStatus]);
   const builderConnected =
     builderStatusAvailable && (connected || builderFlow.configured);
-  const configurationKnown = envProbeAvailable && statusProbeAvailable;
+  const configurationKnown =
+    envProbeAvailable && statusProbeAvailable && engineCatalogAvailable;
   const builderEngineSelected = selectedEngine === "builder";
   const selectedConfigurationKnown = builderEngineSelected
     ? builderStatusAvailable
@@ -1138,7 +1056,8 @@ function LLMSectionInner({
     (!builderEngineSelected &&
       configurationKnown &&
       selectedEnginePackageInstalled &&
-      (envConfigured || settingsConfigured));
+      (selectedEngineInfo?.configured ??
+        (envConfigured || settingsConfigured)));
   const sourceBadge = computeSourceBadge({
     settingsConfigured: configurationKnown && settingsConfigured,
     settingsStatus: configurationKnown ? settingsStatus : null,
@@ -1162,6 +1081,7 @@ function LLMSectionInner({
   const handleSave = async () => {
     if (!providerSettingsChanged || (!envVar && !isEndpointProvider)) return;
     setSaving(true);
+    setProviderSettingsError(null);
     try {
       const nextBaseUrl = isEndpointProvider ? baseUrl.trim() : "";
       await saveAgentEngineProviderSettings({
@@ -1172,13 +1092,20 @@ function LLMSectionInner({
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
       });
       setSaved(true);
-      setApiKey("");
-      setBaseUrl("");
-      setClearBaseUrl(false);
+      setSelectionState((previous) => ({
+        ...previous,
+        apiKey: "",
+        baseUrl: "",
+        clearBaseUrl: false,
+      }));
       if (nextBaseUrl) setBaseUrlConfigured(true);
       if (clearBaseUrl) setBaseUrlConfigured(false);
       notifyConfigChanged();
       setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setProviderSettingsError(
+        err instanceof Error ? err.message : String(err),
+      );
     } finally {
       setSaving(false);
     }
@@ -1256,19 +1183,28 @@ function LLMSectionInner({
   };
 
   const handleApply = async () => {
+    if (applying) return;
+    setApplying(true);
     setApplyError(null);
+    setApplyNote(false);
     try {
-      await setAgentEngineProvider({
+      const selection = await setAgentEngineProvider({
         provider: selectedProvider,
         model: selectedModel,
       });
-      setCurrentEngine(selectedEngine);
-      setCurrentModel(selectedModel);
+      setSelectionState((previous) => ({
+        ...previous,
+        currentEngine: selection.engine,
+        currentModel: selection.model,
+        selectedEngine: selection.engine,
+        selectedModel: selection.model,
+      }));
       setApplyNote(true);
-      notifyConfigChanged();
       setTimeout(() => setApplyNote(false), 4000);
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -1333,7 +1269,11 @@ function LLMSectionInner({
               id="llm-manual-setup"
               title="Custom keys"
               hint={manualSetupHint}
-              sourceBadge={builderConnected ? undefined : sourceBadge}
+              sourceBadge={
+                builderConnected || engineChanged || !anyKeyConfigured
+                  ? undefined
+                  : sourceBadge
+              }
               bare={isPage}
               popover
               popoverLabel={
@@ -1359,7 +1299,7 @@ function LLMSectionInner({
                 ) : undefined
               }
             >
-              <div className="space-y-2 mb-1">
+              <fieldset disabled={applying} className="space-y-2 mb-1">
                 <AgentProviderPicker
                   value={selectedProvider}
                   configuredProviders={
@@ -1368,12 +1308,18 @@ function LLMSectionInner({
                   layout={isPage ? "page" : "compact"}
                   onChange={(provider) => {
                     const option = getAgentProviderOption(provider);
-                    setSelectedEngine(option.engine);
-                    setSelectedModel(option.defaultModel);
-                    setApiKey("");
-                    setBaseUrl("");
-                    setClearBaseUrl(false);
+                    setSelectionState((previous) => ({
+                      ...previous,
+                      selectedEngine: option.engine,
+                      selectedModel: option.defaultModel,
+                      apiKey: "",
+                      baseUrl: "",
+                      clearBaseUrl: false,
+                    }));
                     setAdvancedOpen(false);
+                    setApplyError(null);
+                    setApplyNote(false);
+                    setTestResult(null);
                   }}
                 />
 
@@ -1385,7 +1331,16 @@ function LLMSectionInner({
                     type="text"
                     list={`model-suggestions-${selectedEngine}`}
                     value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+                    onChange={(e) => {
+                      const model = e.target.value;
+                      setSelectionState((previous) => ({
+                        ...previous,
+                        selectedModel: model,
+                      }));
+                      setApplyError(null);
+                      setApplyNote(false);
+                      setTestResult(null);
+                    }}
                     placeholder={
                       selectedEngineInfo?.defaultModel ?? "e.g. model-id"
                     }
@@ -1446,8 +1401,14 @@ function LLMSectionInner({
                           type="url"
                           value={baseUrl}
                           onChange={(e) => {
-                            setBaseUrl(e.target.value);
-                            if (e.target.value.trim()) setClearBaseUrl(false);
+                            const baseUrl = e.target.value;
+                            setSelectionState((previous) => ({
+                              ...previous,
+                              baseUrl,
+                              clearBaseUrl: baseUrl.trim()
+                                ? false
+                                : previous.clearBaseUrl,
+                            }));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") void handleSave();
@@ -1470,8 +1431,11 @@ function LLMSectionInner({
                             <Checkbox
                               checked={clearBaseUrl}
                               onChange={(checked) => {
-                                setClearBaseUrl(checked);
-                                if (checked) setBaseUrl("");
+                                setSelectionState((previous) => ({
+                                  ...previous,
+                                  clearBaseUrl: checked,
+                                  baseUrl: checked ? "" : previous.baseUrl,
+                                }));
                               }}
                               aria-label="Clear saved endpoint override"
                               className="shrink-0"
@@ -1520,7 +1484,13 @@ function LLMSectionInner({
                     <input
                       type="password"
                       value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      onChange={(e) => {
+                        const apiKey = e.target.value;
+                        setSelectionState((previous) => ({
+                          ...previous,
+                          apiKey,
+                        }));
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void handleSave();
                       }}
@@ -1650,8 +1620,21 @@ function LLMSectionInner({
                     Disconnect failed: {disconnectError}
                   </p>
                 )}
+                {providerSettingsError && (
+                  <div
+                    role="alert"
+                    className={cn(
+                      "flex items-center gap-1.5 text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconAlertCircle size={isPage ? 14 : 10} />
+                    {providerSettingsError}
+                  </div>
+                )}
                 {applyError && (
                   <p
+                    role="alert"
                     className={cn(
                       "text-destructive",
                       isPage ? "text-xs" : "text-[10px]",
@@ -1670,7 +1653,7 @@ function LLMSectionInner({
                     Changes take effect on next conversation
                   </p>
                 )}
-              </div>
+              </fieldset>
             </ManualSetupCard>
           </div>
         </div>
@@ -1731,10 +1714,17 @@ function AppDefaultModelPicker({
     ? `${selectedEngine?.label ?? selectedEngine?.name ?? "Provider"} · ${friendlyModelName(selectedModel)}`
     : "Global default";
 
-  const openIntegrations = () => {
+  const openApiKeys = () => {
     setOpen(false);
     if (typeof window !== "undefined") {
-      window.history.pushState(null, "", buildSettingsRoute("integrations"));
+      window.history.pushState(
+        null,
+        "",
+        appMountedPath(
+          buildSettingsRoute("keys"),
+          STANDARD_APP_ROUTES.settings,
+        ),
+      );
       window.dispatchEvent(new Event("popstate"));
     }
   };
@@ -1836,12 +1826,12 @@ function AppDefaultModelPicker({
                   })}
                   {!configured && (
                     <CommandItem
-                      value={`configure ${providerLabel} in integrations api keys`}
-                      onSelect={openIntegrations}
+                      value={`configure ${providerLabel} in api keys`}
+                      onSelect={openApiKeys}
                       className="gap-2 text-muted-foreground"
                     >
                       <IconExternalLink size={14} />
-                      Configure in Integrations
+                      Configure in API keys
                     </CommandItem>
                   )}
                 </CommandGroup>
@@ -2223,7 +2213,7 @@ function AppModelDefaultsSectionInner({
 
 // ─── Email Section ──────────────────────────────────────────────────────────
 
-function EmailSectionInner({
+export function EmailSectionInner({
   open,
   onToggle,
 }: {
@@ -3048,9 +3038,11 @@ function SettingsPanelContent({
   const envManaged = !!builder?.envManaged;
   const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
+  const showWorkspaceBuilderConnect = builderStatusAvailable && !connected;
   const builderFlow = useBuilderConnectFlow({
     enabled: !builderConnectionOwnedExternally,
     popupUrl: connectUrl,
+    provisionAccount: true,
     trackingSource: "settings_panel_builder_card",
   });
 
@@ -3169,7 +3161,7 @@ function SettingsPanelContent({
                   id={settingsSectionDomId("automations")}
                   icon={<IconBolt size={14} />}
                   title="Automations"
-                  subtitle="Scheduled and event-triggered agent tasks."
+                  subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
                   grouped
                   flat
                   open={openSection === "automations"}
@@ -3177,10 +3169,13 @@ function SettingsPanelContent({
                 >
                   <SettingsRow
                     label="Automations"
-                    description="Schedule agent tasks or run them from events."
+                    description="Schedule agent tasks or run them from events and webhooks."
                     control={
                       <a
-                        href="/settings/agent/automations"
+                        href={appMountedPath(
+                          buildSettingsRoute("agent:automations"),
+                          STANDARD_APP_ROUTES.settings,
+                        )}
                         className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
                       >
                         Open automations
@@ -3206,17 +3201,19 @@ function SettingsPanelContent({
                     label="Background agent"
                     description="Make code changes from production mode via Builder."
                     control={
-                      <UseBuilderCard
-                        builderFlow={builderFlow}
-                        connectUrl={connectUrl}
-                        connected={connected}
-                        orgName={orgName}
-                        envManaged={envManaged}
-                        credentialSource={credentialSource}
-                        trackingSource="background_agent_settings"
-                        trackingFlow="background_agent"
-                        compact
-                      />
+                      builderStatusAvailable ? (
+                        <UseBuilderCard
+                          builderFlow={builderFlow}
+                          connectUrl={connectUrl}
+                          connected={connected}
+                          orgName={orgName}
+                          envManaged={envManaged}
+                          credentialSource={credentialSource}
+                          trackingSource="background_agent_settings"
+                          trackingFlow="background_agent"
+                          compact
+                        />
+                      ) : null
                     }
                   />
                 </SettingsSection>
@@ -3241,7 +3238,7 @@ function SettingsPanelContent({
                 description="Deploy the app to the cloud."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3291,7 +3288,7 @@ function SettingsPanelContent({
                 description="Connect persistent app storage."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3341,7 +3338,7 @@ function SettingsPanelContent({
                 description="Store avatars and chat attachments."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3393,7 +3390,7 @@ function SettingsPanelContent({
                 description="Set up sign-in and access control."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3503,7 +3500,7 @@ function SettingsPanelContent({
             id={settingsSectionDomId("automations")}
             icon={<IconBolt size={14} />}
             title="Automations"
-            subtitle="Scheduled and event-triggered agent tasks."
+            subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
             flat
             open={openSection === "automations"}
             onToggle={() => toggle("automations")}
@@ -3586,7 +3583,7 @@ function SettingsPanelContent({
                 trackingFlow="database"
               />
               <ManualSetupCard
-                hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
+                hint="Set DATABASE_URL in your .env to connect hosted Postgres, or use local PGlite with pglite:./data/pglite."
                 docsUrl={docsUrl("database", {
                   campaign: "onboarding",
                   content: "database_settings",
@@ -3717,16 +3714,18 @@ function SettingsPanelContent({
               open={openSection === "background"}
               onToggle={() => toggle("background")}
             >
-              <UseBuilderCard
-                builderFlow={builderFlow}
-                connectUrl={connectUrl}
-                connected={connected}
-                orgName={orgName}
-                envManaged={envManaged}
-                credentialSource={credentialSource}
-                trackingSource="background_agent_settings"
-                trackingFlow="background_agent"
-              />
+              {builderStatusAvailable ? (
+                <UseBuilderCard
+                  builderFlow={builderFlow}
+                  connectUrl={connectUrl}
+                  connected={connected}
+                  orgName={orgName}
+                  envManaged={envManaged}
+                  credentialSource={credentialSource}
+                  trackingSource="background_agent_settings"
+                  trackingFlow="background_agent"
+                />
+              ) : null}
             </SettingsSection>
           )}
 
@@ -3786,26 +3785,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
 }
 
 export function ConnectionsSettingsContent({
-  settingsPanelProps,
+  settingsPanelProps: _settingsPanelProps,
 }: {
   settingsPanelProps: SettingsPanelProps;
 }) {
   return (
-    <div className="w-full space-y-8">
+    <div className="w-full">
       <Suspense fallback={null}>
         <IntegrationsPanel />
       </Suspense>
-      <BuilderConnectCard trackingSource="settings_connections" />
-      <SettingsPanelContent
-        {...settingsPanelProps}
-        surface="page"
-        sections={INTEGRATION_SETTINGS_SECTIONS.filter(
-          (section) => section !== "integrations" && section !== "usage",
-        )}
-        showCapabilityStrip={false}
-        className="w-full"
-        builderConnectionOwnedExternally
-      />
     </div>
   );
 }
@@ -3846,6 +3834,7 @@ export function AgentSettingsContent({
 export function useAgentSettingsTabs(
   options: AgentSettingsTabsOptions = {},
 ): SettingsTabItem[] {
+  const t = useT();
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const { data: org } = useOrg();
   const locale = useOptionalLocale()?.locale ?? "en-US";
@@ -3886,6 +3875,7 @@ export function useAgentSettingsTabs(
       id:
         | "agent"
         | "integrations"
+        | "keys"
         | "mcp"
         | "usage"
         | "organization"
@@ -3897,6 +3887,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const keys = searchTab("keys");
     const mcp = searchTab("mcp");
     const usage = searchTab("usage");
     const organization = searchTab("organization");
@@ -3977,8 +3968,25 @@ export function useAgentSettingsTabs(
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
       },
       {
+        ...keys,
+        icon: IconKey,
+        group: "integrations",
+        content: (
+          <div className="w-full">
+            <SettingsPanelContent
+              {...baseProps}
+              surface="page"
+              sections={["secrets"]}
+              showCapabilityStrip={false}
+              className="w-full"
+              builderConnectionOwnedExternally
+            />
+          </div>
+        ),
+      },
+      {
         ...mcp,
-        icon: IconPlugConnected,
+        icon: IconApps,
         group: "integrations",
         content: <McpAccessSettings appName={appName} />,
       },
@@ -4112,6 +4120,7 @@ export function useAgentSettingsTabs(
     extensionToolsEnabled,
     locale,
     organizationContent,
+    t,
     usageAppId,
     usageViewAllHref,
   ]);

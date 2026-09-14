@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
+import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -43,6 +44,7 @@ import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
+  referenceFilePaths?: string[];
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
     value: string;
@@ -56,8 +58,11 @@ export type NewDeckReferenceSource = NonNullable<
 export interface ImportedReference {
   id: string;
   title: string;
-  source: "pptx" | "pdf" | "google-slides";
+  source: "pptx" | "pdf" | "docx" | "google-slides";
+  referenceFilePaths?: string[];
 }
+
+type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
 
 interface DesignSystemOption {
   id: string;
@@ -78,6 +83,9 @@ interface NewDeckReferenceStepProps {
   ) => Promise<ImportedReference | null>;
   onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
+  /** Called after the inline "create a design system" dialog completes, so
+   * the caller can refetch the list and surface the new option. */
+  onDesignSystemsChanged: () => void;
   importing?: boolean;
   title: string;
   designSystemLabel: string;
@@ -100,6 +108,7 @@ export function NewDeckReferenceStep({
   onImportSource,
   onSkip,
   onOpenChange,
+  onDesignSystemsChanged,
   importing = false,
   title,
   designSystemLabel,
@@ -117,12 +126,18 @@ export function NewDeckReferenceStep({
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
+  const [referenceDeckTouched, setReferenceDeckTouched] = useState(
+    defaultReferenceDeckId !== null,
+  );
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
   const [selectedSource, setSelectedSource] =
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
   const [continuing, setContinuing] = useState(false);
+  const [importingSource, setImportingSource] =
+    useState<FileImportSource | null>(null);
+  const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
@@ -135,6 +150,7 @@ export function NewDeckReferenceStep({
     if (!open) return;
     setSelectedDesignSystemId(defaultDesignSystemId);
     setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
@@ -144,17 +160,26 @@ export function NewDeckReferenceStep({
     if (open) setContinuing(false);
   }, [open]);
 
-  const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImport = async (
+    event: ChangeEvent<HTMLInputElement>,
+    source: FileImportSource,
+  ) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
-    const imported = await onImport(files);
-    if (imported) applyImportedReference(imported);
+    setImportingSource(source);
+    try {
+      const imported = await onImport(files);
+      if (imported) applyImportedReference(imported);
+    } finally {
+      setImportingSource(null);
+    }
   };
 
   const applyImportedReference = (imported: ImportedReference) => {
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(imported.id);
+    setReferenceDeckTouched(true);
     setSelectedSource(null);
     setImportedReference(imported);
   };
@@ -178,6 +203,9 @@ export function NewDeckReferenceStep({
         designSystemId: selectedDesignSystemId,
         referenceDeckId: selectedReferenceDeckId,
         referenceSource: trimmedSource,
+        ...(importedReference?.referenceFilePaths?.length
+          ? { referenceFilePaths: importedReference.referenceFilePaths }
+          : {}),
       });
     } finally {
       setContinuing(false);
@@ -217,6 +245,7 @@ export function NewDeckReferenceStep({
       setSelectedDesignSystemId(null);
     } else {
       setSelectedReferenceDeckId(null);
+      setReferenceDeckTouched(true);
       setImportedReference(null);
     }
   };
@@ -267,14 +296,13 @@ export function NewDeckReferenceStep({
                   {designSystemLabel}
                 </span>
                 {designSystems.length === 0 && (
-                  <a
-                    href="/design-systems"
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => setShowDesignSystemSetup(true)}
                     className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
                   >
                     {t("home.addDesignSystem")}
-                  </a>
+                  </button>
                 )}
               </div>
               <Select
@@ -321,7 +349,10 @@ export function NewDeckReferenceStep({
                     className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="truncate">
-                      {selectedReferenceDeckTitle ?? chooseDeckLabel}
+                      {selectedReferenceDeckTitle ??
+                        (referenceDeckTouched
+                          ? t("home.none")
+                          : chooseDeckLabel)}
                     </span>
                     <IconChevronDown className="size-4 shrink-0 opacity-50" />
                   </button>
@@ -349,6 +380,7 @@ export function NewDeckReferenceStep({
                           disabled={busy}
                           onSelect={() => {
                             setSelectedReferenceDeckId(null);
+                            setReferenceDeckTouched(true);
                             setImportedReference(null);
                             setSelectedSource(null);
                             setReferenceDeckSearchOpen(false);
@@ -371,6 +403,7 @@ export function NewDeckReferenceStep({
                             disabled={busy}
                             onSelect={() => {
                               setSelectedReferenceDeckId(deck.id);
+                              setReferenceDeckTouched(true);
                               setImportedReference(null);
                               setSelectedSource(null);
                               setReferenceDeckSearchOpen(false);
@@ -405,10 +438,10 @@ export function NewDeckReferenceStep({
                   label="PPT"
                   imported={importedReference?.source === "pptx"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
                   accept=".pdf"
@@ -416,21 +449,21 @@ export function NewDeckReferenceStep({
                   label="PDF"
                   imported={importedReference?.source === "pdf"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
                   accept=".docx"
                   icon={<IconFileText className="size-4" />}
                   label="DOCX"
-                  imported={false}
+                  imported={importedReference?.source === "docx"}
                   importedLabel={t("home.imported")}
-                  importing={importing}
+                  importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
                   disabled={busy}
-                  onChange={handleImport}
+                  onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
                   icon={<IconBrandGoogle className="size-4" />}
@@ -538,6 +571,20 @@ export function NewDeckReferenceStep({
           <IconCheck className="ms-1.5 size-4" />
         </Button>
       </footer>
+
+      <DesignSystemSetup
+        open={showDesignSystemSetup}
+        onClose={() => setShowDesignSystemSetup(false)}
+        onComplete={() => {
+          setShowDesignSystemSetup(false);
+          // Most sources hand off to the agent and complete before the row
+          // exists, so this can be a no-op; it only helps the synchronous
+          // edit/GitHub-only paths. The dropdown still catches up once the
+          // agent-created row lands, via the shared action-query sync in
+          // useDbSync (see root.tsx), not through this call.
+          onDesignSystemsChanged();
+        }}
+      />
     </div>
   ) : null;
 }
@@ -569,7 +616,13 @@ function FileImportOption({
         "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
         (importing || disabled) && "pointer-events-none opacity-60",
       )}
-      aria-label={imported ? `${label} - ${importedLabel}` : label}
+      aria-label={
+        importing
+          ? `${label} - ${importingLabel}`
+          : imported
+            ? `${label} - ${importedLabel}`
+            : label
+      }
     >
       {imported ? <IconCheck className="size-4 text-primary" /> : icon}
       <span>{importing ? importingLabel : label}</span>

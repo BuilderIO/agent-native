@@ -342,6 +342,53 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
+  it("shows friendly Claude auth errors while retaining raw execution metadata", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "process.stderr.write('Not logged in');",
+        "process.exit(1);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+    });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "errored",
+      metadata: {
+        executionError: expect.stringContaining("Command failed"),
+      },
+    });
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message:
+            "Claude Code run failed: Claude authentication check failed. Run `claude auth login` and try again.",
+        }),
+      ]),
+    );
+  });
+
   it("persists Codex JSON tool events for the shared transcript UI", async () => {
     const root = useTempCodeAgentsHome();
     const binDir = path.join(root, "bin");

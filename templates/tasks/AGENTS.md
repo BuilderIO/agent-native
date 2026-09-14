@@ -13,6 +13,7 @@ Read the matching skill before acting. This file is the always-on layer; the ski
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Follow the root framework contract: data in SQL, actions first, application state for navigation/selection, and shared agent chat for AI work.
@@ -40,7 +41,8 @@ Default navigation shape on `/tasks`:
 - `includeDone` mirrors the task-list filter toggle (incomplete only vs show all).
 - `taskId` highlights a row when opened from a deep link; MVP has no detail page.
 - `fieldId` highlights a custom field when opened from a deep link; the Fields page manages definitions.
-- Chat lives at `/chat`. Root `/` redirects to `/tasks`.
+- Chat lives at `/chat`. The public root `/` is the SSR marketing page, while
+  private app entry `/home` redirects to `/tasks`.
 
 ## Actions
 

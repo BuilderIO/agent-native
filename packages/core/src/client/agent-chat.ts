@@ -29,6 +29,8 @@ import {
 } from "./frame.js";
 import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 
+export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+
 export type AgentChatRequestMode = "act" | "plan";
 
 export interface AgentChatMessage {
@@ -111,6 +113,13 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /**
+   * Names what this turn is FOR, e.g. `"crm:enrich-record"`. Recorded as the
+   * usage row's label and as the run's observability span name
+   * (`agent_run:<label>`), so a turn a feature sent on the user's behalf is
+   * distinguishable from a typed chat message. Omit for ordinary chat.
+   */
+  usageLabel?: string;
 }
 
 export interface AgentChatContextItem {
@@ -651,15 +660,6 @@ export function formatAgentChatContextItemsForPrompt(
     .join("\n\n");
 }
 
-export function appendAgentChatContextToMessage(
-  message: string,
-  context: string,
-): string {
-  const trimmedContext = context.trim();
-  if (!trimmedContext) return message;
-  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
-}
-
 function normalizeStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const normalized = value
@@ -982,6 +982,8 @@ export interface ParsedSubmitChat {
   requestMode?: AgentChatRequestMode;
   /** Id used to dedup the live post against a cold-start replay. */
   submitMessageId?: string;
+  /** See {@link AgentChatMessage.usageLabel}. */
+  usageLabel?: string;
 }
 
 function parseSubmitChatAttachments(
@@ -1067,6 +1069,7 @@ export function parseSubmitChatMessage(
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
+    usageLabel: nonEmptyString(raw.usageLabel),
   };
 }
 
@@ -1147,9 +1150,11 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     !localChatTarget &&
     isMcpAppChatBridgeEnabled()
   ) {
-    // MCP host follow-up APIs do not carry attachment descriptors. Use the
-    // normal wrapper transport when chips need to reach the chat thread.
-    if (opts.attachments?.length) {
+    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
+    // label. Use the normal wrapper transport when either needs to reach the
+    // chat thread — a label silently downgraded to `chat` is exactly the run
+    // the caller named it to be able to find.
+    if (opts.attachments?.length || opts.usageLabel) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",

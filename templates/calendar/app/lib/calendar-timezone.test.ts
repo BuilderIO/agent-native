@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   dateKeyToDate,
+  dateToCalendarDateKey,
   eventOverlapsCalendarDay,
   getCalendarDayBounds,
   getDisplayDateInTimezone,
   getDateKeyInTimezone,
+  getEventDateKey,
   getEventSegmentForCalendarDay,
   getViewDateRange,
   isAllDayCalendarEvent,
@@ -23,6 +25,20 @@ describe("calendar timezone helpers", () => {
       "2026-08-14",
     );
     expect(getDateKeyInTimezone(instant, "Asia/Tokyo")).toBe("2026-08-15");
+  });
+
+  it("keeps a UTC+13 local date carrier on the same calendar day", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "Pacific/Auckland";
+    try {
+      const selectedDate = new Date(2026, 0, 15, 12);
+
+      expect(selectedDate.toISOString()).toBe("2026-01-14T23:00:00.000Z");
+      expect(dateToCalendarDateKey(selectedDate)).toBe("2026-01-15");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 
   it("uses zoned midnight bounds across a DST transition", () => {
@@ -88,6 +104,45 @@ describe("calendar timezone helpers", () => {
     expect(
       getEventSegmentForCalendarDay(event, dateKeyToDate("2026-08-13"), "UTC"),
     ).toMatchObject({ topMinutes: 0, durationMinutes: 24 * 60 });
+  });
+
+  it("keeps explicit midnight timed bounds out of the all-day lane", () => {
+    const timezone = "Asia/Tokyo";
+    const timedEvent = {
+      start: dateTimeInTimezoneToIso("2026-08-13", "00:00", timezone),
+      end: dateTimeInTimezoneToIso("2026-08-14", "00:00", timezone),
+      startTimeZone: timezone,
+      endTimeZone: timezone,
+      allDay: false as const,
+    };
+
+    expect(isAllDayCalendarEvent(timedEvent)).toBe(false);
+    expect(
+      eventOverlapsCalendarDay(
+        timedEvent,
+        dateKeyToDate("2026-08-13"),
+        timezone,
+      ),
+    ).toBe(true);
+    expect(getEventDateKey(timedEvent, timezone)).toBe("2026-08-13");
+  });
+
+  it("preserves the all-day representation when moving a date-only event", () => {
+    expect(
+      moveEventToCalendarDate(
+        {
+          start: "2026-08-13",
+          end: "2026-08-14",
+          allDay: false,
+        },
+        dateKeyToDate("2026-08-17"),
+        "UTC",
+      ),
+    ).toEqual({
+      start: "2026-08-17",
+      end: "2026-08-18",
+      allDay: true,
+    });
   });
 
   it("formats event wall-clock fields in the event timezone", () => {

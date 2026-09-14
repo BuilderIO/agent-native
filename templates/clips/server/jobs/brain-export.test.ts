@@ -106,7 +106,7 @@ describe("Brain export recovery sweep", () => {
       args: ["ready", expect.any(String), "ready", "clips-brain-export-", 20],
     });
     expect(mocks.execute).toHaveBeenNthCalledWith(2, {
-      sql: expect.stringContaining("ORDER BY updated_at ASC LIMIT ?"),
+      sql: expect.stringContaining("ORDER BY updated_at ASC LIMIT $4"),
       args: [
         "clips-brain-export-%",
         '%"status":"pending"%',

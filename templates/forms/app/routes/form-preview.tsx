@@ -4,7 +4,6 @@ import {
   postNavigate,
 } from "@agent-native/core/client/navigation";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import type { FormFieldType } from "@shared/types";
 import {
   IconAlertCircle,
   IconExternalLink,
@@ -19,6 +18,7 @@ import {
   IconStar,
   IconSlideshow,
   IconList,
+  IconFile,
 } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
@@ -27,9 +27,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "@/hooks/use-forms";
+import type { AppFormFieldType } from "@/lib/form-field-types";
 import { normalizeFields } from "@/lib/normalize-fields";
 
-const FIELD_TYPE_LABEL_KEYS: Record<FormFieldType, string> = {
+const FIELD_TYPE_LABEL_KEYS: Record<AppFormFieldType, string> = {
   text: "fieldProperties.fieldTypes.text", // i18n-ignore stable catalog key
   email: "fieldProperties.fieldTypes.email", // i18n-ignore stable catalog key
   number: "fieldProperties.fieldTypes.number", // i18n-ignore stable catalog key
@@ -41,9 +42,10 @@ const FIELD_TYPE_LABEL_KEYS: Record<FormFieldType, string> = {
   date: "fieldProperties.fieldTypes.date", // i18n-ignore stable catalog key
   rating: "fieldProperties.fieldTypes.rating", // i18n-ignore stable catalog key
   scale: "fieldProperties.fieldTypes.scale", // i18n-ignore stable catalog key
+  file: "fieldProperties.fieldTypes.file", // i18n-ignore stable catalog key
 };
 
-const FIELD_TYPE_ICONS: Record<FormFieldType, React.ElementType> = {
+const FIELD_TYPE_ICONS: Record<AppFormFieldType, React.ElementType> = {
   text: IconTextSize,
   email: IconAt,
   number: IconNumber123,
@@ -55,6 +57,7 @@ const FIELD_TYPE_ICONS: Record<FormFieldType, React.ElementType> = {
   date: IconCalendar,
   rating: IconStar,
   scale: IconSlideshow,
+  file: IconFile,
 };
 
 export default function FormPreviewRoute() {
@@ -180,11 +183,11 @@ export default function FormPreviewRoute() {
             </p>
             <div className="divide-y divide-border rounded-md border bg-card">
               {fields.map((field) => {
-                const Icon =
-                  FIELD_TYPE_ICONS[field.type as FormFieldType] ?? IconTextSize;
+                const fieldType = field.type as AppFormFieldType;
+                const Icon = FIELD_TYPE_ICONS[fieldType] ?? IconTextSize;
                 const typeLabel =
-                  field.type in FIELD_TYPE_LABEL_KEYS
-                    ? t(FIELD_TYPE_LABEL_KEYS[field.type as FormFieldType])
+                  fieldType in FIELD_TYPE_LABEL_KEYS
+                    ? t(FIELD_TYPE_LABEL_KEYS[fieldType])
                     : field.type;
                 return (
                   <div

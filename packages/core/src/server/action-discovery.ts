@@ -41,7 +41,9 @@ async function getFs(): Promise<typeof import("fs")> {
   }
   return _fs;
 }
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+
+import { importRuntimeSourceModule } from "./runtime-source-module.js";
 
 /** Files to skip during auto-discovery (no extension). */
 const SKIP_FILES = new Set([
@@ -50,6 +52,7 @@ const SKIP_FILES = new Set([
   "db-connect",
   "db-status",
   "registry",
+  "migrate-production",
 ]);
 
 function isRuntimeSourceFile(filename: string): boolean {
@@ -233,11 +236,21 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (typeof entry.endsTurn === "boolean") {
+    out.endsTurn = entry.endsTurn;
+  }
   if (typeof entry.dedupe === "boolean") {
     out.dedupe = entry.dedupe;
   }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
+  }
+  if (
+    Array.isArray(entry.capabilityScopes) &&
+    entry.capabilityScopes.length > 0 &&
+    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
+  ) {
+    out.capabilityScopes = entry.capabilityScopes;
   }
   if (
     entry.publicAgent &&
@@ -277,29 +290,6 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.allowPersistentApproval = entry.allowPersistentApproval;
   }
   return out;
-}
-
-function shouldRetryWithJiti(filePath: string, err: unknown): boolean {
-  if (!filePath.endsWith(".ts")) return false;
-  const candidate = err as { code?: unknown; message?: unknown } | undefined;
-  if (candidate?.code === "ERR_UNKNOWN_FILE_EXTENSION") return true;
-  return /Unknown file extension ".ts"/.test(String(candidate?.message ?? ""));
-}
-
-async function importRuntimeSourceModule(
-  filePath: string,
-): Promise<Record<string, any>> {
-  try {
-    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
-  } catch (err) {
-    if (!shouldRetryWithJiti(filePath, err)) throw err;
-
-    const { createJiti } = await import("jiti");
-    const jiti = createJiti(pathToFileURL(filePath).href, {
-      interopDefault: true,
-    });
-    return (await jiti.import(filePath)) as Record<string, any>;
-  }
 }
 
 /**
@@ -679,6 +669,10 @@ export async function mergeCoreSharingActions(
       () => import("../email-catalog/actions/list-email-log.js"),
     ],
     [
+      "get-email-log-body",
+      () => import("../email-catalog/actions/get-email-log-body.js"),
+    ],
+    [
       "list-email-activity",
       () => import("../email-catalog/actions/list-email-activity.js"),
     ],
@@ -710,6 +704,16 @@ export async function mergeCoreSharingActions(
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
+    ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["set-lab", () => import("../labs/actions/set-lab.js")],
+    [
+      "get-experiments",
+      () => import("../experiments/actions/get-experiments.js"),
+    ],
+    [
+      "set-experiment",
+      () => import("../experiments/actions/set-experiment.js"),
+    ],
     // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
     // recurring jobs and personal automations. The agent-facing native tools
     // remain the canonical conversational surface.
@@ -736,6 +740,10 @@ export async function mergeCoreSharingActions(
     [
       "list-automations",
       () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "list-automation-events",
+      () => import("../triggers/actions/list-automation-events.js"),
     ],
     [
       "manage-automation",
@@ -870,6 +878,42 @@ export async function mergeCoreSharingActions(
     [
       "send-review-thread-to-agent",
       () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
+    [
+      "react-to-review-comment",
+      () => import("../review/actions/react-to-review-comment.js"),
+    ],
+    [
+      "set-review-thread-unread",
+      () => import("../review/actions/set-review-thread-unread.js"),
+    ],
+    [
+      "set-review-thread-muted",
+      () => import("../review/actions/set-review-thread-muted.js"),
+    ],
+    [
+      "create-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/create-resource-suggestion.js"),
+    ],
+    [
+      "list-resource-suggestions",
+      () =>
+        import("../review/suggestions/actions/list-resource-suggestions.js"),
+    ],
+    [
+      "update-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/update-resource-suggestion.js"),
+    ],
+    [
+      "get-resource-suggestion",
+      () => import("../review/suggestions/actions/get-resource-suggestion.js"),
+    ],
+    [
+      "decide-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/decide-resource-suggestion.js"),
     ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.

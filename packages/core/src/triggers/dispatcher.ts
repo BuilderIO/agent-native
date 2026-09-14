@@ -24,6 +24,7 @@ import {
   buildJobResourceContent,
   jobBelongsToApp,
   parseJobResource,
+  patchJobFrontmatterFields,
 } from "../jobs/frontmatter.js";
 import {
   resourceGetByPath,
@@ -33,6 +34,7 @@ import {
 } from "../resources/store.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import type { TriggerFrontmatter } from "./types.js";
+import type { AutomationWebhookTaskPayload } from "./webhook.js";
 
 export function parseTriggerFrontmatter(content: string): {
   meta: TriggerFrontmatter;
@@ -69,6 +71,8 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
 }
+
+export type AutomationWebhookTaskResult = "completed" | "retry";
 
 // Track active subscriptions (eventName -> subscription id) to avoid
 // double-subscribing AND so subscriptions for events that no longer have any
@@ -212,11 +216,10 @@ async function recordTriggerExecutionOutcome(
     return true;
   }
 
-  const nextMeta: TriggerFrontmatter = { ...current.meta, ...outcome };
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,
-    content: buildTriggerContent(nextMeta, current.body),
+    content: patchJobFrontmatterFields(latest.content, outcome),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
     expectedContent: latest.content,
@@ -355,8 +358,18 @@ async function handleEvent(
         continue;
       }
 
-      // Evaluate condition
-      const matches = await evaluateCondition(meta.condition, payload, apiKey);
+      // Evaluate condition. Unevaluable (network/HTTP) is not a non-match —
+      // record error and leave the trigger eligible for a later event.
+      let matches: boolean;
+      try {
+        matches = await evaluateCondition(meta.condition, payload, apiKey);
+      } catch (err) {
+        const reason =
+          err instanceof Error ? err.message : "Condition evaluation failed";
+        await recordTriggerSkip(resource, "error", reason);
+        console.warn(`[triggers] ${reason}: "${resource.path}"`);
+        continue;
+      }
       if (!matches) {
         await recordTriggerSkip(resource, "skipped", undefined);
         continue;
@@ -383,6 +396,86 @@ async function handleEvent(
   } catch (err) {
     console.error(`[triggers] Error handling event "${eventName}":`, err);
   }
+}
+
+/**
+ * Process a webhook task after the public route has persisted it. The queue
+ * worker supplies the target resource identity; the request body never gets
+ * to choose which automation runs.
+ */
+export async function dispatchAutomationWebhookTask(
+  task: AutomationWebhookTaskPayload,
+): Promise<AutomationWebhookTaskResult> {
+  const deps = _deps;
+  if (!deps)
+    throw new Error("Automation trigger dispatcher is not initialized.");
+
+  const resource = await resourceGetByPath(task.owner, task.path);
+  if (!resource || resource.id !== task.automationId) {
+    throw new Error("Webhook automation no longer exists.");
+  }
+  const { meta, body } = parseTriggerFrontmatter(resource.content);
+  if (meta.triggerType !== "webhook") {
+    throw new Error("Webhook target is no longer a webhook automation.");
+  }
+  if (!meta.enabled) return "completed";
+  if (!jobBelongsToApp(meta, deps.appId)) {
+    throw new Error("Webhook automation belongs to a different app.");
+  }
+  if (!body.trim()) return "completed";
+
+  const resolved = await resolveAutomationExecutionIdentity(
+    resource.owner,
+    meta,
+  );
+  if (!resolved.ok) throw new Error(resolved.reason);
+  const identity = resolved.identity;
+  const apiKey =
+    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
+  if (!apiKey) throw new Error("No API key is available for this automation.");
+
+  if (isBackgroundAutomationRunActive(meta)) {
+    return "retry";
+  }
+  // Unevaluable conditions must fail and retry through the task queue without resetting attempts.
+  let matches: boolean;
+  try {
+    matches = await evaluateCondition(meta.condition, task.payload, apiKey);
+  } catch (err) {
+    const reason =
+      err instanceof Error ? err.message : "Condition evaluation failed";
+    await recordTriggerSkip(resource, "error", reason);
+    throw err;
+  }
+  if (!matches) {
+    await recordTriggerSkip(resource, "skipped", undefined);
+    return "completed";
+  }
+  if (meta.mode !== "agentic") {
+    console.warn(
+      `[triggers] Deterministic mode not yet implemented for "${task.path}" — skipping`,
+    );
+    return "completed";
+  }
+
+  const dispatchKey = `${resource.owner}:${resource.path}`;
+  if (_dispatchingTriggers.has(dispatchKey)) return "retry";
+  _dispatchingTriggers.add(dispatchKey);
+  try {
+    await dispatchAgentic(
+      resource,
+      task.payload,
+      {
+        eventId: task.eventId,
+        emittedAt: new Date().toISOString(),
+        owner: identity.eventOwner,
+      },
+      identity,
+    );
+  } finally {
+    _dispatchingTriggers.delete(dispatchKey);
+  }
+  return "completed";
 }
 
 async function dispatchAgentic(
@@ -422,7 +515,11 @@ async function dispatchAgentic(
   const claimed = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,
-    content: buildTriggerContent(runningMeta, latestTrigger.body),
+    content: patchJobFrontmatterFields(latest.content, {
+      lastRun: runningMeta.lastRun,
+      lastStatus: "running",
+      lastError: undefined,
+    }),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
     expectedContent: latest.content,

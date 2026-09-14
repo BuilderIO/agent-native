@@ -234,13 +234,13 @@ export const notes = table("notes", {
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 INSERT 문은 열이 아직 없을 때 `owner_email`를 자동으로 삽입합니다.
 
-`db-query` / `db-exec` 도구는 스키마 한정 테이블 참조(`public.<table>`, `main.<table>`)를 거부합니다. 정규화된 이름은 기본 테이블로 확인되고 위의 임시 뷰를 우회합니다. 에이전트는 기본 테이블 이름을 사용합니다. 범위 지정은 자동으로 적용됩니다.
+`db-query` / `db-exec` 도구는 스키마 한정 테이블 참조(`public.<table>`)를 거부합니다. 정규화된 이름은 기본 테이블로 확인되고 위의 임시 뷰를 우회합니다. 에이전트는 기본 테이블 이름을 사용합니다. 범위 지정은 자동으로 적용됩니다.
 
 ### 조직별 범위 지정(`org_id`)
 

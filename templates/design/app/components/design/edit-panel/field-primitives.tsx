@@ -295,6 +295,7 @@ export function ScrubStyleInput({
   hideIcon = true,
   icon,
   disabled = false,
+  precision = 1,
 }: {
   label: string;
   value: string;
@@ -304,6 +305,10 @@ export function ScrubStyleInput({
   min?: number;
   max?: number;
   step?: number;
+  /** Decimals this field shows and accepts. Position fields pass 0: an X or Y
+   *  is a whole pixel, and a `.1` there is a subpixel layout artefact rather
+   *  than a number anyone chose. */
+  precision?: number;
   labelClassName?: string;
   inputClassName?: string;
   hideIcon?: boolean;
@@ -326,7 +331,7 @@ export function ScrubStyleInput({
       min={min}
       max={max}
       step={step}
-      precision={1}
+      precision={precision}
       disabled={disabled}
       className="gap-0"
       labelClassName={cn(

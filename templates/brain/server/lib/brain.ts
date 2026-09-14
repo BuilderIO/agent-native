@@ -654,10 +654,7 @@ function isUniqueConflict(error: unknown): boolean {
     message?: unknown;
     cause?: unknown;
   };
-  if (
-    candidate.code === "23505" ||
-    candidate.code === "SQLITE_CONSTRAINT_UNIQUE"
-  ) {
+  if (candidate.code === "23505") {
     return true;
   }
   if (typeof candidate.message === "string") {
@@ -918,7 +915,7 @@ export async function createCapture(values: {
       ),
     );
   }
-  const finalized = await db
+  const finalized = (await db
     .update(schema.brainRawCaptures)
     .set({
       title: sanitized.title,
@@ -934,7 +931,7 @@ export async function createCapture(values: {
       audienceAclHash: audience.aclHash,
       updatedAt: now,
     })
-    .where(and(...finalizationClauses));
+    .where(and(...finalizationClauses))) as { rowsAffected: number };
   if (finalized.rowsAffected === 0 && values.externalId) {
     await db
       .delete(schema.brainCaptureAudiences)

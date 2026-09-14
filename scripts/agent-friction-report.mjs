@@ -74,6 +74,44 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
+const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
+// A bare namespace mention is routine documentation. Count it only when the
+// same sentence also says the repair was wrong or describes a repair action.
+const CREDENTIAL_NAMESPACE_RE = new RegExp(
+  [
+    String.raw`\b${CREDENTIAL_NAMESPACE_SIGNAL}\b[^.!?]{0,120}\b${CREDENTIAL_CORRECTION_CONTEXT}\b`,
+    String.raw`\b${CREDENTIAL_CORRECTION_CONTEXT}\b[^.!?]{0,120}\b${CREDENTIAL_NAMESPACE_SIGNAL}\b`,
+  ].join("|"),
+  "i",
+);
+
+const CREDENTIAL_REGEX_CASES = [
+  [
+    true,
+    "Do not rotate the key because the mismatched pairs identify different clients.",
+  ],
+  [
+    true,
+    "The GOOGLE_SIGN_IN_CLIENT_SECRET was repaired instead of the active provider pair.",
+  ],
+  [true, "The mismatched pair was the wrong fix and changed nothing."],
+  [false, "Check mismatched pairs before changing credentials."],
+  [false, "GOOGLE_SIGN_IN_CLIENT_ID identifies the sign-in client."],
+  [false, "Mismatched pairs can be intentional on a host."],
+];
+
+const DESIGN_FEEDBACK_SCOPE_RE =
+  /\b(?:design|visual|ui|ux)\b[^.!?\n]{0,80}\b(?:out of scope|not in scope|skip\w*|ignor\w*|rule|gate|blocked)\b|\b(?:out of scope|not in scope|skip\w*|ignor\w*|rule|gate|blocked)\b[^.!?\n]{0,80}\b(?:design|visual|ui|ux)\b/i;
+
+const DESIGN_FEEDBACK_REGEX_CASES = [
+  [true, "Remove that design rule. I want you fixing design things."],
+  [true, "Why are these visual issues out of scope?"],
+  [true, "Don't ignore the UI polish feedback."],
+  [false, "Fix the Design gradient fill bug."],
+  [false, "The design needs a little more contrast."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -110,18 +148,40 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...CREDENTIAL_REGEX_CASES.filter(
+      ([expected, message]) =>
+        CREDENTIAL_NAMESPACE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...DESIGN_FEEDBACK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
 }
 
 const PATTERNS = [
+  {
+    // Added 2026-09-02 after the Design E2E suite surfaced 63 failures that had
+    // rotted for weeks: the suite ran post-merge only, so no fix ever had to
+    // prove itself against a test that failed first.
+    key: "no-failing-test-first",
+    label: "Had to ask for a failing test before the fix",
+    fixedBy:
+      "guard:e2e-quarantine + templates/design/.agents/skills/design-editor-architecture (2026-09-02)",
+    re: /\b(write|add).{0,24}(failing|red) test|test.{0,16}fail(s|ed)? first|where'?s the (failing )?test|no test for (this|that) (fix|bug)|prove it fails\b/i,
+  },
   {
     // Added 2026-08-27 after the PR queue exposed routine main merges and
     // generic ship commits as a measurable source of CI churn.
@@ -135,6 +195,15 @@ const PATTERNS = [
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
+  },
+  {
+    // Added 2026-09-11 after a user correction made clear the feedback scope
+    // rule was treating concrete Design/UX feedback as out of scope.
+    key: "design-feedback-scope",
+    label: "Had to ask to act on design feedback",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (design/UX scope, 2026-09-11)",
+    re: DESIGN_FEEDBACK_SCOPE_RE,
   },
   {
     key: "false-done",
@@ -175,6 +244,22 @@ const PATTERNS = [
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
+  },
+  {
+    key: "credential-wrong-namespace",
+    label: "Had to stop a credential rotation that was the wrong fix",
+    fixedBy:
+      "pnpm check:google-redirect-uris (MISMATCHED-PAIRS remediation, 2026-08-29)",
+    // The failure is repairing one namespace while the flow reads the other,
+    // so the repair verifies clean and changes nothing.
+    re: new RegExp(
+      [
+        String.raw`\b(?:don'?t|do not|stop|no need to|didn'?t need to)\b[^.!?]{0,60}\b(?:rotat\w+|regenerat\w+|new secret|another key|update the key)\b`,
+        String.raw`\b(?:wrong|losing|stale) (?:key|secret|pair|namespace)\b`,
+        CREDENTIAL_NAMESPACE_RE.source,
+      ].join("|"),
+      "i",
+    ),
   },
   {
     key: "missed-localization",
@@ -231,11 +316,49 @@ const PATTERNS = [
     fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
   },
+  // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
+  // questions but not their volume, so the 2026-09-01 sweep that posted 23
+  // questions in one hour (4% answered, against 88% for the runs that asked
+  // one or two) scored zero on every existing key. The cap in
+  // review-latest-feedback is what this key has to move; if it stays at zero
+  // while the user keeps saying the asks are odd, the key is wrong, not the
+  // behavior. Watch it alongside `unanswered-feedback-followup`, which has
+  // read zero since it landed because a per-run state file could not see the
+  // previous run's questions at all.
+  // Added 2026-09-02. Distinct from `repeat-issue` and `done-while-broken`:
+  // this is specifically the sweep re-fixing a bug the channel already
+  // reported and was already told was fixed. Measured because a repeat report
+  // is the only falsification signal the workflow gets for its own Fixed
+  // claims, and it was previously invisible - one Analytics outage drew three
+  // separate investigations, and the same Zoom invalid_client was answered
+  // twice 17 hours apart with neither reply linking the other.
+  {
+    key: "repeat-report-refix",
+    label: "Told we keep re-fixing an already-reported bug",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (2026-09-02 repeat-report gate)",
+    re: /\b(?:same|identical)\b[^.!?\n]{0,60}\b(?:thing|bug|issue|problem|report|error|failure)\b[^.!?\n]{0,80}\b(?:again|over and over|on repeat|repeatedly|multiple times|keeps? (?:getting )?report\w*|twice|three times|third time)\b|\bkeep(?:s)?\b[^.!?\n]{0,40}\b(?:re-?)?(?:fix|investigat|report)\w*\b[^.!?\n]{0,60}\b(?:same|again|over and over|on repeat)\b|\b(?:already|previously)\b[^.!?\n]{0,50}\b(?:said|told|claimed|marked)\b[^.!?\n]{0,40}\bfixed\b[^.!?\n]{0,60}\b(?:still|again|not|isn['’]?t)\b|\b(?:report|answer|fix)(?:ed|s)?\b[^.!?\n]{0,60}\b(?:twice|three times|two|three|four)\b[^.!?\n]{0,40}\b(?:times?|separate|different)\b[^.!?\n]{0,40}\b(?:investigat\w*|report\w*|thread\w*|repl\w*)\b|\b(?:duplicate|dupe)\w*\b[^.!?\n]{0,50}\b(?:investigation|report|of the same|work)\b/i,
+  },
+  {
+    key: "feedback-question-volume",
+    label: "Told the feedback sweep asked too many or low-value questions",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (2026-09-01 three-question budget)",
+    re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
+  },
   {
     key: "cross-thread-interference",
     label: "Agent acted on other agents' threads or work uninvited",
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
     re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
+  },
+  {
+    key: "agent-tool-misuse",
+    label:
+      "Had to tell an agent which tool to call, or to author content itself instead of delegating to ask_app / the in-app agent",
+    fixedBy:
+      "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
+    re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
   },
   // Measured for the first time on 2026-08-12, after three prose rewrites of the
   // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.

@@ -17,6 +17,13 @@ export type FactoryAuditItemSnapshot = {
   summary: string | null;
   source: string | null;
   sourceUrl: string | null;
+  pullRequestNumber?: number | null;
+  status?: string | null;
+  createdAt?: string | null;
+  lastSeenAt?: string | null;
+  slackBuilderReplyAt?: string | null;
+  slackDisposition?: string | null;
+  userLabels?: Record<string, string>;
 };
 
 export type FactoryAuditRunSnapshot = {
@@ -31,13 +38,16 @@ export type FactoryAuditItemOutcome =
   | "held"
   | "dispatched"
   | "failed"
-  | "inspected";
+  | "inspected"
+  | "left";
 
 export type FactoryAuditReportItem = {
   itemId: string;
   source: string | null;
   sourceUrl: string | null;
   title: string;
+  summary: string | null;
+  pullRequestNumber: number | null;
   outcome: FactoryAuditItemOutcome;
   status: string;
   rationale: string | null;
@@ -48,6 +58,21 @@ export type FactoryAuditReportItem = {
   guards: string | null;
   events: FactoryAuditEventRecord[];
   latestAt: string;
+  listedStatus: string | null;
+  firstSeenThisRun: boolean;
+  builderAlreadyStarted: boolean;
+  userLabels?: Record<string, string>;
+  babysitRecommendation?: string | null;
+  babysitBecause?: string | null;
+  babysitDecision?: string | null;
+  babysitVeto?: string | null;
+  babysitBuilderActive?: boolean | null;
+  babysitOpenBotThreads?: number | null;
+  babysitOpenHumanThreads?: number | null;
+  babysitCiBlocking?: string | null;
+  babysitAgentMatched?: boolean | null;
+  babysitBotThreadSummaries?: string[] | null;
+  babysitHumanThreadSummaries?: string[] | null;
 };
 
 export type FactoryAuditTraceStep = {
@@ -67,10 +92,20 @@ export type FactoryAuditCounts = {
   held: number;
   dispatched: number;
   failed: number;
+  added: number;
+  listed: number;
+  left: number;
+  inboxLimit: number | null;
+  workLimit: number | null;
+  authorFiltered: number | null;
+  updated: number | null;
 };
 
 export type FactoryAuditReport = {
   counts: FactoryAuditCounts;
+  inbox: FactoryAuditReportItem[];
+  work: FactoryAuditReportItem[];
+  actions: FactoryAuditReportItem[];
   items: FactoryAuditReportItem[];
   trace: FactoryAuditTraceStep[];
 };
@@ -91,8 +126,13 @@ export function projectFactoryAuditReport(
     window ? runsInWindow(runs, window) : runs,
   );
   const chronological = [...events].sort(byCreatedAtAsc);
+  const listed = listedItemSnapshots(chronological);
+  const inboxIds = inboxItemIds(chronological);
+  const addedCount = readAddedCount(chronological, inboxIds.size);
+  const pollRollup = pollRollupEvent(chronological);
+  const listEvent = reviewListEvent(chronological);
 
-  const primaryItemIds = new Set<string>();
+  const primaryItemIds = new Set<string>([...listed.keys(), ...inboxIds]);
   for (const event of chronological) {
     if (!event.itemId) continue;
     if (
@@ -113,28 +153,52 @@ export function projectFactoryAuditReport(
         ),
         itemsById.get(itemId),
         latestRunByItem.get(itemId),
+        listed.get(itemId) ?? null,
+        inboxIds.has(itemId),
+        window,
       ),
     )
     .sort(
       (left, right) =>
         new Date(right.latestAt).getTime() - new Date(left.latestAt).getTime(),
     );
+  const itemsByReportId = new Map(
+    reportItems.map((item) => [item.itemId, item]),
+  );
+  const work = [...listed.keys()]
+    .map((itemId) => itemsByReportId.get(itemId))
+    .filter((item): item is FactoryAuditReportItem => Boolean(item));
+  const inbox = [...inboxIds]
+    .map((itemId) => itemsByReportId.get(itemId))
+    .filter((item): item is FactoryAuditReportItem => Boolean(item));
+  const actions = reportItems.filter(
+    (item) => item.outcome === "dispatched" || item.outcome === "failed",
+  );
+  const investigated = reportItems.filter((item) => item.outcome !== "left");
 
   const counts: FactoryAuditCounts = {
-    newlyObserved: uniqueItemIds(
-      chronological.filter((event) => isPollEvent(event) && event.itemId),
-    ).size,
-    scanned: scannedItemCount(chronological),
-    investigated: reportItems.length,
+    newlyObserved: addedCount,
+    scanned: listed.size > 0 ? listed.size : scannedItemCount(chronological),
+    investigated: investigated.length,
     held: reportItems.filter((item) => item.outcome === "held").length,
     dispatched: reportItems.filter((item) => item.outcome === "dispatched")
       .length,
     failed: reportItems.filter((item) => item.outcome === "failed").length,
+    added: addedCount,
+    listed: listed.size,
+    left: reportItems.filter((item) => item.outcome === "left").length,
+    inboxLimit: readNumberDetail(pollRollup?.details, "inboxLimit"),
+    workLimit: readNumberDetail(listEvent?.details, "limit"),
+    authorFiltered: readNumberDetail(pollRollup?.details, "authorFiltered"),
+    updated: readNumberDetail(pollRollup?.details, "updated"),
   };
 
   return {
     counts,
-    items: reportItems,
+    inbox,
+    work,
+    actions,
+    items: work.length > 0 ? work : investigated,
     trace: collapseTrace(chronological),
   };
 }
@@ -144,6 +208,9 @@ function projectItem(
   events: FactoryAuditEventRecord[],
   item: FactoryAuditItemSnapshot | undefined,
   run: FactoryAuditRunSnapshot | undefined,
+  listed: ListedItemSnapshot | null,
+  addedThisRun: boolean,
+  window?: { startedAt: number; finishedAt: number | null },
 ): FactoryAuditReportItem {
   const decision = events.find((event) => event.kind === "decision") ?? null;
   const dispatch =
@@ -153,10 +220,20 @@ function projectItem(
       new Date(event.createdAt).getTime() > new Date(latest).getTime()
         ? event.createdAt
         : latest,
-    events[0]?.createdAt ?? new Date(0).toISOString(),
+    events[0]?.createdAt ?? item?.createdAt ?? new Date(0).toISOString(),
   );
   const dispatchError = readDispatchError(dispatch, run);
-  const outcome = itemOutcome(decision, dispatch, dispatchError);
+  const opened = events.some((event) => INVESTIGATE_ACTIONS.has(event.action));
+  let outcome = itemOutcome(decision, dispatch, dispatchError);
+  if (outcome === "inspected" && listed && !opened) outcome = "left";
+  const firstSeenThisRun =
+    addedThisRun || createdDuringWindow(item?.createdAt, window);
+  const listedStatus = listed?.status ?? null;
+  const builderAlreadyStarted =
+    listedStatus === "automation_started" ||
+    occurredBeforeWindow(item?.slackBuilderReplyAt, window) ||
+    startedBeforeWindow(run, window);
+  const babysit = readBabysitAuditDetails(events);
 
   return {
     itemId,
@@ -166,14 +243,20 @@ function projectItem(
       events.find((event) => event.sourceUrl)?.sourceUrl ??
       null,
     title: auditItemSubject(item, events),
+    summary: auditItemMessage(item, events),
+    pullRequestNumber:
+      typeof item?.pullRequestNumber === "number" && item.pullRequestNumber > 0
+        ? item.pullRequestNumber
+        : null,
     outcome,
     status:
       outcome === "failed"
         ? "error"
-        : outcome === "held"
+        : outcome === "held" || outcome === "left"
           ? "skipped"
           : "success",
-    rationale: decision?.summary ?? dispatch?.summary ?? null,
+    rationale:
+      babysit.because ?? decision?.summary ?? dispatch?.summary ?? null,
     dispatchError,
     clearBug: readBooleanDetail(decision?.details, "clearBug"),
     productUx: readBooleanDetail(decision?.details, "productUxImplications"),
@@ -181,6 +264,21 @@ function projectItem(
     guards: readGuardSummary(decision?.details?.guardResults),
     events,
     latestAt,
+    listedStatus,
+    firstSeenThisRun,
+    builderAlreadyStarted,
+    userLabels: item?.userLabels,
+    babysitRecommendation: babysit.recommendation,
+    babysitBecause: babysit.because,
+    babysitDecision: babysit.decision,
+    babysitVeto: babysit.veto,
+    babysitBuilderActive: babysit.builderActive,
+    babysitOpenBotThreads: babysit.openBotThreads,
+    babysitOpenHumanThreads: babysit.openHumanThreads,
+    babysitCiBlocking: babysit.ciBlocking,
+    babysitAgentMatched: babysit.agentMatched,
+    babysitBotThreadSummaries: babysit.botThreadSummaries,
+    babysitHumanThreadSummaries: babysit.humanThreadSummaries,
   };
 }
 
@@ -195,6 +293,133 @@ function itemOutcome(
   if (decision?.status === "skipped") return "held";
   if (decision) return "held";
   return "inspected";
+}
+
+type ListedItemSnapshot = {
+  status: string | null;
+  outcome: string | null;
+};
+
+function listedItemSnapshots(
+  events: FactoryAuditEventRecord[],
+): Map<string, ListedItemSnapshot> {
+  const listed = new Map<string, ListedItemSnapshot>();
+  for (const event of events) {
+    if (event.action !== "list-triage-items") continue;
+    const rows = event.details.listedItems;
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        const itemId = (row as { itemId?: unknown }).itemId;
+        if (typeof itemId !== "string" || !itemId) continue;
+        const status = (row as { status?: unknown }).status;
+        const outcome = (row as { outcome?: unknown }).outcome;
+        listed.set(itemId, {
+          status: typeof status === "string" && status ? status : null,
+          outcome: typeof outcome === "string" && outcome ? outcome : null,
+        });
+      }
+      continue;
+    }
+    for (const itemId of eventItemIds(event)) {
+      if (!listed.has(itemId)) {
+        listed.set(itemId, { status: null, outcome: null });
+      }
+    }
+  }
+  return listed;
+}
+
+function pollRollupEvent(
+  events: FactoryAuditEventRecord[],
+): FactoryAuditEventRecord | null {
+  const scored = events.filter(
+    (event) =>
+      isPollEvent(event) &&
+      !event.itemId &&
+      (typeof event.details.inboxLimit === "number" ||
+        typeof event.details.added === "number" ||
+        typeof event.details.newlyObserved === "number"),
+  );
+  if (scored.length > 0) return scored[scored.length - 1] ?? null;
+  const polls = events.filter((event) => isPollEvent(event) && !event.itemId);
+  return polls[polls.length - 1] ?? null;
+}
+
+function reviewListEvent(
+  events: FactoryAuditEventRecord[],
+): FactoryAuditEventRecord | null {
+  const lists = events.filter((event) => event.action === "list-triage-items");
+  return (
+    [...lists].reverse().find((event) => event.details.needsReview === true) ??
+    lists[lists.length - 1] ??
+    null
+  );
+}
+
+function inboxItemIds(events: FactoryAuditEventRecord[]): Set<string> {
+  const ids = new Set<string>();
+  const rollup = pollRollupEvent(events);
+  if (rollup) {
+    for (const itemId of eventItemIds(rollup)) ids.add(itemId);
+  }
+  for (const event of events) {
+    if (!isPollEvent(event) || !event.itemId) continue;
+    if (event.details.added === true) ids.add(event.itemId);
+  }
+  return ids;
+}
+
+function readAddedCount(
+  events: FactoryAuditEventRecord[],
+  fallback: number,
+): number {
+  const rollup = pollRollupEvent(events);
+  const added = readNumberDetail(rollup?.details, "added");
+  if (added !== null) return added;
+  const newlyObserved = readNumberDetail(rollup?.details, "newlyObserved");
+  if (newlyObserved !== null) return newlyObserved;
+  return fallback;
+}
+
+function readNumberDetail(
+  details: Record<string, unknown> | undefined,
+  key: string,
+): number | null {
+  const value = details?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function occurredBeforeWindow(
+  createdAt: string | null | undefined,
+  window?: { startedAt: number; finishedAt: number | null },
+): boolean {
+  if (!createdAt || !window) return false;
+  const at = Date.parse(createdAt);
+  if (!Number.isFinite(at)) return false;
+  return at < window.startedAt - 5_000;
+}
+
+function createdDuringWindow(
+  createdAt: string | null | undefined,
+  window?: { startedAt: number; finishedAt: number | null },
+): boolean {
+  if (!createdAt || !window) return false;
+  const at = Date.parse(createdAt);
+  if (!Number.isFinite(at)) return false;
+  const start = window.startedAt - 5_000;
+  const end = (window.finishedAt ?? Date.now()) + 5_000;
+  return at >= start && at <= end;
+}
+
+function startedBeforeWindow(
+  run: FactoryAuditRunSnapshot | undefined,
+  window?: { startedAt: number; finishedAt: number | null },
+): boolean {
+  if (!run || !window) return Boolean(run);
+  const at = Date.parse(run.startedAt);
+  if (!Number.isFinite(at)) return false;
+  return at < window.startedAt - 5_000;
 }
 
 function readDispatchError(
@@ -212,17 +437,6 @@ export function auditItemSubject(
   item: FactoryAuditItemSnapshot | undefined,
   events: FactoryAuditEventRecord[],
 ): string {
-  const observed = events.find(
-    (event) =>
-      isPollEvent(event) && event.summary.trim() && !isEmptyObservation(event),
-  )?.summary;
-  const detailSummary = events
-    .map((event) => readStringDetail(event.details, "itemSummary"))
-    .find((value): value is string => Boolean(value));
-  const storedSummary =
-    item?.summary?.trim() || detailSummary?.trim() || observed?.trim() || "";
-  if (storedSummary) return firstLine(storedSummary, 110);
-
   const storedTitle = item?.title?.trim() ?? "";
   if (storedTitle && !isGenericSlackTitle(storedTitle)) return storedTitle;
 
@@ -230,7 +444,33 @@ export function auditItemSubject(
   const listedTitle = listed?.summary.trim() ?? "";
   if (listedTitle && !isGenericSlackTitle(listedTitle)) return listedTitle;
 
+  const storedSummary = readStoredFeedbackText(item, events);
+  if (storedSummary) return firstLine(storedSummary, 110);
+
   return storedTitle || "Item";
+}
+
+export function auditItemMessage(
+  item: FactoryAuditItemSnapshot | undefined,
+  events: FactoryAuditEventRecord[],
+): string | null {
+  return readStoredFeedbackText(item, events);
+}
+
+function readStoredFeedbackText(
+  item: FactoryAuditItemSnapshot | undefined,
+  events: FactoryAuditEventRecord[],
+): string | null {
+  const observed = events.find(
+    (event) =>
+      isPollEvent(event) && event.summary.trim() && !isEmptyObservation(event),
+  )?.summary;
+  const detailSummary = events
+    .map((event) => readStringDetail(event.details, "itemSummary"))
+    .find((value): value is string => Boolean(value));
+  const stored =
+    item?.summary?.trim() || detailSummary?.trim() || observed?.trim() || "";
+  return stored || null;
 }
 
 function collapseTrace(
@@ -312,14 +552,6 @@ function eventItemIds(event: FactoryAuditEventRecord): string[] {
   );
 }
 
-function uniqueItemIds(events: FactoryAuditEventRecord[]): Set<string> {
-  const ids = new Set<string>();
-  for (const event of events) {
-    for (const itemId of eventItemIds(event)) ids.add(itemId);
-  }
-  return ids;
-}
-
 function latestRunsByItem(
   runs: FactoryAuditRunSnapshot[],
 ): Map<string, FactoryAuditRunSnapshot> {
@@ -380,6 +612,82 @@ function byCreatedAtAsc(
   return (
     new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
   );
+}
+
+function readBabysitAuditDetails(events: FactoryAuditEventRecord[]): {
+  recommendation: string | null;
+  because: string | null;
+  decision: string | null;
+  veto: string | null;
+  builderActive: boolean | null;
+  openBotThreads: number | null;
+  openHumanThreads: number | null;
+  ciBlocking: string | null;
+  agentMatched: boolean | null;
+  botThreadSummaries: string[] | null;
+  humanThreadSummaries: string[] | null;
+} {
+  const babysitEvents = events.filter(
+    (event) =>
+      event.action === "babysit-factory-pull-request" ||
+      event.action === "propose-pr-babysit-status",
+  );
+  const write =
+    [...babysitEvents]
+      .reverse()
+      .find((event) => event.action === "babysit-factory-pull-request") ?? null;
+  const propose =
+    [...babysitEvents]
+      .reverse()
+      .find((event) => event.action === "propose-pr-babysit-status") ?? null;
+  const details = write?.details ?? propose?.details;
+  if (!details) {
+    return {
+      recommendation: null,
+      because: null,
+      decision: null,
+      veto: null,
+      builderActive: null,
+      openBotThreads: null,
+      openHumanThreads: null,
+      ciBlocking: null,
+      agentMatched: null,
+      botThreadSummaries: null,
+      humanThreadSummaries: null,
+    };
+  }
+  const blockingFailed = readNumberDetail(details, "ciBlockingFailed");
+  return {
+    recommendation: readStringDetail(details, "recommendation"),
+    because: readStringDetail(details, "because"),
+    decision: readStringDetail(details, "decision"),
+    veto: readStringDetail(details, "veto"),
+    builderActive: readBooleanDetail(details, "builderActive"),
+    openBotThreads: readNumberDetail(details, "openBotThreads"),
+    openHumanThreads: readNumberDetail(details, "openHumanThreads"),
+    ciBlocking:
+      typeof blockingFailed === "number" && blockingFailed > 0
+        ? `${blockingFailed} failing`
+        : null,
+    agentMatched: readBooleanDetail(details, "agentMatchedRecommendation"),
+    botThreadSummaries: readStringArrayDetail(details, "botThreadSummaries"),
+    humanThreadSummaries: readStringArrayDetail(
+      details,
+      "humanThreadSummaries",
+    ),
+  };
+}
+
+function readStringArrayDetail(
+  details: Record<string, unknown> | undefined,
+  key: string,
+): string[] | null {
+  const value = details?.[key];
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const strings = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  return strings.length > 0 ? strings : null;
 }
 
 function readBooleanDetail(

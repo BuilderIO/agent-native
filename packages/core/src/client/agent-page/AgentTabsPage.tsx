@@ -6,6 +6,7 @@ import {
   IconHistory,
   IconHierarchy2,
   IconNotes,
+  IconApps,
   IconPlugConnected,
   IconTopologyRing2,
   IconSearch,
@@ -640,7 +641,11 @@ export function AgentTabsPage({
         keywords: "jobs scheduled automations recurring event triggers",
         content: (
           <Suspense fallback={<TabLoading />}>
-            <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />
+            <AgentJobsTab
+              scope={scope}
+              canManageOrg={canManageOrg}
+              organizationId={org?.orgId}
+            />
           </Suspense>
         ),
       },
@@ -663,7 +668,7 @@ export function AgentTabsPage({
       {
         id: "access",
         label: "MCP",
-        icon: IconPlugConnected,
+        icon: IconApps,
         group: "agent",
         keywords:
           "mcp model context protocol server url external clients oauth a2a exposure",
@@ -684,7 +689,7 @@ export function AgentTabsPage({
       ...extraTabs,
       ...scopedExtraTabs,
     ],
-    [appName, canManageOrg, extraTabs, scope, scopedExtraTabs],
+    [appName, canManageOrg, extraTabs, org?.orgId, scope, scopedExtraTabs],
   );
   const visibleTabs = useMemo(
     () => tabs.filter((tab) => !normalizedHiddenTabs.has(tab.id)),
@@ -813,7 +818,7 @@ export function AgentTabsPage({
                 }}
                 placeholder={searchPlaceholder}
                 aria-label={searchPlaceholder}
-                className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
+                className="agent-native-search-input h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
               />
               {query && (
                 <button

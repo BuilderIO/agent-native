@@ -35,6 +35,7 @@ vi.mock("@agent-native/core/client/org", () => ({
 import {
   DeckProvider,
   clearSlideEditingActive,
+  deckContentSignature,
   flushPendingSaves,
   hasUnsavedDeckChanges,
   hasUncommittedDeckChanges,
@@ -1006,6 +1007,41 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("skips unchanged multi-slide commits", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "one", notes: "same", layout: "content" },
+        { id: "slide-2", content: "two", notes: "same", layout: "content" },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlides("shared-deck", [
+        { slideId: "slide-1", updates: { notes: "same" } },
+        { slideId: "slide-2", updates: { notes: "same" } },
+      ]);
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(0);
+    expect(result.current.canUndo).toBe(false);
+  });
+
   it("persists inline drafts without replacing the local editor state", async () => {
     window.history.pushState({}, "", "/deck/inline-draft-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();
@@ -1623,6 +1659,107 @@ describe("DeckContext deck creation persistence", () => {
       result.current.undo();
     });
     expect(result.current.getDeck(deckId)?.slides).toEqual([]);
+  });
+
+  it("clears omitted deck metadata before an immediate replacement flush and reload", async () => {
+    window.history.pushState({}, "", "/deck/restore-deck");
+    const initial = {
+      id: "restore-deck",
+      title: "Imported",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      aspectRatio: "4:3",
+      designSystemId: "brand-1",
+      tweaks: { titleCase: true },
+      starred: true,
+      sourceImport: { mode: "source-preserving", format: "pptx" },
+      slides: [
+        { id: "slide-1", content: "<h1>Old</h1>", notes: "", layout: "title" },
+      ],
+    } as Deck;
+    const { fetchMock, resolveDeferredPut, setAccessibleDeck } = setupFetch({
+      deferredPut: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let flushPromise: Promise<void> | undefined;
+    act(() => {
+      result.current.setDeckSlides(
+        initial.id,
+        [
+          {
+            id: "slide-2",
+            content: "<h1>Restored</h1>",
+            notes: "",
+            layout: "content",
+          },
+        ],
+        {
+          deckFields: {
+            title: "Restored",
+            aspectRatio: "16:9",
+            designSystemId: null,
+          },
+          clearDeckFields: [
+            "aspectRatio",
+            "designSystemId",
+            "tweaks",
+            "starred",
+            "sourceImport",
+          ],
+          persistence: "immediate",
+          forcePersistence: true,
+        },
+      );
+      flushPromise = result.current.flushDeckSave(initial.id);
+    });
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          requestString(url).includes("/_agent-native/actions/save-deck") &&
+          actionCallBody(init).deckId === initial.id,
+      );
+      expect(putCall).toBeTruthy();
+    });
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === initial.id,
+    );
+    const savedDeck = actionCallBody(putCall?.[1]).deck as Record<
+      string,
+      unknown
+    >;
+    expect(savedDeck.aspectRatio).toBe("16:9");
+    expect(savedDeck.designSystemId).toBeNull();
+    expect(savedDeck).not.toHaveProperty("tweaks");
+    expect(savedDeck).not.toHaveProperty("starred");
+    expect(savedDeck).not.toHaveProperty("sourceImport");
+    expect(result.current.getDeck(initial.id)).not.toHaveProperty(
+      "sourceImport",
+    );
+
+    resolveDeferredPut();
+    await act(async () => {
+      await flushPromise;
+    });
+
+    setAccessibleDeck({
+      ...initial,
+      ...savedDeck,
+      designSystemId: null,
+    } as unknown as Deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck(initial.id)?.designSystemId).toBeNull();
   });
 
   it("persists immediate edits queued after a generated slide replacement", async () => {
@@ -3344,6 +3481,76 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("coalesces multiple remote updates from one agent turn into one undo", async () => {
+    window.history.pushState({}, "", "/deck/agent-undo-deck");
+    const initial: Deck = {
+      id: "agent-undo-deck",
+      title: "Agent Undo Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    // Keep the deck in the dirty reconciliation branch so agent updates still
+    // get the same undo grouping as clean-deck updates.
+    act(() => {
+      result.current.markDeckDirty(initial.id);
+    });
+
+    const source = MockEventSource.lastInstance!;
+    const sendAgentUpdate = async (content: string) => {
+      setAccessibleDeck({
+        ...initial,
+        slides: [{ ...initial.slides[0]!, content }],
+      });
+      await act(async () => {
+        source.onmessage?.(
+          new MessageEvent("message", {
+            data: JSON.stringify({
+              type: "deck-changed",
+              deckId: initial.id,
+              actor: "agent",
+              agentChangeId: "turn-1",
+            }),
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          content,
+        ),
+      );
+    };
+
+    await sendAgentUpdate("<h1>First agent update</h1>");
+    await sendAgentUpdate("<h1>Last agent update</h1>");
+
+    act(() => {
+      result.current.undo();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+        "<h1>Before</h1>",
+      ),
+    );
+    expect(result.current.canUndo).toBe(false);
+  });
+
   it("reconciles a deck-change event while a local edit is pending", async () => {
     window.history.pushState({}, "", "/deck/live-dirty-deck");
     const initial: Deck = {
@@ -3936,6 +4143,18 @@ describe("DeckContext deck creation persistence", () => {
 
     afterEach(() => {
       clearSlideEditingActive("dirty-deck", "a");
+    });
+
+    it("ignores object key order when comparing deck content", () => {
+      const first = deckOf([slide("a", "a")]);
+      const second = {
+        slides: first.slides,
+        updatedAt: first.updatedAt,
+        createdAt: first.createdAt,
+        title: first.title,
+        id: first.id,
+      } satisfies Deck;
+      expect(deckContentSignature(first)).toBe(deckContentSignature(second));
     });
 
     // The regression this guards: an agent edit used to be adopted only for

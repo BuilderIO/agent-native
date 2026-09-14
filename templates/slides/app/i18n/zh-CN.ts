@@ -28,6 +28,9 @@ const messages = {
   settings: {
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
+    labs: "实验室",
+    labsIntro: "在正式发布前预览实验性功能。",
+    labLayoutOverflowWarningDescription: "在编辑器中显示布局溢出警告。",
     emailNotifications: "邮件通知",
     emailNotificationsDescription:
       "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
@@ -83,10 +86,8 @@ const messages = {
     cloudConnectedReloading: "接続しました。再読み込み中...",
     cloudConnectionFailed: "接続に失敗しました",
     cloudTestConnect: "テストして接続",
-    cloudSqliteEdge: "エッジのSQLite",
     cloudServerlessPostgres: "サーバーレスPostgres",
     cloudOpenSourceFirebaseAlternative: "Firebaseのオープンソース代替",
-    cloudCloudflareSqliteEdge: "CloudflareエッジのSQLite",
     designSlidePreview: "スライドプレビュー",
     designSlideTitle: "スライドタイトル",
     designSupportingText:
@@ -143,6 +144,8 @@ const messages = {
     clearSelection: "選択を解除",
     sendToAgent: "发送给代理",
     saveReconnect: "再接続時に変更が保存されます",
+    saveFailedDescription:
+      "你最近的编辑内容仅保存在此设备上。离开前请下载备份。",
     offline: "离线",
     selected: "已选择",
     chooseDesignSystem: "デザインシステムを選択",
@@ -201,6 +204,9 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已关联的设计系统",
     viewOnly: "仅查看",
+    sourcePreserving: "有限编辑",
+    sourcePreservingDescription:
+      "可以编辑文本和对象。此导入的演示文稿已禁用添加、删除或重新排序幻灯片。",
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加评论",
     slideSettings: "幻灯片设置",
@@ -256,6 +262,11 @@ const messages = {
     more: "更多",
     importing: "正在导入...",
     importFile: "导入文件",
+    downloadBackup: "下载备份",
+    importBackup: "导入备份",
+    backupDownloaded: "备份已下载",
+    backupDownloadFailed: "无法下载备份",
+    invalidBackup: "请选择有效的 Slides 备份 JSON 文件。",
     savedVersions: "已保存版本",
     lightTheme: "浅色主题",
     darkTheme: "深色主题",
@@ -263,6 +274,7 @@ const messages = {
   editorExport: {
     pptxFailed: "无法生成 PPTX 文件。",
     exportFailed: "导出失败",
+    exporting: "正在导出...",
     exportPptxError: "导出为 PPTX 时出了点问题。",
     googleSlidesDownloaded: "已为 Google Slides 下载",
     googleSlidesImportHint:
@@ -279,6 +291,10 @@ const messages = {
     exportPptx: "导出为 PPTX",
     connectGoogle: "连接 Google",
     openInGoogleSlides: "在 Google Slides 中打开",
+    googleSlidesUnavailable: "不可用",
+    googleSlidesOpenImporter: "打开 Google Slides 导入",
+    googleSlidesUnavailableHint:
+      "由于尚未配置 Google 连接，目前无法导出到 Google Slides。请改为导出 PPTX，然后将其导入 Google Slides。",
     googleSlidesCreated: "已在 Google Slides 中打开",
     googleSlidesCreatedHint: "已在你的 Google 云端硬盘中创建此演示文稿的副本。",
     duplicateDeck: "复制幻灯片",
@@ -454,6 +470,10 @@ const messages = {
     rose: "Rose",
     arrange: "排列",
     order: "顺序",
+    group: "组合",
+    ungroup: "取消组合",
+    bringForward: "前移",
+    sendBackward: "后移",
     bringToFront: "置于顶层",
     sendToBack: "置于底层",
     copyStyle: "复制样式",

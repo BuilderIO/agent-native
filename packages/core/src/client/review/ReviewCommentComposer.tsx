@@ -13,6 +13,7 @@ export interface ReviewCommentComposerProps {
   onSubmit: (resolutionTarget: ReviewResolutionTarget) => void;
   submittingTarget?: ReviewResolutionTarget | null;
   disabled?: boolean;
+  showCommentAction?: boolean;
   showAgentAction?: boolean;
   agentAction?: ReactNode;
   placeholder?: string;
@@ -32,6 +33,7 @@ export function ReviewCommentComposer({
   onSubmit,
   submittingTarget = null,
   disabled = false,
+  showCommentAction = true,
   showAgentAction = false,
   agentAction,
   placeholder = "Add a comment...",
@@ -49,13 +51,25 @@ export function ReviewCommentComposer({
     if (!canSubmit) return;
     onSubmit(resolutionTarget);
   };
+  const submitVisibleAction = (preferred: ReviewResolutionTarget) => {
+    if (preferred === "human" && showCommentAction) {
+      submit("human");
+      return;
+    }
+    if (preferred === "agent" && showAgentAction) {
+      submit("agent");
+      return;
+    }
+    if (showCommentAction) submit("human");
+    else if (showAgentAction) submit("agent");
+  };
 
   return (
     <form
       className={cn("@container/review", className)}
       onSubmit={(event) => {
         event.preventDefault();
-        submit("human");
+        submitVisibleAction("human");
       }}
     >
       {contextLabel ? (
@@ -80,44 +94,48 @@ export function ReviewCommentComposer({
           }
           if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
-            submit(enterSubmitTarget);
+            submitVisibleAction(enterSubmitTarget);
           }
         }}
       />
-      <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
-        <Button
-          type="submit"
-          size="sm"
-          disabled={!canSubmit}
-          className="h-8 w-full gap-1.5 @2xs/review:w-auto @2xs/review:min-w-28 @2xs/review:shrink-0"
-        >
-          {submittingTarget === "human" ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <IconMessageCircle className="size-3.5" />
-          )}
-          <span className="truncate">{commentLabel}</span>
-        </Button>
-        {showAgentAction && agentAction ? (
-          agentAction
-        ) : showAgentAction ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!canSubmit}
-            className="h-8 w-full min-w-0 gap-1.5 @2xs/review:w-auto"
-            onClick={() => submit("agent")}
-          >
-            {submittingTarget === "agent" ? (
-              <Spinner className="size-3.5" />
-            ) : (
-              <IconSend className="size-3.5" />
-            )}
-            <span className="truncate">{agentLabel}</span>
-          </Button>
-        ) : null}
-      </div>
+      {showCommentAction || showAgentAction ? (
+        <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
+          {showCommentAction ? (
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!canSubmit}
+              className="h-8 w-full gap-1.5 @2xs/review:w-auto @2xs/review:min-w-28 @2xs/review:shrink-0"
+            >
+              {submittingTarget === "human" ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <IconMessageCircle className="size-3.5" />
+              )}
+              <span className="truncate">{commentLabel}</span>
+            </Button>
+          ) : null}
+          {showAgentAction && agentAction ? (
+            agentAction
+          ) : showAgentAction ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!canSubmit}
+              className="h-8 w-full min-w-0 gap-1.5 @2xs/review:w-auto"
+              onClick={() => submit("agent")}
+            >
+              {submittingTarget === "agent" ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <IconSend className="size-3.5" />
+              )}
+              <span className="truncate">{agentLabel}</span>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </form>
   );
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
 const appStateGetMock = vi.hoisted(() => vi.fn());
@@ -12,6 +12,15 @@ vi.mock("../deploy/route-discovery.js", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
+  cookieDomainAttrs: () => {
+    const domain = process.env.COOKIE_DOMAIN;
+    return domain ? { domain } : {};
+  },
+  crossSiteCookieAttrs: () => ({
+    sameSite: "none",
+    secure: true,
+    partitioned: true,
+  }),
   getSession: (...args: any[]) => getSessionMock(...args),
 }));
 
@@ -119,6 +128,10 @@ function registerRequestContextProbeStep() {
 }
 
 describe("onboarding plugin routes", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     __resetOnboardingRegistry();
     vi.clearAllMocks();
@@ -247,7 +260,75 @@ describe("onboarding plugin routes", () => {
     });
   });
 
+  it("composes steps, dismissed state, and profile in one summary read", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === "onboarding:dismissed" ? { dismissed: true } : null,
+    );
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      steps: [expect.objectContaining({ id: "llm", complete: true })],
+      dismissed: true,
+      profile: expect.objectContaining({ appId: expect.any(String) }),
+    });
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "onboarding:dismissed",
+    );
+  });
+
+  it("keeps the summary usable when the optional dismissed read throws", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockImplementation(async (_sessionId, key) => {
+      if (key === "onboarding:dismissed") {
+        throw new Error("connection timed out");
+      }
+      return null;
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      steps: [expect.objectContaining({ id: "llm", complete: true })],
+      dismissed: false,
+      profile: expect.objectContaining({ appId: expect.any(String) }),
+    });
+  });
+
+  it("still fails the summary when the credential store is unavailable", async () => {
+    registerRequestContextProbeStep();
+    appStateGetMock.mockRejectedValue(new CredentialStoreUnavailableError());
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/summary",
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error:
+        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+    });
+  });
+
   it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
 
@@ -294,9 +375,14 @@ describe("onboarding plugin routes", () => {
     expect(finish.headers.get("set-cookie")).toContain(
       `${FIRST_RUN_ONBOARDING_COOKIE}=`,
     );
+    expect(finish.headers.get("set-cookie")).toContain("Domain=.example.com");
+    expect(finish.headers.get("set-cookie")).toContain("SameSite=None");
+    expect(finish.headers.get("set-cookie")).toContain("Secure");
+    expect(finish.headers.get("set-cookie")).toContain("Partitioned");
   });
 
   it("does not show first-run onboarding to a member of an existing organization", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
     getOrgContextMock.mockResolvedValue({
       email: "alice@example.com",
       orgId: "org-existing",
@@ -318,6 +404,7 @@ describe("onboarding plugin routes", () => {
     expect(result.headers.get("set-cookie")).toContain(
       `${FIRST_RUN_ONBOARDING_COOKIE}=`,
     );
+    expect(result.headers.get("set-cookie")).toContain("Domain=.example.com");
   });
 
   it("requires an authenticated user to complete first-run onboarding", async () => {

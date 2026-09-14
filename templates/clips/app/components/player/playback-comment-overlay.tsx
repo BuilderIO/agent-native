@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { timelineMarkerAlignment, timelineMarkerMs } from "./scrubber-position";
 
 export const PLAYBACK_COMMENT_VISIBLE_MS = 3_000;
+export const COMMENT_PREVIEW_WIDTH_PX = 320;
 
 export function getPlaybackCommentVisibleMs(playbackRate = 1): number {
   const safePlaybackRate =
@@ -166,7 +167,7 @@ export function PlaybackCommentOverlay({
       <div
         ref={previewRef}
         className={cn(
-          "absolute bottom-0",
+          "absolute bottom-0 w-80 max-w-full",
           positionAlignment === "start"
             ? "left-0"
             : positionAlignment === "end"
@@ -214,7 +215,7 @@ export function CommentPreview({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "flex w-fit max-w-[min(36rem,100%)] flex-col gap-1.5 rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15",
+        "flex w-80 max-w-full flex-col gap-1.5 rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15",
         onClick &&
           "pointer-events-auto cursor-pointer hover:bg-foreground dark:hover:bg-background",
         className,

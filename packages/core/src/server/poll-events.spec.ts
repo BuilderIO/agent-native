@@ -13,7 +13,7 @@ vi.mock("h3", () => ({
     event.status = status;
   },
   createEventStream: (event: any) => ({
-    push: (data: string) => {
+    push: (data: unknown) => {
       event.pushed.push(data);
     },
     onClosed: (callback: () => void) => {
@@ -36,7 +36,7 @@ describe("poll event SSE handler", () => {
     const { createPollEventsHandler } = await import("./poll-events.js");
     const { recordChange } = await import("./poll.js");
     const handler = createPollEventsHandler() as any;
-    const event = { pushed: [] as string[], close: undefined as any };
+    const event = { pushed: [] as unknown[], close: undefined as any };
 
     await handler(event);
 
@@ -64,13 +64,37 @@ describe("poll event SSE handler", () => {
       key: "global",
     });
 
-    expect(event.pushed.map((data) => JSON.parse(data).key)).toEqual([
-      "own",
-      "org",
-      "global",
-    ]);
+    expect(
+      event.pushed
+        .filter((data): data is string => typeof data === "string")
+        .map((data) => JSON.parse(data).key),
+    ).toEqual(["own", "org", "global"]);
 
     event.close?.();
+  });
+
+  it("sends named heartbeats while the stream is idle", async () => {
+    vi.useFakeTimers();
+    try {
+      const { createPollEventsHandler } = await import("./poll-events.js");
+      const handler = createPollEventsHandler() as any;
+      const event = { pushed: [] as unknown[], close: undefined as any };
+
+      await handler(event);
+      expect(event.pushed).toEqual([{ event: "heartbeat", data: "" }]);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(event.pushed).toEqual([
+        { event: "heartbeat", data: "" },
+        { event: "heartbeat", data: "" },
+      ]);
+
+      event.close?.();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(event.pushed).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects unauthenticated streams", async () => {

@@ -1,28 +1,28 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const {
@@ -33,17 +33,17 @@ const {
   mutateSetting,
 } = await import("./store.js");
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  sqlite.exec(`CREATE TABLE IF NOT EXISTS settings (
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at BIGINT NOT NULL
   )`);
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 
@@ -67,7 +67,7 @@ describe("settings store", () => {
       rawClient.execute.mockImplementation(orig);
     }
     expect(seen).toContain(
-      "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON settings (updated_at)",
+      "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON public.settings (updated_at)",
     );
   });
 

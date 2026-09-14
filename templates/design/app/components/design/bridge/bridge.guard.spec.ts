@@ -37,6 +37,7 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
+import { isTextElement } from "../edit-panel/element-classification";
 
 declare global {
   interface Window {
@@ -52,7 +53,10 @@ const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
-  "editor-chrome.bridge.ts": ["@agent-native/toolkit/canvas-interactions"],
+  "editor-chrome.bridge.ts": [
+    "@agent-native/toolkit/canvas-interactions",
+    "@jridgewell/trace-mapping",
+  ],
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -713,6 +717,7 @@ it(
         "move",
         "end",
       ]);
+      expect(panMessages[1]).toMatchObject({ movementX: 32, movementY: 18 });
       expect(
         messages.filter((message) => message.type === "design-hotkey"),
       ).toHaveLength(1);
@@ -1248,13 +1253,7 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // Select child A.
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
       // Install the message collector AFTER setContent (setContent replaces the
       // document and would wipe a listener added earlier), then reset it so we
       // only observe messages from the drag below.
@@ -1416,13 +1415,7 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // Select A (top-left at 20,20; grab at its center 70,50 → grab offset 50,30).
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Ctrl-drag into open space below the row and release at (400, 300).
       await page.keyboard.down("Control");
@@ -1494,13 +1487,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Drag WITHOUT a modifier, then press Ctrl only just before releasing
       // (no pointer move after) — the drop must still free-place as absolute.
@@ -1558,13 +1545,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
         window.addEventListener("message", (event: MessageEvent) => {
@@ -1644,13 +1625,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Plain drag (no modifier) of A rightward → reorder; siblings between the
       // origin and the drop slot must translate aside to open the gap.
@@ -2162,7 +2137,16 @@ it(
     </div>
   </body>
 </html>`);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      // Text editing must be ON: beginTextEditingFromEvent (the dblclick
+      // handler that owns the non-text descend fallback below) bails out
+      // before reaching it whenever textEditingEnabled is false — the
+      // dblclick listener invokes it with no `forceTextEditing` override.
+      // This used to be masked by the plain click's OLD deep-hit selection
+      // (the click half of the double-click already landed on #icon), which
+      // container-first selection no longer does.
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+      });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // First click selects the outer group (an ordinary single click).
@@ -2201,6 +2185,223 @@ it(
       );
       expect(stillNotTextEditing).toBe(true);
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "click-through descends from a generated wrapper into its text child on the second click, then edits it on double-click",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #headline { position: absolute; left: 100px; top: 100px; width: 300px; height: 120px; background: #f5f5f5; }
+      #headline > span { position: absolute; left: 20px; display: block; font-size: 24px; }
+      #headline > span:first-child { top: 20px; }
+      #production-ui { top: 60px; }
+    </style>
+  </head>
+  <body>
+    <div id="headline" data-agent-native-node-id="headline" data-agent-native-layer-name="Headline" data-agent-native-group-wrapper="true">
+      <span data-an-primitive="text">Your prompt</span>
+      <span id="production-ui" data-agent-native-node-id="production-ui" data-an-primitive="text">Production UI</span>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-text-editing-enabled", enabled: true },
+          "*",
+        );
+        (window as any).__elementSelectPayloads = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__elementSelectPayloads.push(event.data.payload);
+          }
+        });
+      });
+
+      const prompt = page.locator("#headline > span").first();
+      const box = await prompt.boundingBox();
+      if (!box) throw new Error("Prompt text was not rendered");
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 0,
+      );
+      const firstSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(firstSelection.sourceId).toBe("headline");
+
+      await page.waitForTimeout(500);
+      await page.mouse.click(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 1,
+      );
+      const repeatedSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      // Figma parity: with the wrapper already selected, a second plain
+      // click descends into the child under the pointer instead of
+      // re-resolving back to the wrapper (clickThroughSelectionTarget no
+      // longer promotes to a group-wrapper-marked ancestor).
+      expect(repeatedSelection.sourceId).not.toBe("headline");
+
+      await page.mouse.dblclick(point.x, point.y);
+      await page.waitForFunction(() =>
+        Boolean(
+          document.querySelector<HTMLElement>(
+            '[data-agent-native-text-editing="true"]',
+          ),
+        ),
+      );
+      const textSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+
+      expect(textSelection.tagName).toBe("span");
+      expect(textSelection.primitiveKind).toBe("text");
+      expect(textSelection.hasOwnText).toBe(true);
+      expect(textSelection.pendingNodeId).toBeTruthy();
+      expect(isTextElement(textSelection)).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge promotes generated groups, but not authored or copied Group layers",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .group { position: absolute; width: 180px; height: 120px; background: #f5f5f5; }
+      .child { position: absolute; left: 20px; top: 20px; width: 60px; height: 60px; background: #6366f1; }
+      #authored-group { left: 100px; top: 100px; }
+      #generated-group { left: 400px; top: 100px; }
+      #legacy-group { left: 700px; top: 100px; }
+      #cloned-group { left: 100px; top: 300px; }
+    </style>
+  </head>
+  <body>
+    <div id="authored-group" class="group" data-agent-native-node-id="authored-group" data-agent-native-layer-name="Group">
+      <div id="authored-child" class="child" data-agent-native-node-id="authored-child"></div>
+    </div>
+    <div id="generated-group" class="group" data-agent-native-node-id="generated-group" data-agent-native-layer-name="Renamed section" data-agent-native-group-wrapper="true">
+      <div id="generated-child" class="child" data-agent-native-node-id="generated-child"></div>
+    </div>
+    <div id="legacy-group" class="group" data-agent-native-node-id="an-legacygroup" data-agent-native-layer-name="Group 2" data-agent-native-preserve-styles="true">
+      <div id="legacy-child" class="child" data-agent-native-node-id="legacy-child"></div>
+    </div>
+    <div id="cloned-group" class="group" data-agent-native-node-id="copy-cloned-group" data-agent-native-layer-name="Group" data-agent-native-group-wrapper="true" data-agent-native-clone-root="true" data-agent-native-preserve-styles="true">
+      <div id="cloned-child" class="child" data-agent-native-node-id="cloned-child"></div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page
+        .waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+          timeout: 2_000,
+        })
+        .catch((error) => {
+          throw new Error(
+            `Editor overlay did not initialize: ${pageErrors.join("; ") || error.message}`,
+          );
+        });
+      await page.evaluate(() => {
+        (window as any).__selectedIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectedIds.push(event.data.payload?.sourceId);
+          }
+        });
+      });
+
+      // Cmd/Ctrl+click deep-selects the raw hit and skips the container-first
+      // outermost-child-of-scope step (spec Part 3), so it's the path that
+      // exercises selectionTargetForHit's generated-vs-authored group-wrapper
+      // marker check below. A plain click would always resolve to the
+      // outermost child of the current scope regardless of that marker.
+      await page.keyboard.down("Meta");
+
+      await page.mouse.click(140, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 1,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const authoredSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(authoredSelection).toBe("authored-child");
+
+      await page.mouse.click(440, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 2,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const generatedSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(generatedSelection).toBe("generated-group");
+
+      await page.mouse.click(740, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 3,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const legacySelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(legacySelection).toBe("an-legacygroup");
+
+      await page.mouse.click(140, 340);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 4,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const clonedSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(clonedSelection).toBe("cloned-child");
+
+      await page.keyboard.up("Meta");
     } finally {
       await browser.close();
     }
@@ -2740,15 +2941,7 @@ it(
         );
         // Re-click to (re)select and force the overlay to reposition against
         // the just-changed rendered box before reading the handle position.
-        await page.mouse.click(30, 30);
-        await page.waitForFunction(() => {
-          const overlay = document.querySelector<HTMLElement>(
-            '[data-agent-native-edit-overlay="selection"]',
-          );
-          return (
-            overlay && window.getComputedStyle(overlay).display === "block"
-          );
-        });
+        await selectElementDirect(page, "#target");
 
         const before = await page.evaluate(
           () =>
@@ -2786,15 +2979,7 @@ it(
           },
           { unit },
         );
-        await page.mouse.click(30, 30);
-        await page.waitForFunction(() => {
-          const overlay = document.querySelector<HTMLElement>(
-            '[data-agent-native-edit-overlay="selection"]',
-          );
-          return (
-            overlay && window.getComputedStyle(overlay).display === "block"
-          );
-        });
+        await selectElementDirect(page, "#target");
 
         const before = await page.evaluate(
           () =>
@@ -2869,13 +3054,7 @@ it(
       expect(renderedBefore.width).toBeCloseTo(500, 0);
       expect(renderedBefore.height).toBeCloseTo(160, 0);
 
-      await page.mouse.click(30, 30);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, "#target");
 
       const seHandle = page.locator('[data-agent-native-edit-handle="se"]');
       const seBox = await seHandle.boundingBox();
@@ -2939,13 +3118,7 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(30, 30);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, "#target");
 
       // Pure vertical drag: the "s" EDGE handle (not a corner), so width
       // should never enter into the gesture at all.
@@ -3824,13 +3997,7 @@ it(
       });
       const startX = item1Rect.left + item1Rect.width / 2;
       const startY = item1Rect.top + item1Rect.height / 2;
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const sel = document.querySelector(
-          '[data-agent-native-edit-overlay="selection"]',
-        ) as HTMLElement | null;
-        return !!sel && sel.style.display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="item1"]');
 
       const item3Rect = await page.evaluate(() => {
         const r = document.getElementById("item3")!.getBoundingClientRect();
@@ -3941,17 +4108,7 @@ it(
       });
       const chipCenterX = chipRect.left + chipRect.width / 2;
       const chipCenterY = chipRect.top + chipRect.height / 2;
-      await page.mouse.click(chipCenterX, chipCenterY);
-      await page.waitForFunction(() => {
-        const sel = document.querySelector(
-          '[data-agent-native-edit-overlay="selection"]',
-        ) as HTMLElement | null;
-        return (
-          !!sel &&
-          sel.style.display === "block" &&
-          parseFloat(sel.style.width || "0") < 100
-        );
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="chip"]');
       // Handle spans carry 150ms width/height/offset transitions — let them
       // settle before measuring rendered hit-zone rects.
       await page.waitForTimeout(250);
@@ -4207,6 +4364,91 @@ describe("editor chrome bridge — text editing session", () => {
           () => !!document.querySelector("[data-agent-native-text-editing]"),
         );
         expect(editingAfterEscape).toBe(false);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "clears the native selection when a text edit blurs",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          target.focus();
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          (
+            document.querySelector(
+              "[data-agent-native-text-editing]",
+            ) as HTMLElement
+          ).blur();
+        });
+        await page.waitForTimeout(30);
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(false);
+        expect(state.rangeCount).toBe(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "clears the native selection when the host deselects the text element",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+        await page.evaluate(() => {
+          window.postMessage({ type: "clear-selection" }, "*");
+        });
+        await page.waitForFunction(
+          () => window.getSelection()?.rangeCount === 0,
+        );
+
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          rangeCount: window.getSelection()?.rangeCount ?? 0,
+        }));
+        expect(state.editing).toBe(true);
+        expect(state.rangeCount).toBe(0);
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -5312,6 +5554,43 @@ async function readBridgeMessages(page: import("@playwright/test").Page) {
   );
 }
 
+// Selects `selector` directly via the bridge's `select-element` postMessage
+// instead of a plain click. Plain clicks now resolve container-first (Figma
+// parity — containerFirstSelectionTarget): clicking a descendant nested more
+// than one level below the current container scope (the screen root, i.e.
+// document.body, by default) selects that scope's direct child on the path
+// to the pointer, not the descendant itself. A setup that needs a specific
+// nested element selected — to drag/resize/etc. THAT element rather than its
+// wrapping container — must select it explicitly.
+//
+// Waits for the overlay to actually match the target's CURRENT rect, not
+// just for display:block — a re-select of the element that is ALREADY the
+// selection (e.g. re-selecting after changing its size) never flips display,
+// so that alone resolves immediately against the stale, pre-change geometry
+// and races the postMessage's async delivery.
+async function selectElementDirect(
+  page: import("@playwright/test").Page,
+  selector: string,
+) {
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
+  await page.waitForFunction((sel) => {
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-agent-native-edit-overlay="selection"]',
+    );
+    const target = document.querySelector(sel);
+    if (!overlay || !target) return false;
+    if (window.getComputedStyle(overlay).display !== "block") return false;
+    const targetRect = target.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    return (
+      Math.abs(overlayRect.width - targetRect.width) < 2 &&
+      Math.abs(overlayRect.height - targetRect.height) < 2
+    );
+  }, selector);
+}
+
 it(
   "editor chrome bridge nests a dragged rectangle into a plain rectangle target as a free child (no auto-layout conversion)",
   { timeout: 30_000 },
@@ -5745,13 +6024,7 @@ it(
 
       // #note renders at roughly (342, 282)-(422, 322) on screen
       // (outer's origin ~(300,100) + 2px border + note's own left/top).
-      await page.mouse.click(382, 302);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="note"]');
       await page.mouse.move(382, 302);
       await page.mouse.down();
       await page.mouse.move(392, 312); // crosses the 3px threshold → reference
@@ -6097,6 +6370,111 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge un-nests an absolute child dropped outside its clipped frame onto the screen",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #frame {
+        position: absolute; left: 40px; top: 40px;
+        width: 200px; height: 160px; background: #f4f4f8;
+        overflow: hidden;
+      }
+      #child {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="frame" data-an-primitive="frame" data-agent-native-node-id="frame">
+      <div id="child" data-agent-native-node-id="child">Child</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      // Child center is at (90, 80). Drop on empty screen to the right of
+      // the frame (frame right edge is 240).
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
+
+      await page.mouse.move(90, 80);
+      await page.mouse.down();
+      await page.mouse.move(100, 90, { steps: 4 });
+      const midDragVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const rect = child.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      await page.mouse.move(320, 80, { steps: 8 });
+      const pastEdgeVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const frame = document.querySelector<HTMLElement>("#frame")!;
+        const childRect = child.getBoundingClientRect();
+        const frameRect = frame.getBoundingClientRect();
+        return {
+          width: childRect.width,
+          height: childRect.height,
+          pastFrame: childRect.left >= frameRect.right - 1,
+        };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        return {
+          parentTag: child.parentElement?.tagName.toLowerCase() ?? null,
+          parentId: child.parentElement?.id ?? null,
+          position: window.getComputedStyle(child).position,
+        };
+      });
+
+      expect(midDragVisible).toBe(true);
+      expect(pastEdgeVisible.width).toBeGreaterThan(0);
+      expect(pastEdgeVisible.height).toBeGreaterThan(0);
+      expect(pastEdgeVisible.pastFrame).toBe(true);
+      expect(result.parentTag).toBe("body");
+      expect(result.parentId).not.toBe("frame");
+      expect(result.position).toBe("absolute");
+
+      const sibling = await page.evaluate(() => {
+        const frame = document.querySelector("#frame");
+        const child = document.querySelector("#child");
+        return frame?.nextElementSibling === child;
+      });
+      expect(sibling).toBe(true);
+
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as { dropMode?: string; placement?: string } | undefined;
+      expect(structureMessage).toBeTruthy();
+      expect(structureMessage?.dropMode).toBe("absolute-container");
+      expect(structureMessage?.placement).toBe("after");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Multi-select group move (Figma parity) ──────────────────────────────────
 //
 // Dragging any member of a 2+ selection moves the WHOLE group: same delta per
@@ -6310,6 +6688,91 @@ it(
 );
 
 it(
+  "editor chrome bridge lifts SCROLLABLE clipping ancestors during a drag",
+  { timeout: 30_000 },
+  async () => {
+    // `auto` and `scroll` clip absolutely-positioned descendants to the
+    // ancestor's padding box exactly as `hidden` does, so a child dragged out
+    // of a scrollable frame disappears mid-gesture unless the lift covers them.
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { position: relative; background: white; }
+      #screen { position: absolute; left: 0; top: 0; width: 900px; height: 700px; }
+      #scroller {
+        position: absolute; left: 100px; top: 100px;
+        width: 300px; height: 200px; background: #f0f0f4;
+        overflow: auto;
+      }
+      #item {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="screen" data-agent-native-node-id="screen">
+      <div id="scroller" data-an-primitive="frame" data-agent-native-node-id="scroller">
+        <div id="item" data-agent-native-node-id="item"></div>
+      </div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const box = (await page.locator("#item").boundingBox())!;
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      // #item sits nested inside #scroller, itself nested inside #screen: a
+      // plain click now selects the outermost container first (Figma parity
+      // — containerFirstSelectionTarget), which would drag #screen instead
+      // of the item this test means to pull out of the scrollable ancestor.
+      await selectElementDirect(page, '[data-agent-native-node-id="item"]');
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
+      // Mid-gesture, still holding: the scrollable ancestor must not clip.
+      await page.mouse.move(600, 500, { steps: 8 });
+      const midDrag = await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>("#scroller")!;
+        const cs = window.getComputedStyle(scroller);
+        return { overflow: cs.overflow, overflowX: cs.overflowX };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(50);
+
+      expect(midDrag).toEqual({
+        overflow: "visible",
+        overflowX: "visible",
+      });
+      // And the lift is undone once the gesture ends.
+      const afterDrop = await page.evaluate(
+        () =>
+          window.getComputedStyle(
+            document.querySelector<HTMLElement>("#scroller")!,
+          ).overflow,
+      );
+      expect(afterDrop).toBe("auto");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge round-trips flow child through freeform root, flow, and absolute container",
   { timeout: 30_000 },
   async () => {
@@ -6349,8 +6812,11 @@ it(
         const box = (await page.locator("#item").boundingBox())!;
         const startX = box.x + box.width / 2;
         const startY = box.y + box.height / 2;
-        await page.mouse.click(startX, startY);
-        await page.waitForTimeout(30);
+        // #item starts nested inside #flowA (and later inside #flowB /
+        // #absoluteFrame): a plain click now selects the wrapping container
+        // first (Figma parity), so select #item explicitly by its stable
+        // node id regardless of which container currently holds it.
+        await selectElementDirect(page, '[data-agent-native-node-id="item"]');
         await page.mouse.move(startX, startY);
         await page.mouse.down();
         await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
@@ -6434,9 +6900,20 @@ it(
         "absolute-container",
         "flow-insert",
       ]);
-      expect(
-        structureMessages.every((message) => message.placement === "inside"),
-      ).toBe(true);
+      // Assert the list, not `every(...)`: a boolean says "false" without
+      // naming which drop reported the wrong placement.
+      //
+      // The freeform-root drop is deliberately "after", not "inside" — body
+      // has no node-id, so persist cannot resolve `html > body` as an
+      // inside-anchor, and anchoring after the current parent lands the same
+      // freeform root while giving persist a real id. See the comment above
+      // the `container === document.body` branch in editor-chrome.bridge.ts.
+      expect(structureMessages.map((message) => message.placement)).toEqual([
+        "after",
+        "inside",
+        "inside",
+        "inside",
+      ]);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -6484,7 +6961,13 @@ it(
       const spaceBox = (await page.locator("#spaceItem").boundingBox())!;
       const spaceStartX = spaceBox.x + spaceBox.width / 2;
       const spaceStartY = spaceBox.y + spaceBox.height / 2;
-      await page.mouse.click(spaceStartX, spaceStartY);
+      // #spaceItem/#controlItem sit nested inside #flowA: a plain click now
+      // selects the wrapping flow container first (Figma parity), so select
+      // each item explicitly instead of clicking it.
+      await selectElementDirect(
+        page,
+        '[data-agent-native-node-id="spaceItem"]',
+      );
       await page.mouse.move(spaceStartX, spaceStartY);
       await page.mouse.down();
       await page.keyboard.down("Space");
@@ -6506,7 +6989,10 @@ it(
       const controlBox = (await page.locator("#controlItem").boundingBox())!;
       const controlStartX = controlBox.x + controlBox.width / 2;
       const controlStartY = controlBox.y + controlBox.height / 2;
-      await page.mouse.click(controlStartX, controlStartY);
+      await selectElementDirect(
+        page,
+        '[data-agent-native-node-id="controlItem"]',
+      );
       await page.mouse.move(controlStartX, controlStartY);
       await page.mouse.down();
       await page.keyboard.down("Control");
@@ -6878,13 +7364,10 @@ it(
       // Select row C, then drag it into the GAP between rows A and B — the
       // pointer sits over the container's own background there, which used
       // to resolve to placement "inside" (append after last, no line).
-      await page.mouse.click(300, 270); // row C center (rows at 88/164/240, each 60 tall)
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #rowC sits nested inside #list: a plain click now selects #list
+      // first (Figma parity), so select #rowC explicitly instead of
+      // clicking its center (rows at 88/164/240, each 60 tall).
+      await selectElementDirect(page, "#rowC");
       await page.mouse.move(300, 270);
       await page.mouse.down();
       await page.mouse.move(306, 264, { steps: 2 });
@@ -7500,7 +7983,7 @@ it(
   </head>
   <body>
     <ul>
-      <template x-for="t in items"></template>
+      <template x-for="t in items"><li></li></template>
       <li>Alpha</li>
       <li>Beta</li>
     </ul>
@@ -7516,13 +7999,10 @@ it(
       const startX = itemABox.x + itemABox.width / 2;
       const startY = itemABox.y + itemABox.height / 2;
 
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // The "Alpha" <li> sits nested inside <ul>: a plain click now selects
+      // <ul> first (Figma parity), so select it explicitly instead. The
+      // <template> counts as ul's first child, making Alpha nth-child(2).
+      await selectElementDirect(page, "ul > li:nth-child(2)");
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -7629,7 +8109,7 @@ it(
   </head>
   <body>
     <ul data-agent-native-node-id="list">
-      <template x-for="t in items"></template>
+      <template x-for="t in items"><li></li></template>
       <li>Alpha</li>
       <li>Beta</li>
     </ul>
@@ -7748,13 +8228,9 @@ it(
       const startX = itemABox.x + itemABox.width / 2;
       const startY = itemABox.y + itemABox.height / 2;
 
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // itemA/itemB sit nested inside <ul>: a plain click now selects <ul>
+      // first (Figma parity), so select itemA explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="itemA"]');
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -8081,8 +8557,9 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(200, 170);
-      await page.waitForTimeout(60);
+      // #child sits nested inside #frame: a plain click now selects #frame
+      // first (Figma parity), so select #child explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
       await page.mouse.move(200, 170);
       await page.mouse.down();
       await page.mouse.move(210, 180, { steps: 3 });
@@ -8148,8 +8625,9 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(200, 170);
-      await page.waitForTimeout(60);
+      // #child sits nested inside #frame: a plain click now selects #frame
+      // first (Figma parity), so select #child explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
       await page.mouse.move(200, 170);
       await page.mouse.down();
       await page.mouse.move(210, 180, { steps: 3 });
@@ -8805,13 +9283,9 @@ it(
       expect(before.position).toBe("absolute");
 
       // Drag #dragme (center ~80, 420) into the pristine #row (center 410, 200).
-      await page.mouse.click(80, 420);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #dragme sits nested inside #origin: a plain click now selects
+      // #origin first (Figma parity), so select #dragme explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="dragme"]');
 
       await page.mouse.move(80, 420);
       await page.mouse.down();
@@ -9099,7 +9573,7 @@ it(
   </head>
   <body>
     <div id="filterCard" data-agent-native-node-id="filterCard">
-      <template x-for="f in filters"></template>
+      <template x-for="f in filters"><div class="tab"></div></template>
       <div class="tab">All</div>
       <div class="tab">Active</div>
       <div class="tab">Done</div>
@@ -9217,7 +9691,7 @@ it(
   </head>
   <body>
     <div id="list" data-agent-native-node-id="list">
-      <template x-for="r in rows"></template>
+      <template x-for="r in rows"><div class="row"></div></template>
       <div class="row">Clone One</div>
       <div class="row">Clone Two</div>
       <div class="row" id="staticItem" data-agent-native-node-id="staticItem">Static</div>
@@ -9289,7 +9763,7 @@ it(
   </head>
   <body>
     <div id="filterCard" data-agent-native-node-id="filterCard">
-      <template x-for="f in filters"></template>
+      <template x-for="f in filters"><div class="tab"></div></template>
       <div class="tab">All</div>
       <div class="tab">Active</div>
       <div class="tab">Done</div>
@@ -9421,7 +9895,7 @@ it(
   </head>
   <body>
     <div id="list" data-agent-native-node-id="list">
-      <template x-for="r in rows"></template>
+      <template x-for="r in rows"><div class="row"></div></template>
       <div class="row">Clone One</div>
       <div class="row">Clone Two</div>
       <div class="row" data-agent-native-node-id="staticItem">Static</div>
@@ -9520,7 +9994,9 @@ it(
 
       // Move D into the first-row column gap. The bridge must use a flow
       // insertion slot, then native CSS Grid performs the child reflow.
-      await page.mouse.click(570, 236);
+      // Cell D sits nested inside #grid: a plain click now selects #grid
+      // first (Figma parity), so select D explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="d"]');
       await page.mouse.move(570, 236);
       await page.mouse.down();
       await page.mouse.move(562, 228, { steps: 2 });
@@ -10010,6 +10486,8 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Shift+R paste to replace", key: "r", shift: true },
   { name: "Cmd/Ctrl+Shift+H toggle hidden", key: "h", shift: true },
   { name: "Cmd/Ctrl+Shift+L toggle locked", key: "l", shift: true },
+  { name: "Cmd/Ctrl+Backslash toggle sidebars", key: "\\" },
+  { name: "Cmd/Ctrl+Shift+Backslash minimal UI", key: "|", shift: true },
   { name: "Cmd/Ctrl+G group", key: "g" },
   // BUG-UNGROUP-HOTKEY: Shift+Cmd+G ungroups (see useDesignHotkeys.ts's Cmd+G
   // family) — was dead because handleDesignHotkey itself swallowed it, not
@@ -10262,7 +10740,7 @@ it(
 );
 
 it(
-  "editor chrome bridge forwards Shift+\\ and leaves host Cmd/Ctrl chords alone",
+  "editor chrome bridge forwards Cmd+\\ and Cmd+Shift+\\, but leaves Shift+\\ and other host chords alone",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -10289,8 +10767,34 @@ it(
       await page.evaluate(() => {
         document.body.dispatchEvent(
           new KeyboardEvent("keydown", {
+            key: "\\",
+            code: "Backslash",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(await readBridgeMessages(page)).toContainEqual(
+        expect.objectContaining({
+          type: "design-hotkey",
+          code: "Backslash",
+          shiftKey: false,
+          metaKey: true,
+          ctrlKey: false,
+        }),
+      );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
             key: "|",
             code: "Backslash",
+            metaKey: true,
             shiftKey: true,
             bubbles: true,
             cancelable: true,
@@ -10303,10 +10807,32 @@ it(
           type: "design-hotkey",
           code: "Backslash",
           shiftKey: true,
-          metaKey: false,
+          metaKey: true,
           ctrlKey: false,
         }),
       );
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+      });
+
+      // The shifted chord is no longer the Design chrome shortcut.
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "|",
+            code: "Backslash",
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) => message.type === "design-hotkey",
+        ),
+      ).toBe(false);
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
       });
@@ -10344,25 +10870,6 @@ it(
       await page.keyboard.down("Meta");
       await page.keyboard.press("l");
       await page.keyboard.up("Meta");
-      // Bare Cmd+\ belongs to the desktop coding host. Design only claims
-      // Figma's modifier-free Shift+\ minimize-UI chord.
-      await page.evaluate(() => {
-        document.body.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "\\",
-            code: "Backslash",
-            metaKey: true,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      await page.waitForTimeout(60);
-
-      const messages = await readBridgeMessages(page);
-      expect(messages.some((message) => message.type === "design-hotkey")).toBe(
-        false,
-      );
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -10724,13 +11231,9 @@ it(
 
       // Select #card-b (center ~170,126), then drag it straight down past
       // #card-c's midline (~202) — the clip's "move Card B below Card C" gesture.
-      await page.mouse.click(170, 126);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #card-b sits nested inside #col: a plain click now selects #col
+      // first (Figma parity), so select #card-b explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="card-b"]');
       await page.mouse.move(170, 126);
       await page.mouse.down();
       await page.mouse.move(170, 135, { steps: 4 }); // cross the 3px threshold
@@ -10911,13 +11414,11 @@ async function dragFlowChildOnto(
 ) {
   const from = (await page.locator("#dragme").boundingBox())!;
   const to = (await page.locator(targetSelector).boundingBox())!;
-  await page.mouse.click(from.x + from.width / 2, from.y + from.height / 2);
-  await page.waitForFunction(() => {
-    const overlay = document.querySelector<HTMLElement>(
-      '[data-agent-native-edit-overlay="selection"]',
-    );
-    return overlay && window.getComputedStyle(overlay).display === "block";
-  });
+  // Select #dragme directly rather than clicking it: #dragme sits nested
+  // inside #source, and a plain click now selects the outermost container
+  // first (Figma parity — selectionTargetForHit), which would drag #source
+  // instead of the specific child this helper means to test.
+  await selectElementDirect(page, "#dragme");
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(from.x + 20, from.y + 20, { steps: 4 });

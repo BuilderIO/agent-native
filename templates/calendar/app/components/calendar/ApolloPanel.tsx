@@ -236,13 +236,13 @@ Use the Apollo API (/api/apollo/person?email=...) to look up each attendee and c
       {codeRequiredDialog}
       <button
         onClick={handleResearch}
-        className="flex items-center gap-1.5 w-full rounded-lg border border-border bg-muted/30 hover:bg-muted/60 px-3 py-2 text-[12px] font-medium text-foreground/80 hover:text-foreground transition-colors"
+        className="flex h-[30px] w-full items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 text-[13px] font-medium text-foreground/80 transition-colors hover:bg-muted/60 hover:text-foreground"
       >
         <div className="h-4 w-4 rounded bg-black p-0.5 shrink-0">
           <ApolloLogo className="h-full w-full" />
         </div>
         {t("apollo.researchMeeting")}
-        <span className="ml-auto text-[10px] text-muted-foreground/40">
+        <span className="ml-auto text-xs text-muted-foreground/40">
           {t("apollo.attendeeCount", { count: attendees.length })}
         </span>
       </button>

@@ -1,3 +1,12 @@
+import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
+import {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatchesResult,
+} from "../shared/targeted-text-edit.js";
+
 export type ExtensionLegacyPatch = {
   find: string;
   replace: string;
@@ -220,50 +229,151 @@ function applyLiteralReplace(
   content: string,
   edit: Extract<ExtensionContentEdit, { op?: "replace" }>,
 ): { content: string; summary: string } {
-  const matches = countOccurrences(content, edit.find);
-  assertMatchCount("replace", matches, edit.expectedMatches, edit.required);
-  if (matches === 0) return { content, summary: "replace:0" };
+  if (!edit.find) throw new Error("Patch find/marker text cannot be empty");
 
-  if (edit.occurrence !== undefined) {
-    return {
-      content: replaceNth(content, edit.find, edit.replace, edit.occurrence),
-      summary: `replace:nth:${edit.occurrence}`,
-    };
+  const result = applyTargetedReplace(content, edit.find, edit.replace, {
+    occurrence: edit.occurrence,
+    all: edit.all,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "not_found" && isCountedNoOp(edit)) {
+      return { content, summary: "replace:0" };
+    }
+    throwLiteralMatchFailure("replace", result, edit.expectedMatches);
   }
 
-  if (edit.all) {
-    return {
-      content: content.split(edit.find).join(edit.replace),
-      summary: `replace:all:${matches}`,
-    };
+  if (
+    edit.expectedMatches !== undefined &&
+    result.matchCount !== edit.expectedMatches
+  ) {
+    throw new Error(
+      `replace expected ${edit.expectedMatches} match(es), found ${result.matchCount}`,
+    );
   }
 
-  return {
-    content: content.replace(edit.find, edit.replace),
-    summary: "replace:first",
-  };
+  const summary =
+    edit.occurrence !== undefined
+      ? `replace:nth:${edit.occurrence}`
+      : edit.all
+        ? `replace:all:${result.matchCount}`
+        : "replace:first";
+  return { content: result.content, summary };
 }
 
 function applyInsert(
   content: string,
   edit: Extract<ExtensionContentEdit, { op: "insert-before" | "insert-after" }>,
 ): { content: string; summary: string } {
-  const matches = countOccurrences(content, edit.marker);
-  assertMatchCount(edit.op, matches, edit.expectedMatches, edit.required);
-  if (matches === 0) return { content, summary: `${edit.op}:0` };
+  if (!edit.marker) throw new Error("Patch find/marker text cannot be empty");
 
-  const occurrence = edit.occurrence ?? 1;
-  const index = nthIndexOf(content, edit.marker, occurrence);
-  if (index < 0) {
-    throw new Error(`${edit.op} could not find occurrence ${occurrence}`);
+  // Only pass occurrence when the caller actually gave one — defaulting it
+  // here would suppress the helper's ambiguity check for a repeated marker
+  // and silently insert at the first hit.
+  const result = findTargetedMatches(content, edit.marker, {
+    occurrence: edit.occurrence,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "not_found" && isCountedNoOp(edit)) {
+      return { content, summary: `${edit.op}:0` };
+    }
+    throwLiteralMatchFailure(edit.op, result, edit.expectedMatches);
   }
-  const insertAt =
-    edit.op === "insert-before" ? index : index + edit.marker.length;
+
+  const { matches } = result;
+  if (
+    edit.expectedMatches !== undefined &&
+    matches.length !== edit.expectedMatches
+  ) {
+    throw new Error(
+      `${edit.op} expected ${edit.expectedMatches} match(es), found ${matches.length}`,
+    );
+  }
+
+  // occurrence, if given, was already validated (positive integer, in range)
+  // by findTargetedMatches above — an out-of-range value returns
+  // "occurrence_out_of_range" and is handled in the !result.ok branch.
+  const occurrence = edit.occurrence ?? 1;
+  const match = matches[occurrence - 1]!;
+  const insertAt = edit.op === "insert-before" ? match.index : match.end;
   return {
     content:
       content.slice(0, insertAt) + edit.content + content.slice(insertAt),
     summary: `${edit.op}:${occurrence}`,
   };
+}
+
+/** A literal-find edit is a no-op (not an error) on zero matches when the
+ * caller either asserted `expectedMatches: 0` or opted out with
+ * `required: false` and didn't assert a count at all. */
+function isCountedNoOp(edit: {
+  expectedMatches?: number;
+  required?: boolean;
+}): boolean {
+  return (
+    edit.expectedMatches === 0 ||
+    (edit.expectedMatches === undefined && edit.required === false)
+  );
+}
+
+/**
+ * Shared not-found / ambiguous / invalid-occurrence / out-of-range reporting
+ * for the literal-find ops (replace, insert-before, insert-after). Always
+ * throws — callers check the `required`/`expectedMatches` no-op case
+ * themselves before reaching here (and only for a true "not_found": matches
+ * exist for "occurrence_out_of_range", so that is never a no-op).
+ */
+function throwLiteralMatchFailure(
+  op: string,
+  result: Extract<TargetedMatchesResult, { ok: false }>,
+  expectedMatches: number | undefined,
+): never {
+  if (result.reason === "ambiguous") {
+    throw new Error(`${op} ${formatAmbiguousMatches(result.matches)}`);
+  }
+  if (result.reason === "invalid_occurrence") {
+    throw new Error(
+      `${op} occurrence must be a positive integer, got ${result.occurrence}`,
+    );
+  }
+  if (result.reason === "occurrence_out_of_range") {
+    // Restores the pre-helper validation order: an expectedMatches mismatch
+    // against the REAL total count is reported before the occurrence miss.
+    if (
+      expectedMatches !== undefined &&
+      result.matchCount !== expectedMatches
+    ) {
+      throw new Error(
+        `${op} expected ${expectedMatches} match(es), found ${result.matchCount}`,
+      );
+    }
+    throw new Error(`${op} could not find occurrence ${result.occurrence}`);
+  }
+  const expected =
+    expectedMatches !== undefined
+      ? `${op} expected ${expectedMatches} match(es), found 0.`
+      : `${op} found no matches.`;
+  throw new Error(`${expected}${formatCandidates(result.candidates)}`);
+}
+
+// Candidate/ambiguous text below is echoed from the user's own extension
+// content, not a system diagnostic — wrap it so production-agent's
+// permanent-precondition classifier (broad phrases like "no authenticated
+// user", column-0-anchored) never mistakes quoted file content for a real
+// signal and stops the turn on a false positive.
+function formatCandidates(candidates: TargetedCandidate[]): string {
+  if (candidates.length === 0) return "";
+  const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
+  return `\nClosest matches in the current extension:\n${wrapDiagnosticSnippet(lines)}`;
+}
+
+function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
+  const lines = matches.map((m) => `line ${m.line}: ${m.snippet}`).join("\n");
+  return (
+    `matched ${matches.length} places; pass occurrence to pick one, or add ` +
+    `more surrounding context so it matches exactly one location:\n${wrapDiagnosticSnippet(lines)}`
+  );
 }
 
 function applyReplaceBetween(
@@ -361,49 +471,6 @@ function assertMatchCount(
   if (expected === undefined && required !== false && actual === 0) {
     throw new Error(`${op} found no matches`);
   }
-}
-
-function countOccurrences(content: string, needle: string): number {
-  if (!needle) throw new Error("Patch find/marker text cannot be empty");
-  let count = 0;
-  let index = 0;
-  while (true) {
-    index = content.indexOf(needle, index);
-    if (index < 0) return count;
-    count += 1;
-    index += needle.length;
-  }
-}
-
-function nthIndexOf(
-  content: string,
-  needle: string,
-  occurrence: number,
-): number {
-  if (!Number.isInteger(occurrence) || occurrence < 1) {
-    throw new Error("occurrence must be a positive integer");
-  }
-  let index = -1;
-  let from = 0;
-  for (let i = 0; i < occurrence; i += 1) {
-    index = content.indexOf(needle, from);
-    if (index < 0) return -1;
-    from = index + needle.length;
-  }
-  return index;
-}
-
-function replaceNth(
-  content: string,
-  find: string,
-  replace: string,
-  occurrence: number,
-): string {
-  const index = nthIndexOf(content, find, occurrence);
-  if (index < 0) {
-    throw new Error(`replace could not find occurrence ${occurrence}`);
-  }
-  return content.slice(0, index) + replace + content.slice(index + find.length);
 }
 
 function findBetweenRanges(

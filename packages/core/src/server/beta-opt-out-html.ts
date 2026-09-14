@@ -1,11 +1,21 @@
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  BETA_REDIRECT_STORAGE_KEY,
   ENVIRONMENT_BETA_HOSTS,
 } from "../shared/environment-lanes.js";
+import {
+  getSsrBetaRedirectScript,
+  SSR_BETA_REDIRECT_MARKER,
+} from "../shared/ssr-beta-redirect.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import { resolvePublicAppOriginConfig } from "./app-origin-config.js";
+import { workspaceBasePathFromRequest } from "./onboarding-html.js";
 
 export const BETA_OPT_OUT_PERSISTENCE_MARKER =
   "Persist the beta opt-out before authentication";
@@ -28,13 +38,25 @@ function insertBeforeClosingTag(
   return html.slice(0, closeIndex) + fragment + html.slice(closeIndex);
 }
 
+function betaRedirectBasePath(requestPath?: string): string {
+  const configuredBasePath = getAppBasePathFromViteEnv();
+  const requestWorkspaceBasePath = workspaceBasePathFromRequest(requestPath);
+  if (!requestWorkspaceBasePath) return configuredBasePath;
+
+  const workspaceMounts =
+    resolvePublicAppOriginConfig()?.workspaceAppMountPaths;
+  return workspaceMounts?.includes(requestWorkspaceBasePath)
+    ? requestWorkspaceBasePath
+    : configuredBasePath;
+}
+
 const environmentSwitcherMarkup = `<div class="environment-switcher" id="environment-switcher" ${ENVIRONMENT_SWITCHER_MARKER} hidden>
-  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
+  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover"></button>
   <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Beta</div>
-    <div class="environment-popover-copy">Choose where you want to continue.</div>
-    <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
-    <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>
+    <div class="environment-popover-title" id="environment-popover-title"></div>
+    <div class="environment-popover-copy"></div>
+    <a class="environment-production-link" id="environment-production-link" href=""></a>
+    <button type="button" class="environment-hide-badge" id="environment-hide-badge"></button>
   </div>
 </div>`;
 
@@ -136,9 +158,11 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
   var switcher = document.getElementById('environment-switcher');
   var button = document.getElementById('environment-badge');
   var popover = document.getElementById('environment-popover');
+  var titleNode = document.getElementById('environment-popover-title');
+  var copyNode = document.querySelector('.environment-popover-copy');
   var productionLink = document.getElementById('environment-production-link');
   var hideButton = document.getElementById('environment-hide-badge');
-  if (!switcher || !button || !popover || !productionLink || !hideButton) return;
+  if (!switcher || !button || !popover || !titleNode || !copyNode || !productionLink || !hideButton) return;
   if (window.parent !== window) return;
 
   try {
@@ -174,6 +198,72 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
     popover.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
   }
+
+  var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};
+  var root = document.documentElement;
+  function messagesForLocale(locale) {
+    if (typeof locale !== 'string' || !locale || locale === 'system') return null;
+    var normalized = locale.trim().replace(/_/g, '-').toLowerCase();
+    var locales = Object.keys(messagesByLocale);
+    for (var i = 0; i < locales.length; i++) {
+      if (locales[i].toLowerCase() === normalized) return messagesByLocale[locales[i]];
+    }
+    var language = normalized.split('-')[0];
+    if (language === 'zh') {
+      var parts = normalized.split('-');
+      if (
+        parts.indexOf('hant') !== -1 ||
+        parts.indexOf('tw') !== -1 ||
+        parts.indexOf('hk') !== -1 ||
+        parts.indexOf('mo') !== -1
+      ) {
+        return messagesByLocale['zh-TW'];
+      }
+      if (
+        parts.indexOf('hans') !== -1 ||
+        parts.indexOf('cn') !== -1 ||
+        parts.indexOf('sg') !== -1
+      ) {
+        return messagesByLocale['zh-CN'];
+      }
+    }
+    for (var j = 0; j < locales.length; j++) {
+      if (locales[j].split('-')[0].toLowerCase() === language) return messagesByLocale[locales[j]];
+    }
+    return null;
+  }
+  function updateCopy() {
+    var candidates = [];
+    try {
+      candidates.push(window.localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)}));
+    } catch (error) {
+      void error;
+    }
+    candidates.push(root.getAttribute('data-locale'));
+    candidates.push(root.getAttribute('lang'));
+    var browserLocales = navigator.languages && navigator.languages.length
+      ? navigator.languages
+      : [navigator.language];
+    candidates = candidates.concat(browserLocales);
+    var messages = null;
+    for (var i = 0; i < candidates.length && !messages; i++) {
+      messages = messagesForLocale(candidates[i]);
+    }
+    messages = messages || messagesByLocale['en-US'];
+    button.textContent = messages.betaLabel;
+    titleNode.textContent = messages.betaTitle.replace(
+      '{{label}}',
+      messages.betaLabel.charAt(0).toUpperCase() + messages.betaLabel.slice(1),
+    );
+    copyNode.textContent = messages.continuePrompt;
+    productionLink.textContent = messages.switchToProduction;
+    hideButton.textContent = messages.hideBadge;
+  }
+  updateCopy();
+  new MutationObserver(updateCopy).observe(root, {
+    attributes: true,
+    attributeFilter: ['data-locale', 'lang'],
+  });
 
   switcher.hidden = false;
   button.addEventListener('click', function() {
@@ -211,6 +301,7 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
           ${JSON.stringify(BETA_OPT_OUT_STORAGE_KEY)},
           String(optOutExpiry),
         );
+        window.localStorage.removeItem(${JSON.stringify(BETA_REDIRECT_STORAGE_KEY)});
       }
       optOutStorageReady = true;
     } catch (error) {
@@ -231,8 +322,19 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
  * Keep the production switcher's one-time opt-out behavior at the shared auth
  * response boundary so those pages cannot drop the handoff before sign-in.
  */
-export function injectBetaOptOutPersistence(loginHtml: string): string {
+export function injectBetaOptOutPersistence(
+  loginHtml: string,
+  requestPath?: string,
+): string {
   let html = loginHtml;
+  if (!html.includes(SSR_BETA_REDIRECT_MARKER)) {
+    const appBasePath = betaRedirectBasePath(requestPath);
+    html = insertBeforeClosingTag(
+      html,
+      getSsrBetaRedirectScript(`${appBasePath}/_agent-native/auth/session`),
+      "</head>",
+    );
+  }
   if (!html.includes(BETA_OPT_OUT_PERSISTENCE_MARKER)) {
     html = insertBeforeClosingTag(html, betaOptOutPersistenceScript, "</body>");
   }

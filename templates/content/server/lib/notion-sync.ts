@@ -9,11 +9,14 @@ import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
+import { bodyRevisionForContent } from "./document-body-revision.js";
+import { nextDocumentUpdatedAt } from "./document-updated-at.js";
 import { getCurrentOwnerEmail } from "./documents.js";
 import {
   createNotionPageWithMarkdown,
   fetchNotionPage,
   getNotionConnectionForOwner,
+  requireNotionConnectionForOwner,
   normalizeNotionPageId,
   NotionApiError,
   notionFetch,
@@ -52,6 +55,7 @@ async function replaceDocumentFromExternal(args: {
       .set({
         title: args.title,
         content: args.content,
+        bodyRevision: bodyRevisionForContent(args.content),
         icon: args.icon,
         updatedAt: args.updatedAt,
       })
@@ -73,13 +77,22 @@ async function replaceDocumentFromExternal(args: {
       // Keep the recovery snapshot in the same transaction as the replacement:
       // a lost CAS creates no phantom version, and a snapshot failure rolls the
       // destructive replacement back instead of leaving it unrecoverable.
+      const versionId = nanoid();
+      const checkpointAt = nowIso();
       await tx.insert(schema.documentVersions).values({
-        id: nanoid(),
+        id: versionId,
         ownerEmail: args.document.ownerEmail,
         documentId: args.document.id,
         title: args.document.title,
         content: args.document.content,
-        createdAt: nowIso(),
+        groupId: versionId,
+        groupKind: "operation",
+        actorKind: "source",
+        origin: "notion",
+        operation: "sync-notion-document",
+        checkpointKind: "before",
+        createdAt: checkpointAt,
+        updatedAt: checkpointAt,
       });
     }
 
@@ -813,8 +826,10 @@ export async function linkDocumentToNotionPage(
   documentId: string,
   pageIdOrUrl: string,
 ): Promise<DocumentSyncStatus> {
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before linking a page.");
+  const connection = await requireNotionConnectionForOwner(
+    owner,
+    "linking a page",
+  );
   await getDocument(documentId, owner);
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
@@ -884,8 +899,7 @@ async function pullDocumentFromNotionInner(
 ): Promise<DocumentSyncStatus> {
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before pulling.");
+  const connection = await requireNotionConnectionForOwner(owner, "pulling");
 
   const pageContent = await readNotionPageAsDocument(
     connection.accessToken,
@@ -986,7 +1000,9 @@ async function pullDocumentFromNotionInner(
   // Only bump documents.updated_at when something actually changed. A no-op
   // pull must not move the local-clock forward, otherwise the next conflict
   // check will mistake the unchanged document for a fresh local edit.
-  const updatedAt = contentChanged ? nowIso() : freshDocument.updatedAt;
+  const updatedAt = contentChanged
+    ? nextDocumentUpdatedAt(freshDocument.updatedAt)
+    : freshDocument.updatedAt;
   if (contentChanged) {
     // Snapshot + compare-and-swap are one transaction: only the winning
     // replacement gets a recovery version, and snapshot failure rolls it back.
@@ -1122,8 +1138,7 @@ async function pushDocumentToNotionInner(
   const document = await getDocument(documentId, owner);
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before pushing.");
+  const connection = await requireNotionConnectionForOwner(owner, "pushing");
 
   const page = await fetchNotionPage(connection.accessToken, link.remotePageId);
   const remoteUpdatedAt = page.last_edited_time || null;
@@ -1238,7 +1253,9 @@ async function pushDocumentToNotionInner(
     newTitle !== freshDocument.title ||
     newContent !== freshDocument.content ||
     newIcon !== freshDocument.icon;
-  const pushedAt = contentChanged ? nowIso() : freshDocument.updatedAt;
+  const pushedAt = contentChanged
+    ? nextDocumentUpdatedAt(freshDocument.updatedAt)
+    : freshDocument.updatedAt;
   // Tracks whatever content the `documents` row actually ends up holding, so
   // the baseline hash we persist below is never out of sync with the row —
   // otherwise Notion normalizing anything makes every later status check
@@ -1537,8 +1554,10 @@ export async function createAndLinkNotionPage(
   documentId: string,
   parentPageIdOrUrl?: string,
 ): Promise<DocumentSyncStatus> {
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before creating a page.");
+  const connection = await requireNotionConnectionForOwner(
+    owner,
+    "creating a page",
+  );
   const document = await getDocument(documentId, owner);
 
   // Idempotency: if the document is already linked, do NOT create another

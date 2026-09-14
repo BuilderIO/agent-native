@@ -1,3 +1,4 @@
+import { MAX_TEXT_ATTACHMENT_BYTES } from "@agent-native/toolkit/composer/attachment-accept";
 import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
@@ -8,9 +9,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
-import type {
-  AgentChatStructuredContentPart,
-  AgentChatStructuredMessage,
+import {
+  CONTINUATION_REASONS,
+  type AgentChatStructuredContentPart,
+  type AgentChatStructuredMessage,
 } from "../agent/types.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -26,7 +28,8 @@ import {
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
+import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   createRunStreamToken,
@@ -92,7 +95,9 @@ type AgentChatAdapterAttachment = {
 const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
   "application/json",
   "application/x-ndjson",
+  "application/x-yaml",
   "image/svg+xml",
+  "message/rfc822",
   "text/csv",
   "text/css",
   "text/html",
@@ -135,16 +140,9 @@ const MAX_LOOP_LIMIT_CONTINUATIONS = 25;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
-// The attachment submitted with the CURRENT turn gets a much larger cap than
-// prior-history embedding. The server threads this turn's attachments into each
-// action's ActionRunContext, and `create-extension`/`update-extension` host a
-// pasted file verbatim from it via `contentFromAttachment` — a feature whose
-// whole point is large pastes. Truncating the outbound payload to the 60K
-// history cap would silently cut a >60K HTML/Alpine file before the server ever
-// reads it, hosting a broken extension. Mirror the large-input tool-arg cap
-// (MAX_HISTORY_LARGE_TOOL_ARGS_CHARS) so realistic pasted files survive intact;
-// the trailing truncation notice still makes a pathological multi-MB paste
-// visibly (not silently) capped.
+// Keep prior/history attachment payloads bounded. The current turn is already
+// capped by the text adapter and aggregate body guard, so preserve its full
+// text here for server-side resource persistence and read-attachment paging.
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 // An array-length backstop, NOT the reduction policy. Reducing a long thread is
 // Observational Memory's job: it folds older turns into observations/reflections
@@ -442,15 +440,13 @@ function laneAwareTerminalReasonMessage(
  * replaced by a server-chained successor row; it must never be read as "the
  * turn is done" just because its own row says `status: "completed"`.
  */
-const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>([
-  "run_timeout",
-  "loop_limit",
-  "max_tokens",
-  "stream_ended",
-  "gateway_timeout",
-  "network_interrupted",
-  "no_progress",
-]);
+// Derived from the shared `CONTINUATION_REASONS` (types.ts) rather than
+// re-listing the reasons here, so a new chunk-boundary reason (like
+// "rate_limited" once was) can't land server-side without the client also
+// recognizing it as non-terminal.
+const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>(
+  CONTINUATION_REASONS,
+);
 
 function isUserInitiatedTerminalReason(reason: string): boolean {
   return (
@@ -632,11 +628,21 @@ function decodeTextDataUrl(dataUrl: string): string | null {
   }
 }
 
-function extractAttachmentsFromMessage(message: {
-  content?: readonly { type: string; image?: string }[];
-  attachments?: readonly AssistantUiAttachment[];
-}): AgentChatAdapterAttachment[] {
+function extractAttachmentsFromMessage(
+  message: {
+    content?: readonly { type: string; image?: string }[];
+    attachments?: readonly AssistantUiAttachment[];
+  },
+  options: { preserveFullText?: boolean } = {},
+): AgentChatAdapterAttachment[] {
   const attachments: AgentChatAdapterAttachment[] = [];
+  const textForRequest = (text: string) =>
+    truncateOutboundAttachment(
+      text,
+      options.preserveFullText
+        ? MAX_TEXT_ATTACHMENT_BYTES
+        : MAX_OUTBOUND_ATTACHMENT_CHARS,
+    );
   for (const att of message.attachments ?? []) {
     const persistedMetadata =
       att && typeof att.metadata === "object" ? att.metadata : undefined;
@@ -651,9 +657,7 @@ function extractAttachmentsFromMessage(message: {
         displayOnly: true,
         ...(textPart && typeof textPart.text === "string"
           ? {
-              text: truncateOutboundAttachment(
-                unwrapAttachmentEnvelope(textPart.text),
-              ),
+              text: textForRequest(unwrapAttachmentEnvelope(textPart.text)),
             }
           : {}),
       });
@@ -704,16 +708,16 @@ function extractAttachmentsFromMessage(message: {
             ? {
                 data,
                 ...(decodedText !== null
-                  ? { text: truncateOutboundAttachment(decodedText) }
+                  ? { text: textForRequest(decodedText) }
                   : {}),
               }
             : decodedText !== null
-              ? { text: truncateOutboundAttachment(decodedText) }
+              ? { text: textForRequest(decodedText) }
               : data?.startsWith("data:")
                 ? { data }
                 : url
                   ? {}
-                  : { text: truncateOutboundAttachment(data ?? "") }),
+                  : { text: textForRequest(data ?? "") }),
           ...(typeof persistedMetadata?.uploadProvider === "string"
             ? { uploadProvider: persistedMetadata.uploadProvider }
             : {}),
@@ -731,7 +735,7 @@ function extractAttachmentsFromMessage(message: {
           type: "file",
           name: att.name,
           contentType: att.contentType,
-          text: truncateOutboundAttachment(unwrapAttachmentEnvelope(part.text)),
+          text: textForRequest(unwrapAttachmentEnvelope(part.text)),
         });
       }
     }
@@ -763,10 +767,13 @@ function truncateHistoryAttachment(text: string): string {
   return `${text.slice(0, MAX_HISTORY_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_HISTORY_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from prior chat history.]`;
 }
 
-function truncateOutboundAttachment(text: string): string {
-  if (text.length <= MAX_OUTBOUND_ATTACHMENT_CHARS) return text;
-  const omitted = text.length - MAX_OUTBOUND_ATTACHMENT_CHARS;
-  return `${text.slice(0, MAX_OUTBOUND_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_OUTBOUND_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from the submitted attachment.]`;
+function truncateOutboundAttachment(
+  text: string,
+  maxChars = MAX_OUTBOUND_ATTACHMENT_CHARS,
+): string {
+  if (text.length <= maxChars) return text;
+  const omitted = text.length - maxChars;
+  return `${text.slice(0, maxChars)}\n\n[Attachment truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from the submitted attachment.]`;
 }
 
 function attachmentHistoryText(
@@ -875,6 +882,23 @@ function isToolCallContentPart(
   );
 }
 
+function shouldPreserveApprovalInput(
+  part: Pick<
+    Extract<ContentPart, { type: "tool-call" }>,
+    "approval" | "result"
+  >,
+): boolean {
+  const result =
+    typeof part.result === "string" ? part.result.toLowerCase() : undefined;
+  return Boolean(
+    part.approval?.approvalKey &&
+    part.approval.dismissed !== true &&
+    (part.result === undefined ||
+      result?.includes("awaiting human approval") ||
+      result?.includes("waiting for your approval")),
+  );
+}
+
 function isSuccessOnlyToolResult(value: Record<string, unknown>): boolean {
   const keys = Object.keys(value);
   if (keys.length === 0) return true;
@@ -964,13 +988,18 @@ function contentToStructuredMessages(
         continue;
       }
       const toolCallId = nextToolCallId();
+      // A pending approval must replay the exact authorized arguments. Normal
+      // history may truncate large tool inputs, but doing that here changes the
+      // approval key and turns every approval into a fresh approval request.
+      const preserveApprovalInput = shouldPreserveApprovalInput(part);
       assistantParts.push({
         type: "tool-call",
         toolCallId,
         toolName: part.toolName,
-        args: truncate
-          ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
-          : (part.args ?? {}),
+        args:
+          truncate && !preserveApprovalInput
+            ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
+            : (part.args ?? {}),
       });
       if (part.result !== undefined) {
         const body = truncate
@@ -984,7 +1013,9 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
-          toolInput: JSON.stringify(part.args ?? {}),
+          ...(preserveApprovalInput
+            ? {}
+            : { toolInput: JSON.stringify(part.args ?? {}) }),
           // A settled-interrupted tool has a result whose outcome is UNKNOWN.
           // It is neither a success nor a failure, so it carries the marker the
           // server's write-interruption breaker matches on instead of claiming
@@ -1003,7 +1034,9 @@ function contentToStructuredMessages(
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
-          toolInput: JSON.stringify(part.args ?? {}),
+          ...(preserveApprovalInput
+            ? {}
+            : { toolInput: JSON.stringify(part.args ?? {}) }),
           content: INTERRUPTED_TOOL_RESULT,
         });
       }
@@ -1017,7 +1050,7 @@ function contentToStructuredMessages(
   return messages;
 }
 
-function assistantUiMessagesToStructuredHistory(
+export function assistantUiMessagesToStructuredHistory(
   messages: readonly {
     role: string;
     content: readonly any[];
@@ -1083,6 +1116,7 @@ function assistantUiMessagesToStructuredHistory(
           ...(part.outcome === "unknown"
             ? { outcome: "unknown" as const }
             : {}),
+          ...(part.approval?.approvalKey ? { approval: part.approval } : {}),
         });
       }
     }
@@ -1119,8 +1153,15 @@ function estimateHistoryMessageCost(message: {
     const argsCap = LARGE_INPUT_TOOL_NAMES.has(tool.toolName ?? "")
       ? MAX_HISTORY_LARGE_TOOL_ARGS_CHARS
       : MAX_HISTORY_TOOL_ARGS_CHARS;
-    const argsText = tool.argsText ?? stableJson(tool.args ?? {});
-    cost += Math.min(argsText.length, argsCap);
+    const preserveApprovalInput = shouldPreserveApprovalInput(
+      tool as Extract<ContentPart, { type: "tool-call" }>,
+    );
+    const argsText = preserveApprovalInput
+      ? stableJson(tool.args ?? {})
+      : (tool.argsText ?? stableJson(tool.args ?? {}));
+    cost += preserveApprovalInput
+      ? argsText.length
+      : Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
         // Price the string the request actually carries. `stringifyValue(result)` is
@@ -1159,7 +1200,12 @@ function limitPriorMessagesForRequest<
     const wordCost = messageTextForHistory(message).length;
     if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
     const payloadCost = estimateHistoryMessageCost(message) - wordCost;
-    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const hasPendingApproval = message.content.some(
+      (part) =>
+        isToolCallContentPart(part) && shouldPreserveApprovalInput(part),
+    );
+    const affordsPayload =
+      hasPendingApproval || payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
     const content = affordsPayload
       ? message.content
       : message.content.filter((part) => part.type === "text");
@@ -1815,6 +1861,17 @@ function isRetryableStartupError(message: string): boolean {
 
 function isAuthErrorMessage(message: string): boolean {
   const msg = message.toLowerCase();
+  // A transient gateway 403/429 retry is diagnostic text that names its own
+  // HTTP status ("...temporarily refused this request (HTTP 403...", the
+  // gateway's `provider_transient_rejection`/`provider_rate_limited` codes),
+  // not an auth failure — it must not fall into the bare digit match below.
+  if (
+    msg.includes("provider_transient_rejection") ||
+    msg.includes("provider_rate_limited") ||
+    msg.includes("temporarily refused this request")
+  ) {
+    return false;
+  }
   return (
     msg.includes("authentication required") ||
     msg.includes("unauthorized") ||
@@ -1959,6 +2016,7 @@ function missingCredentialFailure(message: string): {
  */
 export interface CreateAgentChatAdapterOptions {
   apiUrl?: string;
+  streamingUrl?: string;
   tabId?: string;
   threadId?: string;
   modelRef?: { current: string | undefined };
@@ -2018,7 +2076,6 @@ function formatRuntimeDebugDetails(payload: unknown): string {
       ? `db_configured: ${database.configured}`
       : "",
     stringValue(database.source) ? `db_source: ${database.source}` : "",
-    stringValue(database.dialect) ? `db_dialect: ${database.dialect}` : "",
     stringValue(database.protocol) ? `db_protocol: ${database.protocol}` : "",
     stringValue(database.host) ? `db_host: ${database.host}` : "",
     stringValue(database.database) ? `db_database: ${database.database}` : "",
@@ -2048,6 +2105,68 @@ export function createAgentChatAdapter(
 ): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const streamTargetUrl =
+    options?.streamingUrl?.trim() || agentChatStreamingUrl();
+  let streamTokenWarningShown = false;
+  const resolveChatRequestTarget = async (
+    headers: Record<string, string>,
+    abortSignal: AbortSignal,
+    forcePrimary = false,
+  ): Promise<{
+    url: string;
+    headers: Record<string, string>;
+    credentials: RequestCredentials;
+    usesStreamingOrigin: boolean;
+  }> => {
+    if (forcePrimary || !streamTargetUrl) {
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
+    }
+
+    const tokenUrl = `${apiUrl.replace(/\/+$/, "")}/stream-token`;
+    try {
+      const tokenResponse = await fetch(tokenUrl, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: abortSignal,
+      });
+      if (!tokenResponse.ok) throw new Error(`HTTP ${tokenResponse.status}`);
+      const payload: unknown = await tokenResponse.json();
+      const token =
+        payload && typeof payload === "object" && "token" in payload
+          ? (payload as { token?: unknown }).token
+          : undefined;
+      if (typeof token !== "string" || !token.trim()) {
+        throw new Error("missing token");
+      }
+      return {
+        url: streamTargetUrl,
+        headers: { ...headers, Authorization: `Bearer ${token}` },
+        credentials: "omit",
+        usesStreamingOrigin: true,
+      };
+    } catch (error) {
+      if (!streamTokenWarningShown && !abortSignal.aborted) {
+        streamTokenWarningShown = true;
+        console.warn(
+          "[agent-chat] streaming origin auth handoff unavailable; using the primary chat route",
+          error instanceof Error ? error.message : error,
+        );
+      }
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
+    }
+  };
   const tabId = options?.tabId;
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;
@@ -2056,7 +2175,9 @@ export function createAgentChatAdapter(
   const harnessRef = options?.harnessRef;
   const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
-  const browserTabId = options?.browserTabId;
+  const browserTabId =
+    options?.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const scopeRef = options?.scopeRef;
   const surface = options?.surface ?? "app";
   // A queued recovery can survive until a server-owned continuation finishes,
@@ -2074,7 +2195,7 @@ export function createAgentChatAdapter(
   }
 
   return {
-    async *run({ messages, abortSignal, runConfig }) {
+    async *run({ messages, abortSignal, runConfig, unstable_parentId }) {
       // Extract latest user message and build history from prior messages
       const adapterMessages = messages as readonly AdapterMessage[];
       const latestUserIndex = (() => {
@@ -2123,6 +2244,18 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      // Names what the turn is for (`sendToAgentChat({ usageLabel })`). Rides
+      // the run config so a queued send keeps its label when it finally flushes,
+      // and every auto-continuation of the turn re-sends the same one.
+      const usageLabel = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { usageLabel?: unknown }).usageLabel
+            : undefined;
+        return typeof raw === "string" && raw.trim()
+          ? raw.trim().slice(0, 120)
+          : undefined;
+      })();
       const queuedMessageId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2184,6 +2317,7 @@ export function createAgentChatAdapter(
         return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       })();
       const turnId = requestedTurnId ?? generateTurnId();
+      let streamTransportFallbackUsed = false;
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
@@ -2210,7 +2344,9 @@ export function createAgentChatAdapter(
       // assistant-ui puts user attachments on msg.attachments (not on content);
       // each attachment carries its own content parts from the adapter.
       const attachments = lastUserMsg
-        ? extractAttachmentsFromMessage(lastUserMsg as any)
+        ? extractAttachmentsFromMessage(lastUserMsg as any, {
+            preserveFullText: true,
+          })
         : [];
       const userMessageText =
         rawMessageText.trim() || attachments.length === 0
@@ -2634,6 +2770,9 @@ export function createAgentChatAdapter(
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
+        if (browserTabId) {
+          headers["x-agent-native-browser-tab"] = browserTabId;
+        }
         try {
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           if (tz) headers["x-user-timezone"] = tz;
@@ -3989,6 +4128,8 @@ export function createAgentChatAdapter(
         };
 
         while (true) {
+          let requestUsedStreamingOrigin = false;
+          let responseReceived = false;
           let delayedJsonProbe: Promise<JsonResponseProbeOutcome> | undefined;
           let delayedJsonProbeOutcome: JsonResponseProbeOutcome | undefined;
           let delayedJsonProbeReader:
@@ -4003,11 +4144,18 @@ export function createAgentChatAdapter(
           try {
             runId = null;
             lastSeq = -1;
+            const requestTarget = await resolveChatRequestTarget(
+              headers,
+              abortSignal,
+              streamTransportFallbackUsed,
+            );
+            requestUsedStreamingOrigin = requestTarget.usesStreamingOrigin;
             const res = await fetchWithStartupTimeout(
-              apiUrl,
+              requestTarget.url,
               {
                 method: "POST",
-                headers,
+                headers: requestTarget.headers,
+                credentials: requestTarget.credentials,
                 body: JSON.stringify({
                   message: currentMessageText,
                   displayMessage: userMessageText,
@@ -4016,7 +4164,11 @@ export function createAgentChatAdapter(
                   structuredHistory: currentStructuredHistory,
                   turnId,
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
+                  ...(usageLabel ? { usageLabel } : {}),
                   ...(threadId ? { threadId } : {}),
+                  ...(unstable_parentId !== undefined
+                    ? { parentId: unstable_parentId }
+                    : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }
                     : {}),
@@ -4037,6 +4189,7 @@ export function createAgentChatAdapter(
               STARTUP_RESPONSE_TIMEOUT_MS,
               abortSignal,
             );
+            responseReceived = true;
 
             // Check for auth errors returned as 200 with JSON (common with middleware issues)
             const contentType = res.headers.get("content-type") || "";
@@ -4444,6 +4597,16 @@ export function createAgentChatAdapter(
               // User-initiated abort (Stop button) — clear active run
               clearOwnedActiveRun();
               return;
+            }
+
+            if (
+              requestUsedStreamingOrigin &&
+              !responseReceived &&
+              !runId &&
+              !streamTransportFallbackUsed
+            ) {
+              streamTransportFallbackUsed = true;
+              continue;
             }
 
             let delayedJsonOutcome = delayedJsonProbeOutcome;

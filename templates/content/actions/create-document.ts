@@ -6,6 +6,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
@@ -20,8 +21,12 @@ import {
 } from "../server/lib/documents.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import { resolveContentSpaceTarget } from "./_content-space-target.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -62,7 +67,7 @@ const reuseLabelSchema = z
 
 export default defineAction({
   description:
-    "Create and persist a new Markdown document in Content. Use parentId to nest it or spaceId for a top-level page; returns the stable document ID for subsequent get-document or edit-document calls.",
+    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and the resolved spaceId for subsequent get-document or edit-document calls.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -75,12 +80,28 @@ export default defineAction({
     spaceId: z
       .string()
       .optional()
-      .describe("Content space ID for a new top-level document."),
+      .describe("Content workspace ID for a new top-level document."),
+    spaceName: z
+      .string()
+      .optional()
+      .describe(
+        "Content workspace name for a new top-level document, when the user named a workspace instead of giving its ID. Fails when the name matches no authorized workspace; it never falls back to Personal.",
+      ),
     title: z.string().describe("Title for the new document."),
     content: z
       .string()
       .optional()
-      .describe("Initial Markdown body; omit to create an empty document."),
+      .describe(
+        "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
+          'shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+      ),
+    preserveLeadingTitleHeading: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Preserve a leading H1 that matches the title when reproducing an exact saved body.",
+      ),
     description: z
       .string()
       .optional()
@@ -119,7 +140,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -162,7 +183,7 @@ export default defineAction({
     let content = args.content || "";
     const description = args.description?.trim() ?? "";
     // Strip leading H1 that duplicates the title
-    if (title && content) {
+    if (title && content && !args.preserveLeadingTitleHeading) {
       const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
       if (
         h1Match &&
@@ -218,10 +239,20 @@ export default defineAction({
       if (args.spaceId && args.spaceId !== parent.spaceId) {
         throw new Error("Nested documents must use their parent Content space");
       }
+      if (args.spaceName) {
+        throw new Error(
+          "Nested documents inherit their parent Content space; omit spaceName",
+        );
+      }
       spaceId = parent.spaceId;
     } else {
-      const provisioned = await provisionContentSpaces(db, currentUserEmail);
-      spaceId = args.spaceId ?? provisioned.personalSpaceId;
+      const target = await resolveContentSpaceTarget({
+        db,
+        userEmail: currentUserEmail,
+        spaceId: args.spaceId,
+        spaceName: args.spaceName,
+      });
+      spaceId = target.spaceId;
       const spaceAccess = await resolveContentSpaceAccess(
         spaceId,
         "contributor",
@@ -239,7 +270,7 @@ export default defineAction({
       async () => {
         // Get max position among siblings
         const maxPos = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -253,7 +284,7 @@ export default defineAction({
                 ),
           );
 
-        const position = (maxPos[0]?.max ?? -1) + 1;
+        const position = nextAppendPosition(maxPos[0]?.max);
 
         await db.transaction(async (tx) => {
           await tx.insert(schema.documents).values({
@@ -316,8 +347,21 @@ export default defineAction({
       });
     }
 
+    track(
+      "document_created",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_id: doc.id,
+        output_type: "document",
+        content_present: Boolean(content),
+      },
+      ctx,
+    );
+
     return {
       id: doc.id,
+      spaceId,
       urlPath: `/page/${doc.id}`,
       deepLink: buildDeepLink({
         app: "content",

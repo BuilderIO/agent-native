@@ -1,6 +1,7 @@
 import { IconCheck } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -103,8 +104,10 @@ export function ReactionsTray({
       {REACTION_EMOJIS.map((emoji) => (
         <Tooltip key={emoji}>
           <TooltipTrigger asChild>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => fire(emoji)}
               disabled={disabled || savingEmoji === emoji}
               aria-label={
@@ -117,7 +120,7 @@ export function ReactionsTray({
               data-reaction-count={reactionCounts[emoji] ?? 0}
               data-reaction-saved={savedEmoji === emoji}
               className={cn(
-                "relative flex h-8 w-8 items-center justify-center rounded-full text-base transition-[background-color,transform,box-shadow] hover:scale-110 hover:bg-accent sm:h-9 sm:w-9 sm:text-xl",
+                "relative size-8 rounded-full text-base transition-[background-color,transform,box-shadow] hover:scale-110 sm:size-9 sm:text-xl",
                 savedEmoji === emoji &&
                   "bg-accent shadow-[0_0_0_2px_hsl(var(--primary)/0.35)]",
                 savingEmoji === emoji && "animate-pulse",
@@ -134,7 +137,7 @@ export function ReactionsTray({
                   {reactionCounts[emoji]}
                 </span>
               ) : null}
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent>
             {reactionCounts[emoji]

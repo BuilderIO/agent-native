@@ -66,6 +66,7 @@ import {
   loadResolvedAgentNativeConfig,
 } from "../vite/agent-native-config-loader.js";
 import {
+  ClaudeCodeAuthStatusError,
   runClaudeCodeParticipant,
   type ClaudeCodeParticipantEvent,
 } from "./claude-code-participant.js";
@@ -788,6 +789,8 @@ async function executeClaudeCliRun(options: {
   } catch (error) {
     const interrupted = options.signal?.aborted === true;
     const message = error instanceof Error ? error.message : String(error);
+    const executionError =
+      error instanceof ClaudeCodeAuthStatusError ? error.rawMessage : message;
     const summary = interrupted
       ? "Claude Code run paused."
       : `Claude Code run failed: ${message}`;
@@ -816,7 +819,7 @@ async function executeClaudeCliRun(options: {
         ...(interrupted
           ? { executionPausedAt: new Date().toISOString() }
           : {
-              executionError: message,
+              executionError,
               executionErroredAt: new Date().toISOString(),
             }),
         engine: CLAUDE_CLI_ENGINE_NAME,

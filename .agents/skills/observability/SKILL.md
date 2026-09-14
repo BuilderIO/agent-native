@@ -25,6 +25,19 @@ Every `runAgentLoop()` call is automatically instrumented via `instrumentAgentLo
 - **llm_call** span — model name, token counts (input, output, cache read/write), cost
 - **tool_call** spans — one per action invocation, with duration and success/error
 
+The run span is NAMED by what started it, because the trace list shows that name
+and nothing else: a scheduled job is `background_automation_run:<job name>`, a
+chat turn is `agent_run`, and a turn a feature sent on the user's behalf is
+`agent_run:<usageLabel>` when the caller named it:
+
+```ts
+sendToAgentChat({
+  message: "Enrich this record from the web",
+  newTab: true,
+  usageLabel: "crm:enrich-record", // → usage row label + `agent_run:crm:enrich-record`
+});
+```
+
 Content (prompts, tool args, tool results) is **redacted by default**. Opt in through the declared `observability` config domain:
 
 ```ts
@@ -228,7 +241,7 @@ All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 - `agent_experiment_assignments` — user → variant assignments
 - `agent_experiment_results` — computed metric results
 
-All tables are dialect-agnostic (SQLite + Postgres) and strictly additive.
+All tables are PostgreSQL-compatible and strictly additive.
 
 ## Key Files
 

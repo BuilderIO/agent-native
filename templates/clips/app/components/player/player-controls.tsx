@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconPlayerPlay,
-  IconPlayerPause,
+  IconPlayerPlayFilled,
+  IconPlayerPauseFilled,
   IconPlayerSkipForward,
   IconVolume,
   IconVolumeOff,
@@ -13,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, type FocusEvent } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +27,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
 import {
   Tooltip,
   TooltipContent,
@@ -145,12 +147,9 @@ export function PlayerControls(props: PlayerControlsProps) {
           onClick={onPlayPause}
           tooltip={isPlaying ? "Pause (K)" : "Play (K)"}
           ariaLabel={isPlaying ? "Pause" : "Play"}
+          className="size-10 [&_svg]:size-5"
         >
-          {isPlaying ? (
-            <IconPlayerPause className="h-5 w-5" />
-          ) : (
-            <IconPlayerPlay className="h-5 w-5" />
-          )}
+          {isPlaying ? <IconPlayerPauseFilled /> : <IconPlayerPlayFilled />}
         </IconBtn>
 
         <IconBtn
@@ -179,19 +178,17 @@ export function PlayerControls(props: PlayerControlsProps) {
         >
           <Popover open={volumePopoverOpen} onOpenChange={setVolumePopoverOpen}>
             <PopoverTrigger asChild>
-              <button
+              <Button
                 data-player-ui
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={onToggleMute}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white hover:bg-white/10"
+                className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground size-8 shrink-0"
                 aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
               >
-                {muted || volume === 0 ? (
-                  <IconVolumeOff className="h-5 w-5" />
-                ) : (
-                  <IconVolume className="h-5 w-5" />
-                )}
-              </button>
+                {muted || volume === 0 ? <IconVolumeOff /> : <IconVolume />}
+              </Button>
             </PopoverTrigger>
             <PopoverContent
               data-player-ui
@@ -204,16 +201,15 @@ export function PlayerControls(props: PlayerControlsProps) {
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
               <div className="flex h-24 w-8 items-center justify-center">
-                <input
+                <Slider
                   aria-label="Volume"
-                  aria-orientation="vertical"
-                  type="range"
+                  orientation="vertical"
                   min={0}
                   max={1}
                   step={0.05}
-                  value={muted ? 0 : volume}
-                  onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-                  className="h-2 w-24 -rotate-90 cursor-pointer accent-white"
+                  value={[muted ? 0 : volume]}
+                  onValueChange={([value]) => onVolumeChange(value ?? 0)}
+                  className="h-24 w-2 [&_[data-orientation=vertical]]:h-full [&_[data-orientation=vertical]]:w-1.5 [&_[role=slider]]:size-3.5"
                 />
               </div>
             </PopoverContent>
@@ -234,7 +230,7 @@ export function PlayerControls(props: PlayerControlsProps) {
               active={captionsOn}
               tooltip="Captions (C)"
             >
-              <IconSubtitles className="h-5 w-5" />
+              <IconSubtitles />
             </IconBtn>
           </div>
         ) : null}
@@ -243,12 +239,15 @@ export function PlayerControls(props: PlayerControlsProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button
                   data-player-ui
-                  className="h-8 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums hover:bg-white/10"
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground h-8 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums"
                 >
                   {speed}x
-                </button>
+                </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>{t("playerControls.playbackSpeed")}</TooltipContent>
@@ -283,7 +282,7 @@ export function PlayerControls(props: PlayerControlsProps) {
             active={isPip}
             tooltip="Picture in picture"
           >
-            <IconPictureInPicture className="h-5 w-5" />
+            <IconPictureInPicture />
           </IconBtn>
         </div>
 
@@ -294,15 +293,13 @@ export function PlayerControls(props: PlayerControlsProps) {
               active={theaterMode}
               tooltip="Theater mode (T)"
             >
-              <IconRectangle className="h-5 w-5" />
+              <IconRectangle />
             </IconBtn>
           </div>
         ) : null}
 
         <IconBtn onClick={onToggleFullscreen} tooltip="Fullscreen (F)">
-          <IconMaximize
-            className={cn("h-5 w-5", isFullscreen && "rotate-180")}
-          />
+          <IconMaximize className={cn(isFullscreen && "rotate-180")} />
         </IconBtn>
 
         {showReactionsAndComment ? (
@@ -322,7 +319,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                   onClick={onAddComment}
                   tooltip={t("commentsPanel.commentButton")}
                 >
-                  <IconMessagePlus className="h-5 w-5" />
+                  <IconMessagePlus />
                 </IconBtn>
               </div>
             ) : null}
@@ -339,27 +336,35 @@ function IconBtn({
   tooltip,
   ariaLabel,
   active,
+  className,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   tooltip?: string;
   ariaLabel?: string;
   active?: boolean;
+  className?: string;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Button
           data-player-ui
+          type="button"
+          variant="ghost"
+          size="icon"
           onClick={onClick}
           aria-label={ariaLabel ?? tooltip}
           className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-            active ? "bg-white/20 text-white" : "text-white hover:bg-white/10",
+            "size-8 shrink-0",
+            active
+              ? "bg-player-control-foreground/20 text-player-control-foreground hover:bg-player-control-foreground/25 hover:text-player-control-foreground"
+              : "text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground",
+            className,
           )}
         >
           {children}
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
@@ -369,7 +374,7 @@ function IconBtn({
 function SkipIcon({ direction }: { direction: "back" | "forward" }) {
   return (
     <IconPlayerSkipForward
-      className={cn("h-5 w-5", direction === "back" && "rotate-180")}
+      className={cn(direction === "back" && "rotate-180")}
     />
   );
 }

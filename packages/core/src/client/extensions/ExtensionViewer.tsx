@@ -22,6 +22,7 @@ import { normalizeDocumentTitle } from "../../shared/document-title.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import {
   Popover,
   PopoverContent,
@@ -436,7 +437,11 @@ function EditToolPopover({
         </TooltipTrigger>
         <TooltipContent>Edit</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" sideOffset={6} className="w-[420px] p-3">
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="relative w-[420px] p-3"
+      >
         <p className="px-1 pb-2 text-sm font-semibold text-foreground">
           Edit extension
         </p>
@@ -972,6 +977,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         finalHeaders.set("X-Agent-Native-Extension-Id", extensionId);
         finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
         finalHeaders.set("X-Agent-Native-Tool-Id", extensionId);
+        finalHeaders.set("X-Agent-Native-Browser-Tab", getBrowserTabId());
         const res = await fetch(agentNativePath(path), {
           ...options,
           headers: finalHeaders,

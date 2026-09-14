@@ -1,5 +1,8 @@
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
@@ -26,6 +29,7 @@ export interface AgentNativeJsonSchema {
 }
 
 export interface ActionTool {
+  title?: string;
   description: string;
   parameters?: AgentNativeJsonSchema & {
     type: "object";
@@ -40,6 +44,11 @@ export type ScriptTool = ActionTool;
 export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+export interface AgentFileMutationProof {
+  path: string;
+  contentSha256: string;
 }
 
 export type AgentChatStructuredContentPart =
@@ -192,6 +201,8 @@ export interface AgentChatRequest {
   structuredHistory?: AgentChatStructuredMessage[];
   references?: AgentChatReference[];
   threadId?: string;
+  /** Parent message for assistant-ui sends and regenerations. */
+  parentId?: string | null;
   attachments?: AgentChatAttachment[];
   /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;
@@ -214,7 +225,8 @@ export interface AgentChatRequest {
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
-      | "network_interrupted";
+      | "network_interrupted"
+      | "rate_limited";
     actionPreparationTool?: string;
     /**
      * Number of server-driven background→background continuations already
@@ -304,9 +316,36 @@ export interface AgentChatRequest {
 
 export type AgentToolInput = Record<string, unknown>;
 
+export interface AgentChatRichEventReference {
+  /** Reference class, for example action, audit, trace, context, or artifact. */
+  kind: string;
+  /** Stable identifier in the owning system. Never place credentials here. */
+  id: string;
+  label?: string;
+  uri?: string;
+}
+
+/**
+ * Provider-neutral extension envelope for rich events not yet promoted into
+ * the shared event union. Producers must keep `data` bounded and sanitized;
+ * durable or sensitive values belong behind references, not in the stream.
+ */
+export interface AgentChatRichEventEnvelope {
+  /** Reverse-DNS or package-style owner namespace. */
+  namespace: string;
+  /** Event name within the owner namespace. */
+  name: string;
+  version?: number;
+  data?: unknown;
+  references?: AgentChatRichEventReference[];
+  metadata?: Record<string, unknown>;
+}
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
+  | { type: "suggestions"; suggestions: AgentSuggestion[] }
+  | { type: "rich_event"; event: AgentChatRichEventEnvelope }
   | {
       type: "activity";
       label: string;
@@ -365,6 +404,8 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      fileMutation?: AgentFileMutationProof;
+      artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
     }
@@ -393,6 +434,16 @@ export type AgentChatEvent =
        * permanently hide Approve/Deny with no way to retry.
        */
       askId?: string;
+    }
+  | {
+      /** Host-resolved provider setup required before this run can continue. */
+      type: "connection_required";
+      requestId: string;
+      provider: string;
+      reason: "connect" | "grant" | "reauthorize" | "admin_required";
+      appId?: string;
+      detail?: string;
+      source?: { id: string; kind?: string; label?: string };
     }
   | {
       type: "agent_call";
@@ -527,6 +578,7 @@ export const CONTINUATION_REASONS = [
   "stream_ended",
   "gateway_timeout",
   "network_interrupted",
+  "rate_limited",
 ] as const;
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];

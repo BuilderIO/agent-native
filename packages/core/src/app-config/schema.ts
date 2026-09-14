@@ -10,6 +10,7 @@ import { migrationConfig } from "./migration.js";
 import { observabilityConfig } from "./observability.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
+import { runtimeConfig } from "./runtime.js";
 import { workspaceConfig } from "./workspace.js";
 
 /**
@@ -39,6 +40,7 @@ export const appConfigSchema = z.object({
   observability: observabilityConfig.prefault({}),
   plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
+  runtime: runtimeConfig.prefault({}),
   workspace: workspaceConfig.prefault({}),
 });
 

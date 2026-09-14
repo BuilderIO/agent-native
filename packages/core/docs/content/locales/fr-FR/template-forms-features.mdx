@@ -56,11 +56,11 @@ Vous scriptez la création de formulaires directement plutôt que de la décrire
 
 Un formulaire passe par trois statuts :
 
-| Statut      | Signification                              | Accès public                |
-| ----------- | ------------------------------------------- | ---------------------------- |
-| `draft`     | Travail en cours, pas disponible publiquement | Non                         |
-| `published` | En ligne et accepte les réponses            | Oui                          |
-| `closed`    | N'accepte plus de réponses                  | Affiche un message de fermeture |
+| Statut      | Signification                                 | Accès public                    |
+| ----------- | --------------------------------------------- | ------------------------------- |
+| `draft`     | Travail en cours, pas disponible publiquement | Non                             |
+| `published` | En ligne et accepte les réponses              | Oui                             |
+| `closed`    | N'accepte plus de réponses                    | Affiche un message de fermeture |
 
 Un formulaire ne peut pas être publié s'il n'a aucun champ, si un champ n'a pas d'étiquette, ou si un champ `select`, `multiselect` ou `radio` n'a pas d'options. En cas de rejet lors de la publication, une raison précise vous est donnée.
 
@@ -133,12 +133,12 @@ Vous pouvez aussi demander à l'agent « un CSV de ce formulaire » ou « un exp
 
 Activez la livraison automatique pour que les nouvelles réponses apparaissent là où votre équipe travaille déjà, plutôt que quelqu'un qui vérifie l'onglet Réponses. C'est un paramètre par formulaire, configuré dans l'onglet Intégrations du générateur.
 
-| Destination   | Ce dont elle a besoin                                                                              |
-| ------------- | --------------------------------------------------------------------------------------------------- |
-| Slack         | Une URL de webhook entrant pour le canal souhaité                                                  |
-| Discord       | Une URL de webhook pour le canal souhaité                                                          |
+| Destination   | Ce dont elle a besoin                                                                                                            |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Slack         | Une URL de webhook entrant pour le canal souhaité                                                                                |
+| Discord       | Une URL de webhook pour le canal souhaité                                                                                        |
 | Google Sheets | Une URL de script Google Apps configurée pour recevoir les soumissions. Un simple lien de feuille de calcul ne fonctionnera pas. |
-| Webhook       | N'importe quelle adresse web capable de recevoir la soumission sous forme de données               |
+| Webhook       | N'importe quelle adresse web capable de recevoir la soumission sous forme de données                                             |
 
 Ceci est distinct de la connexion de Slack pour que l'agent y poste directement, ce qui est couvert dans [Messaging](/docs/messaging). Connectez cela d'abord si vous voulez que l'agent lui-même poste des mises à jour sur Slack. Chaque adresse de destination est vérifiée pour s'assurer qu'elle ne pointe pas vers un réseau privé ou une adresse interne, à la fois quand vous l'enregistrez et à chaque fois qu'une réponse arrive, si bien qu'un formulaire ne peut pas être transformé en moyen de sonder votre propre réseau.
 
@@ -152,4 +152,4 @@ Vous pouvez aussi activer une notification par e-mail pour que le propriétaire 
 - [**Guide développeur**](/docs/template-forms-developers) — la référence des champs, des paramètres et des actions derrière ces fonctionnalités
 - [**Sharing**](/docs/sharing) — le modèle de subvention de partage sur lequel s'appuient les partages de formulaire
 - [**Messaging**](/docs/messaging) — connecter Slack pour que l'agent y poste directement
-</content>
+  </content>

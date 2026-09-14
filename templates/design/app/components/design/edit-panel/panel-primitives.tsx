@@ -228,6 +228,7 @@ export function ColorInput({
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
+  allowDesignHistoryHotkeys = false,
   documentColors,
   supportedPaintTypes,
   pickerKey,
@@ -272,6 +273,7 @@ export function ColorInput({
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
+  allowDesignHistoryHotkeys?: boolean;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
   /**
@@ -580,6 +582,7 @@ export function ColorInput({
       documentColors={documentColors}
       supportedPaintTypes={supportedPaintTypes}
       glslShaderContext={glslShaderContext}
+      allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
     />
   );
 }
@@ -710,7 +713,7 @@ export function PanelSection({
     <section className="design-sidebar-section shrink-0">
       <div className="px-2">
         <InspectorGrid
-          className="min-h-8 items-center"
+          className="min-h-[var(--design-section-height)] items-center"
           layout={actions ? "header-actions" : "columns"}
         >
           <InspectorGridCell span={actions ? 20 : 28}>
@@ -745,7 +748,7 @@ export function PanelSection({
           style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
         >
           <div className="overflow-hidden">
-            <div className="design-sidebar-control-text flex flex-col gap-2 px-2 pb-2 pt-0">
+            <div className="design-sidebar-control-text design-sidebar-section-content">
               {children}
             </div>
           </div>

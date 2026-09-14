@@ -30,6 +30,16 @@ describe("Design app shell", () => {
     );
   });
 
+  it("keeps toasts clear of the editor chat column", () => {
+    const root = readFileSync(new URL("./root.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(root).toContain('position="bottom-right"');
+    expect(root).toContain("offset={{ bottom: 44, right: 32 }}");
+    expect(root).toContain("mobileOffset={{ bottom: 44, right: 16 }}");
+  });
+
   it("defines one baseline contract for the editor shell and fixed action rail", () => {
     const css = readFileSync(new URL("./global.css", import.meta.url), {
       encoding: "utf8",

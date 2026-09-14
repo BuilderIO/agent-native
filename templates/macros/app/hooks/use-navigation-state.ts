@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {
   view: string;
@@ -14,7 +15,7 @@ export function useNavigationSync(state: NavigationState) {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      apiFetch("/_agent-native/application-state/navigation", {
+      apiFetch(`/_agent-native/application-state/navigation:${TAB_ID}`, {
         method: "PUT",
         keepalive: true,
         body: JSON.stringify(state),

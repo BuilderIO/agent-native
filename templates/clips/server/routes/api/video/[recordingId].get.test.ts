@@ -197,6 +197,51 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toEqual({ error: "Recording media fetch timed out." });
   });
 
+  it("serves expired media to the owner", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        visibility: "private",
+        password: null,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        ownerEmail: "owner@example.com",
+        videoUrl: "https://cdn.example.com/clip.mp4",
+      },
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("media", {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(event.status).toBe(200);
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it("rejects expired media for non-owners", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        videoUrl: "https://cdn.example.com/clip.mp4",
+      },
+    });
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(result).toEqual({ error: "Recording has expired" });
+    expect(event.status).toBe(410);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("reads configured S3 media directly instead of rejecting its public URL as SSRF", async () => {
     const sourceUrl =
       "https://clips.example.com/api/storage/clips/recording.webm";

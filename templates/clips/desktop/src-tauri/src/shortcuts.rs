@@ -556,6 +556,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             if let Some(window) = app.get_webview_window("popover") {
                 let _ = window.hide();
             }
+            crate::clips::close_bubble_if_idle(app);
             let _ = app.emit("clips:popover-visible", false);
             return;
         }

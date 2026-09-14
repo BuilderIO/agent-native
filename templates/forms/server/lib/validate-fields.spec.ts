@@ -96,3 +96,48 @@ describe("normalizePersistedFields", () => {
     expect(() => assertValidFields(fields)).not.toThrow();
   });
 });
+
+describe("file field metadata", () => {
+  it("accepts bounded multiple file fields", () => {
+    expect(() =>
+      assertValidFields([
+        {
+          id: "screenshots",
+          type: "file",
+          label: "Screenshots",
+          required: false,
+          multiple: true,
+          accept: "image/png,.webp",
+          maxSizeBytes: 5 * 1024 * 1024,
+          maxFiles: 5,
+        },
+      ]),
+    ).not.toThrow();
+  });
+
+  it("rejects file metadata on other field types and unsafe limits", () => {
+    expect(() =>
+      assertValidFields([
+        {
+          id: "name",
+          type: "text",
+          label: "Name",
+          required: false,
+          accept: "image/png",
+        },
+      ]),
+    ).toThrow("file metadata is only valid for file fields");
+    expect(() =>
+      assertValidFields([
+        {
+          id: "screenshots",
+          type: "file",
+          label: "Screenshots",
+          required: false,
+          multiple: false,
+          maxFiles: 2,
+        },
+      ]),
+    ).toThrow("maxFiles requires multiple");
+  });
+});

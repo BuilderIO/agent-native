@@ -19,6 +19,15 @@ import { describe, expect, it } from "vitest";
 
 // Each entry: [primitive filename, template name, reason for deviation]
 const ALLOW_LIST: Array<[string, string, string]> = [
+  // toolkit-provider.tsx — Chat uses the narrow provider entrypoint so the
+  // AgentKit bootstrap does not pull the entire Toolkit root into its client
+  // graph.
+  [
+    "toolkit-provider.tsx",
+    "chat",
+    "AgentKit bootstrap uses the narrow Toolkit provider entrypoint",
+  ],
+
   // popover.tsx — forms keeps a wider collision boundary so form-editor
   // controls remain within the viewport on narrow screens.
   [
@@ -69,6 +78,15 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "tabs.tsx",
     "plan",
     "border border-transparent on trigger for layout stability",
+  ],
+
+  // tabs.tsx — Clips uses the shadcn line variant so viewer and library tabs
+  // communicate the active surface with an underline instead of a filled
+  // button treatment.
+  [
+    "tabs.tsx",
+    "clips",
+    "line-variant tabs with underline active state for Clips surfaces",
   ],
 
   // textarea.tsx — two intentional variants beyond the canonical version:
@@ -126,6 +144,11 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "plan",
     "tabs.tsx",
     "adds a transparent border to preserve Plan trigger layout",
+  ],
+  [
+    "clips",
+    "tabs.tsx",
+    "uses the shadcn line variant with an underline active state",
   ],
 ];
 

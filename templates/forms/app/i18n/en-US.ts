@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contains",
     conditionValue: "Answer",
     conditionValuePlaceholder: "Enter an answer...",
+    allowMultiple: "Allow multiple files",
+    accept: "Accepted file types",
+    acceptPlaceholder: "image/*, .pdf",
     fieldTypes: {
       text: "Short Text",
       email: "Email",
@@ -110,6 +113,7 @@ const messages = {
       date: "Date",
       rating: "Rating",
       scale: "Scale",
+      file: "File upload",
     },
   },
   builder: {
@@ -180,6 +184,7 @@ const messages = {
       dateLabel: "Date",
       ratingLabel: "Rating",
       scaleLabel: "Scale",
+      fileLabel: "File upload",
       option1: "Option 1",
       option2: "Option 2",
       option3: "Option 3",
@@ -333,19 +338,21 @@ const messages = {
     page: "Page",
     source: "Source",
     sortBy: "Sort by {{label}}",
+    communityReview: "Review",
+    communityPublish: "Publish to site",
+    communityPublishing: "Publishing...",
+    communityPublished: "Published",
+    communityView: "View on site",
+    communityNeedsCheck: "Check Builder before retrying",
+    communityPromotionFailed: "Could not publish this submission.",
   },
   cloudUpgrade: {
     sharePublicly: "Share Publicly",
     sharePubliclyDescription:
       "To share content publicly, connect a cloud database.",
     providerDescriptions: {
-      turso: "SQLite at the edge",
       neon: "Serverless Postgres",
       supabase: "Open source Firebase alternative",
-      d1: "SQLite at the edge",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "Setup steps",
     authToken: "Auth token",

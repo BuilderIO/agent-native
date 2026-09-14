@@ -1,29 +1,71 @@
 import { describe, expect, it } from "vitest";
 
+import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-schema.js";
 import addComment from "./add-comment.js";
+import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
+import addDatabaseItem from "./add-database-item.js";
+import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
+import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
+import deleteContentDatabase from "./delete-content-database.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
+import getContentDatabaseSource from "./get-content-database-source.js";
+import getContentDatabase from "./get-content-database.js";
+import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
+import listContentSpaces from "./list-content-spaces.js";
 import listDocuments from "./list-documents.js";
+import listTrashedContentDatabases from "./list-trashed-content-databases.js";
+import manageContentDatabaseMigration from "./manage-content-database-migration.js";
+import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import refreshList from "./refresh-list.js";
+import restoreContentDatabase from "./restore-content-database.js";
 import searchDocuments from "./search-documents.js";
+import updateComment from "./update-comment.js";
+import updateContentDatabaseView from "./update-content-database-view.js";
+import updateDatabaseItem from "./update-database-item.js";
+import updateDatabaseItems from "./update-database-items.js";
 import updateDocument from "./update-document.js";
+import upsertDatabaseItemByKey from "./upsert-database-item-by-key.js";
 import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
   const directMcpActions = {
+    "create-content-database": createContentDatabase,
+    "configure-document-property": configureDocumentProperty,
+    "update-content-database-view": updateContentDatabaseView,
+    "list-content-spaces": listContentSpaces,
+    "get-content-database-source": getContentDatabaseSource,
+    "delete-content-database": deleteContentDatabase,
+    "restore-content-database": restoreContentDatabase,
+    "list-trashed-content-databases": listTrashedContentDatabases,
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
     "create-document": createDocument,
     "edit-document": editDocument,
+    "list-comments": listComments,
+    "add-comment": addComment,
+    "update-comment": updateComment,
     "list-content-databases": listContentDatabases,
     "describe-content-database": describeContentDatabase,
+    "get-content-database": getContentDatabase,
+    "add-database-item": addDatabaseItem,
+    "update-database-item": updateDatabaseItem,
+    "update-database-items": updateDatabaseItems,
+    "upsert-database-item-by-key": upsertDatabaseItemByKey,
+    "migrate-content-database-rows": migrateContentDatabaseRows,
+  };
+
+  const deferredDatabaseActions = {
+    "add-content-database-source-field-property":
+      addContentDatabaseSourceFieldProperty,
+    "manage-content-database-migration": manageContentDatabaseMigration,
   };
 
   it("owns compact MCP membership beside each directly callable action", () => {
@@ -31,6 +73,186 @@ describe("Content action-owned agent catalogs", () => {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
     }
+  });
+
+  it("keeps Content's composed MCP input schemas complete while declaring object roots", () => {
+    const migrationParameters = migrateContentDatabaseRows.tool.parameters;
+    const batchParameters = updateDatabaseItems.tool.parameters;
+    const migrationInputSchema = mcpToolInputSchema(
+      "migrate-content-database-rows",
+      migrationParameters,
+    );
+    const batchInputSchema = mcpToolInputSchema(
+      "update-database-items",
+      batchParameters,
+    );
+
+    expect(migrationParameters?.anyOf).toBeDefined();
+    expect(migrationInputSchema).toEqual({
+      ...migrationParameters,
+      type: "object",
+    });
+    expect(migrationInputSchema.anyOf).toBe(migrationParameters?.anyOf);
+    expect(migrationInputSchema.anyOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            phase: expect.objectContaining({ const: "validate" }),
+            plan: expect.anything(),
+          }),
+          required: expect.arrayContaining(["phase", "plan"]),
+        }),
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            phase: expect.objectContaining({ const: "verify" }),
+            expectedPostDigest: expect.anything(),
+          }),
+          required: expect.arrayContaining([
+            "phase",
+            "databaseId",
+            "idempotencyKey",
+            "expectedPostDigest",
+          ]),
+        }),
+      ]),
+    );
+
+    expect(batchParameters?.allOf).toBeDefined();
+    expect(batchInputSchema).toEqual({
+      ...batchParameters,
+      type: "object",
+    });
+    expect(batchInputSchema.allOf).toBe(batchParameters?.allOf);
+    expect(batchInputSchema.allOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            propertyId: expect.anything(),
+            value: expect.anything(),
+          }),
+          required: expect.arrayContaining(["propertyId", "value"]),
+        }),
+      ]),
+    );
+  });
+
+  it("retains Content action validation for composed MCP input schemas", () => {
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({
+        phase: "verify",
+        databaseId: "database_1",
+        idempotencyKey: "migration_1",
+        expectedPostDigest: "digest_1",
+      }).success,
+    ).toBe(true);
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({
+        phase: "verify",
+        databaseId: "database_1",
+        idempotencyKey: "migration_1",
+      }).success,
+    ).toBe(false);
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({ phase: "unknown" }).success,
+    ).toBe(false);
+    expect(migrateContentDatabaseRows.schema.safeParse("verify").success).toBe(
+      false,
+    );
+
+    expect(
+      updateDatabaseItems.schema.safeParse({
+        databaseId: "database_1",
+        itemIds: ["item_1"],
+        propertyId: "property_1",
+        value: { nested: ["unchanged JSON"] },
+      }).success,
+    ).toBe(true);
+    expect(
+      updateDatabaseItems.schema.safeParse({
+        databaseId: "database_1",
+        propertyId: "property_1",
+        value: "missing selection",
+      }).success,
+    ).toBe(false);
+    expect(updateDatabaseItems.schema.safeParse([]).success).toBe(false);
+  });
+
+  it("keeps source composition and destructive migration actions out of compact MCP discovery", () => {
+    for (const action of Object.values(deferredDatabaseActions)) {
+      expect(action.mcpTool).not.toBe(true);
+    }
+  });
+
+  it("classifies direct comment reads and writes for MCP authorization", () => {
+    expect(listComments.readOnly).toBe(true);
+    expect(addComment.readOnly).not.toBe(true);
+    expect(updateComment.readOnly).not.toBe(true);
+  });
+
+  it("describes the identifiers required for safe comment-thread mutations", () => {
+    expect(addComment.tool.description).toContain("threadId");
+    expect(addComment.tool.description).toContain("both threadId and parentId");
+    expect(updateComment.tool.description).toContain("exact");
+    expect(updateComment.tool.description).toContain("mismatched pair");
+
+    const addProperties = addComment.tool.parameters?.properties;
+    const updateProperties = updateComment.tool.parameters?.properties;
+    expect(listComments.tool.parameters?.required).toContain("documentId");
+    expect(addComment.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["documentId", "content"]),
+    );
+    expect(addProperties?.documentId?.description).toBe("Document ID");
+    expect(addProperties?.authorName).toBeUndefined();
+    expect(addProperties?.threadId?.description).toContain("parentId");
+    expect(updateProperties?.id?.description).toBe("Comment ID");
+    expect(updateProperties?.documentId?.description).toBe("Document ID");
+    expect(updateComment.tool.description).toContain(
+      "calls without a mutation fail",
+    );
+  });
+
+  it("describes a fresh, identifier-safe database read-to-write handoff", () => {
+    expect(getContentDatabase.tool.description).toContain("mutation target");
+    expect(getContentDatabase.tool.description).toContain(
+      "membership id as itemId",
+    );
+    expect(getContentDatabase.tool.description).toContain(
+      "document.id as documentId",
+    );
+    expect(getContentDatabase.tool.description).toContain(
+      "rowRevision as expectedRowRevision",
+    );
+    expect(getContentDatabase.tool.parameters?.properties?.limit?.default).toBe(
+      100,
+    );
+    expect(
+      getContentDatabase.tool.parameters?.properties?.limit?.description,
+    ).toContain("Paginate");
+
+    const updateProperties = updateDatabaseItem.tool.parameters?.properties;
+    expect(updateProperties?.itemId?.description).toContain(
+      "never use the row page document ID",
+    );
+    expect(updateProperties?.documentId?.description).toContain(
+      "distinct from itemId",
+    );
+    expect(updateDatabaseItem.tool.description).toContain("fresh schema");
+    expect(updateDatabaseItem.tool.description).toContain(
+      "preserves omitted properties",
+    );
+    expect(addDatabaseItem.tool.description).toContain("fresh idempotency key");
+    expect(upsertDatabaseItemByKey.tool.description).toContain(
+      "expectedRowRevision null only to assert the key is absent",
+    );
+  });
+
+  it("bounds agent reads without truncating the unpaginated frontend", () => {
+    expect(resolveContentDatabaseReadLimit(undefined, "mcp")).toBe(100);
+    expect(resolveContentDatabaseReadLimit(undefined, "tool")).toBe(100);
+    expect(resolveContentDatabaseReadLimit(undefined, "frontend")).toBe(
+      undefined,
+    );
+    expect(resolveContentDatabaseReadLimit(25, "frontend")).toBe(25);
   });
 
   it("keeps the existing Content starter surface action-owned", () => {
@@ -59,12 +281,22 @@ describe("Content action-owned agent catalogs", () => {
     expect(createDocument.tool.description).toContain("edit-document");
     expect(editDocument.tool.description).toContain("Prefer this over");
     expect(editDocument.tool.description).toContain("match exactly");
+    expect(updateDocument.tool.description).toContain(
+      "Agents must use get-document followed by edit-document",
+    );
 
     const createProperties = createDocument.tool.parameters?.properties;
     const editProperties = editDocument.tool.parameters?.properties;
     expect(createProperties?.content?.description).toContain("Markdown");
     expect(createProperties?.parentId?.description).toContain("root page");
     expect(editProperties?.find?.description).toContain("Exact");
-    expect(editProperties?.edits?.description).toContain("ordered batch");
+    expect(editProperties?.edits?.description).toContain(
+      "snapshot-stable batch",
+    );
+    expect(editDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "baseRevision", "idempotencyKey"]),
+    );
+    expect(editProperties?.baseRevision?.description).toContain("get-document");
+    expect(editProperties?.idempotencyKey?.description).toContain("stable key");
   });
 });

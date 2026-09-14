@@ -56,11 +56,11 @@ Está criando formulários por script em vez de descrevê-los no chat? Veja a re
 
 Um formulário passa por três status:
 
-| Status      | Significado                              | Acesso público             |
-| ----------- | ----------------------------------------- | --------------------------- |
-| `draft`     | Em andamento, não disponível publicamente | Não                          |
-| `published` | Ativo e aceitando respostas                | Sim                          |
-| `closed`    | Não aceita mais respostas                  | Mostra uma mensagem de encerramento |
+| Status      | Significado                               | Acesso público                      |
+| ----------- | ----------------------------------------- | ----------------------------------- |
+| `draft`     | Em andamento, não disponível publicamente | Não                                 |
+| `published` | Ativo e aceitando respostas               | Sim                                 |
+| `closed`    | Não aceita mais respostas                 | Mostra uma mensagem de encerramento |
 
 Um formulário não pode ser publicado se não tiver campos, se algum campo estiver sem rótulo, ou se um campo `select`, `multiselect` ou `radio` não tiver opções. Se a publicação for rejeitada, você recebe um motivo específico.
 
@@ -133,12 +133,12 @@ Você também pode pedir ao agente por "um CSV deste formulário" ou "uma export
 
 Ative a entrega automática para que as novas respostas apareçam onde sua equipe já trabalha, em vez de alguém precisar checar a aba Respostas. Essa é uma configuração por formulário, feita na aba Integrações do construtor.
 
-| Destino          | O que é necessário                                                                            |
-| ----------------- | ----------------------------------------------------------------------------------------------- |
-| Slack             | Uma URL de Incoming Webhook para o canal desejado                                               |
-| Discord           | Uma URL de webhook para o canal desejado                                                        |
-| Planilhas Google  | Uma URL de Google Apps Script configurada para receber envios. Um link simples de planilha não vai funcionar. |
-| Webhook           | Qualquer endereço web que possa receber o envio como dados                                       |
+| Destino          | O que é necessário                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| Slack            | Uma URL de Incoming Webhook para o canal desejado                                                             |
+| Discord          | Uma URL de webhook para o canal desejado                                                                      |
+| Planilhas Google | Uma URL de Google Apps Script configurada para receber envios. Um link simples de planilha não vai funcionar. |
+| Webhook          | Qualquer endereço web que possa receber o envio como dados                                                    |
 
 Isso é diferente de conectar o Slack para que o agente poste lá diretamente, o que é coberto em [Messaging](/docs/messaging). Conecte isso primeiro se você quiser que o próprio agente poste atualizações no Slack. Todo endereço de destino é verificado para garantir que não aponta para uma rede privada ou um endereço interno, tanto quando você o salva quanto toda vez que uma resposta chega, para que um formulário não possa ser transformado em uma forma de sondar sua própria rede.
 

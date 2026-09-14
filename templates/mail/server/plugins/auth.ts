@@ -14,6 +14,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 export default createAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
+  workspaceAppPublicPaths: ["/"],
   googleScopes: [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
@@ -27,6 +28,10 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Mail",
+    screenshotPath: "/auth-marketing/mail.webp",
+    screenshotWidth: 927,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",

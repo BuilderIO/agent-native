@@ -78,6 +78,7 @@ export type VisualStyleProperty =
   | "display"
   | "color"
   | "background"
+  | "background-clip"
   | "background-color"
   | "background-image"
   | "background-size"
@@ -115,8 +116,11 @@ export type VisualStyleProperty =
   | "stroke-width"
   | "stroke-opacity"
   | "stroke-dasharray"
+  | "stroke-dashoffset"
   | "stroke-linecap"
   | "stroke-linejoin"
+  | "stroke-miterlimit"
+  | "--an-vector-stroke-position"
   | "outline"
   | "outline-width"
   | "outline-style"
@@ -130,6 +134,7 @@ export type VisualStyleProperty =
   | "backdrop-filter"
   | "transform"
   | "transform-origin"
+  | "transform-box"
   | "rotate"
   | "scale"
   | "translate"
@@ -280,7 +285,7 @@ export type EditCapability =
     }
   | {
       kind: "structure";
-      operations: Array<"moveNode">;
+      operations: Array<"moveNode" | "deleteNode">;
       confidence: number;
       reason?: string;
     }
@@ -305,6 +310,10 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
+  /** Text this element holds directly, not text a child holds. */
+  paintsOwnText: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
   parentId?: string;
@@ -359,6 +368,8 @@ export interface CodeLayerTreeNode {
   id: string;
   name: string;
   type: CodeLayerTreeNodeType;
+  /** Identity, not shape: a button is a frame that is *also* a component. */
+  isComponent?: boolean;
   tag: string;
   selector: string;
   detail: string;
@@ -415,6 +426,18 @@ export interface StyleEditIntent {
   target: EditIntentTarget;
   property: VisualStyleProperty | (string & {});
   value: string;
+  opacity?: string;
+  stroke?: string;
+  strokeWidth?: string;
+  strokeOpacity?: string;
+  strokeDasharray?: string;
+  strokeDashoffset?: string;
+  strokeLinecap?: string;
+  strokeLinejoin?: string;
+  strokeMiterlimit?: string;
+  transform?: string;
+  transformOrigin?: string;
+  transformBox?: string;
 }
 
 export interface ClassEditIntent {
@@ -452,6 +475,11 @@ export interface AttributeEditIntent {
   value: string;
 }
 
+export interface DeleteNodeEditIntent {
+  kind: "deleteNode";
+  target: EditIntentTarget;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -463,7 +491,8 @@ export interface MoveNodeEditIntent {
  * GROUP: wrap sibling nodes sharing a parent inside a new <div> wrapper.
  * The wrapper is inserted at the position of the first target; targets are
  * reparented into it in source order. The new wrapper gets a fresh
- * data-agent-native-node-id and data-agent-native-layer-name="Group".
+ * data-agent-native-node-id, data-agent-native-layer-name="Group", and
+ * data-agent-native-group-wrapper="true" marker.
  *
  * When autoLayout is true the wrapper also receives
  * `display:flex; flex-direction:column; gap:8px` and
@@ -475,6 +504,16 @@ export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
   autoLayout?: boolean;
+  /** Defaults to a Group; auto-layout always creates a Frame. */
+  wrapperKind?: "group" | "frame";
+  /**
+   * Live-rendered width/height per target node id, used only as a fallback
+   * when a target's inline style has position/left/top but no explicit
+   * width/height (see computeAbsoluteUnionBounds). Optional: callers with no
+   * live DOM to measure (server-side edits, tests) simply omit it and get
+   * the previous behavior.
+   */
+  sizeHints?: Record<string, { width: number; height: number }>;
 }
 
 /**
@@ -602,6 +641,7 @@ export type EditIntent =
   | ClassEditIntent
   | TextEditIntent
   | AttributeEditIntent
+  | DeleteNodeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
@@ -635,6 +675,10 @@ export interface PatchNodeSummary {
   classes: string[];
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
+  /** Text this element holds directly, not text a child holds. */
+  paintsOwnText: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
 }
 
 export interface PatchResult {
@@ -708,6 +752,7 @@ const STYLE_PROPERTIES = [
   "display",
   "color",
   "background",
+  "background-clip",
   "background-color",
   "background-image",
   "background-size",
@@ -745,8 +790,11 @@ const STYLE_PROPERTIES = [
   "stroke-width",
   "stroke-opacity",
   "stroke-dasharray",
+  "stroke-dashoffset",
   "stroke-linecap",
   "stroke-linejoin",
+  "stroke-miterlimit",
+  "--an-vector-stroke-position",
   "outline",
   "outline-width",
   "outline-style",
@@ -760,6 +808,7 @@ const STYLE_PROPERTIES = [
   "backdrop-filter",
   "transform",
   "transform-origin",
+  "transform-box",
   "rotate",
   "scale",
   "translate",
@@ -841,16 +890,25 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
+// Interiors that are not markup at all, plus boxless void metadata both
+// bridges already strip from the runtime snapshot. Descendants are never
+// parsed, so nothing here can ever be addressed.
 const NON_VISUAL_TAGS = new Set([
   "head",
   "script",
   "style",
   "meta",
   "link",
+  "source",
+  "track",
   "title",
-  "template",
   "noscript",
 ]);
+
+// Parsed and descended into, but not a layer of its own: a `<template>`
+// measures 0x0 and both bridges refuse to select it, so a row for one is a
+// layer the canvas can never show. Its children re-parent to its own parent.
+const TRANSPARENT_TAGS = new Set(["template"]);
 
 const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
@@ -934,6 +992,388 @@ const SHAPE_LAYER_TAGS = new Set([
 ]);
 const COMPONENT_LAYER_TAGS = new Set(["button", "input", "select", "textarea"]);
 
+/**
+ * Tags that format text *inside* a text layer instead of becoming their own
+ * layer. A heading with one coloured `<span>` is a single Text layer with
+ * runs; splitting it into three is what makes an imported page unreadable.
+ */
+const INLINE_TEXT_TAGS = new Set([
+  "a",
+  "abbr",
+  "b",
+  "bdi",
+  "bdo",
+  "br",
+  "cite",
+  "code",
+  "data",
+  "dfn",
+  "em",
+  "i",
+  "kbd",
+  "mark",
+  "q",
+  "s",
+  "samp",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "time",
+  "u",
+  "var",
+  "wbr",
+]);
+
+/**
+ * First segments of Tailwind utilities. Tailwind's stem vocabulary is closed,
+ * so this is a table; the deny-list it replaces was a guess and lost — it let
+ * `flex-col`, `opacity-90`, and `top-0` become layer names.
+ */
+const UTILITY_CLASS_STEMS = new Set([
+  "absolute",
+  "accent",
+  "align",
+  "animate",
+  "antialiased",
+  "appearance",
+  "aspect",
+  "auto",
+  "backdrop",
+  "backface",
+  "basis",
+  "before",
+  "after",
+  "bg",
+  "blend",
+  "block",
+  "blur",
+  "border",
+  "bottom",
+  "box",
+  "break",
+  "brightness",
+  "capitalize",
+  "caption",
+  "caret",
+  "clear",
+  "col",
+  "collapse",
+  "columns",
+  "contain",
+  "container",
+  "content",
+  "contents",
+  "contrast",
+  "cursor",
+  "dark",
+  "data",
+  "decoration",
+  "delay",
+  "diagonal",
+  "divide",
+  "drop",
+  "duration",
+  "ease",
+  "empty",
+  "end",
+  "even",
+  "fill",
+  "filter",
+  "first",
+  "fixed",
+  "flex",
+  "float",
+  "flow",
+  "font",
+  "forced",
+  "from",
+  "gap",
+  "gradient",
+  "grayscale",
+  "grid",
+  "group",
+  "grow",
+  "h",
+  "hidden",
+  "hue",
+  "hyphens",
+  "indent",
+  "inline",
+  "inset",
+  "invert",
+  "invisible",
+  "isolate",
+  "isolation",
+  "italic",
+  "items",
+  "justify",
+  "last",
+  "leading",
+  "left",
+  "light",
+  "line",
+  "lining",
+  "list",
+  "lowercase",
+  "ltr",
+  "m",
+  "marker",
+  "max",
+  "mb",
+  "me",
+  "min",
+  "mix",
+  "ml",
+  "motion",
+  "mr",
+  "ms",
+  "mt",
+  "mx",
+  "my",
+  "no",
+  "normal",
+  "not",
+  "object",
+  "odd",
+  "oldstyle",
+  "only",
+  "opacity",
+  "open",
+  "order",
+  "ordinal",
+  "origin",
+  "outline",
+  "overflow",
+  "overline",
+  "overscroll",
+  "p",
+  "pb",
+  "pe",
+  "peer",
+  "perspective",
+  "pl",
+  "place",
+  "placeholder",
+  "pointer",
+  "pr",
+  "print",
+  "proportional",
+  "ps",
+  "pt",
+  "px",
+  "py",
+  "relative",
+  "resize",
+  "right",
+  "ring",
+  "rotate",
+  "rounded",
+  "row",
+  "rtl",
+  "s",
+  "saturate",
+  "scale",
+  "scroll",
+  "select",
+  "selection",
+  "self",
+  "sepia",
+  "shadow",
+  "shrink",
+  "size",
+  "skew",
+  "slashed",
+  "snap",
+  "space",
+  "sr",
+  "stacked",
+  "start",
+  "static",
+  "sticky",
+  "stroke",
+  "subpixel",
+  "table",
+  "tabular",
+  "text",
+  "to",
+  "top",
+  "touch",
+  "tracking",
+  "transform",
+  "transition",
+  "translate",
+  "truncate",
+  "underline",
+  "uppercase",
+  "via",
+  "visible",
+  "visited",
+  "w",
+  "whitespace",
+  "will",
+  "z",
+]);
+
+function bareClassToken(token: string): string {
+  return token.slice(token.lastIndexOf(":") + 1).replace(/^-/, "");
+}
+
+function looksLikeUtilityClass(token: string): boolean {
+  const bare = bareClassToken(token);
+  if (!bare) return true;
+  if (bare.includes("[") || bare.includes("/")) return true;
+  return UTILITY_CLASS_STEMS.has(bare.split("-")[0] ?? "");
+}
+
+/**
+ * The four facts that decide a design node's type. Read from the class list
+ * and inline style because a source projection has no layout engine — a live
+ * screen can upgrade these through the bridge's computed style.
+ */
+interface NodeVisualFacts {
+  painted: boolean;
+  padded: boolean;
+  sized: boolean;
+  circular: boolean;
+}
+
+function classDimension(
+  classes: readonly string[],
+  axis: "w" | "h",
+): string | null {
+  for (const token of classes) {
+    const bare = bareClassToken(token);
+    if (bare.startsWith(`${axis}-`)) return bare.slice(axis.length + 1);
+  }
+  return null;
+}
+
+/**
+ * `rounded-full` alone does not mean a circle — on a wide box it is a pill,
+ * which is a rounded rectangle. Equal extents are what separate the two.
+ */
+function isSquare(
+  classes: readonly string[],
+  style: Record<string, string | undefined>,
+): boolean {
+  if (
+    classes.some((token) => {
+      const bare = bareClassToken(token);
+      return bare.startsWith("size-") || bare === "aspect-square";
+    })
+  ) {
+    return true;
+  }
+  const width = classDimension(classes, "w") ?? style["width"]?.trim();
+  const height = classDimension(classes, "h") ?? style["height"]?.trim();
+  return Boolean(width && height && width === height);
+}
+
+function classPaints(token: string): boolean {
+  const bare = bareClassToken(token);
+  if (/^bg-/.test(bare)) {
+    return !/^bg-(transparent|none|inherit|current|clip-|origin-|fixed|local|scroll|bottom|center|left|right|top|repeat|no-repeat|auto|cover|contain|blend-)/.test(
+      bare,
+    );
+  }
+  if (/^border(-[xytrbles])?(-\d+)?$/.test(bare)) return !/-0$/.test(bare);
+  if (/^ring(-\d+)?$/.test(bare)) return bare !== "ring-0";
+  if (/^outline(-\d+)?$/.test(bare)) return bare !== "outline-0";
+  if (/^shadow(-(sm|md|lg|xl|2xl|inner))?$/.test(bare)) return true;
+  return false;
+}
+
+function classPads(token: string): boolean {
+  const match = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(
+    bareClassToken(token),
+  );
+  return Boolean(match) && match![2] !== "0";
+}
+
+function classSizes(token: string): boolean {
+  const bare = bareClassToken(token);
+  // `inset-0` on an absolute overlay is a size even though it names no axis.
+  if (/^inset(-[xy])?-/.test(bare)) return !bare.endsWith("-auto");
+  const match = /^(w|h|size|min-w|min-h)-(.+)$/.exec(bare);
+  if (!match) return false;
+  return !["auto", "fit", "min", "max"].includes(match[2]!);
+}
+
+function styleValueIsPresent(
+  value: string | undefined,
+  empties: RegExp,
+): boolean {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !empties.test(trimmed);
+}
+
+function visualFactsFor(node: CodeLayerNode): NodeVisualFacts {
+  return visualFactsOf(node.classes, node.style);
+}
+
+function visualFactsOfElement(element: ParsedElement): NodeVisualFacts {
+  return visualFactsOf(
+    classList(element),
+    parseStyle(attributeValue(element, "style")),
+  );
+}
+
+function visualFactsOf(
+  classes: readonly string[],
+  rawStyle: Record<string, string | undefined> | object,
+): NodeVisualFacts {
+  const style = rawStyle as Record<string, string | undefined>;
+  const emptyPaint = /^(none|transparent|initial|inherit|unset|0|0px)$/i;
+  const emptyLength = /^(0|0px|0rem|auto|initial|inherit|unset)$/i;
+
+  const painted =
+    classes.some(classPaints) ||
+    styleValueIsPresent(style["background"], emptyPaint) ||
+    styleValueIsPresent(style["background-color"], emptyPaint) ||
+    styleValueIsPresent(style["background-image"], emptyPaint) ||
+    styleValueIsPresent(style["border"], emptyPaint) ||
+    styleValueIsPresent(style["border-width"], emptyPaint) ||
+    styleValueIsPresent(style["box-shadow"], emptyPaint) ||
+    styleValueIsPresent(style["outline"], emptyPaint);
+
+  const padded =
+    classes.some(classPads) ||
+    styleValueIsPresent(style["padding"], emptyLength) ||
+    styleValueIsPresent(style["padding-top"], emptyLength) ||
+    styleValueIsPresent(style["padding-right"], emptyLength) ||
+    styleValueIsPresent(style["padding-bottom"], emptyLength) ||
+    styleValueIsPresent(style["padding-left"], emptyLength);
+
+  const sized =
+    classes.some(classSizes) ||
+    styleValueIsPresent(style["width"], emptyLength) ||
+    styleValueIsPresent(style["height"], emptyLength);
+
+  const roundedFull =
+    classes.some((token) => bareClassToken(token) === "rounded-full") ||
+    /^(50%|9999px|9999rem)$/.test((style["border-radius"] ?? "").trim());
+
+  return {
+    painted,
+    padded,
+    sized,
+    circular: roundedFull && isSquare(classes, style),
+  };
+}
+
+/**
+ * Identity, orthogonal to shape: a form control is a Frame that is also a
+ * component. Class and layer-name guessing is deliberately NOT here — it
+ * painted `product-card-wrapper` violet, and the canvas copy carried no
+ * utility-class guard, so one element got two colours in two panels.
+ */
+function treeNodeIsComponent(node: CodeLayerNode): boolean {
+  return Boolean(node.componentInstance) || COMPONENT_LAYER_TAGS.has(node.tag);
+}
+
 function hashStable(value: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < value.length; i += 1) {
@@ -984,6 +1424,18 @@ function escapeHtmlText(value: string): string {
 
 function decodeBasicHtmlEntities(value: string): string {
   return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
+    .replace(/&#([0-9]+);?/g, (_, decimal: string) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -1008,8 +1460,23 @@ function prettifyIdentifier(value: string): string {
   );
 }
 
+// A `>` inside a quoted attribute (`filter(a => b)`, `x-show="n > 0"`) is not
+// the end of the tag. Ending there spills the attribute into visible text,
+// which then becomes a layer name.
 function stripTags(value: string): string {
-  return value.replace(/<[^>]*>/g, " ");
+  let out = "";
+  let index = 0;
+  while (index < value.length) {
+    const open = value.indexOf("<", index);
+    if (open === -1) {
+      out += value.slice(index);
+      break;
+    }
+    out += value.slice(index, open);
+    out += " ";
+    index = findHtmlTagEnd(value, open);
+  }
+  return out;
 }
 
 function getAttribute(
@@ -1062,6 +1529,14 @@ function semanticLayerNameFor(element: ParsedElement): {
     }
   }
 
+  return null;
+}
+
+function identifierLayerNameFor(element: ParsedElement): {
+  name: string;
+  source: CodeLayerNode["layerNameSource"];
+  attribute?: string;
+} | null {
   const id = attributeValue(element, "id");
   if (id) {
     return {
@@ -1072,14 +1547,7 @@ function semanticLayerNameFor(element: ParsedElement): {
   }
 
   const meaningfulClass = classList(element).find(
-    (token) =>
-      !/^(flex|grid|block|inline|hidden|relative|absolute|fixed|sticky)$/.test(
-        token,
-      ) &&
-      !/^(sm|md|lg|xl|2xl):/.test(token) &&
-      !/^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|w|h|min|max|text|bg|border|rounded|shadow|gap)-/.test(
-        token,
-      ),
+    (token) => !looksLikeUtilityClass(token),
   );
   if (meaningfulClass) {
     return { name: prettifyIdentifier(meaningfulClass), source: "selector" };
@@ -1106,11 +1574,21 @@ function fallbackTagLayerName(tag: string): string {
       return "Form";
     case "header":
       return "Header";
+    case "a":
+      return "Link";
     case "img":
     case "picture":
       return "Image";
+    case "input":
+      return "Input";
+    case "label":
+      return "Label";
     case "main":
       return "Main";
+    case "select":
+      return "Select";
+    case "textarea":
+      return "Text area";
     case "nav":
       return "Navigation";
     case "section":
@@ -1244,6 +1722,9 @@ function isSafeStyleValue(
 ): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
+  if (property === "--an-vector-stroke-position") {
+    return ["inside", "center", "outside"].includes(trimmed);
+  }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
   if (/url\s*\(/i.test(trimmed)) {
@@ -1418,7 +1899,9 @@ export function findEnclosingTemplateClose(
     if (openEnd > offset) break;
     const close = findClosingTag(html, "template", openEnd);
     const contentEnd = close ? close.closeStart : html.length;
-    if (offset > openEnd && offset <= contentEnd) {
+    // `openEnd` IS the first content position, so a strict `>` missed the
+    // most likely insertion point of all: before the template's first child.
+    if (offset >= openEnd && offset <= contentEnd) {
       return { closeEnd: close ? close.closeEnd : html.length };
     }
     templateOpenRe.lastIndex = close ? close.closeEnd : html.length;
@@ -1894,9 +2377,51 @@ function textSnippetFor(html: string, element: ParsedElement): string | null {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
+/**
+ * Text this element paints itself, ignoring anything a child holds. A row of
+ * dot + label + checkbox paints nothing, so it is a container even though its
+ * tag is one that usually carries text.
+ */
+function paintsOwnTextFor(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  if (element.selfClosing) return false;
+  let at = element.contentStart;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (!child) continue;
+    if (html.slice(at, child.start).trim()) return true;
+    at = Math.max(at, child.end);
+  }
+  return Boolean(html.slice(at, element.contentEnd).trim());
+}
+
+/** The `x-for` of the nearest enclosing template, for a node inside a repeat. */
+function repeatXForFor(
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): string | null {
+  let at = element.parentIndex;
+  while (at !== undefined) {
+    const ancestor = elements[at];
+    if (!ancestor) return null;
+    if (ancestor.tag === "template") {
+      const xFor = ancestor.attributes.find(
+        (attribute) => attribute.name === "x-for",
+      );
+      if (xFor && typeof xFor.value === "string") return xFor.value;
+    }
+    at = ancestor.parentIndex;
+  }
+  return null;
+}
+
 function layerNameFor(
   html: string,
   element: ParsedElement,
+  elements: readonly ParsedElement[],
 ): {
   name: string;
   source: CodeLayerNode["layerNameSource"];
@@ -1908,15 +2433,52 @@ function layerNameFor(
   const semantic = semanticLayerNameFor(element);
   if (semantic) return semantic;
 
-  if (TEXT_LAYER_TAGS.has(element.tag)) {
+  const textName = () => {
     const text = textSnippetFor(html, element);
-    if (text) return { name: truncateLayerName(text), source: "text" };
+    return text
+      ? { name: truncateLayerName(text), source: "text" as const }
+      : null;
+  };
+
+  // A leaf is named by what it says; a container by what it is. Reversing this
+  // is how a wrapper ends up named after its entire subtree's text.
+  if (element.childIndexes.length === 0) {
+    const leafName = textName();
+    if (leafName) return leafName;
+  }
+
+  const identifier = identifierLayerNameFor(element);
+  if (identifier) return identifier;
+
+  const inlineOnly = element.childIndexes.every((index) => {
+    const child = elements[index];
+    return Boolean(
+      child &&
+      INLINE_TEXT_TAGS.has(child.tag) &&
+      child.childIndexes.length === 0,
+    );
+  });
+  const facts = visualFactsOfElement(element);
+  if (
+    TEXT_LAYER_TAGS.has(element.tag) &&
+    inlineOnly &&
+    !facts.painted &&
+    !facts.padded
+  ) {
+    const richTextName = textName();
+    if (richTextName) return richTextName;
   }
 
   return { name: fallbackTagLayerName(element.tag), source: "tag" };
 }
 
-function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
+function treeTypeForNode(
+  node: CodeLayerNode,
+  nodesById: ReadonlyMap<string, CodeLayerNode>,
+): CodeLayerTreeNodeType {
+  if (node.dataAttributes["data-agent-native-group"] === "true") {
+    return "group";
+  }
   // Canvas primitives (drawn shapes / board objects) carry their kind via
   // data-an-primitive so the layers panel shows a true shape/text/frame icon
   // instead of the generic code glyph. The marker wins over tag heuristics:
@@ -1944,31 +2506,80 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
     // rectangle/rect and anything else still classify as a generic shape.
     return "shape";
   }
-  if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
   // A node annotated as a component instance is always classified as "component"
   // regardless of its tag — this is the canonical detection path.
   if (node.componentInstance) return "component";
-  if (
-    COMPONENT_LAYER_TAGS.has(node.tag) ||
-    node.classes.some((item) => /component|card|button|control/.test(item))
-  ) {
+  // Form controls are leaf widgets with no design primitive to decompose into.
+  if (COMPONENT_LAYER_TAGS.has(node.tag) && node.tag !== "button") {
     return "component";
   }
+
+  const facts = visualFactsFor(node);
+  const childNodes = node.children
+    .map((id) => nodesById.get(id))
+    .filter((child): child is CodeLayerNode => Boolean(child));
+
+  if (childNodes.length === 0) {
+    // A Text node's fill colours glyphs, not a background, so a painted or
+    // padded text leaf must be a frame or it loses its box (see buildSpec).
+    if (node.textSnippet) {
+      return facts.painted || facts.padded ? "frame" : "text";
+    }
+    if (facts.painted && facts.sized)
+      return facts.circular ? "ellipse" : "shape";
+    return "element";
+  }
+
+  if (
+    TEXT_LAYER_TAGS.has(node.tag) &&
+    !facts.painted &&
+    !facts.padded &&
+    childNodes.every(
+      (child) => INLINE_TEXT_TAGS.has(child.tag) && child.children.length === 0,
+    )
+  ) {
+    return "text";
+  }
+
   if (node.layout.isFlexContainer || node.layout.isGridContainer) {
     return "frame";
   }
-  if (node.children.length > 0) return "group";
-  return "element";
+  if (facts.painted || facts.padded) return "frame";
+  return "group";
 }
 
-function isCollapsibleDocumentShellNode(
-  node: CodeLayerTreeNode,
-  nodesById: Map<string, CodeLayerNode>,
-): boolean {
-  if (node.tag !== "html" && node.tag !== "body") return false;
-  return nodesById.get(node.id)?.layerNameSource === "tag";
+const GENERIC_TAG_LAYER_NAMES = new Set(["Frame", "Text"]);
+
+const TYPE_DISPLAY_NAMES: Partial<Record<CodeLayerTreeNodeType, string>> = {
+  ellipse: "Ellipse",
+  frame: "Frame",
+  group: "Group",
+  shape: "Rectangle",
+  text: "Text",
+};
+
+/**
+ * An element carrying only utility classes has no name of its own, and the tag
+ * fallback describes the tag rather than what the element resolved to — every
+ * bare `<div>` reads "Frame" whether it became a frame, a dot, or a divider.
+ */
+function unnamedLayerName(
+  node: CodeLayerNode,
+  type: CodeLayerTreeNodeType,
+): string | null {
+  if (node.layerNameSource !== "tag") return null;
+  if (!GENERIC_TAG_LAYER_NAMES.has(node.layerName)) return null;
+  return TYPE_DISPLAY_NAMES[type] ?? null;
+}
+
+function isCollapsibleDocumentShellNode(node: CodeLayerTreeNode): boolean {
+  // A screen IS its document: the frame's box comes from the board and its
+  // paint from this <body>, and the inspector now shows both on the screen's
+  // own selection. Older screens stamped the screen title onto <body>, which
+  // exempted them here and listed the same object twice under one name.
+  return node.tag === "html" || node.tag === "body";
 }
 
 function compactCodeLayerTreeNodes(
@@ -1990,10 +2601,7 @@ function compactCodeLayerTreeNodes(
       nextAncestors,
     );
     const compactedNode: CodeLayerTreeNode = { ...node, children };
-    const promotedNodes = isCollapsibleDocumentShellNode(
-      compactedNode,
-      nodesById,
-    )
+    const promotedNodes = isCollapsibleDocumentShellNode(compactedNode)
       ? children
       : [compactedNode];
 
@@ -2102,10 +2710,21 @@ function buildProjection(
 
   for (const element of elements) {
     if (NON_VISUAL_TAGS.has(element.tag)) continue;
+    if (TRANSPARENT_TAGS.has(element.tag)) continue;
     if (hasSvgAncestor(element, elements)) continue;
     const nodeId = nodeIdFor(element, elements, source);
     nodeIdByElementIndex.set(element.index, nodeId);
   }
+
+  // A transparent ancestor has no id, so its children would come back as
+  // roots. Re-parent them to the nearest ancestor that IS projected.
+  const projectedParentIndex = (element: ParsedElement): number | undefined => {
+    let at = element.parentIndex;
+    while (at !== undefined && !nodeIdByElementIndex.has(at)) {
+      at = elements[at]?.parentIndex;
+    }
+    return at;
+  };
 
   const elementByNodeId = new Map<string, ParsedElement>();
 
@@ -2113,20 +2732,23 @@ function buildProjection(
     const nodeId = nodeIdByElementIndex.get(element.index);
     if (!nodeId) continue;
 
+    const parentIndex = projectedParentIndex(element);
     const parent =
-      element.parentIndex === undefined
-        ? undefined
-        : elements[element.parentIndex];
+      parentIndex === undefined ? undefined : elements[parentIndex];
     const parentId =
-      element.parentIndex === undefined
+      parentIndex === undefined
         ? undefined
-        : nodeIdByElementIndex.get(element.parentIndex);
+        : nodeIdByElementIndex.get(parentIndex);
     const selector = primarySelector(element, elements);
     const path = pathSelector(element, elements);
     const classes = classList(element);
-    const style = parseStyle(attributeValue(element, "style"));
+    const style = withVectorPaintStyle(
+      element,
+      elements,
+      parseStyle(attributeValue(element, "style")),
+    );
     const dataAttributes = dataAttributeRecord(element);
-    const layerName = layerNameFor(html, element);
+    const layerName = layerNameFor(html, element, elements);
     // Only alias attribute selectors that are actually STABLE, UNIQUE node
     // identifiers (data-agent-native-node-id, data-code-layer-id, etc). Every
     // other data-* attribute (e.g. data-an-primitive="frame", or the boolean
@@ -2162,6 +2784,8 @@ function buildProjection(
       dataAttributes,
       classes,
       textSnippet: textSnippetFor(html, element),
+      paintsOwnText: paintsOwnTextFor(html, element, elements),
+      repeatXFor: repeatXForFor(element, elements),
       style,
       styleTokens: styleTokensFor(element),
       parentId,
@@ -2293,6 +2917,58 @@ export function clearCodeLayerProjectionCache(): void {
   projectionCache.clear();
 }
 
+const TEXT_WRAP_SKIP_TAGS = new Set([
+  "option",
+  "optgroup",
+  "pre",
+  "textarea",
+  "title",
+]);
+
+/**
+ * Give every painted or padded text leaf a real `<span>` child so a button
+ * projects as a frame wrapping Text. Idempotent: a wrapped element is no
+ * longer a leaf. Mixed content is skipped — wrapping the loose runs of
+ * `<p>Hi <b>there</b></p>` would turn one sentence into three layers.
+ */
+export function wrapBareTextLeavesInHtml(
+  html: string,
+  options: { source?: CodeLayerSource } = {},
+): { content: string; changed: boolean; wrapped: number } {
+  const projection = buildCodeLayerProjection(html, options);
+  const edits: Array<{ start: number; end: number }> = [];
+
+  for (const node of projection.nodes) {
+    if (node.children.length > 0) continue;
+    if (!node.textSnippet) continue;
+    if (TEXT_WRAP_SKIP_TAGS.has(node.tag)) continue;
+    const span = node.source;
+    if (
+      !span ||
+      span.contentStart === undefined ||
+      span.contentEnd === undefined ||
+      span.contentEnd <= span.contentStart
+    ) {
+      continue;
+    }
+    const facts = visualFactsFor(node);
+    if (!facts.painted && !facts.padded) continue;
+    if (/[<>]/.test(html.slice(span.contentStart, span.contentEnd))) continue;
+    edits.push({ start: span.contentStart, end: span.contentEnd });
+  }
+
+  if (edits.length === 0) return { content: html, changed: false, wrapped: 0 };
+
+  let content = html;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    content = `${content.slice(0, edit.start)}<span data-an-text>${content.slice(
+      edit.start,
+      edit.end,
+    )}</span>${content.slice(edit.end)}`;
+  }
+  return { content, changed: true, wrapped: edits.length };
+}
+
 export function ensureCodeLayerNodeIdsInHtml(
   html: string,
   options: { source?: CodeLayerSource } = {},
@@ -2403,10 +3079,12 @@ export function buildCodeLayerTree(
 
   for (const node of projection.nodes) {
     const componentName = node.componentInstance?.name;
+    const type = treeTypeForNode(node, nodesById);
     treeById.set(node.id, {
       id: node.id,
-      name: componentName ?? node.layerName,
-      type: treeTypeForNode(node),
+      name: componentName ?? unnamedLayerName(node, type) ?? node.layerName,
+      type,
+      isComponent: treeNodeIsComponent(node),
       tag: node.tag,
       selector: node.selector,
       detail: `<${node.tag}>`,
@@ -2438,6 +3116,8 @@ export function buildCodeLayerTree(
         : undefined;
     const treeNode = treeById.get(node.id);
     if (!parent || !treeNode || parent.id === treeNode.id) continue;
+    // Inline runs inside a Text layer are formatting, not layers of their own.
+    if (parent.type === "text" && INLINE_TEXT_TAGS.has(node.tag)) continue;
     const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
     if (childIds.has(treeNode.id)) continue;
     childIds.add(treeNode.id);
@@ -2485,6 +3165,18 @@ function isDocumentRootSelectorPart(selectorPart: string): boolean {
 // DOM. When the stored source order differs, the positional index no longer
 // lines up. Dropping the suffix lets resolution fall back to the element's
 // stable signal (tag, classes, attributes, ancestor path).
+/**
+ * True when every selector part that loses a `:nth-of-type` still carries a
+ * class, id, or attribute qualifier of its own.
+ */
+function positionStripKeepsEvidence(selector: string): boolean {
+  return selector
+    .split(">")
+    .map((part) => part.trim())
+    .filter((part) => /:nth-of-type\(\d+\)/.test(part))
+    .every((part) => /[.#[]/.test(part.replace(/:nth-of-type\(\d+\)/g, "")));
+}
+
 function stripPositionalNthOfType(selector: string): string {
   return selector.replace(/:nth-of-type\(\d+\)/g, "");
 }
@@ -2753,6 +3445,17 @@ function resolveTarget(
   if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
     const tolerantMatches = matchesForSelector(positionTolerantSelector);
     if (tolerantMatches.length === 1 && tolerantMatches[0]) {
+      // One match is not proof it is the right element. Dropping a position
+      // is only safe while the part keeps evidence of its own; a part that
+      // degrades to a bare tag was identified by position alone, so its
+      // "unique" match is a different sibling — a runtime clone resolving
+      // onto the one static row is the reachable case.
+      if (!positionStripKeepsEvidence(selectorValue)) {
+        return {
+          status: "conflict",
+          message: `Selector "${selectorValue}" identifies its target only by position, and this source has no such position. Re-select the element to refresh its id.`,
+        };
+      }
       return { status: "resolved", node: tolerantMatches[0] };
     }
     if (tolerantMatches.length > 1) {
@@ -2792,6 +3495,8 @@ function summarizeNode(node: CodeLayerNode): PatchNodeSummary {
     classes: [...node.classes],
     style: { ...node.style },
     textSnippet: node.textSnippet,
+    paintsOwnText: node.paintsOwnText,
+    repeatXFor: node.repeatXFor,
   };
 }
 
@@ -2842,6 +3547,17 @@ function replaceOrInsertAttribute(
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
 }
 
+function removeAttributeFromHtml(
+  html: string,
+  element: ParsedElement,
+  name: string,
+): string {
+  const attribute = getAttribute(element, name);
+  return attribute
+    ? `${html.slice(0, attribute.start)}${html.slice(attribute.end)}`
+    : html;
+}
+
 function setStyleValue(
   currentStyle: string | null,
   property: VisualStyleProperty,
@@ -2857,6 +3573,594 @@ function setStyleValue(
   return serializeStyleDeclarations(declarations);
 }
 
+const VECTOR_PAINT_PRIMITIVES = new Set([
+  "path",
+  "line",
+  "arrow",
+  "polygon",
+  "star",
+  "rect",
+  "rectangle",
+  "ellipse",
+  "circle",
+]);
+
+const VECTOR_SHAPE_TAGS = new Set([
+  "path",
+  "polygon",
+  "ellipse",
+  "circle",
+  "rect",
+  "line",
+  "polyline",
+]);
+
+const VECTOR_PAINT_PROPERTIES = [
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+] as const;
+
+const VECTOR_STROKE_POSITION = "data-an-vector-stroke-position";
+const VECTOR_STROKE_OVERLAY = "data-an-vector-stroke-overlay";
+const VECTOR_STROKE_LOGICAL_WIDTH = "data-an-vector-logical-width";
+const VECTOR_STROKE_GENERATED_DEFS = "data-an-vector-stroke-defs";
+const VECTOR_STROKE_GEOMETRY = "data-an-vector-stroke-geometry";
+const VECTOR_STROKE_ORIGINAL_OVERFLOW =
+  "data-an-vector-stroke-original-overflow";
+const VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY =
+  "data-an-vector-stroke-original-overflow-priority";
+
+function vectorStrokeOverlay(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  if (element.tag !== "svg") return null;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (child?.tag === "use" && getAttribute(child, VECTOR_STROKE_OVERLAY)) {
+      return child;
+    }
+  }
+  return null;
+}
+
+function vectorStyleValue(
+  element: ParsedElement,
+  property: string,
+): string | null {
+  return (
+    parseStyle(attributeValue(element, "style"))[property] ??
+    attributeValue(element, property)
+  );
+}
+
+function scaledSvgLength(value: string, scale: number): string | null {
+  const match = value
+    .trim()
+    .match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
+  if (!match) return scale === 1 ? value : null;
+  const number = Number(match[1]);
+  if (!Number.isFinite(number)) return null;
+  return `${number * scale}${match[2]}`;
+}
+
+function vectorStrokeGeometryMarkup(
+  shape: ParsedElement,
+  id: string,
+  transform?: Pick<
+    StyleEditIntent,
+    "transform" | "transformOrigin" | "transformBox"
+  >,
+): string {
+  const attributes = [
+    `id="${escapeHtmlAttribute(id)}"`,
+    `${VECTOR_STROKE_GEOMETRY}=""`,
+  ];
+  const hasComputedTransform = Boolean(
+    transform?.transform ||
+    transform?.transformOrigin ||
+    transform?.transformBox,
+  );
+  for (const attribute of shape.attributes) {
+    if (
+      ![
+        "d",
+        "points",
+        "x",
+        "y",
+        "width",
+        "height",
+        "rx",
+        "ry",
+        "cx",
+        "cy",
+        "r",
+        "transform",
+        "fill-rule",
+        "clip-rule",
+      ].includes(attribute.lowerName)
+    ) {
+      continue;
+    }
+    if (hasComputedTransform && attribute.lowerName === "transform") continue;
+    const value = attribute.value === true ? "" : attribute.value;
+    attributes.push(`${attribute.name}="${escapeHtmlAttribute(value)}"`);
+  }
+  const transformStyle = [
+    ["transform", transform?.transform],
+    ["transform-origin", transform?.transformOrigin],
+    ["transform-box", transform?.transformBox],
+  ]
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([property, value]) => `${property}: ${value}`)
+    .join("; ");
+  return `<${shape.tag} ${attributes.join(" ")}${
+    transformStyle ? ` style="${escapeHtmlAttribute(transformStyle)}"` : ""
+  }/>`;
+}
+
+function uniqueVectorStrokeId(elements: ParsedElement[], base: string): string {
+  const used = new Set(
+    elements
+      .map((element) => attributeValue(element, "id"))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const safeBase = base.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
+  let candidate = `an-vector-stroke-${safeBase}`;
+  let suffix = 2;
+  while (
+    used.has(candidate) ||
+    used.has(`${candidate}-inside`) ||
+    used.has(`${candidate}-outside`)
+  ) {
+    candidate = `an-vector-stroke-${safeBase}-${suffix++}`;
+  }
+  return candidate;
+}
+
+function removeVectorStrokeGeneratedMarkup(
+  html: string,
+  wrapper: ParsedElement,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (!currentWrapper || currentWrapper.start !== wrapper.start) return html;
+  const spans = currentWrapper.childIndexes
+    .map((index) => elements[index])
+    .filter((child): child is ParsedElement =>
+      Boolean(
+        child &&
+        ((child.tag === "defs" &&
+          getAttribute(child, VECTOR_STROKE_GENERATED_DEFS)) ||
+          (child.tag === "use" && getAttribute(child, VECTOR_STROKE_OVERLAY))),
+      ),
+    )
+    .map(({ start, end }) => ({ start, end }))
+    .sort((a, b) => b.start - a.start);
+  let result = html;
+  for (const { start, end } of spans) {
+    result = `${result.slice(0, start)}${result.slice(end)}`;
+  }
+  return result;
+}
+
+function applyVectorStrokePositionEdit(
+  html: string,
+  wrapper: ParsedElement,
+  position: string,
+  intent: StyleEditIntent,
+): string | PatchResultStatus {
+  if (!["inside", "center", "outside"].includes(position)) {
+    return "unsupported";
+  }
+  const computedStyles = [
+    ["opacity", intent.opacity],
+    ["stroke", intent.stroke],
+    ["stroke-width", intent.strokeWidth],
+    ["stroke-opacity", intent.strokeOpacity],
+    ["stroke-dasharray", intent.strokeDasharray],
+    ["stroke-dashoffset", intent.strokeDashoffset],
+    ["stroke-linecap", intent.strokeLinecap],
+    ["stroke-linejoin", intent.strokeLinejoin],
+    ["stroke-miterlimit", intent.strokeMiterlimit],
+    ["transform", intent.transform],
+    ["transform-origin", intent.transformOrigin],
+    ["transform-box", intent.transformBox],
+  ] as const;
+  if (
+    computedStyles.some(([property, value]) => {
+      const normalized = normalizeStyleProperty(property);
+      return Boolean(
+        value && (!normalized || !isSafeStyleValue(normalized, value)),
+      );
+    })
+  ) {
+    return "unsupported";
+  }
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (
+    !currentWrapper ||
+    currentWrapper.start !== wrapper.start ||
+    currentWrapper.tag !== "svg"
+  ) {
+    return "unsupported";
+  }
+  const shape = vectorShapeChild(currentWrapper, elements);
+  const kind = attributeValue(currentWrapper, "data-an-primitive");
+  if (!shape || !vectorStrokeCanAlign(kind, shape)) return "unsupported";
+
+  const previousOverlay = vectorStrokeOverlay(currentWrapper, elements);
+  const previousDefs = currentWrapper.childIndexes
+    .map((childIndex) => elements[childIndex])
+    .find(
+      (child) =>
+        child?.tag === "defs" &&
+        getAttribute(child, VECTOR_STROKE_GENERATED_DEFS) !== undefined,
+    );
+  const previousGeometry = previousDefs?.childIndexes
+    .map((childIndex) => elements[childIndex])
+    .find((child) => getAttribute(child, VECTOR_STROKE_GEOMETRY) !== undefined);
+  const previousGeometryStyle = previousGeometry
+    ? parseStyle(attributeValue(previousGeometry, "style"))
+    : {};
+  const paint = previousOverlay ?? shape;
+  const stroke = intent.stroke ?? vectorStyleValue(paint, "stroke") ?? "none";
+  const shapeOpacity =
+    intent.opacity ??
+    vectorStyleValue(paint, "opacity") ??
+    (previousOverlay ? vectorStyleValue(shape, "opacity") : null) ??
+    undefined;
+  const logicalWidth =
+    intent.strokeWidth ??
+    (previousOverlay
+      ? attributeValue(previousOverlay, VECTOR_STROKE_LOGICAL_WIDTH)
+      : null) ??
+    vectorStyleValue(paint, "stroke-width") ??
+    "1px";
+  const strokeExtras = Object.fromEntries(
+    (
+      [
+        ["stroke-opacity", intent.strokeOpacity],
+        ["stroke-dasharray", intent.strokeDasharray],
+        ["stroke-dashoffset", intent.strokeDashoffset],
+        ["stroke-linecap", intent.strokeLinecap],
+        ["stroke-linejoin", intent.strokeLinejoin],
+        ["stroke-miterlimit", intent.strokeMiterlimit],
+      ] as const
+    )
+      .map(([property, value]) => [
+        property,
+        value ?? vectorStyleValue(paint, property),
+      ])
+      .filter((entry): entry is [string, string] => Boolean(entry[1])),
+  );
+  const actualWidth = scaledSvgLength(
+    logicalWidth,
+    position === "center" ? 1 : 2,
+  );
+  if (!actualWidth) return "unsupported";
+
+  let result = removeVectorStrokeGeneratedMarkup(html, currentWrapper);
+  let freshElements = parseHtmlElements(result);
+  let freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  result = replaceOrInsertAttribute(
+    result,
+    freshWrapper,
+    VECTOR_STROKE_POSITION,
+    position,
+  );
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  const savedOverflow = getAttribute(
+    freshWrapper,
+    VECTOR_STROKE_ORIGINAL_OVERFLOW,
+  );
+  if (position === "outside") {
+    if (savedOverflow === undefined) {
+      const overflow = parseStyleDeclarations(
+        attributeValue(freshWrapper, "style"),
+      ).find((declaration) => declaration.property === "overflow");
+      const important = overflow?.value.match(/\s*!important\s*$/i);
+      const value = important
+        ? overflow!.value.replace(/\s*!important\s*$/i, "")
+        : (overflow?.value ?? "");
+      result = replaceOrInsertAttribute(
+        result,
+        freshWrapper,
+        VECTOR_STROKE_ORIGINAL_OVERFLOW,
+        value,
+      );
+      freshElements = parseHtmlElements(result);
+      freshWrapper = freshElements[wrapper.index];
+      if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+      result = replaceOrInsertAttribute(
+        result,
+        freshWrapper,
+        VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+        important ? "important" : "",
+      );
+      freshElements = parseHtmlElements(result);
+      freshWrapper = freshElements[wrapper.index];
+      if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    }
+    result = replaceOrInsertAttribute(
+      result,
+      freshWrapper,
+      "style",
+      setStyleValue(
+        attributeValue(freshWrapper, "style"),
+        "overflow",
+        "visible !important",
+      ),
+    );
+  } else if (savedOverflow !== undefined) {
+    const value = attributeValue(freshWrapper, VECTOR_STROKE_ORIGINAL_OVERFLOW);
+    const priority = attributeValue(
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+    );
+    const declarations = parseStyleDeclarations(
+      attributeValue(freshWrapper, "style"),
+    ).filter((declaration) => declaration.property !== "overflow");
+    if (value) {
+      declarations.push({
+        property: "overflow",
+        value: priority === "important" ? `${value} !important` : value,
+      });
+    }
+    result = replaceOrInsertAttribute(
+      result,
+      freshWrapper,
+      "style",
+      serializeStyleDeclarations(declarations),
+    );
+    freshElements = parseHtmlElements(result);
+    freshWrapper = freshElements[wrapper.index];
+    if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    result = removeAttributeFromHtml(
+      result,
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW,
+    );
+    freshElements = parseHtmlElements(result);
+    freshWrapper = freshElements[wrapper.index];
+    if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    result = removeAttributeFromHtml(
+      result,
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+    );
+  }
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  const freshShape = freshWrapper
+    ? vectorShapeChild(freshWrapper, freshElements)
+    : null;
+  if (!freshWrapper || !freshShape) return "unsupported";
+  const shapeStyle = setStyleValue(
+    attributeValue(freshShape, "style"),
+    "stroke",
+    "none",
+  );
+  result = replaceOrInsertAttribute(result, freshShape, "style", shapeStyle);
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  const geometry = freshWrapper
+    ? vectorShapeChild(freshWrapper, freshElements)
+    : null;
+  if (!freshWrapper || !geometry) return "unsupported";
+
+  const nodeId =
+    attributeValue(freshWrapper, "data-agent-native-node-id") ??
+    attributeValue(freshWrapper, "id") ??
+    String(freshWrapper.siblingIndex);
+  const geometryId = uniqueVectorStrokeId(freshElements, nodeId);
+  const clipId = `${geometryId}-inside`;
+  const maskId = `${geometryId}-outside`;
+  const geometryMarkup = vectorStrokeGeometryMarkup(geometry, geometryId, {
+    transform: intent.transform ?? previousGeometryStyle.transform,
+    transformOrigin:
+      intent.transformOrigin ?? previousGeometryStyle["transform-origin"],
+    transformBox: intent.transformBox ?? previousGeometryStyle["transform-box"],
+  });
+  const viewBoxValues = (
+    attributeValue(freshWrapper, "viewBox") ?? "0 0 300 150"
+  )
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const [viewX, viewY, viewWidth, viewHeight] = viewBoxValues;
+  if (
+    viewBoxValues.length !== 4 ||
+    ![viewX, viewY, viewWidth, viewHeight].every(Number.isFinite) ||
+    viewWidth! <= 0 ||
+    viewHeight! <= 0
+  ) {
+    return "unsupported";
+  }
+  const miterLimit = Number.parseFloat(
+    strokeExtras["stroke-miterlimit"] ?? "4",
+  );
+  const maskPad = Math.max(
+    ((Number.parseFloat(actualWidth) || 0) *
+      Math.max(Number.isFinite(miterLimit) ? miterLimit : 4, 1)) /
+      2,
+    1,
+  );
+  const defs =
+    `<defs ${VECTOR_STROKE_GENERATED_DEFS}="">${geometryMarkup}` +
+    `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><use href="#${geometryId}"/></clipPath>` +
+    `<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="luminance" x="${viewX! - maskPad}" y="${viewY! - maskPad}" width="${viewWidth! + maskPad * 2}" height="${viewHeight! + maskPad * 2}">` +
+    `<rect x="${viewX! - maskPad}" y="${viewY! - maskPad}" width="${viewWidth! + maskPad * 2}" height="${viewHeight! + maskPad * 2}" fill="white"/>` +
+    `<use href="#${geometryId}" fill="black"/></mask></defs>`;
+  const overlayStyle = serializeStyleDeclarations([
+    { property: "fill", value: "none" },
+    { property: "stroke", value: stroke },
+    { property: "stroke-width", value: actualWidth },
+    ...(shapeOpacity ? [{ property: "opacity", value: shapeOpacity }] : []),
+    ...Object.entries(strokeExtras).map(([property, value]) => ({
+      property,
+      value,
+    })),
+    ...(position === "inside"
+      ? [{ property: "clip-path", value: `url(#${clipId})` }]
+      : position === "outside"
+        ? [{ property: "mask", value: `url(#${maskId})` }]
+        : []),
+  ]);
+  const overlay =
+    `<use href="#${geometryId}" ${VECTOR_STROKE_OVERLAY}="" ` +
+    `${VECTOR_STROKE_LOGICAL_WIDTH}="${escapeHtmlAttribute(logicalWidth)}" ` +
+    `pointer-events="none" aria-hidden="true" style="${escapeHtmlAttribute(overlayStyle)}"/>`;
+  const insertAt = geometry.end;
+  return `${result.slice(0, insertAt)}${defs}${overlay}${result.slice(insertAt)}`;
+}
+
+/**
+ * A drawn vector primitive's `<svg>` carries the geometry and its shape child
+ * carries the paint, so fill/stroke aimed at the wrapper tints the bounding
+ * box instead. Mirrored by `vectorPaintTarget` in editor-chrome.bridge.ts.
+ */
+function vectorShapeChild(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  if (element.tag !== "svg") return null;
+  const kind = attributeValue(element, "data-an-primitive");
+  if (!kind || !VECTOR_PAINT_PRIMITIVES.has(kind)) return null;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (child && VECTOR_SHAPE_TAGS.has(child.tag)) return child;
+  }
+  return null;
+}
+
+function vectorStrokeCanAlign(
+  kind: string | null,
+  shape: ParsedElement,
+): boolean {
+  if (kind === "polygon" || kind === "star") {
+    return (
+      shape.tag === "polygon" ||
+      (shape.tag === "path" && /z/i.test(attributeValue(shape, "d") ?? ""))
+    );
+  }
+  if (kind === "rect" || kind === "rectangle") return shape.tag === "rect";
+  if (kind === "ellipse" || kind === "circle") {
+    return shape.tag === "ellipse" || shape.tag === "circle";
+  }
+  return (
+    kind === "path" &&
+    shape.tag === "path" &&
+    /z/i.test(attributeValue(shape, "d") ?? "")
+  );
+}
+
+/**
+ * Folds the shape child's paint onto the wrapper node. The child is skipped by
+ * `hasSvgAncestor`, so the wrapper is the only layer a reader can address —
+ * without this the inspector sees no fill and offers to add a `background`.
+ */
+function withVectorPaintStyle(
+  element: ParsedElement,
+  elements: ParsedElement[],
+  style: Record<string, string>,
+): Record<string, string> {
+  const child = vectorShapeChild(element, elements);
+  if (!child) return style;
+  const overlay = vectorStrokeOverlay(element, elements);
+  const childStyle = parseStyle(attributeValue(child, "style"));
+  const overlayStyle = overlay
+    ? parseStyle(attributeValue(overlay, "style"))
+    : null;
+  const merged = { ...style };
+  for (const property of VECTOR_PAINT_PROPERTIES) {
+    // An inline declaration on the child outranks its presentation
+    // attribute, the same order the cascade resolves them when painting.
+    const value =
+      property.startsWith("stroke") && overlayStyle
+        ? (overlayStyle[property] ?? attributeValue(overlay!, property))
+        : (childStyle[property] ?? attributeValue(child, property));
+    if (value) merged[property] = value;
+  }
+  const vectorOpacity =
+    overlayStyle?.opacity ??
+    childStyle.opacity ??
+    attributeValue(child, "opacity");
+  if (vectorOpacity) merged.vectorOpacity = vectorOpacity;
+  if (overlay) {
+    merged["stroke-width"] =
+      attributeValue(overlay, VECTOR_STROKE_LOGICAL_WIDTH) ??
+      merged["stroke-width"] ??
+      "1px";
+  }
+  const position = attributeValue(element, VECTOR_STROKE_POSITION);
+  if (position) merged["--an-vector-stroke-position"] = position;
+  if (
+    vectorStrokeCanAlign(attributeValue(element, "data-an-primitive"), child)
+  ) {
+    merged["--an-vector-stroke-can-align"] = "true";
+  }
+  return merged;
+}
+
+/**
+ * Box paint that a vector wrapper must never carry: it paints the bounding
+ * rectangle, and the inspector no longer edits these for a vector, so a value
+ * left here is unreachable from the UI.
+ */
+const VECTOR_WRAPPER_BOX_PAINT = new Set([
+  "background",
+  "background-color",
+  "background-image",
+  "border",
+  "border-width",
+  "border-style",
+  "border-color",
+]);
+
+function clearVectorWrapperPaint(html: string, wrapper: ParsedElement): string {
+  const style = attributeValue(wrapper, "style");
+  if (!style) return html;
+  const kept = parseStyleDeclarations(style).filter(
+    (declaration) => !VECTOR_WRAPPER_BOX_PAINT.has(declaration.property),
+  );
+  const next = serializeStyleDeclarations(kept);
+  if (next === style) return html;
+  // Safe against the child edit that just ran: the wrapper's open tag, and so
+  // its style attribute offsets, precede every child byte.
+  return replaceOrInsertAttribute(html, wrapper, "style", next);
+}
+
+function vectorPaintChild(
+  html: string,
+  element: ParsedElement,
+  property: string,
+): ParsedElement | null {
+  if (!property.startsWith("fill") && !property.startsWith("stroke")) {
+    return null;
+  }
+  const elements = parseHtmlElements(html);
+  // childIndexes only address this array if it is the same parse the caller's
+  // element came from; a shifted index would repaint an unrelated element.
+  const parsed = elements[element.index];
+  if (!parsed || parsed.start !== element.start) return null;
+  if (property.startsWith("stroke")) {
+    return (
+      vectorStrokeOverlay(parsed, elements) ??
+      vectorShapeChild(parsed, elements)
+    );
+  }
+  return vectorShapeChild(parsed, elements);
+}
+
 function applyStyleEdit(
   html: string,
   element: ParsedElement,
@@ -2865,13 +4169,84 @@ function applyStyleEdit(
   const property = normalizeStyleProperty(intent.property);
   if (!property || !isSafeStyleValue(property, intent.value))
     return "unsupported";
+  if (property === "--an-vector-stroke-position") {
+    const content = applyVectorStrokePositionEdit(
+      html,
+      element,
+      intent.value.trim(),
+      intent,
+    );
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+  const alignedOverlay =
+    getAttribute(element, VECTOR_STROKE_OVERLAY) !== undefined;
+  const parent =
+    element.parentIndex === undefined
+      ? undefined
+      : parseHtmlElements(html)[element.parentIndex];
+  const position = parent
+    ? (attributeValue(parent, VECTOR_STROKE_POSITION) ?? "center")
+    : "center";
+  const logicalWidth = intent.value.trim();
+  const storedValue =
+    alignedOverlay && property === "stroke-width"
+      ? scaledSvgLength(logicalWidth, position === "center" ? 1 : 2)
+      : logicalWidth;
+  if (storedValue === null) return "unsupported";
   const nextStyle = setStyleValue(
     attributeValue(element, "style"),
     property,
-    intent.value.trim(),
+    storedValue,
   );
+  let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (alignedOverlay && property === "stroke-width") {
+    const current = parseHtmlElements(content)[element.index];
+    if (!current) return "unsupported";
+    content = replaceOrInsertAttribute(
+      content,
+      current,
+      VECTOR_STROKE_LOGICAL_WIDTH,
+      logicalWidth,
+    );
+  }
+  if (
+    alignedOverlay &&
+    (property === "stroke-width" || property === "stroke-miterlimit")
+  ) {
+    const updatedElements = parseHtmlElements(content);
+    const updatedOverlay = updatedElements[element.index];
+    const wrapper =
+      updatedOverlay?.parentIndex === undefined
+        ? undefined
+        : updatedElements[updatedOverlay.parentIndex];
+    const updatedPosition = wrapper
+      ? attributeValue(wrapper, VECTOR_STROKE_POSITION)
+      : null;
+    if (!wrapper || !updatedPosition) return "unsupported";
+    const rebuilt = applyVectorStrokePositionEdit(
+      content,
+      wrapper,
+      updatedPosition,
+      {
+        kind: "style",
+        target: intent.target,
+        property: "--an-vector-stroke-position",
+        value: updatedPosition,
+      },
+    );
+    if (rebuilt === "unsupported") return rebuilt;
+    content = rebuilt;
+  }
   return {
-    content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+    content,
     capability: {
       kind: "style",
       properties: [property],
@@ -2947,10 +4322,48 @@ function applyClassEdit(
 
 // Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
 // — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. Deliberately conservative: this path is for host-side
-// bookkeeping writes (pending node-id persistence today), not general-purpose
-// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+// `on*` event handler. URL-bearing values get a second scheme check below so a
+// general attribute edit cannot persist executable markup.
 const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+const URL_ATTRIBUTE_NAMES = new Set([
+  "action",
+  "background",
+  "cite",
+  "data",
+  "formaction",
+  "href",
+  "poster",
+  "src",
+  "srcset",
+  "xlink:href",
+]);
+
+function isSafeAttributeValue(name: string, value: string): boolean {
+  const lowerName = name.toLowerCase();
+  if (lowerName === "style" || lowerName === "srcdoc") return false;
+  if (!URL_ATTRIBUTE_NAMES.has(lowerName)) return true;
+
+  const decoded = decodeBasicHtmlEntities(value);
+  if (/[\u0000-\u001f\u007f]/.test(decoded)) return false;
+  const candidates =
+    lowerName === "srcset"
+      ? decoded
+          .split(",")
+          .map((candidate) => candidate.trim().split(/\s+/, 1)[0] ?? "")
+      : [decoded.trim()];
+  return candidates.every((candidate) => {
+    if (!candidate) return true;
+    const compact = candidate.replace(/[\u0000-\u0020]+/g, "");
+    if (/^(?:javascript|vbscript):/i.test(compact)) return false;
+    if (/^data:/i.test(compact)) {
+      return /^data:image\/(?:png|jpe?g|gif|webp);/i.test(compact);
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return /^(?:https?|mailto|tel):/i.test(compact);
+    }
+    return true;
+  });
+}
 
 function applyAttributeEdit(
   html: string,
@@ -2960,6 +4373,7 @@ function applyAttributeEdit(
   if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
     return "unsupported";
   }
+  if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
   return {
     content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
     capability: {
@@ -3266,6 +4680,13 @@ function applyMoveNodeEdit(
     element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
 
   if (insertAt < 0 || insertAt > withoutTarget.length) return "conflict";
+  // A node spliced into a template's markup range lands in a detached
+  // fragment: it renders nowhere and no querySelector pass can reach it
+  // again. moveNodeBetweenDocuments redirects past the template for the same
+  // reason; here there is no destination to fall back to.
+  if (isOffsetInsideTemplateInterior(withoutTarget, insertAt)) {
+    return "unsupported";
+  }
 
   return {
     content: `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`,
@@ -3480,27 +4901,33 @@ function stripFlexItemStylingFromChild(
 }
 
 /**
- * L7: sequential "Group N" naming. Counts existing layer names already
- * matching "Group" or "Group <number>" in the projection (via
+ * L7: sequential "<baseName> N" naming. Counts existing layer names already
+ * matching "<baseName>" or "<baseName> <number>" in the projection (via
  * data-agent-native-layer-name / layerName) and returns the next unused
  * name in that sequence, so repeated grouping doesn't leave multiple
- * ambiguous "Group" layers.
+ * ambiguous same-named layers. Figma names a plain ⌘G group "Group" but an
+ * auto-layout wrap (Shift+A) "Frame" — same wrapper mechanics, different
+ * default name — so the base name is threaded in by the caller rather than
+ * hardcoded here.
  */
-function nextSequentialGroupName(nodes: CodeLayerNode[]): string {
-  const groupNamePattern = /^Group(?: (\d+))?$/;
+function nextSequentialWrapperName(
+  nodes: CodeLayerNode[],
+  baseName: string,
+): string {
+  const namePattern = new RegExp(`^${baseName}(?: (\\d+))?$`);
   let highestNumbered = 0;
-  let hasBareGroup = false;
+  let hasBareName = false;
   for (const node of nodes) {
-    const match = groupNamePattern.exec(node.layerName.trim());
+    const match = namePattern.exec(node.layerName.trim());
     if (!match) continue;
     if (match[1]) {
       highestNumbered = Math.max(highestNumbered, Number(match[1]));
     } else {
-      hasBareGroup = true;
+      hasBareName = true;
     }
   }
-  if (!hasBareGroup && highestNumbered === 0) return "Group";
-  return `Group ${Math.max(highestNumbered, hasBareGroup ? 1 : 0) + 1}`;
+  if (!hasBareName && highestNumbered === 0) return baseName;
+  return `${baseName} ${Math.max(highestNumbered, hasBareName ? 1 : 0) + 1}`;
 }
 
 interface AbsoluteUnionBounds {
@@ -3519,6 +4946,16 @@ interface AbsoluteUnionBounds {
  */
 function computeAbsoluteUnionBounds(
   elements: ParsedElement[],
+  /**
+   * Live-rendered width/height fallback, keyed by the element's own
+   * data-agent-native-node-id, for a target whose inline style carries
+   * position/left/top but omits width/height (auto-sized content, e.g. a
+   * Text-tool node sized by its text rather than an explicit box). Never
+   * overrides an explicit inline width/height — only fills the gap that
+   * would otherwise return null and leave the wrapper with no geometry at
+   * all (a frame that doesn't enclose its own content).
+   */
+  sizeHints?: Record<string, { width: number; height: number }>,
 ): AbsoluteUnionBounds | null {
   let minLeft = Infinity;
   let minTop = Infinity;
@@ -3530,8 +4967,10 @@ function computeAbsoluteUnionBounds(
     if (style.position !== "absolute") return null;
     const left = parsePixelLength(style.left);
     const top = parsePixelLength(style.top);
-    const width = parsePixelLength(style.width);
-    const height = parsePixelLength(style.height);
+    const nodeId = attributeValue(element, "data-agent-native-node-id");
+    const hint = nodeId ? sizeHints?.[nodeId] : undefined;
+    const width = parsePixelLength(style.width) ?? hint?.width ?? null;
+    const height = parsePixelLength(style.height) ?? hint?.height ?? null;
     if (left === null || top === null || width === null || height === null) {
       return null;
     }
@@ -3594,6 +5033,7 @@ function applyWrapNodes(
   | { content: string; capability: EditCapability; wrapperNodeId: string }
   | PatchResultStatus {
   const { autoLayout = false } = intent;
+  const wrapperIsFrame = autoLayout || intent.wrapperKind === "frame";
   // A UI selection is unique, but action/tool callers and stale multi-select
   // state can repeat an id. Extracting/removing the same source span twice
   // corrupts the surrounding document and duplicates the node inside the new
@@ -3622,14 +5062,16 @@ function applyWrapNodes(
   targetElements.sort((a, b) => a.start - b.start);
 
   // L6: targets no longer need to be sibling-index-CONTIGUOUS. The removal +
-  // single-reinsertion-point algorithm below already extracts every target
+  // single-reinsertion-point algorithm below extracts every target
   // (regardless of gaps) and re-inserts them together at the topmost
-  // target's position — i.e. it already "moves members adjacent to the
-  // topmost member, then wraps." A non-adjacent same-parent selection (e.g.
-  // sibling indexes 0, 2, 4) closes its own gaps naturally: the un-selected
-  // siblings that were between them (1, 3) end up adjacent to each other
-  // once the targets are pulled out, and the targets end up adjacent to each
-  // other inside the new wrapper. This matches Figma's group behavior.
+  // target's stacking position — the LAST one in source order, since later
+  // source position paints on top for plain siblings with no z-index. A
+  // non-adjacent same-parent selection (e.g. sibling indexes 0, 2, 4) closes
+  // its own gaps naturally: the un-selected siblings that were between them
+  // (1, 3) end up adjacent to each other once the targets are pulled out,
+  // and the targets end up adjacent to each other inside the new wrapper.
+  // This matches Figma's group behavior: the group lands at the z-position
+  // of its topmost selected child, not its bottommost.
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
@@ -3644,10 +5086,14 @@ function applyWrapNodes(
     `wrap:${targetElements.map((el) => el.start).join(":")}`,
   );
 
-  // L7: sequential "Group N" naming — count existing "Group"/"Group N" names
-  // already in the projection so repeated grouping doesn't produce multiple
-  // ambiguous layers all just named "Group".
-  const wrapperLayerName = nextSequentialGroupName(build.projection.nodes);
+  // L7: sequential naming — an auto-layout wrap (Shift+A) reads as a Figma
+  // "Frame", a plain wrap (⌘G) as a "Group"; count existing same-named
+  // layers already in the projection so repeated wraps don't produce
+  // multiple ambiguous layers with the same bare name.
+  const wrapperLayerName = nextSequentialWrapperName(
+    build.projection.nodes,
+    wrapperIsFrame ? "Frame" : "Group",
+  );
 
   // L7: when EVERY target is absolutely positioned with pixel left/top (and
   // ideally width/height), give the wrapper real computed geometry — the
@@ -3657,7 +5103,10 @@ function applyWrapNodes(
   // Falls back to the previous flow/auto-layout wrapper when any child isn't
   // absolutely positioned (there is no meaningful bounding box to compute
   // without a layout pass).
-  const targetGeometry = computeAbsoluteUnionBounds(targetElements);
+  const targetGeometry = computeAbsoluteUnionBounds(
+    targetElements,
+    intent.sizeHints,
+  );
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
@@ -3703,37 +5152,38 @@ function applyWrapNodes(
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
       : null;
   const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}"${wrapperStyleAttr}>`;
+  const wrapperKindAttr = wrapperIsFrame
+    ? ' data-an-primitive="frame"'
+    : ' data-agent-native-group="true"';
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
   // Build the replacement: remove all targets from html (back to front) then
-  // insert the wrapper at the first target's position.
-  // Sort by position descending to remove safely.
+  // insert the wrapper at the LAST target's position — targetElements is
+  // sorted ascending by source position, so the last entry is the topmost in
+  // stacking order. Inserting there (rather than at the first/bottommost
+  // target) is what leaves an un-selected sibling that sat between the
+  // targets (e.g. Green between Red and Blue) BELOW the new group, matching
+  // Figma. Sort by position descending to remove safely.
   const sorted = [...targetElements].sort((a, b) => b.start - a.start);
+  const lastTargetStart = targetElements[targetElements.length - 1]!.start;
 
   // Remove all targets from the html (back to front).
   let result = html;
-  let firstTargetStart = targetElements[0]!.start;
-
   for (const el of sorted) {
-    const start = el.start;
-    const end = el.end;
-    if (start < firstTargetStart) {
-      firstTargetStart = start;
-    }
-    result = `${result.slice(0, start)}${result.slice(end)}`;
+    result = `${result.slice(0, el.start)}${result.slice(el.end)}`;
   }
 
-  // Re-compute firstTargetStart relative to the modified string: all removals
-  // before it shift it. Count how many bytes were removed before firstTargetStart.
+  // Re-compute lastTargetStart relative to the modified string: every other
+  // target removed before it shifts it left by its own length.
   let bytesRemovedBefore = 0;
   for (const el of targetElements) {
-    if (el.start < targetElements[0]!.start) {
+    if (el.start < lastTargetStart) {
       bytesRemovedBefore += el.end - el.start;
     }
   }
-  const insertAt = firstTargetStart - bytesRemovedBefore;
+  const insertAt = lastTargetStart - bytesRemovedBefore;
 
   result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
 
@@ -3918,6 +5368,7 @@ function applyAutoLayout(
   if (!enabled) {
     const childRects = intent.childRects;
     const hasRects = !!childRects && Object.keys(childRects).length > 0;
+    if (!hasRects) return "needsAgent";
     const currentStyle = attributeValue(element, "style");
     const declarations = parseStyleDeclarations(currentStyle);
     const setOnContainer = (property: string, value: string) => {
@@ -3958,13 +5409,6 @@ function applyAutoLayout(
       "style",
       serializeStyleDeclarations(declarations),
     );
-    if (!hasRects) {
-      return {
-        content: result,
-        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
-      };
-    }
-
     const updatedElements = parseHtmlElements(result);
     const targetAttr = attributeValue(element, "data-agent-native-node-id");
     const updatedTarget =
@@ -4340,10 +5784,55 @@ export function applyVisualEdit(
     };
   }
 
+  if (intent.kind === "deleteNode") {
+    const deleted = removeCodeLayerNodeFromHtml(html, beforeNode);
+    if (deleted === null) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "unsupported",
+          source,
+          intent,
+          false,
+          "This node cannot be deleted from the editable source.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    return {
+      content: deleted,
+      projection: buildCodeLayerProjection(deleted, { source }),
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        deleted !== html,
+        "Node deleted.",
+        beforeNode,
+        {
+          kind: "structure",
+          operations: ["deleteNode"],
+          confidence: 0.95,
+        },
+        before,
+      ),
+    };
+  }
+
   let edit: { content: string; capability: EditCapability } | PatchResultStatus;
   let moveInsertAt: number | undefined;
   if (intent.kind === "style") {
-    edit = applyStyleEdit(html, element, intent);
+    const paintChild = vectorPaintChild(html, element, intent.property);
+    edit = applyStyleEdit(html, paintChild ?? element, intent);
+    if (paintChild && typeof edit !== "string") {
+      edit = {
+        ...edit,
+        content: clearVectorWrapperPaint(edit.content, element),
+      };
+    }
   } else if (intent.kind === "class") {
     edit = applyClassEdit(html, element, intent);
   } else if (intent.kind === "textContent") {

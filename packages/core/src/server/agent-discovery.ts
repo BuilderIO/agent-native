@@ -2,16 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { readConfiguredWorkspaceAppHomePath } from "../workspace-app-config.js";
+import { resolveAppRuntimeUrl } from "./app-url.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export interface DiscoveredAgent {
@@ -109,6 +111,7 @@ export interface WorkspaceAppManifestEntry {
   name: string;
   description: string;
   path: string;
+  homePath: string;
   url?: string | null;
   /** Local-only child port used to authorize loopback A2A calls. */
   port?: number;
@@ -320,13 +323,13 @@ export function applyWorkspaceAppMetadataOverride<
  * restart). Reading only the env var would silently downgrade the behavior
  * in both cases.
  */
-export function loadWorkspaceAppsManifest(
+export async function loadWorkspaceAppsManifest(
   strict = false,
-): WorkspaceAppManifestEntry[] | null {
+): Promise<WorkspaceAppManifestEntry[] | null> {
   return (
     readWorkspaceAppsFromEnv(strict) ??
     readWorkspaceAppsFromManifestFile(strict) ??
-    readWorkspaceAppsFromFilesystem(strict)
+    (await readWorkspaceAppsFromFilesystem(strict))
   );
 }
 
@@ -537,7 +540,8 @@ async function readStrictRemoteAgentResources(): Promise<
   } = await import("../resources/store.js");
   const { REMOTE_AGENT_RESOURCE_PREFIXES } =
     await import("../resources/metadata.js");
-  const activeOwner = sharedResourceOwner(getRequestOrgId());
+  const orgId = getRequestOrgId() ?? null;
+  const activeOwner = sharedResourceOwner(orgId);
   const owners = [...new Set([SHARED_OWNER, activeOwner])];
   const prefixes = [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse();
   const ownerRank = new Map(owners.map((owner, index) => [owner, index]));
@@ -546,6 +550,7 @@ async function readStrictRemoteAgentResources(): Promise<
   const resources = await resourceListContentByOwnersAndPrefixes(
     owners,
     prefixes,
+    { orgId },
   );
   resources.sort((a, b) => {
     const ownerDelta =
@@ -686,6 +691,7 @@ function hasPublicRuntimeUrl(): boolean {
     "BETTER_AUTH_URL",
     "VITE_BETTER_AUTH_URL",
     "VERCEL_URL",
+    "VERCEL_BRANCH_URL",
     "VERCEL_PROJECT_PRODUCTION_URL",
   ];
 
@@ -779,6 +785,7 @@ function parseWorkspaceAppsManifest(
             : titleCase(id),
         description: typeof e.description === "string" ? e.description : "",
         path: pathValue,
+        homePath: normalizeWorkspaceAppHomePath(e.homePath),
         url: typeof e.url === "string" && e.url.trim() ? e.url.trim() : null,
         isDispatch:
           typeof e.isDispatch === "boolean" ? e.isDispatch : id === "dispatch",
@@ -852,58 +859,52 @@ function readWorkspaceAppsFromManifestFile(
   return null;
 }
 
-function readWorkspaceAppsFromFilesystem(
+async function readWorkspaceAppsFromFilesystem(
   strict = false,
-): WorkspaceAppManifestEntry[] | null {
+): Promise<WorkspaceAppManifestEntry[] | null> {
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) return null;
   const appsDir = path.join(workspaceRoot, "apps");
   if (!fs.existsSync(appsDir)) return null;
 
-  const apps = fs
+  const apps: WorkspaceAppManifestEntry[] = [];
+  for (const entry of fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry): WorkspaceAppManifestEntry | null => {
-      const appDir = path.join(appsDir, entry.name);
-      const pkg = readJson(path.join(appDir, "package.json"));
-      if (!pkg) {
-        if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
-        return null;
-      }
-      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      return {
-        id: normalizeAgentId(entry.name),
-        name: pkg.displayName || titleCase(entry.name),
-        description: pkg.description || "",
-        path: `/${entry.name}`,
-        isDispatch: normalizeAgentId(entry.name) === "dispatch",
-        audience:
-          workspaceAppAudienceFromPackageJson(pkg) ??
-          DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths ?? [],
-        protectedPaths: routeAccess.protectedPaths ?? [],
-      } satisfies WorkspaceAppManifestEntry;
-    })
-    .filter((app): app is WorkspaceAppManifestEntry => !!app)
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
+    .filter((entry) => entry.isDirectory())) {
+    const appDir = path.join(appsDir, entry.name);
+    const pkg = readJson(path.join(appDir, "package.json"));
+    if (!pkg) {
+      if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
+      continue;
+    }
+    const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    apps.push({
+      id: normalizeAgentId(entry.name),
+      name: pkg.displayName || titleCase(entry.name),
+      description: pkg.description || "",
+      path: `/${entry.name}`,
+      homePath: normalizeWorkspaceAppHomePath(
+        await readConfiguredWorkspaceAppHomePath(appDir),
+      ),
+      isDispatch: normalizeAgentId(entry.name) === "dispatch",
+      audience:
+        workspaceAppAudienceFromPackageJson(pkg) ??
+        DEFAULT_WORKSPACE_APP_AUDIENCE,
+      publicPaths: routeAccess.publicPaths ?? [],
+      protectedPaths: routeAccess.protectedPaths ?? [],
     });
+  }
+  apps.sort((a, b) => {
+    if (a.id === "dispatch") return -1;
+    if (b.id === "dispatch") return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   return apps.length ? apps : null;
 }
 
 function workspaceBaseUrl(): string | null {
-  const config = getAppConfig();
-  // `URL` / `DEPLOY_URL` stay raw: they are platform facts, not app config.
-  return (
-    config.workspace.gatewayUrl ??
-    config.app.url ??
-    process.env.URL ??
-    process.env.DEPLOY_URL ??
-    null
-  );
+  return resolveAppRuntimeUrl() ?? null;
 }
 
 function workspaceAppUrl(
@@ -928,7 +929,7 @@ async function discoverWorkspaceAgents(
   options?: { preferLocalUrls?: boolean },
   strictMetadata = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = loadWorkspaceAppsManifest(strictMetadata);
+  const workspaceApps = await loadWorkspaceAppsManifest(strictMetadata);
   if (!workspaceApps) return [];
 
   const metadataSettings =
@@ -969,8 +970,10 @@ async function discoverWorkspaceAgents(
 }
 
 /** Resolve only the Dispatch app designated by the receiver's own manifest. */
-export function findWorkspaceDispatchAgent(): DiscoveredAgent | undefined {
-  const app = loadWorkspaceAppsManifest()?.find(
+export async function findWorkspaceDispatchAgent(): Promise<
+  DiscoveredAgent | undefined
+> {
+  const app = (await loadWorkspaceAppsManifest())?.find(
     (candidate) => candidate.isDispatch === true,
   );
   if (!app) return undefined;

@@ -1,12 +1,12 @@
 import {
   accessFilter,
-  assertAccess,
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
 import { eq, inArray, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 
 const roleRank: Record<ShareRole | "owner", number> = {
   viewer: 1,
@@ -47,7 +47,8 @@ export async function resolveTemplateAccess(
 export async function assertTemplateTargetLibraryAccess(
   libraryId: string | null | undefined,
 ) {
-  if (libraryId) await assertAccess("asset-library", libraryId, "editor");
+  if (libraryId)
+    await assertCanApprove(libraryId, "Changing brand kit templates");
 }
 
 export async function accessibleTemplateFilter() {

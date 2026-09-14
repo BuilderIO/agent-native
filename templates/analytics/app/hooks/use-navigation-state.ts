@@ -163,7 +163,7 @@ function commandPathForNavigation(cmd: NavigationState): string {
   if (cmd.view === "ask") return "/ask";
   if (cmd.view === "settings") return "/settings";
   if (cmd.view === "overview" || cmd.view === "home") return "/ask";
-  return "/";
+  return "/home";
 }
 
 export function preserveActiveDashboardTab(

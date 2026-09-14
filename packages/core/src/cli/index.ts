@@ -13,12 +13,6 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
-import {
-  assertNativeDependencies,
-  assertNodeRuntimeMarker,
-  ensureNativeDependencies,
-  writeNodeRuntimeMarker,
-} from "./native-dependencies.js";
 import { cliSpawnOptions } from "./process.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
@@ -34,21 +28,26 @@ try {
   _version = pkg.version;
 } catch {}
 
-// Fail fast on unsupported Node versions. `engines.node: ">=22"` is only
-// advisory — npx/pnpm merely warn — so without this an older Node (18/20)
-// first fails deep inside a scaffold dynamic import with a cryptic
-// ERR_MODULE / syntax error that `handleScaffoldImportError` misreports as a
-// corrupt npx cache. A clear up-front message saves that whole detour.
+// Fail fast on unsupported Node versions. The package engine is only
+// advisory — npx/pnpm merely warn — so without this an older Node first fails
+// deep inside a scaffold dynamic import with a cryptic ERR_MODULE / syntax
+// error that `handleScaffoldImportError` misreports as a corrupt npx cache.
 const REQUIRED_NODE_MAJOR = 22;
-const _nodeMajor = Number(process.versions.node.split(".")[0]);
-if (Number.isFinite(_nodeMajor) && _nodeMajor < REQUIRED_NODE_MAJOR) {
+const REQUIRED_NODE_MINOR = 22;
+const _nodeVersion = process.versions.node;
+const _nodeIsStable = /^\d+\.\d+\.\d+$/.test(_nodeVersion);
+const [_nodeMajor, _nodeMinor] = _nodeVersion.split(".").map(Number);
+const _unsupportedNode =
+  !_nodeIsStable ||
+  _nodeMajor < REQUIRED_NODE_MAJOR ||
+  (_nodeMajor === REQUIRED_NODE_MAJOR && _nodeMinor < REQUIRED_NODE_MINOR);
+if (_unsupportedNode) {
   console.error(
-    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR} or newer, but you're on Node ${process.versions.node}.\n` +
+    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}.0 or newer, but you're on Node ${process.versions.node}.\n` +
       `Upgrade Node (https://nodejs.org) and re-run. With nvm: \`nvm install ${REQUIRED_NODE_MAJOR}\`.`,
   );
   process.exit(1);
 }
-
 /**
  * Build a redacted "command" tag from process.argv. Strips the value that
  * follows any --token / --key / --secret / --password / --api-key flag so
@@ -620,12 +619,6 @@ if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
-    try {
-      ensureNativeDependencies({ repair: true, label: "dev" });
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    }
     if (isWorkspaceRoot()) {
       import("./workspace-dev.js")
         .then((m) => m.runWorkspaceDev({ args }))
@@ -692,8 +685,6 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
-      ensureNativeDependencies({ repair: true, label: "build" });
-
       // Doctor pre-step: scans app source for the security-critical guard
       // invariants (see `agent-native doctor --help`). Findings fail by
       // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
@@ -754,15 +745,6 @@ switch (command) {
         }
       }
 
-      const serverDirectory = path.resolve(".output/server");
-      if (fs.existsSync(serverDirectory)) {
-        assertNativeDependencies({
-          fromDirectory: serverDirectory,
-          label: "build output",
-        });
-        writeNodeRuntimeMarker(serverDirectory);
-      }
-
       console.log("\nBuild complete.");
     })().catch((err) => {
       // runBuildStep handles its own failures and exits, so reaching here
@@ -786,17 +768,6 @@ switch (command) {
       console.error(
         'No production build found. Run "agent-native build" first.',
       );
-      process.exit(1);
-    }
-    const serverDirectory = path.dirname(serverEntry);
-    try {
-      assertNodeRuntimeMarker(serverDirectory);
-      assertNativeDependencies({
-        fromDirectory: serverDirectory,
-        label: "start output",
-      });
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
     run(process.execPath, [serverEntry, ...args]);
@@ -1161,6 +1132,16 @@ switch (command) {
     break;
   }
 
+  case "amplify-stream": {
+    import("./amplify-stream.js")
+      .then((m) => m.runAmplifyStream(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "setup-agents": {
     import("./setup-agents.js")
       .then((m) => m.runSetupAgents())
@@ -1347,6 +1328,8 @@ Usage:
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
+  agent-native amplify-stream   Build a Nitro streaming Lambda and connect it
+                                to an AWS Amplify branch
   agent-native setup-agents     Create symlinks for all agent tools
   agent-native info <pkg>       Print info about an installed package:
                                 exports, source paths, and docs links.

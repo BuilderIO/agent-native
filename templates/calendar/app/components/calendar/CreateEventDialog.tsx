@@ -97,6 +97,16 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
+import {
+  eventPopoverHeader,
+  eventPopoverHeaderButton,
+  eventPopoverHeaderTitle,
+  eventPopoverShell,
+} from "@/lib/event-popover-style";
+import {
+  applyEndTimeChange,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -503,17 +513,16 @@ export function CreateEventPopover({
     if (!date || !endDate || (!allDay && (!startTime || !endTime))) {
       return;
     }
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
@@ -631,6 +640,25 @@ export function CreateEventPopover({
   function handleDateChange(nextDate: string) {
     setDate(nextDate);
     setEndDate((current) => (current < nextDate ? nextDate : current));
+  }
+
+  function handleStartTimeChange(nextStartTime: string) {
+    const next = shiftEndForStartChange(
+      { date, startTime, endDate, endTime },
+      nextStartTime,
+    );
+    setStartTime(next.startTime);
+    setEndDate(next.endDate);
+    setEndTime(next.endTime);
+  }
+
+  function handleEndTimeChange(nextEndTime: string) {
+    const next = applyEndTimeChange(
+      { date, startTime, endDate, endTime },
+      nextEndTime,
+    );
+    setEndDate(next.endDate);
+    setEndTime(next.endTime);
   }
 
   function handleDraftDescription() {
@@ -770,17 +798,16 @@ export function CreateEventPopover({
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
     const effectiveAllDay = allDay && !timedOnlyStatus;
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
 
     if (
@@ -926,7 +953,7 @@ export function CreateEventPopover({
         align="end"
         sideOffset={8}
         collisionPadding={16}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:w-72"
+        className={`${eventPopoverShell} w-[calc(100vw-2rem)] sm:w-[284px]`}
         onInteractOutside={(event) => {
           if (findTimeOpen) {
             event.preventDefault();
@@ -947,15 +974,15 @@ export function CreateEventPopover({
           onKeyDown={handleFormKeyDown}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
-            <span className="text-base font-medium text-foreground">
+          <div className={eventPopoverHeader}>
+            <span className={eventPopoverHeaderTitle}>
               {draft ? t("eventForm.reviewInvite") : t("eventForm.event")}
             </span>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="size-7 text-muted-foreground hover:text-foreground"
+              className={eventPopoverHeaderButton}
               aria-label={t("eventForm.cancel")}
               onClick={() => onOpenChange(false)}
             >
@@ -963,7 +990,7 @@ export function CreateEventPopover({
             </Button>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-4 py-2">
             {!isOutOfOffice && (
               <Input
                 id="event-title"
@@ -972,39 +999,44 @@ export function CreateEventPopover({
                 placeholder={t("eventForm.eventTitlePlaceholder")}
                 aria-label={t("eventForm.title")}
                 autoFocus
-                className="h-auto border-0 border-b border-border/70 rounded-none bg-transparent px-0 pb-3 pt-1 text-xl font-normal shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+                className="h-[30px] rounded-md border-0 bg-muted/40 px-2 py-1.5 text-[13px] font-normal shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
               />
             )}
 
-            <div className="flex items-start gap-3 pt-1">
-              <IconClock className="mt-1.5 size-4 shrink-0 text-muted-foreground" />
+            <div className="flex items-start gap-2 pt-1">
+              <IconClock className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 {!allDay ? (
                   <div className="flex flex-wrap items-baseline gap-1">
                     <TimePickerPopover
                       value={startTime}
                       label={t("eventForm.start")}
-                      className="px-1.5 py-1 text-base"
-                      onChange={setStartTime}
+                      className="px-1.5 py-1"
+                      onChange={handleStartTimeChange}
                     />
                     <span className="text-muted-foreground/60">→</span>
                     <TimePickerPopover
                       value={endTime}
                       label={t("eventForm.end")}
-                      className="px-1.5 py-1 text-base"
+                      className="px-1.5 py-1"
+                      after={endDate === date ? startTime : undefined}
                       getOptionMeta={(value) => {
+                        const next = applyEndTimeChange(
+                          { date, startTime, endDate, endTime },
+                          value,
+                        );
                         const duration = differenceInMinutes(
                           new Date(
                             dateTimeInTimezoneToIso(
-                              endDate,
-                              value,
+                              next.endDate,
+                              next.endTime,
                               eventTimezone,
                             ),
                           ),
                           new Date(
                             dateTimeInTimezoneToIso(
-                              date,
-                              startTime,
+                              next.date,
+                              next.startTime,
                               eventTimezone,
                             ),
                           ),
@@ -1013,23 +1045,18 @@ export function CreateEventPopover({
                           ? formatDurationLabel(duration, t)
                           : undefined;
                       }}
-                      onChange={(value) => {
-                        setEndTime(value);
-                        if (endDate === date && value <= startTime) {
-                          setEndDate(addDaysToDateString(date, 1));
-                        }
-                      }}
+                      onChange={handleEndTimeChange}
                     />
                     <span className="text-xs text-muted-foreground/70">
                       {formatDurationLabel(findTimeDurationMinutes, t)}
                     </span>
                   </div>
                 ) : (
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-muted-foreground">
                     {t("eventForm.allDay")}
                   </span>
                 )}
-                <div className="mt-0.5 flex flex-wrap items-center gap-1 text-sm">
+                <div className="mt-0.5 flex flex-wrap items-center gap-1">
                   <DatePickerPopover
                     value={date}
                     label={t("eventForm.startDate")}
@@ -1054,7 +1081,7 @@ export function CreateEventPopover({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 gap-1.5 px-1.5 text-xs text-muted-foreground"
+                className="h-[30px] gap-1.5 px-1.5 text-muted-foreground"
                 onClick={() => setFindTimeOpen(true)}
               >
                 <IconCalendarTime className="size-3.5" />
@@ -1064,8 +1091,8 @@ export function CreateEventPopover({
 
             {!isOutOfOffice && (
               <>
-                <div className="flex items-center gap-3 py-1">
-                  <IconUsers className="size-4 shrink-0 text-muted-foreground" />
+                <div className="flex items-center gap-2 py-1">
+                  <IconUsers className="size-[18px] shrink-0 text-muted-foreground" />
                   <AttendeeAutocomplete
                     ref={attendeeAutocompleteRef}
                     attendees={attendees}
@@ -1076,7 +1103,7 @@ export function CreateEventPopover({
                     placeholder={t("eventForm.attendeesPlaceholder")}
                     variant="inline"
                     className="min-w-0 flex-1"
-                    inputClassName="text-sm"
+                    inputClassName=""
                     onEmptyEnter={() => formRef.current?.requestSubmit()}
                   />
                 </div>
@@ -1089,15 +1116,15 @@ export function CreateEventPopover({
                   </p>
                 )}
 
-                <div className="flex items-center gap-3 py-1">
-                  <IconMapPin className="size-4 shrink-0 text-muted-foreground" />
+                <div className="flex items-center gap-2 py-1">
+                  <IconMapPin className="size-[18px] shrink-0 text-muted-foreground" />
                   <Input
                     id="event-location"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                     placeholder={t("eventForm.optionalLocation")}
                     aria-label={t("eventForm.location")}
-                    className="h-8 border-0 bg-transparent px-0 text-sm shadow-none placeholder:text-muted-foreground/50 focus-visible:ring-0"
+                    className="h-[30px] border-0 bg-transparent px-0 shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
                     list={
                       locationSuggestions.length > 0
                         ? locationSuggestionsId
@@ -1113,8 +1140,8 @@ export function CreateEventPopover({
                   )}
                 </div>
 
-                <div className="flex items-center gap-3 py-1">
-                  <IconVideo className="size-4 shrink-0 text-muted-foreground" />
+                <div className="flex items-center gap-2 py-1">
+                  <IconVideo className="size-[18px] shrink-0 text-muted-foreground" />
                   <Select
                     value={videoProvider === "none" ? "" : videoProvider}
                     onValueChange={(value) => {
@@ -1125,7 +1152,7 @@ export function CreateEventPopover({
                     <SelectTrigger
                       id="event-video-provider"
                       aria-label={t("bookingLinks.conferencing")}
-                      className="h-8 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus:ring-0"
+                      className="h-[30px] flex-1 border-0 bg-transparent px-0 shadow-none focus:ring-0 data-[placeholder]:text-muted-foreground/60"
                     >
                       <SelectValue
                         placeholder={t("bookingLinks.conferencing")}
@@ -1151,10 +1178,10 @@ export function CreateEventPopover({
                   </Select>
                 </div>
                 {eventType === "default" && (
-                  <div className="flex items-center justify-between gap-3 py-1">
+                  <div className="flex items-center justify-between gap-2 py-1 ps-[26px]">
                     <Label
                       htmlFor="event-availability"
-                      className="text-sm text-muted-foreground"
+                      className="text-muted-foreground"
                     >
                       {t("eventForm.showAs")}
                     </Label>
@@ -1166,7 +1193,7 @@ export function CreateEventPopover({
                     >
                       <SelectTrigger
                         id="event-availability"
-                        className="h-8 w-28 text-sm"
+                        className="h-[30px] w-28"
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -1182,7 +1209,7 @@ export function CreateEventPopover({
                   </div>
                 )}
                 {videoProvider === "zoom" && !zoomStatus.data?.connected && (
-                  <div className="ml-7 rounded-md border border-border/60 bg-muted/20 p-2">
+                  <div className="ms-[26px] rounded-md border border-border/60 bg-muted/20 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
                         {zoomStatus.data?.configured === false
@@ -1218,8 +1245,8 @@ export function CreateEventPopover({
                 )}
 
                 {descriptionOpen ? (
-                  <div className="flex items-start gap-3 py-1">
-                    <IconMessage className="mt-1.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="flex items-start gap-2 py-1">
+                    <IconMessage className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start gap-2">
                         <Textarea
@@ -1228,7 +1255,7 @@ export function CreateEventPopover({
                           onChange={(e) => setDescription(e.target.value)}
                           placeholder={t("eventForm.optionalDescription")}
                           rows={2}
-                          className="min-h-16 resize-none border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+                          className="min-h-16 resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
                         />
                         <Button
                           type="button"
@@ -1246,10 +1273,10 @@ export function CreateEventPopover({
                 ) : (
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 rounded-md py-1 text-left text-sm text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
+                    className="flex w-full items-center gap-2 rounded-md py-1 text-left text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
                     onClick={() => setDescriptionOpen(true)}
                   >
-                    <IconMessage className="size-4 shrink-0" />
+                    <IconMessage className="size-[18px] shrink-0" />
                     {t("eventForm.description")}
                   </button>
                 )}
@@ -1265,7 +1292,7 @@ export function CreateEventPopover({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-9 w-full justify-between px-3 text-sm font-normal text-muted-foreground"
+                  className="h-9 w-full justify-between px-3 font-normal text-muted-foreground"
                   aria-label={t("eventForm.eventOptions")}
                 >
                   <span className="truncate">
@@ -1291,7 +1318,7 @@ export function CreateEventPopover({
                         <SelectTrigger
                           id="event-calendar"
                           aria-label={t("navigation.calendar")}
-                          className="h-8 text-sm"
+                          className="h-[30px]"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -1339,7 +1366,7 @@ export function CreateEventPopover({
                       handleEventTypeChange(value as EventType)
                     }
                   >
-                    <SelectTrigger id="event-type" className="h-8 text-sm">
+                    <SelectTrigger id="event-type" className="h-[30px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1372,7 +1399,7 @@ export function CreateEventPopover({
                     >
                       <SelectTrigger
                         id="working-location-type"
-                        className="h-8 text-sm"
+                        className="h-[30px]"
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -1402,7 +1429,7 @@ export function CreateEventPopover({
                         value={title}
                         onChange={(event) => setTitle(event.target.value)}
                         placeholder={t("eventForm.outOfOffice")}
-                        className="h-8 text-sm"
+                        className="h-[30px]"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -1417,7 +1444,7 @@ export function CreateEventPopover({
                       >
                         <SelectTrigger
                           id="event-auto-decline"
-                          className="h-8 text-sm"
+                          className="h-[30px]"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -1449,7 +1476,6 @@ export function CreateEventPopover({
                             setDeclineMessage(event.target.value)
                           }
                           rows={2}
-                          className="text-sm"
                         />
                       </div>
                     )}
@@ -1463,7 +1489,7 @@ export function CreateEventPopover({
                         <div className="flex items-center justify-between gap-2">
                           <Label
                             htmlFor="all-day"
-                            className="text-sm text-muted-foreground"
+                            className="text-muted-foreground"
                           >
                             {t("eventForm.allDay")}
                           </Label>
@@ -1476,9 +1502,7 @@ export function CreateEventPopover({
                     </Tooltip>
                   ) : (
                     <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="all-day" className="text-sm">
-                        {t("eventForm.allDay")}
-                      </Label>
+                      <Label htmlFor="all-day">{t("eventForm.allDay")}</Label>
                       <Switch
                         id="all-day"
                         checked={allDay}
@@ -1527,10 +1551,7 @@ export function CreateEventPopover({
                       }
                       disabled={eventType === "workingLocation"}
                     >
-                      <SelectTrigger
-                        id="event-visibility"
-                        className="h-8 text-sm"
-                      >
+                      <SelectTrigger id="event-visibility" className="h-[30px]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1624,7 +1645,7 @@ export function CreateEventPopover({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 text-xs"
+              className="h-[30px]"
               onClick={() => {
                 initializedKeyRef.current = null;
                 onOpenChange(false);
@@ -1635,7 +1656,7 @@ export function CreateEventPopover({
             <Button
               type="submit"
               size="sm"
-              className="h-8 text-xs"
+              className="h-[30px]"
               disabled={
                 createEvent.isPending ||
                 !accountEmail ||

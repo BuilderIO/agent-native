@@ -29,61 +29,48 @@ Read the relevant skill before deeper work in that area.
 
 ## Actions
 
-- Resolve templates or prior designs with `list-design-templates` and
-  `list-designs`, copy with `create-design-from-template`, then inspect and
-  adapt copied files with `get-design-snapshot` and `edit-design`. The design
-  list is paginated: pass `page` and `pageSize`, use `createdBy: "me"` for the
-  current user's designs, and pass `search` for a title search. Follow the
-  returned pagination metadata before treating the result as complete.
-- Copied template screens are edited in place. Preserve
-  `createdFromTemplate.lockedDimensions`/`lockedFonts` from `view-screen` in
-  every edit; `get-design-template` returns the original.
+| Action | Purpose |
+| --- | --- |
+| `list-design-templates` / `list-designs` | Resolve a named template or prior design; paginated (`page`, `pageSize`, `createdBy: "me"`, `search`) |
+| `create-design-from-template` | Copy a template into a new design; screens keep their `createdFromTemplate` locks |
+| `get-design-snapshot` / `get-design-template` | Inspect a copied design's current files, or the original template |
+| `open-visual-edit` | Open a running localhost app as live URL-backed iframe screens without a Design login |
+| `add-localhost-screens` / `update-screen-source` | Add route/state screens or switch one selected screen between live URL and static HTML |
+| `add-breakpoint` / `remove-breakpoint` | Manage responsive frames on the canvas |
+| `edit-design` | Adapt an existing or copied design/screen in place |
+| `create-design` | Start a new design (empty shell, `renderable: false`) |
+| `generate-design` | Generate a fresh screen — never for a copied template screen |
+| `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
+| `view-screen` | Re-read the current design or selected file when context is stale |
+| `navigate` | Move the UI to a design, file, or panel |
+| `export-png` | Export screen as PNG |
+| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export a finished design |
 
 ## Core Rules
 
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
-  Builder/internal data, customer data, or credential-looking literals. Use
-  secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- Use the app actions for designs, files, versions, design systems, variants,
-  export, and sharing. Do not write design rows directly with SQL.
+- Use app actions for designs, files, versions, systems, variants, exports, and
+  sharing; do not write design rows directly with SQL.
 - A message beginning with `[Reprompt selection]` is preview-only: the only
   mutation path is `propose-node-rewrite`; never call a content writer.
   `[Selection question]` is read-only: answer about the captured element and
   subtree without calling content-writing actions.
-- Call `view-screen` before editing a specific design if the current design or
-  selected file is not already clear from context.
 - Generated files must be complete, standalone HTML (Alpine.js + Tailwind CDN)
   that renders in the iframe without a build step. See `design-generation` for
   the phases, quality bar, and the audit/screenshot pass required before
   calling a design "ready".
 - Treat `data-agent-native-locked="true"` as authoritative — see
   `design-generation` for locked-subtree rules.
-- Figma import/read/paste and design-system/token workflows are fully covered in
-  `design-systems` — read it before guessing the calling convention, and never
-  promise lossless Figma import/export.
-- Persist useful work early: create/update the design and files as soon as a
-  coherent candidate exists, then iterate.
-- For shared prototype feedback, use the persisted review actions — read
-  `design-review-feedback` for the loop.
-- Follow linked design-system tokens and `customInstructions` whenever
-  present; explicit user instructions in the current turn still win. Before
-  generation, follow the `creative-context` reuse ladder and respect
-  `contextMode: "off"`.
-- When the user references a template or prior design, resolve it first — see
-  `design-templates` for the lookup and reuse order.
 - Design source modes are `inline`, `localhost`, and `fusion` — see
   `full-app-build`. Public `/visual-edit` and `/design/:id` links can render
-  read-only without a session — never run anonymous write actions
-  (save/share/generate/localhost connect); send signed-out visitors through
-  `buildSignInReturnHref()` first.
-- For multi-variant exploration, use `present-design-variants` (2-5, three by
-  default) — see `design-generation` Phase 2 for the pick → refine flow.
-- When the user asks to download/export, see `export-handoff`.
+  read-only without a session. Only the short-lived,
+  design-scoped `capability:visual-edit` embed minted by `open-visual-edit`
+  may perform its localhost screen, breakpoint, snapshot, and source actions;
+  it is not an account session and cannot save/share/generate or access another
+  design. Bare public links stay read-only. The page-local
+  `get-visual-edit-prompt` tool returns the latest pending source handoff;
+  account operations use `buildSignInReturnHref()`.
 
 ## Application State
 
@@ -91,7 +78,7 @@ Read the relevant skill before deeper work in that area.
 - `navigate` — moves the UI in the tab that asked; auto-deleted after the
   client consumes it.
 - `design-selection` — active screen, selected element, overview mode,
-  inspector tab, zoom, and screen list for the current tab.
+  inspector tab, zoom, screen list, and `layoutGrid`.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions` —
   generation planning, pre-generation questions, and the variant chat choice;
   see `design-generation`.

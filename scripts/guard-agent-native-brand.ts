@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const SELF_PATH = "scripts/guard-agent-native-brand.ts";
 const LEGACY_ASSET_RE = /\bagent[ \t]+native(?:[ \t]+nightly)?-/gi;
@@ -49,10 +50,10 @@ export function findBrandViolations(files: readonly BrandFile[]): string[] {
 }
 
 function readCandidateFiles(): BrandFile[] {
-  const files = execFileSync(
+  const files = execGuardCommand(
     "git",
     ["ls-files", "-co", "--exclude-standard", "-z"],
-    { encoding: "utf8" },
+    { encoding: "utf8", maxBuffer: 1 << 28 },
   )
     .split("\0")
     .filter(Boolean);

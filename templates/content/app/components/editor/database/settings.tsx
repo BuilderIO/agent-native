@@ -1,5 +1,6 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
+  BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
@@ -264,7 +265,7 @@ export function DatabaseSettingsPanelSheet({
 
   const title =
     panel === "main"
-      ? "Database settings"
+      ? "Collection settings"
       : panel === "source"
         ? sourceNavTitle(sourceNavStack)
         : databaseSettingsPanelTitle(panel);
@@ -380,7 +381,7 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
   if (panel === "group") return "Group";
-  return "Database settings";
+  return "Collection settings";
 }
 
 function DatabaseSettingsMainPanel({
@@ -702,6 +703,7 @@ function DatabaseSettingsSourcePanel({
         : [{ id: "builder-space", name: dbText("builderSpace") }];
   const builderSpaceLabel = builderSpaces[0]?.name ?? builderOrgName;
   const connect = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "database_source_panel",
     onConnected: () => {
       void builderStatus.refetch();
@@ -869,19 +871,20 @@ function DatabaseSettingsSourcePanel({
             {dbText("connectYourBuilderAccountToBrowseItsSpaces")}
           </div>
           <div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!canEdit || connect.connecting}
-              onClick={() => connect.start()}
-            >
-              {connect.connecting ? (
-                <Spinner className="mr-1.5 size-3.5" />
-              ) : (
-                <IconExternalLink className="mr-1.5 size-3.5" />
-              )}
-              Connect Builder
-            </Button>
+            <BuilderConnectPopover flow={connect}>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canEdit || connect.connecting}
+              >
+                {connect.connecting ? (
+                  <Spinner className="mr-1.5 size-3.5" />
+                ) : (
+                  <IconExternalLink className="mr-1.5 size-3.5" />
+                )}
+                Connect Builder
+              </Button>
+            </BuilderConnectPopover>
           </div>
         </div>
       );
@@ -3259,7 +3262,7 @@ function databaseOpenPagesInLabel(value: ContentDatabaseOpenPagesIn) {
 function databaseOpenPagesInDescription(value: ContentDatabaseOpenPagesIn) {
   return value === "full_page"
     ? "Navigate to the page when opening a row."
-    : "Open rows in a side panel without leaving the database.";
+    : "Open rows in a side panel without leaving the collection.";
 }
 
 export function databaseFilterModeLabel(filterMode: DatabaseFilterMode) {

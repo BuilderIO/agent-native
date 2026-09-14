@@ -128,6 +128,17 @@ describe("interactive agent run options", () => {
 });
 
 describe("request-scoped action surface", () => {
+  it("does not import the release migration script during dev discovery", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const skipFiles = source.match(
+      /const skipFiles = new Set\(\[[\s\S]*?\]\);/,
+    )?.[0];
+
+    expect(skipFiles).toContain('"migrate-production"');
+  });
+
   it("restores the durable worker org from the validated persisted surface", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {
       encoding: "utf-8",
@@ -529,6 +540,16 @@ describe("background automation action surface — wiring guards", () => {
 describe("framework tool gating — wiring guards", () => {
   const source = readFileSync("src/server/agent-chat-plugin.ts", {
     encoding: "utf-8",
+  });
+
+  it("merges core actions before filtering an explicit agent registry", () => {
+    const merge = source.indexOf(
+      "await mergeCoreSharingActions(templateScriptsAll);",
+    );
+    expect(merge).toBeGreaterThan(source.indexOf("const rawActions ="));
+    expect(merge).toBeLessThan(
+      source.indexOf("filterAgentTools(templateScriptsAll)"),
+    );
   });
 
   it("resolves the framework tool surface once and gates both agent registries", () => {

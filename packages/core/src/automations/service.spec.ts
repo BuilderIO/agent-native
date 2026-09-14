@@ -9,13 +9,12 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  intType: () => "INTEGER",
-  isPostgres: () => false,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn(),
   ensureIndexExists: vi.fn(),
+  ensureColumnExists: vi.fn(),
 }));
 
 vi.mock("../settings/user-settings.js", () => ({
@@ -23,6 +22,7 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  SHARED_OWNER: "__shared__",
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -255,6 +255,97 @@ describe("automation domain service", () => {
     ).toBe(true);
   });
 
+  it("lets a Factory org member queue a recovered folder job that lost domain", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const recovered = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`);
+    recovered.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(true);
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a personal job on a Factory-looking path", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const personal = resource(
+      `---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`,
+      "alice@example.com",
+    );
+    personal.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        personal,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a Factory-path job whose orgId does not match its owner", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const mismatched = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-2"
+---
+
+Observe Slack.`);
+    mismatched.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        mismatched,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a recovered Factory-folder job owned by another app", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const calendarJob = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+appId: calendar
+---
+
+Send the digest.`);
+    calendarJob.path = "jobs/factories/demo-factory/calendar-digest.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        calendarJob,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
   it("still refuses a Mail org member who is not the creator or admin", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
 
@@ -295,12 +386,76 @@ describe("automation domain service", () => {
       expect.stringContaining("createdBy: alice@example.com"),
     );
 
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain('deliveryPlatform: "slack"');
+    expect(updatedContent).toContain('deliveryDestination: "channel-1"');
+    expect(updatedContent).toContain("mcp__mail__send");
+    expect(updatedContent.indexOf("deliveryPlatform:")).toBeGreaterThan(
+      updatedContent.indexOf("mcpTools:"),
+    );
+
     await deleteAutomation(
       { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
       "notify",
     );
     expect(resourceDeleteMock).toHaveBeenCalledWith("automation-1");
+  });
+
+  it("patches Factory extras in place instead of rebuilding the job document", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(`---
+enabled: true
+slackChannelId: C0BUK2293SA
+displayName: Slack feedback
+triggerType: schedule
+schedule: "*/5 * * * *"
+createdBy: alice@example.com
+orgId: "org-1"
+appId: factory
+runAs: creator
+---
+
+Observe Slack.`),
+    );
+
+    await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "factory" },
+      {
+        name: "notify",
+        scope: "organization",
+        enabled: false,
+      },
+    );
+
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain("enabled: false");
+    expect(updatedContent).toContain("slackChannelId: C0BUK2293SA");
+    expect(updatedContent).toContain("displayName: Slack feedback");
+    expect(updatedContent.indexOf("slackChannelId: C0BUK2293SA")).toBeLessThan(
+      updatedContent.indexOf("triggerType: schedule"),
+    );
+  });
+
+  it("rejects an invalid delegatedPolicyId on update without rewriting the job", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          delegatedPolicyId: "crm-safe\nenabled: false",
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/Delegated automation policy IDs/),
+    });
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("rejects an ordinary org member mutating another creator's automation", async () => {

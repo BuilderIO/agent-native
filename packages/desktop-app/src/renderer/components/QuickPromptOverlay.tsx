@@ -339,6 +339,7 @@ export default function QuickPromptOverlay({
         });
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : String(error));
+        throw error;
       } finally {
         setLocalSubmitting(false);
       }
@@ -395,7 +396,7 @@ export default function QuickPromptOverlay({
         className="quick-prompt-overlay__composer"
         composerRef={composerRef}
         disabled={submitting || localSubmitting}
-        initialText=""
+        draftScope="desktop:quick-prompt"
         layoutVariant="hero"
         placeholder="Ask anything…"
         showModelSelector

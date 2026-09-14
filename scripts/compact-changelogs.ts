@@ -236,7 +236,7 @@ function compactPackage(root: string, mode: Mode): boolean {
 function run(mode: Mode): string[] {
   const changed: string[] = [];
   const appRoots = [
-    ...["templates", "examples", "apps"].flatMap(listRoots),
+    ...["templates", "apps"].flatMap(listRoots),
     path.join(rootDir, "packages", "docs"),
   ];
   const appRootSet = new Set(appRoots);

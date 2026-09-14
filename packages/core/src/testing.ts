@@ -9,10 +9,7 @@
  * actually needs it.
  */
 
-export {
-  createGetDb,
-  patchBetterSqliteTransactions,
-} from "./db/create-get-db.js";
+export { createGetDb } from "./db/create-get-db.js";
 
 export { startLocalPlanBridge } from "./cli/plan-local.js";
 

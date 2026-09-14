@@ -1,12 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-  safeJsonParse,
-} from "../db/client.js";
+import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
@@ -25,7 +19,6 @@ function normalizeLimit(value: number | undefined, fallback = 50): number {
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
           CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
@@ -35,12 +28,12 @@ export async function ensureTable(): Promise<void> {
             body TEXT,
             metadata TEXT,
             delivered_channels TEXT NOT NULL DEFAULT '[]',
-            created_at ${intType()} NOT NULL,
-            read_at ${intType()}
+            created_at BIGINT NOT NULL,
+            read_at BIGINT
           )
         `;
 
-      if (isPostgres()) {
+      {
         // PG-guard: probe information_schema / pg_indexes first (no lock) and
         // only issue DDL when the table/index is actually missing, wrapped in
         // a transaction-scoped lock_timeout so a contended lock fails fast.
@@ -51,15 +44,6 @@ export async function ensureTable(): Promise<void> {
         );
         return;
       }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // retryOnDdlRace behaviour.
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_notifications_owner_unread ON notifications (owner, read_at)`,
-        ),
-      );
     })().catch((err) => {
       // Reset on failure so a transient DB outage doesn't poison the cached
       // promise and reject every future insert/list call for the lifetime of

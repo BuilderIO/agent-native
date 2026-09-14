@@ -107,7 +107,8 @@ function buildDelegationMessage(request: AssetsImageRequest): string {
         `${references.join(", ")}\n`
       : "") +
     `\nPick the best matching library via match-library if no libraryId is ` +
-    `obvious, then generate with generate-image-batch. Return assetId, runId, ` +
+    `obvious, then generate with generate-image-batch. Return id (the asset ` +
+    `ID), runId, ` +
     `previewUrl, and downloadUrl verbatim so the slides agent can drop them ` +
     `into the slide HTML. Set source: "a2a" and callerAppId: "slides" so the ` +
     `Assets audit log groups these generations.`

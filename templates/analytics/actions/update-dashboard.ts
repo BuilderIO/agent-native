@@ -1,9 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
@@ -18,6 +20,7 @@ import {
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
+import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   applyPanelOrder,
@@ -286,6 +289,8 @@ export function validateDashboardConfig(
   if (!config || typeof config !== "object") {
     return "config must be an object";
   }
+  const normalized = normalizeDashboardConfig(config);
+  if (normalized !== config) config.panels = normalized.panels;
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
     return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
   }
@@ -624,6 +629,25 @@ function dashboardResult(
   };
 }
 
+function trackDashboardSaved(
+  dashboardId: string,
+  config: Record<string, unknown>,
+  actionContext?: ActionRunContext,
+) {
+  track(
+    "dashboard_saved",
+    {
+      app_name: "analytics",
+      template_name: "analytics",
+      output_id: dashboardId,
+      output_type: "dashboard",
+      dashboard_id: dashboardId,
+      panel_count: countPanels(config),
+    },
+    actionContext,
+  );
+}
+
 function opCanChangePanelSql(op: JsonOp): boolean {
   if (op.op === "move" || op.op === "move-before" || op.op === "remove") {
     return false;
@@ -722,6 +746,7 @@ export default defineAction({
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
       );
       const panelCount = countPanels(args.config);
+      trackDashboardSaved(dashboardId, args.config, actionContext);
       return dashboardResult(
         dashboardId,
         args.config,
@@ -754,6 +779,7 @@ export default defineAction({
         root,
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
       );
+      trackDashboardSaved(dashboardId, root, actionContext);
       return dashboardResult(
         dashboardId,
         root,
@@ -802,6 +828,7 @@ export default defineAction({
     );
 
     const panelCount = countPanels(root);
+    trackDashboardSaved(dashboardId, root, actionContext);
     return dashboardResult(
       dashboardId,
       root,

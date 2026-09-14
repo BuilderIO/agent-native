@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Ajustes",
     description: "Preferencias de idioma y espacio de trabajo para esta app.",
+    labs: "Labs",
+    labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
+    labLayoutOverflowWarningDescription:
+      "Mostrar la advertencia de desbordamiento del diseño en el editor.",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
       "Recibe un correo cuando alguien comente o responda en tu presentación.",
@@ -87,10 +91,8 @@ const messages = {
     cloudConnectedReloading: "Conectado correctamente. Recargando...",
     cloudConnectionFailed: "Error de conexión",
     cloudTestConnect: "Probar y conectar",
-    cloudSqliteEdge: "SQLite en el edge",
     cloudServerlessPostgres: "Postgres sin servidor",
     cloudOpenSourceFirebaseAlternative: "Alternativa open source a Firebase",
-    cloudCloudflareSqliteEdge: "SQLite en el edge de Cloudflare",
     designSlidePreview: "Vista previa de diapositiva",
     designSlideTitle: "Título de diapositiva",
     designSupportingText:
@@ -148,6 +150,8 @@ const messages = {
     clearSelection: "Borrar selección",
     sendToAgent: "Enviar al agente",
     saveReconnect: "Los cambios se guardarán al reconectar",
+    saveFailedDescription:
+      "Tus cambios más recientes solo están en este dispositivo. Descarga una copia de seguridad antes de salir.",
     offline: "Sin conexión",
     selected: "seleccionado",
     chooseDesignSystem: "Elige un sistema de diseño",
@@ -211,6 +215,9 @@ const messages = {
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando un sistema de diseño vinculado",
     viewOnly: "Solo lectura",
+    sourcePreserving: "Edición limitada",
+    sourcePreservingDescription:
+      "Puedes editar texto y objetos. Añadir, eliminar o reordenar diapositivas está desactivado para este deck importado.",
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Puede ver y añadir comentarios",
     slideSettings: "Ajustes de diapositiva",
@@ -267,6 +274,12 @@ const messages = {
     more: "Más",
     importing: "Importando...",
     importFile: "Importar archivo",
+    downloadBackup: "Descargar copia de seguridad",
+    importBackup: "Importar copia de seguridad",
+    backupDownloaded: "Copia de seguridad descargada",
+    backupDownloadFailed: "No se pudo descargar la copia de seguridad",
+    invalidBackup:
+      "Elige un archivo JSON de copia de seguridad de Slides válido.",
     savedVersions: "Versiones guardadas",
     lightTheme: "Tema claro",
     darkTheme: "Tema oscuro",
@@ -274,6 +287,7 @@ const messages = {
   editorExport: {
     pptxFailed: "No se pudo generar el archivo PPTX.",
     exportFailed: "Error al exportar",
+    exporting: "Exportando...",
     exportPptxError: "Algo salió mal al exportar como PPTX.",
     googleSlidesDownloaded: "Descargado para Google Slides",
     googleSlidesImportHint:
@@ -290,6 +304,10 @@ const messages = {
     exportPptx: "Exportar como PPTX",
     connectGoogle: "Conectar Google",
     openInGoogleSlides: "Abrir en Google Slides",
+    googleSlidesUnavailable: "No disponible",
+    googleSlidesOpenImporter: "Abrir la importación de Google Slides",
+    googleSlidesUnavailableHint:
+      "La exportación a Google Slides no está disponible ahora mismo porque la conexión con Google no está configurada. Exporta como PPTX e impórtalo en Google Slides.",
     googleSlidesCreated: "Abierto en Google Slides",
     googleSlidesCreatedHint:
       "Se creó una copia de esta presentación en tu Google Drive.",
@@ -467,6 +485,10 @@ const messages = {
     rose: "Rose",
     arrange: "Organizar",
     order: "Orden",
+    group: "Agrupar",
+    ungroup: "Desagrupar",
+    bringForward: "Traer adelante",
+    sendBackward: "Enviar atrás",
     bringToFront: "Traer al frente",
     sendToBack: "Enviar al fondo",
     copyStyle: "Copiar estilo",

@@ -132,8 +132,9 @@ When the agent writes to application-state via script helpers (`writeAppState`, 
 ### Template setup
 
 ```ts
-// app/lib/tab-id.ts
-export const TAB_ID = `tab-${Math.random().toString(36).slice(2, 8)}`;
+// app/lib/tab-id.ts — already scaffolded, do not redefine
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+export const TAB_ID = getBrowserTabId();
 
 // app/root.tsx
 import { TAB_ID } from "@/lib/tab-id";
@@ -143,6 +144,8 @@ useDbSync({
   ignoreSource: TAB_ID,
 });
 ```
+
+`getBrowserTabId()` is the id the server resolves tab-scoped `application_state` and WebMCP calls against — see `context-awareness`.
 
 The `use-navigation-state.ts` hook sends the same `TAB_ID` in the `X-Request-Source` header when writing navigation state, so the tab that wrote the state does not refetch it.
 

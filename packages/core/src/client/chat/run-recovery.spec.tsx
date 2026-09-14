@@ -53,6 +53,7 @@ vi.mock("../i18n.js", () => ({
         "agentPanel.addOwnKeys": "Custom keys",
         "agentChat.common.waiting": "Waiting",
         "agentChat.common.connect": "Connect",
+        "agentChat.common.continue": "Continue",
         "agentChat.common.retry": "Retry",
         "agentChat.common.details": "Details",
         "agentChat.common.dismiss": "Dismiss",
@@ -291,6 +292,45 @@ describe("run recovery surfaces", () => {
     expect(copyButton?.title).toBe("Copy debug info");
     expect(retryButton?.textContent).toBe("");
     expect(newChatButton?.textContent).toBe("");
+  });
+
+  it("gives Continue vertical padding and leaves icon actions unframed", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The agent connection was interrupted.",
+              errorCode: "connection_error",
+              runId: "run-123",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const continueButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Continue");
+    const actionGroup = continueButton?.nextElementSibling;
+    const actionClasses = actionGroup?.className.split(/\s+/) ?? [];
+
+    expect(continueButton?.className).toContain("py-2");
+    expect(actionClasses).toEqual(
+      expect.arrayContaining(["flex", "shrink-0", "items-center"]),
+    );
+    expect(actionClasses).not.toContain("border");
+    expect(actionClasses).not.toContain("bg-background/60");
+    expect(actionClasses).not.toContain("p-0.5");
+    expect(actionGroup?.querySelectorAll("button")).toHaveLength(3);
   });
 
   it("shows Connect AI instead of recovery warnings for desktop relay failures", async () => {
