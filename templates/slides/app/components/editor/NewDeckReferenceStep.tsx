@@ -577,6 +577,11 @@ export function NewDeckReferenceStep({
         onClose={() => setShowDesignSystemSetup(false)}
         onComplete={() => {
           setShowDesignSystemSetup(false);
+          // Most sources hand off to the agent and complete before the row
+          // exists, so this can be a no-op; it only helps the synchronous
+          // edit/GitHub-only paths. The dropdown still catches up once the
+          // agent-created row lands, via the shared action-query sync in
+          // useDbSync (see root.tsx), not through this call.
           onDesignSystemsChanged();
         }}
       />
