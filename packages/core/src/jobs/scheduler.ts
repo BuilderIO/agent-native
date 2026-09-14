@@ -284,24 +284,36 @@ async function processRecurringJobsWithLease(
         continue;
       }
 
-      // Skip disabled or missing schedule
-      if (!meta.enabled || !meta.schedule) continue;
-      if (!isValidCron(meta.schedule)) continue;
-
-      // Skip if currently running, unless it has been stuck for more than 10 minutes
-      // (server crash mid-job leaves lastStatus=running forever without this guard)
+      // Every automation shares this running lock — scheduled, event-triggered,
+      // and manual-only alike. Manual and event automations have no
+      // `meta.schedule`, so they used to fall straight through the
+      // schedule-only skip below and never reach a stale-reset: a crashed or
+      // recycled worker left `lastStatus: running` forever, since nothing but
+      // a matching event or a manual retry past the timeout ever looked at
+      // them again. Sweep every resource here, before the schedule gate, so a
+      // stuck run heals on its own within one tick of the timeout regardless
+      // of automation type.
       if (meta.lastStatus === "running") {
         if (isBackgroundAutomationRunActive(meta, now)) continue;
-        // Stuck — reset so the next check can re-run it
+        // Stuck — reset so the automation (and its audit trail) is unblocked.
         meta.lastStatus = "error";
         meta.lastError =
           "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
-        const next = nextOccurrence(meta.schedule, now, meta.timezone);
-        meta.nextRun = next.toISOString();
+        if (meta.schedule && isValidCron(meta.schedule)) {
+          meta.nextRun = nextOccurrence(
+            meta.schedule,
+            now,
+            meta.timezone,
+          ).toISOString();
+        }
         await updateResource(resource, meta, body);
         await recoverStaleAutomationHistory(resource.owner, resource.path);
         continue;
       }
+
+      // Skip disabled or missing schedule
+      if (!meta.enabled || !meta.schedule) continue;
+      if (!isValidCron(meta.schedule)) continue;
 
       // Check if due
       if (meta.nextRun) {
