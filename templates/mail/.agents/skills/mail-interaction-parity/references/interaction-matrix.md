@@ -768,7 +768,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   cleanup; 51 focused hook/layout/palette tests and all 847 Mail tests pass.
   Local browser replay is still pending because `localhost:8080` did not
   respond from this runner, and the Superhuman tab remains on its public
-  landing page.
+  landing page. A separate disconnected browser pass searched the Mail
+  command palette for `shortcut`; only the Ask AI fallback appeared, with no
+  shortcut-reference entry. This is a candidate gap against the recorded
+  Superhuman Command → Shortcuts baseline; a live paired replay remains
+  unverified.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app
