@@ -645,11 +645,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ".vite": true,
   };
 
-  function isProvenanceNoisePath(path: string): boolean {
+  // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
+  // built package is a real local file. node_modules stays noise even
+  // through /@fs/: Vite resolves symlinks, so a linked workspace package
+  // never carries a node_modules segment, and third-party code always
+  // arrives here by its real path.
+  function isProvenanceNoisePath(
+    path: string,
+    localServedOutput: boolean,
+  ): boolean {
     var segments = path.split("/");
     for (var i = 0; i < segments.length; i += 1) {
-      if (PROVENANCE_NOISE_SEGMENTS[segments[i]!]) return true;
-      if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+      var segment = segments[i]!;
+      if (localServedOutput && (segment === "dist" || segment === "build")) {
+        continue;
+      }
+      if (PROVENANCE_NOISE_SEGMENTS[segment]) return true;
+      if (segment === "_next" && segments[i + 1] === "static") return true;
     }
     return false;
   }
@@ -722,11 +734,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var resolved = resolveProvenanceFrameUrl(match[2]!);
     if (!resolved) return null;
     // A Vite /@fs/ frame is a real local file even when its path contains
-    // dist/ or node_modules/. Ordinary runtime/module frames retain the noise
-    // filter so React internals never become element provenance.
+    // dist/ or build/ — but node_modules stays noise even through /@fs/, so a
+    // classic-transform createElement frame served from a symlinked
+    // dependency (react.development.js) never becomes element provenance.
     if (
-      !resolved.localServedOutput &&
-      isProvenanceNoisePath(resolved.sourceFile)
+      isProvenanceNoisePath(resolved.sourceFile, resolved.localServedOutput)
     ) {
       return null;
     }

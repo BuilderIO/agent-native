@@ -20,11 +20,15 @@ export const sourceLocationBridgeScript: string = `"use strict";
       public: true,
       ".vite": true
     };
-    function isNoisePath(path) {
+    function isNoisePath(path, localServedOutput) {
       var segments = path.split("/");
       for (var i = 0; i < segments.length; i += 1) {
-        if (NOISE_SEGMENTS[segments[i]]) return true;
-        if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+        var segment = segments[i];
+        if (localServedOutput && (segment === "dist" || segment === "build")) {
+          continue;
+        }
+        if (NOISE_SEGMENTS[segment]) return true;
+        if (segment === "_next" && segments[i + 1] === "static") return true;
       }
       return false;
     }
@@ -57,7 +61,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
       var rawUrl = match[2];
       var resolved = resolveFrameUrl(rawUrl);
       if (!resolved) return null;
-      if (!resolved.localServedOutput && isNoisePath(resolved.sourceFile)) {
+      if (isNoisePath(resolved.sourceFile, resolved.localServedOutput)) {
         return null;
       }
       var lineNumber = Number(match[3]);

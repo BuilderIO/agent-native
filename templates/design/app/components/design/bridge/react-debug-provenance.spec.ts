@@ -219,6 +219,40 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
     });
   });
 
+  it("keeps node_modules noise even through the /@fs/ exemption (classic-transform createElement)", () => {
+    const classicFsStack = (frame: string): { stack: string } => ({
+      stack: [
+        "Error: react-stack-top-frame",
+        "    at exports.createElement (http://localhost:8220/@fs/Users/dev/app/node_modules/.pnpm/react@19.2.7/node_modules/react/cjs/react.development.js:1234:56)",
+        frame,
+      ].join("\n"),
+    });
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugStack: classicFsStack(
+          "    at Card (http://localhost:8220/@fs/Users/dev/app/src/components/Card.jsx:12:5)",
+        ),
+        return: {
+          type: Card,
+          key: null,
+          _debugStack: classicFsStack(
+            "    at App (http://localhost:8220/@fs/Users/dev/app/src/App.jsx:44:20)",
+          ),
+          return: null,
+        },
+      }),
+    );
+
+    // /@fs/ only exempts dist/build (a locally built package): third-party
+    // code always arrives at its real node_modules path (Vite resolves
+    // symlinks), so the createElement frame must still be dropped as noise
+    // and the walk falls through to the authored Card/App frames below it.
+    expect(provenance.sourceFile).toMatch(/\/src\/components\/Card\.jsx$/);
+    expect(provenance.ownerSourceFile).toMatch(/\/src\/App\.jsx$/);
+  });
+
   it("resolves Vite /@fs/ absolute-path frames", () => {
     const provenance = frameworkDebugProvenance(
       elementWithFiber({

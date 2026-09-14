@@ -79,11 +79,20 @@
     ".vite": true,
   };
 
-  function isNoisePath(path: string): boolean {
+  // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
+  // built package is a real local file. node_modules stays noise even
+  // through /@fs/: Vite resolves symlinks, so a linked workspace package
+  // never carries a node_modules segment, and third-party code always
+  // arrives here by its real path.
+  function isNoisePath(path: string, localServedOutput: boolean): boolean {
     var segments = path.split("/");
     for (var i = 0; i < segments.length; i += 1) {
-      if (NOISE_SEGMENTS[segments[i]!]) return true;
-      if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+      var segment = segments[i]!;
+      if (localServedOutput && (segment === "dist" || segment === "build")) {
+        continue;
+      }
+      if (NOISE_SEGMENTS[segment]) return true;
+      if (segment === "_next" && segments[i + 1] === "static") return true;
     }
     return false;
   }
@@ -140,7 +149,11 @@
     var rawUrl = match[2]!;
     var resolved = resolveFrameUrl(rawUrl);
     if (!resolved) return null;
-    if (!resolved.localServedOutput && isNoisePath(resolved.sourceFile)) {
+    // A Vite /@fs/ frame is a real local file even when its path contains
+    // dist/ or build/ — but node_modules stays noise even through /@fs/, so a
+    // classic-transform createElement frame served from a symlinked
+    // dependency (react.development.js) never becomes element provenance.
+    if (isNoisePath(resolved.sourceFile, resolved.localServedOutput)) {
       return null;
     }
     var lineNumber = Number(match[3]);

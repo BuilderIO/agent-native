@@ -1262,11 +1262,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       public: true,
       ".vite": true
     };
-    function isProvenanceNoisePath(path) {
+    function isProvenanceNoisePath(path, localServedOutput) {
       var segments = path.split("/");
       for (var i = 0; i < segments.length; i += 1) {
-        if (PROVENANCE_NOISE_SEGMENTS[segments[i]]) return true;
-        if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+        var segment = segments[i];
+        if (localServedOutput && (segment === "dist" || segment === "build")) {
+          continue;
+        }
+        if (PROVENANCE_NOISE_SEGMENTS[segment]) return true;
+        if (segment === "_next" && segments[i + 1] === "static") return true;
       }
       return false;
     }
@@ -1304,7 +1308,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var resolved = resolveProvenanceFrameUrl(match[2]);
       if (!resolved) return null;
-      if (!resolved.localServedOutput && isProvenanceNoisePath(resolved.sourceFile)) {
+      if (isProvenanceNoisePath(resolved.sourceFile, resolved.localServedOutput)) {
         return null;
       }
       var line = parseInt(match[3], 10);
