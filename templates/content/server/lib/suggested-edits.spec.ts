@@ -301,6 +301,58 @@ describe("Content document suggestion adapter", () => {
     ).resolves.toHaveLength(1);
   });
 
+  it("allows adding a block above unchanged readable media", async () => {
+    const image = "![Cover](https://example.com/cover.png)";
+    const before = "Intro\n\n" + image + "\n\nOutro";
+    const after = "Intro\n\nAdded paragraph.\n\n" + image + "\n\nOutro";
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("allows removing a block above unchanged readable media", async () => {
+    const image = "![Cover](https://example.com/cover.png)";
+    const before = "Intro\n\nSpare paragraph.\n\n" + image + "\n\nOutro";
+    const after = "Intro\n\n" + image + "\n\nOutro";
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
   it("rejects relocating otherwise unchanged unsupported media", async () => {
     const image = "![Cover](https://example.com/cover.png)";
     const before = `Text A\n\n${image}\n\nText B`;
