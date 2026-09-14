@@ -2599,7 +2599,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     var PORTABLE_STYLE_QUOTED_STRING = /"[^"]*"|'[^']*'/g;
     function isPortableStyleSimpleSelector(selector) {
       if (typeof selector !== "string" || !selector) return false;
-      var withoutQuotedValues = selector.replace(PORTABLE_STYLE_QUOTED_STRING, "");
+      var withoutQuotedValues = selector.replace(
+        PORTABLE_STYLE_QUOTED_STRING,
+        ""
+      );
       return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
     }
     function isPortableStyleGroupingRule(rule) {
