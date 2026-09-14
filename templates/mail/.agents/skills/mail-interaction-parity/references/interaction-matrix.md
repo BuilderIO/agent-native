@@ -89,7 +89,9 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   body, and Search. Selecting `Search emails /` closes Command and focuses
   Search; when compose is open it stays open. A synthetic no-match query showed
   no suggestions, and Escape closed Search and restored the original route;
-  reopening showed a blank field. A second synthetic query was reflected in
+  reopening showed a blank field. In a separate `/all` pass, Escape with a
+  synthetic query active cleared it back to `/all` and left the open compose
+  panel intact. A second synthetic query was reflected in
   `/mail/all?q=local-nav-focus-probe`; Escape from Search returned to the
   original `/mail/inbox?tab=important` route. With the compose body focused,
   `/` inserted a slash and opened the editor's block picker instead of global
@@ -396,7 +398,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   frequency order: a name query preserved that order, Enter committed the first
   result, and a mixed-case exact-address query narrowed to one contact. This
   confirms Mail's current UI behavior only; Superhuman's matching and ranking
-  remain unknown pending paired observation.
+  remain unknown pending paired observation. A new eight-contact regression
+  reaches the last option in the 200px scrollable list and verifies that the
+  active option requests `scrollIntoView({ block: "nearest" })`; Mail previously
+  changed `aria-selected` without scrolling it into view. This is Mail-only
+  interaction proof, not a confirmed Superhuman discrepancy.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,

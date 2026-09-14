@@ -611,6 +611,13 @@ export function RecipientInput({
     );
   }, [allSuggestions.length]);
 
+  useLayoutEffect(() => {
+    if (!showSuggestions || !hasSuggestions) return;
+    dropdownRef.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [allSuggestions, hasSuggestions, selectedIndex, showSuggestions]);
+
   const dropdown =
     showSuggestions && hasSuggestions
       ? createPortal(

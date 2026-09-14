@@ -273,6 +273,64 @@ describe("RecipientInput autocomplete interaction", () => {
     expect(input.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("keeps the keyboard-active contact suggestion in view", () => {
+    mocks.contacts.splice(
+      0,
+      mocks.contacts.length,
+      ...Array.from({ length: 8 }, (_, index) => ({
+        name: `Person ${index + 1}`,
+        email: `person${index + 1}@example.test`,
+        count: 8 - index,
+      })),
+    );
+    const scrollCalls: Array<{
+      element: HTMLElement;
+      options?: ScrollIntoViewOptions;
+    }> = [];
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function (this: HTMLElement, options?: ScrollIntoViewOptions) {
+        scrollCalls.push({ element: this, options });
+      },
+    });
+
+    try {
+      render(<RecipientHarness />);
+      const input = screen.getByRole("combobox") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "Person" } });
+
+      const options = screen.getAllByRole("option");
+      expect(options).toHaveLength(8);
+      const scrollContainer = screen.getByRole("listbox")
+        .firstElementChild as HTMLElement;
+      expect(scrollContainer.className).toContain("max-h-[200px]");
+
+      for (let index = 0; index < 7; index += 1) {
+        fireEvent.keyDown(input, { key: "ArrowDown" });
+      }
+
+      expect(options[7].getAttribute("aria-selected")).toBe("true");
+      expect(scrollCalls[scrollCalls.length - 1]).toEqual({
+        element: options[7],
+        options: { block: "nearest" },
+      });
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          originalDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      }
+    }
+  });
+
   it("selects the first visible result again after an empty query state", () => {
     render(<RecipientHarness />);
     const input = screen.getByRole("combobox") as HTMLInputElement;
