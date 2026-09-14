@@ -139,6 +139,44 @@ const ALIGN_TOOLS = [
 
 const AGENT_SUGGESTIONS = ["Tighten the copy", "Add a closing slide"];
 
+/**
+ * The transcript runs longer than the panel on purpose. It is bottom-anchored
+ * and clipped, so the earlier turns crop the way a real scrolled conversation
+ * does and the deck on the canvas reads as the result of a session rather than
+ * of one lucky prompt. The turns it shows are the two things the product is
+ * actually for: pulling live numbers in through a workspace connection, and
+ * the bulk edits nobody wants to make by hand fourteen times.
+ */
+const AGENT_TURNS = [
+  {
+    prompt: "Start a Q3 board deck from the revenue doc.",
+    step: "Read",
+    stepRef: "Q3-revenue.docx",
+    reply: "Drafted 14 slides: story, traction, plan, and the ask.",
+  },
+  {
+    prompt:
+      "Use the real pipeline numbers from Salesforce instead of the pasted table.",
+    step: "Connected Salesforce through",
+    stepRef: "Dispatch",
+    reply:
+      "Pulled six quarters of closed-won and regional pipeline. The deck reads from the connection now, so the figures refresh when you open it.",
+  },
+  {
+    prompt:
+      "Put Northwind Brand on all 14 slides, make the chart labels consistent, and rewrite the speaker notes in our voice.",
+    step: "Updated",
+    stepRef: "14 slides",
+    reply:
+      "Brand type and colour applied throughout, axis labels standardised to $M, stat cards aligned to the grid, and every speaker note rewritten.",
+  },
+  {
+    prompt: "Now chart net new ARR by quarter on slide 4.",
+    reply:
+      "Slide 4 charts net new ARR across the last six quarters, with Q3 called out at $4.8M.",
+  },
+] as const;
+
 function Toolbar() {
   return (
     <div className="sm-toolbar">
@@ -225,17 +263,17 @@ function AgentPanel() {
   return (
     <div className="sm-agent">
       <div className="sm-agent-transcript">
-        <div className="sm-agent-prompt">
-          Build the Q3 board deck from the revenue doc, then chart net new ARR
-          by quarter.
-        </div>
-        <div className="sm-agent-step">
-          Read <span className="sm-agent-ref">Q3-revenue.docx</span>
-        </div>
-        <div className="sm-agent-reply">
-          Drafted 14 slides in your brand style. Slide 4 charts net new ARR
-          across the last six quarters, with Q3 called out at $4.8M.
-        </div>
+        {AGENT_TURNS.map((turn) => (
+          <div key={turn.prompt} className="sm-agent-turn">
+            <div className="sm-agent-prompt">{turn.prompt}</div>
+            {"step" in turn ? (
+              <div className="sm-agent-step">
+                {turn.step} <span className="sm-agent-ref">{turn.stepRef}</span>
+              </div>
+            ) : null}
+            <div className="sm-agent-reply">{turn.reply}</div>
+          </div>
+        ))}
         <div className="sm-agent-chips">
           {AGENT_SUGGESTIONS.map((suggestion) => (
             <span key={suggestion} className="sm-agent-chip">
@@ -265,8 +303,7 @@ const SLIDES_MOCK_CSS = [
   // `html.light` block at the end swaps the whole mock when the docs shell is
   // light. `--sm-accent-row` is the rail's `bg-accent`, carrying the app's own
   // `--accent` value in both themes rather than an eyeballed grey, and
-  // `--sm-primary` is
-  // the filled Share/Present pair.
+  // `--sm-primary` is the filled Share/Present pair.
   ".slides-mock { --sm-background: hsl(0 0% 13%); --sm-surface: hsl(0 0% 10%); --sm-card: hsl(0 0% 15%); --sm-border: hsl(0 0% 24%); --sm-foreground: hsl(0 0% 93%); --sm-muted-foreground: hsl(0 0% 55%); --sm-accent-row: hsl(0 0% 18%); --sm-primary: hsl(0 0% 90%); --sm-primary-foreground: hsl(0 0% 10%); --sm-avatar-fg: hsl(0 0% 85%); --sm-avatar-1: hsl(0 0% 40%); --sm-avatar-2: hsl(0 0% 32%); --sm-avatar-3: hsl(0 0% 25%); }",
 
   ".slides-mock .sm-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; border: 1px solid var(--sm-border); background: var(--sm-background); color: var(--sm-foreground); font-family: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif; }",
@@ -310,7 +347,8 @@ const SLIDES_MOCK_CSS = [
 
   // Agent panel
   `.slides-mock .sm-agent { display: flex; width: ${AGENT_WIDTH}px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--sm-border); background: var(--sm-background); }`,
-  ".slides-mock .sm-agent-transcript { display: flex; flex: 1; min-height: 0; flex-direction: column; justify-content: flex-end; gap: 14px; overflow: hidden; padding: 16px; }",
+  ".slides-mock .sm-agent-transcript { display: flex; flex: 1; min-height: 0; flex-direction: column; justify-content: flex-end; gap: 22px; overflow: hidden; padding: 16px; }",
+  ".slides-mock .sm-agent-turn { display: flex; flex-shrink: 0; flex-direction: column; gap: 10px; }",
   ".slides-mock .sm-agent-prompt { align-self: flex-end; max-width: 280px; padding: 10px 12px; border-radius: 10px; background: var(--sm-card); font-size: 13px; line-height: 1.5; }",
   ".slides-mock .sm-agent-step { display: flex; align-items: center; gap: 5px; color: var(--sm-muted-foreground); font-size: 12px; }",
   ".slides-mock .sm-agent-ref { color: var(--sm-foreground); }",
