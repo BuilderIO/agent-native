@@ -14,6 +14,7 @@ import { Button } from "../components/website-redesign/ds/button";
 import { CodeBlock } from "../components/website-redesign/ds/code-block";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
 import {
   GridInner,
   PageSection,
@@ -137,8 +138,11 @@ export default function ChatTemplate() {
             </span>
           }
           eyebrow={
-            <span className="text-[var(--fg-secondary)]">
-              {t("templateLanding.chat.heroEyebrow")}
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-2xl font-bold tracking-tight">
+                {t("templateLanding.chat.heroEyebrow")}
+              </span>
             </span>
           }
           headingAction={
