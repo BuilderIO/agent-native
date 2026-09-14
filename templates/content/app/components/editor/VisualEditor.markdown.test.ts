@@ -405,6 +405,105 @@ describe("markdown clipboard parsing", () => {
     }
   });
 
+  it("preserves top-level Markdown block types", () => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "# Heading\n\n- list item\n\n> quoted",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "bulletList",
+        ),
+      ).toBe(true);
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "blockquote",
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fits Markdown to a nested list-item selection", () => {
+    const editor = createFullEditor();
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Existing item" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      let cursor = 1;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "paragraph")
+          cursor = pos + node.content.size + 1;
+      });
+      editor.commands.setTextSelection(cursor);
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "Nested paragraph with **bold** text.\n\n- nested item",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("bulletList");
+      expect(editor.state.doc.textContent).toContain("Existing item");
+      expect(editor.state.doc.textContent).toContain("Nested paragraph");
+      expect(editor.state.doc.textContent).toContain("nested item");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["**bold**", "bold"],
+    ["*italic*", "italic"],
+    ["[link](https://example.test)", "link"],
+  ])("preserves standalone inline Markdown %s", (markdown, markName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        markName,
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("rejects large unmatched link delimiters without reparsing", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(editor, "[".repeat(100_000)),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps paste-as-plain-text Markdown literal", () => {
     const editor = createFullEditor();
     const markdown = "# Plain paste heading\n\n- first\n- second";
@@ -452,6 +551,37 @@ describe("markdown clipboard parsing", () => {
         "bold",
       );
       expect(editor.state.doc.textContent).toContain("# Rich heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves media-bearing rich HTML instead of dropping the media", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      '<p># Caption</p><img src="https://example.test/image.png">',
+    );
+    clipboardData.setData("text/plain", "# Caption\n\n**alt text**");
+
+    try {
+      const event = new ClipboardEvent("paste", {
+        clipboardData,
+        bubbles: true,
+        cancelable: true,
+      });
+      editor.view.dom.dispatchEvent(event);
+
+      expect(editor.state.doc.textContent).toContain("# Caption");
+      expect(JSON.stringify(editor.state.doc.toJSON())).toContain(
+        '"type":"image"',
+      );
       expect(
         editor.state.doc.content.content.some(
           (node) => node.type.name === "heading",

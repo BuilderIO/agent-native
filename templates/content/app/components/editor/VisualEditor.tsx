@@ -217,12 +217,43 @@ const MARKDOWN_PATTERNS = [
   /^\s*[-*_]{3,}\s*$/m, // horizontal rules
   /^\s*>\s+\S/m, // blockquotes
   /^\s*```/m, // code fences
-  /\*\*\S.*?\S\*\*/m, // bold
-  /\*\S.*?\S\*/m, // italic
-  /\[.+?\]\(.+?\)/m, // links
   /^\s*- \[[ x]\]\s/m, // task lists
   /\|.+\|.+\|/m, // tables
 ];
+
+function hasDelimitedText(text: string, delimiter: string): boolean {
+  const start = text.indexOf(delimiter);
+  return (
+    start !== -1 &&
+    text.indexOf(delimiter, start + delimiter.length) > start + delimiter.length
+  );
+}
+
+function hasMarkdownLink(text: string): boolean {
+  let labelStart = -1;
+  let destinationStart = -1;
+
+  for (let index = 0; index < text.length; index++) {
+    if (destinationStart !== -1) {
+      if (text[index] === ")" && index > destinationStart + 2) return true;
+      continue;
+    }
+    if (text[index] === "[") {
+      labelStart = index;
+      continue;
+    }
+    if (
+      labelStart !== -1 &&
+      text[index] === "]" &&
+      text[index + 1] === "(" &&
+      index > labelStart + 1
+    ) {
+      destinationStart = index;
+      index++;
+    }
+  }
+  return false;
+}
 
 function looksLikeMarkdown(text: string): boolean {
   // Need at least 2 matching patterns to avoid false positives
@@ -235,17 +266,28 @@ function looksLikeMarkdown(text: string): boolean {
   }
   // Single heading at the start is a strong enough signal on its own
   if (matches === 1 && /^#{1,6}\s+\S/m.test(text)) return true;
-  return false;
+  return (
+    hasDelimitedText(text, "**") ||
+    hasDelimitedText(text, "*") ||
+    hasMarkdownLink(text)
+  );
 }
 
 export function parseMarkdownClipboardSlice(
   editor: CoreEditor,
   text: string,
+  context: ResolvedPos = editor.state.selection.$from,
 ): Slice | null {
   if (!looksLikeMarkdown(text)) return null;
 
   const doc = editor.schema.nodeFromJSON(nfmToDoc(text));
-  return Slice.maxOpen(doc.content);
+  const container = document.createElement("div");
+  container.appendChild(
+    DOMSerializer.fromSchema(editor.schema).serializeFragment(doc.content),
+  );
+  return ProseMirrorDOMParser.fromSchema(editor.schema).parseSlice(container, {
+    context,
+  });
 }
 
 function parsePlainTextClipboardSlice(
@@ -287,7 +329,11 @@ const MarkdownPasteDetection = Extension.create({
         props: {
           clipboardTextParser(text, _context, plainText) {
             if (!plainText) {
-              const markdown = parseMarkdownClipboardSlice(editor, text);
+              const markdown = parseMarkdownClipboardSlice(
+                editor,
+                text,
+                _context,
+              );
               if (markdown) return markdown;
             }
             return parsePlainTextClipboardSlice(editor, text, _context);
@@ -310,7 +356,7 @@ const MarkdownPasteDetection = Extension.create({
             const div = document.createElement("div");
             div.innerHTML = html;
             const hasRichStructure = div.querySelector(
-              "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s",
+              "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s, img, picture, video, audio, iframe, object, embed, svg",
             );
             // But allow interception if the HTML is just a code/pre wrapper
             // (from code editors or terminals)
@@ -321,7 +367,11 @@ const MarkdownPasteDetection = Extension.create({
               return false;
             }
 
-            const slice = parseMarkdownClipboardSlice(editor, plainText);
+            const slice = parseMarkdownClipboardSlice(
+              editor,
+              plainText,
+              view.state.selection.$from,
+            );
             if (!slice) return false;
 
             event.preventDefault();
