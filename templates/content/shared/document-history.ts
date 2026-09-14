@@ -12,7 +12,11 @@ export type DocumentHistoryActorKind =
   | "system"
   | "unknown";
 
-export type DocumentHistoryCheckpointKind = "before" | "after" | "legacy";
+export type DocumentHistoryCheckpointKind =
+  | "before"
+  | "after"
+  | "recovery"
+  | "legacy";
 
 export interface DocumentHistoryGroup {
   id: string;

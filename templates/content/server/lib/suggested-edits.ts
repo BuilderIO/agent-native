@@ -212,6 +212,44 @@ type SuggestionDocumentJson = {
   content?: SuggestionDocumentJson[];
 };
 
+const SUPPORTED_SUGGESTION_INLINE_NODES = new Set(["hardBreak"]);
+
+function unsupportedNotionSpanAttrs(
+  attrs: Record<string, unknown> | undefined,
+) {
+  const { underline: _underline, ...remaining } = attrs ?? {};
+  const unsupported = Object.fromEntries(
+    Object.entries(remaining).filter(
+      ([name, value]) =>
+        value !== null && (name !== "attrsJson" || value !== "{}"),
+    ),
+  );
+  return Object.keys(unsupported).length ? unsupported : null;
+}
+
+function unsupportedRawNotionSpanAttrs(markdown: string) {
+  return Array.from(markdown.matchAll(/<span\b([^>]*)>/gi)).flatMap(
+    ([, source]) => {
+      const attrs = Object.fromEntries(
+        Array.from(
+          source!.matchAll(
+            /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g,
+          ),
+        )
+          .map(([, name, doubleQuoted, singleQuoted, unquoted]) => [
+            name!.toLowerCase(),
+            doubleQuoted ?? singleQuoted ?? unquoted ?? "",
+          ])
+          .filter(
+            ([name]) =>
+              !["color", "bg_color", "underline", "href"].includes(name),
+          ),
+      );
+      return Object.keys(attrs).length ? [attrs] : [];
+    },
+  );
+}
+
 function parseSuggestionMarkdown(markdown: string) {
   contentEditorSchema ??= createContentEditorStructuralSchema();
   return contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
@@ -219,11 +257,16 @@ function parseSuggestionMarkdown(markdown: string) {
 
 function unsupportedSuggestionStructure(
   node: SuggestionDocumentJson,
-  path: number[] = [],
+  path: string[] = [],
   result: unknown[] = [],
 ): unknown[] {
   if (node.type === "text") {
     for (const mark of node.marks ?? []) {
+      if (mark.type === "notionSpan") {
+        const attrs = unsupportedNotionSpanAttrs(mark.attrs);
+        if (attrs) result.push({ path, mark: { type: mark.type, attrs } });
+        continue;
+      }
       if (
         !SUPPORTED_SUGGESTION_MARKS.has(
           mark.type as Parameters<typeof SUPPORTED_SUGGESTION_MARKS.has>[0],
@@ -236,26 +279,72 @@ function unsupportedSuggestionStructure(
   }
   if (
     node.type !== "doc" &&
+    !SUPPORTED_SUGGESTION_INLINE_NODES.has(node.type ?? "") &&
     !SUPPORTED_SUGGESTION_BLOCKS.has(node.type ?? "")
   ) {
     result.push({ path, node });
     return result;
   }
-  for (const [index, child] of (node.content ?? []).entries()) {
-    unsupportedSuggestionStructure(child, [...path, index], result);
+  for (const child of node.content ?? []) {
+    unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
   }
   return result;
+}
+
+/**
+ * The two sides with the edit's own span cut out — the part of the Page the
+ * suggestion leaves alone. Comparing each side against this, rather than
+ * against each other, is what separates "the edit moved or rewrote an
+ * unsupported node" from "an untouched image sits after a block the edit added
+ * or removed".
+ */
+function unchangedSurround(before: string, after: string): string {
+  let prefix = 0;
+  while (
+    prefix < before.length &&
+    prefix < after.length &&
+    before[prefix] === after[prefix]
+  ) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  const maxSuffix = Math.min(before.length, after.length) - prefix;
+  while (
+    suffix < maxSuffix &&
+    before[before.length - suffix - 1] === after[after.length - suffix - 1]
+  ) {
+    suffix += 1;
+  }
+  return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
+}
+
+function unsupportedStructureKey(markdown: string): string {
+  return JSON.stringify(
+    unsupportedSuggestionStructure(
+      parseSuggestionMarkdown(markdown).toJSON() as SuggestionDocumentJson,
+    ),
+  );
 }
 
 function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
 ) {
-  const before = parseSuggestionMarkdown(beforeMarkdown);
   const after = parseSuggestionMarkdown(afterMarkdown);
+  const surround = unsupportedStructureKey(
+    unchangedSurround(beforeMarkdown, afterMarkdown),
+  );
   if (
-    JSON.stringify(unsupportedSuggestionStructure(before.toJSON())) !==
-    JSON.stringify(unsupportedSuggestionStructure(after.toJSON()))
+    unsupportedStructureKey(beforeMarkdown) !== surround ||
+    unsupportedStructureKey(afterMarkdown) !== surround
+  ) {
+    throw new Error(
+      "Content v1 suggestions cannot add or change unsupported structures",
+    );
+  }
+  if (
+    JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
+    JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
     throw new Error(
       "Content v1 suggestions cannot add or change unsupported structures",

@@ -7,6 +7,7 @@ import type {
   ChatFirstSurfaceKind,
   ChatFirstSurfaceTab,
 } from "../chat-first.js";
+import type { ChatFirstPrimaryTab } from "./active-surface.js";
 
 export type { ChatFirstAgentActivity, ChatFirstSurfaceTab };
 
@@ -66,6 +67,12 @@ export interface ChatFirstAppRailProps {
   /** Optional host-specific fallback order for apps without a saved layout. */
   defaultAppIds?: readonly string[];
   activeAppId?: string;
+  /**
+   * The nav surface that owns the rail when no app is selected. Without it the
+   * rail cannot tell "nothing resolved yet" from "a nav surface is active", so
+   * every app icon keeps reading as active.
+   */
+  activeTab?: ChatFirstPrimaryTab;
   loading?: boolean;
   error?: string | null;
   collapsed?: boolean;

@@ -198,7 +198,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
-  endsAfterCompletedToolWithoutAssistantFinal,
+  endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -7877,7 +7877,7 @@ export function backgroundContinuationReasonForRun(
     );
   }
   if (
-    endsAfterCompletedToolWithoutAssistantFinal(run) ||
+    endsAfterToolResultWithoutAssistantFinal(run) ||
     endsDuringActionPreparation(run)
   ) {
     return "stream_ended";
@@ -8035,7 +8035,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
 function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
-    endsAfterCompletedToolWithoutAssistantFinal(run) ||
+    endsAfterToolResultWithoutAssistantFinal(run) ||
     endsDuringActionPreparation(run)
   );
 }
@@ -8048,7 +8048,7 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
  * Forward progress inside ONE chunk, read from the events it actually emitted:
  * assistant text or tool activity. Same evidence the agent-teams no-progress
  * budget counts (`agent-teams.ts`), and the same events
- * `endsAfterCompletedToolWithoutAssistantFinal` reads to tell an unfinished
+ * `endsAfterToolResultWithoutAssistantFinal` reads to tell an unfinished
  * turn from a finished one.
  */
 function chunkMadeForwardProgress(run: ActiveRun): boolean {

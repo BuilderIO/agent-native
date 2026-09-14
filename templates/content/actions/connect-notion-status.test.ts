@@ -4,10 +4,17 @@ const mocks = vi.hoisted(() => ({
   getCurrentNotionOwner: vi.fn(),
   getNotionConnectionForOwner: vi.fn(),
   resolveSecret: vi.fn(),
+  getRequestOrgId: vi.fn(),
+  findConnectedMcpServersForProvider: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   resolveSecret: mocks.resolveSecret,
+  getRequestOrgId: mocks.getRequestOrgId,
+}));
+
+vi.mock("@agent-native/core/mcp-client", () => ({
+  findConnectedMcpServersForProvider: mocks.findConnectedMcpServersForProvider,
 }));
 
 vi.mock("../server/lib/notion.js", () => ({
@@ -25,6 +32,11 @@ beforeEach(() => {
   mocks.getCurrentNotionOwner.mockReturnValue("owner@example.com");
   mocks.getNotionConnectionForOwner.mockResolvedValue(null);
   mocks.resolveSecret.mockResolvedValue(null);
+  mocks.getRequestOrgId.mockReturnValue("org_1");
+  mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+    servers: [],
+    unreadableScopes: [],
+  });
 });
 
 describe("connect-notion-status", () => {
@@ -72,6 +84,93 @@ describe("connect-notion-status", () => {
     await expect(connectNotionStatus.run({})).resolves.toMatchObject({
       connected: false,
       error: "missing_credentials",
+    });
+  });
+});
+
+describe("connect-notion-status MCP surface", () => {
+  const notionMcpServer = {
+    id: "mcps_1",
+    name: "Notion",
+    url: "https://mcp.notion.com/mcp",
+    scope: "user",
+  };
+
+  // Reported 2026-09-03: Settings > Integrations showed "Connected - 42 tools"
+  // while the agent answered "Notion is not connected", twice, because this
+  // action only ever consulted the per-user OAuth account registry.
+  it("reports the connected Notion MCP server when no OAuth account exists", async () => {
+    mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+      servers: [notionMcpServer],
+      unreadableScopes: [],
+    });
+
+    const result = await connectNotionStatus.run({});
+
+    expect(result.mcp).toMatchObject({
+      connected: true,
+      servers: [notionMcpServer],
+    });
+    expect(result.statusSummary).toContain("Notion MCP server is connected");
+    expect(result.statusSummary).toContain("separate connections");
+  });
+
+  it("keeps `connected` scoped to the OAuth account that sync actually needs", async () => {
+    mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+      servers: [notionMcpServer],
+      unreadableScopes: [],
+    });
+
+    // `connected` gates the link/sync UI, which cannot run on an MCP grant.
+    await expect(connectNotionStatus.run({})).resolves.toMatchObject({
+      connected: false,
+      mode: null,
+    });
+  });
+
+  it("reports both surfaces when the account and the MCP server are connected", async () => {
+    mocks.getNotionConnectionForOwner.mockResolvedValue({
+      accountId: "workspace-1",
+      accessToken: "secret",
+      workspaceName: "Docs",
+      workspaceId: "workspace-1",
+    });
+    mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+      servers: [notionMcpServer],
+      unreadableScopes: [],
+    });
+
+    const result = await connectNotionStatus.run({});
+
+    expect(result.connected).toBe(true);
+    expect(result.mcp?.connected).toBe(true);
+    expect(result.statusSummary).toContain("Notion account is connected");
+    expect(result.statusSummary).toContain("Notion MCP server is connected");
+  });
+
+  it("says MCP status is unknown rather than disconnected when a scope is unreadable", async () => {
+    mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+      servers: [],
+      unreadableScopes: ["org"],
+    });
+
+    const result = await connectNotionStatus.run({});
+
+    expect(result.mcp).toMatchObject({
+      connected: false,
+      unreadableScopes: ["org"],
+    });
+    expect(result.statusSummary).toContain("Notion MCP status is unknown");
+    expect(result.statusSummary).not.toContain("No Notion MCP server");
+  });
+
+  it("scopes the MCP lookup to the caller's user and org", async () => {
+    await connectNotionStatus.run({});
+
+    expect(mocks.findConnectedMcpServersForProvider).toHaveBeenCalledWith({
+      providerId: "notion",
+      userEmail: "owner@example.com",
+      orgId: "org_1",
     });
   });
 });

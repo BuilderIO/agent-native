@@ -1,8 +1,11 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isCreditsLimitErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
+
+export { isCreditsLimitErrorCode } from "../agent/engine/error-detail.js";
 
 /**
  * Append a Builder CTA markdown link to gateway errors that users can fix
@@ -65,6 +68,7 @@ const GATEWAY_INTERNAL_ERROR_MESSAGE =
  */
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -82,6 +86,11 @@ export function formatChatErrorText(
   errorCode?: string,
 ): string {
   const normalized = normalizeChatError(errorMessage, errorCode);
+  if (normalized.message === CREDITS_LIMIT_REACHED_MESSAGE) {
+    return upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
+      ? `${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`
+      : normalized.message;
+  }
   if (
     !isServerChosenVisitorMessage(normalized.message) &&
     (errorCode === "gateway_not_enabled" ||
@@ -119,8 +128,8 @@ export interface NormalizedChatError {
  * Settings" to someone with no account. This is an identity check against the
  * exported constant, not a keyword match: the rewrite is the whole message.
  *
- * Deliberately not a `KNOWN_CHAT_ERROR_KEYS` entry: that map localizes copy,
- * while this returns before any mapping runs at all.
+ * Quota copy is resolved by its safe code before this message guard. Other
+ * visitor messages return unchanged before any copy mapping runs.
  */
 function isServerChosenVisitorMessage(text: string): boolean {
   return text === GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
@@ -132,6 +141,10 @@ type ErrorTranslate = (
 ) => string;
 
 const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
+  [
+    CREDITS_LIMIT_REACHED_MESSAGE,
+    "agentChat.errorMessages.creditsLimitReached",
+  ],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
@@ -346,13 +359,16 @@ export function normalizeChatError(
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
+  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
 
-  // Ahead of every mapping below, including the provider-payload fallback: the
-  // server already chose this reader's message, and any re-derivation from a
-  // code hands a visitor the owner instruction it deliberately removed.
+  // Quota is the one safe recovery detail exposed by the Builder-credits lane;
+  // other server-selected visitor messages stay opaque below.
+  if (isCreditsLimitErrorCode(code)) {
+    return { message: CREDITS_LIMIT_REACHED_MESSAGE };
+  }
+  // The server-selected visitor message must not reveal owner-only details.
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
-  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."

@@ -16,6 +16,10 @@ describe("FactoryInboxView", () => {
     expect(source).toContain("get-slack-feedback-context");
     expect(source).toContain("TriageRiskPill");
     expect(source).toContain("TriageStatusPill");
+    expect(source).toContain("InboxPill");
+    expect(source).toContain("inboxPresentation");
+    expect(source).toContain('t("triage.status")');
+    expect(source).toContain('t("triage.inboxColumnAutomation")');
     expect(source).toContain('t("triage.evidence")');
     expect(source).toContain('t("triage.actionsTaken")');
     expect(source).toContain("nextCursor");
@@ -61,6 +65,9 @@ describe("FactoryInboxView", () => {
     expect(source).toContain('t("triage.feedbackError")');
     expect(source).toContain("triage.statusValues.");
     expect(source).toContain('t("triage.untitled")');
+    expect(source).toContain("inboxListIdentityLine");
+    expect(source).toContain("inboxListAuthorLabel");
+    expect(source).toContain("slackThreadReady");
     expect(source).not.toContain('t("factoryRoute.selectObservation")');
   });
 
