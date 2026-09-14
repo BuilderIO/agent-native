@@ -2501,7 +2501,8 @@ export async function findBuilderProjectForRepo(
   );
   const parsed = await readBuilderApiObject(response, "project lookup");
   if (!response.ok) {
-    throw new Error(
+    throw builderApiFailure(
+      response.status,
       builderApiErrorMessage(
         parsed,
         `Builder project lookup failed (${response.status})`,
@@ -2768,7 +2769,7 @@ export async function requestBuilderBrowserConnection(
       typeof body.error === "string"
         ? body.error
         : `Builder browser request failed (${response.status})`;
-    throw new Error(error);
+    throw builderApiFailure(response.status, error);
   }
 
   return body;

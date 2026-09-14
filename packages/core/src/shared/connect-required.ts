@@ -47,12 +47,17 @@ function optionalString(value: unknown): string | undefined {
  * blocker text, so the user still reads what to connect and only loses a link
  * that was never usable.
  *
- * The leading pair is checked as `[/\\]{2}` rather than `//` because a URL
- * parser reading a special scheme treats a backslash as a slash, so `/\host`
- * and `\/host` reach the same off-origin authority that `//host` does.
+ * Validation runs on the string a URL parser would see, not the raw one, and
+ * returns that same string so what was checked is what ships. A parser deletes
+ * every ASCII tab, LF, and CR first, so `/<LF>/host` becomes `//host`; it then
+ * treats a backslash as a slash under a special scheme, so `/\host` and
+ * `\/host` reach the same off-origin authority `//host` does. Checking the raw
+ * prefix would miss both.
  */
 function safeConnectHref(value: unknown): string | undefined {
-  const href = optionalString(value);
+  const raw = optionalString(value);
+  if (!raw) return undefined;
+  const href = raw.replace(/[\t\n\r]/g, "");
   if (!href) return undefined;
   if (/^[/\\]{2}/.test(href)) return undefined;
   if (href.startsWith("/")) return href;

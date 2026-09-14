@@ -10,7 +10,9 @@ import { BuilderConnectCta } from "../run-recovery.js";
 function ConnectAction({ card }: { card: ConnectRequiredCard }) {
   const t = useT();
   if (card.provider === BUILDER_CONNECT_PROVIDER) {
-    return <BuilderConnectCta variant="compact" />;
+    // This card exists only because the server just failed a Builder call, so
+    // a Connected badge from a stale status read would be a dead end.
+    return <BuilderConnectCta variant="compact" reconnect />;
   }
   const href = card.connectUrl ?? card.settingsPath;
   if (!href) return null;

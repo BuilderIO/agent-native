@@ -56,6 +56,11 @@ describe("connectRequiredResult", () => {
     "\\/evil.test/connect",
     "\\\\evil.test/connect",
     "\\evil.test/connect",
+    "/\n/evil.test/connect",
+    "/\r/evil.test/connect",
+    "/\t/evil.test/connect",
+    "/\n\\evil.test/connect",
+    "java\nscript:alert(1)",
     "connect",
   ])("drops the unsafe connect target %s", (connectUrl) => {
     const result = connectRequiredResult({
@@ -129,6 +134,20 @@ describe("normalizeConnectRequiredResult", () => {
     expect(card).not.toBeNull();
     expect(card).not.toHaveProperty("connectUrl");
     expect(card).not.toHaveProperty("settingsPath");
+  });
+
+  it("returns the parser-normalized href, not the raw one", () => {
+    const card = normalizeConnectRequiredResult({
+      connectRequired: {
+        provider: "acme",
+        providerLabel: "Acme",
+        reason: "Acme is not connected.",
+        message: "Acme is not connected. Connect Acme to continue.",
+        settingsPath: "/set\ntings",
+      },
+    });
+
+    expect(card?.settingsPath).toBe("/settings");
   });
 
   it("keeps a same-origin path and an https url", () => {

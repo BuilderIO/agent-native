@@ -168,6 +168,43 @@ describe("built-in connect-required renderer", () => {
     expect(container.innerHTML).not.toContain("javascript:");
   });
 
+  // Builder can revoke upstream without the local status read noticing, so the
+  // card must offer a reconnect control rather than a Connected badge.
+  it("offers a reconnect control even when status still reports connected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ configured: true, orgName: "Acme Space" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    const context = {
+      toolName: "start-workspace-app-creation",
+      args: {},
+      resultJson: connectRequiredResult({
+        provider: BUILDER_CONNECT_PROVIDER,
+        providerLabel: BUILDER_CONNECT_PROVIDER_LABEL,
+        reason: "Builder.io is not connected for this workspace.",
+      }),
+      isRunning: false,
+    };
+
+    const Renderer = resolveToolRenderer(context);
+    act(() => {
+      root.render(Renderer ? <Renderer context={context} /> : null);
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(container.querySelector("button")).not.toBeNull();
+    expect(container.textContent).not.toContain("Connected to");
+  });
+
   it("does not claim a successful result", () => {
     expect(
       resolveToolRenderer({
