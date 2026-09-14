@@ -77,6 +77,22 @@ describe("desktop navigation shortcut forwarding", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("leaves unshifted Ctrl+brackets in Content guests", () => {
+    const event = { preventDefault: vi.fn() };
+    const send = vi.fn();
+
+    expect(
+      forwardDesktopNavigationShortcutInput(
+        event,
+        { type: "keyDown", key: "[", code: "BracketLeft", control: true },
+        send,
+        true,
+      ),
+    ).toBe(false);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("leaves unrelated key events for the guest app", () => {
     const event = { preventDefault: vi.fn() };
     const send = vi.fn();

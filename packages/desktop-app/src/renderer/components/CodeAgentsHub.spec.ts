@@ -541,6 +541,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shortcutSource).toContain('? ","');
   });
 
+  it("keeps the main-process active app synchronized when switching surface tabs", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toMatch(
+      /chatFirstSurfaceTabsStore\.activate\(tab\.id\);[\s\S]*?window\.electronAPI\?\.setActiveApp\?\.\([\s\S]*?tab\.appId[\s\S]*?CODE_AGENTS_SURFACE_ID/,
+    );
+  });
+
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
     const apps = [
       {

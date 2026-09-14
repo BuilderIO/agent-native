@@ -33,9 +33,11 @@ export function forwardDesktopNavigationShortcutInput(
     input.code === "BracketLeft" || key === "[" || key === "{";
   const isBracketRight =
     input.code === "BracketRight" || key === "]" || key === "}";
+  const isUnshiftedHistoryShortcut =
+    forwardUnshiftedBrackets && Boolean(input.meta) && !input.shift;
   const isBracketShortcut =
     !input.alt &&
-    (Boolean(input.shift) || forwardUnshiftedBrackets) &&
+    (Boolean(input.shift) || isUnshiftedHistoryShortcut) &&
     (isBracketLeft || isBracketRight);
   const isSettingsShortcut = isDesktopSettingsShortcut(input);
   if (!isNumericShortcut && !isBracketShortcut && !isSettingsShortcut) {
