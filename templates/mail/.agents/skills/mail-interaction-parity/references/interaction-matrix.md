@@ -465,7 +465,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   `app/components/email/compose-autocomplete.test.ts` also cover preference
   refresh, caret/range movement, continued typing, code/link marks, external
   edits, and IME acceptance suppression; these Mail-only checks do not close
-  paired replay.
+  paired replay. A 2026-09-14 isolated in-memory browser pass with no connected
+  Google account verified the default-off → Command enable toggle, a gray
+  `Thanks` suffix, single-insertion Tab/Right acceptance, Escape dismissal
+  without text mutation, and a second Escape closing the compose. Send stayed
+  disabled, and the test draft disappeared with the memory-only server.
+  Superhuman remained on its loading screen, so paired runtime comparison is
+  still unverified.
 - COMPOSE-008 — Use slash menu, generate/agent handoff, code block language
   picker, link dialog, image paste/drop/upload/failure, and toolbar
   button focus/tooltip states.
@@ -770,8 +776,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   dismissal. An isolated browser pass with Search value `abc` confirmed that
   Cmd+K focuses the palette, typing `archive` selects Go to Archive, the first
   Escape clears the palette query while keeping it open, and the second closes
-  it and restores Search focus, query `abc`, and `/all?q=abc`. Paired Superhuman
-  behavior remains unverified.
+  it and restores Search focus, query `abc`, and `/all?q=abc`. On 2026-09-14,
+  a local Mail replay opened
+  Command from the To field on a synthetic no-result route, selected
+  Shortcuts, and confirmed the first Escape cleared the palette query while
+  leaving the shortcut reference open; the second Escape closed Command,
+  restored focus to To, and preserved the route and open compose. The compose
+  draft was not edited or sent. Automated focus regressions now cover Cmd+K and
+  Ctrl+K from To, the two-step Escape behavior, recipient/search preservation,
+  and route preservation. This is Mail-only evidence; paired Superhuman behavior
+  remains unverified.
 - SETTINGS-002 — Open shortcut reference and hover every action. Confirm the
   displayed shortcut is the one that actually runs. Compare US QWERTY with the
   documented Belgian/French/German alternatives for Search, Trash, Tab, snippet,

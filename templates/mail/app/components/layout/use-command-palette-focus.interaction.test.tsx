@@ -41,6 +41,8 @@ function PaletteHarness() {
         value={searchQuery}
         onChange={(event) => setSearchQuery(event.target.value)}
       />
+      <label htmlFor="recipient-to">To</label>
+      <input id="recipient-to" />
       <output data-testid="route">{route}</output>
       <output data-testid="close-focus-prevented">
         {closeFocusPrevented === null ? "unset" : String(closeFocusPrevented)}
@@ -145,6 +147,47 @@ describe("Mail command palette focus recovery", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       await waitFor(() => expect(document.activeElement).toBe(search));
       expect((search as HTMLInputElement).value).toBe(SEARCH_QUERY);
+      expect(screen.getByTestId("route").textContent).toBe(SEARCH_ROUTE);
+    },
+  );
+
+  it.each([
+    { name: "Command", metaKey: true, ctrlKey: false },
+    { name: "Control", metaKey: false, ctrlKey: true },
+  ])(
+    "opens with $name+K from To and restores recipient focus on Escape",
+    async ({ metaKey, ctrlKey }) => {
+      render(<PaletteHarness />);
+
+      const recipient = screen.getByRole("textbox", { name: "To" });
+      recipient.focus();
+      const shortcutEvent = pressPaletteShortcut(recipient, {
+        metaKey,
+        ctrlKey,
+      });
+      expect(shortcutEvent.defaultPrevented).toBe(true);
+
+      const commandInput =
+        document.querySelector<HTMLInputElement>("[cmdk-input]");
+      expect(commandInput).toBeTruthy();
+      await waitFor(() => expect(document.activeElement).toBe(commandInput));
+
+      fireEvent.change(commandInput!, { target: { value: "archive" } });
+      pressEscape();
+      expect(commandInput?.value).toBe("");
+      expect(screen.getByRole("dialog")).toBeTruthy();
+
+      pressEscape();
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(recipient));
+      expect((recipient as HTMLInputElement).value).toBe("");
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: "Mail search",
+          }) as HTMLInputElement
+        ).value,
+      ).toBe(SEARCH_QUERY);
       expect(screen.getByTestId("route").textContent).toBe(SEARCH_ROUTE);
     },
   );
