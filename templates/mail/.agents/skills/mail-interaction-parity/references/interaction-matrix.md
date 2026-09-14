@@ -58,10 +58,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   and from an open message pull-down; two-finger tap a specific message for
   message-scoped Command. Also test bottom-bar Search, pull-down Search,
   pull-down/left refresh, folder menu, Split cycling by bottom controls and
-  horizontal swipe, iOS swipe-right return, and Android Back. Record each
-  starting surface, gesture threshold, animation, dismissal, refresh result, and
-  focus/scroll restoration. Compare platform-specific reference behavior rather
-  than treating gestures as interchangeable.
+  horizontal swipe, iOS swipe-right return, and Android Back. For each gesture,
+  record platform, starting surface, direction/touch count, threshold,
+  animation, destination or dismissed surface, refresh result, and restored
+  focus/scroll. Treat the documented iOS swipe-right-to-return and Android
+  system Back outcomes as separate contracts; do not infer one from the other
+  or from desktop Escape. Use the [Mobile Navigation](https://help.superhuman.com/hc/en-us/articles/46005719737357-Mobile-Navigation)
+  guide as the reference, and label unlisted platform variants unknown until
+  observed. Planned/reference comparison is not executable proof.
 
 ## Search and search autocomplete
 
@@ -103,9 +107,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   `label:`, `is:unread`, date ranges, quoted phrases, OR, AND, and exclusion.
   Verify documented Superhuman behavior: separate terms combine with AND,
   explicit OR broadens results, a leading hyphen excludes, and common operators
-  are discoverable from the desktop sidebar/mobile picker. Record provider- and
-  operator-specific support; do not infer that every Gmail operator is parsed
-  identically. Confirm result parity and visible query retention.
+  are discoverable from the desktop sidebar/mobile picker. On mobile, open the
+  operator picker, inspect available operators and labels, select each by tap,
+  then edit/remove its value, dismiss/reopen the picker, and submit with the
+  keyboard. Confirm insertion point, spacing, query retention, and whether
+  selecting an operator runs search or only edits the query. Record provider-
+  and operator-specific support; do not infer that every Gmail operator is
+  parsed identically. Use the official [Search](https://help.superhuman.com/hc/en-us/articles/46005672652301-Search)
+  guide as reference. This planned comparison is not runtime proof.
 - SEARCH-006 — Submit with Enter, click a result, click outside, clear with the
   X, and press Escape. Confirm whether the active query stays, clears, or
   restores the pre-search route exactly as the reference does.
@@ -135,10 +144,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Include an attachment and more than 1,250 messages in a Split; record which
   messages remain available without assuming the eviction order, and verify
   the per-Split cache limit. Search for a cached match and an offline miss, then
-  reconnect and repeat. Confirm an incomplete offline search is not presented
-  as a complete empty result; verify the “Connecting…” notice and sync count.
-  Use network interception for Mail and the same fixture in Superhuman; do not
-  send provider email in this case.
+  reconnect and repeat. Apply the documented [Offline Access](https://help.superhuman.com/hc/en-us/articles/46005499629325-Offline-Access)
+  eligibility and per-Split limit independently, without assuming undocumented
+  eviction order. Confirm an incomplete offline search is not presented as a
+  complete empty result; verify the “Connecting…” notice, sync count, and which
+  cached message/attachment content can be opened. After reconnect, verify
+  missing data becomes available and cached content reconciles. Use network
+  interception for Mail and the same fixture in Superhuman. This is a planned
+  comparison, not executable proof; do not send provider email.
 
 ## Inbox rows, selection, and triage
 
@@ -169,8 +182,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   refresh. At the narrow/mobile viewport, use the visible Undo affordance and
   repeat after a second action replaces the toast; confirm only the latest
   action is reversed. Confirm the undo does not restore into the wrong
-  partition. If the responsive Mail surface has no on-screen Undo, record the
+  partition. On mobile, verify the visible Undo control, location, label,
+  duration, replacement by a subsequent action, and tap result against the
+  official [Undo](https://help.superhuman.com/hc/en-us/articles/46005666743309-Undo)
+  reference. If the responsive Mail surface has no on-screen Undo, record the
   exact parity gap instead of treating the keyboard shortcut as equivalent.
+  Keep manual/reference observation distinct from toast/action unit-test proof.
 - LIST-009 — Drag/reorder tabs, labels, and saved filters. Test left/right drop,
   same-item drop, cross-group drop, cancelled drag, keyboard alternative, and
   persistence after reload.
@@ -178,7 +195,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   diagonal/vertical scroll, touch cancel, missing action, action commit, modal
   open, and trailing click suppression. Compare default left=Done/right=Reminder;
   customize both in Swipes settings, add/remove/reorder actions, and re-run the
-  same gesture matrix to verify the active mapping and triage-bar actions.
+  same gesture matrix to verify the active mapping and triage-bar actions. On
+  iOS, separately open Command → Swipes and customize each triage-bar direction:
+  inspect available actions, order, add/remove/reorder controls, save/cancel,
+  and the resulting visible bar. Verify the documented Android availability
+  boundary rather than assuming iOS customization exists there. Use
+  [Customizing Swipes and Triage Bar](https://help.superhuman.com/hc/en-us/articles/46005742942861-Customizing-Swipes-and-Triage-Bar)
+  as the platform reference. Planned comparison only until observed in both
+  products.
 - LIST-011 — Open an inbox tab with zero rows, loading rows, exhausted pages,
   fetch-more error, account error, rate limit, needs-reauth, and sync-in-progress.
   Confirm skeleton, retry, partial coverage, and Inbox Zero are distinct.
@@ -324,7 +348,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   bold/italic/strike/code/quote/lists, paste plain/rich HTML, undo/redo, select
   all, keyboard navigation, and contenteditable focus transitions. If
   autocorrect changes a word, use Cmd/Ctrl+Z to undo that correction, then test
-  the offered “Learn word” action without losing adjacent draft text.
+  the offered “Learn word” action without losing adjacent draft text. On mobile,
+  tap the frame icon above Send, double-tap text, open the selection arrow, then
+  tap Format; inspect the actual menu before comparing documented desktop styles
+  (bold, italic, underline, lists, quote) with iOS and Android. For links, use
+  the bottom link icon and paste a URL. Record toolbar visibility with the
+  keyboard open/closed, selection handling, and whether formatting applies to
+  selected text or the insertion point. Use the official
+  [Formatting Text](https://help.superhuman.com/hc/en-us/articles/46005721681165-Formatting-Text)
+  guide; it does not enumerate the full mobile Format menu, so do not assume
+  every desktop style is available on mobile.
 - COMPOSE-007 — Autocomplete. In SH, record the initial preference, enable it
   in Settings, and disable/enable it again from Cmd/Ctrl+K. Type matching phrase
   prefixes in a new message, reply, inline reply, and popped-out draft. Compare
@@ -339,8 +372,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   suggestion, and that an unaccepted gray suffix is never saved or sent. Verify
   settings survive reload and a second compose surface. The reference is
   desktop-only and English-only; it uses the current draft and common phrases,
-  not prior emails or drafts. Mail currently uses a small deterministic local
-  phrase list, so keyboard/state parity is partial and prediction quality,
+  not prior emails or drafts. Confirm platform and language boundaries before
+  interpreting a missing suggestion: test desktop English, mobile, and a
+  non-English compose locale, recording whether the feature is absent, disabled,
+  or produces no match. The official [Autocomplete](https://help.superhuman.com/hc/en-us/articles/46005685782669-Autocomplete)
+  article documents phrase autocomplete, not recipient/contact ranking. Keep
+  those sources and behaviors separate. Mail currently uses a small deterministic
+  local phrase list, so keyboard/state parity is partial and prediction quality,
   timing, and exact visual parity remain unverified until paired browser replay.
   A synthetic Mail browser pass at commit `baba8a1` verified the gray preview,
   Settings and Cmd/Ctrl+K toggles, Tab acceptance, and Escape dismissal before
@@ -358,8 +396,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   progress, upload failure, retry, and draft reopen. Compare Cmd/Ctrl+Shift+U
   with drag/drop. Select the original message before Reply/Reply All and use
   Include Original Attachments; Forward appends the original files. On mobile,
-  test New Message/Reply `+ → Attach`, Forward from the reply menu, and image vs.
-  document save/share paths.
+  separately test New Message and Reply `+ → Attach`, then Forward from the
+  reply menu. Compare photo/library, camera, and document picker entry points
+  where offered; cancel each picker, attach multiple files, remove an
+  attachment, and reopen the draft. For received attachments, test preview/open,
+  save, and share, distinguishing iOS inline-image Save to Photos, attached-image
+  Save to Files, attached-document Share → Save to Files, and Android's
+  long-press View attachment versus Save attachment. Include cancel/failure and
+  return-to-thread state. Use the official
+  [Attachments](https://help.superhuman.com/hc/en-us/articles/46005568142989-Attachments)
+  guide; picker paths may differ by platform.
 - COMPOSE-010 — Test signature absent/present/multiline/quoted text, Gmail
   signature refresh, Outlook rich signature with image/link, include/remove on
   replies and forwards, and how signatures are exposed from draft overflow.
@@ -572,9 +618,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   provider mocks after the case.
 - ACCOUNT-002 — With two synthetic accounts, compare Command-based desktop add,
   desktop account switching/reordering/sign-out, and per-account draft sender.
-  Repeat setup on mobile (accounts added on desktop do not auto-sync); test tap
-  to cycle and long-press to choose an account. Compare Windows' documented
-  account-switch modifier with the live shortcut inventory. Record that the
+  Repeat setup on mobile (accounts added on desktop do not auto-sync); test the
+  add-account flow, tap to cycle, and long-press to choose an account. Verify
+  account order after adding, switching, and reordering, and that the selected
+  identity is consistent in the picker and compose From field. Use the official
+  [Managing Accounts](https://help.superhuman.com/hc/en-us/articles/46005777934733-Managing-Accounts)
+  guide as reference. Compare Windows' documented account-switch modifier with
+  the live shortcut inventory. Record that the
   current Superhuman guide documents no Unified Inbox; treat Mail's combined
   inbox as an additional capability, not parity. Verify switching never
   silently changes an open draft's sender or mutation target.
@@ -653,7 +703,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - SETTINGS-006 — Test agent-created/updated draft, agent navigation, external
   refresh signal, concurrent UI edit, stale response, action error, and recovery.
 - SETTINGS-007 — Open Superhuman Command → Shortcuts from the inbox, an open
-  thread, and compose. Compare every displayed shortcut and its context, then
+  thread, and compose. Compare the displayed shortcut and context, then hover
+  the corresponding Mail controls and compare each tooltip with the action it
+  triggers. Use the official
+  [Keyboard shortcuts](https://help.superhuman.com/hc/en-us/articles/46005701270541-Keyboard-Shortcuts-in-Superhuman-Mail)
+  guide as reference. Compare every displayed shortcut, then
   exercise it with focus in the list, thread, To/Cc/Bcc, subject, body, search,
   and modal. Baseline captured from the live desktop reference on 2026-09-13:
 

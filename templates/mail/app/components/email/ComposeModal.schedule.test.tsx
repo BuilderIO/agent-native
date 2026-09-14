@@ -8,6 +8,7 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
@@ -586,6 +587,138 @@ describe("ComposeModal scheduling", () => {
     );
     expect(onDiscard).not.toHaveBeenCalled();
     expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
+  });
+
+  it("restores a failed staged draft for editing and dispatches one retry", async () => {
+    vi.useFakeTimers();
+    mockSendEmailAsync
+      .mockRejectedValueOnce(new Error("Provider rejected send"))
+      .mockResolvedValueOnce({ id: "sent-2" });
+    const recoveryDraft: ComposeState = {
+      ...draft,
+      id: "recoverable-draft",
+    };
+    const discardedDraftIds: string[] = [];
+
+    function RecoveryHarness() {
+      const [drafts, setDrafts] = useState([recoveryDraft]);
+      const [stagedIds, setStagedIds] = useState<Set<string>>(() => new Set());
+      const [activeId, setActiveId] = useState<string | null>(recoveryDraft.id);
+      const visibleDrafts = drafts.filter((item) => !stagedIds.has(item.id));
+      const visibleActiveId = visibleDrafts.some((item) => item.id === activeId)
+        ? activeId
+        : (visibleDrafts[visibleDrafts.length - 1]?.id ?? null);
+      const activeDraft =
+        visibleDrafts.find((item) => item.id === visibleActiveId) ?? null;
+
+      return (
+        <>
+          <output data-testid="compose-draft-ids">
+            {drafts.map((item) => item.id).join(",")}
+          </output>
+          <output data-testid="visible-compose-draft-ids">
+            {visibleDrafts.map((item) => item.id).join(",")}
+          </output>
+          {visibleDrafts.length > 0 && (
+            <ComposeModal
+              drafts={visibleDrafts}
+              activeId={visibleActiveId}
+              activeDraft={activeDraft}
+              onSetActiveId={setActiveId}
+              onUpdate={(id, updates) =>
+                setDrafts((current) =>
+                  current.map((item) =>
+                    item.id === id ? { ...item, ...updates } : item,
+                  ),
+                )
+              }
+              onClose={vi.fn()}
+              onCloseAll={vi.fn()}
+              onDiscard={(id) => {
+                discardedDraftIds.push(id);
+                setDrafts((current) =>
+                  current.filter((item) => item.id !== id),
+                );
+              }}
+              onStageForSend={(id) => {
+                setStagedIds((current) => new Set(current).add(id));
+                setActiveId((current) => (current === id ? null : current));
+              }}
+              onRestoreAfterSend={(id) => {
+                setStagedIds((current) => {
+                  const next = new Set(current);
+                  next.delete(id);
+                  return next;
+                });
+                setActiveId(id);
+              }}
+              onNewDraft={vi.fn()}
+              onFlush={vi.fn()}
+            />
+          )}
+        </>
+      );
+    }
+
+    const view = render(<RecoveryHarness />);
+    fireEvent.click(view.getByRole("button", { name: "mail.compose.send" }));
+
+    expect(view.getByTestId("compose-draft-ids").textContent).toBe(
+      recoveryDraft.id,
+    );
+    expect(view.getByTestId("visible-compose-draft-ids").textContent).toBe("");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+    });
+
+    expect(mockSendEmailAsync).toHaveBeenCalledOnce();
+    expect(mockToast.error).toHaveBeenCalledWith(
+      "mail.toasts.failedToSendEmail",
+    );
+    expect(
+      mockToast.mock.calls.some(
+        ([message]) => message === "mail.toasts.messageSent",
+      ),
+    ).toBe(false);
+    expect(discardedDraftIds).toEqual([]);
+    expect(view.getByTestId("visible-compose-draft-ids").textContent).toBe(
+      recoveryDraft.id,
+    );
+    const recipientInput = view.container.querySelector<HTMLInputElement>(
+      '[data-recipient-field="to"]',
+    );
+    expect(recipientInput?.value).toBe(recoveryDraft.to);
+
+    const subjectInput = view.getByPlaceholderText(
+      "mail.compose.subject",
+    ) as HTMLInputElement;
+    fireEvent.change(subjectInput, {
+      target: { value: "Edited before retry" },
+    });
+    expect(subjectInput.value).toBe("Edited before retry");
+
+    fireEvent.click(view.getByRole("button", { name: "mail.compose.send" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.resolve();
+    });
+
+    expect(mockSendEmailAsync).toHaveBeenCalledTimes(2);
+    expect(mockSendEmailAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        to: recoveryDraft.to,
+        subject: "Edited before retry",
+        body: recoveryDraft.body,
+      }),
+    );
+    expect(discardedDraftIds).toEqual([recoveryDraft.id]);
+    expect(view.getByTestId("compose-draft-ids").textContent).toBe("");
+    expect(
+      mockToast.mock.calls.filter(
+        ([message]) => message === "mail.toasts.messageSent",
+      ),
+    ).toHaveLength(1);
   });
 
   it("cancels a deferred send and restores its draft when Undo is selected", async () => {
