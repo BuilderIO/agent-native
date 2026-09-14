@@ -60,6 +60,24 @@ export interface ReviewMention {
   id?: string | null;
 }
 
+export interface ReviewCommentReaction {
+  reaction: string;
+  count: number;
+  reactedByMe: boolean;
+}
+
+export interface ReviewThreadPreference {
+  muted: boolean;
+  unread: boolean;
+}
+
+export interface ReviewDiscussionState {
+  reactions: Record<string, ReviewCommentReaction[]>;
+  threadPreferences: Record<string, ReviewThreadPreference>;
+  canReact: boolean;
+  canSetThreadPreferences: boolean;
+}
+
 export interface ReviewComment {
   id: string;
   resourceType: string;

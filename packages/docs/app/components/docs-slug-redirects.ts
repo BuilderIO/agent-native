@@ -56,6 +56,12 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // to the Agent / Developer Guide).
   "template-calendar-scheduling": "template-calendar-features",
   "template-calendar-booking-links": "template-calendar-features",
+  // Dispatch's Messaging/Operations/Vault pages merged into the five-page
+  // app-doc format (Overview / Features / Talk to the Agent / Cross-App Use /
+  // Developer Guide), the same rework Calendar went through above.
+  "template-dispatch-messaging-routing": "template-dispatch-features",
+  "template-dispatch-operations": "template-dispatch-features",
+  "template-dispatch-vault-integrations": "template-dispatch-features",
   // Forms' Building & Publishing and Responses & Insights pages merged into
   // one Features doc as part of the app-doc-format rework (Overview /
   // Features / Talk to the Agent / Cross-App Use / Developer Guide).

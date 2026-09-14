@@ -1,9 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
@@ -627,6 +629,25 @@ function dashboardResult(
   };
 }
 
+function trackDashboardSaved(
+  dashboardId: string,
+  config: Record<string, unknown>,
+  actionContext?: ActionRunContext,
+) {
+  track(
+    "dashboard_saved",
+    {
+      app_name: "analytics",
+      template_name: "analytics",
+      output_id: dashboardId,
+      output_type: "dashboard",
+      dashboard_id: dashboardId,
+      panel_count: countPanels(config),
+    },
+    actionContext,
+  );
+}
+
 function opCanChangePanelSql(op: JsonOp): boolean {
   if (op.op === "move" || op.op === "move-before" || op.op === "remove") {
     return false;
@@ -725,6 +746,7 @@ export default defineAction({
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
       );
       const panelCount = countPanels(args.config);
+      trackDashboardSaved(dashboardId, args.config, actionContext);
       return dashboardResult(
         dashboardId,
         args.config,
@@ -757,6 +779,7 @@ export default defineAction({
         root,
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
       );
+      trackDashboardSaved(dashboardId, root, actionContext);
       return dashboardResult(
         dashboardId,
         root,
@@ -805,6 +828,7 @@ export default defineAction({
     );
 
     const panelCount = countPanels(root);
+    trackDashboardSaved(dashboardId, root, actionContext);
     return dashboardResult(
       dashboardId,
       root,

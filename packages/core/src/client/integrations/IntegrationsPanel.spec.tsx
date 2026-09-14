@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mcpMocks = vi.hoisted(() => ({
+  isMcpServersPending: vi.fn(() => false),
   useCreateMcpServer: vi.fn(),
   useDeleteMcpServer: vi.fn(),
   useMcpServers: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("../resources/McpIntegrationDialog.js", () => ({
 }));
 
 vi.mock("../resources/mcp-integration-catalog.js", () => ({
+  isMcpIntegrationCatalogAvailable: () => false,
   getDefaultMcpIntegrations: () => [
     {
       id: "context7",
@@ -62,6 +64,11 @@ vi.mock("../i18n.js", () => ({
       "mcpIntegrations.reconnect": "Reconnect",
       "mcpIntegrations.reconnecting": "Reconnecting…",
       "mcpIntegrations.reconnectFailed": "Reconnect failed: {{error}}",
+      "mcpIntegrations.connect": "Connect",
+      "mcpIntegrations.searchPlaceholder": "Search integrations",
+      "integrations.manage": "Manage",
+      "integrations.connectedSection": "Connected",
+      "integrations.availableSection": "Available integrations",
     };
     return (messages[key] ?? key).replace(
       /\{\{(\w+)\}\}/g,
@@ -169,9 +176,64 @@ describe("IntegrationsPanel MCP connection errors", () => {
 
     expect(container.textContent).toContain("Available integrations");
     expect(container.textContent).toContain("Context7");
-    expect(container.textContent).not.toContain("Builder.io");
+    // The featured Builder.io row is expected; the builder-cms catalog entry
+    // stays filtered out of the merged list (its description never renders).
+    expect(container.textContent).not.toContain(
+      "Search Builder Publish and Hybrid Space content.",
+    );
+    expect(container.querySelector("#browser")).not.toBeNull();
     expect(container.textContent).not.toContain("settings.mcpClientSetup");
     expect(container.querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it("keeps connected integrations searchable", async () => {
+    integrationMocks.useIntegrationStatus.mockReturnValue({
+      statuses: [
+        {
+          platform: "slack",
+          label: "Slack",
+          enabled: true,
+          configured: true,
+        },
+      ],
+      loading: false,
+      refetch: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, "Slack");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector(
+        'button[aria-label="Manage Slack (agent in channels)"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("warns Slack webhook users to disable Socket Mode", async () => {
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const connectSlack = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect Slack (agent in channels)"]',
+    );
+    await act(async () => connectSlack?.click());
+
+    expect(container.textContent).toContain("Turn off Socket Mode");
   });
 
   it.each([
@@ -210,8 +272,8 @@ describe("IntegrationsPanel MCP connection errors", () => {
       `No agent integrations match “${query.toLowerCase()}”`,
     );
 
-    const connect = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "mcpIntegrations.connect",
+    const connect = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect settings.mcpClientSetup"]',
     );
     expect(connect).toBeTruthy();
     await act(async () => connect?.click());
@@ -241,8 +303,8 @@ describe("IntegrationsPanel MCP connection errors", () => {
       search?.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    const connect = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "mcpIntegrations.connect",
+    const connect = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect settings.mcpClientSetup"]',
     );
     await act(async () => connect?.click());
 

@@ -17,11 +17,23 @@ import { pathToFileURL } from "url";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
-import { closeDbExec } from "../db/client.js";
+import {
+  closeDbExec,
+  getRuntimeDatabaseUrl,
+  isProcessAlive,
+} from "../db/client.js";
 import {
   actionCallIsReadOnly,
   notifyActionChange,
 } from "../server/action-change.js";
+import {
+  DEV_ACTION_ORG_HEADER,
+  DEV_ACTION_ROUTE,
+  DEV_ACTION_TOKEN_HEADER,
+  DEV_ACTION_USER_HEADER,
+  hashDatabaseKey,
+  readDevActionDiscoveryFile,
+} from "../server/dev-action-bridge.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
@@ -283,6 +295,13 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
 
   const args = process.argv.slice(3);
 
+  // Forward to an already-running local dev server before touching the
+  // database ourselves — PGlite's process lock (db/client.ts) means opening
+  // it here while `pnpm dev` holds it open fails outright. Exits the process
+  // on every forwarded outcome (success, action error, or an unauthorized
+  // dev server); falls through to run in-process when nothing matched.
+  await tryForwardToDevServer(actionName, args);
+
   // Establish a request context for the duration of this CLI run. Without
   // it, db-exec / db-query / db-patch and any action that calls
   // `getRequestUserEmail()` see no identity and refuse to run. The
@@ -303,6 +322,118 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   return runWithRequestContext({ userEmail, orgId }, () =>
     dispatchAction(actionName, args, options),
   );
+}
+
+/**
+ * Try forwarding this call to a matching local dev server instead of running
+ * it in-process. Returns (never — every forwarded path calls `process.exit`)
+ * only when the call was actually sent; otherwise returns normally so the
+ * caller runs in-process exactly as it would without this feature.
+ *
+ * "Matching" requires all three: a readable discovery file, a live pid, and
+ * a `databaseKey` equal to this CLI's own resolved `DATABASE_URL` — a stale
+ * file from a different app/database must never be trusted. A connection
+ * failure (server not actually listening) falls back silently; a 401/403
+ * from a server that IS there does not, since that would otherwise reach
+ * the PGlite lock and print a second, more confusing error.
+ */
+export async function tryForwardToDevServer(
+  actionName: string,
+  args: string[],
+): Promise<void> {
+  const discovery = readDevActionDiscoveryFile(process.cwd());
+  if (!discovery || !isProcessAlive(discovery.pid)) return;
+  // The file is the only source of the origin, and the request carries the
+  // dev token plus the caller's identity headers: only ever send those to the
+  // loopback origin the dev server publishes for itself.
+  if (!isLoopbackDevActionOrigin(discovery.origin)) return;
+  // Same resolver the running server's request-time clients use, so an app
+  // configured with a runtime/unpooled URL still produces a matching key.
+  const ourDatabaseKey = hashDatabaseKey(
+    getRuntimeDatabaseUrl("pglite:./data/pglite"),
+  );
+  if (discovery.databaseKey !== ourDatabaseKey) return;
+
+  let input: Record<string, unknown>;
+  try {
+    input = parseActionArgs(args, { coerceBooleans: true });
+  } catch (error) {
+    console.error(
+      `Action "${actionName}" failed:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    process.exit(1);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [DEV_ACTION_TOKEN_HEADER]: discovery.token,
+        ...(process.env.AGENT_USER_EMAIL
+          ? { [DEV_ACTION_USER_HEADER]: process.env.AGENT_USER_EMAIL }
+          : {}),
+        ...(process.env.AGENT_ORG_ID
+          ? { [DEV_ACTION_ORG_HEADER]: process.env.AGENT_ORG_ID }
+          : {}),
+      },
+      body: JSON.stringify({ name: actionName, input }),
+    });
+  } catch {
+    // The dev server isn't actually listening (stale discovery file,
+    // ECONNREFUSED) or is otherwise unreachable — run in-process.
+    return;
+  }
+
+  // The dev server doesn't serve this action at all (e.g. a core script
+  // like db-query, which is never mounted as an HTTP route) — run in-process
+  // rather than treating an unrelated 404 as a hard failure.
+  if (response.status === 404) return;
+
+  if (response.status === 401 || response.status === 403) {
+    const body = await response
+      .json()
+      .catch(() => ({ error: `HTTP ${response.status}` }));
+    console.error(
+      `Action "${actionName}" failed:`,
+      (body as { error?: string })?.error ?? `HTTP ${response.status}`,
+    );
+    process.exit(1);
+  }
+
+  const body = (await response.json().catch(() => ({
+    ok: false,
+    error: "Invalid response from dev server.",
+  }))) as { ok: boolean; result?: unknown; error?: string };
+  if (!body.ok) {
+    console.error(
+      `Action "${actionName}" failed:`,
+      withoutCliHandoffText(body.error ?? "Unknown error"),
+    );
+    process.exit(1);
+  }
+  if (body.result !== undefined) {
+    assertCliHandoffLaunched(printActionResult(body.result));
+  }
+  process.exit(0);
+}
+
+function isLoopbackDevActionOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === "http:" &&
+      url.hostname === "127.0.0.1" &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    // coercion-ok: an unparseable origin is simply not a dev server to trust.
+    return false;
+  }
 }
 
 function coerceCliValue(

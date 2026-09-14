@@ -27,6 +27,7 @@ import {
   defaultAutomationConfig,
   readFactoryAutomationConfig,
   replaceUserPrompt,
+  restoreFactoryAutomationIdentityFields,
   scheduleCron,
   seedNameForTemplate,
   slugifyAutomationLeaf,
@@ -53,6 +54,7 @@ import {
 } from "../lib/factory-scope.js";
 import { persistGitHubRepository } from "../lib/github-repository.js";
 import {
+  BABYSIT_DECISION_INSTRUCTION,
   BABYSIT_SCOPE_INSTRUCTION,
   repairPrBabysitPrompt,
 } from "../lib/pr-babysit-prompt.js";
@@ -368,9 +370,9 @@ size. Each item includes author.
 
 ${BABYSIT_SCOPE_INSTRUCTION}
 
-When inScope is true, call babysit-factory-pull-request. It owns GitHub
-evidence, the hardcoded comment, and the quiet window. Never approve or merge.
-Preserve action errors.
+${BABYSIT_DECISION_INSTRUCTION}
+
+Never approve or merge. Preserve action errors.
 `,
   },
 ];
@@ -589,6 +591,11 @@ export async function ensureFactoryAutomations(
       repaired = replaceUserPrompt(
         repaired,
         stripInjectedAutomationBlocks(repaired),
+      );
+      repaired = restoreFactoryAutomationIdentityFields(
+        existing.content,
+        repaired,
+        leafName,
       );
       if (repaired === existing.content) return;
 

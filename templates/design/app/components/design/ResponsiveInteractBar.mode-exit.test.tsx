@@ -91,5 +91,8 @@ describe("ResponsiveInteractBar mode exits", () => {
     expect(markup).toMatch(
       /<button[^>]*class="[^"]*shrink-0[^"]*"[^>]*>100\.0%/,
     );
+    expect(markup).toContain(
+      'class="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1"',
+    );
   });
 });

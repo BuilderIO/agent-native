@@ -8,6 +8,17 @@
   cursor: default;
 }
 
+/* An unstyled editor contributes no box or typography of its own: the host
+   element's layout and inherited text styles are the only ones that apply. */
+.an-rich-md-wrapper--unstyled,
+.an-rich-md-wrapper--unstyled > .an-rich-md-content {
+  display: contents;
+}
+
+.an-rich-md-unstyled {
+  outline: none;
+}
+
 /* Shared Notion-style block controls. Apps can override the color tokens, but
    every SharedRichEditor gets a usable grip/menu without app-local CSS. */
 .drag-handle {

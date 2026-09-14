@@ -8,6 +8,14 @@ import {
 } from "kiwi-schema";
 import { describe, expect, it, vi } from "vitest";
 
+const fileUploadMocks = vi.hoisted(() => ({
+  uploadFile: vi.fn(),
+  deleteUploadedFile: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/file-upload", () => fileUploadMocks);
+
+import { convertDecodedFigToEditableHtml as convertShared } from "../../shared/fig-to-frames.js";
 import {
   assertSafeDecodedFigDocument,
   decodeFig,
@@ -440,32 +448,167 @@ describe("editable .fig conversion", () => {
     expect(result.stats.uploadedImageCount).toBe(1);
   });
 
-  it("omits image bytes safely and reports the degradation when storage is unavailable", async () => {
-    const result = await convertDecodedFigToEditableHtml(
-      {
-        format: "kiwi",
-        document: editableDocument("abc123"),
-        images: [
-          {
-            hash: "abc123",
-            ext: "png",
-            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
-          },
-        ],
-        thumbnail: null,
-      },
-      {
-        originalName: "no-storage.fig",
-        ownerEmail: "example@example.com",
-        uploader: vi.fn().mockResolvedValue(null),
-      },
-    );
+  it("rejects the whole import when storage is unavailable instead of omitting images", async () => {
+    const uploader = vi.fn().mockResolvedValue(null);
 
-    expect(result.files[0]!.content).toContain("about:blank");
-    expect(result.files[0]!.content).not.toMatch(/data:[^;]+;base64/i);
-    expect(result.warnings).toContainEqual(expect.stringMatching(/omitted/i));
-    expect(result.warnings.join(" ")).not.toMatch(/proprietary/i);
-    expect(result.stats.omittedImageCount).toBe(1);
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: [
+            {
+              hash: "abc123",
+              ext: "png",
+              bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            },
+          ],
+          thumbnail: null,
+        },
+        {
+          originalName: "no-storage.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(uploader).toHaveBeenCalledOnce();
+  });
+
+  it("stops later image batches and rejects when an upload is rejected", async () => {
+    const cleanup = vi.fn().mockResolvedValue(true);
+    const uploader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("provider unavailable"))
+      .mockResolvedValue({
+        url: "https://assets.example.com/image.png",
+        cleanup,
+      });
+    const images = Array.from({ length: 5 }, (_, index) => ({
+      hash: index === 0 ? "abc123" : `extra${index}`,
+      ext: "png",
+      bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, index]),
+    }));
+
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images,
+          thumbnail: null,
+        },
+        {
+          originalName: "rejected-image.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(uploader).toHaveBeenCalledTimes(4);
+    expect(cleanup).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports when a provider cannot delete successful uploads from a failed batch", async () => {
+    const cleanup = vi.fn().mockResolvedValue(false);
+    const uploader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("provider unavailable"))
+      .mockResolvedValue({
+        url: "https://assets.example.com/image.png",
+        cleanup,
+      });
+
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: Array.from({ length: 2 }, (_, index) => ({
+            hash: `cleanup${index}`,
+            ext: "png",
+            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, index]),
+          })),
+          thumbnail: null,
+        },
+        {
+          originalName: "failed-cleanup.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/storage cleanup failed for 1 uploaded image/i);
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("deletes server uploads from a failed batch through the active provider", async () => {
+    fileUploadMocks.uploadFile.mockReset();
+    fileUploadMocks.deleteUploadedFile.mockReset();
+    fileUploadMocks.uploadFile
+      .mockResolvedValueOnce({
+        url: "https://assets.example.com/first.png",
+        provider: "s3",
+        id: "uploads/first.png",
+      })
+      .mockRejectedValueOnce(new Error("provider unavailable"));
+    fileUploadMocks.deleteUploadedFile.mockResolvedValue(true);
+
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: ["abc123", "extra"].map((hash, index) => ({
+            hash,
+            ext: "png",
+            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, index]),
+          })),
+          thumbnail: null,
+        },
+        {
+          originalName: "failed-server-batch.fig",
+          ownerEmail: "example@example.com",
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(fileUploadMocks.deleteUploadedFile).toHaveBeenCalledWith("s3", {
+      url: "https://assets.example.com/first.png",
+      id: "uploads/first.png",
+    });
+  });
+
+  it("cleans uploaded images when HTML normalization fails", async () => {
+    const cleanup = vi.fn().mockResolvedValue(true);
+    const uploader = vi.fn().mockResolvedValue({
+      url: "https://assets.example.com/image.png",
+      cleanup,
+    });
+
+    await expect(
+      convertShared(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: [
+            {
+              hash: "abc123",
+              ext: "png",
+              bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            },
+          ],
+          thumbnail: null,
+        },
+        {
+          originalName: "normalize-failure.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+          normalizeHtml: () => {
+            throw new Error("normalizer failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("normalizer failed");
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 
   it("validates renderable frames before uploading any extracted blobs", async () => {

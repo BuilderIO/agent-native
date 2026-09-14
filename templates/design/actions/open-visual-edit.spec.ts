@@ -475,13 +475,13 @@ describe("open-visual-edit", () => {
     expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org_1",
-      targetPath: "/visual-edit/design_1?editorView=overview",
+      targetPath: "/visual-edit/design_1?editorView=overview&embedChrome=1",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: 300,
     });
 
     expect(result.openUrl).toBe(
-      "agent-native://open/visual-edit/design_1?editorView=overview",
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
     expect(result.embedStartUrl).toBe(
       "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
@@ -491,7 +491,7 @@ describe("open-visual-edit", () => {
     expect(result.openUrl).not.toContain("ticket");
     expect(result.openUrl).not.toContain("_session");
     expect(action.link!({ args: {}, result }).url).toBe(
-      "agent-native://open/visual-edit/design_1?editorView=overview",
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
   });
 
@@ -527,12 +527,13 @@ describe("open-visual-edit", () => {
         /^workspace\+[a-f0-9]{24}@local\.visual-edit\.agent-native\.invalid$/,
       ),
       orgId: undefined,
-      targetPath: "/visual-edit/design_created?editorView=overview",
+      targetPath:
+        "/visual-edit/design_created?editorView=overview&embedChrome=1",
       scope: "capability:visual-edit:design:design_created",
       ttlSeconds: 300,
     });
     expect(result.openUrl).toBe(
-      "agent-native://open/visual-edit/design_created?editorView=overview",
+      "agent-native://open/visual-edit/design_created?editorView=overview&embedChrome=1",
     );
     expect(result.embedStartUrl).toBe(
       "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
@@ -623,7 +624,7 @@ describe("open-visual-edit", () => {
 
     expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
     expect(result.openUrl).toBe(
-      "agent-native://open/visual-edit/design_1?editorView=overview",
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
     expect(result).not.toHaveProperty("embedStartUrl");
   });

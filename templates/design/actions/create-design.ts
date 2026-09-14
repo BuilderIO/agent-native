@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -42,7 +43,11 @@ export default defineAction({
       .describe(
         "Optional pre-generated UI ID. Agents should omit this and use the ID returned by the successful action.",
       ),
-    title: z.string().describe("Design project title"),
+    title: z
+      .string()
+      .describe(
+        "A concise, specific project name derived from the user's request. Never use a placeholder such as 'Untitled Design'.",
+      ),
     description: z
       .string()
       .optional()
@@ -73,14 +78,17 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    id: providedId,
-    title,
-    description,
-    projectType,
-    designSystemId,
-    designSystem,
-  }) => {
+  run: async (
+    {
+      id: providedId,
+      title,
+      description,
+      projectType,
+      designSystemId,
+      designSystem,
+    },
+    ctx,
+  ) => {
     const db = getDb();
     const id = providedId ?? nanoid();
     const now = new Date().toISOString();
@@ -113,6 +121,20 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
+
+    track(
+      "design_created",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        project_type: projectType ?? "prototype",
+        variant_count: 0,
+        design_system_id: resolvedDesignSystemId ?? undefined,
+      },
+      ctx,
+    );
 
     return {
       id,

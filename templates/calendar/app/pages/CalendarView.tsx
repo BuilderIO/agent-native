@@ -1,4 +1,5 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
@@ -436,8 +437,25 @@ export default function CalendarView() {
     new Map(),
   );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const openCommandPalette = useCallback(() => {
+    if (commandPaletteOpen) return;
+    trackEvent("calendar_search_opened", {
+      app_name: "calendar",
+      template_name: "calendar",
+      surface: "calendar_view",
+    });
+    setCommandPaletteOpen(true);
+  }, [commandPaletteOpen]);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
+
+  useEffect(() => {
+    trackEvent("calendar_viewed", {
+      app_name: "calendar",
+      template_name: "calendar",
+      view_type: viewMode,
+    });
+  }, [viewMode]);
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
@@ -1053,6 +1071,12 @@ export default function CalendarView() {
   }, [events, sidebarEvent]);
 
   function handleNavigate(direction: "prev" | "next") {
+    trackEvent("calendar_date_navigated", {
+      app_name: "calendar",
+      template_name: "calendar",
+      direction,
+      view_type: viewMode,
+    });
     const fns =
       direction === "next"
         ? { month: addMonths, week: addWeeks, day: addDays }
@@ -1061,6 +1085,11 @@ export default function CalendarView() {
   }
 
   function handleToday() {
+    trackEvent("calendar_today_clicked", {
+      app_name: "calendar",
+      template_name: "calendar",
+      view_type: viewMode,
+    });
     const today = getDateKeyInTimezone(new Date(), displayTimezone);
     if (today) setSelectedDate(dateKeyToDate(today));
   }
@@ -1708,7 +1737,7 @@ export default function CalendarView() {
       // Cmd+K / Ctrl+K — always open command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setCommandPaletteOpen(true);
+        openCommandPalette();
         return;
       }
 
@@ -1801,7 +1830,7 @@ export default function CalendarView() {
           break;
         case "/":
           e.preventDefault();
-          setCommandPaletteOpen(true);
+          openCommandPalette();
           break;
       }
     }
@@ -1812,6 +1841,7 @@ export default function CalendarView() {
     createDialogOpen,
     deleteDialogEvent,
     isTypingInInput,
+    openCommandPalette,
     viewMode,
     selectedDate,
     sidebarEvent,
@@ -1987,7 +2017,7 @@ export default function CalendarView() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 sm:h-7 sm:w-7"
-                    onClick={() => setCommandPaletteOpen(true)}
+                    onClick={openCommandPalette}
                   >
                     <IconSearch className="h-4 w-4" />
                   </Button>

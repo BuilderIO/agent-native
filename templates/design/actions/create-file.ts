@@ -13,10 +13,12 @@ import {
   nextFreeCanvasRowY,
   parseCanvasFrameGeometryById,
 } from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
 } from "../shared/html-integrity.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 // Matches the desktop default the in-app generation directives use
@@ -121,6 +123,16 @@ export default defineAction({
     // placement immediately, the same way generate-design and
     // present-design-variants place screens they create.
     if (renderable) {
+      const screenFiles = await db
+        .select({
+          id: schema.designFiles.id,
+          filename: schema.designFiles.filename,
+          fileType: schema.designFiles.fileType,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId));
+      const screenFileIds = getOverviewScreenFileIds(screenFiles);
+
       await mutateDesignData({
         designId,
         mutate: (current) => {
@@ -135,7 +147,19 @@ export default defineAction({
                 fileId: id,
                 filename,
                 x: 0,
-                y: nextFreeCanvasRowY(current.canvasFrames, CREATED_SCREEN_GAP),
+                y: nextFreeCanvasRowY(
+                  current.canvasFrames,
+                  CREATED_SCREEN_GAP,
+                  {
+                    responsiveLayout: {
+                      screenFileIds,
+                      screenMetadataByFileId: current.screenMetadata,
+                      breakpointWidths: getResponsiveBreakpointWidths(
+                        current.breakpointSet,
+                      ),
+                    },
+                  },
+                ),
                 width: CREATED_SCREEN_WIDTH,
                 height: CREATED_SCREEN_HEIGHT,
               },

@@ -1,3 +1,4 @@
+import { MAX_TEXT_ATTACHMENT_BYTES } from "@agent-native/toolkit/composer/attachment-accept";
 import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
@@ -8,9 +9,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
-import type {
-  AgentChatStructuredContentPart,
-  AgentChatStructuredMessage,
+import {
+  CONTINUATION_REASONS,
+  type AgentChatStructuredContentPart,
+  type AgentChatStructuredMessage,
 } from "../agent/types.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -93,7 +95,9 @@ type AgentChatAdapterAttachment = {
 const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
   "application/json",
   "application/x-ndjson",
+  "application/x-yaml",
   "image/svg+xml",
+  "message/rfc822",
   "text/csv",
   "text/css",
   "text/html",
@@ -136,16 +140,9 @@ const MAX_LOOP_LIMIT_CONTINUATIONS = 25;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
-// The attachment submitted with the CURRENT turn gets a much larger cap than
-// prior-history embedding. The server threads this turn's attachments into each
-// action's ActionRunContext, and `create-extension`/`update-extension` host a
-// pasted file verbatim from it via `contentFromAttachment` — a feature whose
-// whole point is large pastes. Truncating the outbound payload to the 60K
-// history cap would silently cut a >60K HTML/Alpine file before the server ever
-// reads it, hosting a broken extension. Mirror the large-input tool-arg cap
-// (MAX_HISTORY_LARGE_TOOL_ARGS_CHARS) so realistic pasted files survive intact;
-// the trailing truncation notice still makes a pathological multi-MB paste
-// visibly (not silently) capped.
+// Keep prior/history attachment payloads bounded. The current turn is already
+// capped by the text adapter and aggregate body guard, so preserve its full
+// text here for server-side resource persistence and read-attachment paging.
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 // An array-length backstop, NOT the reduction policy. Reducing a long thread is
 // Observational Memory's job: it folds older turns into observations/reflections
@@ -443,15 +440,13 @@ function laneAwareTerminalReasonMessage(
  * replaced by a server-chained successor row; it must never be read as "the
  * turn is done" just because its own row says `status: "completed"`.
  */
-const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>([
-  "run_timeout",
-  "loop_limit",
-  "max_tokens",
-  "stream_ended",
-  "gateway_timeout",
-  "network_interrupted",
-  "no_progress",
-]);
+// Derived from the shared `CONTINUATION_REASONS` (types.ts) rather than
+// re-listing the reasons here, so a new chunk-boundary reason (like
+// "rate_limited" once was) can't land server-side without the client also
+// recognizing it as non-terminal.
+const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>(
+  CONTINUATION_REASONS,
+);
 
 function isUserInitiatedTerminalReason(reason: string): boolean {
   return (
@@ -633,11 +628,21 @@ function decodeTextDataUrl(dataUrl: string): string | null {
   }
 }
 
-function extractAttachmentsFromMessage(message: {
-  content?: readonly { type: string; image?: string }[];
-  attachments?: readonly AssistantUiAttachment[];
-}): AgentChatAdapterAttachment[] {
+function extractAttachmentsFromMessage(
+  message: {
+    content?: readonly { type: string; image?: string }[];
+    attachments?: readonly AssistantUiAttachment[];
+  },
+  options: { preserveFullText?: boolean } = {},
+): AgentChatAdapterAttachment[] {
   const attachments: AgentChatAdapterAttachment[] = [];
+  const textForRequest = (text: string) =>
+    truncateOutboundAttachment(
+      text,
+      options.preserveFullText
+        ? MAX_TEXT_ATTACHMENT_BYTES
+        : MAX_OUTBOUND_ATTACHMENT_CHARS,
+    );
   for (const att of message.attachments ?? []) {
     const persistedMetadata =
       att && typeof att.metadata === "object" ? att.metadata : undefined;
@@ -652,9 +657,7 @@ function extractAttachmentsFromMessage(message: {
         displayOnly: true,
         ...(textPart && typeof textPart.text === "string"
           ? {
-              text: truncateOutboundAttachment(
-                unwrapAttachmentEnvelope(textPart.text),
-              ),
+              text: textForRequest(unwrapAttachmentEnvelope(textPart.text)),
             }
           : {}),
       });
@@ -705,16 +708,16 @@ function extractAttachmentsFromMessage(message: {
             ? {
                 data,
                 ...(decodedText !== null
-                  ? { text: truncateOutboundAttachment(decodedText) }
+                  ? { text: textForRequest(decodedText) }
                   : {}),
               }
             : decodedText !== null
-              ? { text: truncateOutboundAttachment(decodedText) }
+              ? { text: textForRequest(decodedText) }
               : data?.startsWith("data:")
                 ? { data }
                 : url
                   ? {}
-                  : { text: truncateOutboundAttachment(data ?? "") }),
+                  : { text: textForRequest(data ?? "") }),
           ...(typeof persistedMetadata?.uploadProvider === "string"
             ? { uploadProvider: persistedMetadata.uploadProvider }
             : {}),
@@ -732,7 +735,7 @@ function extractAttachmentsFromMessage(message: {
           type: "file",
           name: att.name,
           contentType: att.contentType,
-          text: truncateOutboundAttachment(unwrapAttachmentEnvelope(part.text)),
+          text: textForRequest(unwrapAttachmentEnvelope(part.text)),
         });
       }
     }
@@ -764,10 +767,13 @@ function truncateHistoryAttachment(text: string): string {
   return `${text.slice(0, MAX_HISTORY_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_HISTORY_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from prior chat history.]`;
 }
 
-function truncateOutboundAttachment(text: string): string {
-  if (text.length <= MAX_OUTBOUND_ATTACHMENT_CHARS) return text;
-  const omitted = text.length - MAX_OUTBOUND_ATTACHMENT_CHARS;
-  return `${text.slice(0, MAX_OUTBOUND_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_OUTBOUND_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from the submitted attachment.]`;
+function truncateOutboundAttachment(
+  text: string,
+  maxChars = MAX_OUTBOUND_ATTACHMENT_CHARS,
+): string {
+  if (text.length <= maxChars) return text;
+  const omitted = text.length - maxChars;
+  return `${text.slice(0, maxChars)}\n\n[Attachment truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted from the submitted attachment.]`;
 }
 
 function attachmentHistoryText(
@@ -1855,6 +1861,17 @@ function isRetryableStartupError(message: string): boolean {
 
 function isAuthErrorMessage(message: string): boolean {
   const msg = message.toLowerCase();
+  // A transient gateway 403/429 retry is diagnostic text that names its own
+  // HTTP status ("...temporarily refused this request (HTTP 403...", the
+  // gateway's `provider_transient_rejection`/`provider_rate_limited` codes),
+  // not an auth failure — it must not fall into the bare digit match below.
+  if (
+    msg.includes("provider_transient_rejection") ||
+    msg.includes("provider_rate_limited") ||
+    msg.includes("temporarily refused this request")
+  ) {
+    return false;
+  }
   return (
     msg.includes("authentication required") ||
     msg.includes("unauthorized") ||
@@ -2327,7 +2344,9 @@ export function createAgentChatAdapter(
       // assistant-ui puts user attachments on msg.attachments (not on content);
       // each attachment carries its own content parts from the adapter.
       const attachments = lastUserMsg
-        ? extractAttachmentsFromMessage(lastUserMsg as any)
+        ? extractAttachmentsFromMessage(lastUserMsg as any, {
+            preserveFullText: true,
+          })
         : [];
       const userMessageText =
         rawMessageText.trim() || attachments.length === 0

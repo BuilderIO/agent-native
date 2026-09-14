@@ -76,3 +76,22 @@ export {
   type AppearancePickerProps,
 } from "../AppearancePicker.js";
 export { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
+export {
+  AppSidebar,
+  AppSidebarHeader,
+  AppSidebarNavItem,
+  AppSidebarNavGroup,
+  AppSidebarSection,
+  AppSidebarFeedbackButton,
+  AppSidebarFooter,
+  useAppSidebar,
+  type AppSidebarProps,
+  type AppSidebarHeaderProps,
+  type AppSidebarNavItemProps,
+  type AppSidebarNavGroupProps,
+  type AppSidebarSectionProps,
+  type AppSidebarFeedbackButtonProps,
+  type AppSidebarFooterProps,
+  type AppSidebarItemDefinition,
+  type AppSidebarContextValue,
+} from "./AppSidebar.js";

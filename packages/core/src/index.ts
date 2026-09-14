@@ -175,6 +175,15 @@ export {
   createFeatureFlagsPlugin,
 } from "./feature-flags/server.js";
 export {
+  defineLab,
+  defineLabs,
+  getLabDefinition,
+  listLabs,
+  registerLabs,
+  type LabDefinition,
+} from "./labs/index.js";
+export { createLabsPlugin } from "./labs/server.js";
+export {
   defineExperiment,
   defineExperiments,
   getExperimentDefinition,

@@ -1435,6 +1435,165 @@ describe("server/auth", () => {
       );
     });
 
+    it("clears the HttpOnly session cookie in the same partition it was set in", async () => {
+      // CHIPS keeps a `Partitioned` cookie and an unpartitioned cookie of the
+      // same name in separate jars. `setFrameworkSessionCookie` writes
+      // `an_session` with `Partitioned` on HTTPS, so a delete without it
+      // targets the wrong jar: the browser keeps sending the session token
+      // after logout, and any instance whose session-email cache still holds
+      // that token answers "authenticated" as the previous account.
+      //
+      // The looser `toContain("Partitioned")` assertion above passes on the
+      // non-HttpOnly hint cookie alone, so it never inspected the cookie that
+      // actually carries the session.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(async () => ({ headers: new Headers() })),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth, COOKIE_NAME } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        {
+          "x-forwarded-proto": "https",
+          cookie: `${COOKIE_NAME}=session-token-abc`,
+        },
+      );
+
+      await logoutHandler(event);
+
+      const clears = (event.res.headers.get("set-cookie") ?? "")
+        .split(/,\s*(?=[^;,\s]+=)/)
+        .map((cookie: string) => cookie.trim())
+        .filter((cookie: string) =>
+          cookie.startsWith(`${COOKIE_NAME}=; Max-Age=0`),
+        );
+
+      // Both jars, in both domain scopes. The partitioned delete is what
+      // logout was missing; the unpartitioned one still has to go out for a
+      // cookie stored before CHIPS or over plain HTTP on a host later served
+      // over HTTPS. h3's set-cookie dedupe ignores `Partitioned`, so these two
+      // only coexist because the helper works around it.
+      expect(new Set(clears)).toEqual(
+        new Set([
+          `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Domain=.example.com; Path=/; Secure; Partitioned; SameSite=None`,
+          `${COOKIE_NAME}=; Max-Age=0; Domain=.example.com; Path=/; Secure; SameSite=None`,
+        ]),
+      );
+    });
+
+    it("leaves the new token as the last word when a session replaces an old one", async () => {
+      // setFrameworkSessionCookie clears before it sets, and clearing now
+      // emits a delete per CHIPS jar. h3 already lets a domain-scoped delete
+      // survive alongside the set (it does on `main` too), which is harmless
+      // only because a browser applies Set-Cookie in order. So the invariant
+      // is not "one header" — it is that nothing after the set takes the
+      // session back off. A stray trailing delete would log the user out on
+      // the very request that signed them in.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { setFrameworkSessionCookie, COOKIE_NAME } =
+        await import("./auth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
+      });
+
+      setFrameworkSessionCookie(event, "fresh-token");
+
+      const sessionCookies = event.res.headers
+        .getSetCookie()
+        .filter((cookie: string) => cookie.startsWith(`${COOKIE_NAME}=`));
+
+      expect(sessionCookies.at(-1)).toContain(`${COOKIE_NAME}=fresh-token`);
+      expect(sessionCookies.at(-1)).toContain("Partitioned");
+      // And the clear does not emit the same header twice.
+      expect(new Set(sessionCookies).size).toBe(sessionCookies.length);
+    });
+
+    it("keeps logout cookie clears unpartitioned over plain HTTP", async () => {
+      // `Partitioned` requires `Secure`; emitting it on a plain-HTTP dev
+      // origin would make the serializer throw and take the whole logout
+      // response down.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.COOKIE_DOMAIN;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(async () => ({ headers: new Headers() })),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth, COOKIE_NAME } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: `${COOKIE_NAME}=session-token-abc` },
+      );
+
+      await expect(logoutHandler(event)).resolves.toEqual({ ok: true });
+
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain(`${COOKIE_NAME}=; Max-Age=0; Path=/`);
+      expect(setCookie).not.toContain("Partitioned");
+    });
+
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
       // Reproduces the reported bug: a token whose legacy `sessions` row was
       // never written (the magic-link `addSession` mirror is best-effort —

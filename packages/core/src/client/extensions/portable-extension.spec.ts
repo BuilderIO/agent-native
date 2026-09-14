@@ -32,6 +32,54 @@ describe("portable extension runtime", () => {
     expect(html).toContain("agentNative.host.ready");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
+    expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
+    expect(html).toContain("bodyRect.height - paddingBottom");
+    expect(html).toContain("body.querySelectorAll('*')");
+    expect(html).toContain("style.overflowY");
+    expect(html).toContain("auto|scroll|overlay|hidden|clip");
+    expect(html).toContain("style.position === 'fixed'");
+    expect(html).toContain("style.position === 'absolute'");
+    expect(html).toContain("requestAnimationFrame");
+    expect(html).toContain("positionObservationScheduled");
+    expect(html).toContain("schedulePositionObservation");
+    expect(html).toContain("positionMonitorActive");
+    expect(html).toContain("activeCssMotionCount");
+    expect(html).toContain("animationProbeTimer");
+    expect(html).toContain("document.getAnimations()");
+    expect(html).toContain("positionedElements.forEach");
+    expect(html).toContain("motionElements.forEach");
+    expect(html).toContain("watchAnimationCompletion");
+    expect(html).toContain("Element.prototype.animate");
+    expect(html).toContain("document.addEventListener('animationend'");
+    expect(html).toContain("document.addEventListener('transitionend'");
+    expect(html).not.toContain(
+      "document.addEventListener('animationiteration'",
+    );
+    expect(html).toContain("positionMonitorFramesRemaining");
+    expect(html).toContain("document.addEventListener('transitionstart'");
+    expect(html).toContain("new MutationObserver");
+    const reportStart = html.indexOf("function reportHeight()");
+    const reportEnd = html.indexOf(
+      "window.addEventListener('load', reportHeight)",
+      reportStart,
+    );
+    expect(reportStart).toBeGreaterThanOrEqual(0);
+    expect(reportEnd).toBeGreaterThan(reportStart);
+    expect(html.slice(reportStart, reportEnd)).toContain(
+      "measurePositionedContent",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "querySelectorAll('*')",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "document.createTreeWalker(body, 4)",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "range.getClientRects()",
+    );
+    expect(html).toContain(
+      "document.addEventListener('DOMContentLoaded', setupResizeObservation)",
+    );
     expect(html).toContain('<div x-data="{ ready: true }">Hello</div>');
     expect(html).toContain("cus_123");
   });

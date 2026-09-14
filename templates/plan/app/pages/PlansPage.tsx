@@ -3788,6 +3788,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const runPlanExportAction = (action: () => Promise<void>) => {
+    trackEvent("plan_reader_action_started", {
+      app_name: "plan",
+      template_name: "plan",
+      surface: localPlanMode ? "local_reader" : "reader",
+    });
     preservePlanReaderScroll(() => {
       void action().catch((error) => {
         toast.error(
@@ -3823,6 +3828,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   }, [canCommentPlan]);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
+    trackEvent("plan_review_mode_selected", {
+      app_name: "plan",
+      template_name: "plan",
+      mode,
+    });
     preservePlanReaderScroll(() => {
       if (mode !== "comment") {
         closeInlineComment();
@@ -5279,6 +5289,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           {canEditPlanContent ? (
                             <DropdownMenuItem
                               onClick={() => {
+                                trackEvent("plan_history_opened", {
+                                  app_name: "plan",
+                                  template_name: "plan",
+                                });
                                 preservePlanReaderScroll(() => {
                                   closeInlineComment();
                                   setHistoryOpen(true);
@@ -7674,7 +7688,14 @@ function PlansOverview({
           <div className="flex flex-wrap items-center gap-3">
             <Tabs
               value={filter}
-              onValueChange={(v) => setFilter(v as OverviewFilter)}
+              onValueChange={(v) => {
+                trackEvent("plan_filter_changed", {
+                  app_name: "plan",
+                  template_name: "plan",
+                  filter: v,
+                });
+                setFilter(v as OverviewFilter);
+              }}
             >
               <TabsList>
                 <TabsTrigger value="all">

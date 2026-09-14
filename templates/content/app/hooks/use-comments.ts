@@ -34,7 +34,7 @@ export interface Comment {
   created_at: string;
   updated_at: string;
   notion_comment_id: string | null;
-  submission_source: string | null;
+  submission_source?: string | null;
   submission_run_id?: string | null;
   mutation?: CommentMutationState;
 }

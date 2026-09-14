@@ -295,7 +295,7 @@ describe("list-triage-items automation limits", () => {
     });
     const rows = [
       slackItem("started", "automation_started"),
-      slackItem("marked", "received", "robot_face"),
+      slackItem("marked", "received", "eyes"),
       slackItem("fresh", "received"),
     ];
     let selectCalls = 0;

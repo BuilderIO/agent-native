@@ -115,3 +115,23 @@ describe("DesignImportPanel", () => {
     );
   });
 });
+
+describe("DesignImportPanel quota attribution", () => {
+  const source = readFileSync(
+    "app/components/design/DesignImportPanel.tsx",
+    "utf8",
+  );
+
+  it("renders Design-sourced cooldown copy instead of Figma rate-limit copy", () => {
+    expect(source).toContain('figmaRateLimitError.quotaSource === "design"');
+    expect(source).toContain("designEditor.import.quotaCooldownTitle");
+    expect(source).toContain("designEditor.import.quotaCooldownBody");
+  });
+
+  it("reads the failure through the shared typed reader", () => {
+    expect(source).toContain("readFigmaImportFailure(");
+    // The old ad-hoc property chain and message sniffing are gone.
+    expect(source).not.toContain("rateLimitDetails.figmaPlanTier");
+    expect(source).not.toMatch(/rate limit\|429\|quota/);
+  });
+});

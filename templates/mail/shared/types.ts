@@ -93,6 +93,10 @@ export type ComposeState = {
   attachments?: ComposeAttachment[];
   /** ID of the persistent draft email (for updating existing drafts) */
   savedDraftId?: string;
+  /** Backend that owns savedDraftId, so deletion remains unambiguous after disconnects. */
+  savedDraftBackend?: "gmail" | "local";
+  /** Connected account that owns a Gmail savedDraftId. */
+  savedDraftAccountEmail?: string;
   /** Which connected account to send from (for multi-inbox reply) */
   accountEmail?: string;
   /** When true, render inline in the thread view instead of the popout composer */

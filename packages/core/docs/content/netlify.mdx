@@ -13,9 +13,12 @@ export default defineConfig({
 });
 ```
 
-Fresh scaffolds may name the imported function `agentNativePlugins` and spread
-its result to keep Vite package types aligned. It is the same `agentNative`
-plugin and accepts the same options.
+On the generated Chat scaffold, the import stays `agentNative`. The config
+assigns it to a local `agentNativePlugins` alias with a type cast, then spreads
+the returned plugin array to align Vite package types. It accepts the same
+options as the `agentNative` example above. To deploy that scaffold to Netlify,
+add `nitro: { preset: "netlify" }` to the existing `agentNativePlugins({ ... })`
+call. Leave the other Chat-specific plugins, options, and aliases unchanged.
 
 …or set `NITRO_PRESET=netlify` at build time.
 

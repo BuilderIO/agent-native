@@ -124,17 +124,22 @@ function setupWebMcpManifest() {
     configurable: true,
     value: modelContext,
   });
-  const fetchMock = vi.fn().mockResolvedValue(
-    new Response(
-      JSON.stringify([
-        {
-          name: "view-screen",
-          description: "Read the current screen",
-          inputSchema: { type: "object" },
-        },
-      ]),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    ),
+  // A fresh Response per call: a Response body can only be read once, and
+  // more than one surface (RuntimeConfigNotice, the deferred WebMCP
+  // registration) consumes this mock after the WebMCP start is deferred
+  // past first paint.
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify([
+          {
+            name: "view-screen",
+            description: "Read the current screen",
+            inputSchema: { type: "object" },
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
   );
   Object.defineProperty(window, "fetch", {
     configurable: true,
@@ -150,6 +155,12 @@ const SIGNED_OUT_SESSION = {
   session: null,
   isLoading: false,
   status: "unauthenticated" as const,
+};
+
+const SIGNED_IN_SESSION = {
+  session: { userId: "user-1", email: "user@example.com" },
+  isLoading: false,
+  status: "authenticated" as const,
 };
 
 describe("AppProviders session gate", () => {
@@ -199,7 +210,7 @@ describe("AppProviders session gate", () => {
     ).toBeNull();
   });
 
-  it("renders public paths directly without resolving or redirecting a session", () => {
+  it("renders public paths directly without redirecting or gating a session", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ isPublicPath: true });
@@ -210,26 +221,147 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('script[data-agent-native-beta-redirect="1"]'),
     ).toBeNull();
-    expect(useSessionMock).not.toHaveBeenCalled();
+    // WebMCP registration reads the session to skip signed-out visitors, but
+    // no gate here redirects and no RequireSession fallback holds content.
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
-  it("registers WebMCP actions on public paths by default", async () => {
+  it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          toaster={null}
+          isPublicPath
+          disableWebMcp
+        >
+          <div data-testid="app-content">content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+    // The non-persisting runtime never mounts the session hook, and with
+    // WebMCP disabled nothing else resolves the session on a public path.
+    expect(useSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit public-path persistPreference opt-in session-aware", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          toaster={null}
+          isPublicPath
+          disableWebMcp
+          i18n={{ persistPreference: true }}
+        >
+          <div data-testid="app-content">content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(useSessionMock).toHaveBeenCalled();
+  });
+
+  it("skips WebMCP registration for signed-out public-path visitors", async () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
     const { fetchMock, modelContext } = setupWebMcpManifest();
 
     renderProviders({ isPublicPath: true });
 
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/_agent-native/webmcp/manifest",
-        expect.objectContaining({ credentials: "same-origin" }),
-      );
-      expect(modelContext.registerTool).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "view-screen" }),
-        expect.anything(),
-      );
+      // The registration resolves the shared session first, so a signed-out
+      // visitor never logs the manifest 401.
+      expect(useSessionMock).toHaveBeenCalled();
     });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+    expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+
+  it("registers WebMCP actions on signed-in public paths", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+
+    await vi.waitFor(
+      () => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/_agent-native/webmcp/manifest",
+          expect.objectContaining({ credentials: "same-origin" }),
+        );
+        expect(modelContext.registerTool).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "view-screen" }),
+          expect.anything(),
+        );
+      },
+      { timeout: 4000, interval: 50 },
+    );
+  });
+
+  it("does not start WebMCP registration while the session is unavailable", async () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "unavailable" as const,
+    });
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+
+    // Wait past the paint-aligned window: the manifest route needs a
+    // session, so an unreadable session waits instead of firing a request
+    // that can only fail.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+    expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+
+  it("starts WebMCP registration when an unavailable session becomes authenticated", async () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "unavailable" as const,
+    });
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    renderProviders({ isPublicPath: true });
+
+    await vi.waitFor(
+      () => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/_agent-native/webmcp/manifest",
+          expect.objectContaining({ credentials: "same-origin" }),
+        );
+        expect(modelContext.registerTool).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "view-screen" }),
+          expect.anything(),
+        );
+      },
+      { timeout: 4000, interval: 50 },
+    );
   });
 
   it("allows template roots to disable automatic WebMCP registration", () => {
@@ -281,11 +413,15 @@ describe("AppProviders session gate", () => {
 
     renderProviders({ sessionBypass: true });
 
+    // Bypass surfaces register immediately: a token-authenticated MCP embed's
+    // host may call tools right away, so the manifest fetch must not wait out
+    // the paint-aligned window (only the session-gated variant defers).
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/_agent-native/webmcp/manifest",
-        expect.objectContaining({ credentials: "same-origin" }),
-      );
       expect(modelContext.registerTool).toHaveBeenCalledWith(
         expect.objectContaining({ name: "view-screen" }),
         expect.anything(),

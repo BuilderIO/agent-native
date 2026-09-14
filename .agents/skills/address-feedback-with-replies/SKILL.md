@@ -18,19 +18,18 @@ Slack in one pass. Reply only in the requested scope and keep replies as
 evidence-based as the code. Cluster identical symptoms under one Builder
 thread while replying in each in-scope report that needs a status.
 
-This workflow is for clear bugs, not a general UX review. A clear bug has
-observable broken behavior such as a click or submit doing nothing, an action
-error, data loss or reversion, a wrong result, or a regression. Do not react,
-ask questions, reply, or change code for preferences, product ideas, copy or
-layout suggestions, praise, status updates, merge or review requests, bot
-forwards, duplicates, or other random messages. Design feedback, including
-Design clips and imported-design usability, routes to Sid and is not handled
-here. Content remains with Alice.
+This workflow handles clear bugs and concrete design/UX feedback about existing
+repo-owned surfaces. In Slack sweeps, follow `review-latest-feedback` for
+eligibility: do not exclude Design feedback because it is visual or subjective;
+new capability requests still require the invoking identity's `:upvote:`.
+Praise, status updates, merge or review requests, bot forwards, duplicates, and
+other unrelated messages stay out of scope. Content remains with Alice unless
+the user explicitly assigns it.
 
-One exception: an `:upvote:` from the invoking identity promotes an otherwise
-out-of-scope UX or feature request into scope - that reaction is the product
-decision, so build the smallest version rather than asking which variant is
-wanted. The upvote is the authorization — do not wait for a second sign-off.
+An `:upvote:` from the invoking identity promotes a new-capability request into
+scope - that reaction is the product decision, so build the smallest version
+rather than asking which variant is wanted. The upvote is the authorization —
+do not wait for a second sign-off.
 It does not transfer ownership: an upvoted Design or Content item still gets
 built, with Sid or Alice named in the recap row so the mapped owner is not
 surprised by a change in their area. Naming them is a courtesy, not a gate.
@@ -122,11 +121,11 @@ Apply the shared `address-feedback` **Choose the fix altitude** gate before
 reacting, editing code, or replying. It selects the smallest owning seam and
 prevents one subjective report from becoming a global instruction.
 
-Once classified as a clear bug or an upvoted improvement, add `👀`
-before investigation or delegation. Leave subjective/product, policy,
-informational, bot-forward, status-only, non-repo-owned, and Design items
-without reaction, reply, or code unless the invoking identity's `:upvote:` put
-them in scope; Design goes to Sid unless upvoted or explicitly assigned.
+For Slack sweeps, `review-latest-feedback` owns scope and reaction eligibility.
+Honor its inclusion of concrete Design/UX feedback about existing surfaces and
+the invoking user's assignment; do not override it with a generic UX exclusion.
+New-capability requests still need the invoking identity's `:upvote:`. Once an
+item is in scope, add `👀` before investigation or delegation.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
@@ -212,12 +211,13 @@ non-repeating question only if one specific required detail still blocks it.
    Builder thread for that cluster; do not create separate Builder threads
    unless the reports diverge in symptom, surface, or owner.
 2. The reaction is the first external action after classification. Add `👀` to
-   each clear bug immediately, one thread at a time as it enters scope. Do not
+   each clear bug and every actionable Design/UX item already classified in
+   scope, one thread at a time as it enters scope. Do not
    batch reactions until after investigation, implementation, testing, or the
    final Slack pass. If the reaction fails, stop and retry or report the
    concrete Slack permission/API blocker before continuing the investigation.
-   Do not react to subjective/product, policy, informational, bot-forward,
-   status-only, Design, or non-repo-owned items.
+   Do not react to out-of-scope product requests, policy or informational
+   messages, bot forwards, status-only items, or non-repo-owned reports.
    For an authorized upvoted improvement, perform and read back that same eye
    reaction before investigation or delegation, then include it in the ledger.
 3. Parallelize independent investigations and narrow fixes with disjoint write

@@ -2,7 +2,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -237,6 +237,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         isDispatch: true,
         audience: "internal",
         publicPaths: [],
@@ -247,6 +248,7 @@ describe("workspace deploy", () => {
         name: "Starter",
         description: "",
         path: "/starter",
+        homePath: "/home",
         isDispatch: false,
         audience: "internal",
         publicPaths: [],
@@ -382,6 +384,7 @@ describe("workspace deploy", () => {
           name: "Dispatch",
           description: "",
           path: "/dispatch",
+          homePath: "/home",
           isDispatch: true,
           audience: "internal",
           publicPaths: [],
@@ -392,6 +395,7 @@ describe("workspace deploy", () => {
           name: "Starter",
           description: "",
           path: "/starter",
+          homePath: "/home",
           isDispatch: false,
           audience: "internal",
           publicPaths: [],
@@ -621,6 +625,7 @@ describe("workspace deploy", () => {
     );
     expect(manifest.find((app: any) => app.id === "portal")).toMatchObject({
       id: "portal",
+      homePath: "/home",
       audience: "public",
       publicPaths: ["/", "/pricing"],
       protectedPaths: ["/admin"],
@@ -969,7 +974,7 @@ describe("workspace deploy", () => {
     expect(execFile).toHaveBeenCalledTimes(1);
   });
 
-  it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
+  it("writes workspace app URLs and preserves explicit manifest metadata", async () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
       "https://directory.example.test";
@@ -979,6 +984,7 @@ describe("workspace deploy", () => {
         {
           id: "mail",
           path: "/mail",
+          homePath: "/inbox",
           url: "https://mail.custom.example.test/",
         },
       ],
@@ -1008,6 +1014,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -1019,6 +1026,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/inbox",
         url: "https://mail.custom.example.test",
         isDispatch: false,
         audience: "internal",
@@ -1050,6 +1058,33 @@ describe("workspace deploy", () => {
       ["mail", "https://mail.custom.example.test"],
     ]);
   });
+
+  it("publishes configured app home paths while preserving manifest overrides", async () => {
+    process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [{ id: "mail", homePath: "/compose" }],
+    });
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "calendar", { homePath: "/dashboard" });
+    makeWorkspaceApp(tmpDir, "mail", { homePath: "/inbox" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      expect.objectContaining({ id: "dispatch", homePath: "/home" }),
+      expect.objectContaining({ id: "calendar", homePath: "/dashboard" }),
+      expect.objectContaining({ id: "mail", homePath: "/compose" }),
+    ]);
+  }, 30_000);
 
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
     process.env.APP_URL = "https://workspace.example.test";
@@ -1085,6 +1120,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -1096,6 +1132,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/home",
         url: "https://workspace.example.test/mail",
         isDispatch: false,
         audience: "internal",
@@ -1307,6 +1344,26 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
 
+  it.each([true, false])(
+    "keeps per-app chat recovery independent of disabled jobs (%s)",
+    async (durableChat) => {
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = String(durableChat);
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "starter");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      });
+
+      for (const app of ["dispatch", "starter"]) {
+        expect(fs.existsSync(recurringFuncDir(app))).toBe(durableChat);
+      }
+    },
+  );
+
   it("emits scoped integration background and scheduled recovery functions when opted in", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
@@ -1491,6 +1548,7 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homePath?: string;
     protectedPaths?: string[];
     publicPaths?: string[];
     usesUnpooledDatabaseUrl?: boolean;
@@ -1512,6 +1570,25 @@ function makeWorkspaceApp(
     };
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
+
+  if (opts.homePath) {
+    const coreConfigPath = pathToFileURL(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../app-config/index.ts",
+      ),
+    ).href;
+    const pluginsDir = path.join(appDir, "server", "plugins");
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, "config.ts"),
+      [
+        `import { defineAppConfig } from ${JSON.stringify(coreConfigPath)};`,
+        `export default defineAppConfig({ app: { homePath: ${JSON.stringify(opts.homePath)} } });`,
+        "",
+      ].join("\n"),
+    );
+  }
 
   if (opts.usesUnpooledDatabaseUrl) {
     fs.writeFileSync(

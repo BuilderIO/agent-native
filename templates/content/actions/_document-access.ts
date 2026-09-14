@@ -1,3 +1,7 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
@@ -6,7 +10,15 @@ import { resolveContentSpaceAccess } from "./_content-space-access.js";
 
 export async function resolveDocumentAccess(id: string) {
   const current = await resolveAccess("document", id);
-  if (current) return current;
+  if (current) {
+    return {
+      ...current,
+      authority: {
+        userEmail: getRequestUserEmail(),
+        orgId: getRequestOrgId() ?? null,
+      },
+    };
+  }
   const [reference] = await getDb()
     .select({ spaceId: schema.documents.spaceId })
     .from(schema.documents)
@@ -26,8 +38,16 @@ export async function resolveDocumentAccess(id: string) {
     }
     throw error;
   }
-  return resolveAccess("document", id, {
+  const granted = await resolveAccess("document", id, {
     userEmail: spaceAccess.authority.userEmail,
     orgId: spaceAccess.authority.orgId ?? undefined,
   });
+  if (!granted) return null;
+  return {
+    ...granted,
+    authority: {
+      userEmail: spaceAccess.authority.userEmail,
+      orgId: spaceAccess.authority.orgId ?? null,
+    },
+  };
 }

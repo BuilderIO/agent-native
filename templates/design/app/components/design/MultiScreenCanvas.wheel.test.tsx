@@ -193,6 +193,35 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     expect(view.y).toBeCloseTo(-240, 10);
   });
 
+  it("does not report a zoom change after a pan-only scroll", async () => {
+    const onZoomChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          activeTool="move"
+          onPick={() => {}}
+          onZoomChange={onZoomChange}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+    await applyTicks(surface!, [{ deltaY: 80 }]);
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 140));
+    });
+    expect(onZoomChange).not.toHaveBeenCalled();
+
+    await applyTicks(surface!, [{ deltaY: -100, ctrlKey: true }]);
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 140));
+    });
+    expect(onZoomChange).toHaveBeenCalledOnce();
+    expect(onZoomChange).toHaveBeenCalledWith(notchFactor(100) * 100);
+  });
+
   it("does not cancel a non-cancelable wheel", async () => {
     // Chrome sends these during a fling; cancelling one logs an Intervention
     // per event and scrolls anyway.

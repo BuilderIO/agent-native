@@ -1,5 +1,13 @@
 # @agent-native/toolkit
 
+## 0.19.7
+
+### Patch Changes
+
+- 35eb1e6: Align dropdown submenu trigger icon spacing with menu items (`gap-2`).
+- 4676e71: Show popular OpenRouter models in the chat picker and preserve custom selections.
+- Release all public npm packages with a patch version bump.
+
 ## 0.19.6
 
 ### Patch Changes

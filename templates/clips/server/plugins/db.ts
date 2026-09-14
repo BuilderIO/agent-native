@@ -1229,6 +1229,22 @@ export const migrations = runMigrations(
         ALTER TABLE IF EXISTS calendar_account_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
+    {
+      version: 72,
+      name: "clips-intake-sessions",
+      sql: `CREATE TABLE IF NOT EXISTS clips_intake_sessions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        organization_id TEXT NOT NULL,
+        recording_id TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE INDEX IF NOT EXISTS clips_intake_sessions_expires_idx
+        ON clips_intake_sessions (status, expires_at)`,
+    },
   ],
   { table: "clips_migrations" },
 );

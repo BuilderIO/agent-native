@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { selectionColorValues } from "./edit-panel/document-colors";
+import { runSelectionColorChange } from "../../pages/design-editor/commands/selection-color-change";
+import {
+  replaceSelectionColorsInHtml,
+  selectionColorValues,
+} from "./edit-panel/document-colors";
 import { extractDocumentColorPalette } from "./EditPanel";
 import type { ElementInfo } from "./types";
 
@@ -129,6 +133,353 @@ describe("extractDocumentColorPalette", () => {
       ]),
     ).not.toThrow();
   });
+
+  it("only scans color declarations, not attributes, text, URLs, or scripts", () => {
+    const content =
+      '<div id="color-#0066ff" data-value="#0066ff" style="color:#0066ff">#0066ff</div>' +
+      '<script>const color = "#0066ff";</script>' +
+      "<style>.card { background:#0066ff; background-image:url(#0066ff); }</style>";
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<div id="color-#0066ff" data-value="#0066ff" style="color:#ff0000">#0066ff</div>' +
+        '<script>const color = "#0066ff";</script>' +
+        "<style>.card { background:#ff0000; background-image:url(#0066ff); }</style>",
+    );
+  });
+
+  it("skips CSS comments and handles greater-than signs in HTML attributes", () => {
+    const content = `<div aria-label="A > B" style="color:#0066ff; /* don't scan #123456 */ background:#00ff00"></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+      "#00FF00",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      `<div aria-label="A > B" style="color:#ff0000; /* don't scan #123456 */ background:#00ff00"></div>`,
+    );
+  });
+
+  it("captures logical borders and text-decoration shorthand colors", () => {
+    const content =
+      '<div style="border-inline: 1px solid #0066ff; border-block-start-color:#00ff00; text-decoration: underline 2px #ff00aa"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+      "#00FF00",
+      "#FF00AA",
+    ]);
+  });
+
+  it("anchors style-block replacement after the opening tag", () => {
+    const content =
+      '<style data-source="color:#0066ff>">.card { color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style data-source="color:#0066ff>">.card { color:#ff0000 }</style>',
+    );
+  });
+
+  it("does not parse style-like CSS strings as nested tags", () => {
+    const content =
+      '<style>.card::before { content: "<style>"; color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style>.card::before { content: "<style>"; color:#ff0000 }</style>',
+    );
+  });
+
+  it("does not mask script-like CSS strings before scanning styles", () => {
+    const content =
+      '<style>.card::before { content: "<script>"; color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style>.card::before { content: "<script>"; color:#ff0000 }</style>',
+    );
+  });
+
+  it("uses HTML quote rules for style attributes", () => {
+    const content = '<style data-x="\\">.card { color:#0066ff }</style>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe('<style data-x="\\">.card { color:#ff0000 }</style>');
+  });
+
+  it("ignores style-like markup in non-rendered HTML", () => {
+    const content =
+      "<!-- <style>.comment { color:#111111 }</style> -->" +
+      '<script>const template = "<style>.script { color:#222222 }</style>";</script>' +
+      "<noscript><style>.noscript { color:#333333 }</style></noscript>" +
+      "<style>.real { color:#0066ff }</style>";
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      "<!-- <style>.comment { color:#111111 }</style> -->" +
+        '<script>const template = "<style>.script { color:#222222 }</style>";</script>' +
+        "<noscript><style>.noscript { color:#333333 }</style></noscript>" +
+        "<style>.real { color:#ff0000 }</style>",
+    );
+  });
+
+  it("masks the remainder after an unclosed style block", () => {
+    const content =
+      '<style>.real { color:#0066ff }<div style="color:#00ff00"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual(
+      [],
+    );
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#00ff00",
+        "#ff0000",
+      ),
+    ).toBe(content);
+  });
+
+  it("does not accept whitespace in raw-text closing tags", () => {
+    const content =
+      '<style>.real { color:#0066ff }</ style><div style="color:#00ff00"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual(
+      [],
+    );
+  });
+
+  it("requires actual raw-text tag-name boundaries", () => {
+    const content =
+      "<style-foo>.fake { color:#111111 }</style>" +
+      "<style!>.malformed { color:#222222 }</style>" +
+      '<div style="color:#0066ff"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+  });
+
+  it("accepts browser-recovered raw-text closing tags", () => {
+    const content =
+      '<style>.real { color:#0066ff }</style foo><div style="color:#00ff00"></div>' +
+      '<style>.other { color:#ff00aa }</style/><div style="color:#ffffff"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+      "#00FF00",
+      "#FF00AA",
+      "#FFFFFF",
+    ]);
+  });
+
+  it("recovers malformed HTML comment termination", () => {
+    const content =
+      "<!-- hidden <style>.fake { color:#111111 }</style> --!>" +
+      '<div style="color:#0066ff"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      "<!-- hidden <style>.fake { color:#111111 }</style> --!>" +
+        '<div style="color:#ff0000"></div>',
+    );
+  });
+
+  it("does not treat quoted URL fragments as colors", () => {
+    const content = `<div style='background-image: url("sprite)#0066ff.svg"); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      `<div style='background-image: url("sprite)#0066ff.svg"); color:#ff0000'></div>`,
+    );
+  });
+
+  it("does not treat escaped URL function names as colors", () => {
+    const content = String.raw`<div style='background-image: u\72 l(#0066ff); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      String.raw`<div style='background-image: u\72 l(#0066ff); color:#ff0000'></div>`,
+    );
+  });
+
+  it("handles escaped newlines in URL function names", () => {
+    const content = String.raw`<div style='background-image: u\
+rl(#0066ff); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(String.raw`<div style='background-image: u\
+rl(#0066ff); color:#ff0000'></div>`);
+  });
+
+  it("handles CRLF terminators after escaped hex digits", () => {
+    const content =
+      String.raw`<div style='background-image: u\72` +
+      "\r\n" +
+      String.raw`l(#0066ff); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      String.raw`<div style='background-image: u\72` +
+        "\r\n" +
+        String.raw`l(#0066ff); color:#ff0000'></div>`,
+    );
+  });
+
+  it("does not treat escaped parentheses in URLs as colors", () => {
+    const content = String.raw`<div style='background-image: url(sprite\)#0066ff.svg); color:#0066ff'></div>`;
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#0066FF",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toBe(
+      String.raw`<div style='background-image: url(sprite\)#0066ff.svg); color:#ff0000'></div>`,
+    );
+  });
+
+  it("stops style scanning at raw-text closing tags", () => {
+    const content =
+      '<style>.card::before { content: "</style>"; color:#0066ff }</style>' +
+      '<div style="color:#00ff00"></div>';
+
+    expect(extractDocumentColorPalette([{ id: "file-1", content }])).toEqual([
+      "#00FF00",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#00ff00",
+        "#ff0000",
+      ),
+    ).toBe(
+      '<style>.card::before { content: "</style>"; color:#0066ff }</style>' +
+        '<div style="color:#ff0000"></div>',
+    );
+  });
+
+  it("does not throw on invalid CSS escape code points", () => {
+    const content = String.raw`<div style='background-image: u\ffffffl(#0066ff)'></div>`;
+
+    expect(() =>
+      extractDocumentColorPalette([{ id: "file-1", content }]),
+    ).not.toThrow();
+  });
 });
 
 describe("selectionColorValues", () => {
@@ -188,7 +539,7 @@ describe("selectionColorValues", () => {
       }),
     );
 
-    expect(values).toEqual([{ property: "color", value: "#111111" }]);
+    expect(values).toEqual([{ property: "color", value: "#111111", count: 3 }]);
   });
 
   it("keeps unparseable non-color values through (e.g. a Mixed sentinel)", () => {
@@ -202,5 +553,131 @@ describe("selectionColorValues", () => {
     );
 
     expect(values).toEqual([{ property: "color", value: "Mixed" }]);
+  });
+
+  it("omits named computed colors without an authored token to replace", () => {
+    expect(
+      selectionColorValues(
+        fakeElement({ color: "red", backgroundColor: "#ffffff" }),
+      ),
+    ).toEqual([{ property: "backgroundColor", value: "#ffffff" }]);
+  });
+
+  it("uses scoped source colors instead of unrelated computed colors", () => {
+    const content =
+      '<div data-agent-native-node-id="root" style="color:#0066ff"></div>';
+    expect(
+      selectionColorValues(fakeElement({ color: "#123456" }), [
+        { fileId: "screen", content, sourceId: "root" },
+      ]),
+    ).toEqual([{ property: "color", value: "#0066ff" }]);
+  });
+
+  it("scans every descendant in a selected source range and counts reuse", () => {
+    const content = [
+      '<section data-agent-native-node-id="root" style="color:#0066ff">',
+      '<div style="background:#0066FF"></div>',
+      '<div style="border-color:rgb(0, 102, 255)"></div>',
+      '<div style="color:#ff0000"></div>',
+      "</section>",
+      '<aside style="color:#0066ff"></aside>',
+    ].join("");
+
+    expect(
+      selectionColorValues(
+        [],
+        [{ fileId: "screen", content, sourceId: "root" }],
+      ),
+    ).toEqual([
+      { property: "color", value: "#0066ff", count: 3 },
+      { property: "color", value: "#ff0000" },
+    ]);
+  });
+
+  it("replaces a color throughout selected descendants but not outside them", () => {
+    const content = [
+      '<section data-agent-native-node-id="root" style="color:#0066ff">',
+      '<div style="background:#0066FF"></div>',
+      "</section>",
+      '<aside style="color:#0066ff"></aside>',
+    ].join("");
+    const next = replaceSelectionColorsInHtml(
+      content,
+      [{ fileId: "screen", content, sourceId: "root" }],
+      "#0066ff",
+      "#ff0000",
+    );
+
+    expect(next).toBe(
+      [
+        '<section data-agent-native-node-id="root" style="color:#ff0000">',
+        '<div style="background:#ff0000"></div>',
+        "</section>",
+        '<aside style="color:#0066ff"></aside>',
+      ].join(""),
+    );
+  });
+
+  it("aggregates and replaces the same color across multiple selected ranges", () => {
+    const content = [
+      '<div data-agent-native-node-id="first" style="color:#0066ff"></div>',
+      '<div data-agent-native-node-id="outside" style="color:#0066ff"></div>',
+      '<div data-agent-native-node-id="second" style="background:#0066ff"></div>',
+    ].join("");
+    const scopes = [
+      { fileId: "screen", content, sourceId: "first" },
+      { fileId: "screen", content, sourceId: "second" },
+    ];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#0066ff", count: 2 },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#0066ff", "#00aa00"),
+    ).toBe(
+      [
+        '<div data-agent-native-node-id="first" style="color:#00aa00"></div>',
+        '<div data-agent-native-node-id="outside" style="color:#0066ff"></div>',
+        '<div data-agent-native-node-id="second" style="background:#00aa00"></div>',
+      ].join(""),
+    );
+  });
+
+  it("records the pre-preview source as the picker commit history baseline", () => {
+    const before =
+      '<div data-agent-native-node-id="root" style="color:#0066ff"></div>';
+    const preview = before.replace("#0066ff", "#ff0000");
+    const scopes = [{ fileId: "screen", content: before, sourceId: "root" }];
+    const updates: Array<{
+      content: string;
+      options?: Record<string, unknown>;
+    }> = [];
+    const args = {
+      activeFileId: "screen",
+      applyFileContentUpdate: (
+        _fileId: string,
+        content: string,
+        options?: Record<string, unknown>,
+      ) => updates.push({ content, options }),
+      canEditDesign: true,
+      previewHistoryRef: { current: new Map<string, string>() },
+      scopes,
+    };
+
+    runSelectionColorChange(args, "#0066ff", "#ff0000", {
+      phase: "preview",
+    });
+    args.scopes = [{ fileId: "screen", content: preview, sourceId: "root" }];
+    runSelectionColorChange(args, "#0066ff", "#ff0000", {
+      phase: "commit",
+    });
+
+    expect(updates).toHaveLength(2);
+    expect(updates[1]?.content).toBe(preview);
+    expect(updates[1]?.options).toMatchObject({
+      historyBeforeContent: before,
+      persist: true,
+      recordHistory: true,
+    });
   });
 });

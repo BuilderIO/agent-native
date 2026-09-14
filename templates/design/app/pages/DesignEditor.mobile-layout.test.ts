@@ -46,7 +46,7 @@ describe("Design editor mobile layout", () => {
       "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col",
     );
     expect(inspectorSource).toContain(
-      "absolute top-14 right-3 bottom-3 z-[70] hidden min-h-0 flex-col overflow-hidden rounded-2xl",
+      "absolute top-3 right-3 bottom-3 z-[70] hidden min-h-0 flex-col overflow-hidden rounded-2xl",
     );
     expect(editorSource).toContain(
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
@@ -66,7 +66,14 @@ describe("Design editor mobile layout", () => {
     expect(layoutSource).toContain(
       "!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p))",
     );
+    expect(layoutSource).toContain("input.embedChromeRequested");
     expect(layoutSource).toContain("{!standaloneEditor && (\n");
+  });
+
+  it("keeps the standard rails in the visual-edit embed", () => {
+    expect(editorSource).toContain(
+      "embedded && !hostOwnsChrome && !embedChromeRequested",
+    );
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {

@@ -24,6 +24,9 @@ const messages = {
       extensions: "एक्सटेंशन",
       noteToSelf: "स्वयं के लिए नोट",
     },
+    inbox: {
+      syncing: "इनबॉक्स सिंक हो रहा है…",
+    },
     toolbar: {
       toggleMenu: "मेनू टॉगल करें",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "साइडबार पिन करें",
       unpinSidebar: "साइडबार अनपिन करें",
+      closeSidebar: "साइडबार बंद करें",
       settings: "सेटिंग्स",
     },
     search: {
@@ -85,6 +89,8 @@ const messages = {
       cancel: "रद्द करें",
       code: "कोड",
       deleteDraft: "ड्राफ़्ट हटाएँ",
+      deleteDrafts: "ड्राफ़्ट हटाएँ",
+      reopenDraft: "फिर से खोलें",
       discardDraft: "ड्राफ़्ट छोड़ें",
       enterLinkUrl: "लिंक का URL दर्ज करें।",
       forward: "Forward",
@@ -280,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "छवि अपलोड करने में विफल",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "संदेश भेज दिया गया।",
+      failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",
+      failedToDeleteDraft: "ड्राफ़्ट हटाया नहीं जा सका।",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -292,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "ड्राफ़्ट बंद किया गया।",
+      draftsClosed: "{{count}} ड्राफ़्ट बंद किए गए।",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -313,6 +324,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "लोड नहीं हो सके: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "अपना Google खाता कनेक्ट करें",

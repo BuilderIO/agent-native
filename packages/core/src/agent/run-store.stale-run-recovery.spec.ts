@@ -89,6 +89,8 @@ const {
   markTurnAborted,
   reapIfStale,
   reapAllStaleRuns,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
   BACKGROUND_PROCESSING_RUN_STALE_MS,
   STALE_RUN_TERMINAL_REASON,
   __resetNoRunningRunsProbeForTests,
@@ -159,6 +161,24 @@ async function rowsForTurn(
   return (await pglite
     .prepare(`SELECT id, status FROM agent_runs WHERE turn_id = ?`)
     .all(turnId)) as any;
+}
+
+// Seeds a PRIOR, already-terminal run for a turn directly (bypassing the
+// reap path) so a test can control its error_code/started_at independently —
+// used to build the "N stale_run rows already exist for this turn" fixtures
+// the total-cap check reads.
+async function seedPriorRun(
+  runId: string,
+  thread: string,
+  turn: string,
+  opts: { errorCode: string; startedAtMs: number },
+): Promise<void> {
+  await insertRun(runId, thread, turn, { dispatchMode: "background" });
+  await pglite
+    .prepare(
+      `UPDATE agent_runs SET status = 'errored', error_code = ?, started_at = ? WHERE id = ?`,
+    )
+    .run(opts.errorCode, opts.startedAtMs, runId);
 }
 
 const STALE_PAST_MS = 5 * 60_000; // comfortably past BACKGROUND_RUN_STALE_MS (90s)
@@ -292,6 +312,134 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       "repeated_no_progress",
     );
     expect(await rowsForTurn(turn)).toHaveLength(3);
+  });
+
+  it("stops recovering once 3 stale_run rows exist for a turn even when a non-stale run is interleaved (total cap, order-independent)", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    const longAgo = Date.now() - STALE_PAST_MS;
+
+    // 3 prior stale_run rows, with a non-stale http_429 row interleaved
+    // between them — the CONSECUTIVE check (3-in-a-row) would be reset by
+    // the interleaved row, but the total cap counts all 3 regardless of
+    // order or what happened in between.
+    await seedPriorRun(`${runId}-p1`, thread, turn, {
+      errorCode: "stale_run",
+      startedAtMs: longAgo,
+    });
+    await seedPriorRun(`${runId}-p2`, thread, turn, {
+      errorCode: "http_429",
+      startedAtMs: longAgo + 1_000,
+    });
+    await seedPriorRun(`${runId}-p3`, thread, turn, {
+      errorCode: "stale_run",
+      startedAtMs: longAgo + 2_000,
+    });
+    await seedPriorRun(`${runId}-p4`, thread, turn, {
+      errorCode: "stale_run",
+      startedAtMs: longAgo + 3_000,
+    });
+
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    await setStaleLiveness(runId, longAgo + 4_000);
+
+    const reaped = await reapIfStale(runId);
+    expect(reaped).toBe(true);
+    expect((await readRow(runId))?.diag_stage).toContain("declined");
+    expect((await readRow(runId))?.diag_stage).toContain(
+      "repeated_no_progress",
+    );
+    // 4 priors + the reaped row = 5 rows; no successor inserted.
+    expect(await rowsForTurn(turn)).toHaveLength(5);
+  });
+
+  it("two prior stale rows plus the current one still allows a successor; three prior stale rows decline", async () => {
+    currentClient = makeRawClient(true);
+
+    // 2 PRIOR stale_run rows — below the cap — and the row currently being
+    // reaped is NOT a prior row, so it still gets a successor (3rd
+    // successor overall would come from a 3rd prior, not from this one).
+    {
+      const { runId, thread, turn } = ids();
+      const longAgo = Date.now() - STALE_PAST_MS;
+      await seedPriorRun(`${runId}-p1`, thread, turn, {
+        errorCode: "stale_run",
+        startedAtMs: longAgo,
+      });
+      await seedPriorRun(`${runId}-p2`, thread, turn, {
+        errorCode: "stale_run",
+        startedAtMs: longAgo + 1_000,
+      });
+      await insertRun(runId, thread, turn, {
+        dispatchMode: "background",
+        dispatchPayload: JSON.stringify({ ok: true }),
+      });
+      await claimBackgroundRun(runId);
+      await setStaleLiveness(runId, longAgo + 2_000);
+
+      expect(await reapIfStale(runId)).toBe(true);
+      expect((await readRow(runId))?.diag_stage).toContain("recovered");
+      // 2 priors + the reaped row + 1 new successor = 4.
+      expect(await rowsForTurn(turn)).toHaveLength(4);
+    }
+
+    // 3 PRIOR stale_run rows — AT the cap — this reap is declined.
+    {
+      const { runId, thread, turn } = ids();
+      const longAgo = Date.now() - STALE_PAST_MS;
+      await seedPriorRun(`${runId}-p1`, thread, turn, {
+        errorCode: "stale_run",
+        startedAtMs: longAgo,
+      });
+      await seedPriorRun(`${runId}-p2`, thread, turn, {
+        errorCode: "stale_run",
+        startedAtMs: longAgo + 1_000,
+      });
+      await seedPriorRun(`${runId}-p3`, thread, turn, {
+        errorCode: "stale_run",
+        startedAtMs: longAgo + 2_000,
+      });
+      await insertRun(runId, thread, turn, {
+        dispatchMode: "background",
+        dispatchPayload: JSON.stringify({ ok: true }),
+      });
+      await claimBackgroundRun(runId);
+      await setStaleLiveness(runId, longAgo + 3_000);
+
+      const reaped = await reapIfStale(runId);
+      expect(reaped).toBe(true);
+      expect((await readRow(runId))?.diag_stage).toContain(
+        "repeated_no_progress",
+      );
+      // 3 priors + the reaped row = 4; no successor inserted.
+      expect(await rowsForTurn(turn)).toHaveLength(4);
+    }
+  });
+
+  it("preserves the dying worker's own last-recorded stage in the recovery diagnostic before it gets overwritten", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    // The dying run's own worker recorded losing the claim (a duplicate
+    // delivery already owned it) right before it went silent — this is the
+    // forensic signal `reapSingleStaleRun` must capture before its own
+    // `staleRunRecoveryAttempted` write overwrites `diag_stage`.
+    await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    const reaped = await reapIfStale(runId);
+    expect(reaped).toBe(true);
+    const diag = (await readRow(runId))?.diag_stage ?? "";
+    expect(diag).toContain("recovered");
+    expect(diag).toContain("priorDiag=worker_claim_lost");
   });
 
   it("does NOT create a successor once the per-turn run budget is exhausted", async () => {
@@ -430,6 +578,93 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(reaped).toBe(true);
     expect((await readRow(runId))?.status).toBe("errored");
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("serializes two concurrent reapers for the same turn so the cap is never exceeded", async () => {
+    // Two stale rows of the SAME turn reaped at the same moment — e.g. a
+    // client's `reapIfStale` poll racing the startup `reapAllStaleRuns`
+    // sweep. Before the per-turn `pg_advisory_xact_lock`, both transactions
+    // could read the stale-successor count before either had inserted, and
+    // both would pass the cap check and create a successor.
+    //
+    // NOTE ON THIS HARNESS: production's real `DbExec.transaction()` (see
+    // `db/client.ts`) checks out a DEDICATED connection from a pool per
+    // call, so two concurrent `.transaction()` calls get real, isolated
+    // Postgres sessions — exactly what `pg_advisory_xact_lock` is built to
+    // serialize. This spec file's mock instead runs every "transaction"
+    // through ONE shared PGlite instance with hand-rolled `BEGIN`/`COMMIT`
+    // text, so a second concurrent `BEGIN` here never opens a real nested
+    // transaction — Postgres just keeps using the first one, merging both
+    // reaps' statements into a single visibility scope. Confirmed with
+    // tracing: both reaps' own terminal UPDATEs land before EITHER reads
+    // the stale-successor count, so both counts come out identical (each
+    // sees the other as already-stale), and the two reaps always reach the
+    // SAME pass/fail verdict — this harness cannot reproduce "one wins, one
+    // loses". What it CAN still assert is the invariant that must never
+    // break regardless: the turn never ends up with MORE successors than
+    // the cap allows, even when two reaps are launched concurrently.
+    currentClient = makeRawClient(true);
+    const { thread, turn } = ids();
+    const longAgo = Date.now() - STALE_PAST_MS;
+
+    // 2 PRIOR stale rows — at the cap (3) once EITHER concurrent reap below
+    // counts the other as a 3rd already-stale sibling (see NOTE above), so
+    // neither creates a successor: the turn is never left with more than
+    // the 1 successor slot the cap actually had room for.
+    const p1 = `${turn}-p1`;
+    const p2 = `${turn}-p2`;
+    await seedPriorRun(p1, thread, turn, {
+      errorCode: "stale_run",
+      startedAtMs: longAgo,
+    });
+    await seedPriorRun(p2, thread, turn, {
+      errorCode: "stale_run",
+      startedAtMs: longAgo + 1_000,
+    });
+
+    const runA = `${turn}-a`;
+    const runB = `${turn}-b`;
+    await insertRun(runA, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await insertRun(runB, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runA);
+    await claimBackgroundRun(runB);
+    // Same `started_at` for both — the pre-existing `newer_run_exists` guard
+    // (a DIFFERENT, already-correct check) compares each row's own
+    // started_at against its siblings', and would otherwise deterministically
+    // decline whichever of A/B is older regardless of the race this test is
+    // actually targeting.
+    const sameStartedAt = longAgo + 2_000;
+    await pglite
+      .prepare(
+        `UPDATE agent_runs SET started_at = ?, heartbeat_at = ?, last_progress_at = ? WHERE id = ?`,
+      )
+      .run(sameStartedAt, sameStartedAt, sameStartedAt, runA);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs SET started_at = ?, heartbeat_at = ?, last_progress_at = ? WHERE id = ?`,
+      )
+      .run(sameStartedAt, sameStartedAt, sameStartedAt, runB);
+
+    const [reapedA, reapedB] = await Promise.all([
+      reapIfStale(runA),
+      reapIfStale(runB),
+    ]);
+    expect(reapedA).toBe(true);
+    expect(reapedB).toBe(true);
+
+    const rows = await rowsForTurn(turn);
+    const knownIds = new Set([p1, p2, runA, runB]);
+    const successors = rows.filter((r) => !knownIds.has(r.id));
+    // Never more than 1 successor for the turn, however the two concurrent
+    // reaps interleave — this is the invariant `pg_advisory_xact_lock`
+    // exists to guarantee once each reaper has its own real connection.
+    expect(successors.length).toBeLessThanOrEqual(1);
   });
 });
 

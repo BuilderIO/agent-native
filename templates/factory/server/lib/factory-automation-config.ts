@@ -1,5 +1,6 @@
 import {
   factoryAutomationLeafName,
+  readAutomationDisplayName,
   setAutomationFrontmatterField,
 } from "./factory-scope.js";
 
@@ -404,6 +405,43 @@ const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
   "sentryProjectSlug",
   "sentryEnvironment",
 ]);
+
+/**
+ * Seed/metadata repair must not drop editor-owned identity. Compare against the
+ * resource as stored before repair, not the in-flight repaired draft.
+ */
+export function restoreFactoryAutomationIdentityFields(
+  originalContent: string,
+  repairedContent: string,
+  nameOrPath: string,
+): string {
+  let next = repairedContent;
+  const displayName = readAutomationDisplayName(originalContent);
+  if (displayName && !readAutomationDisplayName(next)) {
+    next = setAutomationFrontmatterField(next, "displayName", displayName);
+  }
+  const original = readFactoryAutomationConfig(originalContent, nameOrPath);
+  const repaired = readFactoryAutomationConfig(next, nameOrPath);
+  for (const key of ["slackChannelId", "slackChannelName"] as const) {
+    const saved = original[key]?.trim();
+    if (saved && !repaired[key]?.trim()) {
+      next = setAutomationFrontmatterField(next, key, saved);
+    }
+  }
+  if (original.authorIds.length > 0 && repaired.authorIds.length === 0) {
+    next = setAutomationFrontmatterField(
+      next,
+      "authorMode",
+      original.authorMode,
+    );
+    next = setAutomationFrontmatterField(
+      next,
+      "authorIds",
+      original.authorIds.join(","),
+    );
+  }
+  return next;
+}
 
 export function applyAutomationConfigFrontmatter(
   content: string,

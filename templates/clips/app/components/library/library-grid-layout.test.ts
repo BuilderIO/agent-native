@@ -87,9 +87,9 @@ describe("selected library actions layout", () => {
     expect(recordingRouteSource).not.toContain(
       'from "@/components/ui/breadcrumb"',
     );
-    expect(layoutSource).toContain(
-      '"flex h-14 shrink-0 items-center border-b border-border"',
-    );
+    expect(layoutSource).toContain("<AppSidebarHeader");
+    expect(layoutSource).toContain("<AppSidebarFooter");
+    expect(layoutSource).toContain("animateDesktop={false}");
     expect(layoutSource).toContain("primaryNavItems.map");
     expect(layoutSource).toContain("lifecycleNavItems.map");
     expect(layoutSource).toContain(
@@ -141,8 +141,7 @@ describe("selected library actions layout", () => {
     expect(layoutSource).toContain(
       "<SidebarFeedbackButton collapsed={showCollapsedSidebar} />",
     );
-    expect(layoutSource).toContain("data-sidebar-footer-utilities");
-    expect(layoutSource).toContain('? "flex flex-col items-center gap-1"');
+    expect(layoutSource).toContain("<AppSidebarFooter");
     expect(layoutSource).toContain('"!size-9 !p-0 [&>svg]:!size-4"');
     expect(layoutSource).toContain("function isSidebarGroupActive(");
     expect(layoutSource).toContain(
@@ -180,10 +179,14 @@ describe("selected library actions layout", () => {
   });
 
   it("keeps Meetings, Dictate, and Trash on the shared app-shell header", () => {
+    const layoutSource = readSource("./library-layout.tsx");
     const meetingsSource = readSource("../../routes/_app.meetings._index.tsx");
     const dictateSource = readSource("../../routes/_app.dictate.tsx");
     const trashSource = readSource("../../routes/_app.trash.tsx");
 
+    expect(layoutSource).toContain(
+      'to: meetingsLabEnabled ? "/meetings" : "/settings#lab-clips.meetings"',
+    );
     expect(meetingsSource).toContain("<PageBreadcrumb");
     expect(dictateSource).toContain("<PageBreadcrumb");
     expect(trashSource).toContain("<PageBreadcrumb");

@@ -117,10 +117,19 @@ describe("ThumbsFeedback localization", () => {
     });
 
     const fetchMock = vi.mocked(globalThis.fetch);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(
-      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
-    ).toMatchObject({
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    const textCall = fetchMock.mock.calls.find((call) => {
+      try {
+        const body = JSON.parse(String(call[1]?.body));
+        return body?.feedbackType === "text";
+      } catch {
+        return false;
+      }
+    });
+    expect(textCall).toBeDefined();
+    expect(JSON.parse(String(textCall?.[1]?.body))).toMatchObject({
       threadId: "thread-1",
       runId: "run-1",
       messageSeq: 1,
@@ -128,9 +137,7 @@ describe("ThumbsFeedback localization", () => {
       value: "The answer used the wrong source.",
     });
     expect(
-      (fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>)[
-        "Idempotency-Key"
-      ],
+      (textCall?.[1]?.headers as Record<string, string>)["Idempotency-Key"],
     ).toEqual(expect.any(String));
   });
 

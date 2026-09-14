@@ -21,6 +21,7 @@
  */
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -104,7 +105,7 @@ export default defineAction({
         "Array of field ops, or JSON string of the same. Each op is {op:'upsert',field:{...}} | {op:'remove',id:string} | {op:'reorder',ids:string[]}",
       ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     await assertAccess("form", args.id, "editor");
 
     return withFormLock(args.id, async () => {
@@ -179,6 +180,20 @@ export default defineAction({
 
         if (written) {
           invalidatePublicFormCache(existing);
+          const editTypes = Array.from(new Set(ops.map((op) => String(op.op))));
+          track(
+            "form_edited",
+            {
+              app_name: "forms",
+              template_name: "forms",
+              output_id: args.id,
+              output_type: "form",
+              form_id: args.id,
+              edit_type: editTypes.length === 1 ? editTypes[0] : "mixed",
+              field_count: nextFields.length,
+            },
+            ctx,
+          );
           return { id: args.id, fields: nextFields, updatedAt: now };
         }
       }

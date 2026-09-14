@@ -59,6 +59,19 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });
 
+  it("queues the latest rich-text draft before disposing its editor", () => {
+    const start = source.indexOf("const disposeRichTextEditor");
+    const end = source.indexOf("const flushInlineEditDraft", start);
+    const disposeBody = source.slice(start, end);
+
+    expect(disposeBody).toContain(
+      "persistInlineEditDraft(session.slideId, draftContent)",
+    );
+    expect(disposeBody.indexOf("persistInlineEditDraft")).toBeLessThan(
+      disposeBody.indexOf("session.root.unmount()"),
+    );
+  });
+
   it("marks and strips only the outer rich-text layer", () => {
     expect(source).toContain(
       'element.setAttribute("data-slide-text-block", "true")',
@@ -114,9 +127,12 @@ describe("SlideEditor render-phase safety", () => {
     const start = source.indexOf("const handleArrangeSelected");
     const end = source.indexOf("const handleToggleList", start);
     const arrangeBody = source.slice(start, end);
+    const singleArrangeBody = arrangeBody.slice(
+      arrangeBody.indexOf("const element =\n        liveContextMenuTarget"),
+    );
 
-    expect(arrangeBody.indexOf("selectElementForStyling")).toBeLessThan(
-      arrangeBody.indexOf("onUpdateSlideRef.current"),
+    expect(singleArrangeBody.indexOf("selectElementForStyling")).toBeLessThan(
+      singleArrangeBody.indexOf("onUpdateSlideRef.current"),
     );
   });
 
@@ -197,6 +213,19 @@ describe("SlideEditor render-phase safety", () => {
       "if (ids.size > 0 && editingElRef.current) exitInlineEdit();",
     );
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
+  });
+
+  it("collapses a grouped multi-selection to the new group", () => {
+    const start = source.indexOf("const handleGroupSelected");
+    const end = source.indexOf("const handleUngroupSelected", start);
+    const groupBody = source.slice(start, end);
+
+    expect(groupBody.indexOf("ensureBuilderId(group)")).toBeLessThan(
+      groupBody.indexOf("getBuilderSelector(group)"),
+    );
+    expect(groupBody.indexOf("clearMultiSelection();")).toBeLessThan(
+      groupBody.indexOf("selectElementForStyling(group, selector)"),
+    );
   });
 
   it("lets additive canvas selection leave an active text edit", () => {

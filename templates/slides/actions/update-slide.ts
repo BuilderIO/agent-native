@@ -1,6 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   mergeCreativeContextReuseLabels,
@@ -892,6 +893,20 @@ export default defineAction({
       actor: "agent",
       ...(agentChangeId ? { agentChangeId } : {}),
     });
+
+    track(
+      "deck_edited",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: deckId,
+        output_type: "deck",
+        slide_id: slideId,
+        edit_mode: "update_slide",
+        edits_count: applied,
+      },
+      ctx,
+    );
 
     console.log(
       `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : objectId !== undefined ? `objectId="${objectId}"` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,

@@ -518,7 +518,10 @@ export function ImageBlock({
   const lightboxImageRef = useRef<HTMLImageElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<ImageResizeState | null>(null);
-  const isEditable = editor.isEditable;
+  const options = extension.options as ContentImageOptions;
+  const canMutateMediaNow = () =>
+    editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const alt = (node.attrs.alt as string) || "";
   const isUploading = String(node.attrs.uploadId ?? "").startsWith(
@@ -527,7 +530,6 @@ export function ImageBlock({
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
-  const options = extension.options as ContentImageOptions;
 
   useEffect(() => {
     setImageLoadFailed(false);
@@ -635,11 +637,13 @@ export function ImageBlock({
   }
 
   function updateAltText(nextAlt: string) {
+    if (!canMutateMediaNow()) return;
     setAltDraft(nextAlt);
     updateAttributes({ alt: nextAlt });
   }
 
   async function handleGenerateAltText() {
+    if (!canMutateMediaNow()) return;
     const documentId = options.documentId;
     if (!documentId) {
       toast.error(t("editor.media.currentDocumentMissing"));
@@ -651,6 +655,10 @@ export function ImageBlock({
 
     try {
       const imageDataUrl = await imageDataUrlForAgent(src);
+      if (editor.isDestroyed || !canMutateMediaNow()) {
+        toast.error(t("empty.genericError"), { id: toastId });
+        return;
+      }
       const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
       const articleContext = buildAltTextArticleContext({
         editor,
@@ -711,6 +719,7 @@ export function ImageBlock({
     event: ReactPointerEvent<HTMLButtonElement>,
     direction: ResizeDirection,
   ) {
+    if (!canMutateMediaNow()) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = mediaBlockRef.current?.getBoundingClientRect();
@@ -749,7 +758,7 @@ export function ImageBlock({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setDragWidth((currentWidth) => {
-        if (currentWidth) {
+        if (currentWidth && canMutateMediaNow()) {
           updateAttributes({ width: currentWidth });
         }
         return null;
@@ -774,6 +783,7 @@ export function ImageBlock({
   }
 
   function handleImageFileSelectionStart() {
+    if (!canMutateMediaNow()) return;
     if (isUploading) return;
     if (typeof getPos !== "function") return;
     const position = getPos();
@@ -789,6 +799,7 @@ export function ImageBlock({
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canMutateMediaNow()) return;
     const nextSrc = imageUrl.trim();
     if (!nextSrc) return;
 
@@ -819,6 +830,7 @@ export function ImageBlock({
   }
 
   function handleAssetsPickerMessage(name: string, payload: unknown) {
+    if (!canMutateMediaNow()) return;
     if (name === "close") {
       setAssetsPickerOpen(false);
       if (!src) {
@@ -1297,7 +1309,7 @@ export function ImageBlock({
                     role="menuitem"
                     onClick={() => {
                       setMoreMenuOpen(false);
-                      deleteNode();
+                      if (canMutateMediaNow()) deleteNode();
                     }}
                   >
                     <span
@@ -1320,6 +1332,21 @@ export function ImageBlock({
             data-visible={isHovered ? "true" : undefined}
             aria-hidden={!isHovered}
           >
+            {editor.isEditable && options.onImageComment ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleComment}
+                    className="media-block__toolbar-btn"
+                    aria-label={t("editor.media.commentOnImage")}
+                  >
+                    <IconMessageCircle size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("editor.comment")}</TooltipContent>
+              </Tooltip>
+            ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
