@@ -64,6 +64,7 @@ import {
   isSameScheduledDraft,
   splitQuotedContent,
 } from "./compose-draft-context";
+import { handleComposeSendLaterShortcut } from "./compose-shortcuts";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { shouldMarkReplyDoneAfterSend } from "./mail-send-policy";
 import {
@@ -77,6 +78,12 @@ const SEND_UNDO_WINDOW_MS = 10_000;
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
 type ComposeAccount = { email: string; displayName?: string };
+
+export interface ComposePaletteCommands {
+  send: () => void;
+  sendLater: () => void;
+  sendAndMarkDone: () => void;
+}
 
 function ComposeFieldRow({
   label,
@@ -193,6 +200,7 @@ interface ComposeModalProps {
   onRestoreAfterSend: (id: string) => void;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
+  onRegisterComposeCommands?: (commands: ComposePaletteCommands | null) => void;
   onInitialExpandedConsumed?: () => void;
 }
 
@@ -210,6 +218,7 @@ export function ComposeModal({
   onRestoreAfterSend,
   onNewDraft,
   onFlush,
+  onRegisterComposeCommands,
   onInitialExpandedConsumed,
 }: ComposeModalProps) {
   const t = useT();
@@ -220,9 +229,15 @@ export function ComposeModal({
   );
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
   const composeRef = useRef<HTMLDivElement>(null);
+  const composePaletteCommandsRef = useRef<ComposePaletteCommands>({
+    send: () => {},
+    sendLater: () => {},
+    sendAndMarkDone: () => {},
+  });
   const knownDraftIdsRef = useRef(new Set(drafts.map((draft) => draft.id)));
   const pendingNewDraftIdsRef = useRef(new Set<string>());
 
@@ -319,6 +334,10 @@ export function ComposeModal({
     setIsExpanded(true);
     onInitialExpandedConsumed?.();
   }, [activeDraft?.id, initialExpanded, onInitialExpandedConsumed]);
+
+  useEffect(() => {
+    setScheduleOpen(false);
+  }, [activeId]);
 
   // Partially typed recipients live in RecipientInput, outside the draft snapshot.
   const hasUncommittedRecipientText = () =>
@@ -436,6 +455,31 @@ export function ComposeModal({
         });
     }, SEND_UNDO_WINDOW_MS);
   };
+
+  composePaletteCommandsRef.current = {
+    send: () => {
+      void handleSend();
+    },
+    sendLater: () => setScheduleOpen(true),
+    sendAndMarkDone: () => {
+      void handleSend(true);
+    },
+  };
+  const hasActiveDraft = Boolean(activeId && activeDraft);
+  useEffect(() => {
+    if (!onRegisterComposeCommands) return;
+    if (!hasActiveDraft || minimized) {
+      onRegisterComposeCommands(null);
+      return;
+    }
+    onRegisterComposeCommands({
+      send: () => composePaletteCommandsRef.current.send(),
+      sendLater: () => composePaletteCommandsRef.current.sendLater(),
+      sendAndMarkDone: () =>
+        composePaletteCommandsRef.current.sendAndMarkDone(),
+    });
+    return () => onRegisterComposeCommands(null);
+  }, [hasActiveDraft, minimized, onRegisterComposeCommands]);
 
   const handleSendLater = async (runAt: number) => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
@@ -580,6 +624,10 @@ export function ComposeModal({
         focusBccAfterExpandRef.current = true;
         revealCcBcc();
       }
+      return;
+    }
+
+    if (handleComposeSendLaterShortcut(e, () => setScheduleOpen(true))) {
       return;
     }
 
@@ -835,6 +883,7 @@ export function ComposeModal({
                 onClick={() => {
                   animateComposeLayout(() => {
                     setIsExpanded(false);
+                    if (!minimized) setScheduleOpen(false);
                     setMinimized(!minimized);
                   });
                 }}
@@ -1134,7 +1183,8 @@ export function ComposeModal({
               <SendLaterButton
                 onSend={handleSend}
                 onSendLater={handleSendLater}
-                disabled={!activeDraft.to.trim()}
+                open={scheduleOpen}
+                onOpenChange={setScheduleOpen}
                 isSending={sendEmail.isPending}
                 isScheduling={scheduleEmail.isPending}
               />

@@ -135,10 +135,14 @@ vi.mock("./SendLaterButton", () => ({
   SendLaterButton: ({
     onSend,
     onSendLater,
+    open,
+    onOpenChange,
     disabled,
   }: {
     onSend: () => void;
     onSendLater: (runAt: number) => void;
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
     disabled?: boolean;
   }) => (
     <>
@@ -147,10 +151,20 @@ vi.mock("./SendLaterButton", () => ({
       </button>
       <button
         disabled={disabled}
-        onClick={() => onSendLater(Date.now() + 60_000)}
+        aria-label="Schedule send"
+        onClick={() => onOpenChange?.(!open)}
       >
         Schedule
       </button>
+      {open && (
+        <button
+          disabled={disabled}
+          onClick={() => onSendLater(Date.now() + 60_000)}
+        >
+          Schedule later
+        </button>
+      )}
+      <output data-testid="schedule-open">{String(open ?? false)}</output>
     </>
   ),
 }));
@@ -214,6 +228,163 @@ describe("ComposeModal scheduling", () => {
     ).toBe("true");
   });
 
+  it("validates an empty recipient through enabled send and schedule controls", () => {
+    const emptyRecipientDraft = { ...draft, to: "" };
+    const onStageForSend = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[emptyRecipientDraft]}
+        activeId={emptyRecipientDraft.id}
+        activeDraft={emptyRecipientDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    const sendButton = getByRole("button", { name: "mail.compose.send" });
+    const scheduleButton = getByRole("button", { name: "Schedule send" });
+    expect(sendButton.hasAttribute("disabled")).toBe(false);
+    expect(scheduleButton.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(sendButton);
+    fireEvent.click(scheduleButton);
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+
+    expect(mockToast.error).toHaveBeenNthCalledWith(
+      1,
+      "mail.toasts.pleaseAddRecipient",
+    );
+    expect(mockToast.error).toHaveBeenNthCalledWith(
+      2,
+      "mail.toasts.pleaseAddRecipient",
+    );
+    expect(onStageForSend).not.toHaveBeenCalled();
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
+    expect(mockScheduleEmail).not.toHaveBeenCalled();
+  });
+
+  it("registers compose commands only while the composer is expanded", async () => {
+    const onRegisterComposeCommands = vi.fn();
+    const onStageForSend = vi.fn();
+    const onRestoreAfterSend = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={onRestoreAfterSend}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onRegisterComposeCommands={onRegisterComposeCommands}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onRegisterComposeCommands).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          send: expect.any(Function),
+          sendLater: expect.any(Function),
+          sendAndMarkDone: expect.any(Function),
+        }),
+      ),
+    );
+    const commands = onRegisterComposeCommands.mock.lastCall?.[0];
+    act(() => commands?.send());
+
+    expect(onStageForSend).toHaveBeenCalledWith(draft.id);
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
+    const undoToast = mockToast.mock.calls.find(
+      ([message]) => message === "mail.compose.sending",
+    );
+    act(() => undoToast?.[1]?.action?.onClick());
+    expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
+
+    fireEvent.click(
+      getByRole("button", { name: "mail.compose.minimizeCompose" }),
+    );
+    await waitFor(() =>
+      expect(onRegisterComposeCommands).toHaveBeenLastCalledWith(null),
+    );
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
+  });
+
+  it("opens the existing schedule picker from the compose command", async () => {
+    const onRegisterComposeCommands = vi.fn();
+    const { getByTestId } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onRegisterComposeCommands={onRegisterComposeCommands}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onRegisterComposeCommands.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({ sendLater: expect.any(Function) }),
+      ),
+    );
+    const commands = onRegisterComposeCommands.mock.lastCall?.[0];
+    act(() => commands?.sendLater());
+
+    expect(getByTestId("schedule-open").textContent).toBe("true");
+    expect(mockScheduleEmail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "Command", metaKey: true, ctrlKey: false },
+    { label: "Control", metaKey: false, ctrlKey: true },
+  ])("opens Send Later with $label+Shift+L", ({ metaKey, ctrlKey }) => {
+    const { getByRole, getByTestId } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(getByRole("button", { name: "mail.compose.send" }), {
+      key: "l",
+      metaKey,
+      ctrlKey,
+      shiftKey: true,
+    });
+
+    expect(getByTestId("schedule-open").textContent).toBe("true");
+    expect(mockScheduleEmail).not.toHaveBeenCalled();
+  });
+
   it.each(["to", "cc", "bcc"] as const)(
     "blocks send and scheduling while %s contains uncommitted text",
     (field) => {
@@ -262,7 +433,8 @@ describe("ComposeModal scheduling", () => {
       expect(onStageForSend).not.toHaveBeenCalled();
       expect(mockSendEmailAsync).not.toHaveBeenCalled();
 
-      fireEvent.click(getByRole("button", { name: "Schedule" }));
+      fireEvent.click(getByRole("button", { name: "Schedule send" }));
+      fireEvent.click(getByRole("button", { name: "Schedule later" }));
       expect(mockToast.error).toHaveBeenNthCalledWith(
         2,
         "mail.toasts.finishRecipientInput",
@@ -562,9 +734,12 @@ describe("ComposeModal scheduling", () => {
       />,
     );
 
-    const scheduleButton = getByRole("button", { name: "Schedule" });
-    fireEvent.click(scheduleButton);
-    fireEvent.click(scheduleButton);
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    const scheduleLaterButton = getByRole("button", {
+      name: "Schedule later",
+    });
+    fireEvent.click(scheduleLaterButton);
+    fireEvent.click(scheduleLaterButton);
 
     expect(mockScheduleEmail).toHaveBeenCalledOnce();
 
@@ -652,7 +827,8 @@ describe("ComposeModal scheduling", () => {
         resolveSend = resolve;
       }),
     );
-    const { getByRole } = render(
+    const onRegisterComposeCommands = vi.fn();
+    render(
       <ComposeModal
         drafts={[replyDraft]}
         activeId={replyDraft.id}
@@ -666,10 +842,15 @@ describe("ComposeModal scheduling", () => {
         onRestoreAfterSend={vi.fn()}
         onNewDraft={vi.fn()}
         onFlush={vi.fn()}
+        onRegisterComposeCommands={onRegisterComposeCommands}
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "Send + Mark Done" }));
+    expect(onRegisterComposeCommands.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ sendAndMarkDone: expect.any(Function) }),
+    );
+    const commands = onRegisterComposeCommands.mock.lastCall?.[0];
+    act(() => commands?.sendAndMarkDone());
     await vi.advanceTimersByTimeAsync(10_000);
     expect(mockSendEmailAsync).toHaveBeenCalledOnce();
     expect(mockArchiveEmail).not.toHaveBeenCalled();

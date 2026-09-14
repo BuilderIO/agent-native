@@ -46,7 +46,10 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { ComposeModal } from "@/components/email/ComposeModal";
+import {
+  ComposeModal,
+  type ComposePaletteCommands,
+} from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -354,11 +357,42 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpenedFromCompose, setPaletteOpenedFromCompose] =
+    useState(false);
+  const [composeCommandsAvailable, setComposeCommandsAvailable] =
+    useState(false);
+  const composePaletteCommandsRef = useRef<ComposePaletteCommands | null>(null);
+  const registerComposePaletteCommands = useCallback(
+    (commands: ComposePaletteCommands | null) => {
+      composePaletteCommandsRef.current = commands;
+      setComposeCommandsAvailable(commands !== null);
+    },
+    [],
+  );
+  const sendComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.send();
+  }, []);
+  const scheduleComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendLater();
+  }, []);
+  const sendAndMarkDoneFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendAndMarkDone();
+  }, []);
   const {
-    openPalette,
+    openPalette: rememberAndOpenPalette,
     handleOpenChange: handlePaletteOpenChange,
     restoreFocusAfterEscape: restorePaletteFocus,
   } = useCommandPaletteFocus(paletteOpen, setPaletteOpen);
+  const openPalette = useCallback(() => {
+    if (!paletteOpen) {
+      const activeElement = document.activeElement;
+      setPaletteOpenedFromCompose(
+        activeElement instanceof HTMLElement &&
+          Boolean(activeElement.closest("[data-mail-compose]")),
+      );
+    }
+    rememberAndOpenPalette();
+  }, [paletteOpen, rememberAndOpenPalette]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // When the user requests snooze from the list, we need to snooze the live
   // focused/selected rows — not whatever is currently in navigation state.
@@ -2140,6 +2174,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             onNewDraft={handleCompose}
             onFlush={compose.flush}
             onInitialExpandedConsumed={clearComposeInitialExpanded}
+            onRegisterComposeCommands={registerComposePaletteCommands}
           />
         );
       })()}
@@ -2154,6 +2189,22 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         onBlockSender={handleBlockSender}
         onMuteThread={handleMuteThread}
         hasEmail={!!targetEmail}
+        isComposeContext={paletteOpenedFromCompose}
+        onSend={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendComposeFromCommandPalette
+            : undefined
+        }
+        onSendLater={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? scheduleComposeFromCommandPalette
+            : undefined
+        }
+        onSendAndMarkDone={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendAndMarkDoneFromCommandPalette
+            : undefined
+        }
       />
       <SnoozeModal
         open={snoozeOpen}

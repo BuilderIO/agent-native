@@ -385,16 +385,22 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   and other focus targets remain open. A further live `⌘K` → Compose check on
   2026-09-14 (1280×720; Superhuman 1041.0.54; Mail branch `e8d8ab3c39`)
   selected `Compose C` in Superhuman and `Compose new email C` in Mail. Both
-  opened a blank composer with To focused. Mail marked Send disabled;
-  Superhuman's accessibility tree did not mark Send disabled. No recipient or
-  body was entered, and Send was not clicked. Starting states differed:
-  Superhuman was at Important inbox without a minimized draft, while Mail had
-  a pre-existing minimized draft. This verifies each command path in the
-  observed states, but is not a strict same-state parity comparison; no
-  screenshot/layout or latency comparison was performed. In Mail, Escape
-  returned to the pre-existing draft, which I left untouched and minimized
-  again. No email was sent. Repeat with aligned starting states before
-  assigning parity.
+  opened a blank composer with To focused. At that baseline, Mail marked Send
+  disabled while Superhuman did not. The follow-up Mail change keeps Send
+  available and routes empty-recipient submission through the existing
+  validation before staging or provider calls; focused tests and a live palette
+  selection confirm the recipient warning and no send. A paired compose-palette
+  replay found Superhuman's Send, Send Later, and Send + Mark Done commands; Mail
+  now exposes Send, Schedule send, and Send and mark Done only in compose
+  context. Mail's Schedule send command and Cmd+Shift+L both open the existing
+  preset/date picker without scheduling. Superhuman opens a natural-language
+  time field with suggestions, so Mail's fixed presets/date picker remain a
+  concrete difference. Starting states differed: Superhuman had no existing
+  draft while Mail did. The blank Mail test draft was discarded and the existing
+  draft restored untouched; the Superhuman blank compose was closed with
+  Escape. No email was sent. No screenshot/layout or latency comparison was
+  performed, and remaining compose actions and aligned-state replay are still
+  open.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
@@ -410,7 +416,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   returned to the pre-existing draft on Escape; it was minimized again without
   changing its contents. The command-palette replay also lacked a matching
   Superhuman minimized-draft starting state. The other blank test drafts were
-  also discarded.
+  also discarded. In the later schedule-command replay, the blank Mail test
+  draft was discarded and the pre-existing draft restored/minimized; the blank
+  Superhuman compose was closed with Escape. Neither draft's contents were
+  changed and no message was sent.
   Close/close-all recovery, outside click, browser navigation, and other
   platform/focus variants remain unverified.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
@@ -638,7 +647,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 
 - SEND-001 — Validate empty To, malformed recipient, missing subject, empty body,
   alias expansion, duplicate recipients, self-send, and To/Cc/Bcc overlap before
-  any provider side effect.
+  any provider side effect. On 2026-09-14, selecting Send from Mail's compose
+  palette with empty To produced the recipient warning; focused tests confirm
+  that neither send staging nor the send/schedule provider is called. Other
+  validation cases remain open; no live email was sent.
 - SEND-002 — Test Send click, Cmd/Ctrl+Enter, command palette, queued draft send,
   visible send button, and Cmd/Ctrl+Shift+Enter Send + Done. Verify the latter's
   exact Done target (reply thread versus new message), archive timing, failure
@@ -649,13 +661,15 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   New-message and forward drafts never archive a source thread. Archive only
   after send succeeds; if archive fails, preserve the sent state and do not
   retry the send. Mail now implements these paths locally, based on the
-  [official Send + Mark Done guide](https://help.superhuman.com/hc/en-us/articles/47439134613773-Mark-Done);
-  live Superhuman replay is still pending. Use mocked sends only. Current
-  ComposeModal unit evidence covers only the cases named by its tests; it does
-  not by itself prove command-palette or queued-draft send, duplicate-send
-  defenses, or archive-failure behavior. Keep each of those paths unverified
-  until its own focused regression or observed replay passes; do not mark
-  SEND-002 complete based on ComposeModal coverage alone.
+  [official Send + Mark Done guide](https://help.superhuman.com/hc/en-us/articles/47439134613773-Mark-Done).
+  A 2026-09-14 paired palette replay confirmed Superhuman exposes Send, Send
+  Later, and Send + Mark Done in compose; Mail now exposes the corresponding
+  actions, routes Send + Mark Done through the existing explicit-send path, and
+  opens its scheduler without committing a time. Tests cover the empty-To guard
+  and mocked explicit-send/archive path. No live message was sent. Continue to
+  use mocked sends; valid-recipient dispatch, queued-draft send, duplicate-send
+  defenses, retry, and archive-failure behavior remain unverified. Do not mark
+  SEND-002 complete from command visibility alone.
 - SEND-003 — Test optimistic send, `Z` Undo within the reference’s 10-second
   window and at the boundary, after toast change, after navigation, and after
   refresh. Never call a message “sent” before the provider result is
@@ -862,9 +876,17 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   closes with Escape. In local Mail, Cmd+K from To with an empty query closes
   with one Escape, restores To focus, and preserves the synthetic route, search
   query, and existing draft; automated Cmd+K/Ctrl+K regressions now cover that
-  one-Escape path. No message content was edited and nothing was sent. These
-  paired observations cover thread and recipient focus only; the other
-  SETTINGS-001 contexts remain open.
+  one-Escape path. No message content was edited and nothing was sent. A later
+  blank-compose replay searched `send`: Superhuman showed Send, Send Later, and
+  Send + Mark Done among broader search matches; Mail showed only its three
+  compose-safe actions plus Ask AI, with Spam/Block/Mute/Snooze absent. Mail's
+  Schedule send action opened its existing presets/date picker; Cmd+Shift+L
+  opened the same picker. Superhuman's Send Later opened a natural-language
+  date field with suggestions, which Mail does not yet match. Escape closed
+  both test composers/pickers without choosing a send time; the Mail test draft
+  was discarded and the prior draft restored. No email was sent. Starting
+  states differed because Mail had a pre-existing draft; other SETTINGS-001
+  contexts remain open.
 - SETTINGS-002 — Open shortcut reference and hover every action. Confirm the
   displayed shortcut is the one that actually runs. Compare US QWERTY with the
   documented Belgian/French/German alternatives for Search, Trash, Tab, snippet,
@@ -957,7 +979,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   conversation N/P and Escape, read-state toggling, conversation select-all,
   and compose send-and-mark-done. The paired 2026-09-14 live replay verifies
   Command/Shortcuts behavior only; the full Superhuman shortcut baseline and
-  behavior parity across its mappings remain unverified.
+  behavior parity across its mappings remain unverified. A separate compose
+  replay confirms Mail's Cmd+Shift+L opens the schedule picker without
+  scheduling; regression tests cover Cmd+Shift+L and Ctrl+Shift+L. Superhuman
+  uses Cmd+Shift+L for Send Later but opens a natural-language scheduler, which
+  remains a difference.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

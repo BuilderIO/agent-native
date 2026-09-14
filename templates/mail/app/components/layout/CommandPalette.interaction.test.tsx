@@ -29,9 +29,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "commandPalette.toggleMessageExpansion": "Expand / collapse message",
       "commandPalette.toggleReadState": "Toggle read state",
       "commandPalette.reportSpam": "Report spam",
+      "commandPalette.reportSpamBlock": "Report spam & block sender",
+      "commandPalette.muteThread": "Mute thread",
+      "commandPalette.snooze": "Snooze email",
       "commandPalette.compose": "Compose new email",
       "commandPalette.reply": "Reply to thread",
-      "commandPalette.snooze": "Snooze email",
       "commandPalette.goToInbox": "Go to Inbox",
       "commandPalette.goToStarred": "Go to Starred",
       "commandPalette.goToSent": "Go to Sent",
@@ -50,6 +52,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "mail.mobileActions.reply": "Reply",
       "mail.compose.forward": "Forward",
       "mail.compose.send": "Send",
+      "mail.sendLater.scheduleSend": "Schedule send",
       "mail.draftQueue.bcc": "Bcc",
       "mail.compose.cancel": "Cancel",
       "mail.mobileActions.close": "Close",
@@ -194,6 +197,76 @@ describe("CommandPalette Search action", () => {
 
     expect(onSearch).toHaveBeenCalledOnce();
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("exposes compose Send only in compose context and hides mailbox actions", () => {
+    const onSend = vi.fn();
+    const onSendLater = vi.fn();
+    const onSendAndMarkDone = vi.fn();
+    const onSpam = vi.fn();
+    const onBlockSender = vi.fn();
+    const onMuteThread = vi.fn();
+    const onSnooze = vi.fn();
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      onCompose: vi.fn(),
+      onSearch: vi.fn(),
+      onSend,
+      onSendLater,
+      onSendAndMarkDone,
+      onSpam,
+      onBlockSender,
+      onMuteThread,
+      onSnooze,
+    };
+
+    const { rerender } = render(<CommandPalette {...props} isComposeContext />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send ⌘ Enter / Ctrl Enter" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Schedule send ⌘ Shift L / Ctrl Shift L",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Send and mark Done ⌘ Shift Enter / Ctrl Shift Enter",
+      }),
+    );
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onSendLater).toHaveBeenCalledOnce();
+    expect(onSendAndMarkDone).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Report spam" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Report spam & block sender" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mute thread" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Snooze email H" })).toBeNull();
+
+    rerender(<CommandPalette {...props} />);
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Send ⌘ Enter / Ctrl Enter",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Schedule send ⌘ Shift L / Ctrl Shift L",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Send and mark Done ⌘ Shift Enter / Ctrl Shift Enter",
+      }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Report spam" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Report spam & block sender" }),
+    ).toBeTruthy();
   });
 
   it("routes All Mail and Archive commands to their distinct destinations", () => {

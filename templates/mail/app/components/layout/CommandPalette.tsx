@@ -45,6 +45,10 @@ interface CommandPaletteProps {
   onSpam?: () => void;
   onBlockSender?: () => void;
   onMuteThread?: () => void;
+  onSend?: () => void;
+  onSendLater?: () => void;
+  onSendAndMarkDone?: () => void;
+  isComposeContext?: boolean;
   /** Whether there is a focused/selected email for contextual actions */
   hasEmail?: boolean;
 }
@@ -94,6 +98,12 @@ const navCommands = [
   },
 ];
 
+const composeShortcutLabels = {
+  send: "⌘ Enter / Ctrl Enter",
+  sendLater: "⌘ Shift L / Ctrl Shift L",
+  sendAndMarkDone: "⌘ Shift Enter / Ctrl Shift Enter",
+};
+
 export function CommandPalette({
   open,
   onOpenChange,
@@ -105,6 +115,10 @@ export function CommandPalette({
   onSpam,
   onBlockSender,
   onMuteThread,
+  onSend,
+  onSendLater,
+  onSendAndMarkDone,
+  isComposeContext = false,
   hasEmail,
 }: CommandPaletteProps) {
   const t = useT();
@@ -187,10 +201,11 @@ export function CommandPalette({
     {
       heading: t("commandPalette.shortcutsCompose"),
       entries: [
-        [t("mail.compose.send"), "⌘ Enter / Ctrl Enter"],
+        [t("mail.compose.send"), composeShortcutLabels.send],
+        [t("mail.sendLater.scheduleSend"), composeShortcutLabels.sendLater],
         [
           t("commandPalette.sendAndMarkDone"),
-          "⌘ Shift Enter / Ctrl Shift Enter",
+          composeShortcutLabels.sendAndMarkDone,
         ],
         [t("mail.draftQueue.bcc"), "⌘ Shift B / Ctrl Shift B"],
         [t("mail.mobileActions.close"), "Esc"],
@@ -242,6 +257,54 @@ export function CommandPalette({
         ))}
       {!showShortcuts && (
         <CommandMenu.Group heading={t("commandPalette.actions")}>
+          {isComposeContext && onSend && (
+            <CommandMenu.Item
+              onSelect={onSend}
+              keywords={[
+                t("mail.compose.send").toLowerCase(),
+                "send",
+                "send email",
+              ]}
+            >
+              <IconSend className="h-4 w-4" />
+              {t("mail.compose.send")}
+              <CommandMenu.Shortcut>
+                {composeShortcutLabels.send}
+              </CommandMenu.Shortcut>
+            </CommandMenu.Item>
+          )}
+          {isComposeContext && onSendLater && (
+            <CommandMenu.Item
+              onSelect={onSendLater}
+              keywords={[
+                t("mail.sendLater.scheduleSend").toLowerCase(),
+                "send later",
+                "schedule",
+              ]}
+            >
+              <IconAlarm className="h-4 w-4" />
+              {t("mail.sendLater.scheduleSend")}
+              <CommandMenu.Shortcut>
+                {composeShortcutLabels.sendLater}
+              </CommandMenu.Shortcut>
+            </CommandMenu.Item>
+          )}
+          {isComposeContext && onSendAndMarkDone && (
+            <CommandMenu.Item
+              onSelect={onSendAndMarkDone}
+              keywords={[
+                t("commandPalette.sendAndMarkDone").toLowerCase(),
+                "send and mark done",
+                "send done",
+              ]}
+            >
+              <IconCheck className="h-4 w-4" />
+              {t("commandPalette.sendAndMarkDone")}
+              <CommandMenu.Shortcut>
+                {composeShortcutLabels.sendAndMarkDone}
+              </CommandMenu.Shortcut>
+            </CommandMenu.Item>
+          )}
           <CommandMenu.Item
             onSelect={onCompose}
             keywords={["compose", "new", "write"]}
@@ -283,7 +346,7 @@ export function CommandPalette({
               )}
             </CommandMenu.Item>
           )}
-          {onReply && (
+          {!isComposeContext && onReply && (
             <CommandMenu.Item
               onSelect={onReply}
               keywords={["reply", "respond"]}
@@ -293,7 +356,7 @@ export function CommandPalette({
               <CommandMenu.Shortcut>R</CommandMenu.Shortcut>
             </CommandMenu.Item>
           )}
-          {onSnooze && (
+          {!isComposeContext && onSnooze && (
             <CommandMenu.Item
               onSelect={onSnooze}
               keywords={["snooze", "later", "remind"]}
@@ -325,13 +388,13 @@ export function CommandPalette({
             <IconRefresh className="h-4 w-4" />
             {t("commandPalette.refresh")}
           </CommandMenu.Item>
-          {onSpam && (
+          {!isComposeContext && onSpam && (
             <CommandMenu.Item onSelect={onSpam} keywords={["spam", "junk"]}>
               <IconShieldExclamation className="h-4 w-4" />
               {t("commandPalette.reportSpam")}
             </CommandMenu.Item>
           )}
-          {onBlockSender && (
+          {!isComposeContext && onBlockSender && (
             <CommandMenu.Item
               onSelect={onBlockSender}
               keywords={["block", "spam"]}
@@ -340,7 +403,7 @@ export function CommandPalette({
               {t("commandPalette.reportSpamBlock")}
             </CommandMenu.Item>
           )}
-          {onMuteThread && (
+          {!isComposeContext && onMuteThread && (
             <CommandMenu.Item
               onSelect={onMuteThread}
               keywords={["mute", "silence"]}

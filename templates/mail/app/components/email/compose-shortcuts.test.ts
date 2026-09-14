@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { handleComposeSendShortcut } from "./compose-shortcuts";
+import {
+  handleComposeSendLaterShortcut,
+  handleComposeSendShortcut,
+} from "./compose-shortcuts";
 
 describe("compose send shortcut", () => {
   it.each([
@@ -56,6 +59,46 @@ describe("compose send shortcut", () => {
 
     expect(handleComposeSendShortcut(event, onSend)).toBe(false);
     expect(onSend).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "Command", metaKey: true, ctrlKey: false },
+    { label: "Control", metaKey: false, ctrlKey: true },
+  ])("opens Send Later with $label+Shift+L", ({ metaKey, ctrlKey }) => {
+    const onSendLater = vi.fn();
+    const event = {
+      key: "L",
+      metaKey,
+      ctrlKey,
+      shiftKey: true,
+      altKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+
+    expect(handleComposeSendLaterShortcut(event, onSendLater)).toBe(true);
+    expect(onSendLater).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { key: "l", metaKey: false, ctrlKey: false, shiftKey: true, altKey: false },
+    { key: "l", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false },
+    { key: "l", metaKey: true, ctrlKey: false, shiftKey: true, altKey: true },
+    { key: "k", metaKey: true, ctrlKey: false, shiftKey: true, altKey: false },
+  ])("does not intercept unrelated shortcut input: %o", (keys) => {
+    const onSendLater = vi.fn();
+    const event = {
+      ...keys,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+
+    expect(handleComposeSendLaterShortcut(event, onSendLater)).toBe(false);
+    expect(onSendLater).not.toHaveBeenCalled();
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(event.stopPropagation).not.toHaveBeenCalled();
   });

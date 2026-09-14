@@ -12,6 +12,8 @@ import {
 interface SendLaterButtonProps {
   onSend: () => void;
   onSendLater: (runAt: number) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   isSending?: boolean;
   isScheduling?: boolean;
@@ -57,19 +59,23 @@ function formatDate(date: Date): string {
 export function SendLaterButton({
   onSend,
   onSendLater,
+  open,
+  onOpenChange,
   disabled,
   isSending,
   isScheduling,
 }: SendLaterButtonProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open ?? internalOpen;
+  const updateOpen = onOpenChange ?? setInternalOpen;
   const presets = getPresets();
   const dateInputRef = useRef<HTMLInputElement>(null);
 
   const handleSendLater = (date: Date) => {
     if (disabled || isSending || isScheduling) return;
     onSendLater(date.getTime());
-    setOpen(false);
+    updateOpen(false);
   };
 
   return (
@@ -84,12 +90,13 @@ export function SendLaterButton({
         <IconSend className="h-3.5 w-3.5 mr-1.5" />
         {isSending ? t("mail.compose.sending") : t("mail.compose.send")}
       </Button>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={isOpen} onOpenChange={updateOpen}>
         <PopoverTrigger asChild>
           <Button
             size="sm"
             variant="default"
             className="rounded-l-none border-l border-primary-foreground/20 px-1.5"
+            aria-label={t("mail.sendLater.scheduleSend")}
             disabled={disabled || isSending || isScheduling}
           >
             <IconChevronDown className="h-3.5 w-3.5" />
