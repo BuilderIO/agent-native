@@ -216,6 +216,7 @@ import {
 import {
   isDocumentUpdateConflict,
   type DocumentUpdateResult,
+  useCreateDocument,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
@@ -268,6 +269,7 @@ import {
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
+import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
@@ -931,7 +933,10 @@ function DatabaseTable({
   const attachPreviewActive = Boolean(data?.attachPreview);
   const effectiveCanEdit = canEdit && !attachPreviewActive;
   const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
-  const isCreatingDatabaseItem = addItem.isPending;
+  const createDocument = useCreateDocument();
+  const createTarget = databaseCreateTarget(data);
+  const canCreateItems = databaseCanCreateItems(createTarget);
+  const isCreatingDatabaseItem = addItem.isPending || createDocument.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -1903,7 +1908,10 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
-    if (isWorkspaceCatalog) return null;
+    if (createTarget.kind === "unsupported") return null;
+    if (createTarget.kind === "space-page") {
+      return createWorkspacePage(createTarget.spaceId, title, options);
+    }
     const mutationContract = data?.mutationContract;
     if (!mutationContract) {
       toast.error(dbText("failedToCreateRow"));
@@ -1943,6 +1951,36 @@ function DatabaseTable({
       setInlineTitleFocusDocumentId(createdItem.document.id);
     }
     return createdItem ?? null;
+  }
+
+  async function createWorkspacePage(
+    spaceId: string,
+    title: string,
+    options: { focusInlineTitle?: boolean },
+  ) {
+    let created;
+    try {
+      created = await createDocument.mutateAsync({
+        title: title.trim(),
+        spaceId,
+      });
+    } catch (err) {
+      toast.error(dbText("failedToCreateRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+      return null;
+    }
+    const refreshed = await database.refetch();
+    const refreshedData =
+      refreshed.data && "database" in refreshed.data ? refreshed.data : null;
+    const createdItem =
+      refreshedData?.items.find((item) => item.document.id === created.id) ??
+      null;
+    if (createdItem && options.focusInlineTitle) {
+      setInlineTitleFocusDocumentId(createdItem.document.id);
+    }
+    return createdItem;
   }
 
   async function createBoardCard(group: DatabaseBoardGroup, title = "") {
@@ -3033,7 +3071,7 @@ function DatabaseTable({
                 New
               </Button>
             </WorkspaceSourceMenu>
-          ) : effectiveCanEdit ? (
+          ) : effectiveCanEdit && canCreateItems ? (
             <Button
               type="button"
               size="sm"
@@ -3161,7 +3199,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
@@ -3199,7 +3237,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -3223,7 +3261,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -3248,7 +3286,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -3285,7 +3323,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}

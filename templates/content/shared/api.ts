@@ -113,6 +113,7 @@ export interface ResolveDocumentSyncConflictRequest {
 export interface DocumentCreateRequest {
   id?: string;
   spaceId?: string;
+  spaceName?: string;
   title?: string;
   parentId?: string | null;
   content?: string;

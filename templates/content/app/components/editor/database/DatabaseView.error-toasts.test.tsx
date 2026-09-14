@@ -19,6 +19,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
+const databaseRefetchMock = vi.hoisted(() =>
+  vi.fn(async () => ({ data: undefined })),
+);
 const updateViewMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
@@ -47,6 +50,12 @@ const benignMutation = vi.hoisted(() => ({
 }));
 
 const addItemMutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
+  isPending: false,
+}));
+
+const createDocumentMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
   isPending: false,
@@ -155,6 +164,7 @@ vi.mock("@/hooks/use-content-database", () => ({
       data: response,
       isLoading: false,
       isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
+      refetch: () => databaseRefetchMock(),
     };
   },
   useAddDatabaseItem: () => addItemMutation,
@@ -217,6 +227,7 @@ vi.mock("@/hooks/use-documents", () => ({
     data: documentForId(documentId),
   }),
   seedDatabaseItemDocumentCaches: vi.fn(),
+  useCreateDocument: () => createDocumentMutation,
   useDeleteDocument: () => benignMutation,
   useUpdateDocument: () => benignMutation,
 }));
@@ -311,14 +322,40 @@ const secondFakeDocument = {
   database: secondDatabaseResponse.database,
 };
 
+// The workspace Files collection carries `systemRole: "files"` and, because
+// its rows are the workspace's pages rather than collection-owned rows, the
+// server deliberately returns no `mutationContract` for it.
+const workspaceFilesResponse: ContentDatabaseResponse = {
+  ...databaseResponse,
+  database: {
+    ...databaseResponse.database,
+    id: "database-3",
+    documentId: "document-3",
+    spaceId: "space-foobar",
+    title: "Foobar",
+    systemRole: "files",
+    viewConfig: defaultDatabaseViewConfig(),
+  },
+  mutationContract: undefined,
+};
+
+const workspaceFilesDocument = {
+  ...fakeDocument,
+  id: "document-3",
+  title: "Foobar",
+  database: workspaceFilesResponse.database,
+};
+
 function databaseResponseForDocument(documentId: string) {
-  return documentId === "document-2"
-    ? secondDatabaseResponse
-    : databaseResponse;
+  if (documentId === "document-2") return secondDatabaseResponse;
+  if (documentId === "document-3") return workspaceFilesResponse;
+  return databaseResponse;
 }
 
 function documentForId(documentId: string) {
-  return documentId === "document-2" ? secondFakeDocument : fakeDocument;
+  if (documentId === "document-2") return secondFakeDocument;
+  if (documentId === "document-3") return workspaceFilesDocument;
+  return fakeDocument;
 }
 
 const failedToCreateRow = messagesByLocale["en-US"].database.failedToCreateRow;
@@ -360,6 +397,8 @@ describe("DatabaseView UI regressions", () => {
     toastSuccessMock.mockReset();
     contentDatabaseQueryMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
+    createDocumentMutation.mutateAsync.mockReset();
+    databaseRefetchMock.mockReset().mockResolvedValue({ data: undefined });
     attachSourceMutation.mutateAsync.mockReset();
     changeSourceRoleMutation.mutateAsync
       .mockReset()
@@ -424,6 +463,27 @@ describe("DatabaseView UI regressions", () => {
                 <DatabaseView
                   databaseId="database-1"
                   databaseDocumentId="document-1"
+                />
+              </TooltipProvider>
+            </MemoryRouter>
+          </AppToolkitProvider>
+        </QueryClientProvider>,
+      );
+    });
+  }
+
+  async function renderWorkspaceFilesView() {
+    const { QueryClientProvider } = await import("@tanstack/react-query");
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AppToolkitProvider>
+            <MemoryRouter>
+              <RouteProbe />
+              <TooltipProvider>
+                <DatabaseView
+                  databaseId="database-3"
+                  databaseDocumentId="document-3"
                 />
               </TooltipProvider>
             </MemoryRouter>
@@ -588,6 +648,53 @@ describe("DatabaseView UI regressions", () => {
 
     expect(filterButton?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector("[role=menu]")).toBeTruthy();
+  });
+
+  // Regression: the workspace Files table rendered "New"/"+ New page" but had
+  // no row mutation contract, so every click toasted "Failed to create row"
+  // while the sidebar "+" kept working. Both entry points must create the page
+  // in the workspace the table belongs to.
+  it("creates a workspace page from the Files table New button", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    expect(newButton).toBeTruthy();
+
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: "space-foobar" }),
+    );
+    expect(addItemMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a create failure from the Files table instead of a bare toast", async () => {
+    createDocumentMutation.mutateAsync.mockRejectedValue(
+      new Error("network down"),
+    );
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      failedToCreateRow,
+      expect.objectContaining({ description: "network down" }),
+    );
   });
 
   it("shows a toast and does not create a row when addItem.mutateAsync rejects", async () => {
