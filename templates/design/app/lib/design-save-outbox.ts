@@ -70,9 +70,9 @@ export function isTerminalSaveError(error: unknown): boolean {
  * The server's update-file version conflict ("File changed since it was read…").
  * Its frozen expectedVersionHash can never match on retry, so drop-and-rebase
  * rather than loop forever. Matched by MESSAGE, not bare status 409, on purpose:
- * the client-side "no known base version" / "changed elsewhere" 409 synthetics
- * are intentionally retained by drainEntries, and the client-build-mismatch 409
- * is a reload-then-retry.
+ * the apply-tweaks no-base-version synthetic is intentionally retained by
+ * drainEntries, while a missing update-file content hash is rebased before its
+ * action is invoked. The client-build-mismatch 409 is a reload-then-retry.
  */
 export function isConflictSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -356,11 +356,12 @@ async function drainEntries(
     try {
       if (
         entry.actionName === "update-file" &&
-        entry.payload.syncCollab === false &&
-        typeof entry.payload.expectedVersionHash !== "string"
+        typeof entry.payload.content === "string" &&
+        (typeof entry.payload.expectedVersionHash !== "string" ||
+          entry.payload.expectedVersionHash.trim().length === 0)
       ) {
         const conflict = new Error(
-          "A live-collaboration mirror cannot be replayed without a known base version",
+          "File changed since it was read. Re-read the file before retrying this saved change.",
         );
         (conflict as Error & { status?: number }).status = 409;
         throw conflict;

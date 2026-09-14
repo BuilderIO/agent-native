@@ -48,13 +48,52 @@ describe("duplicating a rendered row", () => {
   it("adds a second copy of that item's data", () => {
     const result = runRepeatItemEdit({
       content: SCREEN,
-      target: { xFor: "todo in todos", itemIndex: 1 },
+      target: {
+        xFor: "todo in todos",
+        itemIndex: 1,
+        keyExpression: "todo.text",
+      },
       operation: { kind: "duplicate" },
     });
 
     expect(result.status).toBe("written");
     if (result.status !== "written") return;
     expect(texts(result.content)).toEqual([
+      "Fix login redirect bug",
+      "Write onboarding tests",
+      "Write onboarding tests-copy",
+      "Polish empty states",
+    ]);
+  });
+
+  it("refuses a computed key instead of duplicating ambiguous identity", () => {
+    const result = runRepeatItemEdit({
+      content: SCREEN,
+      target: {
+        xFor: "todo in todos",
+        itemIndex: 1,
+        keyExpression: "todo.text.toUpperCase()",
+      },
+      operation: { kind: "duplicate" },
+    });
+
+    expect(result.status).toBe("refused");
+    expect(result.status === "refused" && result.refusal).toBe("unwritable");
+
+    const indexed = runRepeatItemEdit({
+      content: SCREEN.replace(
+        'x-for="todo in todos" :key="todo.text"',
+        'x-for="(todo, index) in todos" :key="index"',
+      ),
+      target: {
+        xFor: "(todo, index) in todos",
+        itemIndex: 1,
+        keyExpression: "index",
+      },
+      operation: { kind: "duplicate" },
+    });
+    expect(indexed.status).toBe("written");
+    expect(indexed.status === "written" && texts(indexed.content)).toEqual([
       "Fix login redirect bug",
       "Write onboarding tests",
       "Write onboarding tests",

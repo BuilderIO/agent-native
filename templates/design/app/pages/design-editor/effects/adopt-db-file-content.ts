@@ -1,5 +1,4 @@
 import { shouldUseLiveFileContent } from "@shared/html-content";
-import { sourceContentHash } from "@shared/source-workspace";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import * as Y from "yjs";
 
@@ -13,7 +12,14 @@ import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { prepareCanonicalSourceContent } from "../source-publication";
+
 export interface AdoptDbFileContentArgs {
+  publishCanonicalContent: (
+    fileId: string,
+    sourceContent: string,
+    fileType?: string,
+  ) => string;
   activeFile: DesignFile;
   agentActive: boolean;
   clearStaleAgentCollabRecovery: () => void;
@@ -25,7 +31,7 @@ export interface AdoptDbFileContentArgs {
   documentFileUpdatedAtRef: RefObject<string | null>;
   isLeadClient: boolean;
   isSynced: boolean;
-  lastAckedFileContentHashRef: RefObject<Record<string, string>>;
+  lastAppliedFileContentRef: RefObject<string | null>;
   lastAppliedFileUpdatedAtRef: RefObject<string | null>;
   lastLocalContentRef: RefObject<string | null>;
   latestActiveContentRef: RefObject<string | null>;
@@ -47,6 +53,7 @@ export interface AdoptDbFileContentArgs {
 
 export function runAdoptDbFileContent({
   activeFile,
+  publishCanonicalContent,
   agentActive,
   clearStaleAgentCollabRecovery,
   collabContent,
@@ -57,7 +64,7 @@ export function runAdoptDbFileContent({
   documentFileUpdatedAtRef,
   isLeadClient,
   isSynced,
-  lastAckedFileContentHashRef,
+  lastAppliedFileContentRef,
   lastAppliedFileUpdatedAtRef,
   lastLocalContentRef,
   latestActiveContentRef,
@@ -71,7 +78,17 @@ export function runAdoptDbFileContent({
   ydoc,
 }: AdoptDbFileContentArgs) {
   if (!activeFile || !isSynced) return;
-  const dbContent = activeFile.content ?? "";
+  const dbSourceContent = activeFile.content ?? "";
+  const dbContent = prepareCanonicalSourceContent(dbSourceContent, {
+    fileId: activeFile.id,
+    fileType: activeFile.fileType,
+  }).content;
+  const publishDbSource = () =>
+    publishCanonicalContent(
+      activeFile.id,
+      dbSourceContent,
+      activeFile.fileType,
+    );
   const dbUpdatedAt = activeFile.updatedAt ?? null;
   const activeScopedCollabContent =
     collabContentFileId === activeFile.id ? collabContent : null;
@@ -84,13 +101,15 @@ export function runAdoptDbFileContent({
     })
   ) {
     clearStaleAgentCollabRecovery();
+    publishDbSource();
     setCollabContent(dbContent);
     setCollabContentFileId(activeFile.id);
     lastLocalContentRef.current = dbContent;
     latestActiveContentRef.current = dbContent;
-    lastAckedFileContentHashRef.current[activeFile.id] =
-      sourceContentHash(dbContent);
-    if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+    if (dbUpdatedAt) {
+      lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+      lastAppliedFileContentRef.current = dbSourceContent;
+    }
     if (
       previewContentReplaceNeedsRenderFallback(
         replacePreviewContent(dbContent, null, {
@@ -122,7 +141,11 @@ export function runAdoptDbFileContent({
     activeScopedCollabContent === dbContent ||
     lastLocalContentRef.current === dbContent
   ) {
-    if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+    publishDbSource();
+    if (dbUpdatedAt) {
+      lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+      lastAppliedFileContentRef.current = dbSourceContent;
+    }
     return;
   }
 
@@ -134,13 +157,21 @@ export function runAdoptDbFileContent({
   // write that landed in the same millisecond as the one already applied,
   // whenever agentActive was false.
   const applied = lastAppliedFileUpdatedAtRef.current;
-  const externalNewer = shouldAdoptExternalReconcileContent({
+  const externalNewerByTimestamp = shouldAdoptExternalReconcileContent({
     appliedUpdatedAt: applied,
     dbUpdatedAt,
     agentActive,
   });
+  const sameTimestampAlreadyApplied =
+    !!applied &&
+    !!dbUpdatedAt &&
+    dbUpdatedAt === applied &&
+    dbSourceContent === lastAppliedFileContentRef.current;
+  const externalNewer =
+    externalNewerByTimestamp && !sameTimestampAlreadyApplied;
   const staleAgentEchoPossible =
     agentActive &&
+    !sameTimestampAlreadyApplied &&
     !!applied &&
     !!dbUpdatedAt &&
     dbUpdatedAt === applied &&
@@ -148,6 +179,7 @@ export function runAdoptDbFileContent({
   if (!externalNewer) {
     if (staleAgentEchoPossible) {
       if (staleAgentCollabRecoveryTimerRef.current === null) {
+        const expectedSourceContent = dbSourceContent;
         const expectedContent = dbContent;
         const expectedUpdatedAt = dbUpdatedAt;
         const expectedFileId = activeFile.id;
@@ -156,17 +188,21 @@ export function runAdoptDbFileContent({
           const currentCollab = collabContentRef.current;
           if (collabContentFileIdRef.current !== expectedFileId) return;
           if (documentFileUpdatedAtRef.current !== expectedUpdatedAt) return;
-          if (documentFileContentRef.current !== expectedContent) return;
+          if (documentFileContentRef.current !== expectedSourceContent) return;
           if (currentCollab === expectedContent) return;
           if (lastLocalContentRef.current === currentCollab) return;
 
+          publishCanonicalContent(
+            expectedFileId,
+            expectedSourceContent,
+            activeFile.fileType,
+          );
           setCollabContent(expectedContent);
           setCollabContentFileId(expectedFileId);
           lastLocalContentRef.current = expectedContent;
           latestActiveContentRef.current = expectedContent;
-          lastAckedFileContentHashRef.current[expectedFileId] =
-            sourceContentHash(expectedContent);
           lastAppliedFileUpdatedAtRef.current = expectedUpdatedAt;
+          lastAppliedFileContentRef.current = expectedSourceContent;
           if (
             previewContentReplaceNeedsRenderFallback(
               replacePreviewContent(expectedContent, null, {
@@ -193,6 +229,7 @@ export function runAdoptDbFileContent({
     return;
   }
   clearStaleAgentCollabRecovery();
+  publishDbSource();
 
   // U21: this whole effect exists BECAUSE the Yjs observe path (which
   // already checkpoints agent edits into the local undo fallback, see U3
@@ -234,9 +271,10 @@ export function runAdoptDbFileContent({
   setCollabContentFileId(activeFile.id);
   lastLocalContentRef.current = dbContent;
   latestActiveContentRef.current = dbContent;
-  lastAckedFileContentHashRef.current[activeFile.id] =
-    sourceContentHash(dbContent);
-  if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+  if (dbUpdatedAt) {
+    lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+    lastAppliedFileContentRef.current = dbSourceContent;
+  }
   if (
     previewContentReplaceNeedsRenderFallback(
       replacePreviewContent(dbContent, null, { forceFullDocument: true }),

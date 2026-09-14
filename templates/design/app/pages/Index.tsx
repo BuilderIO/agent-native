@@ -475,9 +475,7 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          ...(linkedDesignSystemId
-            ? { designSystemId: linkedDesignSystemId }
-            : {}),
+          designSystemId: linkedDesignSystemId,
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({

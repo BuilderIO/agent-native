@@ -1,8 +1,10 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { linkedComponentRootForNode } from "@shared/component-links";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
 import { isRunningAppSourceType } from "@shared/source-mode";
+import { sourceContentHash } from "@shared/source-workspace";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -56,6 +58,8 @@ import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { prepareCanonicalSourceContent } from "../source-publication";
+
 export interface CommitVisualStylesArgs {
   activeBreakpointUpperBoundPx: number | null;
   activeBreakpointWidthStateRef: RefObject<number | undefined>;
@@ -65,6 +69,11 @@ export interface CommitVisualStylesArgs {
   activeFile: DesignFile;
   activeProjectionContent: string;
   canEditDesign: boolean;
+  applyLinkedComponentEdit?: (
+    fileId: string,
+    nodeId: string,
+    edit: { kind: "styleBatch"; values: Record<string, string> },
+  ) => void;
   commitVisualStyles: (
     selector: string,
     styles: Record<string, string>,
@@ -72,6 +81,8 @@ export interface CommitVisualStylesArgs {
       runtimeApplied?: boolean;
       elementInfo?: ElementInfo;
       originalStyles?: Record<string, string>;
+      pendingUndoGestureId?: string;
+      preserveSelection?: boolean;
     },
   ) => void;
   isSynced: boolean;
@@ -86,7 +97,11 @@ export interface CommitVisualStylesArgs {
   queueFileContentSave: (
     fileId: string,
     content: string,
-    options?: { syncCollab?: boolean; immediate?: boolean },
+    options: {
+      expectedVersionHash: string;
+      syncCollab?: boolean;
+      immediate?: boolean;
+    },
   ) => void;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryChangeFallback: (
@@ -101,6 +116,8 @@ export interface CommitVisualStylesArgs {
     metadata?: {
       originalStyles?: Record<string, string>;
       interactionState?: InteractionState;
+      pendingUndoGestureId?: string;
+      preserveSelection?: boolean;
     },
   ) => void;
   replacePreviewContent: (
@@ -162,6 +179,7 @@ export function runCommitVisualStyles(
     activeContent,
     activeFile,
     activeProjectionContent,
+    applyLinkedComponentEdit,
     canEditDesign,
     commitVisualStyles,
     isSynced,
@@ -198,6 +216,7 @@ export function runCommitVisualStyles(
     elementInfo?: ElementInfo;
     /** Pre-gesture values, for the pending-edit revert stack. */
     originalStyles?: Record<string, string>;
+    pendingUndoGestureId?: string;
     /** The write is a side effect of a gesture on another element, so it must
      *  not move the selection onto the element it touched. */
     preserveSelection?: boolean;
@@ -263,6 +282,8 @@ export function runCommitVisualStyles(
     }
     recordPendingVisualStyleEdit(activeFile.id, selector, styles, targetInfo, {
       originalStyles: options.originalStyles,
+      pendingUndoGestureId: options.pendingUndoGestureId,
+      preserveSelection: options.preserveSelection,
     });
     return;
   }
@@ -279,7 +300,6 @@ export function runCommitVisualStyles(
     ? liveScreenSnapshotsById[activeFile.id]
     : undefined;
   const baseContent =
-    activeLiveSnapshot?.html ??
     latestActiveContentRef.current ??
     lastLocalContentRef.current ??
     activeContent;
@@ -302,7 +322,9 @@ export function runCommitVisualStyles(
   const projection =
     baseContent === activeProjectionContent
       ? activeCodeLayerProjection
-      : buildCodeLayerProjection(baseContent);
+      : buildCodeLayerProjection(baseContent, {
+          source: activeCodeLayerProjection.source,
+        });
   // An explicitly retargeted selector wins over the payload too: the canvas
   // gesture path passes both, and resolving from the payload would send the
   // write back to the one clone the gesture happened to move.
@@ -363,6 +385,41 @@ export function runCommitVisualStyles(
       });
     });
   };
+
+  if (targetNode && linkedComponentRootForNode(targetNode, projection)) {
+    const durableNodeId =
+      targetNode.dataAttributes["data-agent-native-node-id"];
+    const lowerBoundPx =
+      responsiveEditScopeRef.current === "only"
+        ? (activeBreakpointWidthStateRef.current ?? null)
+        : null;
+    if (activeBreakpointUpperBoundPx !== null || lowerBoundPx !== null) {
+      toast.error(
+        t("designEditor.componentInstances.linkedEditScopeUnsupported"),
+        { duration: 4000 },
+      );
+      return;
+    }
+    if (!durableNodeId) {
+      toast.error(t("designEditor.patchProof.selectorMissing"), {
+        duration: 4000,
+      });
+      return;
+    }
+    if (!applyLinkedComponentEdit) {
+      toast.error(
+        t("designEditor.componentInstances.linkedEditSourceUnsupported"),
+        { duration: 4000 },
+      );
+      return;
+    }
+    sendRuntimeStylePreview();
+    applyLinkedComponentEdit(activeFile.id, durableNodeId, {
+      kind: "styleBatch",
+      values: Object.fromEntries(entries),
+    });
+    return;
+  }
 
   // U7: if this style commit repositions (left/top) the node(s) most
   // recently created by Cmd+D, record the delta so the next Cmd+D on that
@@ -499,6 +556,7 @@ export function runCommitVisualStyles(
         target: targetNode ? { nodeId: targetNode.id } : { selector },
         property,
         value,
+        source: projection.source,
         upperBoundPx: activeBreakpointUpperBoundPx,
         lowerBoundPx:
           responsiveEditScopeRef.current === "only"
@@ -568,13 +626,20 @@ export function runCommitVisualStyles(
   // isStaleAutoTextColorMarker / clearAutoTextColorMarkerOnExplicitColorCommit).
   const committedNodeId =
     targetNode?.dataAttributes["data-agent-native-node-id"];
-  const resolvedNextContent =
+  const unpreparedNextContent =
     "color" in Object.fromEntries(entries) && committedNodeId
       ? clearAutoTextColorMarkerOnExplicitColorCommit(
           resolvedNextContentAfterFontLink,
           committedNodeId,
         )
       : resolvedNextContentAfterFontLink;
+  const resolvedNextContent = prepareCanonicalSourceContent(
+    unpreparedNextContent,
+    {
+      fileId: activeFile.id,
+      fileType: activeFile.fileType,
+    },
+  ).content;
 
   try {
     assertDesignHtmlEditIntegrity({
@@ -595,7 +660,9 @@ export function runCommitVisualStyles(
     return;
   }
 
-  const nextProjection = buildCodeLayerProjection(resolvedNextContent);
+  const nextProjection = buildCodeLayerProjection(resolvedNextContent, {
+    source: projection.source,
+  });
   const resolvedNode = selectedElement
     ? nextProjection.nodes.find((node) => {
         const aliases = codeLayerSelectorAliases(node);
@@ -706,6 +773,7 @@ export function runCommitVisualStyles(
       }
     }
     queueFileContentSave(activeFile.id, resolvedNextContent, {
+      expectedVersionHash: sourceContentHash(baseContent),
       syncCollab: !(ydoc && isSynced),
     });
     if (

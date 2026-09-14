@@ -29,6 +29,15 @@ const FLEX_ITEM_PROPS = [
   "order",
 ] as const;
 
+function isCodeBackedFrame(element: HTMLElement): boolean {
+  const primitiveKind = (
+    element.getAttribute("data-an-primitive") ||
+    element.getAttribute("data-agent-native-primitive") ||
+    ""
+  ).toLowerCase();
+  return primitiveKind === "frame";
+}
+
 /**
  * Remove absolute-positioning style properties from the element identified by
  * `data-agent-native-node-id` so that it becomes a flow child after being
@@ -50,8 +59,15 @@ export function removeAbsolutePositioningFromNodeInHtml(
       `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
     ) as HTMLElement | null;
     if (!element) return content;
+    const keepsContainingBlock = isCodeBackedFrame(element);
     for (const prop of ABS_POSITION_PROPS) {
       element.style.removeProperty(prop);
+    }
+    if (keepsContainingBlock) {
+      element.style.setProperty("position", "relative");
+      for (const prop of ["left", "top", "right", "bottom"] as const) {
+        element.style.setProperty(prop, "auto");
+      }
     }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
@@ -158,8 +174,7 @@ function isUnresolvedContainingBlock(element: Element): boolean {
  * stylesheet still resolves the moved child to absolute/fixed after its
  * editable inline/utility positioning has been stripped. `!important` is
  * intentional: the stylesheet declaration that forced this path may itself
- * be important. Left/top are removed because they are inert in static flow
- * and should not become surprising offsets if positioning changes later. */
+ * be important. */
 export function setFlowPositioningOverrideForNodeInHtml(
   content: string,
   nodeAttrId: string,
@@ -171,10 +186,20 @@ export function setFlowPositioningOverrideForNodeInHtml(
       `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
     ) as HTMLElement | null;
     if (!element) return content;
+    const keepsContainingBlock = isCodeBackedFrame(element);
     for (const prop of ABS_POSITION_PROPS) {
       element.style.removeProperty(prop);
     }
-    element.style.setProperty("position", "static", "important");
+    element.style.setProperty(
+      "position",
+      keepsContainingBlock ? "relative" : "static",
+      "important",
+    );
+    if (keepsContainingBlock) {
+      for (const prop of ["left", "top", "right", "bottom"] as const) {
+        element.style.setProperty(prop, "auto", "important");
+      }
+    }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;
@@ -490,6 +515,82 @@ export function setBodyInlineStyles(
     : `${body.tag.slice(0, -1)}${replacement}>`;
   if (nextTag === body.tag) return content;
   return `${content.slice(0, body.start)}${nextTag}${content.slice(body.end)}`;
+}
+
+const SCREEN_FRAME_RENDER_STYLE =
+  /<style\b(?=[^>]*\bdata-agent-native-screen-frame-rendering(?:[=\s>]))[^>]*>[\s\S]*?<\/style\s*>/gi; // i18n-ignore regex syntax is not user-facing text
+const SCREEN_DEFAULT_HEIGHT_STYLE =
+  /<style\b(?=[^>]*\bdata-agent-native-screen-default-height(?:[=\s>]))[^>]*>[\s\S]*?<\/style\s*>/gi; // i18n-ignore regex syntax is not user-facing text
+const SCREEN_HEIGHT_MODE_META =
+  /<meta\b(?=[^>]*\bdata-agent-native-screen-height-mode(?:[=\s>]))[^>]*\s*\/?>/gi; // i18n-ignore regex syntax is not user-facing text
+
+/** Toggle the blank Screen viewport floor and mark explicit Hug for the
+ * content reporter. Authored page constraints remain intact. */
+export function setScreenRootDefaultHeightMode(
+  content: string,
+  heightMode: "auto" | "fixed" | "hug",
+): string {
+  const withoutModeMeta = content.replace(SCREEN_HEIGHT_MODE_META, "");
+  const withDefaultHeight = withoutModeMeta.replace(
+    SCREEN_DEFAULT_HEIGHT_STYLE,
+    heightMode === "hug"
+      ? "<style data-agent-native-screen-default-height></style>"
+      : "<style data-agent-native-screen-default-height>body { min-height: 100vh; }</style>",
+  );
+  if (heightMode !== "hug") return withDefaultHeight;
+  const modeMarker = '<meta data-agent-native-screen-height-mode="hug">';
+  if (/<\/head\s*>/i.test(withDefaultHeight)) {
+    return withDefaultHeight.replace(/<\/head\s*>/i, `${modeMarker}</head>`);
+  }
+  if (/<body\b/i.test(withDefaultHeight)) {
+    return withDefaultHeight.replace(/<body\b/i, `${modeMarker}<body`);
+  }
+  return `${modeMarker}${withDefaultHeight}`;
+}
+
+export function screenRootFrameRenderingOptions(
+  rootStyles: Record<string, string>,
+  heightPinned: boolean,
+) {
+  const hasRadius = [
+    rootStyles.borderRadius,
+    rootStyles.borderTopLeftRadius,
+    rootStyles.borderTopRightRadius,
+    rootStyles.borderBottomRightRadius,
+    rootStyles.borderBottomLeftRadius,
+  ].some((value) =>
+    value
+      ? value
+          .split(/[\s/]+/)
+          .some((part) => !/^0(?:\.0+)?(?:px|%)?$/i.test(part))
+      : false,
+  );
+  const opacity = Number.parseFloat(rootStyles.opacity ?? "1");
+  return {
+    contained: hasRadius || (Number.isFinite(opacity) && opacity < 1),
+    clipped: hasRadius,
+    heightPinned,
+  };
+}
+
+export function setScreenRootFrameRenderingStyles(
+  content: string,
+  options: { contained: boolean; clipped: boolean; heightPinned: boolean },
+): string {
+  const withoutManagedStyle = content.replace(SCREEN_FRAME_RENDER_STYLE, "");
+  if (!options.contained) return withoutManagedStyle;
+
+  const declarations = ["contain: paint"];
+  if (options.clipped) declarations.push("overflow: hidden");
+  if (options.heightPinned) declarations.push("min-height: 100vh");
+  const style = `<style data-agent-native-screen-frame-rendering>body{${declarations.join(";")}}</style>`;
+  if (/<\/head\s*>/i.test(withoutManagedStyle)) {
+    return withoutManagedStyle.replace(/<\/head\s*>/i, `${style}</head>`);
+  }
+  if (/<body\b/i.test(withoutManagedStyle)) {
+    return withoutManagedStyle.replace(/<body\b/i, `${style}<body`);
+  }
+  return `${style}${withoutManagedStyle}`;
 }
 
 export function getBodyInlineStyles(content: string): Record<string, string> {

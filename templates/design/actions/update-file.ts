@@ -11,7 +11,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { withSourceFileWriteLock } from "../server/source-workspace.js";
+import {
+  withSourceFileWriteLock,
+  writeInlineSourceFile,
+} from "../server/source-workspace.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
@@ -101,6 +104,12 @@ export default defineAction({
         .describe(
           "Whether to mirror content updates into the live collaboration document.",
         ),
+      identityOnly: z
+        .boolean()
+        .optional()
+        .describe(
+          "Accept only the server-verified source node identity annotations for the current HTML document.",
+        ),
       expectedVersionHash: z
         .string()
         .optional()
@@ -145,6 +154,45 @@ export default defineAction({
               : ["operationRevision"],
         });
       }
+      if (value.identityOnly === true) {
+        if (value.content === undefined || !value.expectedVersionHash) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "Identity-only updates require content and expectedVersionHash.",
+            path:
+              value.content === undefined
+                ? ["content"]
+                : ["expectedVersionHash"],
+          });
+        }
+        if (
+          value.filename !== undefined ||
+          value.fileType !== undefined ||
+          value.syncCollab === false
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "Identity-only updates cannot change file metadata or disable collaboration sync.",
+            path: ["identityOnly"],
+          });
+        }
+        if (
+          value.operationSource === undefined ||
+          value.operationRevision === undefined
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "Identity-only updates require operationSource and operationRevision.",
+            path:
+              value.operationSource === undefined
+                ? ["operationSource"]
+                : ["operationRevision"],
+          });
+        }
+      }
     }),
   run: async (
     {
@@ -153,6 +201,7 @@ export default defineAction({
       filename,
       fileType,
       syncCollab,
+      identityOnly,
       expectedVersionHash,
       operationSource,
       operationRevision,
@@ -177,7 +226,11 @@ export default defineAction({
       .select({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
         fileType: schema.designFiles.fileType,
+        content: schema.designFiles.content,
+        createdAt: schema.designFiles.createdAt,
+        updatedAt: schema.designFiles.updatedAt,
       })
       .from(schema.designFiles)
       .innerJoin(
@@ -199,6 +252,33 @@ export default defineAction({
 
     await assertAccess("design", file.designId, "editor");
     await snapshotDesignBeforeAgentEdit(file.designId, context);
+
+    if (identityOnly === true) {
+      if (
+        content === undefined ||
+        !expectedVersionHash ||
+        filename !== undefined ||
+        fileType !== undefined ||
+        syncCollab === false ||
+        !operationSource ||
+        !Number.isSafeInteger(operationRevision) ||
+        (operationRevision ?? 0) <= 0
+      ) {
+        throw new Error(
+          "Identity-only updates require a source version and operation lineage, and cannot change file metadata or disable collaboration sync.",
+        );
+      }
+      const write = await writeInlineSourceFile({
+        designId: file.designId,
+        file,
+        content,
+        expectedVersionHash,
+        identityOnly: true,
+        operationSource,
+        operationRevision,
+      });
+      return { id, updated: true, versionHash: write.versionHash };
+    }
 
     // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
     // update here is a FULL-document write that, when syncCollab runs, is

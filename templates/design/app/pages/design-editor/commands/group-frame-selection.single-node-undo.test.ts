@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
+import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 import { readYjsUndoSelection } from "@/pages/design-editor/history";
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runFrameSelection } from "./frame-selection";
@@ -20,10 +22,15 @@ const FIXTURE = `<body>
   <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
 </body>`;
 
-function alphaId(): string {
-  return buildCodeLayerProjection(FIXTURE).nodes.find(
-    (node) => node.dataAttributes["data-agent-native-node-id"] === "alpha",
-  )!.id;
+function originalAlphaNode() {
+  const node = buildCodeLayerProjection(FIXTURE, {
+    source: { kind: "design-file", fileId: "index.html" },
+  }).nodes.find(
+    (candidate) =>
+      candidate.dataAttributes["data-agent-native-node-id"] === "alpha",
+  );
+  if (!node) throw new Error("Alpha fixture node is missing from its Screen");
+  return node;
 }
 
 const activeFile: DesignFile = {
@@ -35,14 +42,28 @@ const activeFile: DesignFile = {
   updatedAt: "",
 };
 
+function acceptFixture(content: string) {
+  const prepared = prepareCanonicalSourceContent(content, {
+    fileId: activeFile.id,
+    fileType: activeFile.fileType,
+  });
+  return {
+    status: "accepted" as const,
+    content: prepared.content,
+    nodeIdMap: prepared.nodeIdMap,
+  };
+}
+
 describe("runGroupSelection: single-layer Cmd+G undo selection restore", () => {
   it("stamps the wrapped element (not null) as the pre-group selection", () => {
+    const originalNode = originalAlphaNode();
     const priorItem = { meta: new Map<unknown, unknown>() };
     const undoManagerRef = {
       current: { stopCapturing: vi.fn(), undoStack: [priorItem] },
     };
-    const applyLocalContentUpdate = vi.fn(() => {
+    const applyLocalContentUpdate = vi.fn((content: string) => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
+      return acceptFixture(content);
     });
 
     runGroupSelection({
@@ -55,7 +76,7 @@ describe("runGroupSelection: single-layer Cmd+G undo selection restore", () => {
       files: [activeFile],
       getFreshActiveContent: () => FIXTURE,
       overviewSelectedScreenIds: [],
-      selectedLayerIdsState: [alphaId()],
+      selectedLayerIdsState: [originalNode.id],
       sendRuntimeLayerSemanticHandoff: () => false,
       setSelectedElement: vi.fn(),
       setSelectedLayerIdsState: vi.fn(),
@@ -65,21 +86,23 @@ describe("runGroupSelection: single-layer Cmd+G undo selection restore", () => {
 
     const newItem = undoManagerRef.current.undoStack[1]!;
     const stamped = readYjsUndoSelection(newItem);
-    expect(stamped?.selectedElement).not.toBeNull();
-    expect(
-      stamped?.selectedElement?.sourceId ?? stamped?.selectedElement?.selector,
-    ).toBeTruthy();
+    expect(stamped?.selectedElement).toEqual(
+      elementInfoFromCodeLayerNode(originalNode),
+    );
+    expect(stamped?.selectedLayerIds).toEqual([originalNode.id]);
   });
 });
 
 describe("runFrameSelection: single-layer Cmd+Alt+G undo selection restore", () => {
   it("stamps the framed element (not null) as the pre-frame selection", () => {
+    const originalNode = originalAlphaNode();
     const priorItem = { meta: new Map<unknown, unknown>() };
     const undoManagerRef = {
       current: { stopCapturing: vi.fn(), undoStack: [priorItem] },
     };
-    const applyLocalContentUpdate = vi.fn(() => {
+    const applyLocalContentUpdate = vi.fn((content: string) => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
+      return acceptFixture(content);
     });
 
     runFrameSelection({
@@ -91,7 +114,7 @@ describe("runFrameSelection: single-layer Cmd+Alt+G undo selection restore", () 
       files: [activeFile],
       getFreshActiveContent: () => FIXTURE,
       overviewSelectedScreenIds: [],
-      selectedLayerIdsState: [alphaId()],
+      selectedLayerIdsState: [originalNode.id],
       setSelectedElement: vi.fn(),
       setSelectedLayerIdsState: vi.fn(),
       t: (key: string) => key,
@@ -100,10 +123,10 @@ describe("runFrameSelection: single-layer Cmd+Alt+G undo selection restore", () 
 
     const newItem = undoManagerRef.current.undoStack[1]!;
     const stamped = readYjsUndoSelection(newItem);
-    expect(stamped?.selectedElement).not.toBeNull();
-    expect(
-      stamped?.selectedElement?.sourceId ?? stamped?.selectedElement?.selector,
-    ).toBeTruthy();
+    expect(stamped?.selectedElement).toEqual(
+      elementInfoFromCodeLayerNode(originalNode),
+    );
+    expect(stamped?.selectedLayerIds).toEqual([originalNode.id]);
   });
 });
 
@@ -121,7 +144,9 @@ const MULTI_FIXTURE = `<body>
 </body>`;
 
 function multiNodeIds(): string[] {
-  const projection = buildCodeLayerProjection(MULTI_FIXTURE);
+  const projection = buildCodeLayerProjection(MULTI_FIXTURE, {
+    source: { kind: "design-file", fileId: "index.html" },
+  });
   return ["box-a", "box-b"].map(
     (attrId) =>
       projection.nodes.find(
@@ -141,8 +166,9 @@ describe("runGroupSelection: multi-layer Cmd+G undo selection restore", () => {
     const undoManagerRef = {
       current: { stopCapturing: vi.fn(), undoStack: [priorItem] },
     };
-    const applyLocalContentUpdate = vi.fn(() => {
+    const applyLocalContentUpdate = vi.fn((content: string) => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
+      return acceptFixture(content);
     });
     const ids = multiNodeIds();
 

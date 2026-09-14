@@ -31,6 +31,18 @@ describe("blankScreenHtml", () => {
     expect(html).toMatch(/body\s*\{[^}]*overflow:\s*hidden/);
   });
 
+  it("marks its viewport floor so explicit Hug can clear only the generated rule", () => {
+    expect(html).toContain(
+      "<style data-agent-native-screen-default-height>body { min-height: 100vh; }</style>",
+    );
+    expect(
+      html.replace(
+        /<style data-agent-native-screen-default-height>[\s\S]*?<\/style>/,
+        "",
+      ),
+    ).not.toContain("min-height: 100vh");
+  });
+
   it("names the screen root and escapes the title", () => {
     expect(blankScreenHtml("A & B")).toContain(
       'data-agent-native-layer-name="A &amp; B"',
@@ -84,6 +96,25 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
 
   it("leaves drawn text inheriting currentColor on a light screen", () => {
     expect(textAt("background:#ffffff")).toContain("color: currentcolor");
+  });
+
+  it("makes click-created text intrinsic instead of shrinking to the screen remainder", () => {
+    const html = appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head></head><body></body></html>",
+      {
+        kind: "text",
+        nodeId: "auto-width",
+        geometry: { x: 500, y: 120, width: 1, height: 24 },
+        text: "A long responsive card title",
+        autoSize: true,
+      },
+    );
+    const element = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="auto-width"]');
+
+    expect(element?.style.width).toBe("max-content");
+    expect(element?.style.height).toBe("auto");
   });
 
   const withContainer = (kind: "frame" | "rectangle") =>
@@ -618,7 +649,8 @@ describe("pen path paint defaults", () => {
 describe("reopening and reclosing a pen path", () => {
   const svgHtml = (fill: string, stroke: string, extra = "") =>
     `<!doctype html><html><body><svg data-agent-native-node-id="pen-1" ` +
-    `data-an-primitive="path" style="position:absolute;left:0px;top:0px" ${extra}>` +
+    `data-an-primitive="path" viewBox="0 0 10 10" ` +
+    `style="position:absolute;left:0px;top:0px;width:10px;height:10px" ${extra}>` +
     `<path d="M 0 0 L 10 0 L 5 10 Z" fill="${fill}" stroke="${stroke}"/></svg></body></html>`;
 
   const openPath: PenPath = {
@@ -669,6 +701,7 @@ describe("reopening and reclosing a pen path", () => {
       "pen-1",
       openPath,
     );
+    if (!reopened) throw new Error("pen path reopen did not commit");
     expect(pathAttributes(reopened)).toEqual({
       fill: "none",
       stroke: "#000000",
@@ -679,6 +712,7 @@ describe("reopening and reclosing a pen path", () => {
       "pen-1",
       closedPath,
     );
+    if (!reclosed) throw new Error("pen path reclose did not commit");
     expect(pathAttributes(reclosed)).toEqual({
       fill: "rgb(218 218 218)",
       stroke: "none",
@@ -691,6 +725,7 @@ describe("reopening and reclosing a pen path", () => {
       "pen-1",
       closedPath,
     );
+    if (!reclosed) throw new Error("pen path reclose did not commit");
     expect(pathAttributes(reclosed).stroke).toBe("#ff0000");
   });
 
@@ -705,6 +740,8 @@ describe("reopening and reclosing a pen path", () => {
     );
 
     const reopened = writeBackVectorEditedPenPath(content, "pen-1", openPath);
+    if (!reopened)
+      throw new Error("outside-aligned path reopen did not commit");
     const svg = new DOMParser()
       .parseFromString(reopened, "text/html")
       .querySelector("svg");
@@ -725,14 +762,22 @@ describe("reopening and reclosing a pen path", () => {
   });
 
   it("keeps hidden overflow visible while a closed outside stroke is mounted", () => {
+    const source = new DOMParser().parseFromString(
+      svgHtml("rgb(218 218 218)", "#ff0000"),
+      "text/html",
+    );
+    const sourceSvg = source.querySelector("svg");
+    if (!sourceSvg) throw new Error("pen SVG fixture did not parse");
+    sourceSvg.style.setProperty("overflow", "hidden", "important");
+    expect(sourceSvg.style.getPropertyValue("overflow")).toBe("hidden");
+    expect(sourceSvg.style.getPropertyPriority("overflow")).toBe("important");
+
     const content = alignOutside(
-      svgHtml("rgb(218 218 218)", "#ff0000").replace(
-        'style="position:absolute;left:0px;top:0px"',
-        'style="position:absolute;left:0px;top:0px;overflow:hidden!important"',
-      ),
+      `<!DOCTYPE html>\n${source.documentElement.outerHTML}`,
     );
 
     const edited = writeBackVectorEditedPenPath(content, "pen-1", closedPath);
+    if (!edited) throw new Error("outside-aligned path edit did not commit");
     const svg = new DOMParser()
       .parseFromString(edited, "text/html")
       .querySelector("svg");
@@ -757,6 +802,7 @@ describe("reopening and reclosing a pen path", () => {
       "pen-1",
       extendedClosedPath,
     );
+    if (!edited) throw new Error("extended outside path edit did not commit");
     const doc = new DOMParser().parseFromString(edited, "text/html");
     const svg = doc.querySelector("svg");
     const mask = svg?.querySelector("mask");
@@ -791,6 +837,7 @@ describe("reopening and reclosing a pen path", () => {
     );
 
     const reopened = writeBackVectorEditedPenPath(content, "pen-1", openPath);
+    if (!reopened) throw new Error("duplicate overlay cleanup did not commit");
     const doc = new DOMParser().parseFromString(reopened, "text/html");
     const svg = doc.querySelector("svg");
     const path = svg?.querySelector("path");

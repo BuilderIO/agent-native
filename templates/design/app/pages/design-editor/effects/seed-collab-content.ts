@@ -6,24 +6,30 @@ import {
   writeCollabText,
 } from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
-import type { PreviewContentReplaceResult } from "@/pages/design-editor/editor-state";
+import type {
+  PendingLocalFileContent,
+  PreviewContentReplaceResult,
+} from "@/pages/design-editor/editor-state";
 import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { prepareCanonicalSourceContent } from "../source-publication";
+
 export interface SeedCollabContentArgs {
+  publishCanonicalContent: (
+    fileId: string,
+    sourceContent: string,
+    fileType?: string,
+  ) => string;
   activeFile: DesignFile;
   activeFileId: string | null;
   collabContentFileIdRef: RefObject<string | null>;
   isSynced: boolean;
+  lastAppliedFileContentRef: RefObject<string | null>;
   lastAppliedFileUpdatedAtRef: RefObject<string | null>;
   lastLocalContentRef: RefObject<string | null>;
   latestActiveContentRef: RefObject<string | null>;
-  pendingLocalFileContentsRef: RefObject<
-    Map<
-      string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
-    >
-  >;
+  pendingLocalFileContentsRef: RefObject<Map<string, PendingLocalFileContent>>;
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
@@ -38,9 +44,11 @@ export interface SeedCollabContentArgs {
 
 export function runSeedCollabContent({
   activeFile,
+  publishCanonicalContent,
   activeFileId,
   collabContentFileIdRef,
   isSynced,
+  lastAppliedFileContentRef,
   lastAppliedFileUpdatedAtRef,
   lastLocalContentRef,
   latestActiveContentRef,
@@ -56,33 +64,47 @@ export function runSeedCollabContent({
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
   const text = ytext.toJSON();
-  const pendingLocalContent =
-    pendingLocalFileContentsRef.current.get(fileId)?.content;
-  if (pendingLocalContent && text !== pendingLocalContent) {
-    setCollabContent(pendingLocalContent);
-    setCollabContentFileId(fileId);
-    lastLocalContentRef.current = pendingLocalContent;
-    latestActiveContentRef.current = pendingLocalContent;
-    if (
-      previewContentReplaceNeedsRenderFallback(
-        replacePreviewContent(pendingLocalContent, null, {
-          forceFullDocument: true,
-        }),
-      )
-    ) {
-      setContentRenderRevision((revision) => revision + 1);
+  const pending = pendingLocalFileContentsRef.current.get(fileId);
+  const pendingLocalContent = pending?.content;
+  if (
+    pendingLocalContent &&
+    pending.identityMigrationSourceContent === undefined
+  ) {
+    if (text !== pendingLocalContent) {
+      setCollabContent(pendingLocalContent);
+      setCollabContentFileId(fileId);
+      lastLocalContentRef.current = pendingLocalContent;
+      latestActiveContentRef.current = pendingLocalContent;
+      if (
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(pendingLocalContent, null, {
+            forceFullDocument: true,
+          }),
+        )
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+      // Untracked origin: the UndoManager only tracks LOCAL_EDIT_ORIGIN, so
+      // this write is invisible to it. Clear the undo stack so a subsequent
+      // Cmd+Z can't replay a tracked delta from before it against content it
+      // no longer matches (see the DE:5135-style mitigation below for the
+      // same hazard).
+      undoManagerRef.current?.clear(true, false);
+      writeCollabText(ydoc, ytext, pendingLocalContent, TAB_ID);
+    } else {
+      setCollabContent(pendingLocalContent);
+      setCollabContentFileId(fileId);
+      lastLocalContentRef.current = pendingLocalContent;
+      latestActiveContentRef.current = pendingLocalContent;
     }
-    // Untracked origin: the UndoManager only tracks LOCAL_EDIT_ORIGIN, so
-    // this write is invisible to it. Clear the undo stack so a subsequent
-    // Cmd+Z can't replay a tracked delta from before it against content it
-    // no longer matches (see the DE:5135-style mitigation below for the
-    // same hazard).
-    undoManagerRef.current?.clear(true, false);
-    writeCollabText(ydoc, ytext, pendingLocalContent, TAB_ID);
     return;
   }
   if (text.length > 0) {
-    const storedContent = activeFile?.content ?? "";
+    const storedSourceContent = activeFile?.content ?? "";
+    const storedContent = prepareCanonicalSourceContent(storedSourceContent, {
+      fileId,
+      fileType: activeFile?.fileType,
+    }).content;
     // §gesture-persistence — a freshly-connected/just-synced doc snapshot
     // has no proven watermark yet in this session. Don't let it outrank
     // SQL merely because it looks like well-formed HTML: rebase from SQL
@@ -99,16 +121,22 @@ export function runSeedCollabContent({
         fileType: activeFile?.fileType ?? "html",
       })
     ) {
-      setCollabContent(storedContent);
+      const acceptedStoredContent = publishCanonicalContent(
+        fileId,
+        storedSourceContent,
+        activeFile?.fileType,
+      );
+      setCollabContent(acceptedStoredContent);
       setCollabContentFileId(fileId);
-      lastLocalContentRef.current = storedContent;
-      latestActiveContentRef.current = storedContent;
+      lastLocalContentRef.current = acceptedStoredContent;
+      latestActiveContentRef.current = acceptedStoredContent;
       if (activeFile?.updatedAt) {
         lastAppliedFileUpdatedAtRef.current = activeFile.updatedAt;
+        lastAppliedFileContentRef.current = storedSourceContent;
       }
       if (
         previewContentReplaceNeedsRenderFallback(
-          replacePreviewContent(storedContent, null, {
+          replacePreviewContent(acceptedStoredContent, null, {
             forceFullDocument: true,
           }),
         )
@@ -117,7 +145,7 @@ export function runSeedCollabContent({
       }
       // Untracked write — see clear() note above.
       undoManagerRef.current?.clear(true, false);
-      writeCollabText(ydoc, ytext, storedContent, TAB_ID);
+      writeCollabText(ydoc, ytext, acceptedStoredContent, TAB_ID);
       return;
     }
     // Y.Doc snapshots are a render seed, not the SQL source of truth; the
@@ -135,16 +163,32 @@ export function runSeedCollabContent({
     // every such refire, forcing a full srcdoc rebuild after nearly every
     // commit. Only touch collab/render state when `text` genuinely differs
     // from what is already reflected.
+    const canonicalLiveContent = prepareCanonicalSourceContent(text, {
+      fileId,
+      fileType: activeFile?.fileType,
+    }).content;
+    const hasPendingIdentityMigration =
+      pending?.identityMigrationSourceContent !== undefined;
     if (
-      text !== latestActiveContentRef.current ||
-      collabContentFileIdRef.current !== fileId
+      canonicalLiveContent !== latestActiveContentRef.current ||
+      collabContentFileIdRef.current !== fileId ||
+      hasPendingIdentityMigration
     ) {
-      setCollabContent(text);
+      const shouldRefreshPreview =
+        canonicalLiveContent !== latestActiveContentRef.current ||
+        collabContentFileIdRef.current !== fileId;
+      const canonical = publishCanonicalContent(
+        fileId,
+        text,
+        activeFile?.fileType,
+      );
+      setCollabContent(canonical);
       setCollabContentFileId(fileId);
-      latestActiveContentRef.current = text;
+      latestActiveContentRef.current = canonical;
       if (
+        shouldRefreshPreview &&
         previewContentReplaceNeedsRenderFallback(
-          replacePreviewContent(text, null, { forceFullDocument: true }),
+          replacePreviewContent(canonical, null, { forceFullDocument: true }),
         )
       ) {
         setContentRenderRevision((revision) => revision + 1);

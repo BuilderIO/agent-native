@@ -74,6 +74,8 @@ function fileEntry(revision: number, content = `revision-${revision}`) {
     payload: {
       id: "file-1",
       content,
+      expectedVersionHash: sourceContentHash("saved base content"),
+      syncCollab: true,
       operationSource: "editor-session-1",
       operationRevision: revision,
     },
@@ -205,12 +207,51 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toEqual([]);
   });
 
-  it("never replays an unguarded live-collaboration mirror", async () => {
+  it.each([
+    ["syncCollab true", true, undefined],
+    ["syncCollab default", undefined, undefined],
+    ["syncCollab false", false, undefined],
+    ["empty base hash", true, ""],
+  ] as const)(
+    "rebases a legacy content snapshot without a usable base hash (%s)",
+    async (_label, syncCollab, expectedVersionHash) => {
+      const storage = new MemoryOutboxStorage();
+      const unsafe = fileEntry(1);
+      delete unsafe.payload.expectedVersionHash;
+      if (expectedVersionHash !== undefined) {
+        unsafe.payload.expectedVersionHash = expectedVersionHash;
+      }
+      if (syncCollab === undefined) {
+        delete unsafe.payload.syncCollab;
+      } else {
+        unsafe.payload.syncCollab = syncCollab;
+      }
+      await journalDesignSaveOutboxEntry(unsafe, storage);
+      const invokeAction = vi.fn();
+
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction,
+        storage,
+      });
+
+      expect(result.rebased).toHaveLength(1);
+      expect(result.failed).toEqual([]);
+      expect(result.rebased[0]?.error).toMatchObject({ status: 409 });
+      expect(invokeAction).not.toHaveBeenCalled();
+      expect(await storage.list("design-1", "user-1")).toEqual([]);
+    },
+  );
+
+  it("replays a metadata-only update-file entry without a content hash", async () => {
     const storage = new MemoryOutboxStorage();
-    const unsafe = fileEntry(1);
-    unsafe.payload.syncCollab = false;
-    await journalDesignSaveOutboxEntry(unsafe, storage);
-    const invokeAction = vi.fn();
+    const metadataOnly = fileEntry(1);
+    delete metadataOnly.payload.content;
+    delete metadataOnly.payload.expectedVersionHash;
+    metadataOnly.payload.filename = "renamed.html";
+    await journalDesignSaveOutboxEntry(metadataOnly, storage);
+    const invokeAction = vi.fn().mockResolvedValue({ updated: true });
 
     const result = await drainDesignSaveOutbox({
       designId: "design-1",
@@ -219,9 +260,12 @@ describe("design save outbox", () => {
       storage,
     });
 
-    expect(result.failed).toHaveLength(1);
-    expect(invokeAction).not.toHaveBeenCalled();
-    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+    expect(result.saved).toEqual([metadataOnly]);
+    expect(result.rebased).toEqual([]);
+    expect(invokeAction).toHaveBeenCalledWith(
+      "update-file",
+      expect.objectContaining({ filename: "renamed.html" }),
+    );
   });
 
   it("never replays a full tweak snapshot without its base hash", async () => {

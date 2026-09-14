@@ -71,6 +71,7 @@ export async function runCopySelection({
     sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
     portableStyleSnapshot: snapshot.portableStyleSnapshot,
+    styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));
   // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes

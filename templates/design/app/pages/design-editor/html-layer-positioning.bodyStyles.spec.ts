@@ -1,8 +1,13 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
 import {
+  removeAbsolutePositioningFromNodeInHtml,
   rawAbsoluteContainerOffsetFromDrop,
+  setFlowPositioningOverrideForNodeInHtml,
   setBodyInlineStyles,
+  setScreenRootDefaultHeightMode,
+  setScreenRootFrameRenderingStyles,
 } from "@/pages/design-editor/html-layer-positioning";
 
 describe("setBodyInlineStyles", () => {
@@ -104,6 +109,172 @@ describe("setBodyInlineStyles", () => {
     const content = doc('<body style="background-color: red"></body>');
     expect(setBodyInlineStyles(content, { backgroundColor: "red" })).toBe(
       content,
+    );
+  });
+});
+
+describe("setScreenRootFrameRenderingStyles", () => {
+  const doc =
+    '<!DOCTYPE html><html><head><title>Keep</title><style>.card{color:red}</style></head><body><main class="card">Text</main></body></html>';
+
+  it("adds portable paint containment and clipping without changing authored head content", () => {
+    const next = setScreenRootFrameRenderingStyles(doc, {
+      contained: true,
+      clipped: true,
+      heightPinned: true,
+    });
+    expect(next).toContain(
+      "<title>Keep</title><style>.card{color:red}</style><style data-agent-native-screen-frame-rendering>body{contain: paint;overflow: hidden;min-height: 100vh}</style>",
+    );
+    expect(next).toContain('<main class="card">Text</main>');
+  });
+
+  it("keeps Hug height natural and removes its managed rule when no longer needed", () => {
+    const fixed = setScreenRootFrameRenderingStyles(doc, {
+      contained: true,
+      clipped: false,
+      heightPinned: false,
+    });
+    expect(fixed).toContain(
+      "<style data-agent-native-screen-frame-rendering>body{contain: paint}</style>",
+    );
+    expect(fixed).not.toContain("min-height: 100vh");
+    expect(
+      setScreenRootFrameRenderingStyles(fixed, {
+        contained: false,
+        clipped: false,
+        heightPinned: false,
+      }),
+    ).toBe(doc);
+  });
+
+  it("replaces its prior rule without duplicating or deleting unrelated style blocks", () => {
+    const first = setScreenRootFrameRenderingStyles(doc, {
+      contained: true,
+      clipped: true,
+      heightPinned: false,
+    });
+    const second = setScreenRootFrameRenderingStyles(first, {
+      contained: true,
+      clipped: false,
+      heightPinned: true,
+    });
+    expect(
+      second.match(/data-agent-native-screen-frame-rendering/g),
+    ).toHaveLength(1);
+    expect(second).toContain("min-height: 100vh");
+    expect(second).not.toContain("overflow: hidden");
+    expect(second).toContain("<style>.card{color:red}</style>");
+  });
+});
+
+describe("setScreenRootDefaultHeightMode", () => {
+  const defaultScreen =
+    "<!DOCTYPE html><html><head><style data-agent-native-screen-default-height>body { min-height: 100vh; }</style><style>body { max-height: 1200px; }</style></head><body></body></html>";
+
+  it("removes only the blank Screen viewport floor in Hug mode", () => {
+    const hug = setScreenRootDefaultHeightMode(defaultScreen, "hug");
+    expect(hug).toContain(
+      "<style data-agent-native-screen-default-height></style>",
+    );
+    expect(hug).toContain('<meta data-agent-native-screen-height-mode="hug">');
+    expect(hug).not.toContain("min-height: 100vh");
+    expect(hug).toContain("max-height: 1200px");
+  });
+
+  it("restores the owned viewport floor for Auto and Fixed modes", () => {
+    const hug = setScreenRootDefaultHeightMode(defaultScreen, "hug");
+    for (const mode of ["auto", "fixed"] as const) {
+      const restored = setScreenRootDefaultHeightMode(hug, mode);
+      expect(
+        restored.match(/data-agent-native-screen-default-height/g),
+      ).toHaveLength(1);
+      expect(restored).toContain("body { min-height: 100vh; }");
+      expect(restored).toContain("max-height: 1200px");
+    }
+  });
+
+  it("marks imported roots for natural measurement without changing authored constraints", () => {
+    const imported =
+      "<!DOCTYPE html><html><head><style>body{min-height:80vh;max-height:900px}</style></head><body></body></html>";
+    const hug = setScreenRootDefaultHeightMode(imported, "hug");
+    expect(hug).toContain("body{min-height:80vh;max-height:900px}");
+    expect(hug).toContain('<meta data-agent-native-screen-height-mode="hug">');
+    expect(setScreenRootDefaultHeightMode(hug, "auto")).toBe(imported);
+  });
+});
+
+describe("flow-insert positioning for code-backed Frames", () => {
+  const frameHtml = (style: string, marker = "data-an-primitive") =>
+    `<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="frame" ${marker}="frame" style="${style}"><span data-agent-native-node-id="badge" style="position:absolute;right:10px;bottom:13px"></span></div></body></html>`;
+
+  it("keeps a marked Frame as the containing block and clears its old anchors", () => {
+    const moved = removeAbsolutePositioningFromNodeInHtml(
+      frameHtml(
+        "position:absolute;inset:40px auto auto 40px;border-radius:50%",
+      ),
+      "frame",
+    );
+    const doc = new DOMParser().parseFromString(moved, "text/html");
+    const frame = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="frame"]',
+    )!;
+
+    expect(frame.style.position).toBe("relative");
+    expect(frame.style.left).toBe("auto");
+    expect(frame.style.top).toBe("auto");
+    expect(frame.style.right).toBe("auto");
+    expect(frame.style.bottom).toBe("auto");
+    expect(
+      frame.querySelector('[data-agent-native-node-id="badge"]'),
+    ).not.toBeNull();
+  });
+
+  it("persists relative important positioning for Frames but leaves authored non-Frames in flow", () => {
+    const forcedFrame = setFlowPositioningOverrideForNodeInHtml(
+      frameHtml(
+        "position:absolute;inset:40px auto auto 40px",
+        "data-agent-native-primitive",
+      ),
+      "frame",
+    );
+    const frameDoc = new DOMParser().parseFromString(forcedFrame, "text/html");
+    const frame = frameDoc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="frame"]',
+    )!;
+    expect(frame.style.getPropertyValue("position")).toBe("relative");
+    expect(frame.style.getPropertyPriority("position")).toBe("important");
+    for (const prop of ["left", "top", "right", "bottom"] as const) {
+      expect(frame.style.getPropertyValue(prop)).toBe("auto");
+      expect(frame.style.getPropertyPriority(prop)).toBe("important");
+    }
+
+    const authored = removeAbsolutePositioningFromNodeInHtml(
+      '<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="plain" style="position:absolute;inset:20px"></div></body></html>',
+      "plain",
+    );
+    const authoredDoc = new DOMParser().parseFromString(authored, "text/html");
+    const plain = authoredDoc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="plain"]',
+    )!;
+    expect(plain.style.position).toBe("");
+    expect(plain.style.left).toBe("");
+    expect(plain.style.top).toBe("");
+
+    const forcedPlain = setFlowPositioningOverrideForNodeInHtml(
+      authored,
+      "plain",
+    );
+    const forcedPlainDoc = new DOMParser().parseFromString(
+      forcedPlain,
+      "text/html",
+    );
+    const forcedPlainElement = forcedPlainDoc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="plain"]',
+    )!;
+    expect(forcedPlainElement.style.position).toBe("static");
+    expect(forcedPlainElement.style.getPropertyPriority("position")).toBe(
+      "important",
     );
   });
 });

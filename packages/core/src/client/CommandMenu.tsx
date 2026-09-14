@@ -674,7 +674,12 @@ export function useCommandMenuShortcut(
 ) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "k"
+      ) {
         // Claim the shortcut before checking the focused element so an outer
         // host cannot open its own command menu while this one is focused.
         e.preventDefault();

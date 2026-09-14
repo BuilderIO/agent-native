@@ -1,4 +1,3 @@
-import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
@@ -15,10 +14,16 @@ import {
   writeCollabText,
 } from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
-import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryEntry } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
+import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+
+export type ApplyFileContentUpdateResult =
+  | ApplyLocalContentUpdateResult
+  | { status: "deferred" };
 
 export interface ApplyFileContentUpdateArgs {
   acknowledgeAuthoritativeClipboardMutation: (args: {
@@ -37,6 +42,8 @@ export interface ApplyFileContentUpdateArgs {
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
+      sourceBaseContent?: string;
+      identityMigrationSourceContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -51,36 +58,42 @@ export interface ApplyFileContentUpdateArgs {
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
+      sourceBaseContent?: string;
+      identityMigrationSourceContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesignRef: RefObject<boolean>;
   cancelQueuedFileContentSave: (fileId: string) => void;
   clearPendingLocalFileContent: (
     fileId: string,
     expectedContent?: string,
   ) => void;
-  createFileContentSaveRequest: (
+  queueFileContentSave: (
     fileId: string,
     content: string,
-    syncCollab: boolean,
-  ) => FileContentSaveRequest;
+    options: {
+      expectedVersionHash: string;
+      syncCollab?: boolean;
+      immediate?: boolean;
+      identityMigrationSourceContent?: string;
+    },
+  ) => void;
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
   id: string | undefined;
-  lastAckedFileContentHashRef: RefObject<Record<string, string>>;
   markPendingLocalFileContent: (
     fileId: string,
     content: string,
     baseUpdatedAt?: string | null,
+    identityMigrationSourceContent?: string,
   ) => void;
   overviewIsSynced: boolean;
   overviewPresenceFileId: string | null;
   overviewYdoc: Y.Doc | null;
   queryClient: QueryClient;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
-  saveFileContent: (pending: FileContentSaveRequest) => void;
   suppressContentHistoryRef: RefObject<boolean>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
@@ -94,18 +107,16 @@ export function runApplyFileContentUpdate(
     canEditDesignRef,
     cancelQueuedFileContentSave,
     clearPendingLocalFileContent,
-    createFileContentSaveRequest,
     files,
     getScreenContent,
     id,
-    lastAckedFileContentHashRef,
     markPendingLocalFileContent,
     overviewIsSynced,
     overviewPresenceFileId,
     overviewYdoc,
     queryClient,
+    queueFileContentSave,
     recordContentHistoryEntry,
-    saveFileContent,
     suppressContentHistoryRef,
     t,
   }: ApplyFileContentUpdateArgs,
@@ -118,14 +129,15 @@ export function runApplyFileContentUpdate(
     persist?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;
+    sourceBaseContent?: string;
+    identityMigrationSourceContent?: string;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
   } = {},
-) {
-  if (!canEditDesignRef.current) return;
+): ApplyFileContentUpdateResult {
+  if (!canEditDesignRef.current) return { status: "refused" };
   if (fileId === activeFile?.id) {
-    applyLocalContentUpdate(nextContent, options);
-    return;
+    return applyLocalContentUpdate(nextContent, options);
   }
   // Cross-pipeline write race guard — same hazard commitVisualStyles
   // already defends against (see its withShaderWriteLock note): a shader
@@ -140,7 +152,7 @@ export function runApplyFileContentUpdate(
     void waitForShaderWriteToSettle(fileId).then(() => {
       applyFileContentUpdate(fileId, nextContent, options);
     });
-    return;
+    return { status: "deferred" };
   }
   const previousFile = files.find((file) => file.id === fileId);
   const previousContent =
@@ -148,21 +160,28 @@ export function runApplyFileContentUpdate(
     getScreenContent(fileId) ??
     previousFile?.content ??
     "";
+  let prepared: ReturnType<typeof prepareAcceptedSourceContent>;
   try {
-    assertDesignHtmlEditIntegrity({
+    prepared = prepareAcceptedSourceContent(nextContent, {
+      fileId,
       previousContent,
-      nextContent,
-      fileType: previousFile?.fileType ?? "html",
+      fileType: previousFile?.fileType,
     });
   } catch (error) {
     toast.error(designSaveErrorMessage(error) ?? t("common.genericError"), {
       id: `design-source-integrity:${fileId}`,
     });
-    return;
+    return { status: "refused" };
   }
+  const acceptedContent = prepared.content;
+  const needsIdentityMigration = Boolean(options.updatedAt && prepared.changed);
+  const identityMigrationSourceContent =
+    options.identityMigrationSourceContent ??
+    (needsIdentityMigration ? nextContent : undefined);
+
   acknowledgeAuthoritativeClipboardMutation({
     fileId,
-    nextContent,
+    nextContent: acceptedContent,
     publication: options.clipboardMutation,
   });
   const shouldRecordHistory =
@@ -170,23 +189,23 @@ export function runApplyFileContentUpdate(
   if (
     !suppressContentHistoryRef.current &&
     shouldRecordHistory &&
-    previousContent !== nextContent
+    previousContent !== acceptedContent
   ) {
     recordContentHistoryEntry({
       fileId,
       before: previousContent,
-      after: nextContent,
+      after: acceptedContent,
     });
   }
-  if (options.updatedAt) {
+  if (options.updatedAt && !needsIdentityMigration) {
     clearPendingLocalFileContent(fileId);
-    // Server-persisted content (see the matching note in
-    // applyLocalContentUpdate) — refresh the acked-hash base for the
-    // guarded update-file saves.
-    lastAckedFileContentHashRef.current[fileId] =
-      sourceContentHash(nextContent);
   } else {
-    markPendingLocalFileContent(fileId, nextContent, previousFile?.updatedAt);
+    markPendingLocalFileContent(
+      fileId,
+      acceptedContent,
+      options.updatedAt ?? previousFile?.updatedAt,
+      identityMigrationSourceContent,
+    );
   }
   queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
     if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
@@ -198,7 +217,7 @@ export function runApplyFileContentUpdate(
         file.id === fileId
           ? {
               ...file,
-              content: nextContent,
+              content: acceptedContent,
               ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
             }
           : file,
@@ -229,15 +248,27 @@ export function runApplyFileContentUpdate(
     writeCollabText(
       overviewYdoc,
       overviewYdoc.getText("content"),
-      nextContent,
+      acceptedContent,
       TAB_ID,
     );
   }
-  if (options.persist === false) {
+  if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(fileId);
   } else {
-    saveFileContent(
-      createFileContentSaveRequest(fileId, nextContent, syncCollab),
-    );
+    queueFileContentSave(fileId, acceptedContent, {
+      expectedVersionHash: sourceContentHash(
+        needsIdentityMigration
+          ? nextContent
+          : (options.sourceBaseContent ?? previousContent),
+      ),
+      syncCollab: needsIdentityMigration || syncCollab,
+      immediate: true,
+      identityMigrationSourceContent,
+    });
   }
+  return {
+    status: "accepted",
+    content: acceptedContent,
+    nodeIdMap: prepared.nodeIdMap,
+  };
 }

@@ -415,6 +415,37 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).toContain("open");
   });
 
+  it("leaves modified K chords available to app commands", () => {
+    const onOpen = vi.fn();
+    function ShortcutHarness() {
+      useCommandMenuShortcut(onOpen);
+      return null;
+    }
+    act(() => root.render(<ShortcutHarness />));
+    for (const modifier of [{ altKey: true }, { shiftKey: true }]) {
+      const event = new KeyboardEvent("keydown", {
+        key: "k",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+        ...modifier,
+      });
+      act(() => document.body.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(onOpen).not.toHaveBeenCalled();
+    act(() => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "k",
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
   it("claims Cmd+K from native controls without opening", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);

@@ -45,10 +45,11 @@ async function apiFetch(path: string, init?: RequestInit) {
   return res.json();
 }
 
-export function useOrg() {
+export function useOrg(options: { enabled?: boolean } = {}) {
   return useQuery<OrgInfo>({
     queryKey: ["org-me"],
     queryFn: () => apiFetch(`${ORG_BASE}/me`),
+    enabled: options.enabled ?? true,
     staleTime: 30_000,
   });
 }

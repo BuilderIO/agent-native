@@ -12,25 +12,32 @@ import {
   TAB_ID,
   shouldCheckpointAgentContent,
 } from "@/pages/design-editor/editor-session";
-import type { PreviewContentReplaceResult } from "@/pages/design-editor/editor-state";
+import type {
+  PendingLocalFileContent,
+  PreviewContentReplaceResult,
+} from "@/pages/design-editor/editor-state";
 import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
 
+import { prepareCanonicalSourceContent } from "../source-publication";
+
 export interface ObserveCollabTextArgs {
+  publishCanonicalContent: (
+    fileId: string,
+    sourceContent: string,
+    fileType?: string,
+  ) => string;
+  fileType?: string;
   activeFileId: string | null;
   agentActive: boolean;
   documentFileContentRef: RefObject<string | null>;
   documentFileUpdatedAtRef: RefObject<string | null>;
   isSynced: boolean;
+  lastAppliedFileContentRef: RefObject<string | null>;
   lastAppliedFileUpdatedAtRef: RefObject<string | null>;
   lastLocalContentRef: RefObject<string | null>;
   latestActiveContentRef: RefObject<string | null>;
-  pendingLocalFileContentsRef: RefObject<
-    Map<
-      string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
-    >
-  >;
+  pendingLocalFileContentsRef: RefObject<Map<string, PendingLocalFileContent>>;
   recordExternalContentHistoryCheckpoint: (
     change: ContentHistoryChange,
   ) => void;
@@ -50,10 +57,13 @@ export interface ObserveCollabTextArgs {
 
 export function runObserveCollabText({
   activeFileId,
+  publishCanonicalContent,
+  fileType,
   agentActive,
   documentFileContentRef,
   documentFileUpdatedAtRef,
   isSynced,
+  lastAppliedFileContentRef,
   lastAppliedFileUpdatedAtRef,
   lastLocalContentRef,
   latestActiveContentRef,
@@ -72,7 +82,7 @@ export function runObserveCollabText({
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
   const handler = (_event: unknown, transaction?: { origin?: unknown }) => {
-    const next = ytext.toJSON();
+    const rawNext = ytext.toJSON();
     // Item 5 (edit-flash): capture what the preview already reflects BEFORE
     // this observe fires, so a remote-origin transaction that merely ECHOES
     // content we already rendered (e.g. update-file's own applyText/
@@ -89,27 +99,14 @@ export function runObserveCollabText({
       transaction?.origin === TAB_ID ||
       transaction?.origin === LOCAL_EDIT_ORIGIN ||
       transaction?.origin === undoManagerRef.current;
+    const pending = pendingLocalFileContentsRef.current.get(fileId);
+    const pendingLocalContent = pending?.content;
     if (
-      shouldCheckpointAgentContent({
-        agentActive,
-        isLocalEdit,
-        previousContent: previousActiveContent,
-        nextContent: next,
-      })
+      pendingLocalContent &&
+      pending?.identityMigrationSourceContent === undefined &&
+      rawNext !== pendingLocalContent &&
+      !isLocalEdit
     ) {
-      // An agent/chat edit is remote at the CRDT layer but local in the UX:
-      // Cmd+Z should restore the attachment/design state from before the run.
-      // Record the replacement in the history owned by the current view
-      // mode so it remains undoable from either canvas.
-      recordExternalContentHistoryCheckpoint({
-        fileId,
-        before: previousActiveContent!,
-        after: next,
-      });
-    }
-    const pendingLocalContent =
-      pendingLocalFileContentsRef.current.get(fileId)?.content;
-    if (pendingLocalContent && next !== pendingLocalContent && !isLocalEdit) {
       setCollabContent(pendingLocalContent);
       setCollabContentFileId(fileId);
       lastLocalContentRef.current = pendingLocalContent;
@@ -127,6 +124,27 @@ export function runObserveCollabText({
       undoManagerRef.current?.clear(true, false);
       writeCollabText(ydoc, ytext, pendingLocalContent, TAB_ID);
       return;
+    }
+    const next = isLocalEdit
+      ? prepareCanonicalSourceContent(rawNext, { fileId, fileType }).content
+      : publishCanonicalContent(fileId, rawNext, fileType);
+    if (
+      shouldCheckpointAgentContent({
+        agentActive,
+        isLocalEdit,
+        previousContent: previousActiveContent,
+        nextContent: next,
+      })
+    ) {
+      // An agent/chat edit is remote at the CRDT layer but local in the UX:
+      // Cmd+Z should restore the attachment/design state from before the run.
+      // Record the replacement in the history owned by the current view
+      // mode so it remains undoable from either canvas.
+      recordExternalContentHistoryCheckpoint({
+        fileId,
+        before: previousActiveContent!,
+        after: next,
+      });
     }
     setCollabContent(next);
     setCollabContentFileId(fileId);
@@ -160,9 +178,10 @@ export function runObserveCollabText({
     // Only advance the DB reconcile watermark when the live CRDT text
     // actually matches the current SQL snapshot. Otherwise an intermediate
     // or malformed Yjs update can shadow valid saved HTML until reload.
-    if (next === documentFileContentRef.current) {
-      lastAppliedFileUpdatedAtRef.current =
-        documentFileUpdatedAtRef.current ?? lastAppliedFileUpdatedAtRef.current;
+    const documentUpdatedAt = documentFileUpdatedAtRef.current;
+    if (rawNext === documentFileContentRef.current && documentUpdatedAt) {
+      lastAppliedFileUpdatedAtRef.current = documentUpdatedAt;
+      lastAppliedFileContentRef.current = documentFileContentRef.current;
     }
     // Stale-selection fix: when a remote/agent edit changes the document,
     // verify the selected element still exists in the new DOM. If not, clear
@@ -170,11 +189,17 @@ export function runObserveCollabText({
     if (!isLocalEdit) {
       setSelectedElement((prev) => {
         if (!prev) return prev;
-        return refreshElementInfoFromContent(next, prev);
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId,
+        });
       });
       setHoveredElement((prev) => {
         if (!prev) return prev;
-        return refreshElementInfoFromContent(next, prev);
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId,
+        });
       });
     }
   };
