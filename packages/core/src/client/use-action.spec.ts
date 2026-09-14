@@ -14,6 +14,7 @@ import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionWithRetry,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   serializeActionQueryParams,
@@ -569,6 +570,58 @@ describe("callAction", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("callActionWithRetry", () => {
+  it("spends the transient budget on a gateway failure instead of surfacing it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      const promise = callActionWithRetry("list-things", {}, { method: "GET" });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(promise).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces a deterministic refusal on the first attempt", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: "Nope" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry("read-thing", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry an aborted call", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(() => {
+      controller.abort();
+      const error = new Error("The operation was aborted.");
+      error.name = "AbortError";
+      return Promise.reject(error);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry(
+        "read-thing",
+        {},
+        { method: "GET", signal: controller.signal },
+      ),
+    ).rejects.toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

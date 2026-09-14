@@ -37,6 +37,7 @@ export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionWithRetry,
   tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,

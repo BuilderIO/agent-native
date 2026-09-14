@@ -747,6 +747,51 @@ export function callAction<
   });
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as Error).name === "AbortError"
+  );
+}
+
+/**
+ * `callAction` with the transient-failure budget `useActionQuery` already
+ * applies, reusing `defaultActionQueryRetry` — so a deterministic refusal
+ * (400/403/404/409/500) and a timeout still surface on the first attempt.
+ *
+ * Use this for an imperative read whose failure the UI has to render as a
+ * state. Without a retry budget, one gateway blip against a cold backend is
+ * indistinguishable from a real outage, and the page settles on an error over
+ * data that is about to arrive.
+ */
+export async function callActionWithRetry<
+  TResult = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: ClientActionCallOptions = {},
+): Promise<TResult extends undefined ? ActionResult<TName> : TResult> {
+  let failureCount = 0;
+  for (;;) {
+    try {
+      return await callAction<TResult, TName>(actionName, params, options);
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        options.signal?.aborted === true ||
+        !defaultActionQueryRetry(failureCount, error)
+      ) {
+        throw error;
+      }
+      const delayMs = defaultActionQueryRetryDelay(failureCount);
+      failureCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 export type KeepaliveActionCallRejectionReason =
   | "body-too-large"
   | "budget-exhausted"
