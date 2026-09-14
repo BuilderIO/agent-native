@@ -90,6 +90,7 @@ type ReactionState = {
   latestToken: number;
   pending: Map<number, { optimisticUsers: string[] }>;
   authoritativeUsers?: string[];
+  authoritativeToken?: number;
 };
 
 type EditState = {
@@ -98,6 +99,7 @@ type EditState = {
   latestToken: number;
   pending: Map<number, Comment>;
   authoritative?: Comment;
+  authoritativeToken?: number;
 };
 
 const defaultLens: CommentsLens = {
@@ -317,17 +319,19 @@ export function CommentsPanel(props: CommentsPanelProps) {
         // Keep older requests tracked: the server action is a toggle and an
         // older request can still commit after this response arrives.
         state.authoritativeUsers = serverUsers;
+        state.authoritativeToken = token;
       }
     }
     state.pending.delete(token);
 
-    const pending = Array.from(state.pending.entries()).sort(
+    const pendingEntry = Array.from(state.pending.entries()).sort(
       ([left], [right]) => right - left,
-    )[0]?.[1];
+    )[0];
     const users =
-      state.authoritativeUsers ??
-      pending?.optimisticUsers ??
-      state.confirmedUsers;
+      pendingEntry &&
+      (!state.authoritativeToken || pendingEntry[0] > state.authoritativeToken)
+        ? pendingEntry[1].optimisticUsers
+        : (state.authoritativeUsers ?? state.confirmedUsers);
     patchComments((list) =>
       list.map((comment) =>
         comment.id === ctx.commentId
@@ -375,14 +379,21 @@ export function CommentsPanel(props: CommentsPanelProps) {
         state.confirmed = serverComment;
         state.confirmedToken = token;
       }
-      if (token === state.latestToken) state.authoritative = serverComment;
+      if (token === state.latestToken) {
+        state.authoritative = serverComment;
+        state.authoritativeToken = token;
+      }
     }
     state.pending.delete(token);
 
-    const pending = Array.from(state.pending.entries()).sort(
+    const pendingEntry = Array.from(state.pending.entries()).sort(
       ([left], [right]) => right - left,
-    )[0]?.[1];
-    const projection = state.authoritative ?? pending ?? state.confirmed;
+    )[0];
+    const projection =
+      pendingEntry &&
+      (!state.authoritativeToken || pendingEntry[0] > state.authoritativeToken)
+        ? pendingEntry[1]
+        : (state.authoritative ?? state.confirmed);
     patchComments((list) =>
       list.map((comment) =>
         comment.id === ctx.commentId
