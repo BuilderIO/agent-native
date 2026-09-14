@@ -306,8 +306,15 @@ async function processRecurringJobsWithLease(
             meta.timezone,
           ).toISOString();
         }
-        await updateResource(resource, meta, body);
-        await recoverStaleAutomationHistory(resource.owner, resource.path);
+        // A manual or event runner can claim this same stale snapshot first
+        // (its own conditional write moves the resource to a fresh
+        // `lastStatus: running`). Only touch the history row when THIS
+        // write actually won the CAS — otherwise `recoverStaleAutomationHistory`
+        // would look up the automation's latest run and mark the run that
+        // just started as errored instead of the one that was actually stuck.
+        if (await updateResource(resource, meta, body)) {
+          await recoverStaleAutomationHistory(resource.owner, resource.path);
+        }
         continue;
       }
 
