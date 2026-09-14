@@ -12,6 +12,6 @@ completion for as long as the server will still accept that authorization,
 which covers every OAuth connector in the catalog rather than one provider.
 
 Rename the Builder Publish connector to "Builder.io Publish". Onboarding
-connects a Builder.io *account* for model credits one screen before the
+connects a Builder.io _account_ for model credits one screen before the
 integrations picker, and a row labelled plain "Builder.io" with a "Connect"
 button read as that account having failed to connect.
