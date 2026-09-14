@@ -20,7 +20,12 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
 const databaseRefetchMock = vi.hoisted(() =>
-  vi.fn(async () => ({ data: undefined })),
+  vi.fn(
+    async (): Promise<{
+      data: ContentDatabaseResponse | undefined;
+      isError?: boolean;
+    }> => ({ data: undefined }),
+  ),
 );
 const updateViewMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -222,7 +227,10 @@ vi.mock("@/hooks/use-content-spaces", () => ({
   useDeleteContentSpace: () => benignMutation,
 }));
 
-vi.mock("@/hooks/use-documents", () => ({
+// Keep the real module for everything the preview editor subtree reaches for
+// (query keys, cache helpers) and override only the hooks these tests drive.
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
   useDocument: (documentId: string) => ({
     data: documentForId(documentId),
   }),
@@ -345,6 +353,21 @@ const workspaceFilesDocument = {
   title: "Foobar",
   database: workspaceFilesResponse.database,
 };
+
+function workspaceFilesItem(documentId: string): ContentDatabaseItem {
+  return {
+    id: `item-${documentId}`,
+    databaseId: "database-3",
+    position: 0,
+    properties: [],
+    document: {
+      ...fakeDocument,
+      id: documentId,
+      title: "",
+      database: undefined,
+    },
+  };
+}
 
 function databaseResponseForDocument(documentId: string) {
   if (documentId === "document-2") return secondDatabaseResponse;
@@ -676,6 +699,62 @@ describe("DatabaseView UI regressions", () => {
     );
     expect(addItemMutation.mutateAsync).not.toHaveBeenCalled();
     expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  // Regression: the toolbar New button defaults to openAfterCreate, so the
+  // Files path has to open the created page in the preview exactly like an
+  // ordinary collection row rather than silently creating it in the background.
+  it("opens the created page in the preview from the Files table New button", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    const createdItem = workspaceFilesItem("created-document");
+    databaseRefetchMock.mockResolvedValue({
+      data: { ...workspaceFilesResponse, items: [createdItem] },
+      isError: false,
+    });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    // The preview sheet portals to document.body, so assert there rather than
+    // inside the mounted container.
+    expect(
+      window.document.body.querySelector('[aria-label^="Preview actions for"]'),
+    ).toBeTruthy();
+  });
+
+  // Regression: `refetch` resolves with an error result instead of rejecting,
+  // so a failed refresh after a committed create used to leave the table stale
+  // with no feedback at all.
+  it("reports a failed collection refresh after the page was created", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    databaseRefetchMock.mockResolvedValue({ data: undefined, isError: true });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      messagesByLocale["en-US"].database.pageCreatedCollectionRefreshFailed,
+    );
   });
 
   it("surfaces a create failure from the Files table instead of a bare toast", async () => {
