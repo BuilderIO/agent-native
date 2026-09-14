@@ -1,4 +1,4 @@
-import type { OverlayPerson } from "@shared/api";
+import type { OverlayPerson } from "./api.js";
 
 export const OVERLAY_COLORS = [
   "#E07C4F", // warm orange

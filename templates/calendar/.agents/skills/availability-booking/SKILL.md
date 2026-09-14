@@ -19,7 +19,10 @@ Availability is stored in the SQL settings table under the key `calendar-availab
   "schedule": {
     "monday": [{ "start": "09:00", "end": "17:00" }],
     "tuesday": [{ "start": "09:00", "end": "17:00" }],
-    "wednesday": [{ "start": "09:00", "end": "12:00" }, { "start": "13:00", "end": "17:00" }],
+    "wednesday": [
+      { "start": "09:00", "end": "12:00" },
+      { "start": "13:00", "end": "17:00" }
+    ],
     "thursday": [{ "start": "09:00", "end": "17:00" }],
     "friday": [{ "start": "09:00", "end": "16:00" }],
     "saturday": [],
@@ -34,6 +37,7 @@ Write via: `writeSetting("calendar-availability", { ... })`
 ## Checking Availability
 
 The `check-availability` script finds open time slots for a given date by:
+
 1. Reading the availability schedule from settings
 2. Fetching events from Google Calendar for that date
 3. Computing free slots by subtracting busy intervals from available windows
@@ -73,7 +77,7 @@ the owner's connected account and adds co-hosts as invited attendees.
 
 A co-host gets working-hours-aware scheduling only when the owner has also
 added that person to their calendar overlay ("subscribed to their calendar")
-via `update-overlay-people`, AND that person has reciprocally added the owner
+via `add-overlay-person`, AND that person has reciprocally added the owner
 back to their own overlay list. `getEligibleHostAvailability`
 (`server/lib/booking-host-availability.ts`) enforces this two-way check before
 reading a peer's private `calendar-availability`/`calendar-settings` — overlay
@@ -109,8 +113,8 @@ link. Four states, backed by `getHostOverlayStatuses`
 - in the owner's overlay list but not reciprocal — not applied, and the only
   state with a `send-overlay-request` button.
 - a manual raw-email host — not applied, and offers "Add to my calendar"
-  (`update-overlay-people`) rather than a request, because
-  `send-overlay-request` rejects any address outside the owner's overlay list.
+  (`add-overlay-person`) rather than a request, because `send-overlay-request`
+  rejects any address outside the owner's overlay list.
 
 `reciprocal` and `hasWorkingHours` are reported as two independent booleans and
 must not be collapsed into one "applied" flag: the two failure modes are
@@ -126,7 +130,7 @@ and a saved schedule.
 **Identity.** Both actions resolve the owner from the booking-link row's
 persisted `ownerEmail`, never from the signed-in caller, because links are
 shareable with non-owner editors and the working-hours relationship is always
-about the *owner's* calendar. Only a brand-new unsaved draft (no
+about the _owner's_ calendar. Only a brand-new unsaved draft (no
 `bookingLinkId` yet) treats the caller as the presumptive owner. When the
 caller is not the resolved owner, both actions additionally scope requested
 emails to that link's own persisted host list, so a shared collaborator cannot
@@ -153,7 +157,7 @@ public booking response.
   a shared editor spends the owner's quota.
 - When email is not configured the action returns
   `{ requestSentAt: null, emailSent: false, skippedReason:
-  "email-not-configured" }` and records nothing. Do not coerce this to a
+"email-not-configured" }` and records nothing. Do not coerce this to a
   success — the UI shows a distinct message for it.
 
 Timestamps live in the owner's `calendar-overlay-requests` user setting as
@@ -163,7 +167,7 @@ write, since they can no longer affect either the cooldown or the cap.
 
 The request email deep-links the peer to
 `navigate`'s `addPersonEmail` param, which opens the add-a-peer dialog
-prefilled with the *requester's* address. It prefills the search only and never
+prefilled with the _requester's_ address. It prefills the search only and never
 auto-adds: opening an email must not write someone into the recipient's
 calendar.
 
@@ -187,14 +191,14 @@ Bookings are the confirmed appointments. They are stored in SQL via Drizzle ORM 
 
 ## Common Tasks
 
-| User says                              | What to do                                               |
-| -------------------------------------- | -------------------------------------------------------- |
-| "Am I free Tuesday at 2pm?"            | `check-availability --date 2026-04-08`                   |
-| "Find me a 1-hour slot this week"      | Check availability for each day this week with `--duration 60` |
-| "Set my hours to 9-5 weekdays"         | Update the `calendar-availability` setting               |
-| "Block off Friday afternoons"          | Update the Friday schedule to end at 12:00               |
-| "Show my bookings"                     | Navigate to `/bookings`                                  |
-| "Show my booking links"                | Navigate to `/booking-links`                             |
+| User says                         | What to do                                                     |
+| --------------------------------- | -------------------------------------------------------------- |
+| "Am I free Tuesday at 2pm?"       | `check-availability --date 2026-04-08`                         |
+| "Find me a 1-hour slot this week" | Check availability for each day this week with `--duration 60` |
+| "Set my hours to 9-5 weekdays"    | Update the `calendar-availability` setting                     |
+| "Block off Friday afternoons"     | Update the Friday schedule to end at 12:00                     |
+| "Show my bookings"                | Navigate to `/bookings`                                        |
+| "Show my booking links"           | Navigate to `/booking-links`                                   |
 
 ## Important Notes
 

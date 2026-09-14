@@ -1,0 +1,36 @@
+import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { mutateUserSetting } from "@agent-native/core/settings";
+import { z } from "zod";
+
+import type { OverlayPerson } from "../shared/api.js";
+
+export default defineAction({
+  description:
+    "Change the display color of one person on the caller's calendar overlay list.",
+  schema: z.object({
+    email: z.string().email(),
+    color: z.string().min(1),
+  }),
+  http: { method: "PUT" },
+  run: async (args): Promise<OverlayPerson[]> => {
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
+
+    // Same atomicity reasoning as add-overlay-person.
+    const result = await mutateUserSetting(
+      email,
+      "calendar-overlay-people",
+      (current) => {
+        const people =
+          (current as { people?: OverlayPerson[] } | null)?.people ?? [];
+        return {
+          people: people.map((p) =>
+            p.email === args.email ? { ...p, color: args.color } : p,
+          ),
+        };
+      },
+    );
+    return (result as { people: OverlayPerson[] }).people;
+  },
+});

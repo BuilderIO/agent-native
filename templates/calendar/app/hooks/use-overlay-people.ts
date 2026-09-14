@@ -1,13 +1,8 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, OverlayPerson } from "@shared/api";
-import {
-  useMutation,
-  useQueryClient,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { OVERLAY_EVENTS_BATCH_KEY } from "@/hooks/use-events";
-import { getNextOverlayColor } from "@/lib/overlay-colors";
 
 const OVERLAY_PEOPLE_KEY = ["action", "get-overlay-people", undefined] as const;
 
@@ -15,65 +10,41 @@ export function useOverlayPeople() {
   return useActionQuery<OverlayPerson[]>("get-overlay-people");
 }
 
-/**
- * `update-overlay-people` is a full replacement, not a merge, so every
- * mutation below must start from the real current list. A plain
- * `getQueryData() ?? []` cannot tell "genuinely empty" apart from "never
- * fetched" or "failed to fetch" — either of the latter would silently wipe
- * every existing overlay person on the next save. `ensureQueryData` returns
- * the cached list when it is fresh, otherwise fetches it, and rejects the
- * mutation instead of guessing when that fetch fails.
- */
-function getCurrentOverlayPeople(
-  queryClient: QueryClient,
-): Promise<OverlayPerson[]> {
-  return queryClient.ensureQueryData<OverlayPerson[]>({
-    queryKey: OVERLAY_PEOPLE_KEY,
-    queryFn: () =>
-      callAction<OverlayPerson[]>("get-overlay-people", undefined, {
-        method: "GET",
-      }),
+function invalidateOverlayStatusQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  // Adding/removing/recoloring a peer can flip whether a booking-link host
+  // counts as calendar-managed (e.g. the owner adding back a host who was
+  // showing as manual) and can also make an existing peer reciprocal, so both
+  // owner-scoped status reads must refetch rather than keep serving a
+  // pre-change snapshot until an unrelated refetch happens to land.
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-host-overlay-status"],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-overlay-reciprocity"],
   });
 }
 
 export function useAddOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (person: { email: string; name?: string }) => {
-      const current = await getCurrentOverlayPeople(queryClient);
-      if (current.some((p) => p.email === person.email)) return current;
-      const color = getNextOverlayColor(current);
-      const updated = [...current, { ...person, color }];
-      try {
-        await callAction<OverlayPerson[]>(
-          "update-overlay-people",
-          { people: updated },
-          { method: "PUT" },
-        );
-      } catch {
-        throw new Error("Failed to save");
-      }
-      return updated;
-    },
+    // Applied atomically on the server (add-overlay-person reads and writes
+    // `calendar-overlay-people` inside one mutateUserSetting compare-and-swap)
+    // rather than the client fetching the current list and PUTting a full
+    // replacement — two adds started concurrently from separate UI surfaces
+    // or tabs would otherwise both read the same stale list and let whichever
+    // full-list write lands last silently drop the other's addition.
+    mutationFn: (person: { email: string; name?: string }) =>
+      callAction<OverlayPerson[]>("add-overlay-person", person, {
+        method: "PUT",
+      }),
     onSuccess: (data) => {
-      queryClient.setQueryData(
-        ["action", "get-overlay-people", undefined],
-        data,
-      );
+      queryClient.setQueryData(OVERLAY_PEOPLE_KEY, data);
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-events"],
       });
-      // Adding this person can flip whether a booking-link host counts as
-      // calendar-managed (e.g. the owner adding back a host who was showing
-      // as manual) and can also make an existing peer reciprocal, so both
-      // owner-scoped status reads must refetch rather than keep serving the
-      // pre-add snapshot until an unrelated refetch happens to land.
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-host-overlay-status"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-overlay-reciprocity"],
-      });
+      invalidateOverlayStatusQueries(queryClient);
     },
   });
 }
@@ -81,22 +52,12 @@ export function useAddOverlayPerson() {
 export function useUpdateOverlayPersonColor() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ email, color }: { email: string; color: string }) => {
-      const current = await getCurrentOverlayPeople(queryClient);
-      const updated = current.map((p) =>
-        p.email === email ? { ...p, color } : p,
-      );
-      try {
-        await callAction<OverlayPerson[]>(
-          "update-overlay-people",
-          { people: updated },
-          { method: "PUT" },
-        );
-      } catch {
-        throw new Error("Failed to save");
-      }
-      return updated;
-    },
+    mutationFn: ({ email, color }: { email: string; color: string }) =>
+      callAction<OverlayPerson[]>(
+        "update-overlay-person-color",
+        { email, color },
+        { method: "PUT" },
+      ),
     onMutate: async ({ email, color }) => {
       await queryClient.cancelQueries({ queryKey: OVERLAY_PEOPLE_KEY });
       const previousPeople =
@@ -113,10 +74,8 @@ export function useUpdateOverlayPersonColor() {
         queryClient.setQueryData(OVERLAY_PEOPLE_KEY, context.previousPeople);
       }
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: OVERLAY_PEOPLE_KEY,
-      });
+    onSuccess: (data) => {
+      queryClient.setQueryData(OVERLAY_PEOPLE_KEY, data);
     },
   });
 }
@@ -124,20 +83,15 @@ export function useUpdateOverlayPersonColor() {
 export function useRemoveOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (email: string) => {
-      const current = await getCurrentOverlayPeople(queryClient);
-      const updated = current.filter((p) => p.email !== email);
-      try {
-        await callAction<OverlayPerson[]>(
-          "update-overlay-people",
-          { people: updated },
-          { method: "PUT" },
-        );
-      } catch {
-        throw new Error("Failed to save");
-      }
-      return updated;
-    },
+    // Same atomicity reasoning as useAddOverlayPerson: applied on the server
+    // inside remove-overlay-person's own mutateUserSetting read, not against
+    // a client-fetched snapshot.
+    mutationFn: (email: string) =>
+      callAction<OverlayPerson[]>(
+        "remove-overlay-person",
+        { email },
+        { method: "PUT" },
+      ),
     // Removal is instant. Dropping a person changes the events query key
     // (overlayEmails), so the calendar shows the previous range's data as a
     // placeholder while it refetches — we strip this person's events out of
@@ -201,14 +155,7 @@ export function useRemoveOverlayPerson() {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(OVERLAY_PEOPLE_KEY, data);
-      // Symmetric with useAddOverlayPerson: removal can also change whether a
-      // host counts as calendar-managed or reciprocal.
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-host-overlay-status"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-overlay-reciprocity"],
-      });
+      invalidateOverlayStatusQueries(queryClient);
     },
   });
 }
