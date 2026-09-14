@@ -1514,6 +1514,12 @@ describe("live suggestion presentation", () => {
         kind: "delete_text",
         beforeText: "Whole document",
         afterText: "",
+        beforePresentation: {
+          source: "Whole document",
+          from: 0,
+          to: "Whole document".length,
+        },
+        afterPresentation: { source: "", from: 0, to: 0 },
         anchor: { from: 0, prefix: "", suffix: "" },
         presentation: "draft",
       });
@@ -1523,6 +1529,154 @@ describe("live suggestion presentation", () => {
         editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
       ).toBe("Whole document");
       expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "middle paragraph",
+      canonical: "First paragraph.\nMiddle paragraph.\nLast paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "final paragraph",
+      canonical: "First paragraph.\nFinal paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "middle paragraph with repeated context",
+      canonical: "Repeat.\nRepeat.\nRepeat.",
+      childIndex: 1,
+    },
+  ])(
+    "maps a mounted deletion of all text in the $name to its empty textblock",
+    ({ canonical, childIndex }) => {
+      const editor = createSuggestionEditor(canonical);
+      try {
+        let childPos = 0;
+        for (let index = 0; index < childIndex; index += 1)
+          childPos += editor.state.doc.child(index).nodeSize;
+        const paragraph = editor.state.doc.child(childIndex);
+        editor.view.dispatch(
+          editor.state.tr.delete(
+            childPos + 1,
+            childPos + 1 + paragraph.content.size,
+          ),
+        );
+        const draft = docToNfm(editor.state.doc.toJSON());
+        const [operation] = markdownSuggestionOperations(canonical, draft);
+        const expectedFrom =
+          canonical.split("\n").slice(0, childIndex).join("\n").length +
+          (childIndex > 0 ? 1 : 0);
+        expect(operation).toMatchObject({
+          kind: "delete_text",
+          before: { changedText: paragraph.textContent },
+          after: { changedText: "<empty-block/>" },
+          anchor: {
+            from: expectedFrom,
+            to: expectedFrom + paragraph.content.size,
+          },
+        });
+        const [anchor] = draftSuggestionAnchors([operation!], draft);
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: `clear-${childIndex}`,
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: {
+            source: operation!.after.markdown,
+            from: anchor!.from,
+            to: anchor!.to,
+          },
+          anchor: anchor!,
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({
+          kind: "delete",
+          from: childPos + 1,
+          to: childPos + 1,
+          deletedText: paragraph.textContent,
+        });
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps a mounted paragraph-boundary deletion distinct from clearing a textblock", () => {
+    const canonical = "First paragraph.\nSecond paragraph.";
+    const editor = createSuggestionEditor(canonical);
+    try {
+      const boundary = editor.state.doc.child(0).nodeSize - 1;
+      editor.view.dispatch(editor.state.tr.delete(boundary, boundary + 2));
+      expect(editor.state.doc.childCount).toBe(1);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const [operation] = markdownSuggestionOperations(canonical, draft);
+      expect(operation).toMatchObject({
+        kind: "delete_text",
+        before: { changedText: "\n" },
+        after: { changedText: "" },
+      });
+      const [anchor] = draftSuggestionAnchors([operation!], draft);
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "delete-boundary",
+        kind: operation!.kind,
+        beforeText: operation!.before.changedText,
+        afterText: operation!.after.changedText,
+        beforePresentation: {
+          source: operation!.before.markdown,
+          from: operation!.anchor.from,
+          to: operation!.anchor.to,
+        },
+        afterPresentation: {
+          source: operation!.after.markdown,
+          from: anchor!.from,
+          to: anchor!.to,
+        },
+        anchor: anchor!,
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ kind: "delete" });
+      expect(spec?.from).toBe(spec?.to);
+      expect(spec?.deletedText).toBe("\n");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when the deletion does not identify one empty textblock", () => {
+    const editor = createSuggestionEditor("");
+    try {
+      editor.view.dispatch(
+        editor.state.tr.insert(
+          editor.state.doc.content.size,
+          editor.schema.nodes.paragraph.create(),
+        ),
+      );
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "ambiguous-clear",
+          kind: "delete_text",
+          beforeText: "Whole document",
+          afterText: "",
+          beforePresentation: {
+            source: "Whole document",
+            from: 0,
+            to: "Whole document".length,
+          },
+          afterPresentation: { source: "", from: 0, to: 0 },
+          anchor: { from: 0, prefix: "", suffix: "" },
+          presentation: "draft",
+        }),
+      ).toBeNull();
     } finally {
       editor.destroy();
     }

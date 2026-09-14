@@ -10,6 +10,61 @@ import {
   markdownSuggestionOperationsForReplacements,
 } from "./markdown-operation";
 
+describe("cleared text blocks", () => {
+  it("models a cleared repeated paragraph as a deletion", () => {
+    const before = "Repeat.\nRepeat.\nRepeat.";
+    const after = "Repeat.\n<empty-block/>\nRepeat.";
+
+    expect(markdownSuggestionOperations(before, after)).toMatchObject([
+      {
+        kind: "delete_text",
+        before: { markdown: before, changedText: "Repeat." },
+        after: { markdown: after, changedText: "<empty-block/>" },
+        anchor: { from: 8, to: 15 },
+      },
+    ]);
+  });
+
+  it("preserves the deletion kind for an exact editor replacement intent", () => {
+    const before = "First.\nDelete me.\nLast.";
+    const after = "First.\n<empty-block/>\nLast.";
+
+    expect(
+      markdownSuggestionOperationsForReplacements({
+        before,
+        after,
+        replacements: [{ from: 7, to: 17 }],
+      }),
+    ).toMatchObject([
+      {
+        kind: "delete_text",
+        before: { changedText: "Delete me." },
+        after: { changedText: "<empty-block/>" },
+      },
+    ]);
+  });
+
+  it("models a cleared paragraph as a deletion alongside another edit", () => {
+    const before = "Keep this.\nClear this.\nOld ending.";
+    const after = "Keep this.\n<empty-block/>\nNew ending.";
+
+    expect(markdownSuggestionOperations(before, after)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "delete_text",
+          before: expect.objectContaining({ changedText: "Clear this." }),
+          after: expect.objectContaining({ changedText: "<empty-block/>" }),
+        }),
+        expect.objectContaining({
+          kind: "replace_text",
+          before: expect.objectContaining({ changedText: "Old" }),
+          after: expect.objectContaining({ changedText: "New" }),
+        }),
+      ]),
+    );
+  });
+});
+
 describe("editor-normalized revisions", () => {
   const raw = "Alpha bravo charlie.\n\n- Echo foxtrot\n- Hotel india";
   const editor = raw.replace(".\n\n-", ".\n-");
