@@ -8,6 +8,7 @@ import {
   index,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
 import { boolean } from "drizzle-orm/pg-core";
 
 export const documents = table("documents", {
@@ -173,6 +174,7 @@ export const documentComments = table("document_comments", {
   authorName: text("author_name"),
   submissionSource: text("submission_source"),
   submissionRunId: text("submission_run_id"),
+  authorModel: text("author_model"),
   resolved: integer("resolved").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -184,6 +186,72 @@ export const documentComments = table("document_comments", {
   // discussion instead of creating unrelated top-level comments.
   notionDiscussionId: text("notion_discussion_id"),
 });
+
+export const commentAiRequests = table(
+  "comment_ai_requests",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    requesterEmail: text("requester_email").notNull(),
+    documentId: text("document_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    rootCommentId: text("root_comment_id").notNull(),
+    fieldId: text("field_id").notNull(),
+    intent: text("intent").notNull(),
+    status: text("status").notNull().default("queued"),
+    submittedThreadDigest: text("submitted_thread_digest").notNull(),
+    submittedSnapshotJson: text("submitted_snapshot_json").notNull(),
+    agentThreadId: text("agent_thread_id").notNull(),
+    runId: text("run_id"),
+    model: text("model"),
+    engine: text("engine"),
+    activeAttemptId: text("active_attempt_id"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    resultJson: text("result_json"),
+    errorCode: text("error_code"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (request) => [
+    uniqueIndex("comment_ai_requests_active_comment_idx")
+      .on(request.documentId, request.rootCommentId)
+      .where(sql`${request.status} IN ('queued', 'running', 'refreshing')`),
+    index("comment_ai_requests_document_requester_idx").on(
+      request.documentId,
+      request.requesterEmail,
+    ),
+  ],
+);
+
+export const commentAiAttempts = table(
+  "comment_ai_attempts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    requestId: text("request_id").notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    status: text("status").notNull().default("reasoning"),
+    sourceRevision: text("source_revision").notNull(),
+    suggestionRevision: text("suggestion_revision").notNull(),
+    threadDigest: text("thread_digest").notNull(),
+    snapshotJson: text("snapshot_json").notNull(),
+    payloadJson: text("payload_json"),
+    runId: text("run_id"),
+    model: text("model"),
+    errorCode: text("error_code"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (attempt) => [
+    uniqueIndex("comment_ai_attempts_request_number_unique").on(
+      attempt.requestId,
+      attempt.attemptNumber,
+    ),
+    index("comment_ai_attempts_request_idx").on(attempt.requestId),
+  ],
+);
 
 export const documentSyncLinks = table("document_sync_links", {
   documentId: text("document_id").primaryKey(),

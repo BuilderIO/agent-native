@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -22,6 +23,8 @@ const INJECTED_INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "content",
+  nativeActionsInDev: true,
+  resolveActionSurface: resolveCommentAiActionSurface,
   durableBackgroundRuns: true,
   selectedA2AReceiverOwnsObjective: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
