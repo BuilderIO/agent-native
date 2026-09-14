@@ -150,6 +150,8 @@ const database = {
     "Se conservaron las filas y propiedades locales.",
   failedToAttachSource: "No se pudo adjuntar la fuente",
   failedToCreateRow: "No se pudo crear la fila",
+  pageCreatedCollectionRefreshFailed:
+    "La página se creó, pero esta colección no se pudo actualizar. Vuelve a cargar para verla.",
   failedToDeleteRow: "No se pudo eliminar la fila",
   failedToDeleteSelectedRows: "No se pudieron eliminar las filas seleccionadas",
   failedToDuplicateEverySelectedRow:

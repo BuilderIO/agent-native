@@ -151,6 +151,8 @@ const database = {
     "As linhas do banco e propriedades locais foram mantidas.",
   failedToAttachSource: "Falha ao anexar fonte",
   failedToCreateRow: "Falha ao criar linha",
+  pageCreatedCollectionRefreshFailed:
+    "A página foi criada, mas esta coleção não pôde ser atualizada. Recarregue para vê-la.",
   failedToDeleteRow: "Falha ao excluir linha",
   failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
   failedToDuplicateEverySelectedRow:

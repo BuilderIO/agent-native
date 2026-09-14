@@ -385,4 +385,66 @@ describe("<NewDeckReferenceStep>", () => {
 
     expect(screen.queryByText("Attached")).toBeNull();
   });
+
+  it("shows the placeholder until the reference deck is touched", () => {
+    renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toBe("Match the style of an existing deck");
+  });
+
+  it("shows None instead of the placeholder after explicitly selecting None", () => {
+    renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("option", { name: "None" }));
+
+    const trigger = screen.getByRole("combobox", { name: "Reference deck" });
+    expect(trigger.textContent).toBe("None");
+    expect(trigger.textContent).not.toContain(
+      "Match the style of an existing deck",
+    );
+  });
+
+  it("shows the deck name in the trigger after selecting a deck", () => {
+    renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("option", { name: "Some deck" }));
+
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toBe("Some deck");
+  });
 });
