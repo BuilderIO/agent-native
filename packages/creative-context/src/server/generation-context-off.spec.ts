@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   performCreativeContextSearch: vi.fn(),
   callIsolatedCreativeContextA2A: vi.fn(),
   isCreativeContextLabAvailable: vi.fn(),
+  getGenerationCreativeContextLocal: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -18,6 +19,11 @@ vi.mock("../store/index.js", () => ({
   getContextPack: mocks.getContextPack,
   getCreativeContextItem: mocks.getCreativeContextItem,
   listAccessibleSearchDocuments: mocks.listAccessibleSearchDocuments,
+}));
+
+vi.mock("../store/generation.js", () => ({
+  getGenerationCreativeContext: mocks.getGenerationCreativeContextLocal,
+  recordGenerationCreativeContext: vi.fn(),
 }));
 
 vi.mock("./retrieval.js", () => ({
@@ -39,6 +45,7 @@ vi.mock("./context.js", () => ({
 }));
 
 import {
+  getGenerationCreativeContext,
   resolveGenerationCreativeContext,
   validateGenerationCreativeContext,
 } from "./generation-context.js";
@@ -71,6 +78,37 @@ describe("creative context structural opt-out", () => {
     expect(mocks.readAppState).not.toHaveBeenCalled();
     expect(mocks.callIsolatedCreativeContextA2A).not.toHaveBeenCalled();
     expect(mocks.performCreativeContextSearch).not.toHaveBeenCalled();
+  });
+
+  it("does not read inherited generation context while its Lab is disabled", async () => {
+    mocks.isCreativeContextLabAvailable.mockResolvedValue(false);
+
+    await expect(
+      getGenerationCreativeContext({
+        appId: "slides",
+        artifactType: "deck",
+        artifactId: "deck-1",
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.callIsolatedCreativeContextA2A).not.toHaveBeenCalled();
+    expect(mocks.getGenerationCreativeContextLocal).not.toHaveBeenCalled();
+  });
+
+  it("does not treat an unreadable Lab as permission to read inherited context", async () => {
+    mocks.isCreativeContextLabAvailable.mockRejectedValue(
+      new Error("settings unavailable"),
+    );
+
+    await expect(
+      getGenerationCreativeContext({
+        appId: "slides",
+        artifactType: "deck",
+        artifactId: "deck-1",
+      }),
+    ).rejects.toThrow("settings unavailable");
+    expect(mocks.callIsolatedCreativeContextA2A).not.toHaveBeenCalled();
+    expect(mocks.getGenerationCreativeContextLocal).not.toHaveBeenCalled();
   });
 
   it("fails closed when Labs state cannot be read", async () => {

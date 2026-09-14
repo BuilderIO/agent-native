@@ -48,6 +48,7 @@ export function registerCreativeContextPromptProvider(): () => void {
   if (unregisterProvider) return unregisterProvider;
   const unregister = registerPromptContextProvider({
     id: PROVIDER_ID,
+    failOnError: true,
     async load(context) {
       if (
         !(await isCreativeContextLabAvailable(

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   isCreativeContextLabAvailable: vi.fn(),
   getCreativeContext: vi.fn(),
   provider: null as null | {
+    failOnError?: boolean;
     load: (context: {
       owner: string;
       compact: boolean;
@@ -116,6 +117,7 @@ describe("creative context prompt provider", () => {
       new Error("settings unavailable"),
     );
     const unregister = registerCreativeContextPromptProvider();
+    expect(mocks.provider?.failOnError).toBe(true);
 
     await expect(
       mocks.provider?.load({

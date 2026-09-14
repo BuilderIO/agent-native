@@ -12,6 +12,7 @@ vi.mock("@agent-native/core/server/request-context", () => mocks);
 vi.mock("./context.js", () => mocks);
 
 import {
+  assertCreativeContextLabEnabled,
   gateCreativeContextActions,
   isCreativeContextLabAvailable,
 } from "./labs.js";
@@ -55,6 +56,20 @@ describe("isCreativeContextLabAvailable", () => {
     await expect(
       isCreativeContextLabAvailable("user@example.com"),
     ).rejects.toThrow("settings unavailable");
+  });
+
+  it("requires the configured app Lab before Creative Context operations", async () => {
+    mocks.getUserLabs.mockResolvedValue({ "content.creative-context": true });
+    await expect(
+      assertCreativeContextLabEnabled("user@example.com"),
+    ).resolves.toBeUndefined();
+    expect(mocks.getUserLabs).toHaveBeenCalledWith("user@example.com");
+    expect(mocks.getCreativeContext).toHaveBeenCalled();
+
+    mocks.getUserLabs.mockResolvedValue({ "content.creative-context": false });
+    await expect(
+      assertCreativeContextLabEnabled("user@example.com"),
+    ).rejects.toThrow("Creative Context is disabled in Labs");
   });
 
   it("gates package actions with the configured app Lab", async () => {

@@ -628,6 +628,7 @@ export async function getGenerationCreativeContext(
     db?: any;
   } = {},
 ) {
+  if (!(await creativeContextLabEnabled())) return null;
   const artifactAccessTarget = collaborativeArtifactTarget(
     input,
     options.artifactAccess,

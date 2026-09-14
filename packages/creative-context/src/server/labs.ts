@@ -14,15 +14,26 @@ export async function isCreativeContextLabAvailable(
   return labs[labKey] === true;
 }
 
+export async function assertCreativeContextLabEnabled(
+  userEmail = getRequestUserEmail(),
+): Promise<void> {
+  if (
+    !(await isCreativeContextLabAvailable(
+      userEmail,
+      getCreativeContext().labKey,
+    ))
+  ) {
+    throw new Error("Creative Context is disabled in Labs");
+  }
+}
+
 function gateCreativeContextAction(action: ActionEntry): ActionEntry {
   return {
     ...action,
     async run(args, context) {
-      const enabled = await isCreativeContextLabAvailable(
+      await assertCreativeContextLabEnabled(
         context?.userEmail ?? getRequestUserEmail(),
-        getCreativeContext().labKey,
       );
-      if (!enabled) throw new Error("Creative Context is disabled in Labs");
       return action.run(args, context);
     },
   };
