@@ -734,24 +734,65 @@ const deDE = {
     },
     analytics: {
       faq: {
-        question1:
-          "Kann ich meine Analytics-Fragen in einfacher Sprache stellen?",
+        question1: "Was ist Agent-Native Analytics?",
         answer1:
-          "Ja. Stellen Sie Ihre Frage; der Agent schreibt das SQL, führt es in BigQuery aus und erstellt das Diagramm. Abfragen behalten ihren Verlauf, die Zeilenanzahl und teilbare URLs.",
-        question2:
-          "Wie unterscheidet sich Analytics von Amplitude oder Mixpanel?",
+          "Agent-Native Analytics ist ein kostenloses Open-Source-KI-Analysetool. Stelle einem KI-Agenten Fragen zu verbundenen Daten, untersuche Abfragen und erstelle wiederverwendbare Dashboards. Es umfasst außerdem Sitzungswiedergabe, Fehlerverfolgung und Uptime-Monitoring.",
+        question2: "Muss ich SQL können, um Analytics zu nutzen?",
         answer2:
-          "Dort zahlen Sie pro Nutzer und Ereignis, und die Benutzeroberfläche gehört dem Anbieter. Analytics ist kostenlos und Open Source, und der Agent erweitert die App selbst — neue Diagramme und Konnektoren auf Anfrage.",
+          "Du kannst Fragen in einfacher Sprache stellen und deinen KI-Agenten die Abfragen schreiben lassen. Für BigQuery kannst du im Explorer auch Diagramme erstellen, indem du Tabellen, Kennzahlen und Filter auswählst. SQL bleibt zur Prüfung verfügbar, und jemand, der sich mit deinen Daten auskennt, muss möglicherweise beim Verbinden von Quellen und Definieren von Kennzahlen helfen.",
         question3: "Welche Datenquellen kann ich verbinden?",
         answer3:
-          "Mehr als zehn integrierte Konnektoren: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud und weitere. Wenn Ihre Quelle fehlt, kann der Agent den Konnektor erstellen.",
-        question4: "Muss ich SQL beherrschen?",
+          "Unterstützte Quellen umfassen BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot und Stripe. Jede Quelle benötigt die passenden Zugangsdaten oder eine gemeinsame Workspace-Verbindung, die für Analytics freigegeben wurde. Die verfügbaren Antworten hängen von den Daten und Berechtigungen ab, die du verbindest.",
+        question4: "Kann ich unsere eigenen Kennzahlendefinitionen verwenden?",
         answer4:
-          "Nein — einfache Sprache ist die Benutzeroberfläche. Der SQL-Explorer ist aber direkt verfügbar, wenn Sie ihn brauchen: direkter BigQuery-Zugriff und ein vollständiger Abfrageverlauf.",
-        question5: "Ist Analytics kostenlos?",
+          "Ja. Nutze das Datenwörterbuch, um Definitionen, Tabellen- und Spaltennamen, Abfragebeispiele und Ausnahmen wie den Ausschluss interner Konten zu dokumentieren. Dein KI-Agent kann diese Definitionen beim Schreiben von Abfragen verwenden. Prüfe SQL und Ergebnisse, wenn du eine Geschäftskennzahl kontrollierst.",
+        question5: "Kann ich Dashboards teilen und Berichte planen?",
         answer5:
-          "Ja — kostenlos und Open Source, ohne Abrechnung pro Ereignis. Ihre Daten bleiben in Ihrem eigenen Data Warehouse.",
+          "Ja. Teile Dashboards mit Teammitgliedern oder deiner Organisation mit Betrachter-, Bearbeiter- oder Admin-Zugriff. Du kannst außerdem E-Mail-Berichte mit aktuellen Dashboard-Ergebnissen planen oder Alarme für Bedingungen konfigurieren, die du im Blick behalten willst.",
       },
+      // V3-Landingpage-Texte (2026-09-14) — Hero bis finaler CTA unten.
+      heroEyebrow: "Analytics",
+      heroTitle: "Analysiere deine Daten mit deinem KI-Agenten",
+      heroDescription:
+        "Analytics ist ein kostenloses Open-Source-KI-Analysetool, um deine verbundenen Daten abzufragen, Dashboards zu erstellen und Nutzersitzungen zu untersuchen.",
+      heroCta: "Erkunde deine Daten",
+      useCasesHeading: "Was kannst du mit Analytics machen?",
+      useCasesBody:
+        "Verfolge das Produktwachstum, berichte über die Geschäftsentwicklung oder untersuche ein Problem, auf das jemand in deiner App gestoßen ist.",
+      useCase1Title: "Produktwachstum verfolgen",
+      useCase1Body:
+        "Frage, wie sich Anmeldungen, aktive Nutzer oder Conversions verändert haben. Vergleiche Zeiträume und schlüssele Ergebnisse nach Kanal, Plan oder Kundensegment auf.",
+      useCase2Title: "Über die Geschäftsentwicklung berichten",
+      useCase2Body:
+        "Bringe Umsatz-, Pipeline- oder Nutzungskennzahlen in ein Dashboard für dein Team. Lege Datumsfilter fest und schau vor deinem nächsten Review wieder vorbei.",
+      useCase3Title: "Nutzerprobleme untersuchen",
+      useCase3Body:
+        "Finde eine aufgezeichnete Sitzung und spiele ab, was passiert ist. Untersuche Konsolenfehler und Netzwerkanfragen und teile die Diagnosedaten dann mit deinem KI-Agenten.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Abfragen, Visualisieren und Erkunden brauchst",
+      feature1Title: "Abfragen in natürlicher Sprache",
+      feature1Body:
+        "Stelle deinem KI-Agenten eine Frage zu deinen Daten. Erhalte ein Diagramm, eine Tabelle oder eine Kennzahl und frage dann mit einer anderen Aufschlüsselung nach.",
+      feature2Title: "Wiederverwendbare Dashboards",
+      feature2Body:
+        "Erstelle Dashboards mit deinem KI-Agenten oder bearbeite sie selbst. Ordne Panels an, füge Filter hinzu, speichere Ansichten und teile den Zugriff mit deinem Team.",
+      feature3Title: "SQL-Abfrage-Explorer",
+      feature3Body:
+        "Führe BigQuery-Abfragen aus und sieh dir ihre Ergebnisse und ihren Verlauf an. Untersuche das SQL hinter Dashboard-Panels, um Berechnungen und Filter zu prüfen.",
+      feature4Title: "Datenquellenverbindungen",
+      feature4Body:
+        "Verbinde Quellen wie BigQuery, GA4, HubSpot und Stripe. Frage Warehouse-Daten, Produktereignisse, Kundendatensätze und Umsätze aus derselben App ab.",
+      feature5Title: "Datenwörterbuch",
+      feature5Body:
+        "Dokumentiere Kennzahlendefinitionen, Tabellen und Abfragebeispiele. Dein KI-Agent nutzt diesen Kontext beim Schreiben von Abfragen und bei der Arbeit mit deinen Daten.",
+      feature6Title: "Sitzungswiedergabe",
+      feature6Body:
+        "Spiele aufgezeichnete Sitzungen zusammen mit Konsolen- und Netzwerkaktivität ab. Springe zu Fehlern und kopiere einen temporären Diagnoselink für deinen KI-Agenten.",
+      finalCtaHeading: "Starte mit einer Frage zu deinen Daten",
+      finalCtaBody:
+        "Verbinde eine Quelle und bitte deinen KI-Agenten um das erste Diagramm.",
+      finalCtaButton: "Erkunde deine Daten",
       s001: "Screenshot der Vorlage Analytics",
       s002: "Datenanschlüsse",
       s003: "Diagrammtypen",
@@ -820,20 +861,68 @@ const deDE = {
     },
     calendar: {
       faq: {
-        question1: "Kann KI meine Meetings planen?",
+        question1: "Was ist Agent-Native Calendar?",
         answer1:
-          "Ja. Bitten Sie den Agenten, einen Termin zu finden, ein Event zu erstellen, die Verfügbarkeit zu prüfen oder umzuplanen — er arbeitet in Ihrem echten Kalender und berücksichtigt bestehende Events.",
-        question2: "Bietet Calendar Buchungslinks wie Calendly?",
+          "Agent-Native Calendar ist ein kostenloser Open-Source-KI-Planungsassistent, der sich mit Google Calendar verbindet. Nutze einen KI-Agenten, um Termine zu verwalten und Besprechungstermine zu finden, oder teile Buchungslinks, damit andere Termine bei dir vereinbaren können.",
+        question2: "Welche Kalender kann ich verbinden?",
         answer2:
-          "Ja — anpassbare Buchungsseiten mit Verfügbarkeit pro Buchungstyp, Erfassung von Besucherinformationen, Bestätigungen und eigenen Domains.",
-        question3: "Wird mit Google Calendar synchronisiert?",
+          "Verbinde mehrere Google-Konten, um ihre Termine gemeinsam anzuzeigen. Neue und aktualisierte Termine werden in den Hauptkalender des ausgewählten Kontos geschrieben. Du kannst außerdem schreibgeschützte ICS- oder Webcal-Feeds anzeigen; das sind keine zweiseitigen Outlook- oder Apple-Calendar-Integrationen. Freigegebene Google-Kalender sind schreibgeschützt und blockieren keine Buchungsverfügbarkeit.",
+        question3: "Was kann der KI-Agent mit meinem Kalender tun?",
         answer3:
-          "Ja — OAuth-Synchronisierung mit Unterstützung für mehrere Konten und automatischer Token-Aktualisierung. Erstellen, aktualisieren und löschen Sie Events direkt in Google.",
-        question4: "Ist Calendar kostenlos?",
+          "Dein KI-Agent kann deinen Kalender prüfen, verfügbare Besprechungstermine finden und Termine erstellen oder verschieben. Wenn du ihn bittest, einen Termin zu finden, prüft er deine Verfügbarkeitsregeln und bestehenden Termine sowie – sofern zugänglich – die Verfügbarkeitsinformationen namentlich genannter Teilnehmer. Du wählst einen vorgeschlagenen Termin aus, bevor er das Meeting bucht.",
+        question4:
+          "Brauchen andere ein Konto, um ein Meeting mit mir zu buchen?",
         answer4:
-          "Ja. Kostenlos und Open Source — einschließlich der Buchungsseiten.",
+          "Nein. Jeder mit deinem öffentlichen Buchungslink kann einen verfügbaren Termin auswählen und deine Buchungsfragen beantworten, ohne sich anzumelden. Nach der Buchung erhält die Person einen privaten Link, um das Meeting zu verschieben oder abzusagen.",
+        question5:
+          "Kann ein Buchungslink die Verfügbarkeit mehrerer Hosts prüfen?",
+        answer5:
+          "Ja. Füge erforderliche Co-Hosts hinzu, und Calendar prüft deren Verfügbarkeitsinformationen, bevor ein Termin angeboten wird. Damit auch die konfigurierten Arbeitszeiten jedes Co-Hosts berücksichtigt werden, müsst ihr eure Kalender gegenseitig als Overlay hinzufügen. Ohne diese gegenseitige Freigabe prüft Calendar nur die Verfügbarkeitsinformationen.",
       },
       s001: "Screenshot der Vorlage Calendar",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Calendar",
+      heroTitle: "Verwalte deinen Kalender mit deinem KI-Agenten",
+      heroDescription:
+        "Calendar ist ein kostenloser Open-Source-KI-Planungsassistent zum Verwalten von Google Calendar-Terminen und Finden von Besprechungsterminen – und lässt andere Termine bei dir buchen.",
+      heroCta: "Starte die Planung",
+      useCasesHeading: "Was kannst du mit Calendar machen?",
+      useCasesBody:
+        "Buche ein Kundengespräch, bring dein Team zusammen oder passe deinen Tag an, wenn sich Pläne ändern.",
+      useCase1Title: "Kundengespräche und Demos buchen",
+      useCase1Body:
+        "Gib Interessenten und Kunden einen Buchungslink, damit sie selbst einen Termin auswählen können. Erfasse die Angaben, die du vor dem Gespräch brauchst.",
+      useCase2Title: "Termine für Team-Meetings finden",
+      useCase2Body:
+        "Bitte deinen KI-Agenten um einen Termin, an dem deine Teammitglieder verfügbar sind. Wähle einen vorgeschlagenen Slot aus, um das Meeting zu buchen.",
+      useCase3Title: "Deinen Tag anpassen, wenn sich Pläne ändern",
+      useCase3Body:
+        "Bitte deinen KI-Agenten, ein Meeting zu verschieben oder einen anderen Termin zu finden – deine bestehenden Termine und Arbeitszeiten hat er dabei im Blick.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Planen, Buchen und Umplanen brauchst",
+      feature1Title: "KI-Planung",
+      feature1Body:
+        "Bitte deinen KI-Agenten, deinen Kalender zu prüfen, verfügbare Termine zu finden und Termine in deinem verbundenen Google Calendar zu erstellen oder zu verschieben.",
+      feature2Title: "Mehrere Kalenderkonten",
+      feature2Body:
+        "Sieh dir geschäftliche und private Google-Konten gemeinsam in der Tages-, Wochen- oder Monatsansicht an. Füge schreibgeschützte Kalender-Feeds neben deinen Terminen hinzu.",
+      feature3Title: "Anpassbare Buchungslinks",
+      feature3Body:
+        "Erstelle Buchungsseiten für unterschiedliche Terminarten. Lege die Dauer fest und füge Fragen hinzu, die andere beim Buchen beantworten.",
+      feature4Title: "Verfügbarkeitseinstellungen",
+      feature4Body:
+        "Lege deine Arbeitszeiten, Zeitzone und Pufferzeiten zwischen Terminen fest. Bestimme, wie viel Vorlauf du brauchst und wie weit im Voraus andere buchen können.",
+      feature5Title: "Planung mit Co-Hosts",
+      feature5Body:
+        "Füge einem Buchungslink erforderliche Co-Hosts hinzu. Biete Termine an, an denen alle verfügbar sind, und lade sie ein, sobald jemand bucht.",
+      feature6Title: "Video-Meeting-Links",
+      feature6Body:
+        "Füge Google Meet hinzu, verbinde Zoom oder verwende einen eigenen Meeting-Link, damit Gäste wissen, wo sie beitreten, wenn sie buchen.",
+      finalCtaHeading: "Trage dein nächstes Meeting in den Kalender ein",
+      finalCtaBody:
+        "Finde einen Termin mit deinem KI-Agenten oder verschicke einen Buchungslink.",
+      finalCtaButton: "Starte die Planung",
       s002: "Calendar Aufrufe",
       s003: "Agentenaktionen",
       s004: "Arten von Buchungslinks",
@@ -895,32 +984,134 @@ const deDE = {
     },
     assets: {
       faq: {
-        question1: "Kann KI markenkonforme Bilder erzeugen?",
+        question1: "Was ist Agent-Native Assets?",
         answer1:
-          "Ja — die Generierung stützt sich auf Ihre hochgeladenen Markenbibliotheken und Referenzen, nicht auf den Geschmack eines generischen Modells. Markenkonforme Bilder und Videos entstehen nach Regeln, die der Agent tatsächlich gelesen hat.",
-        question2: "Wie unterscheidet sich Assets von einem DAM?",
+          "Agent-Native Assets ist eine kostenlose Open-Source-Markenbibliothek mit KI-Bild- und Videogenerierung. Organisieren Sie vorhandene Medien, stellen Sie Markenreferenzen bereit und arbeiten Sie mit einem KI-Agenten, um Assets projektübergreifend zu erzeugen, zu bearbeiten und wiederzuverwenden.",
+        question2: "Wie nutzt Assets meine Markenrichtlinien?",
         answer2:
-          "Ein DAM speichert freigegebene Dateien, damit Menschen sie suchen können. Assets tut das ebenfalls und macht die Marke maschinenlesbar — so erzeugen und wählen Agents standardmäßig markenkonforme Medien aus.",
-        question3: "Können meine anderen Apps Assets verwenden?",
+          "Fügen Sie Ihrem Markenkit Ihr Logo, Referenzbilder, Farben und Stilnotizen hinzu. Wiederverwendbare Vorlagen liefern Anweisungen für bestimmte Inhaltstypen. Ihr KI-Agent nutzt diesen Kontext, um die Generierung zu steuern, und Sie können die Ergebnisse vor dem Speichern überprüfen und verfeinern.",
+        question3:
+          "Kann ich vorhandene Bilder und Videos hochladen und organisieren?",
         answer3:
-          "Ja — jede Agent-Native-App kann Assets über A2A aufrufen oder als Auswahl einbetten, sodass Apps wie Slides und Design dieselbe freigegebene Bibliothek nutzen.",
-        question4: "Ist Assets kostenlos?",
+          "Ja. Laden Sie vorhandene Medien hoch oder importieren Sie ein Asset über eine URL und organisieren Sie es zusammen mit generierten Inhalten in Bibliotheken und Ordnern. Sie können die Bibliothek durchsuchen, Assets als Referenzen wiederverwenden oder für ein anderes Projekt exportieren.",
+        question4:
+          "Kann mein KI-Agent Assets aus einer anderen App heraus verwenden?",
         answer4:
-          "Ja — kostenlos und Open Source. `npx @agent-native/core@latest create my-assets-app --template assets` und die App gehört Ihnen.",
+          "Ja. Verbinden Sie einen unterstützten Agenten über die MCP-Integration von Assets, um Medien im Chat zu suchen, zu generieren und auszuwählen. Agent-Native-Apps können Assets auch anfordern oder eine Auswahl einbetten. Der verfügbare Funktionsumfang hängt von der Host-App und ihrer Verbindung zu Assets ab.",
+        question5:
+          "Kann Assets mein tatsächliches Logo in generierten Bildern verwenden?",
+        answer5:
+          "Ja. Legen Sie ein kanonisches Logo in Ihrem Markenkit fest und aktivieren Sie das Logo-Compositing für die Generierung. Assets platziert das Originallogo nach der Generierung auf dem Bild, sodass das Bildmodell es nicht neu zeichnet. Überprüfen Sie die Platzierung und das umgebende Bild vor der Verwendung.",
       },
+      s001: "Screenshot der Vorlage Assets",
+      // V3 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Assets",
+      heroTitle: "Markenmaterial mit Ihrem KI-Agenten erstellen und verwalten",
+      heroDescription:
+        "Assets ist eine kostenlose Open-Source-Marken-Asset-Bibliothek zum Organisieren Ihrer Bilder, Videos und Markenreferenzen, mit einem KI-Agenten, der Medien anhand Ihres Markenkits generiert und bearbeitet.",
+      heroCta: "Generiere ein Bild",
+      useCasesHeading: "Was können Sie mit Assets tun?",
+      useCasesBody:
+        "Erstellen Sie Kampagnenbilder, passen Sie Visuals für neue Projekte an oder geben Sie Ihrem Team und Ihren KI-Agenten eine gemeinsame Markenbibliothek.",
+      useCase1Title: "Kampagnen-Visuals erstellen",
+      useCase1Body:
+        "Bitten Sie Ihren KI-Agenten um Blogbilder, Social-Media-Grafiken oder Launch-Visuals anhand Ihrer Markenreferenzen. Vergleichen Sie die Optionen und verfeinern Sie die ausgewählte.",
+      useCase2Title: "Bilder für neue Projekte anpassen",
+      useCase2Body:
+        "Geben Sie Ihrem KI-Agenten ein vorhandenes Bild und beschreiben Sie die gewünschten Änderungen, etwa einen anderen Hintergrund oder Platz für eine Überschrift.",
+      useCase3Title: "Markenmaterial teamübergreifend teilen",
+      useCase3Body:
+        "Bewahren Sie Logos, Produktbilder und Markenreferenzen an einem Ort auf, damit Teammitglieder und verbundene KI-Agenten Medien für Präsentationen, Websites und andere Projekte finden.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was Sie zum Generieren, Verfeinern und Wiederverwenden brauchen",
+      feature1Title: "Marken-Asset-Bibliotheken",
+      feature1Body:
+        "Organisieren Sie hochgeladene und generierte Medien in Bibliotheken und Ordnern. Fügen Sie Logos, Referenzbilder und Stilnotizen für Ihren KI-Agenten hinzu.",
+      feature2Title: "KI-Bild- und Videogenerierung",
+      feature2Body:
+        "Beschreiben Sie die benötigten Medien und wählen Sie Ihre Markenreferenzen aus. Generieren Sie Bildoptionen oder kurze Videos und prüfen Sie die Ergebnisse vor dem Speichern.",
+      feature3Title: "Bildbearbeitung",
+      feature3Body:
+        "Bitten Sie Ihren KI-Agenten, ein Bild zu bearbeiten oder umzugestalten. Nutzen Sie ein vorhandenes Asset als Referenz und verfeinern Sie es durch Feedback.",
+      feature4Title: "Wiederverwendbare Vorlagen",
+      feature4Body:
+        "Speichern Sie Generierungsanweisungen für wiederkehrende Arbeiten, etwa Blog-Titelbilder oder Social-Media-Grafiken. Verknüpfen Sie Vorlagen mit einem Markenkit, um dessen Referenzen wiederzuverwenden.",
+      feature5Title: "Platzierung des Originallogos",
+      feature5Body:
+        "Legen Sie das Logo Ihres Markenkits fest und fügen Sie es generierten Bildern hinzu. Das Logo-Compositing platziert die Originaldatei, statt eine neue Version zu generieren.",
+      feature6Title: "Agentenzugriff",
+      feature6Body:
+        "Verbinden Sie Ihren KI-Agenten, um die Bibliothek zu durchsuchen, Medien zu generieren und Assets im Chat auszuwählen. Unterstützte Apps können außerdem eine Asset-Auswahl einbetten.",
+      finalCtaHeading: "Erstellen Sie Ihr nächstes Markenmaterial",
+      finalCtaBody:
+        "Wählen Sie Ihre Referenzen aus und teilen Sie Ihrem KI-Agenten mit, was Sie brauchen.",
+      finalCtaButton: "Generiere ein Bild",
     },
     chat: {
       faq: {
-        question1: "Was ist das Chat-Template?",
+        question1: "Was ist Agent-Native Chat?",
         answer1:
-          "Ein minimales Template im ChatGPT-Stil für Ihren eigenen Agenten: dauerhafte Threads, Auth, Actions, Live-Sync, eine Standard-Seitenleiste — und ein klarer Weg, Screens hinzuzufügen oder Ihr Backend anzubinden.",
-        question2: "Wie unterscheidet sich das von ChatGPT?",
+          "Agent-Native Chat ist eine kostenlose Open-Source-KI-Chat-App-Vorlage für Entwickler. Sie enthält gespeicherte Threads, eine Agent-Chat-Oberfläche, Authentifizierung, gemeinsame Actions und Live-Sync. Sie ergänzen die domänenspezifischen Daten und das Verhalten für Ihre Anwendung.",
+        question2: "Ist Chat ein fertiger KI-Assistent?",
         answer2:
-          "ChatGPT ist die App von OpenAI rund um die Modelle von OpenAI. Diese App gehört Ihnen: Ihr Agent-Backend, Ihre Daten, Ihre Screens — ein Ausgangspunkt, den Sie erweitern, kein Produkt, das Sie mieten.",
-        question3: "Ist das produktionsreif?",
+          "Chat liefert eine funktionierende Konversationsoberfläche und das Framework dahinter. Es enthält eine Beispiel-Action, aber Geschäftsworkflows und Provider-Integrationen implementieren und konfigurieren Sie selbst.",
+        question3:
+          "Kann ich Screens über die Chat-Oberfläche hinaus hinzufügen?",
         answer3:
-          "Es ist bewusst ein minimales Template — der ehrliche Ausgangspunkt für eine Chat-App, keine fertige App. Wenn Sie etwas Fertiges möchten, beginnen Sie mit einer der anderen Apps.",
+          "Ja. Fügen Sie Routen und Komponenten für Listen, Warteschlangen, Editoren oder andere Ansichten hinzu, die Ihr Workflow benötigt. Verbinden Sie sie mit denselben Actions und Anwendungsdaten, die der Agent nutzt.",
+        question4: "Enthält Chat Verbindungen zu meinen Geschäftstools?",
+        answer4:
+          "Die minimale Vorlage enthält keine domänenspezifischen Provider-Integrationen. Fügen Sie die Verbindungen und Zugriffsregeln hinzu, die Ihre App benötigt. Wenn eine bestehende Agent-Native-App bereits zu Ihrem Workflow passt, ist deren Vorlage möglicherweise der passendere Ausgangspunkt.",
+        question5: "Kann ich meine eigene Version anpassen und bereitstellen?",
+        answer5:
+          "Ja. Erstellen Sie mit der CLI eine Kopie, fügen Sie Ihre Actions, Daten und Oberfläche hinzu und stellen Sie Ihre Anwendung bereit. Konfigurieren Sie Authentifizierung und Provider-Zugriff für Ihre Umgebung und testen Sie die hinzugefügten Workflows, bevor Sie sie mit Ihren Nutzern teilen.",
       },
+      s001: "Screenshot der Chat-App",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "Bauen Sie Ihre eigene KI-Chat-App",
+      heroDescription:
+        "Chat ist eine kostenlose Open-Source-KI-Chat-App-Vorlage mit gespeicherten Unterhaltungen, Authentifizierung und einem Agenten, den Sie mit eigenen Actions, Daten und Screens erweitern können.",
+      heroCta: "Baue deinen Chat",
+      heroSecondaryCta: "Chat öffnen",
+      useCasesHeading: "Was können Sie mit Chat bauen?",
+      useCasesBody:
+        "Starten Sie mit der Chat-App und ergänzen Sie dann die Daten und Actions für Ihren Anwendungsfall. Diese Workflows gehören Ihnen — bauen Sie sie auf dieser Vorlage auf.",
+      useCase1Title: "Einen internen Assistenten bauen",
+      useCase1Body:
+        "Fügen Sie Actions hinzu, die Informationen nachschlagen oder Anfragen für Ihr Team bearbeiten. Nutzen Sie die integrierte Anmeldung und den Unterhaltungsverlauf als Ausgangspunkt.",
+      useCase2Title: "Einen Agent-Workflow prototypisieren",
+      useCase2Body:
+        "Implementieren Sie eine nützliche Action und testen Sie sie über den Chat. Verfeinern Sie die Anweisungen und das Verhalten des Agenten, bevor Sie weitere Tools oder Screens hinzufügen.",
+      useCase3Title: "Eine Oberfläche für Agent-Arbeit hinzufügen",
+      useCase3Body:
+        "Bauen Sie eine Warteschlange, Liste oder einen Editor, wenn Nutzer Arbeit visuell prüfen müssen. Verbinden Sie sie mit denselben Actions und Daten wie Ihr Agent.",
+      keyFeaturesEyebrow: "Kernfunktionen",
+      keyFeaturesHeading:
+        "Ein Ausgangspunkt für Ihren Agenten und seine Oberfläche",
+      feature1Title: "Gespeicherte Unterhaltungen",
+      feature1Body:
+        "Geben Sie Nutzern Threads, zu denen sie zurückkehren können. Erstellen, öffnen, benennen, pinnen und archivieren Sie Unterhaltungen über die integrierte Seitenleiste.",
+      feature2Title: "Integrierter Agent-Chat",
+      feature2Body:
+        "Starten Sie mit einer ganzseitigen Unterhaltung und der Agent-Runtime des Frameworks. Fügen Sie Anweisungen und Tools für die Aufgaben hinzu, die Ihre Anwendung bewältigen muss.",
+      feature3Title: "Authentifizierung und Sitzungen",
+      feature3Body:
+        "Starten Sie mit bereits integriertem Login, Signup, Sitzungen und Organisationsunterstützung. Fügen Sie die Zugriffsregeln hinzu, die die Daten und Workflows Ihrer Anwendung erfordern.",
+      feature4Title: "Gemeinsame Actions",
+      feature4Body:
+        "Definieren Sie eine Operation einmal für Ihren Agenten und Ihre Oberfläche. Orientieren Sie sich an der enthaltenen Beispiel-Action, wenn Sie eigene Fähigkeiten hinzufügen.",
+      feature5Title: "Live-Datensynchronisierung",
+      feature5Body:
+        "Halten Sie Ihre Oberfläche aktuell, wenn der Agent Anwendungsdaten ändert. Bauen Sie Screens rund um gemeinsamen Zustand und die Datenbanksynchronisierung des Frameworks.",
+      feature6Title: "Datenbank- und Run-Inspektion",
+      feature6Body:
+        "Nutzen Sie die integrierten Screens für Datenbankverwaltung und Observability, um gespeicherte Daten und Agent-Runs beim Bauen und Debuggen Ihrer Anwendung zu prüfen.",
+      finalCtaHeading: "Bauen Sie Ihren ersten Agent-Workflow",
+      finalCtaBody:
+        "Erstellen Sie Ihre Kopie und fügen Sie die erste Action hinzu, die Ihre Nutzer brauchen.",
+      finalCtaButton: "Baue deinen Chat",
     },
     clips: {
       s001: "Screenshot der Vorlage Clips",
@@ -973,7 +1164,7 @@ const deDE = {
       finalCtaHeading: "Setze deinen nächsten Clip ein",
       finalCtaBody:
         "Nimm eine Erklärung auf oder bring einen geteilten Clip zu deinem KI-Agenten.",
-      finalCtaButton: "Clips öffnen",
+      finalCtaButton: "Clip aufnehmen",
       s002: "Bildschirmaufzeichnung",
       s003: "Browser-Debug-Protokolle",
       s004: "Diktieren",
@@ -1073,24 +1264,68 @@ const deDE = {
     },
     content: {
       faq: {
-        question1:
-          "Kann ein KI-Agent meine Dokumente ohne Export oder API bearbeiten?",
+        question1: "Was ist Agent-Native Content?",
         answer1:
-          "Ja. Content arbeitet mit lokalen Markdown-/MDX-Dateien — denselben Dateien wie in Ihrem Repository. Ihr Agent hat sie bereits auf der Festplatte: keine API, keine Synchronisierung und kein Exportschritt.",
-        question2: "Wie unterscheidet sich Content von Notion oder Obsidian?",
+          "Agent-Native Content ist ein kostenloser Open-Source-Arbeitsbereich für Dokumente, Aufgaben und Datenbanken. Er kombiniert einen KI-Dokumenteditor mit strukturierten Tabellen und gemeinsamen Seiten, die Menschen und verbundene KI-Agenten gemeinsam lesen und bearbeiten können.",
+        question2: "Kann ich meinen eigenen KI-Agenten mit Content verwenden?",
         answer2:
-          "Notion speichert Ihre Dokumente in seiner Datenbank hinter seiner API. Content nutzt lokale Dateien wie Obsidian — ergänzt um einen Rich-Text-Editor und einen Agenten, der in Ihrem Stil entwirft, umschreibt und veröffentlicht.",
-        question3: "Kann die KI in meinem Stil schreiben?",
+          "Ja. Content bietet eine MCP-Verbindung für unterstützte Tools wie Claude Code, Codex und Cursor. Nach dem Verbinden und Autorisieren des Zugriffs kann dein Agent mit den Dokumenten und Datenbanken arbeiten, auf die er Zugriff hat. Du kannst auch den in Content integrierten Agenten verwenden.",
+        question3:
+          "Kann ich die KI bitten, meinen Text zu überprüfen, ohne ihn umzuschreiben?",
         answer3:
-          "Ja. Der Agent lernt Ihre Stimme, Ihren Styleguide und Ihren Ton, damit Entwürfe nach Ihnen klingen — und jede Auswahl lässt sich umschreiben, erweitern, zusammenfassen oder im Ton verändern.",
-        question4: "Kann ich in meinem CMS veröffentlichen?",
+          "Ja. Bitte deinen KI-Agenten, Kommentare zu einem Dokument oder einer Textstelle zu hinterlassen. Du kannst das Feedback lesen und die Änderungen selbst vornehmen oder den Agenten bitten, den Text zu bearbeiten. Um Kommentare zu erhalten, musst du den Text nicht aus der Hand geben.",
+        question4: "Kann Content Aufgaben verfolgen und Team-Anfragen sammeln?",
         answer4:
-          "Ja — verbinden Sie jedes Headless-CMS über Skripte. WordPress, Contentful und Builder werden unterstützt, Notion synchronisiert in beide Richtungen, und der Agent führt Veröffentlichungsskripte selbstständig aus.",
-        question5: "Ist Content kostenlos?",
+          "Ja. Erstelle eine Datenbank mit Feldern wie Verantwortlicher, Status, Liefertermin und nächstem Schritt. Füge Beschreibungen hinzu, die erklären, was in jedes Feld gehört. Diese Beschreibungen leiten deinen KI-Agenten beim Erstellen oder Aktualisieren von Einträgen, einschließlich der Nachfrage nach fehlenden Informationen.",
+        question5:
+          "Kann ich kontrollieren, wer meine Arbeit bearbeitet, und eine frühere Version wiederherstellen?",
         answer5:
-          "Ja. Kostenlos und Open Source — und weil Ihre Dokumente einfache lokale Dateien sind, müssen Sie nichts exportieren, falls Sie Content jemals verlassen.",
+          "Ja. Neue Dokumente sind standardmäßig privat. Teile sie mit Betrachter-, Bearbeiter- oder Admin-Zugriff und nutze den Versionsverlauf der Seite, um einen früheren Stand wiederherzustellen. Das Wiederherstellen eines Stands ersetzt den aktuellen Inhalt der Seite.",
       },
       s001: "Screenshot der Vorlage Content",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "Erstelle und organisiere deine Arbeit mit deinem KI-Agenten",
+      heroDescription:
+        "Content ist ein kostenloser Open-Source-Arbeitsbereich für Dokumente, Aufgabenlisten und Datenbanken, die du und deine KI-Agenten gemeinsam lesen und bearbeiten könnt.",
+      heroCta: "Organisiere deine Arbeit",
+      useCasesHeading: "Was kannst du mit Content machen?",
+      useCasesBody:
+        "Arbeite an einem Entwurf, behalte im Blick, was noch zu erledigen ist, oder sammle die Details für eine neue Anfrage.",
+      useCase1Title: "Content schreiben und überarbeiten",
+      useCase1Body:
+        "Bitte deinen KI-Agenten, eine Seite zu entwerfen, eine Passage zu überarbeiten oder Kommentare zu deinem Text zu hinterlassen. Entscheide selbst, wie er dir helfen soll.",
+      useCase2Title: "Arbeit mit deinen Agenten verfolgen",
+      useCase2Body:
+        "Halte Aufgaben, Status und nächste Schritte in einer gemeinsamen Tabelle fest. Bitte deine verbundenen KI-Agenten, sie zu aktualisieren, während du ein Projekt bearbeitest.",
+      useCase3Title: "Projektanfragen sammeln",
+      useCase3Body:
+        "Richte eine Tabelle für Design-Anfragen oder andere Teamarbeit ein. Gib jedem Feld Anweisungen, damit dein KI-Agent nach fehlenden Details fragen kann.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Schreiben, Organisieren und Zusammenarbeiten brauchst",
+      feature1Title: "KI-Schreiben und -Überarbeitung",
+      feature1Body:
+        "Hol dir einen ersten Entwurf, fordere Änderungen an markiertem Text an oder bitte um Kommentare. Dein KI-Agent arbeitet direkt im Dokument.",
+      feature2Title: "Dokumente und verschachtelte Seiten",
+      feature2Body:
+        "Schreibe Seiten mit Überschriften, Tabellen, Bildern und Codeblöcken. Gruppiere zugehörige Dokumente unter einem Projekt und durchsuche Titel und Inhalt, um sie zu finden.",
+      feature3Title: "Datenbanken und Ansichten",
+      feature3Body:
+        "Organisiere Arbeit in Tabellen, Boards oder Kalendern. Füge Felder für Verantwortliche, Termine und Status hinzu — mit einem vollständigen Dokument hinter jeder Zeile.",
+      feature4Title: "Anweisungen für Seiten und Felder",
+      feature4Body:
+        "Beschreibe, was auf eine Seite oder in ein Datenbankfeld gehört. Gib deinen KI-Agenten Hinweise zu den Informationen und dem Format, das du erwartest.",
+      feature5Title: "Verbundene KI-Agenten",
+      feature5Body:
+        "Verbinde Agenten aus Tools wie Claude Code, Codex oder Cursor, um zusammen mit dem integrierten Agenten deine Dokumente und Datenbanken zu lesen und zu aktualisieren.",
+      feature6Title: "Teamzusammenarbeit",
+      feature6Body:
+        "Bearbeite Seiten gemeinsam, kommentiere Textstellen und antworte in Threads. Teile sie mit bestimmten Personen oder deiner Organisation und lege deren Zugriffsebene fest.",
+      finalCtaHeading: "Bring dein nächstes Projekt in Content",
+      finalCtaBody:
+        "Starte mit einem Dokument, einer Aufgabenliste oder einer Tabelle, die dein Team bereits nutzt.",
+      finalCtaButton: "Organisiere deine Arbeit",
       s002: "Alle Vorlagen",
       s003: "Open-Source-Obsidian für MDX",
       s004: "Bearbeiten Sie lokale Markdown/MDX-Dateien wie Obsidian, generieren Sie umfangreiche interaktive benutzerdefinierte Blöcke und schreiben Sie mit einem AI-Agenten, der Ihre Dokumente kennt.",
@@ -1155,24 +1390,67 @@ const deDE = {
     },
     design: {
       faq: {
-        question1:
-          "Kann KI ein Design erzeugen, das echter Code und kein Mock-up ist?",
+        question1: "Was ist Agent-Native Design?",
         answer1:
-          "Ja. Design gibt vollständiges, eigenständiges HTML mit Tailwind-Styling und Alpine-Interaktionen aus. Der Prototyp ist die Implementierung — es muss nichts übergeben und neu gebaut werden.",
-        question2: "Wie unterscheidet sich Design von Figma?",
+          "Agent-Native Design ist ein kostenloses Open-Source-Tool für KI-Design und Prototyping. Erstelle mit einem KI-Agenten interaktive HTML-Prototypen, wende deine Marke an und verfeinere Designs mit visuellen Steuerelementen oder im Chat. Teile das Ergebnis für Feedback oder exportiere es für die Entwicklung.",
+        question2:
+          "Kann ich ein Design bearbeiten, nachdem die KI es generiert hat?",
         answer2:
-          "Figma ist für Designteams gedacht, die auf Pixelebene arbeiten, und das Ergebnis ist ein Bild, das jemand neu implementiert. Design beginnt mit einem Prompt und endet mit funktionierendem HTML/CSS/JS, das Sie veröffentlichen oder weiterentwickeln können.",
-        question3: "Kann Design meinem Designsystem folgen?",
+          "Ja. Passe Text, Abstände und Stil mit visuellen Steuerelementen an, oder bitte den KI-Agenten, das Design zu ändern. Du kannst verschiedene Richtungen vergleichen und die gewählte weiter verfeinern.",
+        question3: "Kann ich mein eigenes Design-System verwenden?",
         answer3:
-          "Ja. Speichern Sie wiederverwendbare Designsystem-Einstellungen und passen Sie dann gängige Variablen visuell an, während der Agent Struktur- und Textänderungen übernimmt — „wärmere Farbpalette“, „kräftigere Überschrift“, erledigt.",
-        question4: "Was erhalte ich beim Export?",
+          "Ja. Verknüpfe ein Design-System, um Farben, Typografie, Stil und Markenvorgaben festzulegen. Du kannst es über mehrere Designs hinweg wiederverwenden und als Kontext für die Überarbeitungen des KI-Agenten nutzen.",
+        question4: "Kann ich mit Designs aus Figma arbeiten?",
         answer4:
-          "Das echte Ergebnis: vollständiges HTML/CSS/JS als Datei, ZIP oder PDF. Eigenständig, ohne proprietäres Format und bereit, von Ihnen überall veröffentlicht zu werden.",
-        question5: "Ist Design kostenlos?",
+          "Ja. Design unterstützt Figma-Importe und einen speziellen Figma-fähigen SVG-Export. Überprüfe nach der Übertragung eines Designs Schriften, Layouts und bearbeitbare Elemente, da die Kompatibilität von Quelle und Exportformat abhängt.",
+        question5: "Was kann ich exportieren, und ist es eine fertige App?",
         answer5:
-          "Ja — kostenlos und Open Source, im Gegensatz zu Design-Tools, die monatlich pro Nutzer abrechnen oder die Nutzung über Credits messen.",
+          "Exportiere HTML oder ein ZIP der Design-Dateien, oder bereite eine Übergabe für einen Coding-Agenten vor. Der Prototyp bietet einen Ausgangspunkt für die Entwicklung; Anwendungslogik, Integrationen, Tests und Deployment müssen noch implementiert und geprüft werden. HTML-Exporte können externe Laufzeit-Ressourcen verwenden.",
       },
       s001: "Screenshot der Vorlage Design",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "Interaktive Prototypen mit deinem KI-Agenten gestalten",
+      heroDescription:
+        "Design ist ein kostenloses Open-Source-Tool für KI-Design und Prototyping, mit dem du markenkonforme Seiten und Produktoberflächen erstellst – mit Designs, die du selbst bearbeiten kannst.",
+      heroCta: "Gestalte kostenlos",
+      useCasesHeading: "Was kannst du mit Design machen?",
+      useCasesBody:
+        "Erkunde eine neue Seite, einen Produkt-Flow oder eine Oberfläche, bevor du sie baust. Gib deinem KI-Agenten das Briefing und die Details, auf die es ankommt.",
+      useCase1Title: "Landingpage-Ideen erkunden",
+      useCase1Body:
+        "Verwandle ein Kampagnen- oder Produkt-Briefing in einen Landingpage-Prototyp. Bespreche Botschaft, Layout und Call-to-Actions mit deinem Team.",
+      useCase2Title: "Produkt-Flows durcharbeiten",
+      useCase2Body:
+        "Prototype einen Onboarding-, Anmelde- oder Checkout-Flow. Gehe die Schritte durch und verfeinere das Erlebnis, bevor du dich auf die Umsetzung festlegst.",
+      useCase3Title: "Dashboards und interne Tools gestalten",
+      useCase3Body:
+        "Verwandle Workflow-Anforderungen in ein Dashboard oder eine Admin-Oberfläche. Erkunde, wie Nutzer Informationen finden und ihre täglichen Aufgaben erledigen.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Gestalten, Prototypen und Teilen brauchst",
+      feature1Title: "Interaktive Prototypen",
+      feature1Body:
+        "Beschreibe die Seite oder den Flow, den du brauchst. Dein KI-Agent erstellt einen HTML-Prototyp mit Interaktionen, die du direkt in der Vorschau ausprobieren kannst.",
+      feature2Title: "KI- und visuelle Bearbeitung",
+      feature2Body:
+        "Passe Text, Abstände und Stil mit visuellen Steuerelementen an, oder bitte deinen KI-Agenten, Layout und Interaktionen zu ändern.",
+      feature3Title: "Design-Varianten nebeneinander",
+      feature3Body:
+        "Bitte deinen KI-Agenten um verschiedene Design-Richtungen. Vergleiche sie auf der Canvas, wähle einen Ansatz und verfeinere ihn weiter.",
+      feature4Title: "Wiederverwendbare Markenstile",
+      feature4Body:
+        "Verknüpfe ein Design-System mit deinen Farben, deiner Typografie und deinem Stil. Nutze es, um neue Designs und Überarbeitungen in deinem Projekt zu leiten.",
+      feature5Title: "Design-Feedback-Kommentare",
+      feature5Body:
+        "Hefte Feedback an ein bestimmtes Element, damit der Kontext klar bleibt. Schicke einen Kommentar an deinen KI-Agenten, um die Änderung durchzugehen.",
+      feature6Title: "HTML-Export und Code-Übergabe",
+      feature6Body:
+        "Exportiere HTML oder ein ZIP deiner Design-Dateien. Gib einem Entwickler oder Coding-Agenten den Prototyp und den Kontext, um mit der Umsetzung fortzufahren.",
+      finalCtaHeading: "Starte dein nächstes Design",
+      finalCtaBody:
+        "Bring ein Briefing mit. Erkunde die Möglichkeiten. Verfeinere die Details.",
+      finalCtaButton: "Gestalte kostenlos",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",
@@ -1236,27 +1514,66 @@ const deDE = {
     },
     dispatch: {
       faq: {
-        question1:
-          "Wie betreibe ich mehrere KI-Agents, ohne jeden einzeln beaufsichtigen zu müssen?",
+        question1: "Was ist Agent-Native Dispatch?",
         answer1:
-          "Dispatch ist die Zentrale: Schreiben Sie aus Slack oder Telegram, und Dispatch leitet die Arbeit über A2A an Ihre anderen Agents weiter — Mail, Slides, Design — mit Freigaben und Zeitplänen an einem Ort.",
-        question2: "Kann ich aus Slack mit meinem Agenten sprechen?",
+          "Agent-Native Dispatch ist eine kostenlose Open-Source-KI-Agent-Orchestrierungs-App für einen Agent-Native-Workspace. Sie koordiniert Anfragen über verbundene Apps hinweg, empfängt Nachrichten von unterstützten Kanälen, plant wiederkehrende Aufgaben und verwaltet gemeinsame Integrationen.",
+        question2: "Mit welchen Apps kann Dispatch zusammenarbeiten?",
         answer2:
-          "Ja — bidirektionales Messaging mit Thread-Kontext und Inline-Freigaben in Slack oder Telegram. Die Ergebnisse des Agenten kommen in dieselbe Unterhaltung zurück.",
-        question3: "Kann der Agent nach einem Zeitplan arbeiten?",
+          "Dispatch delegiert an Apps, die in deinem Workspace verbunden und verfügbar sind, etwa Analytics oder Mail. Jede App übernimmt ihre eigenen Aufgaben und Daten. Richte die entsprechenden Verbindungen und Berechtigungen ein, bevor du Dispatch bittest, sie zu nutzen.",
+        question3: "Kann ich Dispatch über Slack oder Telegram nutzen?",
         answer3:
-          "Ja — Cron-basierte Jobs: tägliche Stand-ups, wöchentliche Zusammenfassungen und stündliche Prüfungen. Die Ergebnisse werden an Ihren Messenger gesendet, nicht an ein Dashboard, an dessen Öffnen Sie denken müssen.",
-        question4: "Erinnert sich Dispatch an frühere Unterhaltungen?",
+          "Ja. Richte den Nachrichtenkanal ein und verknüpfe bei Bedarf deine Identität mit deinem Workspace-Konto. Dispatch kann Anfragen über diesen Kanal empfangen und Ergebnisse zurückgeben. Das Verbinden eines Kanals gibt nicht automatisch jedem Absender Zugriff auf jede App.",
+        question4: "Können Agents Aufgaben nach einem Zeitplan ausführen?",
         answer4:
-          "Ja — Erkenntnisse werden aus jeder Unterhaltung automatisch erfasst und pro Benutzer, pro Organisation oder global begrenzt. Das Gedächtnis ist einsehbar und bearbeitbar, keine Blackbox.",
-        question5: "Was ist, wenn der Agent nicht selbstständig handeln soll?",
+          "Ja. Richte eine wiederkehrende Aufgabe ein und bei Bedarf ein Zustellziel für ihre Ergebnisse. Dispatch zeigt die letzte Ausführung, die nächste Ausführung und den Fehlerstatus der Aufgabe an, damit du prüfen kannst, ob sie erfolgreich lief.",
+        question5: "Decken Dispatch-Freigaben alles ab, was ein Agent tut?",
         answer5:
-          "Freigabe-Workflows sind integriert: Sensible Aktionen — eine E-Mail senden, ein Update veröffentlichen, eine Automatisierung ausführen — warten in Slack auf eine Freigabe mit einem Tippen. Sie legen fest, welche Aktionen eine Zustimmung benötigen.",
-        question6: "Ist Dispatch kostenlos?",
-        answer6:
-          "Ja. Kostenlos und Open Source, im Gegensatz zu Agent-Plattformen, die monatlich pro Nutzer abrechnen.",
+          "Nein. In einem Team-Workspace kann Dispatch eine Überprüfung seiner eigenen Änderungen an gemeinsamen Ressourcen und Einstellungen verlangen. Aktionen innerhalb verbundener Apps, etwa das Versenden einer E-Mail, folgen den Kontrollen dieser Apps. Die Dispatch-Freigabe-Warteschlange ist kein universelles Tor für jede Agentenaktion.",
       },
       s001: "Screenshot der Vorlage Dispatch",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "Koordiniere deine KI-Agents an einem Ort",
+      heroDescription:
+        "Dispatch ist eine kostenlose Open-Source-KI-Agent-Orchestrierungs-App, um Arbeit an verbundene Agent-Native-Apps zu delegieren, wiederkehrende Aufgaben zu planen und gemeinsame Verbindungen zu verwalten.",
+      heroCta: "Delegiere eine Aufgabe",
+      useCasesHeading: "Was kannst du mit Dispatch machen?",
+      useCasesBody:
+        "Bitte eine verbundene App um Hilfe, richte ein regelmäßiges Update ein oder untersuche einen Agentenlauf, der Aufmerksamkeit braucht.",
+      useCase1Title: "Arbeit aus einer Unterhaltung delegieren",
+      useCase1Body:
+        "Bitte um eine Kennzahlen-Zusammenfassung oder einen Antwortentwurf. Dispatch leitet die Anfrage an den verbundenen Analytics- oder Mail-Agenten weiter und gibt das Ergebnis zurück.",
+      useCase2Title: "Wiederkehrende Team-Updates einrichten",
+      useCase2Body:
+        "Plane eine tägliche Kennzahlen-Zusammenfassung oder einen wöchentlichen Digest aus deinen verbundenen Apps. Wähle einen konfigurierten Kanal oder ein Postfach, an das das Ergebnis gehen soll.",
+      useCase3Title: "Agentenaktivität untersuchen",
+      useCase3Body:
+        "Prüfe die letzte Ausführung einer Aufgabe und etwaige Fehler. Nutze verfügbare Thread- und Überwachungsdetails, um zu untersuchen, was passiert ist, wenn ein Workflow Aufmerksamkeit braucht.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Delegieren, Planen und Überwachen brauchst",
+      feature1Title: "App-übergreifende Delegierung",
+      feature1Body:
+        "Sende Anfragen an die verbundene App, die die Arbeit erledigt. Jede App nutzt ihren eigenen Agenten, ihre Aktionen und Daten, um zu antworten.",
+      feature2Title: "Messaging-Verbindungen",
+      feature2Body:
+        "Verbinde Kanäle wie Slack oder Telegram, um Anfragen zu senden und Antworten zu empfangen. Verknüpfe Identitäten, damit Dispatch weiß, welcher Workspace-Nutzer fragt.",
+      feature3Title: "Geplante Aufgaben",
+      feature3Body:
+        "Gib wiederkehrender Arbeit einen Zeitplan. Sieh, ob eine Aufgabe aktiviert ist, wann sie zuletzt lief, ihre nächste Ausführung und etwaige protokollierte Fehler.",
+      feature4Title: "Gespeicherte Zustellziele",
+      feature4Body:
+        "Speichere einen Slack-Kanal, einen Telegram-Chat oder eine E-Mail-Adresse als Zustellziel. Nutze es für geplante Ergebnisse wieder und prüfe den Zustellstatus.",
+      feature5Title: "Gemeinsame Integrationen",
+      feature5Body:
+        "Richte eine Anbieterverbindung einmal ein und gewähre den Apps, die sie benötigen, Zugriff. Verwalte gemeinsame Verbindungen und App-Zugriff von Dispatch aus.",
+      feature6Title: "Freigaben für Workspace-Änderungen",
+      feature6Body:
+        "Verlange, dass ein weiterer Admin Dispatchs Änderungen an gemeinsamen Ressourcen und Einstellungen überprüft. Prüfe ausstehende Anfragen und genehmige oder lehne sie in einem Team-Workspace ab.",
+      finalCtaHeading: "Beginne mit einer verbundenen Aufgabe",
+      finalCtaBody:
+        "Wähle die Apps, die du brauchst, und bitte Dispatch, die Arbeit zu koordinieren.",
+      finalCtaButton: "Delegiere eine Aufgabe",
       s002: "+ Telegram dabei",
       s003: "Inter-Agent",
       s004: "Erinnerung",
@@ -1313,24 +1630,65 @@ const deDE = {
     },
     forms: {
       faq: {
-        question1: "Kann KI ein Formular für mich erstellen?",
+        question1: "Was ist Agent-Native Forms?",
         answer1:
-          "Ja. Beschreiben Sie es, und ein vollständiges Formular erscheint. Verfeinern Sie es im Dialog — „ein Pflicht-Drop-down für die Erfahrungsstufe hinzufügen“ — oder verschieben Sie Felder im visuellen Editor mit Live-Vorschau und Rückgängig-Funktion.",
-        question2: "Was passiert, wenn jemand ein Formular absendet?",
+          "Agent-Native Forms ist ein kostenloser Open-Source-KI-Formular-Builder. Erstelle Formulare und Umfragen mit einem KI-Agenten, bearbeite Felder visuell, veröffentliche einen öffentlichen Link und sieh dir die Antworten in derselben App an oder lass sie analysieren.",
+        question2:
+          "Kann ich ein Formular bearbeiten, nachdem die KI es erstellt hat?",
         answer2:
-          "Die Übermittlung landet in Ihrer eigenen SQL-Datenbank und wird sofort strukturiert an Slack, Discord, Google Sheets oder einen Webhook weitergeleitet. Übermittlungen landen dort, wo Ihr Agent handeln kann, nicht in einem Export, den niemand öffnet.",
-        question3: "Wie unterscheidet sich Forms von Typeform?",
+          "Ja. Ändere Fragen, Beschriftungen, Optionen, Pflichtfelder und die Feldreihenfolge im visuellen Editor, oder bitte deinen KI-Agenten, die Änderungen vorzunehmen. Beide Wege aktualisieren dasselbe Formular. Du kannst auch bedingte Fragen basierend auf vorherigen Antworten hinzufügen.",
+        question3: "Brauchen Personen ein Konto, um mein Formular auszufüllen?",
         answer3:
-          "Typeform optimiert das Ausfüllen. Bei Forms geht es darum, was danach passiert: Antworten in Ihrer eigenen Datenbank, Weiterleitung an Ihre Tools, keine Preise pro Antwort — und das Formular selbst lässt sich per Prompt weiterentwickeln.",
-        question4: "Ist Forms kostenlos? Gibt es Antwortlimits?",
+          "Nein. Jeder mit dem öffentlichen Link eines veröffentlichten Formulars kann eine Antwort ohne Konto senden. Formulare im Entwurfsstatus sind nicht öffentlich, und geschlossene Formulare nehmen keine neuen Antworten mehr an.",
+        question4: "Kann ich anonymes Feedback sammeln?",
         answer4:
-          "Forms ist kostenlos und Open Source; es gibt weder Gebühren noch Obergrenzen pro Antwort. Die Daten liegen in Ihrer Datenbank; deren Kapazität ist die Grenze.",
-        question5:
-          "Kann ich ein Formular auf meiner eigenen Website einbinden?",
+          "Ja. Aktiviere den anonymen Modus, um die Identität der einreichenden Person und Quell-Metadaten wegzulassen. Lass außerdem Fragen nach Namen, E-Mail-Adressen oder anderen identifizierenden Angaben weg, wenn die Antworten anonym bleiben sollen.",
+        question5: "Kann ich Antworten an Google Sheets oder Slack senden?",
         answer5:
-          "Ja — betten Sie es in jede Website ein oder hosten Sie es auf einer eigenen Domain. Jedes Formular erhält außerdem eine eigene SEO-freundliche öffentliche URL.",
+          "Ja, nachdem du ein Ziel für das Formular konfiguriert hast. Slack und Discord verwenden Webhook-URLs. Google Sheets benötigt einen bereitgestellten Google-Apps-Script-Endpunkt, der Einreichungen empfängt; ein reiner Tabellenlink funktioniert nicht. Du kannst auch einen Webhook verwenden oder Antworten als CSV exportieren. Agenten-Exporte aller Antworten als CSV oder JSON erfordern verbundenen Dateispeicher.",
       },
       s001: "Screenshot der Vorlage Forms",
+      heroEyebrow: "Forms",
+      heroTitle: "Erstelle Formulare mit deinem KI-Agenten",
+      heroDescription:
+        "Forms ist ein kostenloser Open-Source-KI-Formular-Builder zum Erstellen von Umfragen, Anmeldeformularen und Anfrageformularen, mit Fragen, die du selbst bearbeiten kannst, und Antworten, bei deren Analyse dein KI-Agent hilft.",
+      heroCta: "Formular erstellen",
+      useCasesHeading: "Was kannst du mit Forms machen?",
+      useCasesBody:
+        "Sammle Kundenfeedback, melde Personen für eine Veranstaltung an oder erfasse die Details, die dein Team für eine Anfrage braucht.",
+      useCase1Title: "Kundenfeedback sammeln",
+      useCase1Body:
+        "Frage Kunden nach ihrer Erfahrung mit Bewertungen, Multiple-Choice-Fragen und Freitextantworten. Lass deinen KI-Agenten das erhaltene Feedback zusammenfassen.",
+      useCase2Title: "Anmeldungen und Registrierungen erfassen",
+      useCase2Body:
+        "Erstelle ein Formular für ein Webinar, eine Veranstaltung oder eine Produkt-Warteliste. Erfasse Kontaktdaten und Präferenzen und sieh dir die Einreichungen an oder exportiere sie.",
+      useCase3Title: "Projektanfragen sammeln",
+      useCase3Body:
+        "Gib Leuten ein Formular für Designanfragen, Projekt-Briefings oder internen Support. Frage nach Fristen, Anforderungen und anderen Details, die dein Team braucht.",
+      keyFeaturesEyebrow: "Hauptfunktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Erstellen, Teilen und Auswerten brauchst",
+      feature1Title: "KI-Formular-Generierung",
+      feature1Body:
+        "Beschreibe, was du erfassen willst, und dein KI-Agent baut das Formular. Bitte ihn, Fragen hinzuzufügen oder bestehende Felder zu überarbeiten.",
+      feature2Title: "Visuelle Feldbearbeitung",
+      feature2Body:
+        "Bearbeite Beschriftungen, Optionen, Pflichtfelder und die Fragenreihenfolge selbst. Wähle Feldtypen wie Text, E-Mail, Multiple-Choice, Datum, Bewertung und Skala.",
+      feature3Title: "Bedingte Fragen",
+      feature3Body:
+        "Zeige eine Folgefrage, wenn eine frühere Antwort einer Regel entspricht. Frage zum Beispiel nach mehr Details, wenn jemand „Sonstiges“ auswählt.",
+      feature4Title: "Öffentliche Formular-Links",
+      feature4Body:
+        "Veröffentliche ein Formular und teile seinen Link. Lege eine Abschlussnachricht oder Weiterleitung fest und schließe das Formular, wenn du keine Antworten mehr annimmst.",
+      feature5Title: "Antwortauswertung und Exporte",
+      feature5Body:
+        "Sieh dir Einreichungen in einer Tabelle an oder lass dir von deinem KI-Agenten Zusammenfassungen und Trends erstellen. Lade die Antworttabelle als CSV herunter.",
+      feature6Title: "Einreichungsintegrationen",
+      feature6Body:
+        "Richte die Zustellung an Slack, Discord, Google Sheets oder einen Webhook ein. Neue Antworten gehen an das Ziel, das du für dieses Formular eingerichtet hast.",
+      finalCtaHeading: "Erstelle dein nächstes Formular",
+      finalCtaBody: "Sag deinem KI-Agenten, was du erfassen möchtest.",
+      finalCtaButton: "Formular erstellen",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Weiterleiten",
@@ -1393,22 +1751,67 @@ const deDE = {
     },
     mail: {
       faq: {
-        question1: "Kann KI meinen Posteingang sortieren?",
+        question1: "Was ist Agent-Native Mail?",
         answer1:
-          "Ja. Der Agent liest Ihren Posteingang, hebt Prioritäten hervor, kennzeichnet und sortiert Nachrichten, entwirft Antworten, legt Regeln für die automatische Archivierung fest und fasst ungelesene E-Mails mit herausgearbeiteten Aktionspunkten zusammen.",
-        question2: "Wie unterscheidet sich Mail von Superhuman?",
+          "Agent-Native Mail ist ein kostenloser, quelloffener E-Mail-Client für Gmail mit einem KI-E-Mail-Assistenten. Lies und durchsuche Nachrichten, fasse Unterhaltungen zusammen, entwirf Antworten und organisiere deine E-Mails über den Posteingang oder deinen KI-Agenten.",
+        question2: "Funktioniert Mail mit meinem bestehenden Gmail-Konto?",
         answer2:
-          "Die tastaturorientierte Geschwindigkeit ist die Grundlage — verfassen, archivieren und antworten, alles per Tastenkürzel. Der Unterschied: ein Agent, der den Posteingang tatsächlich bearbeitet, kein Abonnement und Code, der Ihnen gehört.",
-        question3: "Funktioniert Mail mit Gmail?",
-        answer3: "Ja — mit Gmail und Unterstützung für mehrere Konten.",
-        question4: "Sind meine E-Mails privat?",
+          "Ja. Verbinde dein bestehendes Gmail-Konto, um E-Mails über Mail zu lesen und zu senden. Du kannst mehrere Gmail-Konten verbinden und kontoübergreifend suchen. Mail stellt keine neue E-Mail-Adresse bereit und unterstützt derzeit Gmail statt Outlook oder anderer E-Mail-Anbieter.",
+        question3: "Sendet der KI-Agent E-Mails ohne meine Freigabe?",
+        answer3:
+          "Wenn du den KI-Agenten im Chat bittest, eine E-Mail zu senden, benötigt er deine Freigabe. Auch durch Automatisierungen ausgelöste Sendevorgänge erfordern eine Freigabe, sofern du das automatische Senden nicht ausdrücklich in den Mail-Einstellungen aktivierst. Du kannst Entwürfe vor dem Senden prüfen und bearbeiten.",
+        question4: "Kann KI meinen Posteingang automatisch organisieren?",
         answer4:
-          "Mail ist Open Source und läuft lokal — Ihre E-Mails bleiben in Ihrer Infrastruktur, und Sie können jede Codezeile lesen, die darauf zugreift.",
-        question5: "Ist Mail kostenlos?",
+          "Ja. Erstelle Regeln in natürlicher Sprache, um eingehende Nachrichten zu kennzeichnen, zu archivieren, mit einem Stern zu markieren oder als gelesen zu markieren. Mail unterstützt außerdem native Gmail-Filter für Bedingungen wie Absender oder Betreff. Gmail-Filter laufen in Gmail und funktionieren weiter, auch wenn Mail geschlossen ist.",
+        question5:
+          "Kann ein Teammitglied eine E-Mail für mich zur Prüfung vorbereiten?",
         answer5:
-          "Ja. Kostenlos und Open Source — kein Abonnement und keine Anbieterbindung.",
+          "Ja. Ein Teammitglied kann einen Entwurf anfordern, der in deiner Prüfungswarteschlange erscheint. Öffne ihn, bearbeite die Nachricht und sende sie, wenn sie fertig ist. Die anfragende Person kann sie nicht in deinem Namen senden; die Eigentümerin oder der Eigentümer des Entwurfs oder eine Organisationsadministration steuert das Senden.",
       },
       s001: "Screenshot der Vorlage Mail",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "Verwalte deinen Posteingang mit deinem KI-Agenten",
+      heroDescription:
+        "Mail ist ein kostenloser, quelloffener E-Mail-Client für Gmail mit einem KI-Agenten, der Nachrichten findet, Unterhaltungen zusammenfasst, Antworten entwirft und deinen Posteingang organisiert.",
+      heroCta: "Verwalte deinen Posteingang",
+      useCasesHeading: "Was kannst du mit Mail machen?",
+      useCasesBody:
+        "Hol Unterhaltungen nach, antworte Kunden und Kollegen oder arbeite einen E-Mail-Rückstand auf.",
+      useCase1Title: "Unterhaltungen nachholen",
+      useCase1Body:
+        "Frag deinen KI-Agenten, was in einem langen Thread passiert ist, was vereinbart wurde und welche Fragen noch offen sind.",
+      useCase2Title: "Kunden und Kollegen antworten",
+      useCase2Body:
+        "Gib deinem KI-Agenten die Punkte, die du ansprechen möchtest. Prüfe und bearbeite die Antwort im Verfassen-Bereich, bevor du sie sendest.",
+      useCase3Title: "Deinen Posteingang sortieren",
+      useCase3Body:
+        "Bitte deinen KI-Agenten, Rechnungen zu kennzeichnen, Newsletter zu archivieren oder Nachrichten eines Kunden mit einem Stern zu markieren. Wende Regeln an, um ähnliche E-Mails automatisch zu behandeln, sobald sie eintreffen.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Lesen, Schreiben und Organisieren von E-Mails brauchst",
+      feature1Title: "KI-Thread-Zusammenfassungen",
+      feature1Body:
+        "Frag nach der Unterhaltung, die du gerade geöffnet hast. Dein KI-Agent liest den Thread, um die Diskussion zusammenzufassen und offene Fragen zu identifizieren.",
+      feature2Title: "KI-E-Mail-Entwürfe",
+      feature2Body:
+        "Verfasse eine Antwort oder überarbeite markierten Text mit deinem KI-Agenten. Lege Schreibpräferenzen fest, füge deine Signatur hinzu und bearbeite Entwürfe selbst.",
+      feature3Title: "Kontoübergreifende Suche",
+      feature3Body:
+        "Verbinde geschäftliche und private Gmail-Konten. Durchsuche sie alle von einem Posteingang aus – über die Suchleiste oder deinen KI-Agenten.",
+      feature4Title: "Posteingangs-Automatisierungen",
+      feature4Body:
+        "Beschreibe Regeln zum Kennzeichnen, Archivieren, Markieren mit Stern oder Markieren eingehender Nachrichten als gelesen. Nutze KI-Regeln oder richte native Gmail-Filter ein.",
+      feature5Title: "Tastaturkürzel",
+      feature5Body:
+        "Navigiere durch Nachrichten, verfasse Antworten, archiviere Unterhaltungen und durchsuche deinen Posteingang über die Tastatur. Öffne die Befehlspalette, um weitere Aktionen zu finden.",
+      feature6Title: "Geplantes Senden und Schlummerfunktion",
+      feature6Body:
+        "Lege fest, wann eine E-Mail gesendet wird, oder hole eine Nachricht später wieder in deinen Fokus. Prüfe geplante Elemente und storniere sie, wenn sich Pläne ändern.",
+      finalCtaHeading: "Starte mit deiner nächsten E-Mail",
+      finalCtaBody:
+        "Öffne eine Unterhaltung und bitte deinen KI-Agenten um eine Zusammenfassung oder einen Antwortentwurf.",
+      finalCtaButton: "Verwalte deinen Posteingang",
       s002: "Zuerst die Tastatur",
       s003: "Posteingangs-Sortierung",
       s004: "Ansichten",
@@ -1472,101 +1875,67 @@ const deDE = {
     },
     plan: {
       faq: {
-        question1:
-          "Kann ich den Plan eines KI-Coding-Agents prüfen, bevor er Code schreibt?",
+        question1: "Was ist Agent-Native Plans?",
         answer1:
-          "Ja. Plans verwandelt die Absicht des Agenten in Wireframes, Diagramme und annotierten Code mit einer teilbaren URL. Ihr Team kommentiert, der Agent überarbeitet und schreibt dann den Code — die Prüfung findet statt, bevor der Code existiert, nicht danach.",
-        question2: "Funktioniert Plans mit Claude Code, Codex und Cursor?",
+          "Agent-Native Plans ist ein kostenloses Open-Source-Tool zur visuellen Planung für KI-Coding-Agenten. Prüfe Implementierungspläne mit Diagrammen, Wireframes, kommentiertem Code und Kommentaren, oder lass dir visuelle Zusammenfassungen abgeschlossener Änderungen erstellen.",
+        question2: "Wie verwende ich Plans mit meinem Coding-Agenten?",
         answer2:
-          "Ja — zusätzlich mit GitHub Copilot, OpenCode und anderen Coding-Agents. Ein Befehl fügt Plans als Skill hinzu: `npx @agent-native/core@latest skills add visual-plan`. Es gibt keine separate App, die bereitgestellt werden muss.",
-        question3: "Kann mein gesamtes Team den Plan prüfen, nicht nur ich?",
+          "Installiere die Planungs-Skills und den Connector mit `npx @agent-native/core@latest skills add visual-plan` und schließe anschließend die Authentifizierung für deinen Client ab. Der Installationsleitfaden deckt Clients wie Claude Code und Codex ab. Nutze `/visual-plan`, um deinen Agenten um einen visuellen Implementierungsplan zu bitten.",
+        question3:
+          "Kann mein Agent einen Plan aufgrund meiner Kommentare überarbeiten?",
         answer3:
-          "Jeder Plan erhält eine öffentliche URL mit integrierten Kommentaren. Teammitglieder prüfen Wireframes und annotierte Diffs asynchron — ohne Terminal —, und der Agent liest das Feedback und überarbeitet den Plan.",
-        question4: "Wie unterscheidet sich das vom Planmodus von Claude Code?",
+          "Ja. Hinterlasse Kommentare im Text oder pinne sie an eine Visualisierung und bitte deinen Agenten anschließend, das Feedback zu lesen und zu berücksichtigen. Er kann den Plan aktualisieren und auf Review-Threads antworten. Das unterstützt deinen Review-Prozess, hindert den Agenten aber nicht automatisch daran, Code zu ändern.",
+        question4: "Kann ich mit Plans bereits geschriebenen Code überprüfen?",
         answer4:
-          "Der Planmodus ist Text in Ihrem Terminal, für eine Person sichtbar und nach der Freigabe verschwunden. Plans sind visuell — Wireframes, Diagramme, annotierte Diffs —, teilbar und dauerhaft: Agents erstellen, lesen und aktualisieren sie über den gesamten Lebenszyklus eines Features.",
-        question5: "Kann ich Pläne neben meinem Code sehen?",
+          "Ja. Nutze `/visual-recap` mit einem Pull Request, Commit, Branch oder Diff, um eine visuelle Erklärung der Änderung zu erhalten. Verwende den Recap, um deine Prüfung des eigentlichen Codes und der Tests zu leiten.",
+        question5: "Wo werden Pläne gespeichert, und kann ich sie teilen?",
         answer5:
-          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent-Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
-        question6: "Ist Plans kostenlos?",
-        answer6:
-          "Ja. Kostenlos, Open Source und MIT-lizenziert. Plans bietet gehostete Freigabelinks, und Sie können alles in lokale Dateien spiegeln.",
+          "Die Standardinstallation verbindet deinen Agenten mit der gehosteten Plans-App. Neue gehostete Pläne sind privat, bis du sie teilst. Teammitglieder können freigegebene Pläne im Browser prüfen; für Kommentare ist ein Konto erforderlich. Lokale Workflows stehen ebenfalls über den Einrichtungsleitfaden zur Verfügung.",
       },
-      s001: "Screenshot der Planvorlage",
-      s002: "Blocktypen",
-      s003: "Agentenintegrationen",
-      s004: "Gemeinsam nutzbare Links",
-      s005: "Prototyp eines Läufers",
-      s006: "Fügen Sie die Fertigkeit hinzu",
-      s007: "Ein Befehl installiert den Plan-Skill in Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code und ähnliche Agentenprojekte. Keine separate App zum Bereitstellen.",
-      s008: "Agent öffnet einen Plan",
-      s009: "Bitten Sie Ihren Agenten, eine Funktion zu planen. Es ruft /visual-plan auf und der Plan wird in Ihrem Browser oder VS Code geöffnet – strukturierte Blöcke, keine Markdown-Wand.",
-      s010: "Überprüfen und kommentieren",
-      s011: "Pin Kommentare zu jedem Block. Stellen Sie Fragen, melden Sie Bedenken oder genehmigen Sie Abschnitte – der Agent kann das gesamte Feedback sehen.",
-      s012: "Agent iteriert",
-      s013: "Der Agent liest Ihre Kommentare und aktualisiert den Plan direkt. Unterschiede zeigen genau, was sich geändert hat und warum.",
-      s014: "Alle Vorlagen",
-      s015Primary: "Visuelle Pläne für Codex,",
-      s015Secondary: "Claude Code und Codierungsagenten",
-      s016: "Mit einem Befehl installieren. Ihr Agent öffnet strukturierte Pläne mit Wireframes, Diagrammen, kommentiertem Code und gemeinsam nutzbaren Überprüfungslinks – anstatt Markdown-Walls im Terminal abzuladen.",
-      s017: "Ausprobieren",
-      s018: "Was Agenten tun können",
-      s019: "Jeder Blocktyp ist ein erstklassiger Bürger – strukturierte Daten, keine rohen HTML, sodass der Agent Pläne lesen und aktualisieren kann, während sich die Arbeit weiterentwickelt.",
-      s020: "Wireframes",
-      s021: "Skizzenhafte UI-Modelle, die auf Ihrem realen Produkt basieren – keine generischen Desktop-Platzhalter.",
-      s022: "Diagramme",
-      s023: "Inline gerenderte Architekturflussdiagramme, Datenmodelle und Sequenzdiagramme.",
-      s024: "Kommentierter Code",
-      s025: "Echte Quelldateien mit zeilenspezifischen Anmerkungen, Unterschieden und Änderungsgründen – keine Rohcode-Dumps.",
-      s026: "Gemeinsam nutzbare Links",
-      s027: "Jeder Plan erhält eine öffentliche URL. Teilen Sie sie mit Teamkollegen für asynchrone Überprüfungen, Kommentare und Genehmigungen.",
-      s028: "Desktop-Dateisynchronisierung",
-      s029: "Spiegeln Sie gehostete Pläne in lokale MDX-Dateien von Agent-Native Desktop, ohne die App zu klonen oder ein CLI auszuführen.",
-      s030: "Daher bleibt die Überprüfung neben dem Code.",
-      s031: "Wie es funktioniert",
-      s032: "Planen Sie Leben in einer gemeinsamen App – sowohl Sie als auch der Agent können sie während des gesamten Lebenszyklus einer Funktion lesen und aktualisieren.",
-      s033: "Umfangreiche Blockbibliothek",
-      s034: "Pläne bestehen aus strukturierten Blöcken – nicht aus frei geformten HTML. Der Agent kennt das Schema für jeden Block und kann diese präzise erstellen, aktualisieren und begründen.",
-      s035: "kommentierter Code",
-      s036: "Überprüfen Sie den Besitzer vor dem Einfügen",
-      s037: "Ereignis für Automatisierungen ausgeben",
-      s038: "hinzufügen",
-      s039: "Wie es im Vergleich aussieht",
-      s040: "Markdown im Terminal",
-      s041: "Visuelle Darstellung",
-      s042: "No",
-      s043: "Einfach",
-      s044: "Umfangreiche Blöcke, Wireframes, Diagramme",
-      s045: "Der Agent kann lesen und aktualisieren",
-      s046: "Ja, Rohtext",
-      s047: "Begrenzt",
-      s048: "Ja, strukturiertes Schema",
-      s049: "Link zum Teilen",
-      s050: "Ja",
-      s051: "Ja, mit Kommentaren",
-      s052: "Live-Sandbox Alpine.js",
-      s053: "Funktioniert mit Codex / Claude Code / Pi",
-      s054: "Ja, Installation mit nur einem Befehl",
-      s055: "Open Source",
-      s056: "Ja, MIT lizenziert",
-      s057: "Legen Sie in Sekundenschnelle los",
-      s058: "Ein Befehl fügt visuelle Planung zu Claude Code, Codex, Pi, Cursor, OpenCode, GitHub Copilot / VS Code und ähnlichen Agentenprojekten hinzu. Keine separate Bereitstellung erforderlich.",
-      s059: "Lesen Sie die Dokumente",
-      s060: "Alle Vorlagen anzeigen",
-      s061: "VS Code-Übergaben",
-      s062: "Öffnen Sie Plan-Links in einem VS Code-Seitenbereich mit der",
-      s063: "Agent-Native Plans-Erweiterung",
-      s064: "Wireframe — skizzenhaftes UI-Modell mit Komponentenplätzen",
-      s065: "Kommentierter Code — Quelldatei mit zeilenweisen Notizen",
-      s066: "Diagramm — Ablauf, Sequenz oder Architektur",
-      s067: "Prototyp — Live-Alpine.js-Sandbox in einem iframe",
-      s068: "Entscheidung — festgelegte Auswahl mit Begründung",
-      s069: "API-Endpunkt — Methode, Pfad und Anfrage-/Antworttypen",
-      s070: "Datenmodell — Schema mit Feldanmerkungen",
-      s071: "Dateibaum — Projektstruktur mit Notizen pro Pfad",
-      s072: "// Beispiel-Planblock",
-      s073: "ChatGPT Canvas und Notion",
-      s074: "N/V",
+      s001: "Screenshot der Plans-App",
+      heroEyebrow: "Plans",
+      heroTitle: "Sieh, was dein KI-Coding-Agent bauen will",
+      heroDescription:
+        "Plans ist ein kostenloses Open-Source-Tool zur visuellen Planung, mit dem du den Ansatz deines Coding-Agenten prüfst, Feedback gibst und Codeänderungen anhand von Diagrammen, Wireframes und kommentiertem Code verstehst.",
+      heroCta: "Plane visuell",
+      heroSecondaryCta: "Plans öffnen",
+      useCasesHeading: "Was kannst du mit Plans machen?",
+      useCasesBody:
+        "Prüfe einen Implementierungsansatz, arbeite eine Oberfläche durch oder verstehe eine abgeschlossene Änderung gemeinsam mit deinem KI-Coding-Agenten.",
+      useCase1Title: "Architektur vor der Umsetzung prüfen",
+      useCase1Body:
+        "Bitte deinen Coding-Agenten, ein geplantes Feature oder Refactoring zu diagrammieren. Prüfe Datenfluss, Abhängigkeiten und Fehlerpfade, bevor er mit den Codeänderungen beginnt.",
+      useCase2Title: "Oberflächenänderungen durcharbeiten",
+      useCase2Body:
+        "Prüfe vorgeschlagene Screens und Nutzerflüsse gemeinsam mit deinem Coding-Agenten. Weise auf fehlende Zustände oder Interaktionen hin und bitte ihn, den Plan zu überarbeiten.",
+      useCase3Title: "Abgeschlossene Codeänderungen verstehen",
+      useCase3Body:
+        "Bitte deinen Coding-Agenten um eine visuelle Zusammenfassung eines Pull Requests, Commits oder Branches. Prüfe die Verhaltensänderungen und betroffenen Dateien.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Visualisieren, Prüfen und Diskutieren brauchst",
+      feature1Title: "Architekturdiagramme",
+      feature1Body:
+        "Zeige Request-Flows, Systembeziehungen und Datenmodelle direkt im Plan. Bitte deinen KI-Coding-Agenten, die Diagramme zu aktualisieren, sobald sich der Ansatz ändert.",
+      feature2Title: "Wireframes und Prototypen",
+      feature2Body:
+        "Prüfe Bildschirmlayouts und interaktive Prototyp-Optionen direkt neben dem Implementierungsplan. Gib Feedback zur vorgeschlagenen Oberfläche, bevor du deinen Agenten bittest, sie umzusetzen.",
+      feature3Title: "Kommentierte Code-Walkthroughs",
+      feature3Body:
+        "Lies Quelldateien mit zeilenweisen Notizen und Erklärungen zu den Änderungen. Nutze Dateibäume, um zu sehen, wo die geplante Arbeit im Code ansetzt.",
+      feature4Title: "Kommentare und Anmerkungen",
+      feature4Body:
+        "Kommentiere Text oder pinne Feedback an eine bestimmte Stelle in einer Visualisierung. Richte Fragen direkt an deinen Agenten oder ein Teammitglied.",
+      feature5Title: "Visuelle Code-Recaps",
+      feature5Body:
+        "Nutze `/visual-recap`, um einen bestehenden Pull Request, Commit, Branch oder Diff in einen Walkthrough mit Diagrammen und Erklärungen der Änderungen zu verwandeln.",
+      feature6Title: "Teilen und Exportieren",
+      feature6Body:
+        "Teile einen Plan, damit Teammitglieder ihn im Browser prüfen können. Exportiere ihn als HTML, Markdown, JSON oder MDX, wenn du eine separate Kopie brauchst.",
+      finalCtaHeading: "Prüfe deine nächste Coding-Aufgabe visuell",
+      finalCtaBody:
+        "Bitte deinen Agenten um einen Plan und arbeite die Details anschließend gemeinsam durch.",
+      finalCtaButton: "Plane visuell",
     },
     slides: {
       faq: {
@@ -1633,7 +2002,7 @@ const deDE = {
       finalCtaHeading: "Starte deine nächste Präsentation",
       finalCtaBody:
         "Bring eine Idee, ein Briefing oder ein bestehendes Deck mit.",
-      finalCtaButton: "Slides öffnen",
+      finalCtaButton: "Deck erstellen",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",
