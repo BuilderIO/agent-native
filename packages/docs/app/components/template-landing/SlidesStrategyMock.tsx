@@ -65,7 +65,7 @@ const SLIDES_STRATEGY_MOCK_CSS = [
   ".slides-strategy-mock-spacer { flex: 1; min-width: 8px; }",
 
   ".slides-strategy-mock-workspace { --sd-scale: 0.44; display: flex; justify-content: center; overflow: hidden; padding: 24px; background: var(--strategy-workspace-bg); }",
-  ".slides-strategy-mock-workspace .sd-slide-box { border-radius: 2px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4); }",
+  ".slides-strategy-mock-workspace .sd-slide-box { border-radius: 2px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.07); }",
 
   "html.light .slides-strategy-mock { --strategy-window-bg: hsl(0 0% 100%); --strategy-workspace-bg: hsl(0 0% 96%); --strategy-window-border: hsl(0 0% 90%); --strategy-fg-muted: hsl(0 0% 46%); }",
   "html.light .slides-strategy-mock .slides-strategy-mock-workspace .sd-slide-box { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.22); }",

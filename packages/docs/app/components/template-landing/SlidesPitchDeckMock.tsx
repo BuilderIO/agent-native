@@ -27,17 +27,17 @@ import { IconChevronRight, IconFileText } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
-  PlanSlide,
+  ChartSlide,
+  ImageSlide,
   SLIDE_ARTWORK_CSS,
-  StatsSlide,
   TitleSlide,
   VarScaledSlide,
 } from "./SlidesDeckArtwork";
 
 const DECK_STRIP = [
   { id: "title", number: 1, render: TitleSlide },
-  { id: "stats", number: 3, render: StatsSlide },
-  { id: "plan", number: 7, render: PlanSlide },
+  { id: "chart", number: 4, render: ChartSlide },
+  { id: "image", number: 5, render: ImageSlide },
 ] as const;
 
 const SLIDES_PITCH_MOCK_CSS = [

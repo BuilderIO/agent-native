@@ -50,6 +50,8 @@ import {
 } from "@tabler/icons-react";
 
 import {
+  ChartSlide,
+  ImageSlide,
   PlanSlide,
   SectionSlide,
   SLIDE_ARTWORK_CSS,
@@ -113,7 +115,9 @@ const NARROW_STEPS = [
 const DECK_SLIDES = [
   { id: "title", render: TitleSlide },
   { id: "section", render: SectionSlide },
-  { id: "stats", render: StatsSlide, selected: true },
+  { id: "stats", render: StatsSlide },
+  { id: "chart", render: ChartSlide, selected: true },
+  { id: "image", render: ImageSlide },
   { id: "plan", render: PlanSlide },
   { id: "update", render: UpdateSlide },
   { id: "statement", render: StatementSlide },
@@ -222,16 +226,15 @@ function AgentPanel() {
     <div className="sm-agent">
       <div className="sm-agent-transcript">
         <div className="sm-agent-prompt">
-          Build the Q3 board deck from the revenue doc, then make slide 3 lead
-          with the numbers.
+          Build the Q3 board deck from the revenue doc, then chart net new ARR
+          by quarter.
         </div>
         <div className="sm-agent-step">
           Read <span className="sm-agent-ref">Q3-revenue.docx</span>
         </div>
         <div className="sm-agent-reply">
-          Drafted 14 slides in your brand style and rebuilt slide 3 around the
-          three headline metrics. ARR, retention, and activation now sit above
-          the commentary.
+          Drafted 14 slides in your brand style. Slide 4 charts net new ARR
+          across the last six quarters, with Q3 called out at $4.8M.
         </div>
         <div className="sm-agent-chips">
           {AGENT_SUGGESTIONS.map((suggestion) => (
@@ -301,7 +304,7 @@ const SLIDES_MOCK_CSS = [
       `@media (max-width: ${maxWidth}px) { .slides-mock .sm-workspace { --sd-scale: ${scale}; } }`,
   ),
   // The real canvas slide carries `shadow-2xl shadow-black/40`.
-  ".slides-mock .sm-workspace .sd-slide-box { border-radius: 2px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4); }",
+  ".slides-mock .sm-workspace .sd-slide-box { border-radius: 2px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.07); }",
 
   // Agent panel
   `.slides-mock .sm-agent { display: flex; width: ${AGENT_WIDTH}px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--sm-border); background: var(--sm-background); }`,
@@ -366,7 +369,7 @@ export function SlidesEditorMock({
               <ContextToolbar />
               <div className="sm-workspace">
                 <VarScaledSlide>
-                  <StatsSlide />
+                  <ChartSlide />
                 </VarScaledSlide>
               </div>
             </div>
