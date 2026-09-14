@@ -3,7 +3,7 @@
 ---
 
 Stop a turn that ends on a failed tool call from reporting itself as a finished
-answer. The run manager treated only a *successful* trailing tool result as an
+answer. The run manager treated only a _successful_ trailing tool result as an
 unfinished turn, so whether a run continued depended on whether some earlier
 call in the same turn happened to succeed. A turn whose tail was a failure
 terminated as a plain `done`, and the client could render only "The agent
