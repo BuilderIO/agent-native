@@ -208,7 +208,8 @@ describe("isWorkspaceAppAccessAllowed", () => {
         rows: [{ owner_email: "", org_id: null, visibility: "org" }],
       })
       .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
 
     await expect(
       isWorkspaceAppAccessAllowed("fresh-app", {
@@ -216,6 +217,23 @@ describe("isWorkspaceAppAccessAllowed", () => {
         orgId: "org-2",
       }),
     ).resolves.toBe(false);
+  });
+
+  it("allows an ownerless app when the same organization wins the claim race", async () => {
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [{ owner_email: "", org_id: null, visibility: "org" }],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("fresh-app", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
   });
 
   it("honors a group share for a private app", async () => {
@@ -360,7 +378,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(false);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://dispatch.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
     );
@@ -373,6 +391,53 @@ describe("isWorkspaceAppAccessAllowed", () => {
         }),
       }),
     );
+    expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
+      "https://dispatch.example.test/_agent-native/actions/claim-workspace-app-organization",
+    );
+    expect(fetchMock.mock.calls[2]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ appId: "private-app" }),
+      }),
+    );
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("asks Dispatch to claim a fresh hosted app", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ allowed: true }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ id: "fresh-app" }]), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("fresh-app", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://dispatch.example.test/_agent-native/actions/claim-workspace-app-organization",
+    );
   });
 });

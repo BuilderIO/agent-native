@@ -201,7 +201,7 @@ export default function BrandKitSettingsRoute() {
   );
 
   function handleBack() {
-    void navigate(`/library/${libraryId}`);
+    void navigate(`/library/${libraryId}?tab=references`);
   }
 
   function keepEditing() {

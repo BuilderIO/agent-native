@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_ASSET_UPLOAD_BATCH_BYTES } from "../../shared/api";
 import { chunkAssetUploads } from "./upload-results";
 
 describe("chunkAssetUploads", () => {
@@ -10,7 +11,11 @@ describe("chunkAssetUploads", () => {
     }));
 
     expect(chunkAssetUploads(files).map((chunk) => chunk.length)).toEqual([
-      2, 20, 1,
+      1, 1, 20, 1,
     ]);
+  });
+
+  it("reserves multipart overhead below the hosted body limit", () => {
+    expect(MAX_ASSET_UPLOAD_BATCH_BYTES).toBeLessThan(4 * 1024 * 1024);
   });
 });
