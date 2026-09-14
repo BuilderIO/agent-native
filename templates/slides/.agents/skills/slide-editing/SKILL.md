@@ -19,10 +19,7 @@ registry; do not assume a fixed 1920x1080 canvas.
 Every slide uses this wrapper:
 
 ```html
-<div
-  class="fmd-slide"
-  style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start;"
->
+<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start;">
   <!-- Slide content here -->
 </div>
 ```
@@ -37,17 +34,17 @@ anti-pattern issues, but it cannot replace the active system.
 
 When no system is linked, generated slides may use these conventions:
 
-| Element        | Style                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------ |
-| Background     | `bg-[#000000]` (pure black)                                                                            |
-| Font           | `font-family: 'Poppins', sans-serif` on all text                                                       |
-| Section labels | `font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF`    |
-| Headings       | `font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px`              |
-| Title slides   | `font-size: 54px; font-weight: 900` with `justify-content: center`                                     |
-| Bullet points  | `&#x25CF;` character (8px, white), gap: 20px, font-size: 22px, color: rgba(255,255,255,0.85)           |
-| Sub-bullets    | `&#x25CB;` (open circle), padding-left: 36px                                                           |
-| Bold terms     | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
-| Accent color   | `#00E5FF` (cyan) for section labels, emphasis, highlights                                              |
+| Element | Style |
+|---------|-------|
+| Background | `bg-[#000000]` (pure black) |
+| Font | `font-family: 'Poppins', sans-serif` on all text |
+| Section labels | `font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF` |
+| Headings | `font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px` |
+| Title slides | `font-size: 54px; font-weight: 900` with `justify-content: center` |
+| Bullet points | `&#x25CF;` character (8px, white), gap: 20px, font-size: 22px, color: rgba(255,255,255,0.85) |
+| Sub-bullets | `&#x25CB;` (open circle), padding-left: 36px |
+| Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
+| Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
 
 ## Fit and Density
 
@@ -181,10 +178,7 @@ children of `.fmd-slide`. Give each one a stable `data-slide-object-id`:
 For visual elements (diagrams, charts, photos), use placeholder divs:
 
 ```html
-<div
-  class="fmd-img-placeholder"
-  style="width: 100%; height: 300px; border-radius: 12px;"
->
+<div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px;">
   Description of the image
 </div>
 ```
