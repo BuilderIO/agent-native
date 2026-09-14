@@ -48,7 +48,7 @@ Content instead stores one canonical typed Relationship between stable Page iden
 
 ## Example workflow
 
-A team has a Tasks Database and a Projects Database. Adding a `Project` Relation Property to Tasks creates a local Relationship type and its first visible projection. A task editor connects a task to a project from the cell. The project immediately shows the inverse connection in **Info → Connections**, and an optional inverse Relation Property can expose the same edge as an editable `Tasks` column.
+A team has a Tasks Collection and a Projects Collection. Adding a `Project` Relation Property to Tasks creates a local Relationship type and its first visible projection. A task editor connects a task to a project from the cell. The project immediately shows the inverse connection in **Info → Connections**, and an optional inverse Relation Property can expose the same edge as an editable `Tasks` column.
 
 Later, the team selects several tasks and assigns the same project in one bulk edit. Removing the `Project` column does not erase those relationships. If the team truly wants to remove both the column and its knowledge, the removal dialog offers **Remove Property and its N relationships**, reports the exact authorized impact, commits one Revision, and supports Undo.
 
@@ -59,15 +59,15 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 - Every semantic Relationship is one durable edge between stable Page IDs.
 - Both directions are always access-scoped and queryable. Content has no semantically one-way relationship whose inverse disappears from the system; people decide only where each direction is displayed and editable.
 - A directional Relationship type has a forward label and an optional inverse label. A symmetric type such as `Related to` has one canonical unordered edge, not two mirrored writable values.
-- A Relationship type and a visible Relation Property have separate stable identities. The type owns meaning, labels, per-direction cardinality, target constraints, provenance policy, and governing scope. The Property is one Database's editable projection of that type in one direction.
-- Databases own Relation Properties, not Relationships. Pages may be related without belonging to a Database, and removing a Property does not make the underlying edge anonymous or inaccessible.
+- A Relationship type and a visible Relation Property have separate stable identities. The type owns meaning, labels, per-direction cardinality, target constraints, provenance policy, and governing scope. The Property is one Collection's editable projection of that type in one direction.
+- Collections own Relation Properties, not Relationships. Pages may be related without belonging to a Collection, and removing a Property does not make the underlying edge anonymous or inaccessible.
 - Every editing surface invokes the same typed Relationship Action. No UI, agent, Rule, import, provider, Graph, or Canvas receives a private mutation engine.
 
 ### Where people manage relationships
 
 - Adding an ordinary Relation column creates a local Relationship type and its first Property projection. It feels like adding any other column; no catalog ceremony is required.
 - **Info → Connections** is the universal relationship surface. It shows every accessible incoming and outgoing connection, including types not exposed as columns.
-- A Relation picker may use a Database or Query to narrow candidates, but the stored endpoint is the selected Page's stable ID. The edge remains if that Page later leaves the picker Query.
+- A Relation picker may use a Collection or Query to narrow candidates, but the stored endpoint is the selected Page's stable ID. The edge remains if that Page later leaves the picker Query.
 - Ordinary Page mentions and transclusions create system-managed structural edges with their own mutation rules. An advanced inline action may create a semantic typed reference. Removing one anchored mention does not delete an independently asserted semantic Relationship.
 - In freeform Canvas mode, a drawn connector is view-local brainstorming state until someone explicitly promotes it to a Relationship type. In semantic Graph mode, the active edge tool requires a Relationship type before drawing commits an edge.
 - Existing relationships may be projected as Graph or Canvas lines. Deleting the visual occurrence or removing an object from one View never deletes the canonical Relationship.
@@ -76,16 +76,16 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 
 - A local Relationship type belongs to the Content space where it was created and remains resolvable in Connections after its last visible Property is removed.
 - **Save as Custom Property** promotes the definition into the governed Custom Properties catalog at an allowed Personal, Workspace, or Organization scope.
-- Another Database may adopt the governed Property, creating another projection of the same Relationship type rather than copying its semantic identity.
+- Another Collection may adopt the governed Property, creating another projection of the same Relationship type rather than copying its semantic identity.
 - Each projection may choose a local display alias, formatting, renderer, and visibility without changing the shared definition.
 - **Detach to local Property** preserves the projected data while creating an independent local definition.
-- Shared definitions are version-pinned. Label, cardinality, constraint, or inverse changes are proposed as readable updates that consuming Database owners adopt explicitly; catalog edits never silently rewrite every relationship system.
+- Shared definitions are version-pinned. Label, cardinality, constraint, or inverse changes are proposed as readable updates that consuming Collection owners adopt explicitly; catalog edits never silently rewrite every relationship system.
 - Provider-backed Relation fields use the same projection model while retaining source identity and synchronization authority.
 
 ## Cardinality and identity
 
 - Cardinality is defined independently in each direction. A Task may have one Parent task while a parent has many children; a symmetric `Related to` type may be many-to-many.
-- Requiredness is separate Database/Property validation. `At most one` does not mean `must have one`.
+- Requiredness is separate Collection/Property validation. `At most one` does not mean `must have one`.
 - Selecting a new target in a single-value Relation Property replaces the observed existing edge as one atomic change.
 - Moving a one-to-one target that is already related elsewhere requires an explicit replacement confirmation and permission to remove the old edge as well as create the new one.
 - Tightening a type from many to one never deletes existing edges. Existing violations become **Needs attention**; new mutations cannot worsen them, and authorized owners can resolve a filtered set.
@@ -97,7 +97,7 @@ Later, the team selects several tasks and assigns the same project in one bulk e
 
 ## Permissions and authority
 
-- Editing a forward Relation Property requires **Can edit entries** in the Database owning that projection, access to the target Page, permission to use the Relationship type, and satisfaction of its constraints.
+- Editing a forward Relation Property requires **Can edit entries** in the Collection owning that projection, access to the target Page, permission to use the Relationship type, and satisfaction of its constraints.
 - An explicitly editable inverse Relation Property grants the matching inverse-side editing route. An inverse shown only in Connections remains read-only from that side.
 - On an ordinary Page, **Can edit** permits outgoing directional Relationship changes through Connections. Incoming directional edges remain read-only unless the actor also has an authorized source-side or editable-inverse route.
 - A symmetric Relationship may be changed through an authorized edit route on either endpoint.
@@ -144,7 +144,7 @@ Given two authorized Pages and a directional Relationship type with forward and 
 
 ### Preserve knowledge when a column disappears
 
-Given a Relation Property containing several Relationships, when a Database editor removes only the Property, then the Relationships remain visible in authorized Connections and Queries. When the editor instead chooses **Remove Property and its N relationships**, the exact authorized edges are removed in one reversible Revision and newer concurrent edges are preserved.
+Given a Relation Property containing several Relationships, when a Collection editor removes only the Property, then the Relationships remain visible in authorized Connections and Queries. When the editor instead chooses **Remove Property and its N relationships**, the exact authorized edges are removed in one reversible Revision and newer concurrent edges are preserved.
 
 ### Enforce directional cardinality atomically
 

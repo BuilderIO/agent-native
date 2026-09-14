@@ -89,6 +89,8 @@ const messages = {
       cancel: "Cancelar",
       code: "Código",
       deleteDraft: "Excluir rascunho",
+      deleteDrafts: "Excluir rascunhos",
+      reopenDraft: "Reabrir",
       discardDraft: "Descartar rascunho",
       enterLinkUrl: "Digite a URL do link.",
       forward: "Forward",
@@ -284,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Falha ao enviar imagem",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Mensagem enviada.",
+      failedToSaveDraft: "Não foi possível salvar o rascunho.",
+      failedToDeleteDraft: "Não foi possível excluir o rascunho.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -296,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Rascunho fechado.",
+      draftsClosed: "{{count}} rascunhos fechados.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",

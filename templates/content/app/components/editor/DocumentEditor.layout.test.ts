@@ -1909,7 +1909,7 @@ describe("document editor layout", () => {
         databaseTitle: "   ",
         position: 0,
       }),
-    ).toBe("Untitled database");
+    ).toBe("Untitled collection");
   });
 
   it("starts page breadcrumbs with the containing database", () => {

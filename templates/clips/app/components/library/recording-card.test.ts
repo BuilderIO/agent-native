@@ -49,7 +49,8 @@ describe("library recording cards", () => {
     expect(source).toContain("<ContextMenuSub>");
     expect(source).toContain("<ContextMenuSubContent");
     expect(source).toContain('t("clipsFinalRaw.moveToFolder")');
-    expect(source).toContain('t("navigation.trash")');
+    expect(source).toContain('t("libraryGrid.archiveAction")');
+    expect(source).toContain('t("libraryGrid.moveToTrashAction")');
   });
 
   it("uses the shared vertical overflow affordance", () => {

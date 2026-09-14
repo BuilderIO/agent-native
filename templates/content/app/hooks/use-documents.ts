@@ -803,7 +803,7 @@ export function useUpdateDocument() {
             queryKey: ["action", "list-trashed-content-databases"],
           });
           const databaseIds = data.softDeletedDatabaseIds;
-          toast("Database deleted", {
+          toast("Collection deleted", {
             action: {
               label: "Undo",
               onClick: () => {
@@ -812,7 +812,7 @@ export function useUpdateDocument() {
                     restoreContentDatabase.mutateAsync({ databaseId }),
                   ),
                 ).catch((err) => {
-                  toast.error("Failed to restore database", {
+                  toast.error("Failed to restore collection", {
                     description:
                       err instanceof Error
                         ? err.message

@@ -13,6 +13,19 @@ function appLayoutSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'aria-current={tab.isActive ? "page" : undefined}',
+    );
+    expect(source).toContain(
+      "rounded-md px-3 py-1.5 text-[13px] transition-colors",
+    );
+    expect(source).toContain('"bg-accent text-foreground font-semibold"');
+    expect(source).toContain("hover:bg-accent/50 hover:text-foreground/80");
+  });
+
   it("reads the whole-mailbox unread count off the synced label list, not loaded rows", () => {
     const source = appLayoutSource();
 
@@ -121,6 +134,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
     expect(source).toContain("canCycleTab");
     expect(source).toContain("data-mail-tab-list");
+    expect(
+      source.match(/key: "Tab",[\s\S]{0,200}?skipInInput: false/g),
+    ).toHaveLength(2);
+  });
+
+  it("closes the captured popout drafts through the save-aware close-all path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "compose.closeAll(\n                popoutDrafts.map((draft) => draft.id),\n              )",
+    );
+    expect(source).toContain("compose.setActiveId(snapshot.id)");
+    expect(source).toContain("compose.discard(snapshot.id)");
   });
 
   it("no longer runs a client-side per-tab prefetch loop", () => {
