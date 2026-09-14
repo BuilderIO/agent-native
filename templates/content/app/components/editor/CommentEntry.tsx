@@ -35,6 +35,7 @@ import {
 } from "@/hooks/use-comments";
 import type { MentionMember } from "@/hooks/use-mention-members";
 
+import { AgentAvatar, agentDisplayName } from "./agent-identity";
 import { useCommentDraft } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
 
@@ -128,13 +129,16 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
   const sourceLabel = t(
     source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
   );
+  const modelLabel = comment.author_model
+    ? `${agentDisplayName(comment.author_model)} · ${comment.author_model}`
+    : null;
 
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={`${attribution}. ${sourceLabel}`}
+          aria-label={`${attribution}. ${sourceLabel}${modelLabel ? `. ${modelLabel}` : ""}`}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -157,6 +161,9 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
         <span className="grid gap-0.5">
           <span>{attribution}</span>
           <span className="text-muted-foreground">{sourceLabel}</span>
+          {modelLabel ? (
+            <span className="text-muted-foreground">{modelLabel}</span>
+          ) : null}
         </span>
       </TooltipContent>
     </Tooltip>
@@ -265,10 +272,14 @@ export function CommentEntry({
       }}
     >
       <div className="flex items-center gap-2 mb-1">
-        <CommentAvatar
-          email={comment.author_email}
-          name={comment.author_name ?? comment.author_email}
-        />
+        {getAiCommentSource(comment.submission_source) ? (
+          <AgentAvatar model={comment.author_model} />
+        ) : (
+          <CommentAvatar
+            email={comment.author_email}
+            name={comment.author_name ?? comment.author_email}
+          />
+        )}
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
           {comment.author_name ?? comment.author_email.split("@")[0]}
         </span>
