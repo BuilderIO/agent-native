@@ -494,5 +494,5 @@ export const SLIDE_ARTWORK_CSS = [
 
   // Paper. The renderer's own light fallbacks, applied when the docs shell is
   // light. Stays last so it wins on source order over the dark values above.
-  `html.light .sd-slide-box, html.light .sd-slide { --ds-bg: #f5f2ea; --ds-text: #1f2933; --ds-text-muted: #667085; --ds-accent: ${DECK_ACCENT}; --ds-surface: #ffffff; --ds-grid: rgba(31, 41, 51, 0.14); --ds-image-wash: #0e9aa7; }`,
+  `html.light .sd-slide-box, html.light .sd-slide { --ds-bg: #faf9f5; --ds-text: #1f2933; --ds-text-muted: #667085; --ds-accent: ${DECK_ACCENT}; --ds-surface: #ffffff; --ds-grid: rgba(31, 41, 51, 0.14); --ds-image-wash: #0e9aa7; }`,
 ].join("\n");
