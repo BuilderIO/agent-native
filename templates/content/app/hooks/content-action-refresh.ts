@@ -1,6 +1,7 @@
 interface ActionQuery {
   queryKey: readonly unknown[];
   isActive?: () => boolean;
+  state?: { data?: unknown };
 }
 
 interface ActionEvent {
@@ -217,6 +218,19 @@ function isDocumentListQuery(query: ActionQuery): boolean {
   );
 }
 
+function isActiveFilesDatabaseQuery(query: ActionQuery): boolean {
+  if (!isDatabaseQuery(query) || query.isActive?.() !== true) return false;
+  const data = query.state?.data;
+  if (!data || typeof data !== "object" || !("database" in data)) return false;
+  const database = data.database;
+  return (
+    !!database &&
+    typeof database === "object" &&
+    "systemRole" in database &&
+    database.systemRole === "files"
+  );
+}
+
 export function contentDocumentIdFromPathname(
   pathname: string,
 ): string | undefined {
@@ -238,11 +252,8 @@ export function contentActionInvalidatePredicate(
             ? args.documentId
             : undefined
         : undefined;
-    if (
-      isDocumentListQuery(query) &&
-      eventsIncludeMutation(events, DOCUMENT_DISCOVERY_MUTATIONS)
-    ) {
-      return true;
+    if (eventsIncludeMutation(events, DOCUMENT_DISCOVERY_MUTATIONS)) {
+      return isDocumentListQuery(query) || isActiveFilesDatabaseQuery(query);
     }
     if (
       (isDatabaseLifecycleQuery(query) ||

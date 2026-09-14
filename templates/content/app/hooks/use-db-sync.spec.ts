@@ -571,10 +571,25 @@ describe("contentActionInvalidatePredicate", () => {
           {
             queryKey: [
               "action",
+              "get-content-database",
+              { databaseId: "personal-files" },
+            ],
+            isActive: () => true,
+            state: { data: { database: { systemRole: "files" } } },
+          },
+          event,
+        ),
+      ).toBe(true);
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
               "query-content-database-items",
               { databaseId: "unrelated-collection" },
             ],
             isActive: () => true,
+            state: { data: { database: { systemRole: null } } },
           },
           event,
         ),
