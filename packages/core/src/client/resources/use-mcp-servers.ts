@@ -13,11 +13,14 @@ import {
   createContext,
   createElement,
   useContext,
+  useEffect,
   type ReactNode,
 } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { useAfterPaint } from "../use-after-paint.js";
+import { hasPendingMcpConnection } from "./mcp-connection-refresh.js";
+import { addMcpConnectionCompleteListener } from "./mcp-connection-resume.js";
 
 export type McpServerScope = "user" | "org";
 
@@ -202,6 +205,35 @@ export function useMcpServers(options: UseMcpServersOptions = {}) {
   // pending state.
   const defer = options.defer === true;
   const afterPaint = useAfterPaint();
+  const qc = useQueryClient();
+  // An OAuth authorization finishes by redirecting the popup, so nothing in
+  // this window ever learns the connection landed. Revalidate when the user
+  // comes back, but only inside the bounded pending window — the house
+  // QueryClient turns refetchOnWindowFocus off on purpose.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const revalidate = () => {
+      // Deliberately no "did it land?" heuristic. Nothing the client can see
+      // distinguishes "the authorization landed" from an ordinary first read,
+      // a reconnect that replaces credentials in place, or a second flow
+      // running concurrently, so every such guess can clear the marker while a
+      // real return is still outstanding — which is the stale "Connect" this
+      // hook exists to prevent. The TTL is the bound instead.
+      if (!hasPendingMcpConnection()) return;
+      void qc.invalidateQueries({ queryKey: LIST_KEY });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") revalidate();
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", onVisibility);
+    const removeCompleteListener = addMcpConnectionCompleteListener(revalidate);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", onVisibility);
+      removeCompleteListener();
+    };
+  }, [qc]);
   return useQuery<McpServersList>({
     queryKey: LIST_KEY,
     queryFn: api.list,

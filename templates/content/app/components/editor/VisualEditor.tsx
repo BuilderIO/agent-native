@@ -14,6 +14,7 @@ import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   applyDocSurgically,
   createSharedEditorExtensions,
+  TaskListPasteNormalization,
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
@@ -2159,6 +2160,10 @@ export function createVisualEditorExtensions({
       TaskItem.configure({
         nested: true,
       }),
+      // Content disables the shared factory's `tasks` feature and ships its own
+      // TaskList/TaskItem, so it has to register the shared paste normalization
+      // that pairs with them.
+      TaskListPasteNormalization,
       ImageNode.configure({
         HTMLAttributes: { class: "notion-image" },
         documentId,

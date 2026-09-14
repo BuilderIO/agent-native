@@ -121,6 +121,9 @@ export function NewDeckReferenceStep({
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
+  const [referenceDeckTouched, setReferenceDeckTouched] = useState(
+    defaultReferenceDeckId !== null,
+  );
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
   const [selectedSource, setSelectedSource] =
@@ -141,6 +144,7 @@ export function NewDeckReferenceStep({
     if (!open) return;
     setSelectedDesignSystemId(defaultDesignSystemId);
     setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
@@ -169,6 +173,7 @@ export function NewDeckReferenceStep({
   const applyImportedReference = (imported: ImportedReference) => {
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(imported.id);
+    setReferenceDeckTouched(true);
     setSelectedSource(null);
     setImportedReference(imported);
   };
@@ -234,6 +239,7 @@ export function NewDeckReferenceStep({
       setSelectedDesignSystemId(null);
     } else {
       setSelectedReferenceDeckId(null);
+      setReferenceDeckTouched(true);
       setImportedReference(null);
     }
   };
@@ -338,7 +344,10 @@ export function NewDeckReferenceStep({
                     className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="truncate">
-                      {selectedReferenceDeckTitle ?? chooseDeckLabel}
+                      {selectedReferenceDeckTitle ??
+                        (referenceDeckTouched
+                          ? t("home.none")
+                          : chooseDeckLabel)}
                     </span>
                     <IconChevronDown className="size-4 shrink-0 opacity-50" />
                   </button>
@@ -366,6 +375,7 @@ export function NewDeckReferenceStep({
                           disabled={busy}
                           onSelect={() => {
                             setSelectedReferenceDeckId(null);
+                            setReferenceDeckTouched(true);
                             setImportedReference(null);
                             setSelectedSource(null);
                             setReferenceDeckSearchOpen(false);
@@ -388,6 +398,7 @@ export function NewDeckReferenceStep({
                             disabled={busy}
                             onSelect={() => {
                               setSelectedReferenceDeckId(deck.id);
+                              setReferenceDeckTouched(true);
                               setImportedReference(null);
                               setSelectedSource(null);
                               setReferenceDeckSearchOpen(false);
