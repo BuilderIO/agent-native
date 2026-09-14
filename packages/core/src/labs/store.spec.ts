@@ -29,6 +29,23 @@ describe("user labs", () => {
     });
   });
 
+  it("uses an app-defined default unless the user has an explicit choice", async () => {
+    registerLabs([{ key: "clips.wisprflow", defaultEnabled: true }]);
+    mocks.getUserSetting.mockResolvedValue(null);
+
+    expect(await getUserLabs("alice@example.com")).toEqual({
+      "clips.editor": false,
+      "clips.meetings": false,
+      "clips.wisprflow": true,
+    });
+    expect(
+      normalizeLabValues({ "clips.wisprflow": false })["clips.wisprflow"],
+    ).toBe(false);
+    expect(
+      normalizeLabValues({ "clips.wisprflow": "true" })["clips.wisprflow"],
+    ).toBe(false);
+  });
+
   it("reads and atomically updates one user's opt-in state", async () => {
     mocks.getUserSetting.mockResolvedValue({ "clips.meetings": true });
     expect(await getUserLabs("alice@example.com")).toEqual({

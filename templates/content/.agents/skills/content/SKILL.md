@@ -2,7 +2,7 @@
 name: content
 description: >-
   Use Content for repo-backed Markdown/MDX docs, blogs, resources, rich
-  document editing, Notion-style databases and boards, structured intake
+  document editing, Notion-style collections and boards, structured intake
   forms, local components, shareable copies, and connected local folders.
   Prefer Content actions over raw filesystem writes when available.
 metadata:
@@ -14,10 +14,10 @@ metadata:
 Use the Content app when a workflow is about authoring, editing, reviewing, or
 publishing Markdown/MDX documents: docs sites, blogs, resource libraries,
 marketing pages, internal notes, and local MDX components. Also use Content for
-Notion-style databases, tables, boards, structured request intake, and forms
-whose submissions become database row pages. Content gives the agent a document
-tree, a rich editor, structured database properties and views, normal document
-actions, and local folders that sync into the same database model.
+Notion-style collections, tables, boards, structured request intake, and forms
+whose submissions become collection row pages. Content gives the agent a document
+tree, a rich editor, structured collection properties and views, normal document
+actions, and local folders that sync into the same collection model.
 
 ## Choose The Path
 
@@ -35,11 +35,11 @@ actions, and local folders that sync into the same database model.
 - Use `pull-document` or `get-document` before editing a page. Use
   `edit-document` for precise find/replace changes and `update-document` for
   full rewrites or new content.
-- Use `list-documents` or `search-documents` to find an existing database by
+- Use `list-documents` or `search-documents` to find an existing collection by
   its exact title, then inspect it with `get-content-database` before creating
-  or submitting anything. Do not create a second database when the canonical
+  or submitting anything. Do not create a second collection when the canonical
   one already exists.
-- Local folders are sources attached to a space's canonical Files database.
+- Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.
 - If Content tools are not visible and no local Content app or Desktop bridge is
@@ -72,9 +72,9 @@ pnpm action connect-local-folder-source '{"connectionId":"<opaque-bridge-id>","l
 Run `refresh-list` after create/update/delete operations when you need the open
 Content UI sidebar to repaint immediately.
 
-## Database And Intake Workflows
+## Collection And Intake Workflows
 
-Content databases are one available capability for structured team queues,
+Content collections are one available capability for structured team queues,
 tables, boards, and intake forms. Select Content when workspace instructions or
 app-capability discovery identify it as the owner of the workflow. Do not route
 from a department or subject word alone, and do not embed an organization's
@@ -85,13 +85,13 @@ those instructions.
 For a named intake workflow:
 
 1. Read the loaded workspace instruction/resource first. It may identify the
-   owning app, canonical database ID or title, form view, and intake policy.
+   owning app, canonical collection ID or title, form view, and intake policy.
    Treat that live instruction as authoritative instead of applying defaults
    from this skill.
-2. Once Content is selected, find the canonical database by the instructed ID
+2. Once Content is selected, find the canonical collection by the instructed ID
    or exact title with `list-documents` or `search-documents`; inspect it with
    `get-content-database` and, when available,
-   `get-content-database-form`. Preserve its database and document IDs. Never
+   `get-content-database-form`. Preserve its collection and document IDs. Never
    guess IDs or create a duplicate queue.
 3. Read the current property/form schema and required fields before asking the
    user anything. Ask only for required values that are actually missing.
@@ -118,7 +118,7 @@ For a named intake workflow:
 7. Submit exactly once with `submit-content-database-form` when that action is
    available. Prefer it over piecemeal writes because it validates required
    fields and verifies the saved row. Fall back to `add-database-item` only
-   when the database has no form contract and all required values have already
+   when the collection has no form contract and all required values have already
    been confirmed.
 8. Treat submission as complete only when the successful result includes a
    stable row IDs and verified read-back. Return the exact `url` or `urlPath`
@@ -136,7 +136,7 @@ answers as context.
 A follow-up in an existing Slack thread is not automatically a new intake. Read
 the thread context and inspect the prior Content artifact identity first,
 including any returned document ID or `/page/<id>` path and the canonical
-database row when available. Then choose the operation that matches the user's
+collection row when available. Then choose the operation that matches the user's
 intent:
 
 - **Update** the same document for corrections, refinements, status changes, or
@@ -157,7 +157,7 @@ was created is a historical title: it may help locate the stable document ID,
 but it is not authoritative after the row has been renamed in Content. Once the
 stable ID is known, an external Slack or A2A correction must call
 `pull-document` first to flush any open collaborative editor state; fail closed
-if that flush/read cannot complete. Then read the canonical database row from
+if that flush/read cannot complete. Then read the canonical collection row from
 Content immediately before building the update. Treat those freshly read
 values as authoritative for every field the correction does not explicitly
 change.
@@ -171,7 +171,7 @@ Build corrections as sparse patches:
 - Omission and clearing are different operations. An omitted field keeps its
   live Content value. Clear a field only when the user explicitly asks to
   remove, unset, or clear it, and use the empty representation accepted by the
-  current database schema.
+  current collection schema.
 - Never reconstruct a full-row update from the original Slack request. Derive
   the patch from the correction message and the freshly read canonical row,
   while preserving the stable document ID.
@@ -185,11 +185,11 @@ Build corrections as sparse patches:
 Apply people fields from verified identity and intent, not from convenient
 guesswork:
 
-- When the database has a `Requester` field, default it to the verified Slack
+- When the collection has a `Requester` field, default it to the verified Slack
   sender unless the user explicitly identifies a different requester.
 - A named doer such as "for Apoorva" maps to `Assignee` when that field exists.
   Naming an assignee never changes or replaces `Requester`.
-- Resolve named people to the database's accepted person identity before
+- Resolve named people to the collection's accepted person identity before
   writing. If a named person cannot be resolved unambiguously, clarify in the
   originating Slack thread; never omit, downgrade, or silently drop the person.
 

@@ -57,6 +57,8 @@ export function isSameScheduledDraft(
   const comparable = ({
     id: _id,
     savedDraftId: _savedDraftId,
+    savedDraftBackend: _savedDraftBackend,
+    savedDraftAccountEmail: _savedDraftAccountEmail,
     ...state
   }: ComposeState) => JSON.stringify(state);
   return comparable(draft) === comparable(snapshot);

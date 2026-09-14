@@ -26,8 +26,8 @@ export default defineAction({
   description:
     "Approve or reject a local source change-set review record. This only records review state and never calls external providers.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()

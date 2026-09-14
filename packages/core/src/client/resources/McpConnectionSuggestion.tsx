@@ -17,9 +17,10 @@ import {
   isMcpConnectionSuggestionText,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
-import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
+import { McpIntegrationDialogDeferred } from "./McpIntegrationDialogDeferred.js";
 import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
+  isMcpServersPending,
   useCreateMcpServer,
   useMcpServers,
   type McpServer,
@@ -171,7 +172,9 @@ export function McpConnectionSuggestion({
   onOAuthStart,
 }: McpConnectionSuggestionProps) {
   const t = useT();
-  const mcpServersQuery = useMcpServers();
+  // Lives in the agent rail: mounted during startup but not visible until the
+  // user scrolls to a suggestion, so it waits out the paint window.
+  const mcpServersQuery = useMcpServers({ defer: true });
   const createMcpServer = useCreateMcpServer();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [quickConnectIntegrationId, setQuickConnectIntegrationId] = useState<
@@ -210,9 +213,11 @@ export function McpConnectionSuggestion({
     [mcpServersQuery.data],
   );
   const connected = integration ? isConnected(integration, servers) : false;
-  const hasOrg = Boolean(mcpServersQuery.data?.orgId);
+  const serversPending = isMcpServersPending(mcpServersQuery);
+  const hasOrg = !serversPending && Boolean(mcpServersQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
     hasOrg &&
+    !serversPending &&
     (mcpServersQuery.data?.role === "owner" ||
       mcpServersQuery.data?.role === "admin"),
   );
@@ -332,7 +337,7 @@ export function McpConnectionSuggestion({
           {error}
         </div>
       )}
-      <McpIntegrationDialog
+      <McpIntegrationDialogDeferred
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);

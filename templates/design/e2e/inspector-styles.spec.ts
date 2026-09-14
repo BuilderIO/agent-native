@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 
 import {
   cdpScreenshot,
+  createFixtureDesign,
   designFrame,
   gotoEditor,
   installBridge,
@@ -37,6 +38,13 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
  */
 function pagePropertiesSection(page: Page): Locator {
   return inspectorSection(page, /^Screen$/);
+}
+
+async function selectLayerFromTree(page: Page, name: string): Promise<void> {
+  await page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("button", { name, exact: true })
+    .click();
 }
 
 function bodyElement(page: Page): Locator {
@@ -146,6 +154,18 @@ async function selectedElementStyle(
         window.getComputedStyle(styled).getPropertyValue(name)
       );
     }, property);
+}
+
+async function readDesignSource(page: Page, designId: string): Promise<string> {
+  const response = await page.request.get(
+    new URL("/_agent-native/actions/read-source-file", page.url()).href,
+    { params: { designId, path: "index.html" } },
+  );
+  if (!response.ok()) {
+    throw new Error(`read-source-file failed: ${response.status()}`);
+  }
+  const result = (await response.json()) as { content: string };
+  return result.content;
 }
 
 async function resolvedColorChannels(
@@ -274,6 +294,118 @@ test("text fills hide and restore without losing the original color", async ({
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "color"))
     .toBe(initialColor);
   await expect(heading).toBeVisible();
+});
+
+test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
+  page,
+}) => {
+  const fillDesignId = await createFixtureDesign(
+    page,
+    `Fill gradient regression ${Date.now()}`,
+  );
+  await gotoEditor(page, fillDesignId);
+
+  const headingText = "E2E Hero Heading";
+  await selectByText(page, headingText);
+  const originalTextColor = await selectedElementStyle(
+    page,
+    headingText,
+    "color",
+  );
+  const textFillSection = inspectorSection(page, /^Fill$/i);
+  await openColorPicker(textFillSection);
+  await choosePaintType(page, "Linear");
+
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-image"))
+    .toContain("linear-gradient(");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-clip"))
+    .toBe("text");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "color"))
+    .toBe("transparent");
+  await expect
+    .poll(() => readDesignSource(page, fillDesignId))
+    .toContain("linear-gradient(");
+  const sourceAfterApply = await readDesignSource(page, fillDesignId);
+  const headingStart = sourceAfterApply.indexOf("<h1");
+  const headingTagEnd = sourceAfterApply.indexOf(">", headingStart);
+  expect(sourceAfterApply.slice(headingStart, headingTagEnd)).toContain(
+    "linear-gradient(",
+  );
+
+  await selectLayerFromTree(
+    page,
+    "First fixture paragraph for selection tests.",
+  );
+  await selectLayerFromTree(page, headingText);
+  const sourceAfterReselection = await readDesignSource(page, fillDesignId);
+  const reselectedHeadingStart = sourceAfterReselection.indexOf("<h1");
+  const reselectedHeadingTagEnd = sourceAfterReselection.indexOf(
+    ">",
+    reselectedHeadingStart,
+  );
+  expect(
+    sourceAfterReselection.slice(
+      reselectedHeadingStart,
+      reselectedHeadingTagEnd,
+    ),
+  ).toContain("linear-gradient(");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-image"))
+    .toContain("linear-gradient(");
+  await expect(
+    textFillSection.getByRole("button", { name: "Linear gradient 1" }),
+  ).toBeVisible();
+  await textFillSection
+    .getByRole("button", { name: "Linear gradient 1" })
+    .click();
+  await expect(
+    page.locator('input[aria-label="Gradient angle"]'),
+  ).toBeVisible();
+
+  await textFillSection
+    .getByRole("button", { name: "Remove layer" })
+    .nth(1)
+    .click();
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-image"))
+    .toBe("none");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "background-clip"))
+    .toBe("border-box");
+  await expect
+    .poll(() => selectedElementStyle(page, headingText, "color"))
+    .toBe(originalTextColor);
+
+  const boxText = "Alpha Button";
+  await selectByText(page, boxText);
+  const boxFillSection = inspectorSection(page, /^Fill$/i);
+  await openColorPicker(boxFillSection);
+  await choosePaintType(page, "Linear");
+
+  await expect
+    .poll(() => selectedElementStyle(page, boxText, "background-image"))
+    .toContain("linear-gradient(");
+  await expect
+    .poll(() => selectedElementStyle(page, boxText, "background-color"))
+    .toBe("transparent");
+
+  await selectLayerFromTree(
+    page,
+    "First fixture paragraph for selection tests.",
+  );
+  await selectLayerFromTree(page, boxText);
+  await expect(
+    boxFillSection.getByRole("button", { name: "Linear gradient 1" }),
+  ).toBeVisible();
+  await boxFillSection
+    .getByRole("button", { name: "Linear gradient 1" })
+    .click();
+  await expect(
+    page.locator('input[aria-label="Gradient angle"]'),
+  ).toBeVisible();
 });
 
 // Stroke is solid-only and grows no layer rows, so Effects is the only
