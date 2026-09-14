@@ -1108,6 +1108,46 @@ const messages = {
     },
     content: {
       s001: "Content 範本螢幕截圖",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "和你的 AI 代理一起建立和整理工作",
+      heroDescription:
+        "Content 是一款免費開放原始碼的工作空間，用於文件、任務清單和資料庫，你和你的 AI 代理可以一起閱讀和更新。",
+      heroCta: "開啟 Content",
+      useCasesHeading: "用 Content 能做什麼？",
+      useCasesBody: "處理一份草稿，追蹤待辦事項，或收集一項新請求所需的詳細資訊。",
+      useCase1Title: "撰寫和審閱內容",
+      useCase1Body:
+        "請你的 AI 代理起草一個頁面、修改一段文字，或在你的寫作上留下評論。你可以選擇希望它如何幫忙。",
+      useCase2Title: "和代理一起追蹤工作",
+      useCase2Body:
+        "把任務、狀態和下一步都記錄在一張共用表格裡。在推進專案的過程中，請連接的 AI 代理幫你更新它。",
+      useCase3Title: "收集專案請求",
+      useCase3Body:
+        "為設計需求或其他團隊工作建立一張表格。為每個欄位寫明說明，這樣你的 AI 代理就能詢問缺少的細節。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "寫作、整理和協作所需的一切",
+      feature1Title: "AI 寫作與審閱",
+      feature1Body:
+        "取得初稿，為選取的文字要求修改，或要求評論。你的 AI 代理直接在文件中工作。",
+      feature2Title: "文件與巢狀頁面",
+      feature2Body:
+        "用標題、表格、圖片和程式碼區塊撰寫頁面。把相關文件歸入同一個專案，並透過標題和內容進行搜尋來尋找它們。",
+      feature3Title: "資料庫與檢視",
+      feature3Body:
+        "以表格、看板或行事曆的方式整理工作。為負責人、日期和狀態新增欄位，每一列背後都是一份完整的文件。",
+      feature4Title: "頁面與欄位說明",
+      feature4Body:
+        "描述一個頁面或資料庫欄位應該包含什麼內容，為你的 AI 代理提供關於所需資訊和格式的指引。",
+      feature5Title: "連接的 AI 代理",
+      feature5Body:
+        "連接來自 Claude Code、Codex 或 Cursor 等工具的代理，讓它們與內建代理一起讀取和更新你的文件與資料庫。",
+      feature6Title: "團隊協作",
+      feature6Body:
+        "一起編輯頁面，在段落上留下評論，並在討論串中回覆。與特定的人或你的組織共用，並選擇他們的存取權限。",
+      finalCtaHeading: "把你的下一個專案帶進 Content",
+      finalCtaBody: "從一份文件、一個任務清單，或你團隊已經在用的表格開始。",
+      finalCtaButton: "開啟 Content",
       s002: "所有範本",
       s003: "為 MDX 開放原始碼 Obsidian",
       s004: "編輯本機 Markdown/MDX 檔案（如 Obsidian），生成豐富的互動式自訂塊，並使用了解您檔案的 AI 代理進行編寫。",
@@ -1170,21 +1210,21 @@ const messages = {
       s061: "閱讀檔案",
       s062: "檢視所有範本",
       faq: {
-        question1: "AI 代理不需匯出或 API 就能編輯我的文件嗎？",
+        question1: "什麼是 Agent-Native Content？",
         answer1:
-          "可以。Content 直接處理本機 Markdown/MDX 檔案，也就是儲存庫中的同一批檔案。代理已經可以在磁碟上存取它們，不需要 API、同步或匯出步驟。",
-        question2: "Content 與 Notion 或 Obsidian 有什麼不同？",
+          "Agent-Native Content 是一款免費開放原始碼的文件、任務和資料庫工作空間。它將 AI 文件編輯器與結構化表格和共用頁面結合在一起，讓你和連接的 AI 代理可以一起閱讀和更新內容。",
+        question2: "我可以在 Content 中使用自己的 AI 代理嗎？",
         answer2:
-          "Notion 將文件保存在自己的資料庫中，並透過 API 存取。Content 像 Obsidian 一樣使用本機檔案，同時提供富文字編輯器，以及能按你的風格起草、重寫和發布的代理。",
-        question3: "AI 能用我的風格寫作嗎？",
+          "可以。Content 為 Claude Code、Codex、Cursor 等支援的工具提供 MCP 連線。連線並授權存取後，你的代理就能處理它能存取的文件和資料庫。你也可以使用 Content 內建的代理。",
+        question3: "我可以請 AI 審閱我的文字而不重寫它嗎？",
         answer3:
-          "可以。代理會學習你的表達方式、風格指南和語氣，讓草稿聽起來像你；你也可以對任何選取範圍執行重寫、擴寫、摘要或改變語氣。",
-        question4: "我可以發布到自己的 CMS 嗎？",
+          "可以。請你的 AI 代理在文件或段落上留下評論。你可以閱讀回饋並自己修改，也可以請代理來編輯文字。只要求評論並不需要把寫作工作交出去。",
+        question4: "Content 能追蹤任務並收集團隊請求嗎？",
         answer4:
-          "可以。透過指令碼連接任何無頭 CMS。支援 WordPress、Contentful 和 Builder，Notion 可雙向同步，代理還能自主執行發布指令碼。",
-        question5: "Content 免費嗎？",
+          "可以。建立一個資料庫，加入負責人、狀態、交付日期、下一步等欄位，並為每個欄位寫明應填寫的內容。這些說明會在建立或更新項目時指導你的 AI 代理，包括讓它詢問缺少的資訊。",
+        question5: "我可以控制誰能編輯我的內容，並還原到較早的版本嗎？",
         answer5:
-          "免費且開放原始碼。由於文件就是一般的本機檔案，即使以後離開，也沒有任何內容需要匯出。",
+          "可以。新文件預設是私人的。你可以以檢視者、編輯者或管理員權限進行共用，並使用頁面版本記錄還原到較早的快照。還原快照會取代頁面目前的內容。",
       },
     },
     design: {

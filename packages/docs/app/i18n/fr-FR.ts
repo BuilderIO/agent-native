@@ -1213,24 +1213,69 @@ const frFR = {
     },
     content: {
       faq: {
-        question1:
-          "Un agent IA peut-il modifier mes documents sans export ni API ?",
+        question1: "Qu'est-ce qu'Agent-Native Content ?",
         answer1:
-          "Oui. Content travaille sur des fichiers Markdown/MDX locaux, les mêmes que ceux de votre dépôt. Votre agent les a déjà sur le disque : pas d'API, pas de synchronisation et pas d'étape d'export.",
-        question2: "En quoi Content diffère-t-il de Notion ou d'Obsidian ?",
+          "Agent-Native Content est un espace de travail gratuit et open source pour les documents, les tâches et les bases de données. Il combine un éditeur de documents IA avec des tableaux structurés et des pages partagées que les utilisateurs et les agents IA connectés peuvent consulter et modifier ensemble.",
+        question2: "Puis-je utiliser mon propre agent IA avec Content ?",
         answer2:
-          "Notion conserve vos documents dans sa base de données, derrière son API. Content utilise des fichiers locaux comme Obsidian, avec en plus un éditeur riche et un agent qui rédige, réécrit et publie avec votre style.",
-        question3: "L'IA peut-elle écrire dans mon style ?",
+          "Oui. Content propose une connexion MCP pour les outils pris en charge tels que Claude Code, Codex et Cursor. Après connexion et autorisation d'accès, votre agent peut travailler avec les documents et bases de données auxquels il a accès. Vous pouvez aussi utiliser l'agent intégré de Content.",
+        question3:
+          "Puis-je demander à l'IA de relire mon texte sans le réécrire ?",
         answer3:
-          "Oui. L'agent apprend votre voix, votre guide de style et votre ton afin que les brouillons vous ressemblent ; il peut aussi réécrire, développer, résumer ou changer le ton de n'importe quelle sélection.",
-        question4: "Puis-je publier dans mon CMS ?",
+          "Oui. Demandez à votre agent IA de laisser des commentaires sur un document ou un passage. Vous pouvez lire les retours et apporter vous-même les modifications, ou demander à l'agent de modifier le texte. Demander des commentaires ne nécessite pas de lui confier la rédaction.",
+        question4:
+          "Content peut-il suivre les tâches et recueillir les demandes de l'équipe ?",
         answer4:
-          "Oui : connectez n'importe quel CMS headless à l'aide de scripts. WordPress, Contentful et Builder sont pris en charge, Notion se synchronise dans les deux sens et l'agent exécute les scripts de publication de manière autonome.",
-        question5: "Content est-il gratuit ?",
+          "Oui. Créez une base de données avec des champs tels que responsable, statut, date de livraison et prochaine étape. Ajoutez des descriptions expliquant ce que chaque champ doit contenir. Ces descriptions guident votre agent IA lors de la création ou de la mise à jour des entrées, y compris pour demander les informations manquantes.",
+        question5:
+          "Puis-je contrôler qui modifie mon travail et restaurer une version antérieure ?",
         answer5:
-          "Oui. Il est gratuit et open source ; comme vos documents sont de simples fichiers locaux, vous n'aurez rien à exporter si vous décidez un jour de partir.",
+          "Oui. Les nouveaux documents sont privés par défaut. Partagez-les avec un accès lecteur, éditeur ou administrateur, et utilisez l'historique des versions de la page pour restaurer un instantané antérieur. La restauration d'un instantané remplace le contenu actuel de la page.",
       },
       s001: "Capture d'écran du modèle Content",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "Créez et organisez votre travail avec votre agent IA",
+      heroDescription:
+        "Content est un espace de travail gratuit et open source pour les documents, les listes de tâches et les bases de données, que vous et vos agents IA pouvez consulter et modifier ensemble.",
+      heroCta: "Ouvrir Content",
+      useCasesHeading: "Que pouvez-vous faire avec Content ?",
+      useCasesBody:
+        "Travaillez sur un brouillon, suivez ce qu'il reste à faire, ou recueillez les détails d'une nouvelle demande.",
+      useCase1Title: "Rédiger et relire du contenu",
+      useCase1Body:
+        "Demandez à votre agent IA de rédiger une page, de revoir un passage ou de laisser des commentaires sur votre texte. Choisissez comment vous voulez qu'il vous aide.",
+      useCase2Title: "Suivre le travail avec vos agents",
+      useCase2Body:
+        "Conservez les tâches, le statut et les prochaines étapes dans un tableau partagé. Demandez à vos agents IA connectés de le mettre à jour au fil de votre projet.",
+      useCase3Title: "Recueillir les demandes de projet",
+      useCase3Body:
+        "Configurez un tableau pour les demandes de design ou d'autres tâches d'équipe. Donnez des instructions à chaque champ pour que votre agent IA puisse demander les détails manquants.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading:
+        "Tout ce dont vous avez besoin pour rédiger, organiser et collaborer",
+      feature1Title: "Rédaction et relecture par IA",
+      feature1Body:
+        "Obtenez un premier brouillon, demandez des modifications sur un texte sélectionné, ou demandez des commentaires. Votre agent IA travaille directement dans le document.",
+      feature2Title: "Documents et pages imbriquées",
+      feature2Body:
+        "Rédigez des pages avec titres, tableaux, images et blocs de code. Regroupez les documents associés sous un projet, et recherchez par titre et par contenu pour les retrouver.",
+      feature3Title: "Bases de données et vues",
+      feature3Body:
+        "Organisez le travail en tableaux, tableaux Kanban ou calendriers. Ajoutez des champs pour les responsables, les dates et le statut, avec un document complet derrière chaque ligne.",
+      feature4Title: "Instructions de page et de champ",
+      feature4Body:
+        "Décrivez ce qui doit figurer sur une page ou dans un champ de base de données. Donnez à vos agents IA des indications sur les informations et le format attendus.",
+      feature5Title: "Agents IA connectés",
+      feature5Body:
+        "Connectez des agents provenant d'outils tels que Claude Code, Codex ou Cursor pour lire et mettre à jour vos documents et bases de données aux côtés de l'agent intégré.",
+      feature6Title: "Collaboration en équipe",
+      feature6Body:
+        "Modifiez des pages ensemble, commentez des passages et répondez dans des fils de discussion. Partagez avec des personnes précises ou avec votre organisation, et choisissez leur niveau d'accès.",
+      finalCtaHeading: "Faites entrer votre prochain projet dans Content",
+      finalCtaBody:
+        "Commencez avec un document, une liste de tâches ou un tableau que votre équipe utilise déjà.",
+      finalCtaButton: "Ouvrir Content",
       s002: "Tous les modèles",
       s003: "Obsidian open source pour MDX",
       s004: "Modifiez les fichiers Markdown/MDX locaux comme Obsidian, générez de riches blocs personnalisés interactifs et écrivez avec un agent AI qui connaît vos documents.",
