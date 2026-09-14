@@ -9,7 +9,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -71,7 +71,16 @@ export default defineAction({
       const children = await db
         .select({ id: schema.recordingComments.id })
         .from(schema.recordingComments)
-        .where(inArray(schema.recordingComments.parentId, frontier));
+        .where(
+          and(
+            inArray(schema.recordingComments.parentId, frontier),
+            eq(schema.recordingComments.recordingId, existing.recordingId),
+            eq(
+              schema.recordingComments.organizationId,
+              existing.organizationId,
+            ),
+          ),
+        );
       const nextIds = children
         .map((comment) => comment.id)
         .filter((id) => !deletedIds.has(id));
@@ -81,7 +90,13 @@ export default defineAction({
 
     await db
       .delete(schema.recordingComments)
-      .where(inArray(schema.recordingComments.id, Array.from(deletedIds)));
+      .where(
+        and(
+          inArray(schema.recordingComments.id, Array.from(deletedIds)),
+          eq(schema.recordingComments.recordingId, existing.recordingId),
+          eq(schema.recordingComments.organizationId, existing.organizationId),
+        ),
+      );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

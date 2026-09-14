@@ -38,6 +38,7 @@ vi.mock("../server/lib/recording-page-access.js", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({
     type: "eq",
     column,
@@ -51,6 +52,11 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 function matches(row: CommentRow, condition: any): boolean {
+  if (condition.type === "and") {
+    return condition.conditions.every((nested: unknown) =>
+      matches(row, nested),
+    );
+  }
   const key = String(condition.column).split(".").pop() as keyof CommentRow;
   if (condition.type === "eq") return row[key] === condition.value;
   if (condition.type === "inArray") return condition.values.includes(row[key]);
@@ -63,6 +69,8 @@ vi.mock("../server/db/index.js", () => {
     recordingComments: {
       id: column("id"),
       parentId: column("parentId"),
+      recordingId: column("recordingId"),
+      organizationId: column("organizationId"),
     },
   };
 
@@ -126,6 +134,13 @@ beforeEach(() => {
       authorEmail: "other@example.com",
       organizationId: "org-1",
     },
+    {
+      id: "comment-1-cross-record-reply",
+      recordingId: "recording-2",
+      parentId: "comment-1",
+      authorEmail: "other@example.com",
+      organizationId: "org-2",
+    },
   ];
 });
 
@@ -137,7 +152,10 @@ describe("delete-comment", () => {
       id: "comment-1",
       deletedCommentIds: ["comment-1", "comment-1-reply", "comment-1-reply-2"],
     });
-    expect(state.rows.map((row) => row.id)).toEqual(["comment-2"]);
+    expect(state.rows.map((row) => row.id)).toEqual([
+      "comment-2",
+      "comment-1-cross-record-reply",
+    ]);
     expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
     });

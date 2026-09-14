@@ -356,6 +356,7 @@ describe("CommentsPanel reply composer", () => {
     expect(composerShell?.className).toContain("focus-within:border-ring");
     expect(composer?.className).toContain("min-h-[54px]");
     expect(composer?.className).toContain("max-h-[54px]");
+    expect(composer?.className).toContain("overflow-y-auto");
     const composerDock = composerShell?.closest(".shrink-0");
     expect(composerDock?.className).toContain("relative");
     expect(composerDock?.className).toContain("z-10");
@@ -832,6 +833,81 @@ describe("CommentsPanel reply composer", () => {
     expect(commentText).toContain("💡 1");
     expect(commentText).not.toContain("👍 1");
     expect(second).toMatchObject({ type: "reaction", emoji: "💡" });
+  });
+
+  it("keeps same-emoji toggles ordered when both requests fail", async () => {
+    renderPanel("viewer@example.com");
+    const options = actionMocks.mutationOptions.get("react-to-comment");
+    expect(options).toBeDefined();
+
+    const first = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+    const second = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+
+    await act(async () => {
+      options.onError?.(
+        new Error("first reaction failed"),
+        { commentId: rootComment.id, emoji: "👍" },
+        first,
+      );
+      options.onError?.(
+        new Error("second reaction failed"),
+        { commentId: rootComment.id, emoji: "👍" },
+        second,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("👍 1");
+  });
+
+  it("ignores an older reaction response after a newer toggle", async () => {
+    renderPanel("viewer@example.com");
+    const options = actionMocks.mutationOptions.get("react-to-comment");
+    expect(options).toBeDefined();
+
+    const first = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+    const second = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+
+    await act(async () => {
+      options.onSuccess?.(
+        { reactions: { "👍": ["viewer@example.com"] } },
+        { commentId: rootComment.id, emoji: "👍" },
+        first,
+      );
+      await Promise.resolve();
+    });
+    expect(container.textContent).not.toContain("👍 1");
+
+    await act(async () => {
+      options.onSuccess?.(
+        { reactions: {} },
+        { commentId: rootComment.id, emoji: "👍" },
+        second,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      options.onSuccess?.(
+        { reactions: { "👍": ["viewer@example.com"] } },
+        { commentId: rootComment.id, emoji: "👍" },
+        first,
+      );
+      await Promise.resolve();
+    });
+    expect(container.textContent).not.toContain("👍 1");
   });
 
   it("only offers comment editing to the comment author", () => {

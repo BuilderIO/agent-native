@@ -79,11 +79,17 @@ type CommentsMutationContext = {
   tempId?: string;
   commentId?: string;
   emoji?: string;
-  previousUsers?: string[];
-  optimisticUsers?: string[];
+  reactionKey?: string;
+  operationToken?: number;
   removed?: Comment[];
   previous?: Comment;
   optimisticUpdatedAt?: string;
+};
+
+type ReactionState = {
+  confirmedUsers: string[];
+  latestToken: number;
+  pending: Map<number, { optimisticUsers: string[] }>;
 };
 
 const defaultLens: CommentsLens = {
@@ -165,17 +171,6 @@ function updateReactionUsers(
   return JSON.stringify(reactions);
 }
 
-function sameUsers(
-  left: readonly string[] | undefined,
-  right: readonly string[],
-) {
-  const normalizedLeft = left ?? [];
-  return (
-    normalizedLeft.length === right.length &&
-    normalizedLeft.every((user, index) => user === right[index])
-  );
-}
-
 export interface CommentsPanelProps {
   recordingId: string;
   comments: Comment[];
@@ -250,6 +245,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
   // mutations render immediately while the action request is in flight.
   const [visibleComments, setVisibleComments] = useState(comments);
   const visibleCommentsRef = useRef(visibleComments);
+  const reactionStatesRef = useRef(new Map<string, ReactionState>());
+  const reactionSequenceRef = useRef(0);
+  const successfulDeletionIdsRef = useRef(new Set<string>());
   const [draftMentions, setDraftMentions] = useState<MentionEntry[]>([]);
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -283,6 +281,57 @@ export function CommentsPanel(props: CommentsPanelProps) {
     });
   };
 
+  const reconcileReactionMutation = (
+    ctx: CommentsMutationContext,
+    serverUsers?: string[],
+  ) => {
+    if (
+      !ctx.reactionKey ||
+      !ctx.operationToken ||
+      !ctx.commentId ||
+      !ctx.emoji
+    ) {
+      return;
+    }
+    const state = reactionStatesRef.current.get(ctx.reactionKey);
+    if (!state) return;
+
+    const token = ctx.operationToken;
+    if (serverUsers) state.confirmedUsers = serverUsers;
+
+    if (serverUsers && token === state.latestToken) {
+      // The newest response is authoritative for this emoji. Older requests
+      // were based on its optimistic projection, so their responses cannot
+      // safely replace it when they arrive later.
+      state.pending.clear();
+    } else {
+      state.pending.delete(token);
+    }
+
+    const pending = Array.from(state.pending.entries()).sort(
+      ([left], [right]) => right - left,
+    )[0]?.[1];
+    const users = pending?.optimisticUsers ?? state.confirmedUsers;
+    patchComments((list) =>
+      list.map((comment) =>
+        comment.id === ctx.commentId
+          ? {
+              ...comment,
+              emojiReactionsJson: updateReactionUsers(
+                comment.emojiReactionsJson,
+                ctx.emoji!,
+                users,
+              ),
+            }
+          : comment,
+      ),
+    );
+
+    if (state.pending.size === 0) {
+      reactionStatesRef.current.delete(ctx.reactionKey);
+    }
+  };
+
   const rollbackComments = (ctx: CommentsMutationContext | undefined) => {
     if (!ctx) return;
     if (ctx.type === "add" && ctx.tempId) {
@@ -292,33 +341,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return;
     }
     if (ctx.type === "remove" && ctx.removed) {
-      patchComments((list) => {
-        const present = new Set(list.map((comment) => comment.id));
-        return [
-          ...list,
-          ...ctx.removed!.filter((comment) => !present.has(comment.id)),
-        ];
-      });
-      return;
-    }
-    if (ctx.type === "reaction" && ctx.commentId && ctx.emoji) {
+      // The query cache may have changed while deletion was in flight. Avoid
+      // restoring a stale snapshot; refetch the authoritative list instead.
       patchComments((list) =>
-        list.map((comment) => {
-          if (comment.id !== ctx.commentId) return comment;
-          const current = parseReactions(comment.emojiReactionsJson)[
-            ctx.emoji!
-          ];
-          if (!sameUsers(current, ctx.optimisticUsers ?? [])) return comment;
-          return {
-            ...comment,
-            emojiReactionsJson: updateReactionUsers(
-              comment.emojiReactionsJson,
-              ctx.emoji!,
-              ctx.previousUsers ?? [],
-            ),
-          };
-        }),
+        list.filter(
+          (comment) => !successfulDeletionIdsRef.current.has(comment.id),
+        ),
       );
+      void queryClient.invalidateQueries({ queryKey });
       return;
     }
     if (
@@ -391,8 +421,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
           type: "reaction",
           commentId: vars.commentId,
           emoji: vars.emoji,
-          previousUsers: [],
-          optimisticUsers: [],
         } satisfies CommentsMutationContext;
       }
       const currentComment = visibleCommentsRef.current.find(
@@ -404,55 +432,51 @@ export function CommentsPanel(props: CommentsPanelProps) {
       const optimisticUsers = previousUsers.includes(currentUser)
         ? previousUsers.filter((email) => email !== currentUser)
         : [...previousUsers, currentUser];
-      patchComments((commentList) =>
-        commentList.map((comment) => {
-          if (comment.id !== vars.commentId) return comment;
-          let reactions: Record<string, string[]> = {};
-          try {
-            const parsed = JSON.parse(comment.emojiReactionsJson || "{}");
-            if (parsed && typeof parsed === "object") {
-              reactions = parsed as Record<string, string[]>;
-            }
-          } catch {}
-          const reactingUsers = Array.isArray(reactions[vars.emoji])
-            ? reactions[vars.emoji]
-            : [];
-          const userAlreadyReacted = reactingUsers.includes(currentUser);
-          const updatedReactingUsers = userAlreadyReacted
-            ? reactingUsers.filter((email) => email !== currentUser)
-            : [...reactingUsers, currentUser];
-          const updatedReactions = { ...reactions };
-          if (updatedReactingUsers.length === 0) {
-            delete updatedReactions[vars.emoji];
-          } else {
-            updatedReactions[vars.emoji] = updatedReactingUsers;
-          }
-          return {
-            ...comment,
-            emojiReactionsJson: JSON.stringify(updatedReactions),
+      const reactionKey = `${vars.commentId}\u0000${vars.emoji}`;
+      const operationToken = ++reactionSequenceRef.current;
+      const state =
+        reactionStatesRef.current.get(reactionKey) ??
+        (() => {
+          const next: ReactionState = {
+            confirmedUsers: previousUsers,
+            latestToken: operationToken,
+            pending: new Map(),
           };
-        }),
+          reactionStatesRef.current.set(reactionKey, next);
+          return next;
+        })();
+      state.latestToken = operationToken;
+      state.pending.set(operationToken, { optimisticUsers });
+      patchComments((commentList) =>
+        commentList.map((comment) =>
+          comment.id === vars.commentId
+            ? {
+                ...comment,
+                emojiReactionsJson: updateReactionUsers(
+                  comment.emojiReactionsJson,
+                  vars.emoji,
+                  optimisticUsers,
+                ),
+              }
+            : comment,
+        ),
       );
       return {
         type: "reaction",
         commentId: vars.commentId,
         emoji: vars.emoji,
-        previousUsers,
-        optimisticUsers,
+        reactionKey,
+        operationToken,
       } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
-      rollbackComments(ctx);
+      reconcileReactionMutation(ctx);
     },
-    onSuccess: (data: any, vars: any) => {
-      if (!data?.reactions) return;
-      patchComments((list) =>
-        list.map((c) =>
-          c.id === vars.commentId
-            ? { ...c, emojiReactionsJson: JSON.stringify(data.reactions) }
-            : c,
-        ),
-      );
+    onSuccess: (data: any, _vars: any, ctx: any) => {
+      const users = ctx?.emoji
+        ? (data?.reactions?.[ctx.emoji] ?? [])
+        : undefined;
+      reconcileReactionMutation(ctx, Array.isArray(users) ? users : undefined);
     },
   });
 
@@ -468,10 +492,26 @@ export function CommentsPanel(props: CommentsPanelProps) {
       patchComments((list) => {
         return list.filter((comment) => !removedIds.has(comment.id));
       });
-      return { type: "remove", removed } satisfies CommentsMutationContext;
+      return {
+        type: "remove",
+        removed,
+      } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
       rollbackComments(ctx);
+    },
+    onSuccess: (data: any, _vars: any, ctx: any) => {
+      const deletedIds = Array.isArray(data?.deletedCommentIds)
+        ? data.deletedCommentIds
+        : (ctx?.removed ?? []).map((comment: Comment) => comment.id);
+      deletedIds.forEach((id: string) =>
+        successfulDeletionIdsRef.current.add(id),
+      );
+      patchComments((list) =>
+        list.filter(
+          (comment) => !successfulDeletionIdsRef.current.has(comment.id),
+        ),
+      );
     },
   });
 

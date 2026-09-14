@@ -14,7 +14,7 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -87,6 +87,10 @@ export default defineAction({
     const parentId = args.parentId ?? null;
     const now = new Date().toISOString();
 
+    if ((args.parentId === undefined) !== (args.threadId === undefined)) {
+      throw new Error("Replies must include both threadId and parentId.");
+    }
+
     // Look up recording's organization so the comment denormalizes it.
     const [rec] = await db
       .select({ organizationId: schema.recordings.organizationId })
@@ -95,6 +99,30 @@ export default defineAction({
       .limit(1);
 
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
+
+    if (args.parentId) {
+      const [parent] = await db
+        .select({
+          id: schema.recordingComments.id,
+          recordingId: schema.recordingComments.recordingId,
+          organizationId: schema.recordingComments.organizationId,
+          threadId: schema.recordingComments.threadId,
+        })
+        .from(schema.recordingComments)
+        .where(
+          and(
+            eq(schema.recordingComments.id, args.parentId),
+            eq(schema.recordingComments.recordingId, args.recordingId),
+            eq(schema.recordingComments.organizationId, rec.organizationId),
+            eq(schema.recordingComments.threadId, args.threadId!),
+          ),
+        )
+        .limit(1);
+
+      if (!parent) {
+        throw new Error("Parent comment does not belong to this recording.");
+      }
+    }
 
     const mentions = await resolveCommentMentions(
       args.mentions,
