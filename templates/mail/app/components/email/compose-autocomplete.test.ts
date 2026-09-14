@@ -10,6 +10,7 @@ import {
   getCommonPhraseCompletion,
   getComposeAutocompleteSuggestion,
   handleComposeAutocompleteKeyDown,
+  refreshComposeAutocomplete,
 } from "./compose-autocomplete";
 
 const schema = new Schema({
@@ -17,6 +18,10 @@ const schema = new Schema({
     doc: { content: "block+" },
     paragraph: { content: "text*", group: "block" },
     text: { group: "inline" },
+  },
+  marks: {
+    code: {},
+    link: { attrs: { href: {} }, inclusive: true },
   },
 });
 
@@ -188,5 +193,113 @@ describe("compose autocomplete", () => {
     const mobileView = createView(createState(mobilePlugin));
     typeText(mobilePlugin, mobileView, "Thanks");
     expect(getComposeAutocompleteSuggestion(mobileView.state)).toBeNull();
+  });
+
+  it("refreshes suggestions when the preference changes without editing the draft", () => {
+    const options = { enabled: false, isMobile: false };
+    const plugin = createComposeAutocompletePlugin(() => options);
+    const view = createView(createState(plugin));
+    typeText(plugin, view, "Thanks");
+
+    expect(getComposeAutocompleteSuggestion(view.state)).toBeNull();
+
+    options.enabled = true;
+    refreshComposeAutocomplete(view);
+    expect(getComposeAutocompleteSuggestion(view.state)?.text).toBe(
+      " for reaching out.",
+    );
+
+    options.enabled = false;
+    refreshComposeAutocomplete(view);
+    expect(getComposeAutocompleteSuggestion(view.state)).toBeNull();
+  });
+
+  it("hides a suggestion when the caret moves, a range is selected, or typing continues", () => {
+    const plugin = createComposeAutocompletePlugin(() => ({
+      enabled: true,
+      isMobile: false,
+    }));
+    const view = createView(createState(plugin));
+    typeText(plugin, view, "Thanks");
+    expect(getComposeAutocompleteSuggestion(view.state)?.text).toBe(
+      " for reaching out.",
+    );
+
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, 3)),
+    );
+    expect(getComposeAutocompleteSuggestion(view.state)).toBeNull();
+
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, 3, 5)),
+    );
+    expect(getComposeAutocompleteSuggestion(view.state)).toBeNull();
+
+    view.dispatch(
+      view.state.tr.setSelection(
+        TextSelection.create(view.state.doc, view.state.doc.content.size - 1),
+      ),
+    );
+    typeText(plugin, view, ".");
+    expect(getComposeAutocompleteSuggestion(view.state)).toBeNull();
+  });
+
+  it("does not suggest for code or linked text, or for edits that did not come from typing", () => {
+    const plugin = createComposeAutocompletePlugin(() => ({
+      enabled: true,
+      isMobile: false,
+    }));
+    const codeParagraph = schema.node("paragraph", null, [
+      schema.text("Thanks", [schema.mark("code")]),
+    ]);
+    const codeDoc = schema.node("doc", null, [codeParagraph]);
+    const codeView = createView(
+      EditorState.create({
+        doc: codeDoc,
+        selection: TextSelection.create(codeDoc, codeDoc.content.size - 1),
+        plugins: [plugin],
+      }),
+    );
+    refreshComposeAutocomplete(codeView);
+    expect(getComposeAutocompleteSuggestion(codeView.state)).toBeNull();
+
+    const linkParagraph = schema.node("paragraph", null, [
+      schema.text("Thanks", [
+        schema.mark("link", { href: "https://example.com" }),
+      ]),
+    ]);
+    const linkDoc = schema.node("doc", null, [linkParagraph]);
+    const linkView = createView(
+      EditorState.create({
+        doc: linkDoc,
+        selection: TextSelection.create(linkDoc, linkDoc.content.size - 1),
+        plugins: [plugin],
+      }),
+    );
+    refreshComposeAutocomplete(linkView);
+    expect(getComposeAutocompleteSuggestion(linkView.state)).toBeNull();
+
+    const externalView = createView(createState(plugin));
+    externalView.dispatch(externalView.state.tr.insertText("Thanks", 1));
+    expect(getComposeAutocompleteSuggestion(externalView.state)).toBeNull();
+  });
+
+  it("does not accept an active suggestion while an IME composition is in progress", () => {
+    const plugin = createComposeAutocompletePlugin(() => ({
+      enabled: true,
+      isMobile: false,
+    }));
+    const view = createView(createState(plugin));
+    typeText(plugin, view, "Thanks");
+    const event = keyboardEvent("Tab");
+    Object.defineProperty(event, "isComposing", { value: true });
+
+    expect(
+      handleComposeAutocompleteKeyDown(view, event, () => ({
+        enabled: true,
+        isMobile: false,
+      })),
+    ).toBe(false);
+    expect(view.state.doc.textContent).toBe("Thanks");
   });
 });

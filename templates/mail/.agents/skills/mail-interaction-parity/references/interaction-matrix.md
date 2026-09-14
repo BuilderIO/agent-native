@@ -289,7 +289,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   A synthetic Mail browser pass at commit `baba8a1` verified the gray preview,
   Settings and Cmd/Ctrl+K toggles, Tab acceptance, and Escape dismissal before
   the next Escape closed the unsent compose. Send stayed disabled with no
-  recipient. No Superhuman state was observed in that run.
+  recipient. No Superhuman state was observed in that run. Unit regressions in
+  `app/components/email/compose-autocomplete.test.ts` also cover preference
+  refresh, caret/range movement, continued typing, code/link marks, external
+  edits, and IME acceptance suppression; these Mail-only checks do not close
+  paired replay.
 - COMPOSE-008 — Use slash menu, generate/agent handoff, code block language
   picker, link dialog, image paste/drop/upload/failure, and toolbar
   button focus/tooltip states.
