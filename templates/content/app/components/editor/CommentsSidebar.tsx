@@ -248,6 +248,12 @@ export function findPendingCommentOffset(
 
 type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
 
+// Stable identities: a fresh `[]` default re-keys every downstream useMemo,
+// which rebuilds the anchor observers on every render.
+const NO_THREADS: CommentThread[] = [];
+const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
+
 export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
   return 80 + Math.max(0, thread.comments.length - 1) * 44;
 }
@@ -677,7 +683,7 @@ export function CommentsSidebar({
   compact = false,
   replyDrafts,
   documentId,
-  threads = [],
+  threads = NO_THREADS,
   isLoading = false,
   pendingComment,
   pendingTargetValid = true,
@@ -700,8 +706,8 @@ export function CommentsSidebar({
   canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
-  suggestions = [],
-  draftSuggestions = [],
+  suggestions = NO_SUGGESTIONS,
+  draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
   canDecideSuggestions = false,
   decidingSuggestion = false,
@@ -1105,13 +1111,16 @@ export function CommentsSidebar({
     [],
   );
 
+  // Only the presence of a pending comment moves the lane; its draft text
+  // changes on every keystroke and must not re-key the anchor observers.
+  const hasPendingComment = !!pendingComment;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container || inlineThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setPendingOffset((prev) => {
         const next =
-          pendingComment && alignToAnchors
+          hasPendingComment && alignToAnchors
             ? findPendingCommentOffset(container, sidebarRef.current)
             : null;
         return prev === next ? prev : next;
@@ -1131,7 +1140,7 @@ export function CommentsSidebar({
       if (position) positions.set(thread.threadId, position);
     }
     const nextPendingOffset =
-      pendingComment && alignToAnchors
+      hasPendingComment && alignToAnchors
         ? findPendingCommentOffset(container, layoutContainer)
         : null;
     setThreadPositions((prev) => {
@@ -1152,7 +1161,7 @@ export function CommentsSidebar({
     setPendingOffset((prev) =>
       prev === nextPendingOffset ? prev : nextPendingOffset,
     );
-  }, [alignToAnchors, inlineThreads, pendingComment, scrollContainerRef]);
+  }, [alignToAnchors, inlineThreads, hasPendingComment, scrollContainerRef]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current ?? null;
@@ -1186,7 +1195,7 @@ export function CommentsSidebar({
       window.removeEventListener("resize", schedule);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openThreadKey, pendingComment, recomputeOffsets]);
+  }, [openThreadKey, hasPendingComment, recomputeOffsets]);
 
   useEffect(() => {
     const openIds = new Set(inlineThreads.map((thread) => thread.threadId));
