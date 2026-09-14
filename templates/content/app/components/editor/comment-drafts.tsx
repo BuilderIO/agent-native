@@ -195,14 +195,14 @@ export function CommentDraftProvider({
   return (
     <CommentDraftStore
       key={`${documentId}\u0000${accountKey}`}
-      storageKey={`content-comment-status:${JSON.stringify([documentId, accountKey])}`}
+      storageKey={`content-review-status:${JSON.stringify(accountKey)}`}
     >
       {children}
     </CommentDraftStore>
   );
 }
 
-function useCommentDraftContext() {
+export function useCommentDraftContext() {
   const context = useContext(CommentDraftContext);
   if (!context) {
     throw new Error("Comment drafts require CommentDraftProvider");

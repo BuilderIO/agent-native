@@ -12,7 +12,9 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   builderCreditsFromCostCents,
   getUsageSummary,
+  isSelfScopedUsageRead,
   usageBillingForEngine,
+  usageOrgScope,
   type UsageBillingMode,
 } from "@agent-native/core/usage";
 
@@ -485,12 +487,15 @@ function usageScope(
 function withOrgUsageScope(
   scope: { where: string; args: unknown[] },
   orgId: string | null,
+  selfScoped: boolean,
 ): { where: string; args: unknown[] } {
-  const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
-  const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
+  // A no-org viewer keeps the narrow `IS NULL` scope: `usageScope` degrades to
+  // an unfiltered owner scope when it has no member emails, so dropping the
+  // org predicate there would widen the read to the whole table.
+  const org = usageOrgScope({ orgId, selfScoped });
   return {
-    where: `${scope.where} AND ${orgClause}`,
-    args: [...scope.args, ...orgArgs],
+    where: `${scope.where} AND ${org.where || "org_id IS NULL"}`,
+    args: [...scope.args, ...org.args],
   };
 }
 
@@ -539,8 +544,13 @@ function appUsageScope(
   memberEmails: string[],
   appId: string,
   orgId: string | null,
+  viewerEmail: string,
 ): { where: string; args: unknown[] } {
-  const scope = withOrgUsageScope(usageScope(sinceMs, memberEmails), orgId);
+  const scope = withOrgUsageScope(
+    usageScope(sinceMs, memberEmails),
+    orgId,
+    isSelfScopedUsageRead(memberEmails, viewerEmail),
+  );
   return {
     where: `${scope.where} AND LOWER(app) = ?`,
     args: [...scope.args, appUsageKey(appId)],
@@ -1023,17 +1033,24 @@ export async function listDispatchUsageMetrics(input: {
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
     : members.map((member) => member.email);
+  // Unattributed (`org_id IS NULL`) usage may only be admitted when the read is
+  // narrowed to the viewer's own spend. An admin-selected member or a
+  // workspace-wide roll-up must not claim rows whose organization is unknown.
+  // Classified from the effective owner list, so a one-member organization's
+  // default workspace view still counts the viewer's own unattributed spend.
+  const selfScopedUsage = isSelfScopedUsageRead(memberEmails, viewerEmail);
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
   );
   const usage =
     viewScope === "app" && selectedApp
-      ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId)
+      ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId, viewerEmail)
       : withOrgUsageScope(
           selectedUserEmail
             ? ownerScope(sinceMs, selectedUserEmail)
             : usageScope(sinceMs, memberEmails),
           orgId,
+          selfScopedUsage,
         );
   const visibleSinceMs = Math.floor(sinceMs / DAY_MS) * DAY_MS;
   const adoptionSinceMs = Math.min(
@@ -1042,12 +1059,19 @@ export async function listDispatchUsageMetrics(input: {
   );
   const adoptionUsage =
     viewScope === "app" && selectedApp
-      ? appUsageScope(adoptionSinceMs, memberEmails, selectedApp.id, orgId)
+      ? appUsageScope(
+          adoptionSinceMs,
+          memberEmails,
+          selectedApp.id,
+          orgId,
+          viewerEmail,
+        )
       : withOrgUsageScope(
           selectedUserEmail
             ? ownerScope(adoptionSinceMs, selectedUserEmail)
             : usageScope(adoptionSinceMs, memberEmails),
           orgId,
+          selfScopedUsage,
         );
   const weeklyLookbackUsage = {
     where: `${adoptionUsage.where} AND created_at < ?`,

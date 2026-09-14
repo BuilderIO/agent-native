@@ -42,9 +42,9 @@ const HOSTED_GTM_CONTAINER_ID = "GTM-N3WSTXZ";
 
 /**
  * Parse a TEMPLATES array out of a templates-meta-shaped file. Returns
- * Map<slug, { hidden: boolean }>. Hand-rolled rather than executing the
- * file because both files are TS source — running them would require
- * compilation, and a regex-level scan is plenty for this guard.
+ * Map<slug, { hidden: boolean, prodUrl: string | null }>. Hand-rolled rather
+ * than executing the file because both files are TS source — running them
+ * would require compilation, and a regex-level scan is plenty for this guard.
  */
 function parseTemplateMetaFile(absPath) {
   const src = fs.readFileSync(absPath, "utf-8");
@@ -57,7 +57,8 @@ function parseTemplateMetaFile(absPath) {
     if (!nameMatch) continue;
     const slug = nameMatch[1];
     const hidden = /\bhidden:\s*true\b/.test(block);
-    map.set(slug, { hidden });
+    const prodUrl = block.match(/\bprodUrl:\s*"([^"]+)"/)?.[1] ?? null;
+    map.set(slug, { hidden, prodUrl });
   }
   return map;
 }
@@ -96,12 +97,52 @@ for (const [slug, truthMeta] of truth.entries()) {
         `but ${SOURCE_OF_TRUTH} has hidden=${truthMeta.hidden}. Keep them in sync.`,
     );
   }
+  if (truthMeta.prodUrl !== cliMeta.prodUrl) {
+    errors.push(
+      `${CLI_DUPLICATE}: "${slug}" has prodUrl=${cliMeta.prodUrl}, ` +
+        `but ${SOURCE_OF_TRUTH} has prodUrl=${truthMeta.prodUrl}. Keep them in sync.`,
+    );
+  }
 }
 for (const slug of cli.keys()) {
   if (!truth.has(slug)) {
     errors.push(
       `${CLI_DUPLICATE}: extra entry for "${slug}" — not in ${SOURCE_OF_TRUTH}`,
     );
+  }
+}
+
+// ── 1b. A template's declared prodUrl must be the host it actually deploys
+// to. `getAppProductionUrl` falls back to this value in production, and it
+// becomes Better Auth's baseURL, the Google OAuth redirect_uri origin, and
+// every transactional link — so a stale entry sends sign-in to another
+// deployment. The MCP registry build already checks this, but only for public
+// templates, which is how a hidden template drifted onto a `netlify.app` alias
+// while its real host was `<name>.agent-native.com`.
+const PRODUCTION_SITES_PATH = "scripts/netlify-production-sites.json";
+{
+  const sites = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, PRODUCTION_SITES_PATH), "utf-8"),
+  );
+  for (const [slug, meta] of truth.entries()) {
+    const site = sites[slug];
+    if (!meta.prodUrl || !site?.host) continue;
+    let declaredHost;
+    try {
+      declaredHost = new URL(meta.prodUrl).host;
+    } catch {
+      errors.push(
+        `${SOURCE_OF_TRUTH}: "${slug}" has an unparseable prodUrl ${meta.prodUrl}.`,
+      );
+      continue;
+    }
+    if (declaredHost !== site.host) {
+      errors.push(
+        `${SOURCE_OF_TRUTH}: "${slug}" declares prodUrl host ${declaredHost}, ` +
+          `but ${PRODUCTION_SITES_PATH} deploys it to ${site.host}. ` +
+          `Sign-in redirects and email links use the declared host, so these must match.`,
+      );
+    }
   }
 }
 

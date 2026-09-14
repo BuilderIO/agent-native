@@ -34,7 +34,28 @@ import {
   readLegacyCoreRouteInitSettings,
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
+  mountApplicationStateRoutes,
 } from "./core-routes-plugin.js";
+import type { H3AppShim } from "./framework-request-handler.js";
+
+describe("mountApplicationStateRoutes", () => {
+  it("registers the compose matcher before generic application state", () => {
+    const routes: string[] = [];
+
+    const app = {
+      use(path: string, _handler: unknown) {
+        routes.push(path);
+      },
+    } as H3AppShim;
+
+    mountApplicationStateRoutes({}, "/_agent-native", app);
+
+    expect(routes).toEqual([
+      "/_agent-native/application-state/compose",
+      "/_agent-native/application-state",
+    ]);
+  });
+});
 
 describe("readLegacyCoreRouteInitSettings", () => {
   it("starts independent setting reads in parallel and isolates failures", async () => {
@@ -167,6 +188,26 @@ describe("getFrameworkEnvKeys", () => {
     expect(keys).toContain("RESEND_API_KEY");
     expect(keys).toContain("SENDGRID_API_KEY");
     expect(keys).toContain("EMAIL_FROM");
+  });
+
+  it("marks non-credential flags and addresses as non-secret", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("ENABLE_BUILDER")?.secret).toBe(false);
+    expect(byKey.get("AGENT_ENGINE_PREFER_BYO_KEY")?.secret).toBe(false);
+    expect(byKey.get("EMAIL_FROM")?.secret).toBe(false);
+  });
+
+  it("leaves API key entries as secret by default", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("RESEND_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("SENDGRID_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("ANTHROPIC_API_KEY")?.secret).toBeUndefined();
   });
 });
 

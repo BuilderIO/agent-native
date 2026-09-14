@@ -49,6 +49,25 @@ describe("sanitizeMarkup", () => {
     expect(sanitizeMarkup(input)).not.toContain("javascript:");
   });
 
+  it("strips entity-encoded executable URL schemes", () => {
+    const input =
+      '<a href="javascript&colon;alert(1)">link</a>' +
+      '<img src="&#x6a;avascript&colon;alert(2)">' +
+      '<button formaction="java&#x09;script:alert(3)">submit</button>';
+    const result = sanitizeMarkup(input);
+
+    expect(result).toBe("<a>link</a><img><button>submit</button>");
+  });
+
+  it("keeps URL attributes whose decoded schemes are allow-listed", () => {
+    const input =
+      '<a href="https://example.test/docs?a=1&amp;b=2">docs</a>' +
+      '<img src="/assets/logo.png">' +
+      '<form action="mailto:hello@example.test"><button>mail</button></form>';
+
+    expect(sanitizeMarkup(input)).toBe(input);
+  });
+
   it("strips data: src", () => {
     const input = '<img src="data:text/html,<script>alert(1)</script>">';
     expect(sanitizeMarkup(input)).not.toContain('src="data:');

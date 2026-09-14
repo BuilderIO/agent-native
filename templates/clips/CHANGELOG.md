@@ -3,11 +3,33 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-10
+
+### Fixed
+
+- Builder and other MCP connections now open setup in a new tab.
+
 ## 2026-09-09
 
 ### Improved
 
 - Attendee and viewer avatars use a slimmer border.
+
+### Fixed
+
+- The Agent sidebar now fits below the app toolbar without clipping its composer.
+- Desktop recorder switches now keep their checked state clear and legible in dark mode.
+- Recording pages now open the same contextual Agent panel used throughout the app.
+
+## 2026-09-08
+
+### Improved
+
+- The Cmd+K command menu now searches and navigates across recordings, meetings, dictations, folders, and spaces.
+
+### Fixed
+
+- Fixed desktop comment threads by keeping them in a full-height viewer tab, polished the side-panel tabs and spacing, added move, minimize, and close controls to desktop Clips windows, corrected the shared New recording action’s split-button corners, made library sub-item selection clear in the sidebar, and added visible folder tiles plus scoped recording actions to library and space views.
 
 ## 2026-09-04
 

@@ -54,6 +54,8 @@ configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-clips",
+    app_name: "clips",
+    template_name: "clips",
   }),
 });
 

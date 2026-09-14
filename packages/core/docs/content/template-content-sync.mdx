@@ -105,7 +105,7 @@ Ask the agent: "Is Notion connected?", "Link this doc to Notion," "Pull the late
 
 If your workspace has Builder.io configured, Content can pull a Builder docs or blog entry in as an editable document, complete with its `.builder.mdx` source file and any raw sidecar files Builder needs to reconstruct the entry. Edit it like any other Content document, then push it back through a guarded autosave — pushes currently target Builder's designated safe test model rather than every model, so a push can't accidentally overwrite production content you didn't intend to touch.
 
-Builder CMS models can also be attached as read-only inline-database sources — see [Databases, properties & forms](/docs/template-content-databases#connecting-an-external-source) for that workflow, which is a separate path from pulling/pushing a single document.
+Builder CMS models can also be attached as read-only inline-collection sources — see [Collections, properties & forms](/docs/template-content-databases#connecting-an-external-source) for that workflow, which is a separate path from pulling/pushing a single document.
 
 <Callout tone="warning">
 
@@ -113,9 +113,9 @@ Builder pulls can preserve provider-native blocks Content doesn't have a Markdow
 
 </Callout>
 
-## Spaces and the Files database underneath every sync surface
+## Spaces and the Files collection underneath every sync surface
 
-Every document belongs to a **space** — your personal space, or one shared with your organization — and every space owns one canonical Files database. A local folder, once connected, is a source attached to that Files database rather than a separate storage system, which is why imported files show up as normal pages with the same properties, sharing, and search as anything you typed by hand.
+Every document belongs to a **space** — your personal space, or one shared with your organization — and every space owns one canonical Files collection. A local folder, once connected, is a source attached to that Files collection rather than a separate storage system, which is why imported files show up as normal pages with the same properties, sharing, and search as anything you typed by hand.
 
 <FileTree
   id="doc-block-content7"
@@ -144,6 +144,6 @@ Every document belongs to a **space** — your personal space, or one shared wit
 
 - [Content overview](/docs/template-content) — what the app is and how to get started
 - [Writing & organizing documents](/docs/template-content-editing) — the editor and sharing model these synced documents use
-- [Databases, properties & forms](/docs/template-content-databases) — syncing rows inside a database, rather than whole documents
+- [Collections, properties & forms](/docs/template-content-databases) — syncing rows inside a collection, rather than whole documents
 - [Local folder sources](/docs/template-content-local-files) — full configuration, truth policies, and conflict handling reference
 - [Developer Guide](/docs/template-content-developers) — the full sync action inventory and data model

@@ -4,6 +4,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -297,6 +298,20 @@ export default defineAction({
       } catch (error) {
         console.error("edit-document: agent presence publish failed", error);
       }
+      if (result.applied > 0) {
+        track(
+          "ai_refine_used",
+          {
+            app_name: "content",
+            template_name: "content",
+            output_id: id,
+            output_type: "document",
+            edit_count: result.applied,
+            refine_type: "exact_replace",
+          },
+          ctx,
+        );
+      }
       return result;
     }
 
@@ -524,6 +539,21 @@ export default defineAction({
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (isAgentCaller && changeCount > 0) {
+      track(
+        "ai_refine_used",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: id,
+          output_type: "document",
+          edit_count: changeCount,
+          refine_type: "exact_replace",
+        },
+        ctx,
+      );
+    }
 
     return {
       applied: changeCount,

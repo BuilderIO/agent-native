@@ -1179,6 +1179,24 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("drops an unscoped absence claim after corpus retries are exhausted", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          'Find any closed won deal in HubSpot where products = "fusion", then for all those deals look through all Gong call transcripts after close and let me know if you surface anything around Figma MCP.',
+        draftText: "I found zero mentions.",
+        toolResults: [{ name: "bigquery", isError: false, content: "[]" }],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      fallbackMessage: expect.stringContaining("exact inspected count"),
+    });
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
+  });
+
   it("treats a completed catalog/dashboard-reference search as discovery, not a dead end", () => {
     const result = realDataFinalGuard(
       guardContext({

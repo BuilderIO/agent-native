@@ -464,6 +464,27 @@ describe("ShareButton", () => {
     expect(trigger?.querySelector("svg")).toBeFalsy();
   });
 
+  it("allows an explicit compact trigger while preserving the Share label", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="chat_thread"
+            resourceId="thread-1"
+            triggerContent={<span data-share-icon="">↗</span>}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const trigger = container.querySelector(
+      'button[aria-label="Share"]',
+    ) as HTMLButtonElement | null;
+
+    expect(trigger?.querySelector("[data-share-icon]")).not.toBeNull();
+    expect(trigger?.getAttribute("title")).toBe("Share");
+  });
+
   it("renders the label trigger as text only regardless of visibility", async () => {
     sharesData.current = {
       ownerEmail: "owner@example.com",

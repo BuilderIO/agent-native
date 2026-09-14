@@ -203,6 +203,13 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
       /\.code-agents-nav-list\s*\{[\s\S]*?padding-inline: var\(--code-agents-rail-gutter\);/,
     );
   });
+
+  it("lets the desktop toolbar clear the selected chat", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+
+    expect(source).toContain('"agent-native:desktop-new-chat"');
+    expect(source).toContain("openSelectedGoalRef.current();");
+  });
 });
 
 describe("CodeAgentsApp transcript selection", () => {

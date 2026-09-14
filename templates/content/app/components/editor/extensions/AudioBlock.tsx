@@ -164,13 +164,15 @@ export function AudioBlock({
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<AudioResizeState | null>(null);
   const hoverHideTimeoutRef = useRef<number | null>(null);
-  const isEditable = editor.isEditable;
+  const options = extension.options as ContentAudioOptions;
+  const canMutateMediaNow = () =>
+    editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const isUploading = Boolean(node.attrs.uploadId);
   const width = normalizedAudioWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
-  const options = extension.options as ContentAudioOptions;
 
   function clearHoverHideTimeout() {
     if (hoverHideTimeoutRef.current === null) return;
@@ -234,6 +236,7 @@ export function AudioBlock({
   }
 
   function openReplacePanel() {
+    if (!canMutateMediaNow()) return;
     setSourceTab("upload");
     setAudioUrl("");
     setSourcePanelDismissed(false);
@@ -250,6 +253,7 @@ export function AudioBlock({
   }
 
   function insertTranscriptPlaceholder() {
+    if (!canMutateMediaNow()) return null;
     if (!editor.schema.nodes.notionToggle) return null;
     const position = typeof getPos === "function" ? getPos() : null;
     if (typeof position !== "number") return null;
@@ -273,6 +277,7 @@ export function AudioBlock({
   }
 
   function handleTranscribe() {
+    if (!canMutateMediaNow()) return;
     const documentId = options.documentId;
     if (!documentId) {
       toast.error(t("editor.media.currentDocumentMissing"));
@@ -337,6 +342,7 @@ export function AudioBlock({
     event: ReactPointerEvent<HTMLButtonElement>,
     direction: ResizeDirection,
   ) {
+    if (!canMutateMediaNow()) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = mediaBlockRef.current?.getBoundingClientRect();
@@ -375,7 +381,7 @@ export function AudioBlock({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setDragWidth((currentWidth) => {
-        if (currentWidth) {
+        if (currentWidth && canMutateMediaNow()) {
           updateAttributes({ width: currentWidth });
         }
         return null;
@@ -395,11 +401,15 @@ export function AudioBlock({
   async function handleAudioFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file) return;
+    if (!file || !canMutateMediaNow()) return;
 
     const toastId = toast.loading(t("editor.media.uploadingAudio"));
     try {
       const nextSrc = await uploadAudioFile(file);
+      if (editor.isDestroyed || !canMutateMediaNow()) {
+        toast.error(t("empty.genericError"), { id: toastId });
+        return;
+      }
       updateAttributes({ src: nextSrc });
       setSourcePanelOpen(false);
       toast.success(t("editor.media.audioAdded"), { id: toastId });
@@ -410,6 +420,7 @@ export function AudioBlock({
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canMutateMediaNow()) return;
     const nextSrc = audioUrl.trim();
     if (!nextSrc) return;
 
@@ -752,7 +763,7 @@ export function AudioBlock({
                     role="menuitem"
                     onClick={() => {
                       setMoreMenuOpen(false);
-                      deleteNode();
+                      if (canMutateMediaNow()) deleteNode();
                     }}
                   >
                     <span
@@ -767,6 +778,26 @@ export function AudioBlock({
               </Popover>
             </div>
           </>
+        ) : editor.isEditable && options.onAudioComment ? (
+          <div
+            className="media-block__toolbar"
+            data-visible={isHovered ? "true" : undefined}
+            aria-hidden={!isHovered}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleComment}
+                  className="media-block__toolbar-btn"
+                  aria-label={t("editor.media.commentOnAudio")}
+                >
+                  <IconMessageCircle size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("editor.comment")}</TooltipContent>
+            </Tooltip>
+          </div>
         ) : null}
 
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}

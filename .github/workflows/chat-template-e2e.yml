@@ -13,8 +13,35 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    name: Determine AgentKit acceptance scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Test change scope classifier
+        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
+
+      - name: Classify changed paths
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node --experimental-strip-types scripts/ci-change-scope.ts
+
   standalone-chat:
     name: Generate + run standalone Chat
+    needs: change-scope
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -22,7 +49,24 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Validate AgentKit acceptance selection
+        env:
+          AGENTKIT_ACCEPTANCE: ${{ needs.change-scope.outputs.agentkit_acceptance }}
+        run: |
+          case "$AGENTKIT_ACCEPTANCE" in
+            true|false) ;;
+            *)
+              echo "::error::AgentKit acceptance selection is missing or invalid: '$AGENTKIT_ACCEPTANCE'"
+              exit 1
+              ;;
+          esac
+
+      - name: Record selective acceptance skip
+        if: needs.change-scope.outputs.agentkit_acceptance == 'false'
+        run: echo "Standalone AgentKit Chat acceptance is not required for this change set."
+
       - name: Free disk for generated app and browser
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
         run: |
           df -h
           sudo rm -rf \
@@ -39,20 +83,25 @@ jobs:
           df -h
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
         with:
           node-version: "22"
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
         uses: ./.github/actions/restore-dist-cache
 
       # postinstall rebuilds any stale/missing dists, including the local CLI
       # used by qa:standalone-chat-dev.
-      - run: pnpm install --frozen-lockfile
+      - if: needs.change-scope.outputs.agentkit_acceptance == 'true'
+        run: pnpm install --frozen-lockfile
 
       - name: Restore Playwright browser cache
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -60,14 +109,21 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
         run: pnpm exec playwright install --only-shell chromium
 
-      - name: Generate, install, and run standalone Chat
-        # Covers the public Chat CLI path and the Vite dev SSR/browser runtime
-        # that production builds do not exercise.
-        run: pnpm qa:standalone-chat-dev
+      - name: Pack and launch an isolated AgentKit consumer
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
+        run: pnpm qa:agentkit-packages
+
+      - name: Generate, install, and exercise standalone AgentKit Chat
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
+        # Covers the public Chat CLI path, the complete local AgentKit package
+        # graph, Vite dev SSR, and the browser interaction lifecycle.
+        run: pnpm qa:agentkit-chat-acceptance
 
       - name: Cross-surface sign-in matrix
+        if: needs.change-scope.outputs.agentkit_acceptance == 'true'
         # Boots the Chat template at the root base path and again under
         # /chatapp, and drives the real login document. A matrix nobody runs
         # stops nothing — the request-level half of this matrix ships as a

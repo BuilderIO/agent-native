@@ -989,6 +989,63 @@ describe("mountActionRoutes", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("allows a matching capability on a frontend action request", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestAuthCapability } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      caller: context?.caller,
+      userEmail: context?.userEmail,
+      authCapability: getRequestAuthCapability(),
+    }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "update-screen-source": {
+          http: { method: "POST" },
+          requiresAuth: true,
+          capabilityScopes: ["visual-edit"],
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/update-screen-source",
+          json: async () => ({ designId: "design_1", fileId: "file_1" }),
+        },
+      }),
+    ).resolves.toEqual({
+      caller: "frontend",
+      userEmail: undefined,
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("allows HEAD for GET actions", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -3067,6 +3124,72 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(privateRun).not.toHaveBeenCalled();
+  });
+
+  it("filters signed-out WebMCP actions to the matching capability scope", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthorized"), {
+      statusCode: 401,
+    });
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "visual-edit": {
+          tool: { description: "Visual edit", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["visual-edit"],
+        } as any,
+        "other-capability": {
+          tool: { description: "Other capability", parameters: {} },
+          run: vi.fn(),
+          capabilityScopes: ["other"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "visual-edit",
+        title: "Visual edit",
+        description: "Visual edit",
+        inputSchema: {},
+        readOnly: false,
+      },
+    ]);
+
+    const otherRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/other-capability",
+    );
+    await expect(
+      otherRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
   });
 
   it("does not treat a synthetic anonymous owner as authenticated", async () => {

@@ -1,3 +1,4 @@
+import { PROVIDER_TRANSIENT_REJECTION_ERROR_CODE } from "./error-detail.js";
 import { PROVIDER_ENV_VARS } from "./provider-env-vars.js";
 
 export const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
@@ -70,6 +71,10 @@ export function isLlmCredentialError(
   // "We could not read the credential store" is a retryable failure, not a
   // setup problem. Telling this user to connect a provider is the bug.
   if (code === CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE) return false;
+  // A 403 the gateway itself couldn't explain is load-shedding, not a
+  // rejected key — `http_403` below stays a credential error for every OTHER
+  // source of a structured 403.
+  if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return false;
   if (LLM_REJECTED_CREDENTIAL_ERROR_CODES.has(code.toLowerCase())) return true;
 
   const message = getErrorMessage(error);

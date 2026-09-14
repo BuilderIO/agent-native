@@ -24,6 +24,9 @@ const messages = {
       extensions: "拡張機能",
       noteToSelf: "自分へのメモ",
     },
+    inbox: {
+      syncing: "受信トレイを同期中…",
+    },
     toolbar: {
       toggleMenu: "メニューを切り替え",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "サイドバーを固定",
       unpinSidebar: "サイドバーの固定を解除",
+      closeSidebar: "サイドバーを閉じる",
       settings: "設定",
     },
     search: {
@@ -86,6 +90,8 @@ const messages = {
       cancel: "キャンセル",
       code: "コード",
       deleteDraft: "下書きを削除",
+      deleteDrafts: "下書きを削除",
+      reopenDraft: "再度開く",
       discardDraft: "下書きを破棄",
       enterLinkUrl: "リンクの URL を入力してください。",
       forward: "Forward",
@@ -281,6 +287,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "画像のアップロードに失敗しました",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "メッセージを送信しました。",
+      failedToSaveDraft: "下書きを保存できませんでした。",
+      failedToDeleteDraft: "下書きを削除できませんでした。",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -293,6 +302,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "下書きを閉じました。",
+      draftsClosed: "{{count}} 件の下書きを閉じました。",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -314,6 +325,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "読み込めません: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google アカウントを接続",

@@ -154,13 +154,16 @@ function loadSnapMath(): {
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
 
-// Both functions read only their arguments, so a single brace-extracted
-// declaration evaluates in isolation.
-function loadPureBridgeFn<T>(name: string): T {
+// These functions read only their arguments (plus, for dragTargetForPointerDown,
+// the containerScopeAncestor helper it calls), so brace-extracted declarations
+// evaluate in isolation without the bridge's DOM-wiring body.
+function loadPureBridgeFn<T>(name: string, dependencies: string[] = []): T {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
-  const src = extractFunction(editorChromeBridgeScript, name);
+  const sources = [...dependencies, name].map((fnName) =>
+    extractFunction(editorChromeBridgeScript, fnName),
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const factory = new Function(`${src}\nreturn ${name};`);
+  const factory = new Function(`${sources.join("\n")}\nreturn ${name};`);
   return factory() as T;
 }
 
@@ -182,7 +185,7 @@ interface DragTargetArgs {
 }
 const dragTargetForPointerDown = loadPureBridgeFn<
   (args: DragTargetArgs) => unknown
->("dragTargetForPointerDown");
+>("dragTargetForPointerDown", ["containerScopeAncestor"]);
 const nextStackCandidate =
   loadPureBridgeFn<(keys: string[], current: string | null) => string | null>(
     "nextStackCandidate",
@@ -208,6 +211,22 @@ describe("editor-chrome bridge — dragTargetForPointerDown", () => {
         selectedAlive: true,
         selectedRect: null,
         hitEl,
+        hitRaw,
+        point: { x: 0, y: 0 },
+        preferSelected: false,
+      }),
+    ).toBe(selectedEl);
+  });
+
+  it("keeps the container when the hit is its own background", () => {
+    const hitRaw = { tag: "bg" };
+    const selectedEl = { tag: "sel", contains: (x: unknown) => x === hitRaw };
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: null,
+        hitEl: selectedEl,
         hitRaw,
         point: { x: 0, y: 0 },
         preferSelected: false,
@@ -355,7 +374,7 @@ describe("editor-chrome bridge — nextStackCandidate", () => {
 function loadSelectionTargetForHit(documentRoot: {
   body: Element;
   documentElement: Element;
-}): (hit: Element | null) => Element | null {
+}): (hit: Element | null, descendIntoGroup?: boolean) => Element | null {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
   const rootCheck = extractFunction(
     editorChromeBridgeScript,
@@ -369,10 +388,14 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "outermostSvgAncestor",
   );
+  const textOverlay = extractFunction(
+    editorChromeBridgeScript,
+    "unwrapTextOverlay",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${textOverlay}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }
@@ -428,6 +451,108 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     expect(selectionTargetForHit(child)).toBe(child);
   });
 
+  it("selects an explicit group on first click and descends on double-click", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const group = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-group-wrapper"
+            ? "true"
+            : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: group,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(group);
+    expect(selectionTargetForHit(child, true)).toBe(child);
+  });
+
+  it("selects a renamed generated group by its marker", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const group = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Illustrations"
+          : name === "data-agent-native-group-wrapper"
+            ? "true"
+            : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: group,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(group);
+  });
+
+  it("recognizes a legacy generated group without promoting authored clones", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const legacyGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group 2"
+          : name === "data-agent-native-node-id"
+            ? "an-legacygroup"
+            : name === "data-agent-native-preserve-styles"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: legacyGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const copiedGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-node-id"
+            ? "copy-authored-group"
+            : name === "data-agent-native-preserve-styles" ||
+                name === "data-agent-native-clone-root"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const copiedChild = {
+      parentElement: copiedGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const oldCopiedGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-node-id"
+            ? "copy-old-authored-group"
+            : name === "data-agent-native-preserve-styles"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const oldCopiedChild = {
+      parentElement: oldCopiedGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(legacyGroup);
+    expect(selectionTargetForHit(copiedChild)).toBe(copiedChild);
+    expect(selectionTargetForHit(oldCopiedChild)).toBe(oldCopiedChild);
+  });
+
   it("promotes a hit on svg geometry to the outermost svg, whose box is not 0-height", () => {
     const selectionTargetForHit = loadSelectionTargetForHit({
       body: {} as Element,
@@ -437,6 +562,36 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     const path = { ownerSVGElement: svg } as unknown as Element;
 
     expect(selectionTargetForHit(path)).toBe(svg);
+  });
+
+  it("selects the button, not the editor's own text wrapper inside it", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const button = {
+      getAttribute: () => "e2e-component-button",
+    } as unknown as Element;
+    const wrapper = {
+      hasAttribute: (name: string) => name === "data-an-text",
+      parentElement: button,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(wrapper)).toBe(button);
+  });
+
+  it("keeps a wrapper whose parent is the document root selectable", () => {
+    const body = {} as Element;
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body,
+      documentElement: {} as Element,
+    });
+    const wrapper = {
+      hasAttribute: (name: string) => name === "data-an-text",
+      parentElement: body,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(wrapper)).toBe(wrapper);
   });
 
   it("promotes through a nested svg to the outermost one", () => {

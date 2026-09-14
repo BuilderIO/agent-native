@@ -4,6 +4,7 @@ const assertAccessMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 const completeVideoGenerationRunMock = vi.hoisted(() => vi.fn());
 const upsertVariantSlotMock = vi.hoisted(() => vi.fn());
+const trackMock = vi.hoisted(() => vi.fn());
 const updateSetCalls = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 
 const schemaMock = vi.hoisted(() => ({
@@ -21,6 +22,10 @@ const libraryAccessMock = vi.hoisted(() =>
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: trackMock,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -56,7 +61,9 @@ vi.mock("../server/lib/library-access.js", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
+  ne: vi.fn((column, value) => ({ op: "ne", column, value })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -98,9 +105,11 @@ import action from "./refresh-generation-run.js";
 function createDb({
   run,
   assets,
+  completionClaims = Number.POSITIVE_INFINITY,
 }: {
   run: Record<string, unknown>;
   assets: Array<Record<string, unknown>>;
+  completionClaims?: number;
 }) {
   const rowsForTable = (table: unknown) =>
     table === schemaMock.assetGenerationRuns ? [run] : assets;
@@ -121,8 +130,17 @@ function createDb({
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => ({
-        where: vi.fn(async () => {
+        where: vi.fn(() => {
           updateSetCalls.push(values);
+          return {
+            returning: vi.fn(async () => {
+              if (values.status !== "completed" || completionClaims <= 0) {
+                return [];
+              }
+              completionClaims -= 1;
+              return [{ ...run, ...values }];
+            }),
+          };
         }),
       })),
     })),
@@ -134,6 +152,7 @@ describe("refresh-generation-run", () => {
     vi.clearAllMocks();
     libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     updateSetCalls.length = 0;
+    trackMock.mockReset();
     assertAccessMock.mockResolvedValue(undefined);
     upsertVariantSlotMock.mockResolvedValue(undefined);
   });
@@ -231,6 +250,41 @@ describe("refresh-generation-run", () => {
         assetId: "asset-1",
         previewUrl: "/api/assets/asset-1/content",
       }),
+    );
+  });
+
+  it("emits image completion once when refreshes race", async () => {
+    getDbMock.mockReturnValue(
+      createDb({
+        run: {
+          id: "run-3",
+          libraryId: "library-1",
+          ownerEmail: "author@example.test",
+          collectionId: null,
+          presetId: null,
+          sessionId: null,
+          prompt: "Hero image",
+          mediaType: "image",
+          status: "pending",
+          error: null,
+          metadata: JSON.stringify({ slotId: "hero-slot" }),
+          createdAt: "2026-05-28T11:59:30.000Z",
+        },
+        assets: [{ id: "asset-1" }],
+        completionClaims: 1,
+      }),
+    );
+
+    await Promise.all([
+      action.run({ runId: "run-3" }),
+      action.run({ runId: "run-3" }),
+    ]);
+
+    expect(trackMock).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledWith(
+      "media_generated",
+      expect.objectContaining({ output_id: "asset-1" }),
+      undefined,
     );
   });
 });

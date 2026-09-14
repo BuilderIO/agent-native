@@ -1,11 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Sweep the newest Slack, GitHub issue, and Sentry feedback: first answer the
-  reporters who answered you, then fix clear verified repo bugs at the owning
-  boundary, build the UX and feature requests the invoking user endorsed with
-  an :upvote:, reply only where the reply carries information, and recap every
-  disposition. Use for scheduled or manual feedback sweeps.
+  Sweep recent Slack, GitHub issue, and Sentry feedback: first answer reporters,
+  then fix verified bugs and actionable design/UX feedback at the owning
+  boundary, build other feature requests the invoking user endorsed with an
+  :upvote:, and recap every disposition. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -236,18 +235,22 @@ Use the workspace's product feedback channel; here that is
 `#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
 another.
 
-**Clear bugs only.** A clear bug has observable broken behavior: a click or
-submit does nothing, an action errors, data is lost or reverted, the result is
-wrong, or a working flow regressed. A credible "nothing happens" is valid
-evidence — inspect the owning path before doubting the reporter.
+**Defects and design feedback.** A clear bug has observable broken behavior: a
+click or submit does nothing, an action errors, data is lost or reverted, the
+result is wrong, or a working flow regressed. A credible "nothing happens" is
+valid evidence — inspect the owning path before doubting the reporter.
 
-Do not react, reply, question, or change code for a preference, product idea,
-copy or layout suggestion, praise, status update, merge or review request, bot
-forward, duplicate, or anything else. Design feedback, including Design clips
-and imported-design usability, goes to Sid. Content belongs to Alice. Never
-turn a subjective concern into a poll about which option people prefer.
+Do not change code for an unrelated product idea, praise, status update, merge
+or review request, bot forward, duplicate, or work outside the invocation's
+ownership. Design/UX feedback about an existing surface is in scope even when
+it describes visual quality or a subjective critique rather than functional
+breakage. Treat a concrete critique or requested improvement as authorization:
+choose a coherent treatment, verify it visually, and do not block on an upvote
+or ask the reporter to pick from variants. Requests for a new capability still
+follow the invoking identity's `:upvote:` gate. Content remains Alice's area
+unless the invocation claims it.
 
-### `:upvote:` overrides the clear-bug gate
+### `:upvote:` authorizes feature requests
 
 An `:upvote:` from **the invoking identity** - not from anyone else - promotes
 an otherwise out-of-scope item into scope and authorizes the work. It is the

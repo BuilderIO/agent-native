@@ -130,7 +130,8 @@ describe("direct recording route shell cue", () => {
     expect(toolbar).not.toContain("renderSidebarToggleButton()");
     expect(toolbar).not.toContain("renderPanelTabs()");
     expect(route).toContain("<ViewerTabsList");
-    expect(route).toContain('<ViewerTabsTrigger value="comments">');
+    expect(route).toContain('value="comments"');
+    expect(route).toContain('useState<SidePanel | null>("comments")');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
     expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
     expect(route).toContain('<ViewerTabsTrigger value="debug">');
@@ -285,5 +286,72 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("recording.hasPassword === true");
     expect(route).toContain("const shouldFallbackToShare =");
     expect(route).toContain("playerDataUnauthorized && !session");
+  });
+
+  it("opens ?panel=comments even while the recording is still loading", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const effectStart = route.indexOf('if (panelParam === "comments") {');
+    const effectEnd = route.indexOf("return;", effectStart);
+    const effect = route.slice(effectStart, effectEnd);
+
+    // recording is undefined on the render before get-recording-player-data
+    // resolves. Gating on `recording?.enableComments` alone reads that as
+    // falsy and drops the jump-to-comment link into "transcript" before the
+    // data ever loads. Only the loaded-and-disabled case should fall back.
+    // oxfmt may wrap the setPanel(...) call across lines, so match on the
+    // normalized (whitespace-collapsed) source instead of an exact literal.
+    const normalizedEffect = effect.replace(/\s+/g, " ");
+    expect(normalizedEffect).not.toContain(
+      'setPanel(recording?.enableComments ? "comments" : "transcript")',
+    );
+    expect(normalizedEffect).toContain(
+      'setPanel( recording && !recording.enableComments ? "transcript" : "comments", )',
+    );
+  });
+
+  it("keeps the mobile comments tab scrollable inside its fixed-height rail", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const commentsSectionStart = route.indexOf(
+      "const renderCommentsSection = (compact = false) =>",
+    );
+    const commentsSection = route.slice(
+      commentsSectionStart,
+      route.indexOf("const renderSidePanel", commentsSectionStart),
+    );
+
+    // The compact (mobile) section sits inside a fixed h-[min(420px,55dvh)]
+    // RecordingSidePanel. Without overflow-hidden here, comments past that
+    // height were clipped instead of scrolling into view.
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"',
+    );
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
+    );
+  });
+
+  it("badges the Debug tab with an unviewed count instead of an always-on dot", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const debugTabStart = route.indexOf('<ViewerTabsTrigger value="debug">');
+    const debugTab = route.slice(
+      debugTabStart,
+      route.indexOf("</ViewerTabsTrigger>", debugTabStart),
+    );
+
+    expect(debugTabStart).toBeGreaterThan(-1);
+    expect(route).toContain(
+      'import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";',
+    );
+    expect(route).toContain("const unviewedDebugEventCount =");
+    expect(route).toContain('panel === "debug",');
+    expect(debugTab).toContain("unviewedDebugEventCount > 0");
+    expect(debugTab).toContain("<Badge");
+    expect(debugTab).toContain('variant="secondary"');
+    expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
+    expect(debugTab).toContain("{unviewedDebugEventCount}");
+    // The old always-on failure dot must be gone: it never cleared and fired
+    // on console warnings, which are present on nearly every recording.
+    expect(route).not.toContain("hasBrowserDiagnosticFailures");
+    expect(route).not.toContain("browserDiagnostics.failuresPresent");
   });
 });

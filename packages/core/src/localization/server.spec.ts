@@ -92,6 +92,16 @@ describe("localization server helpers", () => {
     });
   });
 
+  it("initializes Traditional Chinese for a script-and-region alias", () => {
+    new Function(getLocaleInitScript({ locale: "zh-Hant-HK" }))();
+
+    expect(document.documentElement.getAttribute("lang")).toBe("zh-TW");
+    expect(readHydrationPayload()).toMatchObject({
+      locale: "zh-TW",
+      dir: "ltr",
+    });
+  });
+
   it("initializes a registered locale from metadata before hydration", () => {
     new Function(
       getLocaleInitScript({

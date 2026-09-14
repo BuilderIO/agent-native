@@ -149,7 +149,7 @@ export function runEnterSingleScreen(
     screenZoomByIdRef.current,
     FOCUSED_SCREEN_ZOOM,
   );
-  runEditorViewTransition(() => {
+  const enterScreen = () => {
     if (fileId) setActiveFileId(fileId);
     setDrawMode(false);
     setPinMode(false);
@@ -164,5 +164,13 @@ export function runEnterSingleScreen(
       height: nextInteractDevice.height,
     });
     setViewMode("single");
-  });
+  };
+
+  // The root snapshot keeps the old right inspector above Interact's new top
+  // bar during the cross-fade, briefly covering its actions and dimensions.
+  if (entryMode === "interact") {
+    enterScreen();
+  } else {
+    runEditorViewTransition(enterScreen);
+  }
 }

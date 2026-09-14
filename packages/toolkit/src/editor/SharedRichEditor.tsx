@@ -1,5 +1,6 @@
 import type { Extension, Node, Mark } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
+import type { StarterKitOptions } from "@tiptap/starter-kit";
 import { useEffect, useMemo, useRef } from "react";
 import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
@@ -77,6 +78,12 @@ export interface SharedRichEditorProps {
    * existing embedder is unchanged.
    */
   disableHistory?: boolean;
+  /**
+   * Extra StarterKit options merged over the shared defaults (see
+   * {@link CreateSharedEditorExtensionsOptions.starterKit}), e.g.
+   * `{ trailingNode: false }` for a host that edits one bounded block.
+   */
+  starterKit?: Partial<StarterKitOptions>;
   /** Override the slash-menu block command list. */
   slashItems?: SlashCommandItem[];
   /** Override the bubble-toolbar item builder. */
@@ -122,6 +129,13 @@ export interface SharedRichEditorProps {
    * per-region patch can't express, since the change is in the root doc itself.
    */
   onEditorReady?: (editor: import("@tiptap/react").Editor) => void;
+  /**
+   * Render with no shared typography or wrapper box, so the editor inherits its
+   * host element's styles exactly (Slides edits canvas text in place). The
+   * wrapper collapses to `display: contents` and the editor root gets
+   * `an-rich-md-unstyled` instead of `an-rich-md-prose`. Read once at mount.
+   */
+  unstyled?: boolean;
 }
 
 /**
@@ -157,6 +171,7 @@ export function SharedRichEditor({
   awareness = null,
   user = null,
   disableHistory = false,
+  starterKit,
   slashItems,
   buildBubbleItems,
   getMarkdown,
@@ -167,6 +182,7 @@ export function SharedRichEditor({
   initialAppliedUpdatedAt,
   wrapperClassName,
   onEditorReady,
+  unstyled = false,
 }: SharedRichEditorProps) {
   const readMarkdown = getMarkdown ?? getEditorMarkdown;
   const onChangeRef = useRef(onChange);
@@ -202,6 +218,7 @@ export function SharedRichEditor({
         onImageUpload,
         collab: ydoc ? { ydoc, awareness, user } : null,
         disableHistory,
+        starterKit,
       }),
     // `preset` is retained in the dependency list so future preset-specific
     // schema branches re-create the editor; it is currently schema-neutral. The
@@ -221,6 +238,7 @@ export function SharedRichEditor({
       user?.email,
       user?.color,
       disableHistory,
+      starterKit,
     ],
   );
 
@@ -255,7 +273,10 @@ export function SharedRichEditor({
       editable,
       editorProps: {
         attributes: {
-          class: cn("an-rich-md-prose", editorClassName),
+          class: cn(
+            unstyled ? "an-rich-md-unstyled" : "an-rich-md-prose",
+            editorClassName,
+          ),
           ...(ariaLabel ? { role: "textbox", "aria-label": ariaLabel } : {}),
         },
       },
@@ -324,7 +345,11 @@ export function SharedRichEditor({
   if (!editor) {
     return (
       <div
-        className={cn("an-rich-md-wrapper an-rich-md-loading", className)}
+        className={cn(
+          "an-rich-md-wrapper an-rich-md-loading",
+          unstyled && "an-rich-md-wrapper--unstyled",
+          className,
+        )}
         data-plan-interactive={interactive ? true : undefined}
       />
     );
@@ -335,6 +360,7 @@ export function SharedRichEditor({
       className={cn(
         "an-rich-md-wrapper an-rich-md-clickable",
         !editable && "an-rich-md-wrapper--readonly",
+        unstyled && "an-rich-md-wrapper--unstyled",
         wrapperClassName,
         className,
       )}
@@ -347,7 +373,7 @@ export function SharedRichEditor({
       {editable ? (
         <SlashCommandMenu editor={editor} items={effectiveSlashItems} />
       ) : null}
-      <EditorContent editor={editor} />
+      <EditorContent editor={editor} className="an-rich-md-content" />
     </div>
   );
 }

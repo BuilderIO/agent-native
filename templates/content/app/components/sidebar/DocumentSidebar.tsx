@@ -7,10 +7,12 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebarFooter,
+  AppSidebarHeader,
+  FeedbackButton,
+} from "@agent-native/core/client/ui";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,
@@ -25,7 +27,6 @@ import {
   IconArrowsSort,
   IconPlus,
   IconRestore,
-  IconSearch,
   IconSettings,
   IconPin,
   IconTrashX,
@@ -1884,14 +1885,14 @@ export function DocumentSidebar({
     <Link
       to="/settings"
       className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs",
         settingsActive
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          ? "bg-primary/10 font-medium text-primary"
+          : "text-primary hover:bg-accent/60",
       )}
     >
-      <IconSettings size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">
+      <IconSettings className="size-4 shrink-0 text-primary" />
+      <span className="min-w-0 flex-1 truncate text-start text-primary">
         {t("navigation.settings")}
       </span>
     </Link>
@@ -1918,49 +1919,9 @@ export function DocumentSidebar({
       </TooltipContent>
     </Tooltip>
   );
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("sidebar.search")}
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={openCommandMenu}
-        >
-          <IconSearch size={16} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
-    </Tooltip>
-  );
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "size-8" : "h-8 min-w-0"}
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
-  const brandButton = (isCollapsed: boolean) => (
-    <button
-      type="button"
-      onClick={onToggleCollapsed}
-      aria-label={isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-      className={cn(
-        "flex items-center gap-2 rounded outline-none text-foreground transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
-        isCollapsed ? "size-8 justify-center" : "min-w-0 text-start",
-      )}
-      data-sidebar-brand-toggle
-    >
-      <AgentNativeIcon
-        aria-hidden="true"
-        className="h-3.5 w-6 shrink-0 text-foreground"
-      />
-      {!isCollapsed && (
-        <span className="text-base font-semibold tracking-tight">Content</span>
-      )}
-    </button>
-  );
-
   const toggleSection = (id: SidebarSectionId) => {
     setStoredCollapsedSections((current) => {
       const normalized = normalizeCollapsedSections(current);
@@ -2348,33 +2309,46 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
-        {brandButton(true)}
-        {renderCollapsedNewButton()}
-        <SidebarFooterActions
+      <div className="agent-layout-left-drawer flex h-full w-14 flex-col items-center border-e border-border bg-sidebar transition-[width] duration-200 ease-out">
+        <AppSidebarHeader
+          brandName="Content"
+          brandHref="/home"
           collapsed
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-          className="mt-auto"
+          onBrandClick={onToggleCollapsed}
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              to="/settings"
-              aria-label={t("navigation.settings")}
-              className={cn(
-                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
-                settingsActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <IconSettings size={16} />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("navigation.settings")}</TooltipContent>
-        </Tooltip>
+        <div className="flex flex-col items-center gap-1 px-2 py-3">
+          {renderCollapsedNewButton()}
+        </div>
+        <div className="mt-auto shrink-0 w-full">
+          <AppSidebarFooter
+            collapsed
+            collapsible={false}
+            feedback={feedbackButton}
+            orgSwitcher={
+              <OrgSwitcher
+                compact
+                reserveSpace
+                className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+            }
+            footerExtras={
+              <>
+                {isCodeMode ? <DevDatabaseLink /> : null}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link to="/settings" aria-label={t("navigation.settings")}>
+                      <IconSettings className="size-4" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t("navigation.settings")}
+                  </TooltipContent>
+                </Tooltip>
+                {collapseButton}
+              </>
+            }
+          />
+        </div>
       </div>
     );
   }
@@ -2389,9 +2363,12 @@ export function DocumentSidebar({
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
     >
       {/* Header */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-        {brandButton(false)}
-      </div>
+      <AppSidebarHeader
+        brandName="Content"
+        brandHref="/home"
+        collapsed={false}
+        onBrandClick={onToggleCollapsed}
+      />
 
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
         <div className="w-full min-w-0 py-2 pe-2">
@@ -2509,8 +2486,8 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 px-3 py-2">
-        <div className="space-y-1">{renderSettingsNavButton()}</div>
+      <div className="shrink-0 border-t border-border/70 px-2 pt-3">
+        <div className="space-y-0.5">{renderSettingsNavButton()}</div>
       </div>
 
       <div className="shrink-0">
@@ -2527,20 +2504,33 @@ export function DocumentSidebar({
         />
       </div>
 
-      <div className="shrink-0 px-3 py-2 empty:hidden">
-        <OrgSwitcher reserveSpace />
-      </div>
-
-      {/* Footer */}
-      <div className="shrink-0 space-y-2 px-3 py-2">
-        {isCodeMode ? <DevDatabaseLink /> : null}
-        <SidebarFooterActions
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-          className="px-0 py-0"
-        />
-      </div>
+      <AppSidebarFooter
+        collapsed={false}
+        collapsible={false}
+        feedback={feedbackButton}
+        orgSwitcher={
+          <OrgSwitcher
+            reserveSpace
+            className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+          />
+        }
+        footerExtras={
+          <>
+            {isCodeMode ? <DevDatabaseLink /> : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link to="/settings" aria-label={t("navigation.settings")}>
+                  <IconSettings className="size-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("navigation.settings")}
+              </TooltipContent>
+            </Tooltip>
+            {collapseButton}
+          </>
+        }
+      />
 
       {/* Resize handle */}
       {onResize && width !== undefined && (

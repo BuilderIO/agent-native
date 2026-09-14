@@ -24,9 +24,9 @@ export function personalSidebarOrderItemIds(
 
 export default defineAction({
   description:
-    "Update or clear the current user's personal saved filter, sort, and active view overrides for a content database.",
+    "Update or clear the current user's personal saved filter, sort, and active view overrides for a content collection.",
   schema: z.object({
-    databaseId: z.string().describe("Database ID"),
+    databaseId: z.string().describe("Collection ID"),
     overrides: personalViewOverridesSchema.nullable(),
   }),
   run: async ({ databaseId, overrides }, ctx) => {

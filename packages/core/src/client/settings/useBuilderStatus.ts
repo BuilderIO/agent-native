@@ -5,6 +5,7 @@ import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
+import { scheduleAfterPaint } from "../use-after-paint.js";
 import { usePollLoop } from "../use-poll-loop.js";
 
 export interface BuilderStatus {
@@ -124,27 +125,42 @@ export function useBuilderStatus({
       return;
     }
     setLoading(true);
-    void fetchStatus();
+    // The Builder card is not visible during first paint; defer the initial
+    // status read past the startup window. Focus/visibility/event refreshes
+    // below stay immediate.
+    let initialFetchRan = false;
+    const cancelInitialFetch = scheduleAfterPaint(() => {
+      initialFetchRan = true;
+      void fetchStatus();
+    });
+    // A focus/visibility/event inside the deferral window consumes the
+    // scheduled initial read, so one status request lands immediately
+    // instead of two when the window elapses.
+    const refreshNow = () => {
+      if (!initialFetchRan) {
+        initialFetchRan = true;
+        cancelInitialFetch();
+      }
+      void fetchStatus();
+    };
 
     function onFocus() {
-      void fetchStatus();
+      refreshNow();
     }
     function onVisibility() {
-      if (document.visibilityState === "visible") void fetchStatus();
+      if (document.visibilityState === "visible") refreshNow();
     }
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
     // Engine connect/disconnect actions (e.g. the Builder disconnect button)
     // dispatch this event so dependent cards refresh without a full reload.
-    window.addEventListener("agent-engine:configured-changed", fetchStatus);
+    window.addEventListener("agent-engine:configured-changed", refreshNow);
     return () => {
       requestGenerationRef.current += 1;
+      cancelInitialFetch();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener(
-        "agent-engine:configured-changed",
-        fetchStatus,
-      );
+      window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
   }, [enabled, fetchStatus]);
 
@@ -237,6 +253,13 @@ export interface BuilderConnectFlow {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+// How long to keep polling after the popup itself has closed before giving up.
+// Must stay well above the couple of poll ticks a successful callback needs to
+// persist credentials and respond, so a slow-but-real confirmation still lands
+// before this fires (see the "keeps polling" tests below for the regression
+// this replaced). Anything past this is a cancelled/closed popup, not a slow
+// success, and the button must not spin for the full 5-minute ceiling.
+const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
 // Fallback timeout for callers of fetchStatus() with no external signal of
 // their own (the initial status fetch, the popup-open branches in `start`).
 // The connect-flow poll loop below gets its timeout from usePollLoop instead.
@@ -481,6 +504,18 @@ function navigateBuilderConnectPopup(opened: Window, url: string): boolean {
   }
 }
 
+function isPopupClosed(popup: Window | null): boolean {
+  if (!popup) return false;
+  try {
+    return popup.closed === true;
+  } catch {
+    // coercion-ok: `.closed` is readable cross-origin in every supported
+    // browser; a throw here means the reference itself is unusable, which is
+    // indistinguishable from "still open" for this check's purpose.
+    return false;
+  }
+}
+
 function isEmbeddedWindow(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -636,6 +671,10 @@ export function useBuilderConnectFlow(
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
   const connectAttemptIdRef = useRef<string | null>(null);
+  // Tracks the currently open popup so the poll loop can notice it closed
+  // without the callback ever landing (a cancelled/abandoned connect).
+  const activePopupRef = useRef<Window | null>(null);
+  const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
   const retryStatusRef = useRef<() => void>(() => {});
   const statusUnavailableRef = useRef(false);
@@ -739,9 +778,14 @@ export function useBuilderConnectFlow(
     }
     mountedRef.current = true;
     let cancelled = false;
+    // Overlapping lifecycle refreshes supersede each other (newest started
+    // wins) so a slow older response cannot overwrite newer connect state.
+    let refreshGeneration = 0;
     const refresh = async () => {
+      const generation = ++refreshGeneration;
+      const isCurrentRefresh = () => generation === refreshGeneration;
       const s = await fetchStatus();
-      if (cancelled || !mountedRef.current) return;
+      if (cancelled || !mountedRef.current || !isCurrentRefresh()) return;
       // Flip `hasFetchedStatus` even when the fetch failed — the caller's
       // "use initial props until the hook has an answer" pattern wants to
       // stop waiting after we've tried, regardless of network outcome.
@@ -801,20 +845,38 @@ export function useBuilderConnectFlow(
       }
     };
     retryStatusRef.current = () => void refresh();
-    void refresh();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+    // Connect-CTA cards render above the fold but their status is not needed
+    // for first paint; defer the initial read. Focus/visibility/event
+    // refreshes below stay immediate.
+    let initialRefreshRan = false;
+    const cancelInitialRefresh = scheduleAfterPaint(() => {
+      initialRefreshRan = true;
+      void refresh();
+    });
+    // A focus/visibility/event inside the deferral window consumes the
+    // scheduled initial read, so one status request lands immediately
+    // instead of two when the window elapses.
+    const refreshNow = () => {
+      if (!initialRefreshRan) {
+        initialRefreshRan = true;
+        cancelInitialRefresh();
+      }
+      void refresh();
     };
-    window.addEventListener("focus", refresh);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshNow();
+    };
+    window.addEventListener("focus", refreshNow);
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("agent-engine:configured-changed", refresh);
+    window.addEventListener("agent-engine:configured-changed", refreshNow);
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      cancelInitialRefresh();
       retryStatusRef.current = () => {};
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", refreshNow);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("agent-engine:configured-changed", refresh);
+      window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
   }, [enabled, fetchStatus]);
 
@@ -835,6 +897,8 @@ export function useBuilderConnectFlow(
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
       callbackSuccessStartedAtRef.current = null;
+      activePopupRef.current = null;
+      popupClosedAtRef.current = null;
       activeTrackingRef.current = {
         source: clickTrackingSource,
         flow: clickTrackingFlow,
@@ -899,6 +963,7 @@ export function useBuilderConnectFlow(
           source: clickTrackingSource,
           flow: clickTrackingFlow,
         });
+        if (opened) activePopupRef.current = opened;
         if (!opened) {
           // Agent-Native Desktop handles the popup in Electron and reports
           // null to the embedded webview, so null is not a blocker here.
@@ -910,6 +975,7 @@ export function useBuilderConnectFlow(
           flow: clickTrackingFlow,
           features: "width=600,height=700",
         });
+        if (opened) activePopupRef.current = opened;
         if (!opened) {
           if (!isEmbeddedWindow()) {
             connectStartedAtRef.current = null;
@@ -1100,6 +1166,40 @@ export function useBuilderConnectFlow(
             ? null
             : `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
+      } else if (
+        isPopupClosed(activePopupRef.current) &&
+        callbackSuccessStartedAtRef.current !== started
+      ) {
+        // The user closed or cancelled the popup before Builder confirmed
+        // credentials. Give a slow-but-real confirmation a grace window
+        // (see POPUP_CLOSED_CONFIRMATION_GRACE_MS) before giving up, but do
+        // not leave the button spinning for the full 5-minute ceiling below.
+        // Skipped entirely once the postMessage/BroadcastChannel success
+        // handler has started for this attempt (callbackSuccessStartedAtRef
+        // set): that handler owns its own bounded retry and must be the one
+        // to resolve `connecting`, or this branch would race it and discard
+        // a real success that lands a moment after the grace window closes.
+        popupClosedAtRef.current ??= Date.now();
+        if (
+          Date.now() - popupClosedAtRef.current >
+          POPUP_CLOSED_CONFIRMATION_GRACE_MS
+        ) {
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          const { source, flow } = activeTrackingRef.current;
+          trackEvent("builder connect failed", {
+            feature: "builder",
+            stage: "client",
+            reason: "popup_closed_without_status",
+            source,
+            flow:
+              cleanTrackingParam(flow) ??
+              inferBuilderConnectTrackingFlow(source),
+          });
+          setError(
+            "Didn't finish connecting to Builder.io. Try again, or use your own keys.",
+          );
+        }
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         connectStartedAtRef.current = null;
         setConnecting(false);

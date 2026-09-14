@@ -2,6 +2,8 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
 
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import type { ChartConfiguration, ChartType } from "chart.js";
 import type { ChartJSNodeCanvas as ChartJSNodeCanvasType } from "chartjs-node-canvas";
 import { z } from "zod";
@@ -108,7 +110,7 @@ export default defineAction({
       .describe("Output filename stem (without extension)"),
   }),
   http: false,
-  run: async (args) => {
+  run: async (args, actionContext?: ActionRunContext) => {
     if (!args.title) {
       return { error: "--title is required", fallback: CHART_FALLBACK_HINT };
     }
@@ -283,6 +285,19 @@ export default defineAction({
       const buffer = await canvas.renderToBuffer(chartConfig);
       writeFileSync(pngFilepath, buffer);
 
+      track(
+        "chart_created",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          output_type: "chart",
+          chart_type: chartType,
+          series_count: datasets.length,
+          row_count: labels.length,
+          renderer: "png",
+        },
+        actionContext,
+      );
       return {
         filename: pngFilename,
         url: chartUrl(pngFilename),
@@ -307,6 +322,19 @@ export default defineAction({
       });
       writeFileSync(join(mediaDir, svgFilename), svg, "utf8");
 
+      track(
+        "chart_created",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          output_type: "chart",
+          chart_type: chartType,
+          series_count: datasets.length,
+          row_count: labels.length,
+          renderer: "svg_fallback",
+        },
+        actionContext,
+      );
       return {
         filename: svgFilename,
         url: signedSvgMediaUrl(svgFilename, svg) || chartUrl(svgFilename),

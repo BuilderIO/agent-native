@@ -10,6 +10,7 @@ import { MAIL_CONNECTOR_CATALOG } from "../lib/mail-connector-catalog.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-inbox-threads",
   "list-emails",
   "search-emails",
   "get-email",
@@ -107,7 +108,7 @@ Some less-common tool schemas are loaded on demand. Use tool-search with a speci
 
 ## Deterministic Mail Reads
 
-For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen.
+For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen. For the inbox view specifically, call list-inbox-threads instead of list-emails: it returns the same tab bar, counts, and rows the human sees from one synced-store read; list-emails/search-emails remain for every other view or an ad hoc query.
 
 Available operations:
 - List and search emails

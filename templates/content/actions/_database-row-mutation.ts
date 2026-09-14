@@ -44,34 +44,34 @@ const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
 export const databaseMutationTargetSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema,
   spaceId: z.string().min(1).describe("Exact Content space ID"),
-  databaseId: z.string().min(1).describe("Exact Content database ID"),
+  databaseId: z.string().min(1).describe("Exact Content collection ID"),
   databaseDocumentId: z
     .string()
     .min(1)
-    .describe("Exact page ID backing the Content database"),
+    .describe("Exact page ID backing the Content collection"),
 });
 
 export const databaseMutationTargetInputSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema
     .optional()
     .describe(
-      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected database.",
+      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected collection.",
     ),
   spaceId: z
     .string()
     .min(1)
-    .describe("Exact Content space ID returned by database discovery"),
+    .describe("Exact Content space ID returned by collection discovery"),
   databaseId: z
     .string()
     .min(1)
     .describe(
-      "Exact Content database ID returned by database discovery; never derive it from a title or number in the request",
+      "Exact Content collection ID returned by collection discovery; never derive it from a title or number in the request",
     ),
   databaseDocumentId: z
     .string()
     .min(1)
     .describe(
-      "Exact page ID backing the database, returned by database discovery",
+      "Exact page ID backing the collection, returned by collection discovery",
     ),
 });
 

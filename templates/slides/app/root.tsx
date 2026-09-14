@@ -72,6 +72,8 @@ configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-slides",
+    app_name: "slides",
+    template_name: "slides",
   }),
 });
 

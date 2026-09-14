@@ -29,31 +29,15 @@ describe("chat-first macOS window controls", () => {
     );
   });
 
-  it("keeps the green control available while moving across the hover gap", () => {
-    expect(shellCss).toContain(".collapsed-mac-window-controls::before {");
-    expect(shellCss).toContain("opacity: 0;");
-    expect(shellCss).toContain("transition: opacity var(--ease-collapse);");
-    expect(shellCss).toContain(".collapsed-mac-window-controls:hover::before,");
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover .win-btn--maximize,",
+  it("shows all three collapsed controls without hover chrome", () => {
+    expect(shellCss).not.toContain(".collapsed-mac-window-controls::before");
+    expect(shellCss).not.toContain(".collapsed-mac-window-controls:hover");
+    expect(shellCss).not.toContain(
+      ".collapsed-mac-window-controls:focus-within",
     );
-    expect(shellCss).not.toContain(".collapsed-mac-window-controls:has(");
     expect(shellCss).toContain(
       ".collapsed-mac-window-controls .win-btn--maximize {",
     );
-    expect(shellCss).toContain("pointer-events: none;");
-    expect(shellCss).toContain("opacity: 1;");
-    expect(shellCss).toContain("pointer-events: auto;");
-    expect(shellCss).toContain("transform: translateX(0) scale(1);");
-  });
-
-  it("shows all three controls without hover chrome in settings", () => {
-    expect(shellCss).toContain(
-      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls::before,",
-    );
-    expect(shellCss).toContain(".collapsed-mac-window-controls:hover::before,");
-    expect(shellCss).toContain(
-      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls\n  .win-btn--maximize {\n  opacity: 1;\n  pointer-events: auto;\n  transform: translateX(0) scale(1);",
-    );
+    expect(shellCss).not.toContain("translateX(-4px) scale(0.8)");
   });
 });

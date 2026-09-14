@@ -4,6 +4,7 @@ import {
   MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
   MAX_RUN_LOOP_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
@@ -13,6 +14,7 @@ import {
   isTransientProviderRateLimitError,
   continuationReasonForResumableError,
   runAgentLoop,
+  PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
   type AgentLoopOutcome,
 } from "./production-agent.js";
 import {
@@ -875,7 +877,13 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         60_000,
         { backgroundFunction: true },
       );
-      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      // Once the one cooled-down retry is spent, this ends the turn with the
+      // shared `provider_rate_limited` shape instead of the raw provider
+      // text — the client's own continuation list DOES auto-recover a bare
+      // http_429, which is exactly what capping this at one hop prevents.
+      const rejected = expect(run).rejects.toThrow(
+        PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+      );
       await vi.advanceTimersByTimeAsync(
         BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
       );
@@ -887,7 +895,118 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
-  it("does not spend foreground delegated budget on a provider-rate-limit continuation", async () => {
+  it("also grants the foreground lane one cooled-down retry when the budget covers it", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        if (attempts === 1) {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      // No `timeoutOptions` (foreground, not `backgroundFunction`), but a
+      // generous 60s soft timeout leaves well over the cooldown (20s) plus
+      // the minimum continuation budget (8s) — `rateLimitRetryFitsBudget` no
+      // longer requires the background lane for that.
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
+      );
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+      );
+      await run;
+
+      expect(attempts).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits out a longer provider Retry-After instead of the fixed cooldown", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        if (attempts === 1) {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+            retryAfterMs: 45_000,
+          });
+        }
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        120_000,
+      );
+      // The fixed 20s cooldown alone must NOT retry: the header asked for 45s.
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS + 5_000,
+      );
+      expect(attempts).toBe(1);
+      await vi.advanceTimersByTimeAsync(45_000);
+      await run;
+      expect(attempts).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends with the provider_rate_limited terminal when the Retry-After wait cannot fit the budget", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      throw new EngineError("429 status code (no body)", {
+        errorCode: "http_429",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+      });
+    });
+
+    // A 60s soft timeout covers the fixed 20s cooldown, but not the 45s the
+    // provider asked for plus the 8s minimum continuation budget.
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        50_000,
+      ),
+    ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
+
+    expect(attempts).toBe(1);
+  });
+
+  it("throws the provider_rate_limited terminal shape on the foreground lane when the budget doesn't cover a cooldown", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async () => {
       attempts++;
@@ -897,15 +1016,18 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       });
     });
 
+    // 25s soft timeout minus the 20s cooldown leaves only 5s — under the 8s
+    // minimum continuation budget, so this must skip straight to the
+    // terminal instead of scheduling a cooldown wait.
     await expect(
       runAgentLoopDirectWithSoftTimeout(
         makeOpts(
           [{ role: "user", content: [{ type: "text", text: "go" }] }],
           new AbortController().signal,
         ),
-        60_000,
+        25_000,
       ),
-    ).rejects.toThrow("429 status code (no body)");
+    ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
 
     expect(attempts).toBe(1);
   });

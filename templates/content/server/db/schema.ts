@@ -17,6 +17,7 @@ export const documents = table("documents", {
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
   bodyRevision: integer("body_revision").notNull().default(0),
+  collabBodyRevision: integer("collab_body_revision"),
   // Stable semantic guidance for this page. Ancestry is computed at read time;
   // never copy a parent's description here.
   description: text("description").notNull().default(""),

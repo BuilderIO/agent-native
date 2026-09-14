@@ -228,6 +228,7 @@ export async function createAgentRunner(
             tools: [],
             abortSignal: signal,
             maxOutputTokens: opts.maxOutputTokens ?? 512,
+            reasoningEffort: "none",
             temperature: 0,
           });
           for await (const event of stream) {

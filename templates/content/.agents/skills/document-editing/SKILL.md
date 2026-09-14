@@ -12,6 +12,12 @@ title, stable description, markdown content, optional parent (for nesting), and
 a position for ordering. The description explains why the page exists and what
 belongs there; it is not a changing synopsis of the current body.
 
+When operating Content through a connected MCP server, call these actions
+yourself; route work through `ask_app` only when delegating to Content's own
+agent is the explicit point of the request. Reaching tools you can call
+directly through `ask_app` adds a second interpretation of the request and
+hides real errors.
+
 ## Scripts
 
 Always use the dedicated scripts for document operations. Never use raw `db-exec` SQL.
@@ -85,10 +91,42 @@ pnpm action update-document --id abc123 --title "New Title" --content "New conte
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
+### Suggested edits
+
+When the user asks to **suggest**, **propose**, or **leave changes for review**,
+do not call `edit-document` or `update-document`. Read the current Page with
+`get-document`, then call `suggest-document-edit` with the Page's `id`, its
+`baseRevision`, a fresh `idempotencyKey`, and the exact `find` text plus the
+`replace` Markdown (omit `replace` to propose deleting the text). `find` must
+match the page's current text exactly once. Content builds the tracked change
+and anchor server-side; the page stays unchanged until a reviewer accepts.
+
+Use `suggest-document-edit` for every suggested body edit. The generic
+`create-resource-suggestion` action remains for advanced proposals that build
+typed Page-body operations by hand: `resourceType: "document"`, adapter kind
+`content.document-markdown`, the Page's `revision` (or exact `updatedAt`) as
+`baseRevision`, a fresh `idempotencyKey`, and one operation carrying the
+complete current and proposed Markdown in `before.markdown` and
+`after.markdown`, the changed segment in `changedText`, and an `anchor` object.
+
+Use `list-resource-suggestions` to inspect pending and historical proposals.
+Only accept or reject when the user has asked for that decision and the caller
+has editor authority; call `decide-resource-suggestion` with a fresh
+idempotency key and the suggestion's `baseRevision` as `observedBase`. A stale
+result means canonical Content was not overwritten. Suggested edits are
+unavailable for local-file, source-owned, externally linked, collection-item, or
+trashed Pages in this release.
+
+```bash
+pnpm action suggest-document-edit --id abc123 \
+  --baseRevision 'body:0:sha256:…' --idempotencyKey '<uuid>' \
+  --find 'Exact current sentence.' --replace 'Proposed replacement sentence.'
+```
+
 ### delete-document
 
 Move a document and all its children to Trash. IDs, bodies, hierarchy, and
-database membership remain intact so the subtree can be restored.
+collection membership remain intact so the subtree can be restored.
 
 ```bash
 pnpm action delete-document --id abc123
@@ -169,10 +207,10 @@ can't convey:
 - `document_versions`, `document_comments`, and `document_sync_links` all
   carry `owner_email` so a workspace can upgrade from local mode to a real
   account without losing history, comments, or Notion links.
-- A database is a normal document (`content_databases` +
+- A collection is a normal document (`content_databases` +
   `document_property_definitions`) whose rows are also documents, linked
   through `content_database_items`. Row pages are omitted from the ordinary
-  sidebar tree — they're reached through the database view.
+  sidebar tree — they're reached through the collection view.
 
 Documents are **private by default**; use `share-resource` /
 `set-resource-visibility` (`resourceType document`) to change access.
@@ -216,7 +254,7 @@ Documents form a tree via `parent_id`:
 Descriptions are owned; context is inherited. `get-document` and `view-screen`
 return the focused page's own description plus a computed root-to-parent
 `contextPath`. Use that path to understand where the page lives, but never copy
-ancestor descriptions into the child. Database, property, and option
+ancestor descriptions into the child. Collection, property, and option
 descriptions narrow the guidance further when working with structured values.
 
 ## Screen Context And IDs
@@ -260,9 +298,9 @@ Always run `refresh-list` after any create, update, or delete operation.
   discoverability, the read-only public chat). Read it before touching
   descriptions, external ingest, or a document's visibility.
 - **`references/databases.md`** — full behavioral reference for Content
-  databases: property types, Blocks fields, and every view type (table,
+  collections: property types, Blocks fields, and every view type (table,
   list, gallery, board, calendar, timeline, form). Read it before building or
-  modifying database views, properties, or forms.
+  modifying collection views, properties, or forms.
 
 Also read on demand, outside this skill:
 

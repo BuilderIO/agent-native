@@ -1,5 +1,5 @@
-import { isBoardFile } from "@shared/board-file";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
+import { getOverviewScreenFileIds } from "@shared/design-files";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -82,9 +82,7 @@ export function runLayerSelectionChange(
   clearPendingOverviewLayerSelectionTimer();
   setCreatedOverviewLayerSelection(null);
   setSelectedLayerIdsState(nextLayerIds);
-  const screenFileIds = files
-    .filter((file) => !isBoardFile(file.filename))
-    .map((file) => file.id);
+  const screenFileIds = getOverviewScreenFileIds(files);
   if (viewModeRef.current === "overview") {
     setOverviewSelectedScreenIds(
       getOverviewScreenIdsFromLayerSelection({
@@ -145,7 +143,7 @@ export function runLayerSelectionChange(
   const fileId = selectedId.startsWith("code:")
     ? selectedId.slice("code:".length)
     : selectedId;
-  if (files.some((file) => file.id === fileId && !isBoardFile(file.filename))) {
+  if (screenFileIds.includes(fileId)) {
     setOverviewSelectedScreenIds([fileId]);
     setActiveFileId(fileId);
     setSelectedElement(null);

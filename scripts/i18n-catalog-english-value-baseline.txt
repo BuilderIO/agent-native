@@ -229,13 +229,9 @@ templates/calendar/app/i18n/zh-CN|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-CN|eventForm.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|eventForm.googleMeet|Google Meet
-templates/clips/app/i18n/ar-SA|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/de-DE|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/es-ES|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
 templates/clips/app/i18n/es-ES|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
 templates/clips/app/i18n/es-ES|captureInstall.chromeTitle|Chrome extension
 templates/clips/app/i18n/es-ES|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
-templates/clips/app/i18n/es-ES|captureInstall.desktopDescription|Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.
 templates/clips/app/i18n/es-ES|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/es-ES|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/es-ES|captureInstall.title|Choose your recorder
@@ -277,7 +273,6 @@ templates/clips/app/i18n/es-ES|dictateRoute.startSpeaking|Start speaking...
 templates/clips/app/i18n/es-ES|dictateRoute.vocabularyAddFailed|Couldn't add term
 templates/clips/app/i18n/es-ES|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
 templates/clips/app/i18n/es-ES|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
-templates/clips/app/i18n/es-ES|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/es-ES|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/es-ES|editableTitle.emptyTitle|Title cannot be empty
 templates/clips/app/i18n/es-ES|editableTitle.generatingTitle|Generating title
@@ -424,15 +419,9 @@ templates/clips/app/i18n/es-ES|recordRoute.videoReadyToUpload|Video is ready to 
 templates/clips/app/i18n/es-ES|recordRoute.videoTooLarge|Video is too large
 templates/clips/app/i18n/es-ES|recordRoute.videoUploaded|Video uploaded
 templates/clips/app/i18n/es-ES|recordRoute.whatToCheck|What to check
-templates/clips/app/i18n/fr-FR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/hi-IN|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ja-JP|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ko-KR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/pt-BR|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
 templates/clips/app/i18n/pt-BR|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
 templates/clips/app/i18n/pt-BR|captureInstall.chromeTitle|Chrome extension
 templates/clips/app/i18n/pt-BR|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
-templates/clips/app/i18n/pt-BR|captureInstall.desktopDescription|Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.
 templates/clips/app/i18n/pt-BR|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.title|Choose your recorder
@@ -474,7 +463,6 @@ templates/clips/app/i18n/pt-BR|dictateRoute.startSpeaking|Start speaking...
 templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyAddFailed|Couldn't add term
 templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
 templates/clips/app/i18n/pt-BR|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
-templates/clips/app/i18n/pt-BR|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/pt-BR|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/pt-BR|editableTitle.emptyTitle|Title cannot be empty
 templates/clips/app/i18n/pt-BR|editableTitle.generatingTitle|Generating title
