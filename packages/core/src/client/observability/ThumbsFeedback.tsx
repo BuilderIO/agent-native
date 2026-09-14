@@ -64,6 +64,10 @@ export function ThumbsFeedback({
   const confirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  // Bumped on every up/down click so a stale response from an earlier vote
+  // (the user switched directions before it resolved) can be ignored instead
+  // of animating/announcing the wrong button or clearing the newer vote.
+  const voteRequestIdRef = useRef(0);
 
   useEffect(
     () => () => {
@@ -131,7 +135,9 @@ export function ThumbsFeedback({
     if (selection === "up") return;
     setSelection("up");
     setPopoverOpen(false);
+    const requestId = ++voteRequestIdRef.current;
     void sendFeedback("thumbs_up").then((submitted) => {
+      if (voteRequestIdRef.current !== requestId) return;
       if (submitted) flashConfirmation("up");
       else setSelection(null);
     });
@@ -147,7 +153,9 @@ export function ThumbsFeedback({
     feedbackOpenedAtRef.current = Date.now();
     setSelection("down");
     setPopoverOpen(true);
+    const requestId = ++voteRequestIdRef.current;
     void sendFeedback("thumbs_down").then((submitted) => {
+      if (voteRequestIdRef.current !== requestId) return;
       if (submitted) flashConfirmation("down");
       else setSelection(null);
     });
