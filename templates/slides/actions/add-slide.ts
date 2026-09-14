@@ -6,6 +6,10 @@ import {
   fail,
 } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
+import {
+  findUnreadableTextColors,
+  formatSlideContrastWarning,
+} from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -116,9 +120,10 @@ export default defineAction({
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
-    "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, use a light neutral canvas with ink text and one or two restrained accents; never default to a black canvas with white text. " +
+    "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. When a design system is linked, its color mode is authoritative: read the Color mode line in its context and author on that exact canvas, dark or light. Only when no design system is linked and the deck has no representative slide to match, use a light neutral canvas with ink text and one or two restrained accents rather than defaulting to a black canvas with white text. " +
     "For a single-call bulk append, use `patch-deck` with add-slide operations. " +
-    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows. " +
+    "A `contrastWarning` in the result means the slide you just wrote is unreadable; fix it with update-slide before adding the next slide or reporting the deck as done.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -517,6 +522,12 @@ export default defineAction({
         ctx,
       );
 
+      const contrastWarning = formatSlideContrastWarning(
+        findUnreadableTextColors({
+          html: newSlide.content,
+        }),
+      );
+
       const base = {
         deckId,
         slideId: newSlideId,
@@ -534,6 +545,7 @@ export default defineAction({
           contentHash: hashSlideContent(newSlide.content),
           layoutFitRevision: newSlide.layoutFitRevision,
         },
+        ...(contrastWarning ? { contrastWarning } : {}),
       };
 
       return base;

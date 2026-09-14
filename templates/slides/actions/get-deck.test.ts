@@ -179,6 +179,70 @@ describe("get-deck", () => {
     expect(result).not.toHaveProperty("representativeSlideId");
   });
 
+  it("lists every unreadable slide so a partial contrast fix cannot claim done", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Moon Landing",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="background: #FEF7FF;"><h1 style="color: #FFFBFE;">The Moon Landing</h1></div>',
+        },
+        {
+          id: "slide-2",
+          content:
+            '<div class="fmd-slide" style="background: #FEF7FF;"><h1 style="color: #1D1B20;">Apollo 11</h1></div>',
+        },
+        {
+          id: "slide-3",
+          content:
+            '<div class="fmd-slide" style="background: #FEF7FF;"><p style="color: #F7F2FA;">July 20, 1969</p></div>',
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.contrastCoverage.complete).toBe(false);
+    expect(result.contrastCoverage.unreadableSlideIds).toEqual([
+      "slide-1",
+      "slide-3",
+    ]);
+    expect(result.contrastCoverage.unreadableSlideNumbers).toEqual([1, 3]);
+
+    const compact = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as any;
+    expect(compact.contrastCoverage.unreadableSlideIds).toEqual([
+      "slide-1",
+      "slide-3",
+    ]);
+  });
+
+  it("omits contrastCoverage once every slide is readable", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Moon Landing",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="background: #FEF7FF;"><h1 style="color: #1D1B20;">The Moon Landing</h1></div>',
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result).not.toHaveProperty("contrastCoverage");
+  });
+
   it("bounds a full-deck read so a stalled lookup can return a tool error", () => {
     expect(action.timeoutMs).toBe(60_000);
   });

@@ -180,6 +180,16 @@ stack. Keep body text at or above 16px. Never hide overflow with zoom,
 may reduce the slide's explicit padding, and that padding must remain intact
 when the saved HTML is rendered.
 
+A linked design system decides the canvas, and that decision comes before this
+fallback. Its hydrated context opens with a `Color mode: DARK` or
+`Color mode: LIGHT` line derived from its own background and text tokens.
+Author every slide on that canvas and pair it with the foreground token that
+belongs to it. Using a second surface or container token as text is how a light
+design kit produces light-on-light slides nobody can read, so every text color
+must reach 4.5:1 against the background actually behind it. `add-slide` returns
+a `contrastWarning` when the slide it just wrote fails that bar; fix it before
+adding the next slide.
+
 When no reference deck or hydrated design system is available, use the fallback
 direction: warm neutral paper (`#F5F2EA`), ink text (`#1F2933`), Inter or a
 close sans-serif, 64px vertical and 80px horizontal padding, and one restrained
@@ -197,7 +207,9 @@ Before calling the deck complete, render every changed slide at its canonical
 aspect-ratio dimensions and make one batched review pass. Check hierarchy and
 source fidelity, overflow or clipping, contrast, minimum readable text,
 placeholder remnants, broken or missing images, asset fit, and preserved
-`data-slide-object-id` values. Fix the findings in one correction pass and
+`data-slide-object-id` values. Read `contrastCoverage` from `get-deck` in the
+same pass: every id it lists is unreadable and must be fixed before the deck is
+complete. Fix the findings in one correction pass and
 recheck. Do not claim full-deck or pixel-perfect fidelity unless the whole deck
 was rendered and compared.
 

@@ -2540,6 +2540,7 @@ export default function DeckEditor() {
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
                   designSystem={designSystem}
+                  designSystemId={deck.designSystemId ?? null}
                   generatingSlide={
                     generatingSlideVisible
                       ? {

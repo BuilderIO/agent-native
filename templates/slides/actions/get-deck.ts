@@ -15,6 +15,7 @@ import {
 } from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import { deckContrastCoverage } from "../shared/deck-contrast.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
@@ -170,7 +171,7 @@ function sourceEditabilityForDeck(
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
+    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values. When any slide is unreadable the result carries `contrastCoverage` with `unreadableSlideIds` and `unreadableSlideNumbers`. That list is a hard completion gate for any contrast or readability request: fix every listed slide, then re-read this action and confirm `contrastCoverage` is gone before claiming the deck is fixed. A pending layoutFit check is a separate concern and never a reason to leave a slide unfixed or to report a partial pass as done.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z
@@ -263,6 +264,7 @@ export default defineAction({
       slides as any,
       selectedSlideIndex,
     );
+    const contrastCoverage = deckContrastCoverage(slides as any);
 
     if (compact) {
       return {
@@ -272,6 +274,7 @@ export default defineAction({
         designSystemId: linkedDesignSystemId,
         designSystem,
         ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
+        ...(contrastCoverage ? { contrastCoverage } : {}),
         generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
           ? {
@@ -341,6 +344,7 @@ export default defineAction({
       designSystemId: linkedDesignSystemId,
       designSystem,
       ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
+      ...(contrastCoverage ? { contrastCoverage } : {}),
       sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
       slideCount: slides.length,

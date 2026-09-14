@@ -1,5 +1,9 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
+import {
+  findUnreadableTextColors,
+  formatSlideContrastWarning,
+} from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -912,6 +916,16 @@ export default defineAction({
       `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : objectId !== undefined ? `objectId="${objectId}"` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
     );
 
+    const contrastWarning = formatSlideContrastWarning(
+      findUnreadableTextColors({
+        html: String(rmw.slide.content ?? ""),
+        slideBackground:
+          typeof rmw.slide.background === "string"
+            ? rmw.slide.background
+            : null,
+      }),
+    );
+
     const base = {
       ok: true,
       deckId,
@@ -940,6 +954,7 @@ export default defineAction({
             reuseLabels: rmw.reuseLabels,
           }
         : {}),
+      ...(contrastWarning ? { contrastWarning } : {}),
     };
 
     return base;

@@ -8,7 +8,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
+import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/design-system-prompt-context";
 
 interface ImageGenPanelProps {
   open: boolean;

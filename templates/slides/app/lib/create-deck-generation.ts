@@ -11,55 +11,16 @@ import type { NewDeckReferenceSelection } from "@/components/editor/NewDeckRefer
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { Deck, DeckPersistenceResult } from "@/context/DeckContext";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
+import {
+  loadDesignSystemGenerationContext,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+} from "@/lib/design-system-prompt-context";
 import { canAddInlineImageToPayload } from "@/lib/image-drop-to-agent";
 import {
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
 import { TAB_ID } from "@/lib/tab-id";
-
-export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
-  "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
-
-interface DesignSystemGenerationContextResult {
-  agentContext?: string;
-}
-
-async function loadDesignSystemGenerationContext(
-  designSystemId?: string | null,
-): Promise<string> {
-  if (!designSystemId) return "";
-  try {
-    const result = (await callAction(
-      "get-design-system",
-      { id: designSystemId },
-      { method: "GET" },
-    )) as DesignSystemGenerationContextResult | undefined;
-    if (result?.agentContext?.trim()) {
-      return [
-        "",
-        result.agentContext.trim(),
-        "",
-        "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, imagery, or slide components.",
-      ].join("\n");
-    }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "unknown loading error";
-    return [
-      "",
-      "## Selected Design System Context",
-      `The selected design system id "${designSystemId}" could not be loaded before generation: ${message}`,
-      "Before adding slides, call `get-design-system` for this id. If it still fails, stop and tell the user the selected design system is unavailable instead of improvising a generic style.",
-    ].join("\n");
-  }
-  return [
-    "",
-    "## Selected Design System Context",
-    `The selected design system id "${designSystemId}" returned no generation context.`,
-    "Call `get-design-system` for this id before adding slides. If it still has no usable tokens/docs, stop and ask the user to finish design-system indexing instead of improvising a generic style.",
-  ].join("\n");
-}
 
 interface ReferenceDeckContextResult {
   agentContext?: string;

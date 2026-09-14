@@ -84,7 +84,6 @@ import {
   isSourceImprovementRequest,
   persistDeckGenerationContext,
   requestedSlideCount,
-  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
 } from "@/lib/create-deck-generation";
 import {
   readStoredDeckFilter,
@@ -93,6 +92,7 @@ import {
   type DeckFilter,
 } from "@/lib/deck-filter";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
+import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/design-system-prompt-context";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,

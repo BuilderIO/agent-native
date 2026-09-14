@@ -61,6 +61,9 @@ interface EditorSidebarProps {
   aspectRatio?: AspectRatio;
   /** Active deck design system used by slide content tokens. */
   designSystem?: DesignSystemData;
+  /** Id of that system, passed through to the describe-slide prompt so a
+   *  generated slide inherits its color mode instead of the light fallback. */
+  designSystemId?: string | null;
   /** The next slide while the agent is preparing its HTML. Omitted when the
    *  agent is filling a placeholder that already has a row in this rail. */
   generatingSlide?: { index: number };
@@ -578,6 +581,7 @@ export default function EditorSidebar({
   recentEdits,
   aspectRatio,
   designSystem,
+  designSystemId,
   generatingSlide,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
@@ -899,6 +903,7 @@ export default function EditorSidebar({
           placement="right"
           deckId={deckId}
           deckTitle={deckTitle}
+          designSystemId={designSystemId}
           activeSlideId={describeSlideId}
           activeSlideIndex={describeSlideIndex}
           slideCount={slides.length}

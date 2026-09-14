@@ -338,6 +338,30 @@ describe("add-slide", () => {
     });
   });
 
+  it("warns loudly when the slide it just wrote is unreadable", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-unreadable",
+      content:
+        '<div class="fmd-slide" style="background: #FEF7FF;"><h1 style="color: #FFFBFE;">The Moon Landing</h1></div>',
+    })) as any;
+
+    expect(result.contrastWarning).toContain("unreadable as written");
+    expect(result.contrastWarning).toContain("#fffbfe on #fef7ff");
+    expect(result.contrastWarning).toContain("Do not report the deck as done");
+  });
+
+  it("adds no contrast warning to a readable slide", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-readable",
+      content:
+        '<div class="fmd-slide" style="background: #FEF7FF;"><h1 style="color: #1D1B20;">The Moon Landing</h1></div>',
+    })) as any;
+
+    expect(result).not.toHaveProperty("contrastWarning");
+  });
+
   it("preserves explicitly empty speaker notes when provided", async () => {
     await action.run({
       deckId: "deck-1",

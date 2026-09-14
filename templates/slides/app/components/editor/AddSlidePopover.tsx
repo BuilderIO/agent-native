@@ -22,7 +22,10 @@ import {
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
-import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
+import {
+  addSlideDesignSystemContext,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+} from "@/lib/design-system-prompt-context";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 
@@ -71,6 +74,7 @@ export function AddSlidePopover({
   anchorRef,
   deckId,
   deckTitle,
+  designSystemId,
   activeSlideId,
   slideCount,
   activeSlideIndex,
@@ -85,6 +89,9 @@ export function AddSlidePopover({
   anchorRef: React.RefObject<HTMLElement | null>;
   deckId: string;
   deckTitle: string;
+  /** The deck's linked design system, hydrated into the prompt so a generated
+   *  slide cannot fall through to the no-design-system light canvas. */
+  designSystemId?: string | null;
   activeSlideId: string;
   slideCount: number;
   activeSlideIndex: number;
@@ -206,12 +213,15 @@ export function AddSlidePopover({
         const googleDocSourceForContext =
           truncateSourceForContext(googleDocContext);
         const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
+        const designSystemContext =
+          await addSlideDesignSystemContext(designSystemId);
         const context = targetSlideId
           ? [
               `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
               "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
               "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
               WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+              designSystemContext,
               googleDocSourceForContext.text,
               googleDocSourceForContext.truncated
                 ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
@@ -226,6 +236,7 @@ export function AddSlidePopover({
               `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
               "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
               WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+              designSystemContext,
               googleDocSourceForContext.text,
               googleDocSourceForContext.truncated
                 ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
@@ -271,6 +282,7 @@ export function AddSlidePopover({
       discardFiles,
       deckId,
       deckTitle,
+      designSystemId,
       googleDocContext,
       onOpenChange,
       slideCount,

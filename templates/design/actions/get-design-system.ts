@@ -3,6 +3,10 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
+import {
+  designSystemColorModeFromData,
+  formatDesignSystemColorModeDirective,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -136,6 +140,13 @@ function buildDesignSystemAgentContext({
     "## Selected Design System Context",
     `Use "${title}" (id: ${id}) as the visual source of truth for this generation.`,
     "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, or component language.",
+    "",
+    ...formatDesignSystemColorModeDirective(
+      designSystemColorModeFromData(data) ??
+        designSystemColorModeFromData(
+          builder ? { tokenValues: builder.tokenValues } : null,
+        ),
+    ),
   ];
 
   if (description?.trim()) {
@@ -280,6 +291,11 @@ function buildCompactDesignSystemAgentContext({
   const lines: string[] = [
     "## Selected Design System Context (summary)",
     `Use "${title}" (id: ${id}) as the visual source of truth for this generation.`,
+    "",
+    ...formatDesignSystemColorModeDirective(
+      designSystemColorModeFromData(data),
+      { compact: true },
+    ),
   ];
 
   if (description?.trim()) {
