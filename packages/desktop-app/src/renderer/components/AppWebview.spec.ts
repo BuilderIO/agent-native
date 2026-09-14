@@ -19,6 +19,7 @@ import {
   buildGuestAppChatSidebarStateScript,
   buildGuestAuthStateProbeScript,
   resolveAppWebviewPartition,
+  readAppWebviewNavigationState,
   resolveAppWebviewAuthState,
   resolveAppWebviewAuthStateFromProbe,
   resolveAppWebviewUrl,
@@ -40,6 +41,28 @@ import {
   shouldReuseRememberedDesktopIdentitySession,
   default as AppWebview,
 } from "./AppWebview.js";
+
+describe("desktop webview navigation state", () => {
+  it("reads back and forward availability from the guest history", () => {
+    expect(
+      readAppWebviewNavigationState({
+        canGoBack: () => true,
+        canGoForward: () => false,
+      }),
+    ).toEqual({ canGoBack: true, canGoForward: false });
+  });
+
+  it("reports unavailable history while Electron is detaching the guest", () => {
+    expect(
+      readAppWebviewNavigationState({
+        canGoBack: () => {
+          throw new Error("destroyed");
+        },
+        canGoForward: () => true,
+      }),
+    ).toEqual({ canGoBack: false, canGoForward: false });
+  });
+});
 
 function createMemoryStorage(): Storage {
   const values = new Map<string, string>();

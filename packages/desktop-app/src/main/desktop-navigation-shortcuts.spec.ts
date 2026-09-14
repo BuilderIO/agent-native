@@ -25,6 +25,42 @@ describe("desktop navigation shortcut forwarding", () => {
     });
   });
 
+  it("forwards Cmd+[ and Cmd+] for app history navigation", () => {
+    const send = vi.fn();
+
+    for (const [key, code] of [
+      ["[", "BracketLeft"],
+      ["]", "BracketRight"],
+    ] as const) {
+      const event = { preventDefault: vi.fn() };
+      expect(
+        forwardDesktopNavigationShortcutInput(
+          event,
+          { type: "keyDown", key, code, meta: true },
+          send,
+        ),
+      ).toBe(true);
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+    }
+
+    expect(send).toHaveBeenNthCalledWith(1, {
+      key: "[",
+      code: "BracketLeft",
+      shiftKey: false,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: true,
+    });
+    expect(send).toHaveBeenNthCalledWith(2, {
+      key: "]",
+      code: "BracketRight",
+      shiftKey: false,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: true,
+    });
+  });
+
   it("leaves unrelated key events for the guest app", () => {
     const event = { preventDefault: vi.fn() };
     const send = vi.fn();
