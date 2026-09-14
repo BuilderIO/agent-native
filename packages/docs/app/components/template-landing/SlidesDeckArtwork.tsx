@@ -134,12 +134,43 @@ const ARR_BY_QUARTER = [
   { quarter: "Q3 '25", value: "$4.8M", height: 82, current: true },
 ] as const;
 
-/** The `content` layout carrying a chart, the deck's data slide. */
-export function ChartSlide() {
+/**
+ * The editor's object selection chrome: a thin blue outline, white corner
+ * squares, edge bars, and a rotate knob, matching the real one in
+ * templates/slides/app/global.css. Sizes are in the slide's own 960x540
+ * logical space, so they land at roughly the app's pixel sizes once the canvas
+ * scale is applied.
+ */
+function SelectionChrome() {
+  return (
+    <span className="sd-sel">
+      <span className="sd-sel-stem" />
+      <span className="sd-sel-rotate" />
+      <span className="sd-sel-handle sd-sel-nw" />
+      <span className="sd-sel-handle sd-sel-ne" />
+      <span className="sd-sel-handle sd-sel-sw" />
+      <span className="sd-sel-handle sd-sel-se" />
+      <span className="sd-sel-bar sd-sel-n" />
+      <span className="sd-sel-bar sd-sel-s" />
+      <span className="sd-sel-bar sd-sel-w" />
+      <span className="sd-sel-bar sd-sel-e" />
+    </span>
+  );
+}
+
+/**
+ * The content layout carrying a chart, the deck's data slide. The optional
+ * selected flag draws the editor's selection chrome on the title, which is
+ * why the canvas copy differs from the rail thumbnail of the same slide.
+ */
+export function ChartSlide({ selected = false }: { selected?: boolean } = {}) {
   return (
     <div className="sd-layout sd-layout-content">
       <div className="sd-chart-header">
-        <h2 className="sd-heading">Net new ARR by quarter</h2>
+        <h2 className={selected ? "sd-heading is-selected" : "sd-heading"}>
+          Net new ARR by quarter
+          {selected ? <SelectionChrome /> : null}
+        </h2>
         <span className="sd-chart-delta">+23% QoQ</span>
       </div>
       <div className="sd-chart">
@@ -384,6 +415,25 @@ export const SLIDE_ARTWORK_CSS = [
   // Chart. The plot is a fixed-height box so bar percentages resolve against
   // something definite; the axis is a sibling row on the same grid so ticks
   // stay under their bars without the bars reserving label space.
+  // Selection chrome, sized in the slide's logical space (see SelectionChrome).
+  // The edge handles are the app's visible 14x4 slivers, not its invisible
+  // 22x12 hit targets, which have nothing to hit here.
+  ".sd-slide .sd-heading.is-selected { position: relative; }",
+  ".sd-slide .sd-sel { position: absolute; inset: -12px -16px; border: 1.6px solid #609ff8; border-radius: 5px; box-shadow: 0 0 0 1.6px rgba(96, 159, 248, 0.2); }",
+  ".sd-slide .sd-sel-handle { position: absolute; width: 11px; height: 11px; border: 1.6px solid #609ff8; background: #fff; }",
+  ".sd-slide .sd-sel-nw { top: -6px; left: -6px; }",
+  ".sd-slide .sd-sel-ne { top: -6px; right: -6px; }",
+  ".sd-slide .sd-sel-sw { bottom: -6px; left: -6px; }",
+  ".sd-slide .sd-sel-se { right: -6px; bottom: -6px; }",
+  ".sd-slide .sd-sel-bar { position: absolute; border: 1.6px solid #609ff8; border-radius: 999px; background: #fff; }",
+  ".sd-slide .sd-sel-n, .sd-slide .sd-sel-s { left: 50%; width: 22px; height: 7px; transform: translateX(-50%); }",
+  ".sd-slide .sd-sel-n { top: -5px; }",
+  ".sd-slide .sd-sel-s { bottom: -5px; }",
+  ".sd-slide .sd-sel-w, .sd-slide .sd-sel-e { top: 50%; width: 7px; height: 22px; transform: translateY(-50%); }",
+  ".sd-slide .sd-sel-w { left: -5px; }",
+  ".sd-slide .sd-sel-e { right: -5px; }",
+  ".sd-slide .sd-sel-stem { position: absolute; top: -26px; left: 50%; width: 2px; height: 26px; background: #609ff8; }",
+  ".sd-slide .sd-sel-rotate { position: absolute; top: -40px; left: 50%; width: 22px; height: 22px; border: 2.5px solid #609ff8; border-radius: 999px; background: var(--ds-bg); transform: translateX(-50%); }",
   ".sd-slide .sd-chart-header { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }",
   ".sd-slide .sd-chart-delta { flex-shrink: 0; padding: 6px 14px; border-radius: 999px; background: var(--ds-surface); color: var(--ds-accent); font-size: 18px; font-weight: 600; }",
   ".sd-slide .sd-chart { display: flex; flex-direction: column; gap: 14px; }",

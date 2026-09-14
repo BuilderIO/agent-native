@@ -32,22 +32,26 @@
 import {
   IconArrowLeft,
   IconArrowUp,
+  IconBold,
   IconBolt,
   IconChevronDown,
   IconDotsVertical,
+  IconItalic,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
   IconLayoutAlignRight,
   IconList,
   IconPalette,
   IconPaperclip,
+  IconPhoto,
   IconPlayerPlay,
   IconPlus,
   IconShape,
   IconStack2,
-  IconTextSize,
   IconTypography,
+  IconUnderline,
 } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ChartSlide,
@@ -123,14 +127,6 @@ const DECK_SLIDES = [
   { id: "statement", render: StatementSlide },
 ] as const;
 
-const CONTEXT_TOOLS = [
-  IconBolt,
-  IconPalette,
-  IconTypography,
-  IconList,
-  IconStack2,
-] as const;
-
 const ALIGN_TOOLS = [
   IconLayoutAlignLeft,
   IconLayoutAlignCenter,
@@ -138,6 +134,16 @@ const ALIGN_TOOLS = [
 ] as const;
 
 const AGENT_SUGGESTIONS = ["Tighten the copy", "Add a closing slide"];
+
+// The last turn plays rather than just sitting there: the indicator shimmers,
+// then the reply types in. It is the only motion in the hero, and it is the
+// thing the page is selling.
+//
+// The timings live here because the CSS needs the same numbers and cannot
+// count the characters itself.
+const THINKING_MS = 1000;
+const TYPE_START_MS = 1080;
+const CHAR_MS = 16;
 
 /**
  * The transcript runs longer than the panel on purpose. It is bottom-anchored
@@ -177,21 +183,46 @@ const AGENT_TURNS = [
   },
 ] as const;
 
+function charDelay(index: number) {
+  return { animationDelay: TYPE_START_MS + index * CHAR_MS + "ms" };
+}
+
+// One span per character, grouped into words. Bare per-character spans would
+// let a line break land mid-word, since browsers may break between inline
+// elements; the word wrapper is what keeps the wrapping normal. The stagger is
+// stagger is a per-character delay because a generated nth-of-type selector
+// would restart its count inside every word wrapper.
+function TypedReply({ text }: { text: string }) {
+  const words = text.split(" ");
+  let charIndex = 0;
+
+  return (
+    <span className="sm-agent-reply sm-agent-typed">
+      {words.map((word, wordIndex) => (
+        <span key={word + wordIndex}>
+          <span className="sm-type-word">
+            {[...word].map((character, index) => (
+              <span
+                key={index}
+                className="sm-type-char"
+                style={charDelay(charIndex++)}
+              >
+                {character}
+              </span>
+            ))}
+          </span>
+          {wordIndex < words.length - 1 ? " " : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function Toolbar() {
   return (
     <div className="sm-toolbar">
       <span className="sm-icon-btn">
         <IconArrowLeft size={16} />
-      </span>
-      <span className="sm-icon-btn">
-        <IconPlus size={14} />
-      </span>
-      <span className="sm-icon-btn">
-        <IconTextSize size={16} />
-      </span>
-      <span className="sm-icon-btn">
-        <IconShape size={16} />
-        <IconChevronDown size={10} className="sm-icon-btn-caret" />
       </span>
       <span className="sm-toolbar-title">Northwind Q3 Review</span>
       <span className="sm-toolbar-spacer" />
@@ -242,28 +273,86 @@ function SlideRail() {
 function ContextToolbar() {
   return (
     <div className="sm-context-toolbar">
-      {CONTEXT_TOOLS.map((Tool, index) => (
+      <span className="sm-tool-pill">
+        <IconPlus size={14} />
+        New slide
+      </span>
+      <span className="sm-context-divider" />
+      <span className="sm-icon-btn">
+        <IconShape size={15} />
+        <IconChevronDown size={10} className="sm-icon-btn-caret" />
+      </span>
+      <span className="sm-icon-btn">
+        <IconPhoto size={15} />
+      </span>
+      <span className="sm-icon-btn">
+        <IconPalette size={15} />
+      </span>
+      <span className="sm-context-divider" />
+      <span className="sm-tool-select">
+        Inter
+        <IconChevronDown size={10} />
+      </span>
+      <span className="sm-tool-select">
+        32
+        <IconChevronDown size={10} />
+      </span>
+      <span className="sm-context-divider" />
+      <span className="sm-icon-btn is-active">
+        <IconBold size={15} />
+      </span>
+      <span className="sm-icon-btn">
+        <IconItalic size={15} />
+      </span>
+      <span className="sm-icon-btn">
+        <IconUnderline size={15} />
+      </span>
+      <span className="sm-icon-btn">
+        <IconTypography size={15} />
+      </span>
+      <span className="sm-context-divider" />
+      {ALIGN_TOOLS.map((Tool, index) => (
         // Icon identity is the only distinguishing value in this static list.
         <span key={index} className="sm-icon-btn">
           <Tool size={15} />
         </span>
       ))}
+      <span className="sm-icon-btn">
+        <IconList size={15} />
+      </span>
       <span className="sm-context-divider" />
-      {ALIGN_TOOLS.map((Tool, index) => (
-        <span key={index} className="sm-icon-btn">
-          <Tool size={15} />
-        </span>
-      ))}
+      <span className="sm-icon-btn">
+        <IconBolt size={15} />
+      </span>
+      <span className="sm-icon-btn">
+        <IconStack2 size={15} />
+      </span>
       <span className="sm-toolbar-spacer" />
     </div>
   );
 }
 
 function AgentPanel() {
+  const streamRef = useRef<HTMLDivElement>(null);
+  const [playing, setPlaying] = useState(false);
+
+  // Same trigger the Clips cards use: play on entry and reset on exit, so the
+  // reply types out again instead of being spent on the first scroll past.
+  useEffect(() => {
+    const node = streamRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setPlaying(entry?.isIntersecting ?? false),
+      { threshold: 0.35 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="sm-agent">
       <div className="sm-agent-transcript">
-        {AGENT_TURNS.map((turn) => (
+        {AGENT_TURNS.map((turn, index) => (
           <div key={turn.prompt} className="sm-agent-turn">
             <div className="sm-agent-prompt">{turn.prompt}</div>
             {"step" in turn ? (
@@ -271,7 +360,19 @@ function AgentPanel() {
                 {turn.step} <span className="sm-agent-ref">{turn.stepRef}</span>
               </div>
             ) : null}
-            <div className="sm-agent-reply">{turn.reply}</div>
+            {index === AGENT_TURNS.length - 1 ? (
+              <div
+                ref={streamRef}
+                className={
+                  playing ? "sm-agent-stream is-playing" : "sm-agent-stream"
+                }
+              >
+                <span className="sm-agent-thinking">Thinking</span>
+                <TypedReply text={turn.reply} />
+              </div>
+            ) : (
+              <div className="sm-agent-reply">{turn.reply}</div>
+            )}
           </div>
         ))}
         <div className="sm-agent-chips">
@@ -293,6 +394,20 @@ function AgentPanel() {
   );
 }
 
+// The gradient sweep from ".agent-thinking-indicator__text" in
+// packages/core/src/styles/agent-native.css, re-pointed at this mock's tokens.
+const THINKING_SHINE_CSS =
+  "@supports ((background-clip: text) or (-webkit-background-clip: text)) { .slides-mock .sm-agent-thinking { color: transparent; background: linear-gradient(90deg, var(--sm-muted-foreground) 0%, var(--sm-muted-foreground) 36%, var(--sm-foreground) 50%, var(--sm-muted-foreground) 64%, var(--sm-muted-foreground) 100%); background-size: 14rem 100%; background-repeat: repeat; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; } }";
+
+// Each character keeps its own inline animation-delay, which outranks the 0s
+// the shorthand below would otherwise apply.
+const PLAYING_CSS = [
+  ".slides-mock .sm-agent-stream.is-playing .sm-agent-thinking { animation: sm-thinking-life " +
+    THINKING_MS +
+    "ms linear forwards, sm-thinking-shine 2.6s linear infinite; }",
+  ".slides-mock .sm-agent-stream.is-playing .sm-type-char { animation: sm-type-in 50ms linear forwards; }",
+];
+
 const SLIDES_MOCK_CSS = [
   // Shell. The hero container sets the height; the window fills the padded box.
   ".slides-mock { position: relative; width: 100%; padding: 0 40px 28px; overflow: hidden; }",
@@ -312,7 +427,7 @@ const SLIDES_MOCK_CSS = [
   ".slides-mock .sm-window-body { display: flex; flex: 1; min-height: 0; }",
 
   // Toolbar — the real `h-12` bar, `px-3 gap-1`.
-  `.slides-mock .sm-toolbar { display: flex; height: ${TOOLBAR_HEIGHT}px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--sm-border); background: var(--sm-background); }`,
+  `.slides-mock .sm-toolbar { display: flex; height: ${TOOLBAR_HEIGHT}px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 12px; background: var(--sm-background); }`,
   ".slides-mock .sm-toolbar-title { margin-left: 4px; overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }",
   ".slides-mock .sm-toolbar-spacer { flex: 1; min-width: 8px; }",
   ".slides-mock .sm-icon-btn { position: relative; display: flex; height: 28px; min-width: 28px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: var(--sm-muted-foreground); }",
@@ -335,7 +450,10 @@ const SLIDES_MOCK_CSS = [
 
   // Canvas
   ".slides-mock .sm-canvas { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--sm-surface); }",
-  `.slides-mock .sm-context-toolbar { display: flex; height: ${CONTEXT_TOOLBAR_HEIGHT}px; flex-shrink: 0; align-items: center; gap: 2px; padding: 0 12px; }`,
+  `.slides-mock .sm-context-toolbar { display: flex; height: ${CONTEXT_TOOLBAR_HEIGHT}px; flex-shrink: 0; align-items: center; gap: 2px; overflow: hidden; padding: 0 10px; border-bottom: 1px solid var(--sm-border); background: var(--sm-background); }`,
+  ".slides-mock .sm-tool-pill { display: flex; height: 28px; flex-shrink: 0; align-items: center; gap: 5px; padding: 0 10px 0 8px; border-radius: 6px; color: var(--sm-foreground); font-size: 13px; font-weight: 500; }",
+  ".slides-mock .sm-tool-select { display: flex; height: 28px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 7px; border-radius: 6px; color: var(--sm-foreground); font-size: 12px; }",
+  ".slides-mock .sm-icon-btn.is-active { background: var(--sm-accent-row); color: var(--sm-foreground); }",
   ".slides-mock .sm-context-divider { width: 1px; height: 18px; flex-shrink: 0; margin: 0 6px; background: var(--sm-border); }",
   `.slides-mock .sm-workspace { --sd-scale: ${CANVAS_SCALE_WIDE}; display: flex; flex: 1; min-height: 0; align-items: center; justify-content: center; overflow: hidden; padding: 24px; }`,
   ...CANVAS_SCALE_STEPS.map(
@@ -353,6 +471,31 @@ const SLIDES_MOCK_CSS = [
   ".slides-mock .sm-agent-step { display: flex; align-items: center; gap: 5px; color: var(--sm-muted-foreground); font-size: 12px; }",
   ".slides-mock .sm-agent-ref { color: var(--sm-foreground); }",
   ".slides-mock .sm-agent-reply { font-size: 13px; line-height: 1.55; color: var(--sm-foreground); }",
+  // Thinking indicator, then the reply typing in. The indicator is absolutely
+  // positioned over the reply and the characters hold their space at
+  // "opacity: 0" from the start, so nothing reflows mid-animation. The
+  // indicator mirrors the real one in packages/core: the word "Thinking" with
+  // a gradient sweeping through the text, not a row of bouncing dots.
+  ".slides-mock .sm-agent-stream { position: relative; }",
+  ".slides-mock .sm-agent-thinking { position: absolute; left: 0; top: 0; opacity: 0; color: var(--sm-muted-foreground); font-size: 13px; font-weight: 500; line-height: 1.55; }",
+  ".slides-mock .sm-agent-typed { display: block; }",
+  ".slides-mock .sm-type-word { white-space: nowrap; }",
+  ".slides-mock .sm-type-char { opacity: 0; }",
+
+  THINKING_SHINE_CSS,
+
+  "@keyframes sm-type-in { to { opacity: 1; } }",
+  "@keyframes sm-thinking-life { 0%, 88% { opacity: 1; } 100% { opacity: 0; } }",
+  "@keyframes sm-thinking-shine { 0% { background-position: 0 0; } 100% { background-position: 14rem 0; } }",
+
+  ...PLAYING_CSS,
+
+  // Both fallbacks land on the finished state: without JS the class that
+  // starts the animation is never added, and a visitor who asked not to see
+  // motion gets the reply outright instead of watching it arrive.
+  "@media (scripting: none) { .slides-mock .sm-type-char { opacity: 1; } }",
+  "@media (prefers-reduced-motion: reduce) { .slides-mock .sm-type-char, .slides-mock .sm-agent-stream.is-playing .sm-type-char { opacity: 1; animation: none; } .slides-mock .sm-agent-thinking { display: none; } }",
+
   ".slides-mock .sm-agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }",
   ".slides-mock .sm-agent-chip { display: flex; height: 26px; align-items: center; padding: 0 10px; border: 1px solid var(--sm-border); border-radius: 999px; color: var(--sm-muted-foreground); font-size: 12px; }",
   ".slides-mock .sm-agent-composer { display: flex; flex-shrink: 0; align-items: center; gap: 10px; margin: 0 12px 12px; padding: 10px 12px; border: 1px solid var(--sm-border); border-radius: 10px; background: var(--sm-card); color: var(--sm-muted-foreground); }",
@@ -403,13 +546,13 @@ export function SlidesEditorMock({
             <span />
           </div>
           <Toolbar />
+          <ContextToolbar />
           <div className="sm-window-body">
             <SlideRail />
             <div className="sm-canvas">
-              <ContextToolbar />
               <div className="sm-workspace">
                 <VarScaledSlide>
-                  <ChartSlide />
+                  <ChartSlide selected />
                 </VarScaledSlide>
               </div>
             </div>
