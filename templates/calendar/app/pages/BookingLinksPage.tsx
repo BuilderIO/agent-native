@@ -648,8 +648,34 @@ function BookingHostsEditor({
     onChange(hosts.filter((host) => host.email !== email));
   }
 
+  // Sorted so the query key stays stable when chips are reordered — the key is
+  // hashed from param content, so reordering hosts must not look like a new
+  // query. Queried for every host, not just the ones the signed-in editor's
+  // own overlay list already recognizes: a shared editor's overlay list can
+  // differ from the link owner's, and the server only ever reports statuses
+  // for hosts on the owner's own list, so its response is the source of
+  // truth for which hosts are calendar-managed.
+  const allHostEmails = hosts.map((host) => host.email).sort();
+  const { data: hostStatuses } = useHostOverlayStatus(
+    allHostEmails,
+    bookingLinkId,
+    // Never fire with an ambiguous identity: either this is genuinely a new
+    // draft (no id yet, caller is the presumptive owner), or the real link
+    // and its bookingLinkId have finished loading.
+    allHostEmails.length > 0 && (isNewDraft || !!bookingLinkId),
+  );
+
   function isOverlayHost(host: BookingHost) {
     const normalized = normalizeHostEmail(host.email);
+    // Once the owner-scoped status list has loaded, it is authoritative.
+    // Before that (or if it fails to load), fall back to the signed-in
+    // user's own overlay list, which is correct for the common case where
+    // the editor is the owner and for a brand-new, unsaved draft.
+    if (hostStatuses) {
+      return hostStatuses.some(
+        (entry) => normalizeHostEmail(entry.email) === normalized,
+      );
+    }
     return overlayPeople.some(
       (person) => normalizeHostEmail(person.email) === normalized,
     );
@@ -657,19 +683,6 @@ function BookingHostsEditor({
 
   const calendarHosts = hosts.filter((host) => isOverlayHost(host));
   const manualHosts = hosts.filter((host) => !isOverlayHost(host));
-
-  // Sorted so the query key stays stable when chips are reordered — the key is
-  // hashed from param content, so reordering hosts must not look like a new
-  // query.
-  const calendarHostEmails = calendarHosts.map((host) => host.email).sort();
-  const { data: hostStatuses } = useHostOverlayStatus(
-    calendarHostEmails,
-    bookingLinkId,
-    // Never fire with an ambiguous identity: either this is genuinely a new
-    // draft (no id yet, caller is the presumptive owner), or the real link
-    // and its bookingLinkId have finished loading.
-    calendarHostEmails.length > 0 && (isNewDraft || !!bookingLinkId),
-  );
   const sendOverlayRequest = useSendOverlayRequest();
   const addOverlayPerson = useAddOverlayPerson();
 
