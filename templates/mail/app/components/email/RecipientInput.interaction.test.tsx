@@ -10,6 +10,13 @@ const mocks = vi.hoisted(() => ({
     { name: "Adam Example", email: "adam@example.test", count: 6 },
     { name: "Bea Example", email: "bea@example.test", count: 1 },
   ],
+  aliases: [] as Array<{
+    id: string;
+    name: string;
+    emails: string[];
+    createdAt: string;
+    updatedAt: string;
+  }>,
   navigate: vi.fn(),
 }));
 
@@ -41,7 +48,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 vi.mock("@/hooks/use-aliases", () => ({
-  useAliases: () => ({ data: [] }),
+  useAliases: () => ({ data: mocks.aliases }),
   useCreateAlias: () => ({
     isPending: false,
     mutateAsync: async () => undefined,
@@ -74,6 +81,7 @@ describe("RecipientInput autocomplete interaction", () => {
       { name: "Adam Example", email: "adam@example.test", count: 6 },
       { name: "Bea Example", email: "bea@example.test", count: 1 },
     );
+    mocks.aliases.splice(0, mocks.aliases.length);
   });
 
   afterEach(() => {
@@ -351,5 +359,91 @@ describe("RecipientInput autocomplete interaction", () => {
 
     fireEvent.keyDown(input, { key: "Enter" });
     expect(screen.getByText("bea@example.test")).toBeTruthy();
+  });
+
+  it("commits a typed address with comma and ignores an empty separator", () => {
+    render(<RecipientHarness />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: " ada@example.test " } });
+    fireEvent.keyDown(input, { key: "," });
+
+    expect(screen.getByText("ada@example.test")).toBeTruthy();
+    expect(input.value).toBe("");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.keyDown(input, { key: "," });
+    expect(screen.getAllByText("ada@example.test")).toHaveLength(1);
+  });
+
+  it("removes the last chip with Backspace only when the input is empty", () => {
+    render(
+      <RecipientHarness initialValue="ada@example.test, bea@example.test" />,
+    );
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "draft" } });
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(screen.getByText("ada@example.test")).toBeTruthy();
+    expect(screen.getByText("bea@example.test")).toBeTruthy();
+    expect(input.value).toBe("draft");
+
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(screen.getByText("ada@example.test")).toBeTruthy();
+    expect(screen.queryByText("bea@example.test")).toBeNull();
+  });
+
+  it("keeps alias and contact keyboard indexes aligned with visible options", () => {
+    mocks.aliases.push({
+      id: "team",
+      name: "Ada Team",
+      emails: ["first@example.test", "second@example.test"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    render(<RecipientHarness />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "ad" } });
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(3);
+    expect(options[0].textContent).toContain("Ada Team");
+    expect(options[1].textContent).toContain("Ada Example");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(options[1].getAttribute("aria-selected")).toBe("true");
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      options[1].getAttribute("id"),
+    );
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(options[2].getAttribute("aria-selected")).toBe("true");
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      options[2].getAttribute("id"),
+    );
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("adam@example.test")).toBeTruthy();
+  });
+
+  it("accepts an alias suggestion with Enter and resets the recipient query", () => {
+    mocks.aliases.push({
+      id: "team",
+      name: "Ada Team",
+      emails: ["first@example.test", "second@example.test"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    render(<RecipientHarness />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "team" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(screen.getByText("Ada Team")).toBeTruthy();
+    expect(input.value).toBe("");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
   });
 });

@@ -385,8 +385,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   no send staging or provider call occurs. An isolated memory-backed browser
   replay with one allowlisted recipient confirmed that Send and Schedule each
   show the localized finish-input notice and leave the compose open; no Google
-  account was connected and no provider call occurred. Superhuman behavior and
-  a connected-provider round trip remain unverified.
+  account was connected and no provider call occurred. `RecipientInput` tests
+  also verify that comma commits a typed address, empty commas add no chip, and
+  Backspace removes the last chip only when the input is empty. The focused
+  recipient interaction suite passes 15 tests. Superhuman behavior and a
+  connected-provider round trip remain unverified.
 - COMPOSE-004 — Navigate recipient suggestions with arrows, Enter, Tab, hover,
   click, scroll, and no-match/error/slow contact data. Confirm selected option,
   chip order, focus, `aria-selected`, and no duplicate send target.
@@ -412,7 +415,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   reaches the last option in the 200px scrollable list and verifies that the
   active option requests `scrollIntoView({ block: "nearest" })`; Mail previously
   changed `aria-selected` without scrolling it into view. This is Mail-only
-  interaction proof, not a confirmed Superhuman discrepancy.
+  interaction proof, not a confirmed Superhuman discrepancy. Further isolated
+  regressions verify that combined alias/contact options keep keyboard indexes
+  and `aria-activedescendant` aligned, and Enter accepts an alias and resets the
+  query. The recipient interaction suite passes 15 tests; Superhuman's
+  alias-ranking and selection behavior remains unobserved.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,
