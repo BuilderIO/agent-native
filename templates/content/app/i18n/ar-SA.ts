@@ -140,6 +140,8 @@ const database = {
     "تم الاحتفاظ بصفوف المجموعة والخصائص المحلية.",
   failedToAttachSource: "فشل إرفاق المصدر",
   failedToCreateRow: "فشل إنشاء الصف",
+  pageCreatedCollectionRefreshFailed:
+    "تم إنشاء الصفحة، لكن تعذر تحديث هذه المجموعة. أعد التحميل لرؤيتها.",
   failedToDeleteRow: "فشل حذف الصف",
   failedToDeleteSelectedRows: "فشل حذف الصفوف المحددة",
   failedToDuplicateEverySelectedRow: "تعذر تكرار كل الصفوف المحددة",

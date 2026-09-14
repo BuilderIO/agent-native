@@ -3,6 +3,11 @@ import {
   type McpIntegrationsConfigInput,
   type NormalizedMcpIntegrationsConfig,
 } from "../../shared/mcp-integration-config.js";
+import {
+  hostMatches,
+  MCP_LINK_HOSTS,
+  normalizeMcpUrl,
+} from "../../shared/mcp-provider-hosts.js";
 import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
@@ -1099,58 +1104,6 @@ export function filterMcpIntegrations(
       .toLowerCase();
     return haystack.includes(needle);
   });
-}
-
-const MCP_LINK_HOSTS: Record<string, string[]> = {
-  amplitude: ["amplitude.com"],
-  apollo: ["apollo.io"],
-  "common-room": ["commonroom.io"],
-  context7: ["context7.com"],
-  exa: ["exa.ai"],
-  sentry: ["sentry.io", "sentry.dev"],
-  gong: ["gong.io"],
-  grafana: ["grafana.com", "grafana.net"],
-  "builder-cms": ["builder.io"],
-  sigma: ["sigmacomputing.com"],
-  notion: ["notion.so", "notion.site"],
-  granola: ["granola.ai"],
-  semgrep: ["semgrep.dev", "semgrep.com"],
-  canva: ["canva.com", "canva.ai"],
-  figma: ["figma.com"],
-  linear: ["linear.app"],
-  atlassian: ["atlassian.com", "atlassian.net", "jira.com", "confluence.com"],
-  supabase: ["supabase.com"],
-  neon: ["neon.tech"],
-  stripe: ["stripe.com"],
-  cloudflare: ["cloudflare.com"],
-  github: ["github.com", "github.dev"],
-  gitlab: ["gitlab.com"],
-  slack: ["slack.com"],
-  asana: ["asana.com"],
-  hubspot: ["hubspot.com"],
-  intercom: ["intercom.com"],
-  pylon: ["usepylon.com", "pylon.com"],
-  monday: ["monday.com"],
-  webflow: ["webflow.com"],
-  paypal: ["paypal.com"],
-  box: ["box.com"],
-  netlify: ["netlify.com"],
-  vercel: ["vercel.com"],
-  zapier: ["zapier.com"],
-};
-
-function hostMatches(hostname: string, domain: string): boolean {
-  return hostname === domain || hostname.endsWith(`.${domain}`);
-}
-
-function normalizeMcpUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
 }
 
 export function isMcpIntegrationUrl(
