@@ -2300,7 +2300,7 @@ const arSA = {
     content: "المحتوى",
     contentOverview: "نظرة عامة",
     contentEditing: "الكتابة والتنظيم",
-    contentDatabases: "قواعد البيانات والنماذج",
+    contentDatabases: "المجموعات والنماذج",
     contentSync: "الملفات المحلية والمزامنة",
     contentDevelopers: "دليل المطور",
     plans: "Plans",

@@ -475,7 +475,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(handler).toContain("removeBreakpointMutation.mutateAsync");
     expect(handler).toContain("addBreakpointMutation.mutateAsync");
     expect(handler).toContain(
-      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+      "activeBreakpointWidthStateRef.current === existing.widthPx",
+    );
+    expect(handler).toContain(
+      "handleBreakpointBarSelect(widthPx, addedBreakpointId)",
     );
     // Orphan-proof ordering: the add call must appear before the remove call
     // (add-then-remove, not remove-then-add), so a failed/slow add never
@@ -489,10 +492,45 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // edit scope follows the new width before the old breakpoint is torn
     // down (success path: active target follows the width change).
     const retargetIndex = handler.indexOf(
-      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+      "handleBreakpointBarSelect(widthPx, addedBreakpointId)",
     );
     expect(retargetIndex).toBeGreaterThan(addIndex);
     expect(retargetIndex).toBeLessThan(removeIndex);
+  });
+
+  it("retargets a resized active breakpoint by its new id only if it is still active after saving", () => {
+    const handler = source.slice(
+      source.indexOf("const handleBreakpointChangeWidth"),
+      source.indexOf("const handleOverviewAddBreakpoint"),
+    );
+    const addIndex = handler.indexOf(
+      "const addResult = await addBreakpointMutation.mutateAsync(",
+    );
+    const addedBreakpointIndex = handler.indexOf(
+      "addedBreakpointId = addResult.breakpointSet.breakpoints.find(",
+    );
+    const currentSelectionIndex = handler.indexOf(
+      "activeBreakpointWidthStateRef.current === existing.widthPx",
+    );
+    const retargetIndex = handler.indexOf(
+      "handleBreakpointBarSelect(widthPx, addedBreakpointId)",
+    );
+
+    expect(addIndex).toBeGreaterThanOrEqual(0);
+    expect(addedBreakpointIndex).toBeGreaterThan(addIndex);
+    expect(currentSelectionIndex).toBeGreaterThan(addedBreakpointIndex);
+    expect(retargetIndex).toBeGreaterThan(currentSelectionIndex);
+  });
+
+  it("keeps Enter handling local in the overview breakpoint width input", () => {
+    const menuStart = canvasSource.indexOf("onChangeBreakpointWidth ? (");
+    const widthInput = canvasSource.slice(
+      menuStart,
+      canvasSource.indexOf("</DropdownMenuContent>", menuStart),
+    );
+
+    expect(menuStart).toBeGreaterThanOrEqual(0);
+    expect(widthInput).toContain("onKeyDownCapture");
   });
 
   it("BP-DEEP v2 item 6: an add failure aborts before touching the old breakpoint (failure path — old breakpoint stays intact and targeted)", () => {
@@ -510,7 +548,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     const catchIndex = handler.indexOf("} catch {", addIndex);
     const returnIndex = handler.indexOf("return;", catchIndex);
     const retargetIndex = handler.indexOf(
-      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+      "activeBreakpointWidthStateRef.current === existing.widthPx",
     );
     expect(tryIndex).toBeGreaterThanOrEqual(0);
     expect(tryIndex).toBeLessThan(addIndex);

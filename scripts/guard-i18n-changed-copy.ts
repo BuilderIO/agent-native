@@ -137,6 +137,18 @@ function collectCatalogSurfaces(
         continue;
       }
 
+      // Locale data may live in sibling per-locale files (e.g. an
+      // i18n-data.ts split where each <locale>.ts imports from the source
+      // rather than the source importing the locale). The source itself does
+      // not import them, so the import scan cannot see them.
+      const siblingFile = path.join(catalogDir, `${locale}.ts`);
+      if (existsSync(siblingFile) && siblingFile !== sourceWrapper) {
+        const target = relative(siblingFile);
+        targets.push(target);
+        if (changedFiles.has(absolute(target))) changedTargets.add(target);
+        continue;
+      }
+
       const target = `${relative(sourceImplementation)}#${locale}`;
       targets.push(target);
       if (localeChanges.has(locale)) changedTargets.add(target);

@@ -556,6 +556,7 @@ function InboxDetailPane({
     null;
   const latestDecision = item.decisions?.[item.decisions.length - 1];
   const events = item.events ?? [];
+  const taskSummary = events[events.length - 1]?.summary.trim() || null;
   const runs = item.runs ?? [];
   const slack = isSlackSource(source);
   const author = (item.author ?? listItem?.author)?.trim() || null;
@@ -610,6 +611,20 @@ function InboxDetailPane({
           )}
         </div>
       </header>
+
+      {taskSummary ? (
+        <section
+          aria-label={t("triage.summary")}
+          className="border-t border-border pt-4"
+        >
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t("triage.summary")}
+          </p>
+          <p className="mt-1 border-s-2 border-primary/40 ps-3 text-sm leading-6">
+            {taskSummary}
+          </p>
+        </section>
+      ) : null}
 
       {reason ? (
         <div className="border-t border-border pt-4">

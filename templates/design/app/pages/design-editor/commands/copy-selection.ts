@@ -68,6 +68,7 @@ export async function runCopySelection({
   const entries = getSelectedLayerSnapshots().map((snapshot) => ({
     html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
     rootNodeId: snapshot.rootNodeId,
+    sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
     portableStyleSnapshot: snapshot.portableStyleSnapshot,
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
