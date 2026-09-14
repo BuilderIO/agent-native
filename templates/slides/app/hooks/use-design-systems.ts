@@ -1,5 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 
+import type { DesignSystemIndexingStatus } from "../../shared/design-system-validation";
+
 type DesignSystemSummary = {
   id: string;
   title: string;
@@ -10,6 +12,7 @@ type DesignSystemSummary = {
   accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   canManage?: boolean;
   createdAt: string;
+  indexingStatus?: DesignSystemIndexingStatus;
 };
 
 export function useDesignSystems() {

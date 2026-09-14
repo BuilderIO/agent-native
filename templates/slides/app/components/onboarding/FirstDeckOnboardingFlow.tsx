@@ -32,6 +32,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { startDeckGeneration } from "@/lib/create-deck-generation";
+import { isDesignSystemSelectable } from "@/lib/design-system-selection";
 import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
 import {
   forgetRecentReference,
@@ -84,14 +85,24 @@ export function FirstDeckOnboardingFlow({
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const workspaceDesignSystemId =
-    workspaceDesignSystem && workspaceDesignSystem.status === "available"
+    workspaceDesignSystem &&
+    workspaceDesignSystem.status === "available" &&
+    designSystems.some(
+      (designSystem) =>
+        designSystem.id === workspaceDesignSystem.id &&
+        isDesignSystemSelectable(designSystem),
+    )
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some((designSystem) => designSystem.id === reference.id),
+        designSystems.some(
+          (designSystem) =>
+            designSystem.id === reference.id &&
+            isDesignSystemSelectable(designSystem),
+        ),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(
