@@ -635,7 +635,7 @@ const enUS = {
     overlayRequestInProgress: "A request to this peer is already in progress",
     overlayRequestPageTitle: "Add {{email}} to your calendar?",
     overlayRequestPageDescription:
-      "{{email}} added you to their calendar and has booking links where you're a required host. Right now those links can only see whether you're busy — adding them back lets those links use your real working hours instead.",
+      "{{email}} added you to their calendar and has booking links where you're a required host. Right now those links only check whether you're busy — adding them back also applies your real working hours on top of that, so people can only book within the times you'd actually accept.", // i18n-copy-ignore: translated inline in this file's own es-ES/fr-FR/de-DE/pt-BR/zh-CN/ja-JP/ko-KR/hi-IN/ar-SA blocks below; the sibling app/i18n/<locale>.ts files are re-export wrappers with no copy of their own
     overlayRequestPageAlreadyAdded:
       "You've already added {{email}} to your calendar.",
     overlayRequestPageAdded:
@@ -9889,7 +9889,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "No se pudo enviar la solicitud",
       overlayRequestPageTitle: "¿Añadir a {{email}} a tu calendario?",
       overlayRequestPageDescription:
-        "{{email}} te añadió a su calendario y tiene enlaces de reserva donde eres un anfitrión obligatorio. Por ahora esos enlaces solo pueden ver si estás ocupado; añadirlo de vuelta permite que usen tu horario laboral real.",
+        "{{email}} te añadió a su calendario y tiene enlaces de reserva donde eres un anfitrión obligatorio. Por ahora esos enlaces solo comprueban si estás ocupado; añadirlo de vuelta también aplica tu horario laboral real, además de eso, para que solo puedan reservar dentro de los horarios que aceptarías de verdad.",
       overlayRequestPageAlreadyAdded:
         "Ya has añadido a {{email}} a tu calendario.",
       overlayRequestPageAdded:
@@ -9958,7 +9958,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "Échec de l'envoi de la demande",
       overlayRequestPageTitle: "Ajouter {{email}} à votre calendrier ?",
       overlayRequestPageDescription:
-        "{{email}} vous a ajouté à son calendrier et a des liens de réservation où vous êtes un hôte requis. Pour l'instant, ces liens ne peuvent voir que si vous êtes occupé — l'ajouter en retour leur permet d'utiliser vos horaires de travail réels.",
+        "{{email}} vous a ajouté à son calendrier et a des liens de réservation où vous êtes un hôte requis. Pour l'instant, ces liens vérifient seulement si vous êtes occupé — l'ajouter en retour applique en plus vos horaires de travail réels, afin que les réservations ne soient possibles que dans les créneaux que vous accepteriez réellement.",
       overlayRequestPageAlreadyAdded:
         "Vous avez déjà ajouté {{email}} à votre calendrier.",
       overlayRequestPageAdded:
@@ -10025,7 +10025,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "Anfrage konnte nicht gesendet werden",
       overlayRequestPageTitle: "{{email}} zu deinem Kalender hinzufügen?",
       overlayRequestPageDescription:
-        "{{email}} hat dich zu seinem/ihrem Kalender hinzugefügt und hat Buchungslinks, bei denen du ein erforderlicher Gastgeber bist. Diese Links können derzeit nur sehen, ob du beschäftigt bist — wenn du die Person zurückfügst, nutzen sie deine tatsächlichen Arbeitszeiten.",
+        "{{email}} hat dich zu seinem/ihrem Kalender hinzugefügt und hat Buchungslinks, bei denen du ein erforderlicher Gastgeber bist. Diese Links prüfen derzeit nur, ob du beschäftigt bist — wenn du die Person zurückfügst, werden zusätzlich deine tatsächlichen Arbeitszeiten angewendet, sodass Buchungen nur innerhalb der Zeiten möglich sind, die du wirklich akzeptieren würdest.",
       overlayRequestPageAlreadyAdded:
         "Du hast {{email}} bereits zu deinem Kalender hinzugefügt.",
       overlayRequestPageAdded:
@@ -10092,7 +10092,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "Falha ao enviar a solicitação",
       overlayRequestPageTitle: "Adicionar {{email}} ao seu calendário?",
       overlayRequestPageDescription:
-        "{{email}} adicionou você ao calendário dele(a) e tem links de agendamento em que você é um anfitrião obrigatório. No momento, esses links só conseguem ver se você está ocupado — adicioná-lo de volta permite que usem seu horário de trabalho real.",
+        "{{email}} adicionou você ao calendário dele(a) e tem links de agendamento em que você é um anfitrião obrigatório. No momento, esses links só verificam se você está ocupado — adicioná-lo de volta também aplica seu horário de trabalho real, além disso, para que só possam agendar dentro dos horários que você realmente aceitaria.",
       overlayRequestPageAlreadyAdded:
         "Você já adicionou {{email}} ao seu calendário.",
       overlayRequestPageAdded:
@@ -10155,7 +10155,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "请求发送失败",
       overlayRequestPageTitle: "要将 {{email}} 添加到你的日历吗？",
       overlayRequestPageDescription:
-        "{{email}} 已将你添加到他们的日历，并且有预订链接需要你作为必需主持人。目前这些链接只能看到你是否忙碌——把他们添加回来后，链接就能使用你真实的工作时间。",
+        "{{email}} 已将你添加到他们的日历，并且有预订链接需要你作为必需主持人。目前这些链接只能检查你是否忙碌——把他们添加回来后，还会在此基础上应用你真实的工作时间，这样预订就只能落在你真正愿意接受的时间段内。",
       overlayRequestPageAlreadyAdded: "你已经将 {{email}} 添加到你的日历中。",
       overlayRequestPageAdded:
         "已添加。{{email}} 的预订链接现在将使用你真实的工作时间。",
@@ -10217,7 +10217,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "リクエストの送信に失敗しました",
       overlayRequestPageTitle: "{{email}} をカレンダーに追加しますか？",
       overlayRequestPageDescription:
-        "{{email}} があなたを自分のカレンダーに追加し、あなたが必須ホストになっている予約リンクがあります。現在、そのリンクはあなたが忙しいかどうかしか確認できません。追加し返すと、実際の勤務時間が使われるようになります。",
+        "{{email}} があなたを自分のカレンダーに追加し、あなたが必須ホストになっている予約リンクがあります。現在、そのリンクはあなたが忙しいかどうかしか確認できません。追加し返すと、それに加えて実際の勤務時間も適用されるため、あなたが本当に受け入れられる時間内でのみ予約できるようになります。",
       overlayRequestPageAlreadyAdded:
         "{{email}} はすでにカレンダーに追加されています。",
       overlayRequestPageAdded:
@@ -10280,7 +10280,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "요청을 보내지 못했습니다",
       overlayRequestPageTitle: "{{email}}님을 캘린더에 추가하시겠어요?",
       overlayRequestPageDescription:
-        "{{email}}님이 회원님을 자신의 캘린더에 추가했으며, 회원님이 필수 호스트로 지정된 예약 링크가 있습니다. 현재 해당 링크는 회원님의 바쁨 여부만 확인할 수 있습니다. 다시 추가하면 실제 근무 시간을 사용하게 됩니다.",
+        "{{email}}님이 회원님을 자신의 캘린더에 추가했으며, 회원님이 필수 호스트로 지정된 예약 링크가 있습니다. 현재 해당 링크는 회원님의 바쁨 여부만 확인합니다. 다시 추가하면 그에 더해 실제 근무 시간도 적용되어, 회원님이 실제로 수락할 수 있는 시간 내에서만 예약이 가능해집니다.",
       overlayRequestPageAlreadyAdded:
         "이미 {{email}}님을 캘린더에 추가했습니다.",
       overlayRequestPageAdded:
@@ -10345,7 +10345,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "अनुरोध भेजने में विफल",
       overlayRequestPageTitle: "क्या {{email}} को अपने कैलेंडर में जोड़ें?",
       overlayRequestPageDescription:
-        "{{email}} ने आपको अपने कैलेंडर में जोड़ा है और उनके पास बुकिंग लिंक हैं जहाँ आप एक आवश्यक होस्ट हैं। अभी वे लिंक केवल यह देख सकते हैं कि आप व्यस्त हैं या नहीं — उन्हें वापस जोड़ने पर वे आपके असली कार्य घंटों का उपयोग कर सकेंगे।",
+        "{{email}} ने आपको अपने कैलेंडर में जोड़ा है और उनके पास बुकिंग लिंक हैं जहाँ आप एक आवश्यक होस्ट हैं। अभी वे लिंक केवल यह जाँचते हैं कि आप व्यस्त हैं या नहीं — उन्हें वापस जोड़ने पर इसके अलावा आपके असली कार्य घंटे भी लागू होंगे, ताकि बुकिंग केवल उन्हीं समयों में हो सके जिन्हें आप वास्तव में स्वीकार करेंगे।",
       overlayRequestPageAlreadyAdded:
         "आपने {{email}} को पहले ही अपने कैलेंडर में जोड़ लिया है।",
       overlayRequestPageAdded:
@@ -10406,7 +10406,7 @@ const translatedBookingHostAvailability = {
       overlayRequestFailed: "فشل إرسال الطلب",
       overlayRequestPageTitle: "هل تريد إضافة {{email}} إلى تقويمك؟",
       overlayRequestPageDescription:
-        "أضافك {{email}} إلى تقويمه ولديه روابط حجز أنت فيها مضيف مطلوب. حاليًا يمكن لتلك الروابط رؤية ما إذا كنت مشغولاً فقط — إضافته إليك مرة أخرى تتيح لتلك الروابط استخدام ساعات عملك الفعلية.",
+        "أضافك {{email}} إلى تقويمه ولديه روابط حجز أنت فيها مضيف مطلوب. حاليًا تتحقق تلك الروابط فقط مما إذا كنت مشغولاً — إضافته إليك مرة أخرى تطبّق أيضًا، إضافة إلى ذلك، ساعات عملك الفعلية، بحيث لا يمكن الحجز إلا ضمن الأوقات التي تقبلها فعليًا.",
       overlayRequestPageAlreadyAdded: "لقد أضفت {{email}} بالفعل إلى تقويمك.",
       overlayRequestPageAdded:
         "تمت الإضافة. ستستخدم روابط حجز {{email}} الآن ساعات عملك الفعلية.",
