@@ -39,7 +39,6 @@ import {
 export default defineAction({
   description:
     "Edit a Factory automation's display name, prompt, model, schedule, authors, limits, destination, or enabled state in its organization-owned markdown resource.",
-  agentTool: false,
   schema: z.object({
     factoryId: factoryIdSchema,
     automationId: z.string().trim().min(1),
