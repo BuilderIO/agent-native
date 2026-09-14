@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -8,11 +7,9 @@ import { FilterTriggerIndicator } from "./filter-trigger.js";
 
 function render(active: boolean): string {
   return renderToStaticMarkup(
-    createElement(
-      FilterTriggerIndicator,
-      { active },
-      createElement("svg", { key: "icon" }),
-    ),
+    <FilterTriggerIndicator active={active}>
+      <svg />
+    </FilterTriggerIndicator>,
   );
 }
 
