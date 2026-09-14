@@ -740,6 +740,40 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
   );
 
   it(
+    "masks a nested `&` rule whose enclosing rule is a selector list",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.child{width:320px}.card,.panel{@media (max-width:100px){& .child{width:200px}}}</style></head><body style="margin:0">
+        <div class="card"><div class="child" data-agent-native-node-id="child"></div></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="child"]',
+      );
+      // Splicing `.card, .panel` into `& .child` builds `.card, .panel .child`
+      // — a list the candidate allowlist rejects — and a rejected competitor
+      // used to be skipped rather than masked, so the base 320px was carried
+      // and the destination pinned a responsive element.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "masks a selector-list competitor inside a grouping construct",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px}@media (max-width:100px){.card,.panel{width:200px}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
     "ignores a named @page rule as element provenance",
     { timeout: 30_000 },
     async () => {

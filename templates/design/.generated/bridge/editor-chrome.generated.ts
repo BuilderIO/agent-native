@@ -2606,9 +2606,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutOpaqueText);
     }
-    function portableStyleMatchableSelector(selector) {
+    function resolveNestedSelector(selector, scope) {
       return selector.replace(PORTABLE_STYLE_NESTING_SELECTOR, function(m) {
-        return m === "&" ? "*" : m;
+        return m === "&" ? ":is(" + scope + ")" : m;
       });
     }
     function walkPortableStyleRules(ruleList, el, property, grouped, state, scope) {
@@ -2618,11 +2618,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var nestedRules = rule.cssRules;
         var selectorText = rule.selectorText;
         if (scope !== void 0) {
-          if (typeof selectorText !== "string" && rule.style) {
-            selectorText = scope;
-          } else if (typeof selectorText === "string" && selectorText.charAt(0) === "&") {
-            selectorText = scope + selectorText.slice(1);
-          }
+          selectorText = typeof selectorText === "string" ? resolveNestedSelector(selectorText, scope) : rule.style ? scope : selectorText;
         }
         var isStyleRule = typeof selectorText === "string" && !!rule.style;
         if (!isStyleRule) {
@@ -2656,10 +2652,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var styleRule = rule;
         var raw = styleRule.style.getPropertyValue(property);
-        if (raw && isPortableStyleSimpleSelector(selectorText)) {
+        if (raw && (grouped || isPortableStyleSimpleSelector(selectorText))) {
           var matched = false;
           try {
-            matched = el.matches(portableStyleMatchableSelector(selectorText));
+            matched = el.matches(selectorText);
           } catch (_err) {
             state.masked = true;
           }

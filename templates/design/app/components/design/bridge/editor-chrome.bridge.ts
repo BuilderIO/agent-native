@@ -2633,18 +2633,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // in that transient state). Only a plain type/class/id/attribute selector
   // chain with descendant/child combinators is accepted; anything with a
   // `:`, sibling combinator, universal selector, or comma-list is rejected
-  // — excluded outright, same as before: never a candidate, never a masking
-  // competitor either. Quoted attribute-value contents (`[data-x="a:b,c"]`)
+  // — never a candidate. It is still matched as a masking competitor inside
+  // a grouping construct, where nothing is ever trusted anyway (see the
+  // walk). Quoted attribute-value contents (`[data-x="a:b,c"]`)
   // and escaped characters (`.md\:w-64` — every Tailwind variant class) are
   // stripped before the check so a literal `:`/`,`/`*` INSIDE a value or an
   // ident doesn't falsely reject an otherwise-plain selector.
   var PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS = /[:,+~*]/;
   var PORTABLE_STYLE_OPAQUE_SELECTOR_TEXT = /"[^"]*"|'[^']*'|\\./g;
-  // A nested selector's non-leading `&` stands for the enclosing rule's
-  // selector, but `el.matches` reads a bare `&` as `:scope` — `el` itself —
-  // which never matches a form where `&` is an ancestor (`.a & .b`). `*` is
-  // a superset of whatever `&` stands for, so evaluating it as `*` can only
-  // over-match (over-mask), never miss.
+  // `&` in a nested selector stands for the enclosing rule's whole selector
+  // list, but `el.matches` reads a bare `&` as `:scope` — `el` itself —
+  // so it is spelled out as `:is(<enclosing>)` before matching: exact in any
+  // position (`.a & .b`) and for a selector-list parent (`.card, .panel`),
+  // where splicing the text in would build a list the allowlist rejects.
   var PORTABLE_STYLE_NESTING_SELECTOR = /"[^"]*"|'[^']*'|\\.|&/g;
 
   function isPortableStyleSimpleSelector(selector: string): boolean {
@@ -2656,9 +2657,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutOpaqueText);
   }
 
-  function portableStyleMatchableSelector(selector: string): string {
+  function resolveNestedSelector(selector: string, scope: string): string {
     return selector.replace(PORTABLE_STYLE_NESTING_SELECTOR, function (m) {
-      return m === "&" ? "*" : m;
+      return m === "&" ? ":is(" + scope + ")" : m;
     });
   }
 
@@ -2701,17 +2702,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var nestedRules = (rule as any).cssRules as CSSRuleList | undefined;
       var selectorText = (rule as any).selectorText;
       if (scope !== undefined) {
-        if (typeof selectorText !== "string" && (rule as any).style) {
-          selectorText = scope;
-        } else if (
-          typeof selectorText === "string" &&
-          selectorText.charAt(0) === "&"
-        ) {
-          // A leading `&` is exactly the enclosing selector (`&.active`,
-          // `& > .kid`); any other `&` is left for
-          // portableStyleMatchableSelector.
-          selectorText = scope + selectorText.slice(1);
-        }
+        selectorText =
+          typeof selectorText === "string"
+            ? resolveNestedSelector(selectorText, scope)
+            : (rule as any).style
+              ? scope
+              : selectorText;
       }
       var isStyleRule =
         typeof selectorText === "string" && !!(rule as any).style;
@@ -2757,10 +2753,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
       var styleRule = rule as CSSStyleRule;
       var raw = styleRule.style.getPropertyValue(property);
-      if (raw && isPortableStyleSimpleSelector(selectorText)) {
+      // The allowlist decides what may be TRUSTED as the winner. A grouped
+      // rule is never trusted, only lets it mask, so it is matched as
+      // written: a `.card, .panel` list or a `:hover` that currently applies
+      // is a real competitor, not a selector to skip.
+      if (raw && (grouped || isPortableStyleSimpleSelector(selectorText))) {
         var matched = false;
         try {
-          matched = el.matches(portableStyleMatchableSelector(selectorText));
+          matched = el.matches(selectorText);
         } catch (_err) {
           state.masked = true; // selector this engine can't evaluate: a match can't be ruled out
         }
