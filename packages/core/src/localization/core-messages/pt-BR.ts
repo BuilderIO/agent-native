@@ -591,6 +591,12 @@ const messages: AgentChatTranslation = {
     "O Builder rejeitou as credenciais conectadas. Reconecte Builder.io em Configurações e tente novamente.",
   "errorMessages.builderModelUnauthorized":
     "O provedor por trás deste modelo rejeitou a solicitação. Escolha um modelo diferente e tente novamente.",
+  "errorMessages.creditsLimitDaily":
+    "Você atingiu o limite diário de Agent Credits do seu plano atual. Os créditos diários são redefinidos à meia-noite UTC.",
+  "errorMessages.creditsLimitGeneric":
+    "Você atingiu o limite de Agent Credits do seu plano atual.",
+  "errorMessages.creditsLimitMonthly":
+    "Você atingiu o limite mensal de Agent Credits do seu plano atual. Os créditos mensais são redefinidos no primeiro dia do mês.",
   "errorMessages.errorPrefix": "Erro: {{message}}",
   "errorMessages.gatewayInternalError":
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
@@ -615,6 +621,7 @@ const messages: AgentChatTranslation = {
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
   "errorMessages.providerTransientRejection":
     "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
+  "errorMessages.seeAgentCreditsLimit": "Ver seu limite de Agent Credits",
   "errorMessages.startNewChat": "Iniciar novo chat",
   "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
   "feedback.inaccurate": "Impreciso",

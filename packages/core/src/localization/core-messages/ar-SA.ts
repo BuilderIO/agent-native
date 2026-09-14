@@ -367,6 +367,12 @@ const messages: AgentChatTranslation = {
     "رفض Builder بيانات الاعتماد المتصلة. أعد الاتصال بـ Builder.io من الإعدادات، ثم أعد المحاولة.",
   "errorMessages.builderModelUnauthorized":
     "رفض المزوّد الذي يشغّل هذا النموذج الطلب. اختر نموذجًا آخر، ثم أعد المحاولة.",
+  "errorMessages.creditsLimitDaily":
+    "لقد وصلت إلى الحد اليومي من Agent Credits في خطتك الحالية. تتم إعادة تعيين الأرصدة اليومية عند منتصف الليل بتوقيت UTC.",
+  "errorMessages.creditsLimitGeneric":
+    "لقد وصلت إلى حد Agent Credits في خطتك الحالية.",
+  "errorMessages.creditsLimitMonthly":
+    "لقد وصلت إلى الحد الشهري من Agent Credits في خطتك الحالية. تتم إعادة تعيين الأرصدة الشهرية في اليوم الأول من الشهر.",
   "errorMessages.errorPrefix": "خطأ: {{message}}",
   "errorMessages.gatewayInternalError":
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
@@ -390,6 +396,7 @@ const messages: AgentChatTranslation = {
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
   "errorMessages.providerTransientRejection":
     "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
+  "errorMessages.seeAgentCreditsLimit": "عرض حد Agent Credits الخاص بك",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
   "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
   "feedback.inaccurate": "غير دقيق",

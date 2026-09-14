@@ -26,6 +26,21 @@ describe("builder credit status helpers", () => {
     ).toBe(true);
   });
 
+  // Core composes this copy with Builder.io's product name, and the numeric
+  // variant carries none of the other phrases this matcher looks for.
+  it("detects the Agent Credits wording core now emits", () => {
+    expect(
+      isBuilderCreditsExhaustedMessage(
+        "You've reached the daily Agent Credits limit for your current plan. Daily credits reset at midnight UTC.",
+      ),
+    ).toBe(true);
+    expect(
+      isBuilderCreditsExhaustedMessage(
+        "You've used all 25 daily Agent Credits included with the Free plan.",
+      ),
+    ).toBe(true);
+  });
+
   it("does not treat unrelated provider quota errors as Builder credit limits", () => {
     expect(isBuilderCreditsExhaustedMessage("Groq quota exceeded")).toBe(false);
     expect(isBuilderCreditsExhaustedMessage("rate limit exceeded")).toBe(false);

@@ -51,6 +51,10 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import {
+  formatCreditsLimitMessage,
+  parseCreditsLimitInfo,
+} from "./credits-limit.js";
+import {
   classifyTerminalErrorCode,
   canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
@@ -704,8 +708,14 @@ async function* emitHttpError(
   // Belt-and-suspenders: 402 without a structured `credits-limit` code
   // (e.g. bare proxy response) still means quota → show upgrade CTA.
   if (code.startsWith("credits-limit") || status === 402) {
+    // The gateway's own sentence names neither the allowance nor the reset,
+    // and calls the balance "AI credits" while the page the CTA opens calls it
+    // "Agent Credits". Both are decided in one place (`credits-limit.ts`) so
+    // every lane that surfaces this rejection says the same thing.
     yield stop({
-      error: message,
+      error: formatCreditsLimitMessage(
+        parseCreditsLimitInfo(errBody, code, retryAfterMs),
+      ),
       errorCode: code,
       upgradeUrl: await buildUpgradeUrl(),
     });

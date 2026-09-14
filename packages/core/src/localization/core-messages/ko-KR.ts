@@ -359,6 +359,12 @@ const messages: AgentChatTranslation = {
     "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 연결한 후 다시 시도하세요.",
   "errorMessages.builderModelUnauthorized":
     "이 모델의 제공업체가 요청을 거부했습니다. 다른 모델을 선택한 후 다시 시도하세요.",
+  "errorMessages.creditsLimitDaily":
+    "현재 요금제의 일일 Agent Credits 한도에 도달했습니다. 일일 크레딧은 UTC 자정에 초기화됩니다.",
+  "errorMessages.creditsLimitGeneric":
+    "현재 요금제의 Agent Credits 한도에 도달했습니다.",
+  "errorMessages.creditsLimitMonthly":
+    "현재 요금제의 월간 Agent Credits 한도에 도달했습니다. 월간 크레딧은 매월 1일에 초기화됩니다.",
   "errorMessages.errorPrefix": "오류: {{message}}",
   "errorMessages.gatewayInternalError":
     "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
@@ -382,6 +388,7 @@ const messages: AgentChatTranslation = {
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
   "errorMessages.providerTransientRejection":
     "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
+  "errorMessages.seeAgentCreditsLimit": "Agent Credits 한도 보기",
   "errorMessages.startNewChat": "새 채팅 시작",
   "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
   "feedback.inaccurate": "부정확함",

@@ -806,9 +806,9 @@ const messages = {
     apiSetupDescription: "Clips의 AI 연결 방식을 선택하세요.",
     builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
-      "포함된 AI 크레딧과 관리형 전사를 Clips에서 사용할 수 있습니다.",
+      "포함된 Agent Credits과 관리형 전사를 Clips에서 사용할 수 있습니다.",
     builderAiDescription:
-      "포함된 AI 크레딧, 객체 스토리지, 업로드, 관리형 전사에는 먼저 Builder.io를 사용하세요.",
+      "포함된 Agent Credits, 객체 스토리지, 업로드, 관리형 전사에는 먼저 Builder.io를 사용하세요.",
     providerKeyTitle: "자체 제공자 키 사용",
     providerKeyDescription:
       "제공자 과금 사용을 위해 Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere 또는 Ollama를 선택하세요.",

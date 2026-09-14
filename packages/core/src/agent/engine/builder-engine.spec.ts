@@ -809,7 +809,39 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("credits-limit-monthly");
     expect(stop?.upgradeUrl).toContain("builder.io");
-    expect(stop?.error).toContain("monthly AI credits");
+    // The gateway's own sentence names no allowance and no reset, and calls the
+    // balance "AI credits" while the page the CTA opens calls it Agent Credits.
+    expect(stop?.error).toBe(
+      "You've reached the monthly Agent Credits limit for your current plan. Monthly credits reset on the first of the month.",
+    );
+    expect(stop?.error).not.toMatch(/AI credits/i);
+  });
+
+  it("states the allowance on a credits stop once the gateway reports it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(402, {
+          code: "credits-limit-daily",
+          message:
+            "You've reached the daily AI credits limit for your current plan.",
+          usageInfo: {
+            plan: "free",
+            limitExceeded: "daily",
+            limit: 25,
+            isEnterprise: false,
+          },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.error).toBe(
+      "You've used all 25 daily Agent Credits included with the Free plan. Daily credits reset at midnight UTC.",
+    );
   });
 
   it("routes upgradeUrl to the org-agnostic subscription page with Agent-Native attribution", async () => {

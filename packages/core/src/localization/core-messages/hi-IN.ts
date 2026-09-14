@@ -358,6 +358,12 @@ const messages: AgentChatTranslation = {
     "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
+  "errorMessages.creditsLimitDaily":
+    "आप अपनी मौजूदा योजना की दैनिक Agent Credits सीमा तक पहुँच गए हैं। दैनिक क्रेडिट आधी रात UTC पर रीसेट होते हैं।",
+  "errorMessages.creditsLimitGeneric":
+    "आप अपनी मौजूदा योजना की Agent Credits सीमा तक पहुँच गए हैं।",
+  "errorMessages.creditsLimitMonthly":
+    "आप अपनी मौजूदा योजना की मासिक Agent Credits सीमा तक पहुँच गए हैं। मासिक क्रेडिट महीने की पहली तारीख को रीसेट होते हैं।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
   "errorMessages.gatewayInternalError":
     "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
@@ -381,6 +387,7 @@ const messages: AgentChatTranslation = {
     "मॉडल प्रदाता अभी इस चैट की अनुरोध दर सीमित कर रहा है। कुछ देर रुकें, फिर से प्रयास करें।",
   "errorMessages.providerTransientRejection":
     "AI प्रदाता ने इस अनुरोध को अस्थायी रूप से अस्वीकार कर दिया। यह आमतौर पर एक मिनट के भीतर ठीक हो जाता है — फिर से प्रयास करें।",
+  "errorMessages.seeAgentCreditsLimit": "अपनी Agent Credits सीमा देखें",
   "errorMessages.startNewChat": "नई चैट शुरू करें",
   "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
   "feedback.inaccurate": "गलत जानकारी",

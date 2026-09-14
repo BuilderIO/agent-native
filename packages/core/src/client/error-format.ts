@@ -1,5 +1,13 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import {
+  BUILDER_AGENT_CREDITS_DOCS_URL,
+  CREDITS_LIMIT_DAILY_MESSAGE,
+  CREDITS_LIMIT_GENERIC_MESSAGE,
+  CREDITS_LIMIT_MONTHLY_MESSAGE,
+  isCreditsLimitCode,
+  normalizeAgentCreditsTerminology,
+} from "../agent/engine/credits-limit.js";
+import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
@@ -27,6 +35,12 @@ export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
 const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
 const START_NEW_CHAT_LABEL = "Start new chat";
 const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
+/**
+ * Paired with the upgrade CTA on credits rejections. Upgrading is one answer to
+ * "I am blocked"; the other is knowing what the allowance was and when it comes
+ * back, and only Builder.io's own page can state that per plan.
+ */
+const SEE_AGENT_CREDITS_LIMIT_LABEL = "See your Agent Credits limit";
 const BUILDER_AUTHENTICATION_ERROR =
   "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
 /**
@@ -101,7 +115,11 @@ export function formatChatErrorText(
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;
   }
-  return `Error: ${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
+  const upgradeCta = `[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
+  if (isCreditsLimitCode(errorCode)) {
+    return `Error: ${normalized.message}\n\n${upgradeCta}\n\n[${SEE_AGENT_CREDITS_LIMIT_LABEL}](${BUILDER_AGENT_CREDITS_DOCS_URL})`;
+  }
+  return `Error: ${normalized.message}\n\n${upgradeCta}`;
 }
 
 export interface NormalizedChatError {
@@ -204,6 +222,15 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "The provider returned an HTML error page.",
     "agentChat.errorMessages.providerHtml",
   ],
+  [CREDITS_LIMIT_DAILY_MESSAGE, "agentChat.errorMessages.creditsLimitDaily"],
+  [
+    CREDITS_LIMIT_MONTHLY_MESSAGE,
+    "agentChat.errorMessages.creditsLimitMonthly",
+  ],
+  [
+    CREDITS_LIMIT_GENERIC_MESSAGE,
+    "agentChat.errorMessages.creditsLimitGeneric",
+  ],
 ]);
 
 const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
@@ -213,6 +240,10 @@ const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
   ],
   ["Start new chat", "agentChat.errorMessages.startNewChat"],
   ["Upgrade at builder.io", "agentChat.errorMessages.upgradeAtBuilder"],
+  [
+    SEE_AGENT_CREDITS_LIMIT_LABEL,
+    "agentChat.errorMessages.seeAgentCreditsLimit",
+  ],
 ]);
 
 /** Localize only Core's own normalized error copy; preserve provider details. */
@@ -357,6 +388,18 @@ export function normalizeChatError(
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."
       : providerPayload?.message;
+
+  // The Builder engine already composes this copy for rejections it handled.
+  // The same balance also surfaces through transcription, realtime voice, and
+  // complete-text, and through threads persisted before that change, all of
+  // which still carry the gateway's "AI credits" wording for a balance every
+  // Builder.io billing page calls Agent Credits.
+  if (isCreditsLimitCode(code)) {
+    const renamed = normalizeAgentCreditsTerminology(text);
+    return renamed === text
+      ? { message: text }
+      : { message: renamed, details: text };
+  }
 
   if (code === "builder_model_unauthorized") {
     return {

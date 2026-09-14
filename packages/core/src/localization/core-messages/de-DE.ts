@@ -594,6 +594,12 @@ const messages: AgentChatTranslation = {
     "Builder hat die verbundenen Anmeldedaten abgelehnt. Verbinde Builder.io in den Einstellungen erneut und versuche es dann noch einmal.",
   "errorMessages.builderModelUnauthorized":
     "Der Anbieter hinter diesem Modell hat die Anfrage abgelehnt. Wähle ein anderes Modell und versuche es erneut.",
+  "errorMessages.creditsLimitDaily":
+    "Du hast das tägliche Agent-Credits-Limit deines aktuellen Tarifs erreicht. Tägliche Credits werden um Mitternacht UTC zurückgesetzt.",
+  "errorMessages.creditsLimitGeneric":
+    "Du hast das Agent-Credits-Limit deines aktuellen Tarifs erreicht.",
+  "errorMessages.creditsLimitMonthly":
+    "Du hast das monatliche Agent-Credits-Limit deines aktuellen Tarifs erreicht. Monatliche Credits werden am Ersten des Monats zurückgesetzt.",
   "errorMessages.errorPrefix": "Fehler: {{message}}",
   "errorMessages.gatewayInternalError":
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
@@ -619,6 +625,7 @@ const messages: AgentChatTranslation = {
     "Der Modellanbieter begrenzt diesen Chat derzeit. Warte einen Moment und versuche es dann erneut.",
   "errorMessages.providerTransientRejection":
     "Der KI-Anbieter hat diese Anfrage vorübergehend abgelehnt. Das behebt sich meist innerhalb einer Minute – versuche es erneut.",
+  "errorMessages.seeAgentCreditsLimit": "Agent-Credits-Limit ansehen",
   "errorMessages.startNewChat": "Neuen Chat starten",
   "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
   "feedback.inaccurate": "Ungenau",

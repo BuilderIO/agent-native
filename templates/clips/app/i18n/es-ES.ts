@@ -828,9 +828,9 @@ const messages = {
     apiSetupDescription: "Elige cómo Clips se conecta a la IA.",
     builderEasySetup: "Créditos gratis de Builder.io",
     builderAiAvailable:
-      "Los créditos de IA incluidos y la transcripción gestionada están disponibles para Clips.",
+      "Los Agent Credits incluidos y la transcripción gestionada están disponibles para Clips.",
     builderAiDescription:
-      "Usa Builder.io primero para créditos de IA incluidos, almacenamiento de objetos, subidas y transcripción gestionada.",
+      "Usa Builder.io primero para Agent Credits incluidos, almacenamiento de objetos, subidas y transcripción gestionada.",
     providerKeyTitle: "Usar tu propia clave de proveedor",
     providerKeyDescription:
       "Elige Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere u Ollama para uso facturado por proveedor.",

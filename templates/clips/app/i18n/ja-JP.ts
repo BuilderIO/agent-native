@@ -821,9 +821,9 @@ const messages = {
     apiSetupDescription: "Clips の AI 接続方法を選択します。",
     builderEasySetup: "Builder.io 無料クレジット",
     builderAiAvailable:
-      "Clips では付属の AI クレジットとマネージド文字起こしを利用できます。",
+      "Clips では付属の Agent Creditsとマネージド文字起こしを利用できます。",
     builderAiDescription:
-      "含まれる AI クレジット、オブジェクトストレージ、アップロード、管理された文字起こしには、まず Builder.io を使用します。",
+      "含まれる Agent Credits、オブジェクトストレージ、アップロード、管理された文字起こしには、まず Builder.io を使用します。",
     providerKeyTitle: "独自のプロバイダーキーを使用",
     providerKeyDescription:
       "プロバイダー課金で使用する Anthropic、OpenAI、OpenRouter、Gemini、Groq、Mistral、Cohere、Ollama を選択します。",

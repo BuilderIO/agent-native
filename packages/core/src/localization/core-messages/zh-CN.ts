@@ -343,6 +343,12 @@ const messages: AgentChatTranslation = {
     "Builder 拒绝了已连接的凭据。请在设置中重新连接 Builder.io，然后重试。",
   "errorMessages.builderModelUnauthorized":
     "此模型背后的提供商拒绝了请求。请选择其他模型后重试。",
+  "errorMessages.creditsLimitDaily":
+    "您已达到当前套餐的每日 Agent Credits 上限。每日额度在 UTC 午夜重置。",
+  "errorMessages.creditsLimitGeneric":
+    "您已达到当前套餐的 Agent Credits 上限。",
+  "errorMessages.creditsLimitMonthly":
+    "您已达到当前套餐的每月 Agent Credits 上限。每月额度在每月 1 日重置。",
   "errorMessages.errorPrefix": "错误：{{message}}",
   "errorMessages.gatewayInternalError":
     "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
@@ -365,6 +371,7 @@ const messages: AgentChatTranslation = {
     "模型提供商目前正在限制此聊天的请求频率。请稍等片刻后重试。",
   "errorMessages.providerTransientRejection":
     "AI 提供商暂时拒绝了此请求。这种情况通常在一分钟内自行恢复,请重试。",
+  "errorMessages.seeAgentCreditsLimit": "查看您的 Agent Credits 上限",
   "errorMessages.startNewChat": "开始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升级",
   "feedback.inaccurate": "不准确",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import { BUILDER_AGENT_CREDITS_DOCS_URL } from "../agent/engine/credits-limit.js";
 import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
@@ -54,7 +55,7 @@ describe("formatChatErrorText", () => {
     ).toContain(`[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`);
   });
 
-  it("keeps quota errors on the billing CTA", () => {
+  it("keeps quota errors on the billing CTA and names where the limit is published", () => {
     expect(
       formatChatErrorText(
         "Monthly credits limit reached.",
@@ -62,8 +63,50 @@ describe("formatChatErrorText", () => {
         "credits-limit-monthly",
       ),
     ).toBe(
-      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})\n\n[See your Agent Credits limit](${BUILDER_AGENT_CREDITS_DOCS_URL})`,
     );
+  });
+
+  // Upgrading is only one of the two things a blocked reader needs. The other
+  // is the allowance itself, which is per-plan and lives on Builder.io.
+  it("adds the Agent Credits docs CTA only to credits rejections", () => {
+    expect(
+      formatChatErrorText(
+        "The model provider is rate-limiting this chat right now.",
+        agentNativeUpgradeUrl,
+        "rate_limit_exceeded",
+      ),
+    ).not.toContain(BUILDER_AGENT_CREDITS_DOCS_URL);
+  });
+
+  // The gateway says "AI credits"; every Builder.io billing surface the upgrade
+  // CTA opens says "Agent Credits". A reader seeing both has no way to tell
+  // they are the same balance.
+  it("renames the gateway's AI credits wording on every credits code", () => {
+    for (const code of [
+      "credits-limit-daily",
+      "credits-limit-monthly",
+      "credits-limit-reached",
+    ]) {
+      const text = formatChatErrorText(
+        "You've reached the daily AI credits limit for your current plan.",
+        agentNativeUpgradeUrl,
+        code,
+      );
+      expect(text).toContain(
+        "You've reached the daily Agent Credits limit for your current plan.",
+      );
+      expect(text).not.toMatch(/AI credits/i);
+    }
+  });
+
+  it("keeps the gateway's original sentence in details after the rename", () => {
+    const raw = "You have used all AI credits for this month";
+    const normalized = normalizeChatError(raw, "credits-limit-monthly");
+    expect(normalized.message).toBe(
+      "You have used all Agent Credits for this month",
+    );
+    expect(normalized.details).toBe(raw);
   });
 
   it("adds a Start-new-chat CTA for no-detail builder gateway errors", () => {
