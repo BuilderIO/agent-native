@@ -217,6 +217,12 @@ function tryDuplicateOnPanelDrop(
   applyFileContentUpdate(targetOwner.fileId, duplicated.content, {
     recordHistory: true,
     refreshPreview: false,
+    // The clone lands as a fresh sibling elsewhere in the tree; the bridge's
+    // scoped single-selector morph only reconciles whatever is currently
+    // selected and returns early, so a structural insert outside that
+    // subtree would otherwise never reach the live iframe (see the same
+    // note on the plain-move persist calls below).
+    forcePreviewFullDocument: true,
   });
   remapMotionTracksForClone(duplicated.nodeIdMap, targetOwner.fileId);
   const finalNode = buildCodeLayerProjection(duplicated.content).nodes.find(
@@ -701,14 +707,23 @@ export function runLayerMove(
     applyFileContentUpdate(sourceFileId, newSourceContent, {
       recordHistory: !hasCrossFileMoves,
       refreshPreview: false,
+      forcePreviewFullDocument: true,
     });
   }
 
-  // Persist dest file (which may also be the active file).
+  // Persist dest file (which may also be the active file). A layer move can
+  // reorder or reparent a node relative to SIBLINGS outside its own subtree
+  // (e.g. two absolutely positioned cards swapping stacking order) — the
+  // bridge's non-forced replace only re-morphs whichever node the CURRENT
+  // selection resolves to and returns without ever touching the rest of the
+  // body, so a structural move must always force the whole-document (still
+  // in-place, keyed) morph or a sibling reorder outside that one subtree
+  // never reaches the live iframe.
   if (nextDestContent !== destContent) {
     applyFileContentUpdate(targetOwner.fileId, nextDestContent, {
       recordHistory: !hasCrossFileMoves,
       refreshPreview: false,
+      forcePreviewFullDocument: true,
     });
   }
 }

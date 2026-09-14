@@ -44,6 +44,26 @@ export function shouldSuppressFrameSelectionBox(
 }
 
 /**
+ * Whether the host-level SelectionBox for a board-surface element should
+ * render. Gated on the board selection alone — a Screen can stay selected at
+ * the top level while a board element is independently selected (they are
+ * different selection lists), so this must NOT also require the absence of
+ * a selected frame/draft, or the box disappears exactly when a Screen and a
+ * board element are legitimately selected at once.
+ */
+export function shouldRenderBoardSelectionBox(options: {
+  boardSelectionRect: unknown;
+  boardIsActive: boolean;
+  boardSurfaceRenderGeometry: unknown;
+}): boolean {
+  return Boolean(
+    options.boardSelectionRect &&
+    options.boardIsActive &&
+    options.boardSurfaceRenderGeometry,
+  );
+}
+
+/**
  * Board-level per-screen commands (Cmd+D duplicate, arrow nudge, delete) read
  * their targets out of the overview's own selected-ids list. That list
  * legitimately keeps a screen's id even when the real selection is an

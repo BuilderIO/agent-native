@@ -583,6 +583,18 @@ export function insertClonedHtmlLayers(
      * behind it lands on the node the clone was copied from.
      */
     preserveIncomingNodeIds?: boolean;
+    /**
+     * Extra ids to treat as already-claimed beyond what `content` itself
+     * contains. A same-document duplicate (Cmd+D) needs nothing here — the
+     * original's id is already in `content`, so claimClonedNodeId mints a
+     * fresh one automatically. A CROSS-document duplicate (alt-drag into a
+     * different screen/board) does NOT see the source doc here at all: its
+     * still-alive original keeps the incoming id, so without this the copy
+     * silently reuses it — two elements, two files, one
+     * data-agent-native-node-id, and every id-keyed lookup (selection,
+     * nudge, the cross-file code-layer owner map) can resolve to either one.
+     */
+    additionalReservedNodeIds?: Iterable<string>;
   } = {},
 ): {
   content: string;
@@ -604,11 +616,12 @@ export function insertClonedHtmlLayers(
     const rootNodeIds: string[] = [];
     const nodeIdMap = new Map<string, string>();
     const reservedNodeIds = options.preserveIncomingNodeIds
-      ? new Set(
-          Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
+      ? new Set([
+          ...Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
             .map((node) => node.getAttribute("data-agent-native-node-id"))
             .filter((value): value is string => Boolean(value)),
-        )
+          ...(options.additionalReservedNodeIds ?? []),
+        ])
       : null;
     layerHtmls.forEach((layerHtml, index) => {
       const prepared = prepareClonedHtmlLayer(

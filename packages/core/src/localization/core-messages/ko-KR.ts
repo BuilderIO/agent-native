@@ -293,7 +293,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "이 브라우저는 실시간 음성 대화를 지원하지 않습니다.",
   "voiceMode.hideChat": "채팅 숨기기",
-  "voiceMode.keepDictating": "받아쓰기",
+  "voiceMode.keepDictating": "메시지 받아쓰기",
   "voiceMode.promptDescription":
     "음성 모드는 에이전트가 탐색하고 작업하는 동안 계속 음성을 듣습니다.",
   "voiceMode.promptTitle": "음성 사용",
@@ -335,7 +335,7 @@ const messages: AgentChatTranslation = {
     "Builder.io를 연결하여 무료 크레딧이 포함된 관리형 음성을 사용하거나 직접 키를 추가하세요.",
   "voiceMode.setupTitle": "음성 모드 설정",
   "voiceMode.showChat": "채팅 표시",
-  "voiceMode.start": "실시간 음성",
+  "voiceMode.start": "음성 채팅 시작",
   "voiceMode.startWithOpenAiKey": "OpenAI 키로 시작",
   "voiceMode.status.connecting": "연결 중",
   "voiceMode.status.ending": "음성 모드 종료 중",

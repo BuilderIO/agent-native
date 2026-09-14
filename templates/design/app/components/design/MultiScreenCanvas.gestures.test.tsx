@@ -68,6 +68,25 @@ function dispatchMouseAlt(
   );
 }
 
+function dispatchMouseShift(
+  target: EventTarget,
+  type: "mousedown" | "mousemove" | "mouseup",
+  clientX: number,
+  clientY: number,
+) {
+  target.dispatchEvent(
+    new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: type === "mouseup" ? 0 : 1,
+      clientX,
+      clientY,
+      shiftKey: true,
+    }),
+  );
+}
+
 async function nextAnimationFrame() {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
@@ -432,6 +451,52 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     await act(async () => {
       dispatchMouse(window, "mouseup", 355, 765);
     });
+  });
+
+  it("arms a shift+drag on a screen frame and constrains it to the dominant axis", async () => {
+    const { frame } = await renderSelectedFrame();
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    const before = { left: frame.style.left, top: frame.style.top };
+
+    // Regression for beginFrameDrag's old `if (e.shiftKey) return;` bail,
+    // which silently dropped shift+drag instead of arming a move. dx (80)
+    // dominates dy (10), so the constrained move must land purely on X.
+    await act(async () => {
+      dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
+      dispatchMouseShift(window, "mousemove", 400, 750);
+      await nextAnimationFrame();
+    });
+
+    expect(frame.style.left).not.toBe(before.left);
+    expect(frame.style.top).toBe(before.top);
+
+    await act(async () => {
+      dispatchMouseShift(window, "mouseup", 400, 750);
+    });
+  });
+
+  it("toggles an already-selected screen out of the selection on a no-move Shift+click via the drag surface", async () => {
+    await renderSelectedFrame();
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+
+    // Regression: this overlay owns the mousedown for an already-selected
+    // frame and stops it from ever reaching handleFrameClick underneath, so
+    // a no-move Shift release must replicate its toggle-out itself.
+    await act(async () => {
+      dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
+      dispatchMouseShift(window, "mouseup", 320, 740);
+    });
+
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
   });
 
   it("drags every screen in a multi-selection from the group outline", async () => {
@@ -891,33 +956,16 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     // of the selection.
     const origin = clientPointForCanvas(321, 300);
     const jittered = clientPointForCanvas(319, 300);
-    const dispatchShiftMouse = (
-      target: EventTarget,
-      type: "mousedown" | "mousemove" | "mouseup",
-      clientX: number,
-      clientY: number,
-    ) =>
-      target.dispatchEvent(
-        new MouseEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          button: 0,
-          buttons: type === "mouseup" ? 0 : 1,
-          clientX,
-          clientY,
-          shiftKey: true,
-        }),
-      );
 
     await act(async () => {
-      dispatchShiftMouse(surface!, "mousedown", origin.clientX, origin.clientY);
-      dispatchShiftMouse(
+      dispatchMouseShift(surface!, "mousedown", origin.clientX, origin.clientY);
+      dispatchMouseShift(
         window,
         "mousemove",
         jittered.clientX,
         jittered.clientY,
       );
-      dispatchShiftMouse(window, "mouseup", jittered.clientX, jittered.clientY);
+      dispatchMouseShift(window, "mouseup", jittered.clientX, jittered.clientY);
     });
 
     expect(

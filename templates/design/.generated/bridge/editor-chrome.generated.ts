@@ -976,7 +976,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -2510,7 +2510,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       "placeContent",
       "placeItems",
       "placeSelf",
-      "position",
+      // "position" is deliberately excluded: the drop/move that carries this
+      // snapshot always decides the landed node's position itself afterward
+      // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
+      // removeAbsolutePositioningFromNodeInHtml), and design-editor/
+      // portable-style.ts's applyPortableStyles filters it back out on the
+      // apply side too if it's ever added back here — keep both in sync.
       "rowGap",
       "textAlign",
       "textDecoration",
@@ -2548,13 +2553,183 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return false;
     }
+    var portableStyleProbeDoc;
+    function portableStyleProbeDocument() {
+      if (portableStyleProbeDoc !== void 0) return portableStyleProbeDoc;
+      try {
+        var frame = document.createElement("iframe");
+        frame.setAttribute("aria-hidden", "true");
+        frame.tabIndex = -1;
+        frame.style.cssText = "position:fixed!important;width:0!important;height:0!important;border:0!important;visibility:hidden!important;pointer-events:none!important;";
+        document.body.appendChild(frame);
+        portableStyleProbeDoc = frame.contentDocument;
+      } catch (_err) {
+        portableStyleProbeDoc = null;
+      }
+      return portableStyleProbeDoc;
+    }
+    var portableStyleTagDefaultsCache = {};
+    function portableStyleTagDefaults(el) {
+      var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
+      var cached = portableStyleTagDefaultsCache[cacheKey];
+      if (cached) return cached;
+      var probeDoc = portableStyleProbeDocument();
+      if (!probeDoc || !probeDoc.body) {
+        dndLog("style:probe-unavailable", { tag: el.tagName });
+        return null;
+      }
+      var probe = el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml" ? probeDoc.createElementNS(el.namespaceURI, el.tagName) : probeDoc.createElement(el.tagName);
+      probeDoc.body.appendChild(probe);
+      var probeWindow = probeDoc.defaultView || window;
+      var probeCs = probeWindow.getComputedStyle(probe);
+      var defaults = {};
+      PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
+        defaults[property] = probeCs[property] || probeCs.getPropertyValue(property);
+      });
+      probeDoc.body.removeChild(probe);
+      portableStyleTagDefaultsCache[cacheKey] = defaults;
+      return defaults;
+    }
+    var PORTABLE_STYLE_BOX_SIZE_PROPERTIES = {
+      width: true,
+      height: true
+    };
+    var PORTABLE_STYLE_PX_LENGTH = /^-?\\d+(\\.\\d+)?px$/;
+    var PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS = /[:,+~*]/;
+    var PORTABLE_STYLE_QUOTED_STRING = /"[^"]*"|'[^']*'/g;
+    function isPortableStyleSimpleSelector(selector) {
+      if (typeof selector !== "string" || !selector) return false;
+      var withoutQuotedValues = selector.replace(
+        PORTABLE_STYLE_QUOTED_STRING,
+        ""
+      );
+      return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
+    }
+    function isPortableStyleGroupingRule(rule) {
+      return typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule || typeof CSSSupportsRule !== "undefined" && rule instanceof CSSSupportsRule || typeof CSSLayerBlockRule !== "undefined" && rule instanceof CSSLayerBlockRule || typeof CSSContainerRule !== "undefined" && rule instanceof CSSContainerRule || typeof CSSScopeRule !== "undefined" && rule instanceof CSSScopeRule;
+    }
+    function walkPortableStyleRules(ruleList, el, property, grouped, state) {
+      for (var r = 0; r < ruleList.length; r += 1) {
+        var rule = ruleList[r];
+        if (isPortableStyleGroupingRule(rule)) {
+          var nested = rule.cssRules;
+          if (nested) walkPortableStyleRules(nested, el, property, true, state);
+          continue;
+        }
+        if (typeof CSSImportRule !== "undefined" && rule instanceof CSSImportRule) {
+          var importedRules;
+          try {
+            importedRules = rule.styleSheet && rule.styleSheet.cssRules;
+          } catch (_err) {
+            state.masked = true;
+            continue;
+          }
+          if (importedRules) {
+            walkPortableStyleRules(importedRules, el, property, grouped, state);
+          } else {
+            state.masked = true;
+          }
+          continue;
+        }
+        if (typeof CSSStyleRule === "undefined" || !(rule instanceof CSSStyleRule)) {
+          continue;
+        }
+        var raw = rule.style.getPropertyValue(property);
+        if (!raw) continue;
+        if (!isPortableStyleSimpleSelector(rule.selectorText || "")) {
+          continue;
+        }
+        try {
+          if (!el.matches(rule.selectorText)) continue;
+        } catch (_err) {
+          continue;
+        }
+        if (rule.style.getPropertyPriority(property) === "important") {
+          state.importantMatch = true;
+        }
+        if (grouped) {
+          state.masked = true;
+        } else {
+          state.values.push(raw.trim());
+        }
+      }
+    }
+    function portableStyleSheetsFor(el) {
+      var doc = el.ownerDocument;
+      var sheets = [];
+      if (doc && doc.styleSheets) {
+        for (var i = 0; i < doc.styleSheets.length; i += 1) {
+          sheets.push(doc.styleSheets[i]);
+        }
+      }
+      if (doc && doc.adoptedStyleSheets) {
+        sheets = sheets.concat(
+          Array.prototype.slice.call(doc.adoptedStyleSheets)
+        );
+      }
+      var root = el.getRootNode ? el.getRootNode() : null;
+      if (root && root !== doc && root.adoptedStyleSheets) {
+        sheets = sheets.concat(
+          Array.prototype.slice.call(root.adoptedStyleSheets)
+        );
+      }
+      return sheets;
+    }
+    function collectMatchingPxDeclarations(el, property) {
+      var sheets = portableStyleSheetsFor(el);
+      var state = {
+        values: [],
+        masked: false,
+        importantMatch: false
+      };
+      for (var s = 0; s < sheets.length; s += 1) {
+        var rules;
+        try {
+          rules = sheets[s].cssRules;
+        } catch (_err) {
+          state.masked = true;
+          continue;
+        }
+        if (!rules) continue;
+        walkPortableStyleRules(rules, el, property, false, state);
+      }
+      return state;
+    }
+    function resolvePortableBoxSizeValue(el, cs, hostStyle, property) {
+      var computed = cs[property] || cs.getPropertyValue(property);
+      var inline = hostStyle && hostStyle[property];
+      if (inline) {
+        if (PORTABLE_STYLE_PX_LENGTH.test(inline)) {
+          return typeof computed === "string" && computed.trim() === inline ? inline : null;
+        }
+        var nonPxResult = collectMatchingPxDeclarations(el, property);
+        return nonPxResult.masked || nonPxResult.importantMatch ? null : inline;
+      }
+      var result = collectMatchingPxDeclarations(el, property);
+      if (result.masked || result.values.length !== 1) return null;
+      var declared = result.values[0];
+      if (!PORTABLE_STYLE_PX_LENGTH.test(declared)) return null;
+      if (typeof computed !== "string" || computed.trim() !== declared) {
+        return null;
+      }
+      return declared;
+    }
     function collectPortableComputedStyles(el) {
       if (!el) return {};
       var cs = window.getComputedStyle(el);
+      var defaults = portableStyleTagDefaults(el);
+      if (!defaults) return null;
+      var hostStyle = el.style;
       var styles = {};
       PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
+        if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) {
+          var resolved = resolvePortableBoxSizeValue(el, cs, hostStyle, property);
+          if (resolved) styles[property] = resolved;
+          return;
+        }
         var value = cs[property] || cs.getPropertyValue(property);
-        if (typeof value === "string" && value.trim()) {
+        var inlineValue = hostStyle && hostStyle[property];
+        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property])) {
           styles[property] = value;
         }
       });
@@ -2573,18 +2748,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!root || isDocumentRootElement(root)) return void 0;
       var nodes = [];
       var maxNodes = 80;
+      var probeFailed = false;
       function pushNode(node) {
-        if (nodes.length >= maxNodes) return;
+        if (nodes.length >= maxNodes || probeFailed) return;
+        var styles = collectPortableComputedStyles(node);
+        if (styles === null) {
+          probeFailed = true;
+          return;
+        }
         nodes.push({
           sourceId: getSourceId(node) || void 0,
           path: elementPathFromRoot(root, node),
-          styles: collectPortableComputedStyles(node)
+          styles
         });
       }
       pushNode(root);
       var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
-      for (var index = 0; index < descendants.length && nodes.length < maxNodes; index += 1) {
+      for (var index = 0; index < descendants.length && nodes.length < maxNodes && !probeFailed; index += 1) {
         pushNode(descendants[index]);
+      }
+      if (probeFailed) {
+        dndLog("style:snapshot-skipped", { el: getSelector(root) });
+        return null;
       }
       return {
         version: 1,
@@ -2888,12 +3073,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function selectionIntentFromEvent(e) {
-      var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+      var shiftHeld = Boolean(e && e.shiftKey);
       return {
-        additive,
-        range: Boolean(e && e.shiftKey),
+        additive: shiftHeld,
+        range: shiftHeld,
         source: "pointer",
-        shiftKey: Boolean(e && e.shiftKey),
+        shiftKey: shiftHeld,
         metaKey: Boolean(e && e.metaKey),
         ctrlKey: Boolean(e && e.ctrlKey)
       };
@@ -3288,6 +3473,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hideSelectionOverlay() {
       selectionOverlay.style.display = "none";
+      if (designCanvasBoardSurface) {
+        window.parent.postMessage(
+          { type: "agent-native:board-selection-rect", rect: null },
+          "*"
+        );
+      }
       hideSizeBadge();
       hideSpacingOverlay();
       hideGridCellOverlay();
@@ -4812,7 +5003,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         elementDimension * HANDLE_MAX_INWARD_FRACTION
       );
     }
+    var lastHandleGeometryTargetEl = null;
     function applySelectionHandleHitGeometry(el) {
+      var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
+      lastHandleGeometryTargetEl = el || null;
+      if (isNewSelectionTarget) {
+        selectionOverlay.setAttribute(
+          "data-agent-native-suppress-handle-transition",
+          ""
+        );
+      }
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
@@ -4860,6 +5060,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           handle.style.right = inwardX - sizeX + "px";
         }
       });
+      if (isNewSelectionTarget) {
+        void selectionOverlay.offsetHeight;
+        selectionOverlay.removeAttribute(
+          "data-agent-native-suppress-handle-transition"
+        );
+      }
     }
     function applyEditorChromeScale() {
       syncEditorChromeScaleVars();
@@ -5011,6 +5217,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         updateComponentTag(el, rect);
         updateParentAutoLayoutOverlay(el);
         showSizeBadge(el);
+        if (designCanvasBoardSurface) {
+          window.parent.postMessage(
+            {
+              type: "agent-native:board-selection-rect",
+              screenId: designCanvasScreenId,
+              selector: getSelector(el),
+              rect: {
+                left: parseFloat(overlay.style.left) || 0,
+                top: parseFloat(overlay.style.top) || 0,
+                width: parseFloat(overlay.style.width) || 0,
+                height: parseFloat(overlay.style.height) || 0
+              },
+              rotationDeg: currentRotation(el)
+            },
+            "*"
+          );
+        }
       } else {
         applyElementOverlayChrome(overlay, el);
       }
@@ -7809,6 +8032,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           } : void 0,
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
+          // Explicit sibling flag, not just \`styleSnapshot === null\` — the
+          // host must not have to infer capture-failed from a value shape
+          // that could change; see collectPortableStyleSnapshot's doc.
+          styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           duplicate: options?.duplicate === true ? true : void 0,
           sourceCloneHtml: options?.duplicate && el ? el.outerHTML : void 0
         },
@@ -8069,6 +8296,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentRect = currentParent.getBoundingClientRect();
       var pointerOutsideCurrentParent = clientX < parentRect.left || clientX > parentRect.right || clientY < parentRect.top || clientY > parentRect.bottom;
       if (keepCurrentParent && pointerOutsideCurrentParent) {
+        var freeParent = currentParent;
+        while (freeParent && freeParent.parentElement && freeParent.parentElement !== document.body && isAutoLayoutElement(freeParent)) {
+          freeParent = freeParent.parentElement;
+        }
+        if (freeParent !== currentParent) {
+          return {
+            anchor: freeParent,
+            placement: "after",
+            axis: "y",
+            dropMode: "flow-insert"
+          };
+        }
         var retainedSlot = nearestChildInsertionTarget(
           currentParent,
           clientX,
@@ -9406,6 +9645,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           reflowSiblings = [];
           reflowKey = null;
         }, resolveReorderOrFreeTarget2 = function(cx, cy, ctrlKey) {
+          if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
           return flowMoveTargetForPoint(
             reorderEl,
             cx,
@@ -9632,7 +9872,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }, onReorderKeyUp2 = function(ev) {
           if (ev.code !== "Space" && ev.key !== " ") return;
-          keepCurrentFlowParent = false;
           ev.preventDefault();
         }, onReorderUp2 = function(ev) {
           if (!ev || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) {
@@ -10578,6 +10817,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           },
           "*"
         );
+        recordSourceOwnership(resizeEl);
         if (scaleToolEnabled) {
           (scaledTextTargetsCache || []).forEach(function(target) {
             var textStyles = {
@@ -10597,6 +10837,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               },
               "*"
             );
+            recordSourceOwnership(target.el);
           });
         }
       }
@@ -11112,7 +11353,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
         var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
         if (cycledEl) {
-          selectTarget(cycledEl, void 0, true);
+          selectTarget(cycledEl, ev, true);
         } else {
           selectTarget(primaryClickTarget || dragTarget, ev, true);
         }
@@ -11224,7 +11465,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           bridgeSpaceKeyPressed = true;
           if (activeDragCancel) {
             bridgeSpaceKeyConsumedByDrag = true;
-            stopNativeInteraction(e);
+            if (e.cancelable) e.preventDefault();
             return;
           }
         }
@@ -11324,7 +11565,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         bridgeSpaceKeyPressed = false;
         if (bridgeSpaceKeyConsumedByDrag) {
           bridgeSpaceKeyConsumedByDrag = false;
-          stopNativeInteraction(e);
+          if (e.cancelable) e.preventDefault();
           return;
         }
         if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
@@ -12143,6 +12384,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:cross-screen-claim") {
         crossScreenClaimedByHost = Boolean(e.data.claimed);
+        return;
+      }
+      if (e.data.type === "agent-native:set-space-held") {
+        bridgeSpaceKeyPressed = Boolean(e.data.held);
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {

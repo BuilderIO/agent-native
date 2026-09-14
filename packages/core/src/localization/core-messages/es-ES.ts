@@ -519,7 +519,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Este navegador no admite conversaciones de voz en tiempo real.",
   "voiceMode.hideChat": "Ocultar chat",
-  "voiceMode.keepDictating": "Dictar",
+  "voiceMode.keepDictating": "Dictar un mensaje",
   "voiceMode.promptDescription":
     "El modo de voz sigue escuchando mientras el agente navega y realiza acciones.",
   "voiceMode.promptTitle": "Usa tu voz",
@@ -561,7 +561,7 @@ const messages: AgentChatTranslation = {
     "Conecta Builder.io para usar el servicio de voz administrado con créditos gratuitos o añade tus propias claves.",
   "voiceMode.setupTitle": "Configurar el modo de voz",
   "voiceMode.showChat": "Mostrar chat",
-  "voiceMode.start": "Voz en tiempo real",
+  "voiceMode.start": "Iniciar chat de voz",
   "voiceMode.startWithOpenAiKey": "Iniciar con una clave de OpenAI",
   "voiceMode.status.connecting": "Conectando",
   "voiceMode.status.ending": "Finalizar el modo de voz",

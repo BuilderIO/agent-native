@@ -178,6 +178,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
+      // A selection SWITCHING to a different element must not ease the
+      // handle spans through their old target's geometry: the singleton
+      // spans jump straight from one element's clamped hit-zone to
+      // another's, and animating that jump (see applySelectionHandleHitGeometry)
+      // can transiently render an in-between size big enough to cover the
+      // newly selected element's own center. The transition above stays for
+      // same-element chrome-scale eases (zoom settling).
+      "[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}" +
       // Locked layers get a neutral dashed hairline instead of an accent one:
       // accent means "selected" everywhere else in the canvas chrome, and a
       // locked layer is usually neither selected nor selectable. The width
@@ -2468,7 +2476,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "placeContent",
     "placeItems",
     "placeSelf",
-    "position",
+    // "position" is deliberately excluded: the drop/move that carries this
+    // snapshot always decides the landed node's position itself afterward
+    // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
+    // removeAbsolutePositioningFromNodeInHtml), and design-editor/
+    // portable-style.ts's applyPortableStyles filters it back out on the
+    // apply side too if it's ever added back here — keep both in sync.
     "rowGap",
     "textAlign",
     "textDecoration",
@@ -2522,15 +2535,356 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
+  // Bare-tag baseline for the diff below, measured in a throwaway iframe
+  // with NO author stylesheets — the source document's own `<style>`/
+  // Tailwind rules must never leak into "default", or a bare-tag rule
+  // there (e.g. `button { background: teal }`) matches the probe too and
+  // the diff wrongly reads a real, authored appearance as "just what this
+  // tag renders as anyway", dropping it before it ever reaches the
+  // destination document (which has no such rule). Cached per tag+
+  // namespace since a portable-style snapshot walks up to 80 descendants
+  // per drag.
+  var portableStyleProbeDoc: Document | null | undefined;
+
+  function portableStyleProbeDocument(): Document | null {
+    if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
+    try {
+      var frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.tabIndex = -1;
+      frame.style.cssText =
+        "position:fixed!important;width:0!important;height:0!important;" +
+        "border:0!important;visibility:hidden!important;pointer-events:none!important;";
+      document.body.appendChild(frame);
+      portableStyleProbeDoc = frame.contentDocument;
+    } catch (_err) {
+      portableStyleProbeDoc = null;
+    }
+    return portableStyleProbeDoc;
+  }
+
+  var portableStyleTagDefaultsCache: Record<
+    string,
+    Record<string, string>
+  > = {};
+
+  // `null` means "the probe could not be measured" — a distinct, loud
+  // failure a caller must skip on, never `{}`. `{}` reads as "this tag has
+  // no default styles," which makes every real computed value look
+  // customized and silently falls back to over-carrying ~130 properties
+  // onto every moved/duplicated node (the exact pre-fix bug this guards).
+  function portableStyleTagDefaults(
+    el: Element,
+  ): Record<string, string> | null {
+    var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
+    var cached = portableStyleTagDefaultsCache[cacheKey];
+    if (cached) return cached;
+    var probeDoc = portableStyleProbeDocument();
+    if (!probeDoc || !probeDoc.body) {
+      dndLog("style:probe-unavailable", { tag: el.tagName });
+      return null;
+    }
+    // Deliberately NOT forced to position:absolute: that changes width's
+    // auto-sizing algorithm (shrink-to-fit vs filling the containing
+    // block), so an ordinary static element would look "different from
+    // default" purely from the probe's own position, not any real
+    // customization. The probe stays in normal flow; the IFRAME around it
+    // (zero-size, hidden, fixed) is what's kept out of visible layout.
+    var probe =
+      el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
+        ? probeDoc.createElementNS(el.namespaceURI, el.tagName)
+        : probeDoc.createElement(el.tagName);
+    probeDoc.body.appendChild(probe);
+    var probeWindow = probeDoc.defaultView || window;
+    var probeCs = probeWindow.getComputedStyle(probe);
+    var defaults: Record<string, string> = {};
+    PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      defaults[property] =
+        probeCs[property] || probeCs.getPropertyValue(property);
+    });
+    probeDoc.body.removeChild(probe);
+    portableStyleTagDefaultsCache[cacheKey] = defaults;
+    return defaults;
+  }
+
+  // width/height can never be diffed against ANY bare-tag probe, isolated
+  // iframe or not: an empty probe's auto-size (shrink-to-fit, or zero with
+  // no content) has nothing in common with a real in-flow element's
+  // auto-size (fills its actual containing block, or matches its actual
+  // content) — nearly every ordinary flow element would read as
+  // "customized" and have its fluid size frozen into a pixel value on
+  // every move/duplicate. Only a size the element itself authored (inline,
+  // or an unambiguous same-origin stylesheet rule, see
+  // resolvePortableBoxSizeValue below) is portable; a flow/flex/grid-
+  // resolved size is the destination's to decide.
+  var PORTABLE_STYLE_BOX_SIZE_PROPERTIES: Record<string, boolean> = {
+    width: true,
+    height: true,
+  };
+
+  var PORTABLE_STYLE_PX_LENGTH = /^-?\d+(\.\d+)?px$/;
+
+  // Allowlist, not a denylist: the space of pseudo-classes/elements this
+  // walk cannot treat as permanent provenance (:hover, :checked, :disabled,
+  // :nth-*(), :is()/:where()/:has()/:not(), …) is unbounded, and a denylist
+  // always misses the next one — `:checked` and `:disabled` were missed
+  // this way (a currently-`:checked` checkbox's rule would win as the sole,
+  // "agreeing with computed" candidate, even though that size only applies
+  // in that transient state). Only a plain type/class/id/attribute selector
+  // chain with descendant/child combinators is accepted; anything with a
+  // `:`, sibling combinator, universal selector, or comma-list is rejected
+  // — excluded outright, same as before: never a candidate, never a masking
+  // competitor either. Quoted attribute-value contents (`[data-x="a:b,c"]`)
+  // are stripped before the check so a literal `:`/`,`/`*` INSIDE a value
+  // doesn't falsely reject an otherwise-plain selector.
+  var PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS = /[:,+~*]/;
+  var PORTABLE_STYLE_QUOTED_STRING = /"[^"]*"|'[^']*'/g;
+
+  function isPortableStyleSimpleSelector(selector: string): boolean {
+    if (typeof selector !== "string" || !selector) return false;
+    var withoutQuotedValues = selector.replace(
+      PORTABLE_STYLE_QUOTED_STRING,
+      "",
+    );
+    return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
+  }
+
+  function isPortableStyleGroupingRule(rule: CSSRule): boolean {
+    return (
+      (typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule) ||
+      (typeof CSSSupportsRule !== "undefined" &&
+        rule instanceof CSSSupportsRule) ||
+      (typeof CSSLayerBlockRule !== "undefined" &&
+        rule instanceof CSSLayerBlockRule) ||
+      (typeof CSSContainerRule !== "undefined" &&
+        rule instanceof CSSContainerRule) ||
+      (typeof CSSScopeRule !== "undefined" && rule instanceof CSSScopeRule)
+    );
+  }
+
+  type PortableStyleWalkState = {
+    values: string[];
+    masked: boolean;
+    importantMatch: boolean;
+  };
+
+  function walkPortableStyleRules(
+    ruleList: CSSRuleList,
+    el: Element,
+    property: string,
+    grouped: boolean,
+    state: PortableStyleWalkState,
+  ): void {
+    for (var r = 0; r < ruleList.length; r += 1) {
+      var rule = ruleList[r];
+      if (isPortableStyleGroupingRule(rule)) {
+        var nested = (rule as any).cssRules as CSSRuleList | undefined;
+        if (nested) walkPortableStyleRules(nested, el, property, true, state);
+        continue;
+      }
+      if (
+        typeof CSSImportRule !== "undefined" &&
+        rule instanceof CSSImportRule
+      ) {
+        var importedRules: CSSRuleList | undefined;
+        try {
+          importedRules = rule.styleSheet && rule.styleSheet.cssRules;
+        } catch (_err) {
+          state.masked = true; // cross-origin import: cannot rule out a competing declaration
+          continue;
+        }
+        // A readable same-origin import (including a `data:` sheet) is
+        // walked exactly like the rules it inlines would be — an unresolved
+        // import (`styleSheet` present but not yet populated) is treated the
+        // same as unreadable, since its eventual rules can't be ruled out.
+        if (importedRules) {
+          walkPortableStyleRules(importedRules, el, property, grouped, state);
+        } else {
+          state.masked = true;
+        }
+        continue;
+      }
+      if (
+        typeof CSSStyleRule === "undefined" ||
+        !(rule instanceof CSSStyleRule)
+      ) {
+        // A rule type that cannot declare a `width`/`height` matching an
+        // arbitrary element via a selector (@font-face, @keyframes, @page,
+        // @counter-style, @property, …) is genuinely harmless — ignored,
+        // not masked.
+        continue;
+      }
+      var raw = rule.style.getPropertyValue(property);
+      if (!raw) continue;
+      if (!isPortableStyleSimpleSelector(rule.selectorText || "")) {
+        continue;
+      }
+      try {
+        if (!el.matches(rule.selectorText)) continue;
+      } catch (_err) {
+        continue; // selector this engine can't evaluate
+      }
+      if (rule.style.getPropertyPriority(property) === "important") {
+        state.importantMatch = true;
+      }
+      // A match inside ANY grouping construct (@media/@supports/@layer/
+      // @container/@scope) is never trusted as the winner — its condition
+      // may or may not be currently active, and layer/container ordering
+      // isn't replayed — but its mere existence means a competing
+      // declaration might apply, so it masks the top-level match instead of
+      // being ignored outright.
+      if (grouped) {
+        state.masked = true;
+      } else {
+        state.values.push(raw.trim());
+      }
+    }
+  }
+
+  // Same-origin document/shadow-root stylesheets a portable-style capture
+  // must consider: `document.styleSheets` plus both documents' and (if `el`
+  // lives in a shadow tree) the owning ShadowRoot's `adoptedStyleSheets` —
+  // constructed sheets never throw on `cssRules` (they are never
+  // cross-origin), so they need no try/catch of their own.
+  function portableStyleSheetsFor(el: Element): CSSStyleSheet[] {
+    var doc = el.ownerDocument;
+    var sheets: CSSStyleSheet[] = [];
+    if (doc && doc.styleSheets) {
+      for (var i = 0; i < doc.styleSheets.length; i += 1) {
+        sheets.push(doc.styleSheets[i] as unknown as CSSStyleSheet);
+      }
+    }
+    if (doc && (doc as any).adoptedStyleSheets) {
+      sheets = sheets.concat(
+        Array.prototype.slice.call((doc as any).adoptedStyleSheets),
+      );
+    }
+    var root = el.getRootNode ? el.getRootNode() : null;
+    if (root && root !== doc && (root as any).adoptedStyleSheets) {
+      sheets = sheets.concat(
+        Array.prototype.slice.call((root as any).adoptedStyleSheets),
+      );
+    }
+    return sheets;
+  }
+
+  // Deliberately NOT a cascade engine: no specificity, no media/container/
+  // layer evaluation. Only a same-origin, top-level (unwrapped) CSSStyleRule
+  // with a plain selector counts as a candidate, and only when it is the ONE
+  // such candidate for `property` — anything this walk cannot fully account
+  // for (an unreadable cross-origin sheet or `@import`, or a same-origin
+  // rule that could ALSO apply to this element for `property` from inside
+  // @media/@supports/@layer/@container/@scope) masks the result instead of
+  // being skipped: a hidden, conditional, or otherwise invisible competing
+  // declaration might exist, so the one visible match can't be trusted
+  // either.
+  function collectMatchingPxDeclarations(
+    el: Element,
+    property: string,
+  ): PortableStyleWalkState {
+    var sheets = portableStyleSheetsFor(el);
+    var state: PortableStyleWalkState = {
+      values: [],
+      masked: false,
+      importantMatch: false,
+    };
+    for (var s = 0; s < sheets.length; s += 1) {
+      var rules: CSSRuleList | undefined;
+      try {
+        rules = sheets[s].cssRules;
+      } catch (_err) {
+        state.masked = true; // cross-origin: cannot rule out a competing declaration
+        continue;
+      }
+      if (!rules) continue;
+      walkPortableStyleRules(rules, el, property, false, state);
+    }
+    return state;
+  }
+
+  function resolvePortableBoxSizeValue(
+    el: Element,
+    cs: CSSStyleDeclaration,
+    hostStyle: CSSStyleDeclaration | undefined,
+    property: string,
+  ): string | null {
+    var computed = cs[property] || cs.getPropertyValue(property);
+    var inline = hostStyle && (hostStyle as any)[property];
+    if (inline) {
+      if (PORTABLE_STYLE_PX_LENGTH.test(inline)) {
+        // A stylesheet `!important` rule can still win the real cascade
+        // over a plain inline px declaration — the raw inline string
+        // doesn't know that it lost. Trust it only when it agrees with what
+        // actually rendered.
+        return typeof computed === "string" && computed.trim() === inline
+          ? inline
+          : null;
+      }
+      // A non-px inline expression (`50%`, `2rem`, `calc(100% - 20px)`) has
+      // no computed-px form to agree with — it is carried verbatim as
+      // authored, same as always, UNLESS a same-origin rule with
+      // `!important` for this property matches this element anywhere
+      // reachable, in which case that rule (not the inline value) may be
+      // what actually won the cascade. An unreadable (cross-origin/@import)
+      // sheet masks the same way: it could hide exactly such a rule, so fail
+      // closed instead of trusting the inline value, same as the pixel and
+      // stylesheet-rule branches below.
+      var nonPxResult = collectMatchingPxDeclarations(el, property);
+      return nonPxResult.masked || nonPxResult.importantMatch ? null : inline;
+    }
+    var result = collectMatchingPxDeclarations(el, property);
+    if (result.masked || result.values.length !== 1) return null; // masked, none, or ambiguous
+    var declared = result.values[0];
+    if (!PORTABLE_STYLE_PX_LENGTH.test(declared)) return null; // not a literal px length
+    // The rule must agree with what actually rendered — a mismatch means
+    // something else (min/max-width, a rule this walk couldn't see) is
+    // overriding it, so trusting the rule's literal text would be a guess.
+    if (typeof computed !== "string" || computed.trim() !== declared) {
+      return null;
+    }
+    return declared;
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
-  ): Record<string, string> {
+  ): Record<string, string> | null {
     if (!el) return {};
     var cs = window.getComputedStyle(el);
+    var defaults = portableStyleTagDefaults(el);
+    if (!defaults) return null;
+    var hostStyle = (el as HTMLElement).style;
     var styles: Record<string, string> = {};
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) {
+        var resolved = resolvePortableBoxSizeValue(el, cs, hostStyle, property);
+        if (resolved) styles[property] = resolved;
+        return;
+      }
       var value = cs[property] || cs.getPropertyValue(property);
-      if (typeof value === "string" && value.trim()) {
+      // An explicit inline declaration is unambiguous authorship — carry it
+      // verbatim even when it happens to equal the bare-tag default (e.g.
+      // style="color: black" on a <div>, whose UA default color already is
+      // black; dropping it because the probe agrees would let a stylesheet
+      // rule on the destination repaint the element).
+      var inlineValue = hostStyle && (hostStyle as any)[property];
+      // Otherwise, only carry what a class/cascade actually customized on
+      // THIS element, or what it inherited from its old parent chain (an
+      // inherited value differs from the bare probe's un-inherited default
+      // too, since the probe has no parent to inherit from). A value
+      // identical to the bare tag's own rendering is noise: applying it
+      // verbatim is how a duplicate/cross-screen move used to bake ~50
+      // irrelevant properties (opacity, z-index, box-sizing, transform:none,
+      // ...) onto every dropped copy instead of just what makes it look
+      // like the source. KNOWN CEILING: a stylesheet-authored value that
+      // ALSO equals the default (e.g. `.card { color: black }` on a <div>)
+      // is indistinguishable here from "never authored" — this walk is
+      // deliberately not a cascade engine (see collectMatchingPxDeclarations
+      // above), so that case still loses the property, same as before.
+      if (
+        typeof value === "string" &&
+        value.trim() &&
+        (inlineValue || value !== defaults[property])
+      ) {
         styles[property] = value;
       }
     });
@@ -2554,22 +2908,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!root || isDocumentRootElement(root)) return undefined;
     var nodes = [];
     var maxNodes = 80;
+    // If the bare-tag probe can't be measured, every property on every node
+    // would otherwise read as "customized" (see portableStyleTagDefaults) —
+    // skip the ENTIRE snapshot for this move rather than return one that
+    // mixes real and over-carried properties, and say so on the DnD log the
+    // same way other refusals are reported.
+    var probeFailed = false;
     function pushNode(node: Element) {
-      if (nodes.length >= maxNodes) return;
+      if (nodes.length >= maxNodes || probeFailed) return;
+      var styles = collectPortableComputedStyles(node);
+      if (styles === null) {
+        probeFailed = true;
+        return;
+      }
       nodes.push({
         sourceId: getSourceId(node) || undefined,
         path: elementPathFromRoot(root, node),
-        styles: collectPortableComputedStyles(node),
+        styles: styles,
       });
     }
     pushNode(root);
     var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
     for (
       var index = 0;
-      index < descendants.length && nodes.length < maxNodes;
+      index < descendants.length && nodes.length < maxNodes && !probeFailed;
       index += 1
     ) {
       pushNode(descendants[index]);
+    }
+    if (probeFailed) {
+      dndLog("style:snapshot-skipped", { el: getSelector(root) });
+      // `null` (not `undefined`) marks CAPTURE FAILED, distinct from a
+      // legitimately absent snapshot (isDocumentRootElement/no root above,
+      // which returns `undefined`). Callers that post this cross-screen must
+      // forward that distinction as its own flag — a probe failure means
+      // "we don't know this element's appearance," not "there is nothing to
+      // carry," and a cross-screen move must refuse rather than silently
+      // drop a class-only appearance it never got to measure.
+      return null;
     }
     return {
       version: 1,
@@ -2976,12 +3352,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     metaKey: boolean;
     ctrlKey: boolean;
   } {
-    var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    // Figma spec §1: Shift+click is the ADDITIVE gesture (toggles membership).
+    // Cmd/Ctrl+click alone REPLACES the selection with the deep hit — it must
+    // not set `additive`, or a click-select host consumer (runScreenElementSelect)
+    // unions the deep-selected child into the current selection instead of
+    // replacing it. `metaKey`/`ctrlKey` still ride along on the intent for
+    // consumers (like deep-select's own hit resolution) that need to know a
+    // modifier was held without treating it as additive.
+    var shiftHeld = Boolean(e && e.shiftKey);
     return {
-      additive: additive,
-      range: Boolean(e && e.shiftKey),
+      additive: shiftHeld,
+      range: shiftHeld,
       source: "pointer",
-      shiftKey: Boolean(e && e.shiftKey),
+      shiftKey: shiftHeld,
       metaKey: Boolean(e && e.metaKey),
       ctrlKey: Boolean(e && e.ctrlKey),
     };
@@ -3573,6 +3956,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function hideSelectionOverlay(): void {
     selectionOverlay.style.display = "none";
+    // The host mirrors this overlay into its own SelectionBox so a board
+    // object's handles can win z-order over an overlapping Screen (see
+    // MultiScreenCanvas). Clearing belongs here, at the single point every
+    // deselect path already funnels through — posting it from one caller
+    // leaves the host chrome floating over nothing after Escape, a marquee
+    // clear, a delete, or an undo.
+    if (designCanvasBoardSurface) {
+      window.parent.postMessage(
+        { type: "agent-native:board-selection-rect", rect: null },
+        "*",
+      );
+    }
     hideSizeBadge();
     hideSpacingOverlay();
     hideGridCellOverlay();
@@ -6141,6 +6536,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  // The element applySelectionHandleHitGeometry last sized handles for.
+  // Compared by reference on every call so a genuine selection SWITCH (a
+  // different element, including the very first real selection after the
+  // null-element page-load call) can suppress the handles' geometry
+  // transition for that one write — see the CSS rule this toggles above.
+  var lastHandleGeometryTargetEl: Element | null = null;
+
   // Sizes the selection overlay's edge/corner handles for the current chrome
   // scale, clamping each handle's inward reach against the overlaid
   // element's own rect. Called from applyEditorChromeScale (scale changes)
@@ -6150,6 +6552,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // exactly: edge bars 10*scale thick centered on the edge, corner squares
   // 7*scale offset -4*scale.
   function applySelectionHandleHitGeometry(el) {
+    // The handle spans are singletons reused across every selection. Easing
+    // them from the PREVIOUS target's geometry to this one is meaningless
+    // for hit-testing (the two targets are unrelated), and the transient
+    // in-between value — up to the fully unclamped nominal reach, since the
+    // null-element page-load call never clamps — can cover this element's
+    // entire body and steal its first click as a resize instead of a move.
+    // Only ease when the SAME element is resizing under a live chrome-scale
+    // change, which is what the transition exists for.
+    var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
+    lastHandleGeometryTargetEl = el || null;
+    if (isNewSelectionTarget) {
+      selectionOverlay.setAttribute(
+        "data-agent-native-suppress-handle-transition",
+        "",
+      );
+    }
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
@@ -6212,6 +6630,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           handle.style.right = inwardX - sizeX + "px";
         }
       });
+
+    if (isNewSelectionTarget) {
+      // Force layout so the instant geometry above is committed under the
+      // transition:none rule before removing it, or removing it on the same
+      // tick would let the transition pick up mid-write and still animate.
+      void selectionOverlay.offsetHeight;
+      selectionOverlay.removeAttribute(
+        "data-agent-native-suppress-handle-transition",
+      );
+    }
   }
 
   function applyEditorChromeScale() {
@@ -6394,6 +6822,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       updateComponentTag(el, rect);
       updateParentAutoLayoutOverlay(el);
       showSizeBadge(el);
+      // Board objects live inside this iframe, but the board wrapper is
+      // pinned below Screens (z-index 0) so an overlapping Screen can occlude
+      // this overlay's own handles both visually and for hit-testing. The
+      // host renders its own SelectionBox above every Screen and forwards
+      // gestures back into startResize() (see beginBoardElementResize); it
+      // needs this overlay's just-computed unrotated local box (left/top/
+      // width/height are set the same way by both branches above) plus the
+      // rotation separately, not the rotated bounding box.
+      if (designCanvasBoardSurface) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:board-selection-rect",
+            screenId: designCanvasScreenId,
+            selector: getSelector(el),
+            rect: {
+              left: parseFloat(overlay.style.left) || 0,
+              top: parseFloat(overlay.style.top) || 0,
+              width: parseFloat(overlay.style.width) || 0,
+              height: parseFloat(overlay.style.height) || 0,
+            },
+            rotationDeg: currentRotation(el),
+          },
+          "*",
+        );
+      }
     } else {
       applyElementOverlayChrome(overlay, el);
     }
@@ -10440,6 +10893,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        // Explicit sibling flag, not just `styleSnapshot === null` — the
+        // host must not have to infer capture-failed from a value shape
+        // that could change; see collectPortableStyleSnapshot's doc.
+        styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         duplicate: options?.duplicate === true ? true : undefined,
         sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
       },
@@ -10874,6 +11331,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientY > parentRect.bottom;
 
     if (keepCurrentParent && pointerOutsideCurrentParent) {
+      // Figma parity: an auto-layout parent cannot host a freely
+      // (absolutely) positioned child at all, so "keep current parent,
+      // position free" while the pointer is off dragging far away must
+      // escape every auto-layout ancestor (the object's own row, the
+      // screen's own auto-layout root, ...) up to the nearest one that
+      // isn't — never just the object's immediate DOM parent, which may
+      // be a small auto-layout group nested deep inside a big auto-layout
+      // screen. Stops one level short of document.body: body itself has
+      // no node-id for persistence to anchor on (see the body-container
+      // fallback below), so the screen's own top-level wrapper is the
+      // outermost usable anchor.
+      var freeParent = currentParent;
+      while (
+        freeParent &&
+        freeParent.parentElement &&
+        freeParent.parentElement !== document.body &&
+        isAutoLayoutElement(freeParent)
+      ) {
+        freeParent = freeParent.parentElement;
+      }
+      if (freeParent !== currentParent) {
+        return {
+          anchor: freeParent,
+          placement: "after",
+          axis: "y",
+          dropMode: "flow-insert",
+        };
+      }
       var retainedSlot = nearestChildInsertionTarget(
         currentParent,
         clientX,
@@ -13208,6 +13693,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // free x/y without leaving the layout, which would collapse it. Ctrl
       // "ignore auto layout" is the explicit free-place escape.
       function resolveReorderOrFreeTarget(cx, cy, ctrlKey) {
+        // Re-sync from the live global on every call: this document's own
+        // onReorderKeyDown/KeyUp keep keepCurrentFlowParent current when
+        // Space lands here, but the host's forwarded
+        // "agent-native:set-space-held" (see the message listener) only
+        // ever updates bridgeSpaceKeyPressed — never reaching this drag's
+        // own key listeners — so a "held" forward would otherwise be
+        // invisible to the one gesture that needs it.
+        if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
         return flowMoveTargetForPoint(
           reorderEl,
           cx,
@@ -13529,7 +14022,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       function onReorderKeyUp(ev) {
         if (ev.code !== "Space" && ev.key !== " ") return;
-        keepCurrentFlowParent = false;
+        // Deliberately NOT resetting keepCurrentFlowParent here. onReorderUp
+        // re-resolves the drop target from the release point (see its own
+        // comment) instead of reusing the last onReorderMove preview, so a
+        // release with no further pointer move before mouseup (Figma
+        // parity: press Space mid-drag, release it, drop without moving
+        // again) would otherwise re-read this as false and reparent anyway
+        // — exactly the bug this flag exists to prevent. Once Space has
+        // protected the current parent during a gesture, that protection
+        // holds for the rest of the gesture.
         ev.preventDefault();
       }
       function onReorderUp(ev) {
@@ -14759,6 +15260,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         },
         "*",
       );
+      // This size is now the source's own value (the host persists it as-is)
+      // — record it as the last-known source baseline, exactly like the
+      // absolute-move commit above. Skipping this leaves __anSourceMeta
+      // pinned to the PRE-resize size, so an undo's full-document reconcile
+      // back to that same pre-resize value matches the stale cache and
+      // applyStyleAttribute treats it as "unchanged since last render",
+      // leaving the resized DOM rendered instead of reverting.
+      recordSourceOwnership(resizeEl);
       if (scaleToolEnabled) {
         (scaledTextTargetsCache || []).forEach(function (target) {
           var textStyles: Record<string, string> = {
@@ -14778,6 +15287,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             },
             "*",
           );
+          recordSourceOwnership(target.el);
         });
       }
     }
@@ -15451,9 +15961,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Cmd/Ctrl+click (no Shift) deep-selects the next layer below the current
       // selection in the z-stack under the pointer, wrapping at the bottom.
       // Runs here (not in selectElementAtEvent) because a shield click resolves
-      // selection in this onUp and then suppresses the click handler. Selected
-      // plain (no ev) so it replaces the selection rather than adding to it;
-      // Shift-click stays additive via the normal path below.
+      // selection in this onUp and then suppresses the click handler.
       var cycledEl =
         !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
           ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
@@ -15469,7 +15977,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               ? clickThroughSelectionTarget(hit, ev)
               : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
-        selectTarget(cycledEl, undefined, true);
+        // Real event (not undefined): selectionIntentFromEvent now reports
+        // Cmd/Ctrl-alone as non-additive, so the intent this carries already
+        // replaces rather than unions — passing it lets the host tell a real
+        // deep-select from a driftless bridge echo (DesignCanvas.tsx's
+        // `e.data.intent` check) instead of reading as one.
+        selectTarget(cycledEl, ev, true);
       } else {
         selectTarget(primaryClickTarget || dragTarget, ev, true);
       }
@@ -15605,7 +16118,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bridgeSpaceKeyPressed = true;
         if (activeDragCancel) {
           bridgeSpaceKeyConsumedByDrag = true;
-          stopNativeInteraction(e);
+          // Not stopNativeInteraction: this listener is registered before
+          // the active drag's own onReorderKeyDown (added at drag start), so
+          // stopImmediatePropagation here would keep that later listener
+          // from ever seeing Space and setting keepCurrentFlowParent — the
+          // Figma-parity "Space suppresses reparenting" gesture would only
+          // ever see whatever Space was doing at drag START. preventDefault
+          // alone still blocks the browser's default (page scroll) and the
+          // early return still skips host-hotkey forwarding below.
+          if (e.cancelable) e.preventDefault();
           return;
         }
       }
@@ -15757,7 +16278,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeSpaceKeyPressed = false;
       if (bridgeSpaceKeyConsumedByDrag) {
         bridgeSpaceKeyConsumedByDrag = false;
-        stopNativeInteraction(e);
+        // Not stopNativeInteraction — see the matching keydown listener's
+        // comment: the active drag's own onReorderKeyUp (registered later)
+        // must still see this keyup to clear keepCurrentFlowParent, or
+        // releasing Space mid-drag would never re-enable reparenting.
+        if (e.cancelable) e.preventDefault();
         return;
       }
       if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
@@ -16959,6 +17484,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "agent-native:cross-screen-claim") {
       crossScreenClaimedByHost = Boolean(e.data.claimed);
+      return;
+    }
+    if (e.data.type === "agent-native:set-space-held") {
+      // Figma parity (unique-paths): the host forwards Space here when ITS
+      // OWN window — not this document — received the native key event
+      // (the pointer-down that starts an on-canvas drag does not always
+      // move focus into this iframe). resolveReorderOrFreeTarget reads
+      // bridgeSpaceKeyPressed on every move/commit tick, so this has the
+      // same effect as this document's own keydown/keyup listener seeing it.
+      bridgeSpaceKeyPressed = Boolean(e.data.held);
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {

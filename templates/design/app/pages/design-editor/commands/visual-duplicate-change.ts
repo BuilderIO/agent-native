@@ -1,4 +1,7 @@
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerProjection,
+} from "@shared/code-layer";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 import type * as Y from "yjs";
@@ -48,6 +51,24 @@ export interface VisualDuplicateChangeArgs {
   undoManagerRef: { current: Y.UndoManager | null };
 }
 
+/** Walks `parentId` from `nodeId` up to the root; true when `ancestorId` is
+ * `nodeId` itself or any node above it. Exported for unit testing. */
+export function isCodeLayerNodeOrDescendant(
+  projection: CodeLayerProjection,
+  nodeId: string,
+  ancestorId: string,
+): boolean {
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  let current: string | undefined = nodeId;
+  const visited = new Set<string>();
+  while (current && !visited.has(current)) {
+    if (current === ancestorId) return true;
+    visited.add(current);
+    current = nodesById.get(current)?.parentId;
+  }
+  return false;
+}
+
 export function runVisualDuplicateChange(
   {
     activeFile,
@@ -90,16 +111,39 @@ export function runVisualDuplicateChange(
     details?.anchorSelector,
     details?.anchorSourceId,
   );
+  // The bridge's own-row drop-target resolution can land the clone's anchor
+  // on the SOURCE node itself or on one of ITS descendants (e.g. a same-row
+  // flow-reorder that barely moves the clone off the original resolves the
+  // original's auto-wrapped text span as the nearest "after" anchor) —
+  // inserting next to that anchor lands the clone INSIDE the element it was
+  // copied from, however "placement" reads: "inside" nests it directly,
+  // and "before"/"after" a descendant still lands it in that descendant's
+  // parent's subtree. A duplicate is never a legal child of its own source,
+  // and DOMParser lets the DOM API build that structure even where the
+  // HTML5 content model (button-in-button, etc.) forbids it, so it
+  // round-trips into a document assertDesignHtmlEditIntegrity rejects — the
+  // write is silently dropped and the optimistic clone the bridge already
+  // spliced into the live iframe is left stranded with no history entry to
+  // undo. Retarget to a plain "after" sibling of the source itself,
+  // matching Figma parity's own duplicate default.
+  const anchorNestedInTarget =
+    targetNode &&
+    anchorNode &&
+    isCodeLayerNodeOrDescendant(projection, anchorNode.id, targetNode.id);
+  const effectiveAnchorNode = anchorNestedInTarget ? targetNode : anchorNode;
+  const effectivePlacement = anchorNestedInTarget
+    ? "after"
+    : (details?.placement ?? "after");
   const nextContent = insertClonedHtmlLayer(baseContent, cloneHtml, {
     targetSelectors: targetNode
       ? codeLayerSelectorAliases(targetNode)
       : [selector],
-    anchorSelectors: anchorNode
-      ? codeLayerSelectorAliases(anchorNode)
+    anchorSelectors: effectiveAnchorNode
+      ? codeLayerSelectorAliases(effectiveAnchorNode)
       : details?.anchorSelector
         ? [details.anchorSelector]
         : undefined,
-    placement: details?.placement ?? "after",
+    placement: effectivePlacement,
     preserveIncomingNodeIds: true,
   });
   if (!nextContent) {

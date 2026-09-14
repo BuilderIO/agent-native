@@ -81,3 +81,74 @@ describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
     expect(patch.content).toContain('data-agent-native-layer-name="Group"');
   });
 });
+
+describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () => {
+  // A Text-tool-created node has position/left/top but no explicit
+  // width/height (it's sized by its content, not an authored box) — the
+  // real shape that made computeAbsoluteUnionBounds return null and left the
+  // Frame with no geometry at all (a zero-area position:static div that
+  // doesn't enclose its own content, and whose selection chrome then can't
+  // be dragged — see the item-2 cross-screen investigation).
+  const AUTO_SIZED_TEXT = `<body>
+  <div data-agent-native-node-id="label" style="position:absolute;left:20px;top:40px;color:#fff">Save</div>
+</body>`;
+
+  it("without a size hint, a target missing width/height gets no geometry (previous behavior, unchanged)", () => {
+    const patch = applyVisualEdit(AUTO_SIZED_TEXT, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      wrapperKind: "frame",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperId = (patch.result as { wrapperNodeId?: string })
+      .wrapperNodeId;
+    expect(wrapperId).toBeTruthy();
+    const wrapperOpenTag = patch.content.slice(
+      0,
+      patch.content.indexOf(`data-agent-native-node-id="${wrapperId}"`) + 1,
+    );
+    // No style attribute at all — the degenerate case this fix targets.
+    expect(wrapperOpenTag).not.toContain("position: absolute");
+  });
+
+  it("with a live-rendered size hint, gives the wrapper real enclosing geometry instead of none", () => {
+    const patch = applyVisualEdit(AUTO_SIZED_TEXT, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      wrapperKind: "frame",
+      sizeHints: { label: { width: 35, height: 19 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperId = (patch.result as { wrapperNodeId?: string })
+      .wrapperNodeId;
+    const wrapperOpenTagEnd = patch.content.indexOf(
+      ">",
+      patch.content.indexOf(`data-agent-native-node-id="${wrapperId}"`),
+    );
+    const wrapperOpenTag = patch.content.slice(0, wrapperOpenTagEnd);
+    expect(wrapperOpenTag).toContain("position: absolute");
+    expect(wrapperOpenTag).toContain("left: 20px");
+    expect(wrapperOpenTag).toContain("top: 40px");
+    expect(wrapperOpenTag).toContain("width: 35px");
+    expect(wrapperOpenTag).toContain("height: 19px");
+  });
+
+  it("never overrides an explicit width/height with a hint", () => {
+    const explicit = `<body>
+  <div data-agent-native-node-id="box" style="position:absolute;left:0px;top:0px;width:100px;height:80px"></div>
+</body>`;
+    const patch = applyVisualEdit(explicit, {
+      kind: "wrapNodes",
+      targetIds: ["box"],
+      wrapperKind: "frame",
+      sizeHints: { box: { width: 9999, height: 9999 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("width: 100px");
+    expect(patch.content).toContain("height: 80px");
+    expect(patch.content).not.toContain("9999");
+  });
+});
