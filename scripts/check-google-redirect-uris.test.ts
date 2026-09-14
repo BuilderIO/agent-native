@@ -403,12 +403,13 @@ test("does not accept a success payload from an unexpected HTTP status", () => {
     callbackPaths: null,
     redirectUriStatus: null,
     redirectUri: null,
+    redirectUriInvalid: false,
   });
 });
 
 test("preserves valid credentials from a callback-mismatch health 503", () => {
-  const expectedRedirectUri =
-    "https://agent-workspace.builder.io/_agent-native/google/callback";
+  const expectedHost = "agent-workspace.builder.io";
+  const expectedRedirectUri = `https://${expectedHost}/_agent-native/google/callback`;
   const misconfiguredRedirectUri =
     "https://builder-agent-native-workspace.netlify.app/_agent-native/google/callback";
   const body = JSON.stringify({
@@ -428,7 +429,7 @@ test("preserves valid credentials from a callback-mismatch health 503", () => {
   assert.equal(result.redirectUri, misconfiguredRedirectUri);
   assert.deepEqual(result.callbackPaths, ["/_agent-native/google/callback"]);
   assert.equal(
-    googleHealthRedirectUriMismatch(result, expectedRedirectUri),
+    googleHealthRedirectUriMismatch(result, expectedHost),
     `health endpoint advertises ${misconfiguredRedirectUri}, expected ${expectedRedirectUri}`,
   );
 
@@ -450,7 +451,7 @@ test("preserves valid credentials from a callback-mismatch health 503", () => {
     }),
   );
   assert.equal(
-    googleHealthRedirectUriMismatch(registeredRedirect, expectedRedirectUri),
+    googleHealthRedirectUriMismatch(registeredRedirect, expectedHost),
     null,
   );
 
@@ -463,6 +464,87 @@ test("preserves valid credentials from a callback-mismatch health 503", () => {
   );
   assert.equal(unrelated503.status, "unknown");
   assert.equal(unrelated503.clientId, null);
+});
+
+test("uses the first advertised callback path for health redirect checks", () => {
+  const host = "calendar.agent-native.com";
+  const expectedRedirectUri = `https://${host}${googleDocsCallback}`;
+  const body = JSON.stringify({
+    status: "valid",
+    clientId: "client-id",
+    callbackPaths: [googleDocsCallback],
+    redirectUriStatus: "registered",
+    redirectUri: expectedRedirectUri,
+  });
+  const health = classifyGoogleHealthResponse(
+    new Response(body, { status: 200, headers: jsonHeaders }),
+    body,
+  );
+
+  assert.equal(googleHealthRedirectUriMismatch(health, host), null);
+});
+
+test("does not treat malformed advertised redirect URIs as absent", () => {
+  const host = "calendar.agent-native.com";
+  for (const redirectUri of [
+    "https://calendar.agent-native.com/_agent-native/google/callback?next=/",
+    "https://calendar.agent-native.com/_agent-native/google/callback#fragment",
+    "http://calendar.agent-native.com/_agent-native/google/callback",
+    "not a URL",
+  ]) {
+    const body = JSON.stringify({
+      status: "valid",
+      clientId: "client-id",
+      callbackPaths: ["/_agent-native/google/callback"],
+      redirectUriStatus: "registered",
+      redirectUri,
+    });
+    const health = classifyGoogleHealthResponse(
+      new Response(body, { status: 200, headers: jsonHeaders }),
+      body,
+    );
+
+    assert.equal(health.redirectUri, null);
+    assert.equal(health.redirectUriInvalid, true);
+    assert.equal(
+      googleHealthRedirectUriMismatch(health, host),
+      "health endpoint advertises an invalid callback URI",
+    );
+  }
+});
+
+test("ignores optional managed redirect mismatches but checks required ones", () => {
+  const host = "calendar.agent-native.com";
+  const body = JSON.stringify({
+    status: "valid",
+    clientId: "client-id",
+    managedConnection: "unknown",
+    callbackPaths: ["/_agent-native/google/callback"],
+    redirectUriStatus: "mismatched",
+    redirectUri: "https://other.example/_agent-native/google/callback",
+  });
+  const optional = classifyGoogleHealthResponse(
+    new Response(body, { status: 200, headers: jsonHeaders }),
+    body,
+  );
+  assert.equal(
+    googleHealthRedirectUriMismatch(optional, host, "managed"),
+    null,
+  );
+  assert.notEqual(googleHealthRedirectUriMismatch(optional, host), null);
+
+  const requiredBody = JSON.stringify({
+    ...JSON.parse(body),
+    managedConnection: "required",
+  });
+  const required = classifyGoogleHealthResponse(
+    new Response(requiredBody, { status: 200, headers: jsonHeaders }),
+    requiredBody,
+  );
+  assert.notEqual(
+    googleHealthRedirectUriMismatch(required, host, "managed"),
+    null,
+  );
 });
 
 test("keeps absent, malformed, and redirected health responses out of the pass count", () => {

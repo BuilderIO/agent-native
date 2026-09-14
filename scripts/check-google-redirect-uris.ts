@@ -100,6 +100,7 @@ export type GoogleHealthResult = {
   callbackPaths: string[] | null;
   redirectUriStatus: GoogleRedirectUriHealthStatus | null;
   redirectUri: string | null;
+  redirectUriInvalid: boolean;
 };
 
 export function isInconclusiveGoogleHealthStatus(
@@ -195,6 +196,7 @@ function emptyHealth(
     callbackPaths: null,
     redirectUriStatus: null,
     redirectUri: null,
+    redirectUriInvalid: false,
   };
 }
 
@@ -596,6 +598,11 @@ export function classifyGoogleHealthResponse(
     typeof body.clientId === "string" && body.clientId.trim()
       ? body.clientId
       : null;
+  const redirectUri = advertisedRedirectUri(body.redirectUri);
+  const redirectUriInvalid =
+    body.redirectUri !== undefined &&
+    body.redirectUri !== null &&
+    redirectUri === null;
   if (rawStatus === "valid" && !clientId) {
     return emptyHealth(
       "unknown",
@@ -631,7 +638,8 @@ export function classifyGoogleHealthResponse(
       SAFE_REDIRECT_URI_STATUSES.has(rawRedirectUriStatus)
         ? (rawRedirectUriStatus as GoogleRedirectUriHealthStatus)
         : null,
-    redirectUri: advertisedRedirectUri(body.redirectUri),
+    redirectUri,
+    redirectUriInvalid,
   };
 }
 
@@ -769,9 +777,17 @@ export function healthContractDisagreement(
 
 export function googleHealthRedirectUriMismatch(
   health: GoogleHealthResult,
-  expectedRedirectUri: string,
+  host: string,
+  client: GoogleHealthClient = "sign_in",
 ): string | null {
+  if (client === "managed" && health.managedConnection !== "required") {
+    return null;
+  }
   if (health.status !== "valid") return null;
+  const expectedRedirectUri = `https://${host}${health.callbackPaths?.[0] ?? CALLBACK_PATHS.root}`;
+  if (health.redirectUriInvalid) {
+    return "health endpoint advertises an invalid callback URI";
+  }
   if (
     health.redirectUri !== null &&
     health.redirectUri !== expectedRedirectUri
@@ -911,7 +927,7 @@ async function run(argv: string[]): Promise<number> {
           : [];
       };
       const [managedResults, signInResults] = await Promise.all([
-        managedHealthIsLegacy
+        managedHealthIsLegacy || managedHealth.managedConnection !== "required"
           ? Promise.resolve([])
           : probeHealth("managed", managedHealth),
         probeHealth("sign_in", signInHealth),
@@ -944,6 +960,7 @@ async function run(argv: string[]): Promise<number> {
         health.redirectUriStatus
           ? `redirect_uri_status=${health.redirectUriStatus}`
           : "",
+        health.redirectUriInvalid ? "invalid_redirect_uri" : "",
         health.redirectUri ? `redirect_uri=${health.redirectUri}` : "",
       ]
         .filter(Boolean)
@@ -1000,7 +1017,8 @@ async function run(argv: string[]): Promise<number> {
       }
       const redirectUriMismatch = googleHealthRedirectUriMismatch(
         health,
-        `https://${row.host}${CALLBACK_PATHS.root}`,
+        row.host,
+        client,
       );
       if (redirectUriMismatch) {
         unregistered += 1;
