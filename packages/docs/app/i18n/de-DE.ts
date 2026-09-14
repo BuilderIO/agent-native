@@ -1155,24 +1155,66 @@ const deDE = {
     },
     design: {
       faq: {
-        question1:
-          "Kann KI ein Design erzeugen, das echter Code und kein Mock-up ist?",
+        question1: "Was ist Agent-Native Design?",
         answer1:
-          "Ja. Design gibt vollständiges, eigenständiges HTML mit Tailwind-Styling und Alpine-Interaktionen aus. Der Prototyp ist die Implementierung — es muss nichts übergeben und neu gebaut werden.",
-        question2: "Wie unterscheidet sich Design von Figma?",
+          "Agent-Native Design ist ein kostenloses Open-Source-Tool für KI-Design und Prototyping. Erstelle mit einem KI-Agenten interaktive HTML-Prototypen, wende deine Marke an und verfeinere Designs mit visuellen Steuerelementen oder im Chat. Teile das Ergebnis für Feedback oder exportiere es für die Entwicklung.",
+        question2: "Kann ich ein Design bearbeiten, nachdem die KI es generiert hat?",
         answer2:
-          "Figma ist für Designteams gedacht, die auf Pixelebene arbeiten, und das Ergebnis ist ein Bild, das jemand neu implementiert. Design beginnt mit einem Prompt und endet mit funktionierendem HTML/CSS/JS, das Sie veröffentlichen oder weiterentwickeln können.",
-        question3: "Kann Design meinem Designsystem folgen?",
+          "Ja. Passe Text, Abstände und Stil mit visuellen Steuerelementen an, oder bitte den KI-Agenten, das Design zu ändern. Du kannst verschiedene Richtungen vergleichen und die gewählte weiter verfeinern.",
+        question3: "Kann ich mein eigenes Design-System verwenden?",
         answer3:
-          "Ja. Speichern Sie wiederverwendbare Designsystem-Einstellungen und passen Sie dann gängige Variablen visuell an, während der Agent Struktur- und Textänderungen übernimmt — „wärmere Farbpalette“, „kräftigere Überschrift“, erledigt.",
-        question4: "Was erhalte ich beim Export?",
+          "Ja. Verknüpfe ein Design-System, um Farben, Typografie, Stil und Markenvorgaben festzulegen. Du kannst es über mehrere Designs hinweg wiederverwenden und als Kontext für die Überarbeitungen des KI-Agenten nutzen.",
+        question4: "Kann ich mit Designs aus Figma arbeiten?",
         answer4:
-          "Das echte Ergebnis: vollständiges HTML/CSS/JS als Datei, ZIP oder PDF. Eigenständig, ohne proprietäres Format und bereit, von Ihnen überall veröffentlicht zu werden.",
-        question5: "Ist Design kostenlos?",
+          "Ja. Design unterstützt Figma-Importe und einen speziellen Figma-fähigen SVG-Export. Überprüfe nach der Übertragung eines Designs Schriften, Layouts und bearbeitbare Elemente, da die Kompatibilität von Quelle und Exportformat abhängt.",
+        question5: "Was kann ich exportieren, und ist es eine fertige App?",
         answer5:
-          "Ja — kostenlos und Open Source, im Gegensatz zu Design-Tools, die monatlich pro Nutzer abrechnen oder die Nutzung über Credits messen.",
+          "Exportiere HTML oder ein ZIP der Design-Dateien, oder bereite eine Übergabe für einen Coding-Agenten vor. Der Prototyp bietet einen Ausgangspunkt für die Entwicklung; Anwendungslogik, Integrationen, Tests und Deployment müssen noch implementiert und geprüft werden. HTML-Exporte können externe Laufzeit-Ressourcen verwenden.",
       },
       s001: "Screenshot der Vorlage Design",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "Interaktive Prototypen mit deinem KI-Agenten gestalten",
+      heroDescription:
+        "Design ist ein kostenloses Open-Source-Tool für KI-Design und Prototyping, mit dem du markenkonforme Seiten und Produktoberflächen erstellst – mit Designs, die du selbst bearbeiten kannst.",
+      heroCta: "Jetzt gestalten",
+      useCasesHeading: "Was kannst du mit Design machen?",
+      useCasesBody:
+        "Erkunde eine neue Seite, einen Produkt-Flow oder eine Oberfläche, bevor du sie baust. Gib deinem KI-Agenten das Briefing und die Details, auf die es ankommt.",
+      useCase1Title: "Landingpage-Ideen erkunden",
+      useCase1Body:
+        "Verwandle ein Kampagnen- oder Produkt-Briefing in einen Landingpage-Prototyp. Bespreche Botschaft, Layout und Call-to-Actions mit deinem Team.",
+      useCase2Title: "Produkt-Flows durcharbeiten",
+      useCase2Body:
+        "Prototype einen Onboarding-, Anmelde- oder Checkout-Flow. Gehe die Schritte durch und verfeinere das Erlebnis, bevor du dich auf die Umsetzung festlegst.",
+      useCase3Title: "Dashboards und interne Tools gestalten",
+      useCase3Body:
+        "Verwandle Workflow-Anforderungen in ein Dashboard oder eine Admin-Oberfläche. Erkunde, wie Nutzer Informationen finden und ihre täglichen Aufgaben erledigen.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Gestalten, Prototypen und Teilen brauchst",
+      feature1Title: "Interaktive Prototypen",
+      feature1Body:
+        "Beschreibe die Seite oder den Flow, den du brauchst. Dein KI-Agent erstellt einen HTML-Prototyp mit Interaktionen, die du direkt in der Vorschau ausprobieren kannst.",
+      feature2Title: "KI- und visuelle Bearbeitung",
+      feature2Body:
+        "Passe Text, Abstände und Stil mit visuellen Steuerelementen an, oder bitte deinen KI-Agenten, Layout und Interaktionen zu ändern.",
+      feature3Title: "Design-Varianten nebeneinander",
+      feature3Body:
+        "Bitte deinen KI-Agenten um verschiedene Design-Richtungen. Vergleiche sie auf der Canvas, wähle einen Ansatz und verfeinere ihn weiter.",
+      feature4Title: "Wiederverwendbare Markenstile",
+      feature4Body:
+        "Verknüpfe ein Design-System mit deinen Farben, deiner Typografie und deinem Stil. Nutze es, um neue Designs und Überarbeitungen in deinem Projekt zu leiten.",
+      feature5Title: "Design-Feedback-Kommentare",
+      feature5Body:
+        "Hefte Feedback an ein bestimmtes Element, damit der Kontext klar bleibt. Schicke einen Kommentar an deinen KI-Agenten, um die Änderung durchzugehen.",
+      feature6Title: "HTML-Export und Code-Übergabe",
+      feature6Body:
+        "Exportiere HTML oder ein ZIP deiner Design-Dateien. Gib einem Entwickler oder Coding-Agenten den Prototyp und den Kontext, um mit der Umsetzung fortzufahren.",
+      finalCtaHeading: "Starte dein nächstes Design",
+      finalCtaBody:
+        "Bring ein Briefing mit. Erkunde die Möglichkeiten. Verfeinere die Details.",
+      finalCtaButton: "Jetzt gestalten",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Verfeinern",

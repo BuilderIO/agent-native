@@ -1142,23 +1142,66 @@ const enUS = {
     },
     design: {
       faq: {
-        question1: "Can AI generate a design that's real code, not a mockup?",
+        question1: "What is Agent-Native Design?",
         answer1:
-          "Yes. Design outputs complete, self-contained HTML with Tailwind styling and Alpine interactions. The prototype is the implementation — there's nothing to hand off and rebuild.",
-        question2: "How is Design different from Figma?",
+          "Agent-Native Design is a free and open-source AI design and prototyping tool. Create interactive HTML prototypes with an AI agent, apply your brand, and refine designs with visual controls or chat. Share the result for feedback or export it for development.",
+        question2: "Can I edit a design after AI generates it?",
         answer2:
-          "Figma is built for design teams working at the pixel level, and its output is a picture someone re-implements. Design starts from a prompt and ends in working HTML/CSS/JS you can ship or iterate on.",
-        question3: "Can it follow my design system?",
+          "Yes. Adjust text, spacing, and styling with visual controls, or ask the AI agent to change the design. You can compare different directions and continue refining the one you choose.",
+        question3: "Can I use my own design system?",
         answer3:
-          'Yes. Save reusable design-system preferences, then adjust common variables visually while the agent handles structural and copy changes — "warmer palette," "bolder headline," done.',
-        question4: "What do I get when I export?",
+          "Yes. Link a design system to guide colors, typography, styling, and brand instructions. You can reuse it across designs and use it as context for the AI agent's revisions.",
+        question4: "Can I work with designs from Figma?",
         answer4:
-          "The real thing: complete HTML/CSS/JS as a file, a ZIP, or a PDF. Self-contained, no proprietary format, yours to ship anywhere.",
-        question5: "Is Design free?",
+          "Yes. Design supports Figma import workflows and a dedicated Figma-ready SVG export. Review fonts, layouts, and editable elements after transferring a design, since compatibility depends on the source and export format.",
+        question5: "What can I export, and is it a finished app?",
         answer5:
-          "Yes — free and open source, next to design tools charging per seat monthly or metering you by credits.",
+          "Export HTML or a ZIP of the design files, or prepare a handoff for a coding agent. The prototype provides a starting point for development; application logic, integrations, testing, and deployment still need implementation and review. HTML exports may use external runtime resources.",
       },
       s001: "Design app screenshot",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "Design interactive prototypes with your AI agent",
+      heroDescription:
+        "Design is a free and open-source AI design and prototyping tool for creating on-brand pages and product interfaces, with designs you can edit yourself.",
+      heroCta: "Start designing",
+      useCasesHeading: "What can you do with Design?",
+      useCasesBody:
+        "Explore a new page, product flow, or interface before building it. Give your AI agent the brief and the details that matter.",
+      useCase1Title: "Explore landing-page ideas",
+      useCase1Body:
+        "Turn a campaign or product brief into a landing-page prototype. Review the message, layout, and calls to action with your team.",
+      useCase2Title: "Work through product flows",
+      useCase2Body:
+        "Prototype an onboarding, signup, or checkout flow. Walk through the steps and refine the experience before committing to implementation.",
+      useCase3Title: "Design dashboards and internal tools",
+      useCase3Body:
+        "Turn workflow requirements into a dashboard or admin interface. Explore how people will find information and complete their daily tasks.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading:
+        "Everything you need to design, prototype, and share",
+      feature1Title: "Interactive prototypes",
+      feature1Body:
+        "Describe the page or flow you need. Your AI agent creates an HTML prototype with interactions you can try in the preview.",
+      feature2Title: "AI and visual editing",
+      feature2Body:
+        "Adjust text, spacing, and styling with visual controls, or ask your AI agent to change the layout and interactions.",
+      feature3Title: "Side-by-side design variants",
+      feature3Body:
+        "Ask your AI agent for different design directions. Compare them on the canvas, choose an approach, and keep refining it.",
+      feature4Title: "Reusable brand styles",
+      feature4Body:
+        "Link a design system with your colors, typography, and styling. Use it to guide new designs and revisions across your project.",
+      feature5Title: "Design review comments",
+      feature5Body:
+        "Pin feedback to a specific element so the context stays clear. Send a comment to your AI agent to work through the change.",
+      feature6Title: "HTML export and code handoff",
+      feature6Body:
+        "Export HTML or a ZIP of your design files. Give a developer or coding agent the prototype and context to continue implementation.",
+      finalCtaHeading: "Start your next design",
+      finalCtaBody:
+        "Bring a brief. Explore the possibilities. Refine the details.",
+      finalCtaButton: "Start designing",
       s002: "Describe",
       s003: "Generate",
       s004: "Refine",

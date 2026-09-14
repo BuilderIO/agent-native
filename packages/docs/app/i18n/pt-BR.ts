@@ -1151,24 +1151,66 @@ const ptBR = {
     },
     design: {
       faq: {
-        question1:
-          "A IA pode gerar um design que seja código de verdade, não um mockup?",
+        question1: "O que é o Agent-Native Design?",
         answer1:
-          "Sim. Design gera HTML completo e independente, com estilos do Tailwind e interações do Alpine. O protótipo é a implementação: não há nada para repassar e reconstruir.",
-        question2: "Qual é a diferença entre Design e Figma?",
+          "Agent-Native Design é uma ferramenta de design e prototipagem com IA gratuita e de código aberto. Crie protótipos HTML interativos com um agente de IA, aplique sua marca e refine designs com controles visuais ou por chat. Compartilhe o resultado para receber feedback ou exporte para desenvolvimento.",
+        question2: "Posso editar um design depois que a IA o gera?",
         answer2:
-          "Figma foi feito para equipes de design que trabalham no nível do pixel, e o resultado é uma imagem que alguém precisa reimplementar. Design começa com um prompt e termina em HTML/CSS/JS funcional que você pode publicar ou continuar aprimorando.",
-        question3: "Ele consegue seguir meu sistema de design?",
+          "Sim. Ajuste texto, espaçamento e estilo com controles visuais, ou peça ao agente de IA para mudar o design. Você pode comparar direções diferentes e continuar refinando a que escolher.",
+        question3: "Posso usar meu próprio design system?",
         answer3:
-          "Sim. Salve preferências reutilizáveis do sistema de design e ajuste visualmente as variáveis comuns enquanto o agente cuida das mudanças estruturais e de texto: “paleta mais quente”, “título mais marcante” e pronto.",
-        question4: "O que recebo ao exportar?",
+          "Sim. Vincule um design system para guiar cores, tipografia, estilo e diretrizes de marca. Você pode reutilizá-lo em vários designs e usá-lo como contexto para as revisões do agente de IA.",
+        question4: "Posso trabalhar com designs vindos do Figma?",
         answer4:
-          "O resultado real: HTML/CSS/JS completo como arquivo, ZIP ou PDF. Independente, sem formato proprietário e pronto para você publicar em qualquer lugar.",
-        question5: "Design é gratuito?",
+          "Sim. Design oferece suporte a fluxos de importação do Figma e uma exportação SVG dedicada, pronta para o Figma. Revise fontes, layouts e elementos editáveis depois de transferir um design, já que a compatibilidade depende da origem e do formato de exportação.",
+        question5: "O que posso exportar, e é um aplicativo pronto?",
         answer5:
-          "Sim, é gratuito e de código aberto, ao contrário de ferramentas de design que cobram mensalmente por usuário ou medem o uso em créditos.",
+          "Exporte o HTML ou um ZIP dos arquivos de design, ou prepare um repasse para um agente de programação. O protótipo oferece um ponto de partida para o desenvolvimento; a lógica da aplicação, integrações, testes e implantação ainda precisam de implementação e revisão. As exportações em HTML podem usar recursos externos em tempo de execução.",
       },
       s001: "Captura de tela do modelo Design",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "Crie protótipos interativos com seu agente de IA",
+      heroDescription:
+        "Design é uma ferramenta de design e prototipagem com IA gratuita e de código aberto para criar páginas e interfaces de produto com a identidade da sua marca, com designs que você mesmo pode editar.",
+      heroCta: "Começar a criar",
+      useCasesHeading: "O que você pode fazer com o Design?",
+      useCasesBody:
+        "Explore uma nova página, fluxo de produto ou interface antes de construí-la. Dê ao seu agente de IA o briefing e os detalhes que importam.",
+      useCase1Title: "Explorar ideias de landing page",
+      useCase1Body:
+        "Transforme um briefing de campanha ou produto em um protótipo de landing page. Revise a mensagem, o layout e as chamadas para ação com sua equipe.",
+      useCase2Title: "Trabalhar fluxos de produto",
+      useCase2Body:
+        "Crie o protótipo de um fluxo de onboarding, cadastro ou checkout. Percorra as etapas e refine a experiência antes de se comprometer com a implementação.",
+      useCase3Title: "Criar dashboards e ferramentas internas",
+      useCase3Body:
+        "Transforme requisitos de fluxo de trabalho em um dashboard ou interface de administração. Explore como as pessoas vão encontrar informações e concluir suas tarefas diárias.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo que você precisa para criar, prototipar e compartilhar",
+      feature1Title: "Protótipos interativos",
+      feature1Body:
+        "Descreva a página ou o fluxo de que você precisa. Seu agente de IA cria um protótipo HTML com interações que você pode testar na pré-visualização.",
+      feature2Title: "Edição por IA e visual",
+      feature2Body:
+        "Ajuste texto, espaçamento e estilo com controles visuais, ou peça ao seu agente de IA para mudar o layout e as interações.",
+      feature3Title: "Variações de design lado a lado",
+      feature3Body:
+        "Peça ao seu agente de IA diferentes direções de design. Compare-as na tela, escolha uma abordagem e continue refinando-a.",
+      feature4Title: "Estilos de marca reutilizáveis",
+      feature4Body:
+        "Vincule um design system com suas cores, tipografia e estilo. Use-o para guiar novos designs e revisões em todo o seu projeto.",
+      feature5Title: "Comentários de revisão de design",
+      feature5Body:
+        "Fixe um feedback em um elemento específico para manter o contexto claro. Envie um comentário ao seu agente de IA para trabalhar na mudança.",
+      feature6Title: "Exportação HTML e repasse de código",
+      feature6Body:
+        "Exporte o HTML ou um ZIP dos seus arquivos de design. Dê a um desenvolvedor ou agente de programação o protótipo e o contexto para continuar a implementação.",
+      finalCtaHeading: "Comece seu próximo design",
+      finalCtaBody:
+        "Traga um briefing. Explore as possibilidades. Refine os detalhes.",
+      finalCtaButton: "Começar a criar",
       s002: "Descrever",
       s003: "Gerar",
       s004: "Refinar",
