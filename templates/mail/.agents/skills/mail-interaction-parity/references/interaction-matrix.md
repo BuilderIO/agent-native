@@ -77,9 +77,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   body, and Search. Selecting `Search emails /` closes Command and focuses
   Search; when compose is open it stays open. A synthetic no-match query showed
   no suggestions, and Escape closed Search and restored the original route;
-  reopening showed a blank field. With the compose body focused, `/` inserted
-  a slash and opened the editor's block picker instead of global Search. With
-  the Toggle menu button focused, `/` did not open Search. The latter two
+  reopening showed a blank field. A second synthetic query was reflected in
+  `/mail/all?q=local-nav-focus-probe`; Escape from Search returned to the
+  original `/mail/inbox?tab=important` route. With the compose body focused,
+  `/` inserted a slash and opened the editor's block picker instead of global
+  Search. With the Toggle menu button focused, `/` did not open Search. These
   focus-context behaviors need paired Superhuman replay before treating either
   as a parity gap. No mailbox contacts/results were available, and mobile plus
   Superhuman behavior remain unverified.
