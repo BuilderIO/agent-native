@@ -1374,7 +1374,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           try {
             wv.reloadIgnoringCache();
           } catch {
-            wv.reload();
+            try {
+              wv.reload();
+            } catch {
+              onNavigationStateChangeRef.current?.({
+                canGoBack: false,
+                canGoForward: false,
+              });
+            }
           }
         },
         toggleAgentSidebar() {
