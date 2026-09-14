@@ -280,13 +280,27 @@ export async function isWorkspaceAppAccessAllowed(
       (typeof app.org_id === "string" ? app.org_id : "").trim() || null;
     const orgId = context.orgId?.trim() || null;
     const sameOrg = !!resourceOrgId && resourceOrgId === orgId;
+    const canClaimCallerOrg =
+      !resourceOrgId && !ownerEmail && app.visibility === "org" && !!orgId;
 
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
-    if (!sameOrg || !orgId) return false;
+    if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
 
     const member = await loadWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
+    }
+    if (canClaimCallerOrg) {
+      // Fresh workspaces register apps before their first organization exists.
+      // Claim once so a missing org never becomes cross-organization access.
+      const claim = await db.execute({
+        sql: `UPDATE workspace_apps SET org_id = ?
+              WHERE id = ? AND org_id IS NULL
+                AND TRIM(owner_email) = '' AND visibility = 'org'
+              RETURNING org_id`,
+        args: [orgId, normalizedAppId],
+      });
+      if (claim.rows.length === 0) return false;
     }
     const memberRole = member.role;
     if (memberRole === "owner" || memberRole === "admin") return true;

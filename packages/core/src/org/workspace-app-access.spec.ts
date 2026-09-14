@@ -167,6 +167,42 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
+  it("claims an ownerless org-visible app for the first active organization", async () => {
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [{ owner_email: "", org_id: null, visibility: "org" }],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("fresh-app", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+    expect(mocks.execute).toHaveBeenLastCalledWith({
+      sql: expect.stringContaining("UPDATE workspace_apps SET org_id = ?"),
+      args: ["org-1", "fresh-app"],
+    });
+  });
+
+  it("denies an ownerless app when another organization wins the claim", async () => {
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [{ owner_email: "", org_id: null, visibility: "org" }],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("fresh-app", {
+        email: "member@example.com",
+        orgId: "org-2",
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("honors a group share for a private app", async () => {
     mocks.execute
       .mockResolvedValueOnce({

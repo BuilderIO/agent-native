@@ -27,6 +27,7 @@ export const IMAGE_CATEGORIES = [
 ] as const;
 
 export const MAX_ASSET_UPLOAD_FILES = 20;
+export const MAX_ASSET_UPLOAD_BATCH_BYTES = 4 * 1024 * 1024;
 
 export const ASPECT_RATIOS = [
   "1:1",
