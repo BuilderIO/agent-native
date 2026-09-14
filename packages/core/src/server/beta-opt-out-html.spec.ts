@@ -11,11 +11,15 @@ import {
 } from "./beta-opt-out-html.js";
 
 function renderEnvironmentSwitcherCopy(
-  documentLocale: string,
+  documentLocale: string | null,
   storedLocale: string | null,
+  browserLocales = ["en-US"],
 ) {
+  const localeAttributes = documentLocale
+    ? ` lang="${documentLocale}" data-locale="${documentLocale}"`
+    : "";
   const html = injectBetaOptOutPersistence(
-    `<html lang="${documentLocale}" data-locale="${documentLocale}"><head></head><body></body></html>`,
+    `<html${localeAttributes}><head></head><body></body></html>`,
   );
   const script = html.match(
     /<script data-agent-native-environment-switcher-script="1">([\s\S]*?)<\/script>/,
@@ -54,6 +58,7 @@ function renderEnvironmentSwitcherCopy(
   const root = {
     getAttribute: (name: string) => attributes.get(name) ?? null,
   };
+  let updateCopy: (() => void) | undefined;
   const document = {
     documentElement: root,
     getElementById: (id: string) => elements[id] ?? null,
@@ -74,14 +79,32 @@ function renderEnvironmentSwitcherCopy(
   runInNewContext(script, {
     window,
     document,
-    navigator: { languages: [], language: "en-US" },
+    navigator: {
+      languages: browserLocales,
+      language: browserLocales[0] ?? "en-US",
+    },
     MutationObserver: class {
+      constructor(callback: () => void) {
+        updateCopy = callback;
+      }
       observe() {}
     },
     URL,
   });
 
-  return { badgeText: badge.textContent, copyText: copy.textContent };
+  return {
+    get badgeText() {
+      return badge.textContent;
+    },
+    get copyText() {
+      return copy.textContent;
+    },
+    updateDocumentLocale(locale: string) {
+      attributes.set("data-locale", locale);
+      attributes.set("lang", locale);
+      updateCopy?.();
+    },
+  };
 }
 
 describe("injectBetaOptOutPersistence", () => {
@@ -177,6 +200,28 @@ describe("injectBetaOptOutPersistence", () => {
 
     expect(badgeText).toBe(ENVIRONMENT_BADGE_MESSAGES["zh-TW"].betaLabel);
     expect(copyText).toBe(ENVIRONMENT_BADGE_MESSAGES["zh-TW"].continuePrompt);
+  });
+
+  it("refreshes the switcher copy when the auth page locale changes", () => {
+    const rendered = renderEnvironmentSwitcherCopy("en-US", null);
+
+    rendered.updateDocumentLocale("fr-FR");
+
+    expect(rendered.badgeText).toBe(
+      ENVIRONMENT_BADGE_MESSAGES["fr-FR"].betaLabel,
+    );
+    expect(rendered.copyText).toBe(
+      ENVIRONMENT_BADGE_MESSAGES["fr-FR"].continuePrompt,
+    );
+  });
+
+  it("uses the browser locale when custom auth HTML has no locale attributes", () => {
+    const { badgeText, copyText } = renderEnvironmentSwitcherCopy(null, null, [
+      "fr-FR",
+    ]);
+
+    expect(badgeText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].betaLabel);
+    expect(copyText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].continuePrompt);
   });
 
   it("prefers a persisted locale to the onboarding document default", () => {
