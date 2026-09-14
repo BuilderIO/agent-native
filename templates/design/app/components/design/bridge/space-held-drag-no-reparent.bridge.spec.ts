@@ -120,4 +120,109 @@ describe("holding Space mid-drag suppresses reparenting", () => {
       await browser.close();
     }
   });
+
+  it("a stale 'space released' forward arriving after the drag already ended still clears state for the NEXT gesture", async () => {
+    // Regression for a real sequence the fixed test above can't reach:
+    // release the MOUSE before Space. DesignEditor.tsx's own keyup handler
+    // used to check activeEditorDragRef.current — already false by then,
+    // since mouseup clears it — and take the temporary-pan branch instead
+    // of forwarding "held:false", leaving every preview iframe's
+    // bridgeSpaceKeyPressed stuck true forever. The fix tracks whether
+    // forwarding was armed at keydown and always undoes it at keyup
+    // regardless of activeEditorDragRef's value by then; this spec plays
+    // the host's now-guaranteed message directly at the bridge boundary
+    // (mouseup, THEN the "held:false" forward) and proves a wholly separate
+    // SECOND drag — no Space involved at all — reparents normally
+    // afterward instead of inheriting the first gesture's suppression.
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="alpha"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+
+      // Gesture 1: Space held mid-drag, but the MOUSE releases first —
+      // activeEditorDragRef.current is already false by the time the host
+      // would see Space's keyup.
+      await page.mouse.move(74, 54);
+      await page.mouse.down();
+      await page.mouse.move(174, 150, { steps: 10 });
+      await page.evaluate(() =>
+        window.postMessage(
+          { type: "agent-native:set-space-held", held: true },
+          "*",
+        ),
+      );
+      await page.mouse.move(174, 200, { steps: 10 });
+      await page.mouse.up();
+      // The fixed host still forwards the matching keyup after the drag
+      // ended — play that message directly at the bridge boundary.
+      await page.evaluate(() =>
+        window.postMessage(
+          { type: "agent-native:set-space-held", held: false },
+          "*",
+        ),
+      );
+      await page.waitForTimeout(50);
+
+      // Gesture 2: a wholly separate, plain drag with no Space at all —
+      // Beta, still in its original row, dropped squarely inside Section.
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="beta"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+      const betaBox = await page
+        .locator('[data-agent-native-node-id="beta"]')
+        .boundingBox();
+      const sectionBox = await page
+        .locator('[data-agent-native-node-id="section"]')
+        .boundingBox();
+      if (!betaBox || !sectionBox) throw new Error("missing box");
+      await page.mouse.move(
+        betaBox.x + betaBox.width / 2,
+        betaBox.y + betaBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sectionBox.x + sectionBox.width / 2,
+        sectionBox.y + sectionBox.height / 2,
+        { steps: 10 },
+      );
+      await page.mouse.up();
+      await page.waitForTimeout(50);
+
+      const html = await page.content();
+      const mainCloseIdx = html.indexOf("</main>");
+      const betaIdx = html.indexOf('data-agent-native-node-id="beta"');
+      // The precise regression: gesture 1's "keep current parent" escape
+      // (Space held) lands the dragged node OUTSIDE </main> entirely (see
+      // the first test in this file). A leaked bridgeSpaceKeyPressed would
+      // make this second, Space-free gesture do the exact same thing to
+      // Beta. Asserting Beta stays INSIDE main — whatever normal reorder
+      // slot it lands in — isolates that leak without also re-asserting
+      // exactly what a plain reorder-into-a-container resolves to.
+      expect(
+        betaIdx > 0 && betaIdx < mainCloseIdx,
+        `A plain second drag (no Space) must stay inside <main>, not escape it the way gesture 1's Space-held drag did — a leaked keepCurrentFlowParent would do exactly that; html: ${html}`,
+      ).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  });
 });

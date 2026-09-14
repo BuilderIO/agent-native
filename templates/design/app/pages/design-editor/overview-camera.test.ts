@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getAllScreenFrameEntries,
+  pinnedHeightScreenIds,
   withMeasuredFrameHeights,
 } from "./overview-camera";
 
@@ -42,5 +43,51 @@ describe("withMeasuredFrameHeights", () => {
     });
     expect(withMeasuredFrameHeights(frames, {})).toBe(frames);
     expect(withMeasuredFrameHeights(frames, { other: 5000 })).toEqual(frames);
+  });
+
+  // A pinned Screen's rendered frame clips overflow at the pinned height
+  // instead of growing (canvasFrames's own autoHeight gates on the same
+  // flag) — fitting to the overflow height would zoom past what's actually
+  // on screen, so a pinned Screen must keep its persisted height even when
+  // reported content is taller.
+  it("keeps the persisted height for a heightPinned screen even when measured content is taller", () => {
+    const frames = getAllScreenFrameEntries({
+      overviewScreens: [{ id: "a" }],
+      canvasFrameGeometryById: { a: PERSISTED_GEOMETRY },
+    });
+    const pinned = pinnedHeightScreenIds([{ id: "a", heightPinned: true }]);
+    const unchanged = withMeasuredFrameHeights(frames, { a: 2400 }, pinned);
+    expect(unchanged[0]?.geometry.height).toBe(1024);
+  });
+
+  it("still grows an unpinned screen alongside a pinned one", () => {
+    const frames = getAllScreenFrameEntries({
+      overviewScreens: [{ id: "a" }, { id: "b" }],
+      canvasFrameGeometryById: { a: PERSISTED_GEOMETRY, b: PERSISTED_GEOMETRY },
+    });
+    const pinned = pinnedHeightScreenIds([
+      { id: "a", heightPinned: true },
+      { id: "b", heightPinned: false },
+    ]);
+    const result = withMeasuredFrameHeights(
+      frames,
+      { a: 2400, b: 2400 },
+      pinned,
+    );
+    expect(result.find((f) => f.id === "a")?.geometry.height).toBe(1024);
+    expect(result.find((f) => f.id === "b")?.geometry.height).toBe(2400);
+  });
+});
+
+describe("pinnedHeightScreenIds", () => {
+  it("collects only screens with heightPinned true", () => {
+    const ids = pinnedHeightScreenIds([
+      { id: "a", heightPinned: true },
+      { id: "b", heightPinned: false },
+      { id: "c" },
+    ]);
+    expect(ids.has("a")).toBe(true);
+    expect(ids.has("b")).toBe(false);
+    expect(ids.has("c")).toBe(false);
   });
 });

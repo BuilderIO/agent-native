@@ -2553,29 +2553,56 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return false;
     }
+    var portableStyleProbeDoc;
+    function portableStyleProbeDocument() {
+      if (portableStyleProbeDoc !== void 0) return portableStyleProbeDoc;
+      try {
+        var frame = document.createElement("iframe");
+        frame.setAttribute("aria-hidden", "true");
+        frame.tabIndex = -1;
+        frame.style.cssText = "position:fixed!important;width:0!important;height:0!important;border:0!important;visibility:hidden!important;pointer-events:none!important;";
+        document.body.appendChild(frame);
+        portableStyleProbeDoc = frame.contentDocument;
+      } catch (_err) {
+        portableStyleProbeDoc = null;
+      }
+      return portableStyleProbeDoc;
+    }
     var portableStyleTagDefaultsCache = {};
     function portableStyleTagDefaults(el) {
       var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
       var cached = portableStyleTagDefaultsCache[cacheKey];
       if (cached) return cached;
-      var probe = el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml" ? document.createElementNS(el.namespaceURI, el.tagName) : document.createElement(el.tagName);
-      probe.style.cssText = "position:absolute!important;visibility:hidden!important;pointer-events:none!important;left:-99999px!important;top:-99999px!important;";
-      document.body.appendChild(probe);
-      var probeCs = window.getComputedStyle(probe);
+      var probeDoc = portableStyleProbeDocument();
+      if (!probeDoc || !probeDoc.body) return {};
+      var probe = el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml" ? probeDoc.createElementNS(el.namespaceURI, el.tagName) : probeDoc.createElement(el.tagName);
+      probeDoc.body.appendChild(probe);
+      var probeWindow = probeDoc.defaultView || window;
+      var probeCs = probeWindow.getComputedStyle(probe);
       var defaults = {};
       PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
         defaults[property] = probeCs[property] || probeCs.getPropertyValue(property);
       });
-      document.body.removeChild(probe);
+      probeDoc.body.removeChild(probe);
       portableStyleTagDefaultsCache[cacheKey] = defaults;
       return defaults;
     }
+    var PORTABLE_STYLE_BOX_SIZE_PROPERTIES = {
+      width: true,
+      height: true
+    };
     function collectPortableComputedStyles(el) {
       if (!el) return {};
       var cs = window.getComputedStyle(el);
       var defaults = portableStyleTagDefaults(el);
+      var hostStyle = el.style;
       var styles = {};
       PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
+        if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) {
+          var authored = hostStyle && hostStyle[property];
+          if (authored) styles[property] = authored;
+          return;
+        }
         var value = cs[property] || cs.getPropertyValue(property);
         if (typeof value === "string" && value.trim() && value !== defaults[property]) {
           styles[property] = value;

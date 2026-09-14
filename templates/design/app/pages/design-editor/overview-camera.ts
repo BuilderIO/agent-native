@@ -114,6 +114,19 @@ export function getAllScreenFrameEntries(args: {
   return entries;
 }
 
+/** The `heightPinned` ids out of `overviewScreens`, for `withMeasuredFrameHeights`'s
+ *  `pinnedHeightIds` — the same per-screen flag `canvasFrames`'s own
+ *  `autoHeight` gate reads (see `deriveOverviewScreens`'s `heightPinned`). */
+export function pinnedHeightScreenIds(
+  overviewScreens: ReadonlyArray<{ id: string; heightPinned?: boolean }>,
+): ReadonlySet<string> {
+  return new Set(
+    overviewScreens
+      .filter((screen) => screen.heightPinned)
+      .map((screen) => screen.id),
+  );
+}
+
 /**
  * Widens each frame's height to the live measured content height when it's
  * taller than the persisted `canvasFrames` geometry `getAllScreenFrameEntries`
@@ -125,13 +138,20 @@ export function getAllScreenFrameEntries(args: {
  * shorter box than what's actually on screen. Height-only and growth-only:
  * never touches width or shrinks a frame, so it can't fit tighter than the
  * real page and can't disturb x-position math elsewhere.
+ *
+ * `pinnedHeightIds` mirrors the exact gate `canvasFrames`'s own `autoHeight`
+ * uses (`!metadata.heightPinned`): a pinned screen's rendered frame clips
+ * overflow at the pinned height instead of growing, so fitting to the
+ * (unrendered) overflow height would zoom past what's actually on screen.
  */
 export function withMeasuredFrameHeights(
   frames: FrameEntry[],
   measuredHeightById: Record<string, number>,
+  pinnedHeightIds?: ReadonlySet<string>,
 ): FrameEntry[] {
   if (Object.keys(measuredHeightById).length === 0) return frames;
   return frames.map((frame) => {
+    if (pinnedHeightIds?.has(frame.id)) return frame;
     const measured = measuredHeightById[frame.id];
     if (!measured || measured <= (frame.geometry.height ?? 0)) return frame;
     return { ...frame, geometry: { ...frame.geometry, height: measured } };

@@ -2535,13 +2535,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
-  // Bare-tag baseline for the diff below, cached per tag+namespace since a
-  // portable-style snapshot walks up to 80 descendants per drag. A probe
-  // with no class/inline style still picks up whatever the page's own
-  // stylesheet applies to that tag (a CSS reset, Tailwind preflight), so
-  // diffing against it — rather than a hardcoded CSS-initial-values table —
-  // is what actually tells us "did a class/cascade customize this, or is it
-  // just what this tag renders as anyway."
+  // Bare-tag baseline for the diff below, measured in a throwaway iframe
+  // with NO author stylesheets — the source document's own `<style>`/
+  // Tailwind rules must never leak into "default", or a bare-tag rule
+  // there (e.g. `button { background: teal }`) matches the probe too and
+  // the diff wrongly reads a real, authored appearance as "just what this
+  // tag renders as anyway", dropping it before it ever reaches the
+  // destination document (which has no such rule). Cached per tag+
+  // namespace since a portable-style snapshot walks up to 80 descendants
+  // per drag.
+  var portableStyleProbeDoc: Document | null | undefined;
+
+  function portableStyleProbeDocument(): Document | null {
+    if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
+    try {
+      var frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.tabIndex = -1;
+      frame.style.cssText =
+        "position:fixed!important;width:0!important;height:0!important;" +
+        "border:0!important;visibility:hidden!important;pointer-events:none!important;";
+      document.body.appendChild(frame);
+      portableStyleProbeDoc = frame.contentDocument;
+    } catch (_err) {
+      portableStyleProbeDoc = null;
+    }
+    return portableStyleProbeDoc;
+  }
+
   var portableStyleTagDefaultsCache: Record<
     string,
     Record<string, string>
@@ -2551,24 +2572,55 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
     var cached = portableStyleTagDefaultsCache[cacheKey];
     if (cached) return cached;
+    var probeDoc = portableStyleProbeDocument();
+    if (!probeDoc || !probeDoc.body) return {};
+    // Deliberately NOT forced to position:absolute: that changes width's
+    // auto-sizing algorithm (shrink-to-fit vs filling the containing
+    // block), so an ordinary static element would look "different from
+    // default" purely from the probe's own position, not any real
+    // customization. The probe stays in normal flow; the IFRAME around it
+    // (zero-size, hidden, fixed) is what's kept out of visible layout.
     var probe =
       el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
-        ? document.createElementNS(el.namespaceURI, el.tagName)
-        : document.createElement(el.tagName);
-    (probe as HTMLElement).style.cssText =
-      "position:absolute!important;visibility:hidden!important;" +
-      "pointer-events:none!important;left:-99999px!important;top:-99999px!important;";
-    document.body.appendChild(probe);
-    var probeCs = window.getComputedStyle(probe);
+        ? probeDoc.createElementNS(el.namespaceURI, el.tagName)
+        : probeDoc.createElement(el.tagName);
+    probeDoc.body.appendChild(probe);
+    var probeWindow = probeDoc.defaultView || window;
+    var probeCs = probeWindow.getComputedStyle(probe);
     var defaults: Record<string, string> = {};
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       defaults[property] =
         probeCs[property] || probeCs.getPropertyValue(property);
     });
-    document.body.removeChild(probe);
+    probeDoc.body.removeChild(probe);
     portableStyleTagDefaultsCache[cacheKey] = defaults;
     return defaults;
   }
+
+  // width/height can never be diffed against ANY bare-tag probe, isolated
+  // iframe or not: an empty probe's auto-size (shrink-to-fit, or zero with
+  // no content) has nothing in common with a real in-flow element's
+  // auto-size (fills its actual containing block, or matches its actual
+  // content) — nearly every ordinary flow element would read as
+  // "customized" and have its fluid size frozen into a pixel value on
+  // every move/duplicate. Only a size the element itself authored inline
+  // is portable; a class-driven or flow-driven size is the destination's
+  // to decide.
+  //
+  // KNOWN LIMITATION: an element sized entirely through a stylesheet rule
+  // (e.g. `.card { width: 320px }`, no inline width) is NOT carried either.
+  // A stylesheet-rule walk was tried and reverted: computed style alone
+  // cannot tell "an authored class rule set this" apart from "flex/grid
+  // resolved this to the same pixel value," and reliably replaying the
+  // cascade (media/container-query overrides, specificity, cross-origin
+  // sheets that throw on `cssRules`) outside the browser's own layout
+  // engine is not something a diff-vs-defaults probe can do soundly. Such
+  // an element loses its explicit size across a cross-screen move/
+  // duplicate today; see portable-style-snapshot.bridge.spec.ts.
+  var PORTABLE_STYLE_BOX_SIZE_PROPERTIES: Record<string, boolean> = {
+    width: true,
+    height: true,
+  };
 
   function collectPortableComputedStyles(
     el: Element | null,
@@ -2576,8 +2628,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el) return {};
     var cs = window.getComputedStyle(el);
     var defaults = portableStyleTagDefaults(el);
+    var hostStyle = (el as HTMLElement).style;
     var styles: Record<string, string> = {};
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) {
+        var authored = hostStyle && (hostStyle as any)[property];
+        if (authored) styles[property] = authored;
+        return;
+      }
       var value = cs[property] || cs.getPropertyValue(property);
       // Only carry what a class/cascade actually customized on THIS element,
       // or what it inherited from its old parent chain (an inherited value

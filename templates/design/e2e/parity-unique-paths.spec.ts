@@ -292,7 +292,11 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await page.keyboard.up("Space");
     await page.mouse.up();
-    await page.waitForTimeout(200);
+    // The commit's own file save is debounced (queueFileContentSave's
+    // 400ms coalescing window in DesignEditor.tsx) — wait past it before
+    // reading the persisted document, or this read (and the undo below)
+    // races an in-flight/not-yet-sent save.
+    await page.waitForTimeout(500);
 
     const html = await getFileHtml(page);
     // The fixture's "Fixture Card Title" h2 carries no explicit
@@ -313,7 +317,9 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toBe(true);
 
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(200);
+    // Undo's own save is immediate (no debounce), but still a real
+    // network round trip — give it time to land before reading back.
+    await page.waitForTimeout(400);
     const undoneHtml = await getFileHtml(page);
     expect(
       undoneHtml,

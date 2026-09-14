@@ -791,6 +791,7 @@ import {
   resolveZoomUpdate,
   readOverviewZoomPercentFromTransform,
   resolveScreenDropPoint,
+  pinnedHeightScreenIds,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
   withMeasuredFrameHeights,
@@ -9007,6 +9008,15 @@ function DesignEditor() {
         );
       });
   }, []);
+  // Whether keydown armed iframe forwarding for THIS Space hold, tracked
+  // independently of activeEditorDragRef's CURRENT value — a drag that ends
+  // (mouseup) before Space is released clears activeEditorDragRef first, so
+  // checking it again at keyup would take the temporary-pan branch instead
+  // and never send the matching held:false, leaving every preview iframe's
+  // bridgeSpaceKeyPressed stuck true for the NEXT gesture. Keyup (and blur)
+  // must undo exactly what keydown did, regardless of what else changed
+  // mid-hold.
+  const spaceForwardArmedRef = useRef(false);
   useEffect(() => {
     if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
 
@@ -9018,6 +9028,7 @@ function DesignEditor() {
       if (isDesignHotkeyEditableTarget(event.target)) return;
       if (activeEditorDragRef.current) {
         event.preventDefault();
+        spaceForwardArmedRef.current = true;
         broadcastSpaceHeldToIframes(true);
         return;
       }
@@ -9030,7 +9041,8 @@ function DesignEditor() {
 
     const handleWindowKeyUp = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
-      if (activeEditorDragRef.current) {
+      if (spaceForwardArmedRef.current) {
+        spaceForwardArmedRef.current = false;
         event.preventDefault();
         broadcastSpaceHeldToIframes(false);
         return;
@@ -9047,9 +9059,14 @@ function DesignEditor() {
       event.preventDefault();
     };
 
-    // Also release the temporary hand tool if the window loses focus mid-hold
-    // (e.g. Cmd+Tab away) so it never gets stuck armed with no matching keyup.
+    // Also release the temporary hand tool (or forwarded Space) if the
+    // window loses focus mid-hold (e.g. Cmd+Tab away) so neither gets stuck
+    // armed with no matching keyup.
     const handleWindowBlur = () => {
+      if (spaceForwardArmedRef.current) {
+        spaceForwardArmedRef.current = false;
+        broadcastSpaceHeldToIframes(false);
+      }
       const stashedTool = spacePanStashedToolRef.current;
       if (stashedTool === null) return;
       spacePanStashedToolRef.current = null;
@@ -13546,6 +13563,7 @@ function DesignEditor() {
         boardFileId,
       }),
       measuredScreenHeightByIdRef.current,
+      pinnedHeightScreenIds(overviewScreens),
     );
     const bounds = getFrameGroupBounds(frames);
     if (!bounds) {
@@ -13573,6 +13591,7 @@ function DesignEditor() {
         boardFileId,
       }),
       measuredScreenHeightByIdRef.current,
+      pinnedHeightScreenIds(overviewScreens),
     );
     const selectedIds = new Set(overviewSelectedScreenIds);
     // No screen-level selection: an in-screen element may still be selected
