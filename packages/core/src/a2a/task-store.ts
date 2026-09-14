@@ -11,6 +11,7 @@ import type { Task, Message, TaskState, Artifact } from "./types.js";
 let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
+const A2A_STUCK_SWEEP_INDEX = "idx_a2a_tasks_status_state_updated_at";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
 
 export async function ensureTable(): Promise<void> {
@@ -36,6 +37,11 @@ export async function ensureTable(): Promise<void> {
       const createIdempotencyIndexSql =
         `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
         `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
+      // The stuck-task sweep scans by state then age on every recurring tick.
+      // Without this it is a full scan of every task the app has ever run.
+      const createStuckSweepIndexSql =
+        `CREATE INDEX IF NOT EXISTS ${A2A_STUCK_SWEEP_INDEX} ` +
+        `ON a2a_tasks(status_state, updated_at)`;
       const createApprovalsSql = `
         CREATE TABLE IF NOT EXISTS a2a_approvals (
           id TEXT PRIMARY KEY,
@@ -71,6 +77,7 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
       );
       await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
+      await ensureIndexExists(A2A_STUCK_SWEEP_INDEX, createStuckSweepIndexSql);
       await ensureTableExists("a2a_approvals", createApprovalsSql);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.

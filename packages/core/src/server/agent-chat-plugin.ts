@@ -7158,6 +7158,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            // The `a2a_tasks` half of the same problem. Reaping the run row
+            // does not terminalize the task row that wraps it, and the task's
+            // only other recovery driver is an inbound `tasks/get` — so when
+            // the caller's agent stops polling, a dead task keeps reporting
+            // `working` while its run has already been reaped to `errored`.
+            // Same discipline as the reap above: never fatal to the job sweep,
+            // and its failure stays distinguishable from a clean pass.
+            const { reapAllStaleA2ATasks } =
+              await import("../a2a/stale-task-sweep.js");
+            const staleA2ATasksReaped = await reapAllStaleA2ATasks().catch(
+              (error: unknown) => {
+                console.error(
+                  "[agent-chat] durable stale A2A task sweep failed:",
+                  error,
+                );
+                return null;
+              },
+            );
             // Rides the same site-tick as the reap above, for the same reason:
             // it is the only durable driver on serverless. Never fatal to the
             // job sweep, and its own failure is a distinguishable outcome
@@ -7187,6 +7205,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: false,
                 staleRunsReaped,
+                staleA2ATasksReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
                 jobsSkipped: true,
@@ -7197,6 +7216,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: true,
                 staleRunsReaped,
+                staleA2ATasksReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
                 jobsSkipped: true,
@@ -7212,6 +7232,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: true,
                 staleRunsReaped,
+                staleA2ATasksReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
               };
@@ -7221,6 +7242,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
+                staleA2ATasksReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
               };

@@ -972,6 +972,44 @@ describe("askGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("surfaces a swept-out task as an error rather than another poll handle", async () => {
+    // The downstream stale-task sweep terminalizes a task whose processor
+    // died. The caller must get a terminal error here, not a `poll` handle
+    // that keeps it reporting "working" indefinitely.
+    mocks.a2aGetTask.mockResolvedValueOnce({
+      id: "task-swept",
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: "The async A2A processor timed out before completing. Please retry the request.",
+            },
+          ],
+        },
+      },
+    });
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["analytics"],
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => getGrantedDispatchMcpAppTask("analytics", "task-swept"),
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("timed out before completing");
+    expect(result).not.toHaveProperty("poll");
+    expect(result).not.toHaveProperty("pollAfterMs");
+  });
+
   it("returns a recoverable envelope when transient task status reads exhaust retries", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
