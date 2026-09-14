@@ -45,7 +45,7 @@ describe("Content skill correction semantics", () => {
     );
     expect(skill).toMatch(/fail closed\s+if that flush\/read cannot complete/);
     expect(skill).toMatch(
-      /read the canonical database row from\s+Content immediately before building the update/,
+      /read the canonical collection row from\s+Content immediately before building the update/,
     );
     expect(skill).toMatch(
       /freshly read\s+values as authoritative for every field the correction does not explicitly\s+change/,

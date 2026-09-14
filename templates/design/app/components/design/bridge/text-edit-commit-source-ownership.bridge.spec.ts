@@ -108,6 +108,11 @@ describe("text-edit commit claims its content as source", () => {
             (document.querySelector(selector) as HTMLElement).blur(),
           SELECTOR,
         );
+        await page.waitForFunction(
+          () =>
+            (window as Window & { __committed?: unknown[] }).__committed
+              ?.length === 1,
+        );
         expect(
           await page.evaluate(
             () => (window as Window & { __committed?: string[] }).__committed,

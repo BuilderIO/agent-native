@@ -141,6 +141,41 @@ describe("resolveExportCropTarget", () => {
       rect: { x: 10, y: 20, width: 150, height: 80 },
     });
   });
+
+  it("widens to the whole screen when the root is part of the selection", () => {
+    const node = document.createElement("div");
+    node.id = "child";
+    node.getBoundingClientRect = () =>
+      ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
+    document.body.appendChild(node);
+
+    expect(
+      resolveExportCropTarget(document, [
+        elementInfo({ tagName: "BODY" }),
+        elementInfo({ selector: "#child" }),
+      ]),
+    ).toEqual({ kind: "whole-screen" });
+  });
+
+  it("crops to the painted members of a partly unresolvable selection", () => {
+    const painted = document.createElement("div");
+    painted.id = "painted";
+    painted.getBoundingClientRect = () =>
+      ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
+    document.body.appendChild(painted);
+
+    // An unrendered `x-if` branch or a `display: none` node contributes no
+    // pixels, so the union of what paints is the whole visible selection.
+    expect(
+      resolveExportCropTarget(document, [
+        elementInfo({ selector: "#painted" }),
+        elementInfo({ selector: "#never-rendered" }),
+      ]),
+    ).toEqual({
+      kind: "rect",
+      rect: { x: 10, y: 20, width: 100, height: 50 },
+    });
+  });
 });
 
 describe("runRenderPngBlob element scope", () => {

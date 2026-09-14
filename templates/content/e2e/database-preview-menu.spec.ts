@@ -315,10 +315,10 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
         preview.getByRole("button", { name: "Open page" }),
       ).toBeVisible();
       await expect(
-        preview.getByRole("button", { name: "Previous database page" }),
+        preview.getByRole("button", { name: "Previous collection page" }),
       ).toBeDisabled();
       await expect(
-        preview.getByRole("button", { name: "Next database page" }),
+        preview.getByRole("button", { name: "Next collection page" }),
       ).toBeEnabled();
       await expectCanonicalPageControls(preview);
       if (viewport.width === 390) {
@@ -397,7 +397,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     const dirtyBody = `${rowA.body}\n\nImmediate preview edit`;
     await preview.getByLabel("Document title").fill(dirtyTitle);
     await preview.locator(".ProseMirror").fill(dirtyBody);
-    await preview.getByRole("button", { name: "Next database page" }).click();
+    await preview.getByRole("button", { name: "Next collection page" }).click();
 
     preview = previewDialog(page);
     await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
@@ -406,10 +406,10 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
       "Immediate preview edit",
     );
     await expect(
-      preview.getByRole("button", { name: "Next database page" }),
+      preview.getByRole("button", { name: "Next collection page" }),
     ).toBeDisabled();
     await preview
-      .getByRole("button", { name: "Previous database page" })
+      .getByRole("button", { name: "Previous collection page" })
       .click();
     await expect(preview.getByLabel("Document title")).toHaveValue(dirtyTitle);
     await expect(preview.locator(".ProseMirror")).toContainText(

@@ -317,3 +317,55 @@ test("Select layer on a non-active overview screen routes selection to that exac
     );
   }
 });
+
+test("Edit with AI opened from direct mode accepts textarea input", async ({
+  page,
+  request,
+}) => {
+  const created = await postAction(request, "create-design", {
+    title: `Direct mode edit prompt ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id ?? created.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+
+  try {
+    await postAction(request, "create-file", {
+      designId,
+      filename: "index.html",
+      content: STACK_HTML,
+      fileType: "html",
+    });
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+
+    await openLayerStack(page, designFrame(page), false);
+    const editWithAi = page.getByRole("menuitem", {
+      name: "Edit with AI…",
+      exact: true,
+    });
+    await editWithAi.hover();
+    await expect(editWithAi).toHaveAttribute("data-state", "open");
+    await page
+      .getByRole("menu")
+      .last()
+      .getByText("Nested child", { exact: true })
+      .click();
+
+    const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
+    await expect(editPrompt).toBeVisible();
+    await expect(editPrompt).toBeFocused();
+    const editPromptBox = await editPrompt.boundingBox();
+    expect(editPromptBox).not.toBeNull();
+    await page.mouse.click(
+      editPromptBox!.x + editPromptBox!.width / 2,
+      editPromptBox!.y + editPromptBox!.height / 2,
+    );
+    await editPrompt.pressSequentially("Make this heading more concise");
+    await expect(editPrompt).toHaveValue("Make this heading more concise");
+  } finally {
+    await postAction(request, "delete-design", { id: designId }).catch(
+      () => {},
+    );
+  }
+});

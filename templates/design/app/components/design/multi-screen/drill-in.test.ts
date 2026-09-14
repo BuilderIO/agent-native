@@ -199,13 +199,13 @@ describe("resolvePickTargetAtPoint", () => {
     height: 800,
   });
 
-  it("selects the innermost layer, not the screen's full-bleed wrapper", () => {
+  it("selects the outermost layer, not the screen's full-bleed wrapper", () => {
     const target = resolvePickTargetAtPoint({
       candidates: [WRAPPER, SECTION, HEADING, SPAN],
       screenId: "screen-1",
       point: { x: 60, y: 60 },
     });
-    expect(target?.info.sourceId).toBe("span");
+    expect(target?.info.sourceId).toBe("section");
   });
 
   it("returns null when only the wrapper sits under the pointer", () => {

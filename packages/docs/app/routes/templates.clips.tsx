@@ -335,7 +335,7 @@ export default function ClipsTemplate() {
                 body={t("templateLanding.clips.watchClipLabel")}
                 image={{ src: clip.thumbnail, alt: clip.title }}
                 imageAspect="16 / 9"
-                imageObjectPosition="bottom"
+                imageObjectPosition="top"
                 imagePosition="top"
                 href={clip.href}
                 onClick={() =>

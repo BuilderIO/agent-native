@@ -28,6 +28,47 @@ describe("emails handler Gmail draft listing", () => {
   });
 });
 
+describe("emails handler saved-draft metadata", () => {
+  it("returns the backend and resolved Gmail account for scoped deletion", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain('backend: "gmail" as const');
+    expect(source).toContain("accountEmail: acct");
+    expect(source).toContain('backend: "local" as const');
+  });
+
+  it("keeps an existing saved draft on its recorded backend", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain(
+      "parseSavedDraftBackend(reqBody.savedDraftBackend)",
+    );
+    expect(source).toContain("resolveSavedDraftBackend(");
+    expect(source).toContain("requestedBackend");
+    expect(source).toContain("gmailConnected");
+    expect(source).toContain('if (draftBackend === "gmail")');
+  });
+
+  it("verifies legacy saved-draft ownership instead of choosing from connection state", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain("resolveExistingSavedDraftOwnership({");
+    expect(source).toContain("SavedDraftOwnershipError");
+    expect(source).toContain("setResponseStatus(event, 409)");
+    expect(source).toContain("encodeURIComponent(savedDraftId)");
+  });
+
+  it("does not mint a new local ID when an existing saved draft is missing", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain("if (savedDraftId && existingIdx < 0)");
+    expect(source).toContain("setResponseStatus(event, 409);");
+    expect(source).toContain(
+      'return { error: "Saved local draft was not found" };',
+    );
+  });
+});
+
 describe("emails handler Gmail label listing", () => {
   it("does not turn a full Gmail label read failure into local fallback data", () => {
     const source = emailsHandlerSource();

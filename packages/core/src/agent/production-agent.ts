@@ -38,6 +38,11 @@ import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
+import {
+  formatBase64CharBudget,
+  MAX_INLINE_FILE_BASE64_CHARS,
+  MAX_INLINE_IMAGE_BASE64_CHARS,
+} from "../file-upload/inline-attachment-limits.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
@@ -182,6 +187,7 @@ import {
 import {
   startRun,
   subscribeToRun,
+  replayCompletedTurn,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
   getRun,
@@ -248,6 +254,7 @@ import type {
   AgentChatAttachment,
   AgentChatRequest,
   AgentChatEvent,
+  AgentFileMutationProof,
   AgentChatReference,
   AgentChatStructuredMessage,
   RunEvent,
@@ -754,6 +761,7 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 export interface ActionEntry {
   tool: ActionTool;
   run: (args: any, context?: import("../action.js").ActionRunContext) => any;
+  fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
@@ -1585,12 +1593,11 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
 /**
  * Text attachments have been capped since forever; binary ones never were, so
  * a large PDF or screenshot went to the provider as unbounded inline base64.
- * OpenAI rejects the whole request over 1,048,576 chars in one `file_url`
- * ("string too long", measured at 4,149,128), which kills the turn — the cap is
- * on the encoded string, so that is what this counts rather than decoded bytes.
- * Held under the limit to leave room for the `data:<mediaType>;base64,` prefix.
+ * The caps live in `inline-attachment-limits` because images and files ride
+ * different provider fields with different ceilings — both measure the encoded
+ * string, so that is what these count rather than decoded bytes.
  */
-const MAX_INLINE_ATTACHMENT_BASE64_CHARS = 1_000_000;
+const MAX_INLINE_ATTACHMENT_BASE64_CHARS = MAX_INLINE_FILE_BASE64_CHARS;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
@@ -2011,15 +2018,18 @@ export function buildUserContentWithAttachments(opts: {
       if (
         match &&
         isSupportedImageMediaType(match[1]) &&
-        match[2].length > MAX_INLINE_ATTACHMENT_BASE64_CHARS
+        match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         // The upload already happened and `uploadedUrl` is the whole point of
         // it. Inlining the bytes anyway is what made the request unsendable.
+        // Quote the real budget: with no number in the context the model
+        // invents one, then contradicts itself when asked what the limit is.
         const label = att.name ? `"${att.name}"` : "An image";
+        const limit = formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS);
         textAttachments.push(
           uploadedUrl
-            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline for vision analysis, so use the URL for embedding/reference.]`
-            : `[${label} was too large to send inline for vision analysis and no upload URL is available. Ask the user to attach a smaller image.]`,
+            ? `[${label} exceeds the ${limit} per-image limit for inline vision analysis, so it was not sent as an image. It was uploaded to ${uploadedUrl}; use that URL for embedding/reference.]`
+            : `[${label} exceeds the ${limit} per-image limit for inline vision analysis, so you cannot see it. This is a size limit, not a storage-configuration problem: connecting file storage would not make this image readable. Tell the user the image is over the ${limit} limit and ask for a smaller or more compressed version.]`,
         );
         continue;
       }
@@ -2061,10 +2071,13 @@ export function buildUserContentWithAttachments(opts: {
     if (filePart) {
       if (filePart.data.length > MAX_INLINE_ATTACHMENT_BASE64_CHARS) {
         const label = att.name ? `"${att.name}"` : "A file";
+        const limit = formatBase64CharBudget(
+          MAX_INLINE_ATTACHMENT_BASE64_CHARS,
+        );
         textAttachments.push(
           uploadedUrl
-            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline, so read it from the URL if its contents are needed.]`
-            : `[${label} was too large to send inline and no upload URL is available. Ask the user for a smaller file.]`,
+            ? `[${label} exceeds the ${limit} per-file limit for inline reading. It was uploaded to ${uploadedUrl}; read it from that URL if its contents are needed.]`
+            : `[${label} exceeds the ${limit} per-file limit for inline reading, so you cannot read its contents. This is a size limit, not a storage-configuration problem. Tell the user the file is over the ${limit} limit and ask for a smaller one.]`,
         );
         continue;
       }
@@ -5785,14 +5798,13 @@ export async function runAgentLoop(opts: {
         }
 
         // A provider can close cleanly after streaming only a partial tool
-        // input. Do not treat that as a completed turn or execute guessed args.
-        const hasEmptyAssistantContent =
-          assistantContent === undefined || assistantContent.length === 0;
+        // input. Prose in the terminal frame does not complete that call.
+        const hasCompleteToolCall =
+          streamedAssistantToolCalls.length > 0 ||
+          toolCallErrors.size > 0 ||
+          assistantContent?.some((part) => part.type === "tool-call") === true;
         const hasUnfinishedToolInput =
-          activeToolInputs.size > 0 &&
-          hasEmptyAssistantContent &&
-          streamedAssistantToolCalls.length === 0 &&
-          toolCallErrors.size === 0;
+          activeToolInputs.size > 0 && !hasCompleteToolCall;
         if (hasUnfinishedToolInput) {
           send({ type: "auto_continue", reason: "stream_ended" });
           return usage;
@@ -7034,6 +7046,7 @@ export async function runAgentLoop(opts: {
           | import("./engine/types.js").EngineToolResultImagePart[]
           | undefined;
         let toolArtifacts: ArtifactReceipt[] = [];
+        let fileMutation: AgentFileMutationProof | undefined;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -7284,6 +7297,8 @@ export async function runAgentLoop(opts: {
         }
         if (isError) {
           result = finalizeToolErrorResult(result);
+        } else {
+          fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
         }
 
         // Side-channel warnings raised anywhere inside the action's call stack
@@ -7340,6 +7355,7 @@ export async function runAgentLoop(opts: {
               : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+          ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
         recordToolResult(result, isError, toolArtifacts);
@@ -10458,47 +10474,6 @@ export function createProductionAgentHandler(
       tools: requestTools,
       availableToolCount: availableRequestTools.length,
     });
-
-    // Atomically claim the run slot for this thread. The claim checks SQL for
-    // a live (non-stale) running row so two near-simultaneous POSTs on
-    // different serverless isolates both see the correct state — a plain
-    // read-then-act check races on multi-isolate deployments because both
-    // reads see no running row before either insert commits.
-    //
-    // The background worker SKIPS this: the foreground POST already claimed the
-    // slot and inserted the run row before dispatching, so re-claiming here
-    // would falsely 409 against the row the foreground holds.
-    if (threadId && !isBackgroundWorker) {
-      if (
-        typeof requestTurnId === "string" &&
-        requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId))
-      ) {
-        return { ok: true, stopped: true };
-      }
-      const slot = await tryClaimRunSlot(threadId);
-      if (!slot.claimed) {
-        setResponseStatus(event, 409);
-        return {
-          error: "Run already in progress for this thread",
-          activeRunId: slot.activeRunId,
-        };
-      }
-    }
-
-    // Start agent loop in background via run-manager. The background worker
-    // reuses the runId carried in the marker (signed into the dispatch token):
-    //  - First background chunk (count 0): the foreground generated + INSERTED
-    //    this runId, so the event stream the client is already subscribed to is
-    //    the one we write to.
-    //  - Chained continuation chunk (count > 0): the prior chunk minted a FRESH
-    //    runId for this one (a reused runId would restart `startRun`'s in-memory
-    //    seq log at 0 and collide with the prior chunk's persisted seqs, which
-    //    insertRunEvent's ON CONFLICT would drop — making the continuation
-    //    invisible). A fresh runId on the SAME thread + SAME turnId folds onto
-    //    one assistant message and is surfaced by the existing
-    //    `/runs/active?threadId` reconnect path. The continuation worker inserts
-    //    its own background row below (the foreground only inserted chunk-0's).
     const isChainedBackgroundContinuation =
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
@@ -10524,6 +10499,79 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    const foregroundSelfChainEligible =
+      !isBackgroundWorker &&
+      !dispatchToBackground &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      isAgentChatForegroundSelfChainEnabled();
+    let foregroundRunRowInserted = false;
+
+    // Claim and insert one durable run row in the same advisory-locked SQL
+    // statement so different serverless isolates cannot execute this turn twice.
+    //
+    // The background worker SKIPS this: the foreground POST already claimed the
+    // slot and inserted the run row before dispatching, so re-claiming here
+    // would falsely 409 against the row the foreground holds.
+    if (threadId && !isBackgroundWorker) {
+      if (
+        typeof requestTurnId === "string" &&
+        requestTurnId &&
+        (await isTurnAborted(threadId, requestTurnId))
+      ) {
+        return { ok: true, stopped: true };
+      }
+      const slot = await tryClaimRunSlot(threadId, runId, undefined, {
+        turnId: effectiveTurnId,
+        replayCompletedTurn:
+          typeof requestTurnId === "string" &&
+          Boolean(requestTurnId.trim()) &&
+          !requestedApprovedToolCalls,
+        dispatchMode: dispatchToBackground
+          ? "background"
+          : foregroundSelfChainEligible
+            ? "foreground-self-chain"
+            : "foreground",
+        ...(dispatchToBackground
+          ? { dispatchPayload: JSON.stringify(body) }
+          : {}),
+      });
+      if (slot.completedRunId) {
+        const stream = await replayCompletedTurn(threadId, effectiveTurnId);
+        if (!stream) {
+          setResponseStatus(event, 500);
+          return { error: "Failed to replay completed agent run" };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return stream;
+      }
+      if (!slot.claimed) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Run already in progress for this thread",
+          activeRunId: slot.activeRunId,
+        };
+      }
+      foregroundRunRowInserted = true;
+    }
+
+    // Start agent loop in background via run-manager. The background worker
+    // reuses the runId carried in the marker (signed into the dispatch token):
+    //  - First background chunk (count 0): the foreground generated + INSERTED
+    //    this runId, so the event stream the client is already subscribed to is
+    //    the one we write to.
+    //  - Chained continuation chunk (count > 0): the prior chunk minted a FRESH
+    //    runId for this one (a reused runId would restart `startRun`'s in-memory
+    //    seq log at 0 and collide with the prior chunk's persisted seqs, which
+    //    insertRunEvent's ON CONFLICT would drop — making the continuation
+    //    invisible). A fresh runId on the SAME thread + SAME turnId folds onto
+    //    one assistant message and is surfaced by the existing
+    //    `/runs/active?threadId` reconnect path. The continuation worker inserts
+    //    its own background row below (the foreground only inserted chunk-0's).
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {
@@ -10666,15 +10714,25 @@ export function createProductionAgentHandler(
     // before dispatching; the background worker must NOT repeat it (it re-enters
     // with the same body, which would double-persist the user message).
     if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
-      await options.onRunPrepared({
-        runId,
-        threadId,
-        message: messageToPersist,
-        attachments: requestAttachments,
-        ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
-          ? { queuedMessageId: queuedMessageId.trim() }
-          : {}),
-      });
+      try {
+        await options.onRunPrepared({
+          runId,
+          threadId,
+          message: messageToPersist,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+        });
+      } catch (error) {
+        if (foregroundRunRowInserted) {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "run_preparation_failed");
+          }
+        }
+        throw error;
+      }
     }
 
     // ─── Durable-background dispatch decision ──────────────────────────────
@@ -10686,28 +10744,30 @@ export function createProductionAgentHandler(
     // change. With the flag OFF this whole branch is skipped and the inline
     // `startRun` path below runs exactly as before (byte-for-byte).
     if (dispatchToBackground) {
-      let backgroundRowInserted = false;
-      try {
-        // Insert the run row up front so /runs/active sees it immediately and
-        // the slot stays held while the background function cold-starts. Mark
-        // it background-dispatched so the stale reaper uses the wider window.
-        // The full request body is persisted ON the row (dispatch_payload) so
-        // the self-POST below can carry only the tiny marker — Netlify caps
-        // background-function request bodies at 256KB, and a large chat
-        // history (inline attachments especially) silently exceeded that.
-        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
-          dispatchMode: "background",
-          dispatchPayload: JSON.stringify(body),
-        });
-        backgroundRowInserted = true;
-      } catch (err) {
-        // A duplicate-PK collision means the row already exists (ret­ried POST);
-        // any other failure means we can't safely hand off — fall back to the
-        // inline path rather than dropping the turn.
-        console.error(
-          "[agent-chat] background insertRun failed; falling back to inline:",
-          err instanceof Error ? err.message : err,
-        );
+      let backgroundRowInserted = foregroundRunRowInserted;
+      if (!backgroundRowInserted) {
+        try {
+          // Insert the run row up front so /runs/active sees it immediately and
+          // the slot stays held while the background function cold-starts. Mark
+          // it background-dispatched so the stale reaper uses the wider window.
+          // The full request body is persisted ON the row (dispatch_payload) so
+          // the self-POST below can carry only the tiny marker — Netlify caps
+          // background-function request bodies at 256KB, and a large chat
+          // history (inline attachments especially) silently exceeded that.
+          await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+            dispatchMode: "background",
+            dispatchPayload: JSON.stringify(body),
+          });
+          backgroundRowInserted = true;
+        } catch (err) {
+          // A duplicate-PK collision means the row already exists (ret­ried POST);
+          // any other failure means we can't safely hand off — fall back to the
+          // inline path rather than dropping the turn.
+          console.error(
+            "[agent-chat] background insertRun failed; falling back to inline:",
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
 
       // Stop may land after the pre-claim check but before the durable row was
@@ -10901,12 +10961,6 @@ export function createProductionAgentHandler(
     // via `/runs/active?threadId` and the successor chunk resumes from the
     // thread's persisted thread_data — without a thread there is neither a
     // discovery channel nor durable progress to resume from.
-    const foregroundSelfChainEligible =
-      !isBackgroundWorker &&
-      !dispatchToBackground &&
-      typeof threadId === "string" &&
-      threadId.trim().length > 0 &&
-      isAgentChatForegroundSelfChainEnabled();
     const noProgressRepeatForRun = (run: ActiveRun) =>
       resolveBackgroundNoProgressRepeat({
         run,
@@ -11794,6 +11848,7 @@ export function createProductionAgentHandler(
           : foregroundSelfChainEligible
             ? "foreground-self-chain"
             : "foreground",
+        runRowAlreadyInserted: foregroundRunRowInserted,
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this

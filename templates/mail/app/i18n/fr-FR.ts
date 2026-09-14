@@ -89,6 +89,8 @@ const messages = {
       cancel: "Annuler",
       code: "Code",
       deleteDraft: "Supprimer le brouillon",
+      deleteDrafts: "Supprimer les brouillons",
+      reopenDraft: "Rouvrir",
       discardDraft: "Abandonner le brouillon",
       enterLinkUrl: "Saisissez l’URL du lien.",
       forward: "Forward",
@@ -284,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Échec du téléversement de l’image",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Message envoyé.",
+      failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
+      failedToDeleteDraft: "Échec de la suppression du brouillon.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -296,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Brouillon fermé.",
+      draftsClosed: "{{count}} brouillons fermés.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",

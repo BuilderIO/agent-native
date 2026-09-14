@@ -62,7 +62,7 @@ then shared Actions apply defaults, Rules, history, and access without creating 
 
 ## Current evidence
 
-Existing Template and Database machinery are donor substrate, but the complete Task/Project
+Existing Template and Collection machinery are donor substrate, but the complete Task/Project
 workflow is not yet proven. This Capability remains `approved_shape`.
 
 ## Proof plan

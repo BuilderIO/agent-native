@@ -55,8 +55,14 @@ vi.mock("../server/db/index.js", () => ({
 import action from "./refresh-design-system-with-builder.js";
 
 describe("refresh-design-system-with-builder", () => {
+  it("tells the agent to stop rather than loop the refresh action", () => {
+    expect(action.tool.description).toContain("agent turn stops");
+    expect(action.tool.description).toContain("Builder indexing status");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockResolveAccess.mockReset();
     mockParseReference.mockReturnValue({
       source: "builder",
       builderDesignSystemId: "ds-1",
@@ -145,10 +151,37 @@ describe("refresh-design-system-with-builder", () => {
       tokenValues: {},
     });
 
-    await expect(action.run({ id: "local-ds-1" })).resolves.toMatchObject({
+    await expect(
+      action.run({ id: "local-ds-1" }, { caller: "frontend" }),
+    ).resolves.toMatchObject({
       id: "local-ds-1",
       synced: false,
       status: "in-progress",
+      message: expect.stringContaining(
+        "Do not call this refresh again in the same turn",
+      ),
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("stops the agent turn when Builder is still processing", async () => {
+    mockHydrate.mockResolvedValue({
+      source: "builder",
+      builderDesignSystemId: "ds-1",
+      builderJobId: "job-1",
+      builderStatus: "in-progress",
+      docs: [],
+      docCount: 0,
+      tokenValues: {},
+    });
+
+    await expect(
+      action.run({ id: "local-ds-1" }, { caller: "tool" }),
+    ).rejects.toMatchObject({
+      agentNativeStop: true,
+      errorCode: "builder_dsi_refresh_incomplete",
+      message: expect.stringContaining("Do not call this refresh again"),
+      toolResult: expect.stringContaining('"status":"in-progress"'),
     });
     expect(mockUpdate).not.toHaveBeenCalled();
   });

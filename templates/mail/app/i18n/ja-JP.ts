@@ -90,6 +90,8 @@ const messages = {
       cancel: "キャンセル",
       code: "コード",
       deleteDraft: "下書きを削除",
+      deleteDrafts: "下書きを削除",
+      reopenDraft: "再度開く",
       discardDraft: "下書きを破棄",
       enterLinkUrl: "リンクの URL を入力してください。",
       forward: "Forward",
@@ -285,6 +287,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "画像のアップロードに失敗しました",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "メッセージを送信しました。",
+      failedToSaveDraft: "下書きを保存できませんでした。",
+      failedToDeleteDraft: "下書きを削除できませんでした。",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -297,6 +302,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "下書きを閉じました。",
+      draftsClosed: "{{count}} 件の下書きを閉じました。",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
