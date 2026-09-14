@@ -147,7 +147,22 @@ export function shiftEndForStartChange(
   const delta = nextStart - currentStart;
   const shifted = addMinutesToTimeValue(range.endDate, range.endTime, delta);
   if (!shifted) return next;
-  return { ...next, endDate: shifted.date, endTime: shifted.time };
+  const shiftedEnd = rangeToAbsoluteMinutes(shifted.date, shifted.time);
+  if (shiftedEnd !== null && shiftedEnd > nextStart) {
+    return { ...next, endDate: shifted.date, endTime: shifted.time };
+  }
+
+  // The stored range already had end <= start (corrupt data, since a valid
+  // duration always stays positive under an equal shift). Repair it to a
+  // minimum-duration range instead of preserving the invalid gap, which
+  // would otherwise get rejected at save time with no way to fix it here.
+  const repaired = addMinutesToTimeValue(
+    next.date,
+    nextStartTime,
+    TIME_SLOT_MINUTES,
+  );
+  if (!repaired) return next;
+  return { ...next, endDate: repaired.date, endTime: repaired.time };
 }
 
 /**

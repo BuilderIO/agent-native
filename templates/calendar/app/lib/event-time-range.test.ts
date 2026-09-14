@@ -143,6 +143,25 @@ describe("shiftEndForStartChange", () => {
     }
   });
 
+  it("repairs an already-invalid stored range instead of preserving it", () => {
+    // A corrupt/legacy record with end <= start: an equal shift would keep
+    // that gap non-positive forever, and save validation rejects end <= start
+    // with no way to fix it from the start-time field. Repair to the minimum
+    // slot duration instead.
+    const corrupt = {
+      date: "2026-03-10",
+      startTime: "09:00",
+      endDate: "2026-03-10",
+      endTime: "09:00",
+    };
+    expect(shiftEndForStartChange(corrupt, "08:00")).toEqual({
+      date: "2026-03-10",
+      startTime: "08:00",
+      endDate: "2026-03-10",
+      endTime: "08:15",
+    });
+  });
+
   it("preserves wall-clock duration across a DST boundary, by design", () => {
     // America/New_York springs forward on 2026-03-08. These are picker values,
     // so a 1h block stays a 1h block on the face of the clock; the timezone is
