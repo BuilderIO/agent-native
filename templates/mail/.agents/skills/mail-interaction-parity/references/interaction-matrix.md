@@ -242,6 +242,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   reply-all, forward, draft row, queued draft, and agent navigation. Confirm
   focus target, size, title, route/state, and account. New-message compose opens
   in the main workspace by default; minimize and restore remain reversible.
+  An isolated, memory-backed browser pass on 2026-09-13 opened New message from
+  both the Compose email button and `c`; both focused the To field and left Send
+  disabled. Command palette, reply/forward, route persistence, and paired
+  Superhuman behavior remain unverified.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation.
@@ -261,7 +265,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   descendant aligned; Escape preserves the query; duplicate addresses are
   filtered case-insensitively; and single/multi-address paste plus blur keep
   valid chips and leftovers distinct. Superhuman behavior remains unobserved
-  until a paired replay.
+  until a paired replay. An isolated, disconnected browser pass on 2026-09-13
+  typed a unique no-match query into To: no suggestions appeared, Escape kept
+  the query, and Tab committed it as a removable recipient chip with a “Save as
+  alias” action. The chip was removed without sending; contact-backed ranking
+  and Superhuman's matching behavior remain unknown.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,
@@ -362,14 +370,29 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Bcc without hiding rows. Confirm the shortcut is scoped to an active compose
   and never changes To/Cc recipients. Mail's component regression is covered in
   `ComposeModal.schedule.test.tsx`; verify paired desktop behavior and Windows
-  modifier mapping.
+  modifier mapping. An isolated, memory-backed browser replay on 2026-09-13
+  staged `steve@builder.io` in To and `sewell.steve@gmail.com` in Cc without
+  sending. Cmd+Shift+B from To, Cc, Subject, and body focused Bcc; repeating
+  with Bcc focused kept Cc/Bcc expanded, and collapsing then invoking the
+  shortcut restored both rows without losing the Cc chip. On a blank compose,
+  the shortcut opened empty Cc/Bcc rows and focused Bcc; after discarding that
+  test draft, the shortcut had no visible effect on the inbox. This confirms
+  local focus/recipient preservation only: Windows runtime mapping and
+  Superhuman paired behavior remain unverified.
 - COMPOSE-020 — With at least two Split tabs open, move focus through To/Cc/Bcc,
   recipient autocomplete, subject, body/editor, formatting controls, and dialogs
   using Tab/Shift+Tab. Confirm the suggestion list consumes Tab only when its
   selection behavior is active, then ordinary compose focus traversal resumes;
   no compose Tab may navigate to another Split. From the workspace/tab bar,
   confirm Tab/Shift+Tab still wraps through Splits. Verify exact focus and URL
-  after each press.
+  after each press. An isolated, memory-backed browser pass on 2026-09-13 traced
+  reverse focus Bcc → Cc → Cc/Bcc toggle → To without navigation, and forward
+  focus Bcc → Subject → body → Bold → Italic → Insert link → Attach → Generate
+  → Delete draft. Tab after Delete draft left no focused AX element and did not
+  change the route; from that unfocused state, Tab cycled Other → Important and
+  Shift+Tab cycled Important → Other. This appears to be global tab cycling
+  after focus leaves Compose, but AX did not expose the handoff target; paired
+  replay is needed to determine whether the boundary matches Superhuman.
 - COMPOSE-021 — Keep sender aliases distinct from recipient/group aliases and
   mailbox switching. For Gmail, add an alias through Alias Settings, refresh,
   select it through Command or Cmd/Ctrl+Shift+F, set default/Always Reply
