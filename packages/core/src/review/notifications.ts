@@ -20,7 +20,10 @@ import {
   getReviewableResource,
   resolveReviewableResourceAccess,
 } from "./registry.js";
-import { queryReviewComments } from "./store.js";
+import {
+  filterUnmutedReviewThreadRecipients,
+  queryReviewComments,
+} from "./store.js";
 import type { ReviewComment } from "./types.js";
 
 /**
@@ -123,7 +126,9 @@ async function deliverReviewCommentEmails(
   const url = await resourceUrl(comment);
 
   return notifyActivity({
-    candidates: allowed,
+    candidates: isReply
+      ? await filterUnmutedReviewThreadRecipients(comment.threadId, allowed)
+      : allowed,
     actorEmail: comment.authorEmail,
     preferenceKey: REVIEW_NOTIFICATION_PREFS_KEY,
     logLabel: LOG_LABEL,

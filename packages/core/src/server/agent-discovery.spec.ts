@@ -517,7 +517,7 @@ describe("agent discovery", () => {
     );
   });
 
-  it("resolves the trusted Dispatch callback only from the workspace manifest", () => {
+  it("resolves the trusted Dispatch callback only from the workspace manifest", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       apps: [
@@ -536,7 +536,7 @@ describe("agent discovery", () => {
       ],
     });
 
-    expect(findWorkspaceDispatchAgent()).toMatchObject({
+    expect(await findWorkspaceDispatchAgent()).toMatchObject({
       id: "control-plane",
       name: "Workspace Dispatch",
       url: "https://workspace.example.test/dispatch",
@@ -552,7 +552,7 @@ describe("agent discovery", () => {
         },
       ],
     });
-    expect(findWorkspaceDispatchAgent()).toBeUndefined();
+    expect(await findWorkspaceDispatchAgent()).toBeUndefined();
   });
 
   it("uses explicit workspace manifest URLs without falling back to built-ins", async () => {

@@ -15,6 +15,9 @@ interface ContentCardProps {
   // clips). Falls back to a labeled placeholder box when omitted.
   image?: { src: string; alt: string };
   imageLabel?: string;
+  // Custom decorative art in place of image/imageLabel — e.g. a mock of the
+  // real product UI a card describes. Takes the same bottom-pinned slot.
+  media?: ReactNode;
   imageAspect?: string;
   // Source frames aren't always cropped the same way as the card's aspect
   // ratio — e.g. the clip thumbnails are square with the subject low in
@@ -33,6 +36,7 @@ export function ContentCard({
   body,
   image,
   imageLabel,
+  media,
   imageAspect = "4 / 3",
   imageObjectPosition = "center",
   imagePosition = "bottom",
@@ -55,7 +59,9 @@ export function ContentCard({
 
   // No image and no placeholder label means there's no asset yet for this
   // card at all — skip the image area entirely rather than show an empty box.
-  const imageBlock = image ? (
+  const imageBlock = media ? (
+    media
+  ) : image ? (
     <BuilderImage
       src={image.src}
       alt={image.alt}

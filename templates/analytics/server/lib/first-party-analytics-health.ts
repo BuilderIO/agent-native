@@ -8,6 +8,12 @@ import {
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsBigQueryMetrics,
 } from "./first-party-analytics-backend.js";
+import {
+  firstPartyAnalyticsDeliveryNeedsAttention,
+  getFirstPartyAnalyticsDeliveryHealth,
+  isFirstPartyAnalyticsDeliveryQueueMissingError,
+  type FirstPartyAnalyticsDeliveryHealth,
+} from "./first-party-analytics-delivery.js";
 import type { AnalyticsScope } from "./first-party-analytics.js";
 
 export const FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS = {
@@ -88,7 +94,9 @@ export interface FirstPartyAnalyticsHealth {
   recommendation: FirstPartyAnalyticsRecommendation;
   externalBackendRecommendation: FirstPartyAnalyticsExternalBackendRecommendation;
   externalBackends: FirstPartyAnalyticsBackendStatus[];
-  reasons: Array<"event_volume" | "slow_queries" | "query_timeout">;
+  reasons: Array<
+    "event_volume" | "slow_queries" | "query_timeout" | "delivery_backlog"
+  >;
   observedAt: string;
   metrics: {
     eventCount: number;
@@ -102,6 +110,7 @@ export interface FirstPartyAnalyticsHealth {
     maxQueryDurationMs24h: number;
   };
   thresholds: typeof FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS;
+  delivery: FirstPartyAnalyticsDeliveryHealth;
   /** Kept for clients that still read the original BigQuery-only field. */
   bigQuery: FirstPartyAnalyticsBackendStatus;
 }
@@ -136,6 +145,22 @@ function finiteNumber(value: unknown): number {
 
 function normalizedDurationMs(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function emptyDeliveryHealth(): FirstPartyAnalyticsDeliveryHealth {
+  return {
+    pendingCount: 0,
+    oldestPendingAt: null,
+    lastDeliveredAt: null,
+    lastError: null,
+  };
+}
+
+function unavailableDeliveryHealth(): FirstPartyAnalyticsDeliveryHealth {
+  return {
+    ...emptyDeliveryHealth(),
+    lastError: "BigQuery delivery queue migration is pending",
+  };
 }
 
 function isTimeoutError(error: unknown): boolean {
@@ -346,26 +371,42 @@ export async function getFirstPartyAnalyticsHealth(
             ),
           );
 
-  const [rollupRows, pressureRows, externalBackends] = await Promise.all([
-    rollupRowsPromise,
-    db
-      .select({
-        queryClass: pressure.queryClass,
-        slowQueryCount: pressure.slowQueryCount,
-        timeoutCount: pressure.timeoutCount,
-        errorCount: pressure.errorCount,
-        maxDurationMs: pressure.maxDurationMs,
-      })
-      .from(pressure)
-      .where(
-        and(
-          inArray(pressure.tenantKey, keys),
-          gte(pressure.lastSeenAt, since24h),
-          lte(pressure.lastSeenAt, nowTimestamp),
+  const deliveryPromise =
+    backend.sink === "bigquery"
+      ? getFirstPartyAnalyticsDeliveryHealth(scope).catch((error) => {
+          if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) {
+            throw error;
+          }
+          console.warn(
+            "[first-party-analytics] Delivery health is degraded until the queue migration runs:",
+            error,
+          );
+          return unavailableDeliveryHealth();
+        })
+      : Promise.resolve(emptyDeliveryHealth());
+
+  const [rollupRows, pressureRows, externalBackends, delivery] =
+    await Promise.all([
+      rollupRowsPromise,
+      db
+        .select({
+          queryClass: pressure.queryClass,
+          slowQueryCount: pressure.slowQueryCount,
+          timeoutCount: pressure.timeoutCount,
+          errorCount: pressure.errorCount,
+          maxDurationMs: pressure.maxDurationMs,
+        })
+        .from(pressure)
+        .where(
+          and(
+            inArray(pressure.tenantKey, keys),
+            gte(pressure.lastSeenAt, since24h),
+            lte(pressure.lastSeenAt, nowTimestamp),
+          ),
         ),
-      ),
-    externalBackendStatuses(scope),
-  ]);
+      externalBackendStatuses(scope),
+      deliveryPromise,
+    ]);
 
   const bigQuery = externalBackends.find(
     (backend) => backend.id === "bigquery",
@@ -418,6 +459,10 @@ export async function getFirstPartyAnalyticsHealth(
   ) {
     reasons.push("query_timeout");
   }
+  const deliveryNeedsAttention =
+    backend.sink === "bigquery" &&
+    firstPartyAnalyticsDeliveryNeedsAttention(delivery, now.getTime());
+  if (deliveryNeedsAttention) reasons.push("delivery_backlog");
 
   const hasMonitorSignal =
     eventCount >=
@@ -425,7 +470,7 @@ export async function getFirstPartyAnalyticsHealth(
     slowQueryCount24h > 0;
   const status: FirstPartyAnalyticsHealthStatus =
     backend.sink === "bigquery"
-      ? slowQueryCount24h > 0 || timeoutCount24h > 0
+      ? slowQueryCount24h > 0 || timeoutCount24h > 0 || deliveryNeedsAttention
         ? "monitor"
         : "healthy"
       : reasons.length > 0
@@ -456,6 +501,7 @@ export async function getFirstPartyAnalyticsHealth(
       maxQueryDurationMs24h,
     },
     thresholds: FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS,
+    delivery,
     bigQuery,
   };
 }
@@ -493,6 +539,7 @@ export function unavailableFirstPartyAnalyticsHealth(): FirstPartyAnalyticsHealt
       maxQueryDurationMs24h: 0,
     },
     thresholds: FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS,
+    delivery: emptyDeliveryHealth(),
     bigQuery,
   };
 }

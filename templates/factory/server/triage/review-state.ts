@@ -32,10 +32,14 @@ export function statusAfterTriageSourceUpdate(
   return sourceChanged ? reviewStatus : (existingStatus ?? reviewStatus);
 }
 
+// `sourceChanged` ignores GitHub's updatedAt, but it also ignores comments, so
+// a needs_manual babysit decision has to be preserved explicitly or the next
+// poll flips it back to pr_observed and the Inbox status flaps.
 const STICKY_BABYSIT_STATES = new Set([
   "out-of-scope",
   "closed-or-draft",
   "owner-managed",
+  "stuck",
 ]);
 
 function sameGitHubLogin(left: string, right: string): boolean {
@@ -48,9 +52,14 @@ export function statusAfterPullRequestPoll(input: {
   existingAuthor?: string;
   nextAuthor: string;
   existingBabysitState?: string;
+  babysitReopened?: boolean;
   nextDraft: boolean;
   sourceChanged: boolean;
 }): string {
+  // The babysit layer found new human review work, which GitHub's title, body,
+  // and head SHA do not reflect. Without this a reopened item keeps its
+  // needs_manual status and never returns to the review window.
+  if (input.babysitReopened) return "pr_observed";
   const sticky =
     input.existingStatus === "needs_manual" &&
     Boolean(input.existingBabysitState) &&

@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   CollabBaseVersionConflictError,
   hasCollabState,
@@ -9,6 +10,7 @@ import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
+import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import {
   assertDesignHtmlEditIntegrity,
   isDesignHtmlIntegrityError,
@@ -159,7 +161,9 @@ export async function resolveSourceWorkspace(
   options: { includeContent?: boolean } = {},
 ): Promise<SourceWorkspaceContext> {
   const access = await resolveAccess("design", designId);
-  if (!access) throw new Error("Design not found");
+  if (!access) {
+    fail("Design not found", { statusCode: 404, errorCode: "not_found" });
+  }
 
   const db = getDb();
   const files = options.includeContent
@@ -308,6 +312,8 @@ export async function writeInlineSourceFile(args: {
   file: SourceWorkspaceFile;
   content: string;
   expectedVersionHash?: string;
+  /** Used only when the editor deliberately changes a screen's source mode. */
+  allowUrlBackedTransition?: boolean;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
   return withSourceFileWriteLock(args.file.id, async () => {
     await assertAccess("design", args.designId, "editor");
@@ -353,12 +359,21 @@ export async function writeInlineSourceFile(args: {
     }
 
     assertLockedLayersPreserved(current.content, args.content);
-    assertDesignHtmlEditIntegrity({
-      previousContent: current.content,
-      nextContent: args.content,
-      fileType: currentFile.fileType ?? args.file.fileType ?? "html",
-      filename: currentFile.filename ?? args.file.filename,
-    });
+    const assertCandidateIntegrity = (candidate: string) => {
+      const isSourceModeTransition =
+        args.allowUrlBackedTransition === true &&
+        (isStandaloneHttpUrl(current.content) ||
+          isStandaloneHttpUrl(candidate));
+      assertDesignHtmlEditIntegrity({
+        // A deliberate mode transition must validate a new HTML document as a
+        // document, not compare it with the old route string.
+        previousContent: isSourceModeTransition ? candidate : current.content,
+        nextContent: candidate,
+        fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+        filename: currentFile.filename ?? args.file.filename,
+      });
+    };
+    assertCandidateIntegrity(args.content);
 
     if (await hasCollabState(args.file.id)) {
       const liveBeforeApply = await getText(args.file.id, "content");
@@ -366,7 +381,7 @@ export async function writeInlineSourceFile(args: {
         args.expectedVersionHash &&
         args.expectedVersionHash !== sourceContentHash(liveBeforeApply)
       ) {
-        throw new Error(
+        throw new SourceWorkspaceEditConflictError(
           "Source file changed since it was read. Re-read the file and retry.",
         );
       }
@@ -394,12 +409,7 @@ export async function writeInlineSourceFile(args: {
             // fully converged CRDT snapshot before core persists or broadcasts
             // the agent diff so clients never observe a malformed intermediate
             // document that is immediately rolled back below.
-            validateSnapshot: (snapshot) =>
-              assertDesignHtmlEditIntegrity({
-                previousContent: current.content,
-                nextContent: snapshot,
-                fileType: currentFile.fileType ?? args.file.fileType ?? "html",
-              }),
+            validateSnapshot: (snapshot) => assertCandidateIntegrity(snapshot),
           });
         } catch (error) {
           // A peer that commits after the base check now fails the persistence
@@ -440,8 +450,14 @@ export async function writeInlineSourceFile(args: {
     // trusting args.content directly.
     const authoritativeContent = await getText(args.file.id, "content");
     try {
+      const isSourceModeTransition =
+        args.allowUrlBackedTransition === true &&
+        (isStandaloneHttpUrl(current.content) ||
+          isStandaloneHttpUrl(authoritativeContent));
       assertDesignHtmlEditIntegrity({
-        previousContent: current.content,
+        previousContent: isSourceModeTransition
+          ? authoritativeContent
+          : current.content,
         nextContent: authoritativeContent,
         fileType: currentFile.fileType ?? args.file.fileType ?? "html",
       });

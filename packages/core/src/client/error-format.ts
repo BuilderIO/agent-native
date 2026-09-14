@@ -1,5 +1,8 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
-import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+} from "../agent/engine/error-detail.js";
 
 /**
  * Append a Builder CTA markdown link to gateway errors that users can fix
@@ -56,6 +59,12 @@ const PROVIDER_CREDENTIAL_REJECTED_FRAGMENT =
  */
 const GATEWAY_INTERNAL_ERROR_MESSAGE =
   "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.";
+/**
+ * Shared between the mapping below and `KNOWN_CHAT_ERROR_KEYS`, so the two
+ * copies of this sentence cannot drift apart.
+ */
+const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
+  "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -154,6 +163,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
     "agentChat.errorMessages.providerRateLimit",
+  ],
+  [
+    PROVIDER_TRANSIENT_REJECTION_MESSAGE,
+    "agentChat.errorMessages.providerTransientRejection",
   ],
   [
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -296,7 +309,9 @@ export function isProviderAuthenticationError(
   return (
     code === "authentication_error" ||
     code === "http_401" ||
+    code === "http_403" ||
     /^401 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /^403 status code(?:\s*\(no body\))?$/i.test(text) ||
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
       text,
     ) ||
@@ -387,6 +402,17 @@ export function normalizeChatError(
     };
   }
 
+  // The gateway sent no reason with this 403 — load-shedding, not a revoked
+  // key. Must be checked ahead of `isProviderAuthenticationError`: the raw
+  // detail text this code carries (a bare "Forbidden" / "403 status code")
+  // is the exact shape that predicate matches.
+  if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) {
+    return {
+      message: PROVIDER_TRANSIENT_REJECTION_MESSAGE,
+      details: text,
+    };
+  }
+
   if (isProviderRateLimit(text, code)) {
     return {
       message:
@@ -396,7 +422,7 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderAuthenticationError(text, errorCode)) {
+  if (isProviderAuthenticationError(text, code)) {
     return {
       message: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
       details: text,

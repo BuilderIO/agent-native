@@ -35,6 +35,10 @@ const {
   resolveReviewThread,
   sendReviewThreadToAgent,
   upsertReviewStatus,
+  setReviewCommentReaction,
+  setReviewThreadPreference,
+  getReviewDiscussionStateForComments,
+  filterUnmutedReviewThreadRecipients,
 } = await import("./store.js");
 
 beforeEach(async () => {
@@ -50,6 +54,108 @@ afterEach(async () => {
 });
 
 describe("review store", () => {
+  it("reads reactions without exposing actors and isolates personal thread preferences", async () => {
+    const comment = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "discussion",
+      body: "Review",
+      ownerEmail: "owner@example.com",
+    });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "alice@example.com",
+      reaction: "👍",
+      active: true,
+    });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "bob@example.com",
+      reaction: "👍",
+      active: true,
+    });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "alice@example.com",
+      reaction: "👍",
+      active: true,
+    });
+    await Promise.all([
+      setReviewThreadPreference({
+        threadId: comment.threadId,
+        userEmail: "alice@example.com",
+        muted: true,
+      }),
+      setReviewThreadPreference({
+        threadId: comment.threadId,
+        userEmail: "alice@example.com",
+        unread: true,
+      }),
+    ]);
+    const alice = await getReviewDiscussionStateForComments(
+      [comment],
+      "alice@example.com",
+    );
+    expect(alice.reactions[comment.id]).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: true },
+    ]);
+    expect(alice.threadPreferences[comment.threadId]).toEqual({
+      muted: true,
+      unread: true,
+    });
+    const bob = await getReviewDiscussionStateForComments(
+      [comment],
+      "bob@example.com",
+    );
+    expect(bob.threadPreferences[comment.threadId]).toEqual({
+      muted: false,
+      unread: false,
+    });
+    const anonymous = await getReviewDiscussionStateForComments(
+      [comment],
+      null,
+    );
+    expect(anonymous.reactions[comment.id]).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: false },
+    ]);
+    expect(JSON.stringify(anonymous)).not.toContain("@example.com");
+    expect(
+      await filterUnmutedReviewThreadRecipients(comment.threadId, [
+        "alice@example.com",
+        "bob@example.com",
+      ]),
+    ).toEqual(["bob@example.com"]);
+    await setReviewThreadPreference({
+      threadId: comment.threadId,
+      userEmail: "alice@example.com",
+      muted: false,
+    });
+    expect(
+      (
+        await getReviewDiscussionStateForComments(
+          [comment],
+          "alice@example.com",
+        )
+      ).threadPreferences[comment.threadId],
+    ).toEqual({ muted: false, unread: true });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "alice@example.com",
+      reaction: "👍",
+      active: false,
+    });
+    expect(
+      (
+        await getReviewDiscussionStateForComments(
+          [comment],
+          "alice@example.com",
+        )
+      ).reactions[comment.id],
+    ).toEqual([{ reaction: "👍", count: 1, reactedByMe: false }]);
+    expect(
+      await getReviewDiscussionStateForComments([], "alice@example.com"),
+    ).toEqual({ reactions: {}, threadPreferences: {} });
+  });
+
   it("stores threaded comments with anchors, mentions, and metadata", async () => {
     const root = await insertReviewComment({
       resourceType: "plan",

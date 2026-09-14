@@ -71,6 +71,7 @@ export default defineAction({
       .optional()
       .describe("Optional pre-generated id. Omit to auto-generate."),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ designId, label, widthPx, id: providedId }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);

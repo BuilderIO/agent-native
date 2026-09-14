@@ -24,6 +24,9 @@ const messages = {
       extensions: "扩展",
       noteToSelf: "给自己的备注",
     },
+    inbox: {
+      syncing: "收件箱同步中…",
+    },
     toolbar: {
       toggleMenu: "切换菜单",
       menu: "菜单",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "账号",
       pinSidebar: "固定侧边栏",
       unpinSidebar: "取消固定侧边栏",
+      closeSidebar: "关闭侧边栏",
       settings: "设置",
     },
     search: {
@@ -85,6 +89,8 @@ const messages = {
       cancel: "取消",
       code: "代码",
       deleteDraft: "删除草稿",
+      deleteDrafts: "删除草稿",
+      reopenDraft: "重新打开",
       discardDraft: "丢弃草稿",
       enterLinkUrl: "输入链接的 URL。",
       forward: "Forward",
@@ -280,6 +286,9 @@ const messages = {
       failedToAttachFile: "附加文件失败",
       failedToUploadImage: "上传图片失败",
       failedToSendEmail: "发送邮件失败",
+      messageSent: "邮件已发送。",
+      failedToSaveDraft: "无法保存草稿。",
+      failedToDeleteDraft: "无法删除草稿。",
       failedToScheduleEmailDraftKeptOpen: "定时发送失败 - 草稿仍保持打开",
       pleaseAddRecipient: "请至少添加一个收件人",
       aiEngineRequired: "使用生成前，请先连接 Builder 或其他 AI 引擎。",
@@ -290,6 +299,8 @@ const messages = {
       draftDismissed: "草稿已忽略。",
       openedInCompose: "已在撰写窗口中打开。",
       draftSent: "草稿已发送。",
+      draftClosed: "草稿已关闭。",
+      draftsClosed: "已关闭 {{count}} 个草稿。",
       failedToSendDraft: "发送草稿失败。",
       snoozeDbNotReady:
         "稍后提醒数据库未就绪。请在 mail 模板中运行：pnpm db:push。",
@@ -308,6 +319,7 @@ const messages = {
       failedToParseJson: "解析 JSON 失败",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",
       failedToSaveCredentials: "保存凭据失败",
+      someAccountsFailed: "无法加载：{{accounts}}",
     },
     googleConnect: {
       connectTitle: "连接你的 Google 账号",

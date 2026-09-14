@@ -40,7 +40,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import { LABELS_QUERY_KEY, markExternalEmailRefresh } from "@/hooks/use-emails";
+import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
 import {
   MAIL_INTEGRATION_STATUS_QUERY_KEY,
   mailIntegrationProviderFromAppStateKey,
@@ -331,7 +332,8 @@ function VisibilityRefresh() {
       if (now - lastRefresh.current < 60_000) return;
       lastRefresh.current = now;
       void qc.invalidateQueries({ queryKey: ["emails"] });
-      void qc.invalidateQueries({ queryKey: ["labels"] });
+      void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      void invalidateInboxThreads(qc);
     };
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
@@ -401,13 +403,15 @@ function DbSyncSetup() {
           markExternalEmailRefresh();
           void qc.invalidateQueries({ queryKey: ["emails"] });
           void qc.invalidateQueries({ queryKey: ["email"] });
-          void qc.invalidateQueries({ queryKey: ["labels"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+          void invalidateInboxThreads(qc);
         }
       } else if (data.source === "settings") {
         if (!isOwnEvent) {
           void qc.invalidateQueries({ queryKey: ["settings"] });
           void qc.invalidateQueries({ queryKey: ["aliases"] });
-          void qc.invalidateQueries({ queryKey: ["labels"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+          void invalidateInboxThreads(qc);
           void qc.invalidateQueries({ queryKey: ["emails"] });
           void qc.invalidateQueries({ queryKey: ["email"] });
           invalidateSettingsSurfaces();
@@ -422,7 +426,8 @@ function DbSyncSetup() {
           markExternalEmailRefresh();
           void qc.invalidateQueries({ queryKey: ["emails"] });
           void qc.invalidateQueries({ queryKey: ["email"] });
-          void qc.invalidateQueries({ queryKey: ["labels"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+          void invalidateInboxThreads(qc);
           invalidateSettingsSurfaces();
         }
       }

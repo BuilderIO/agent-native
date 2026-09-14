@@ -268,7 +268,10 @@ SELECT
   coalesce((
     SELECT max(c) FROM (
       SELECT count(*)::int AS c FROM pg_stat_activity
-      WHERE state = 'active' AND query <> '' GROUP BY left(query, 60)
+      WHERE pid <> pg_backend_pid()
+        AND state = 'active'
+        AND query <> ''
+      GROUP BY query
     ) q
   ), 0)::int AS max_same_query
 FROM pg_stat_activity

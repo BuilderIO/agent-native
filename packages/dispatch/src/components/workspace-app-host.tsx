@@ -33,11 +33,11 @@ import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
   mergeChatFirstWorkspaceApps,
   isWorkspaceSsoApp,
+  isDispatchWorkspaceAppId,
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
-  workspaceAppEmbedTarget,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
@@ -249,7 +249,9 @@ export interface WorkspaceAppFrameApp {
   id: string;
   name: string;
   path?: string | null;
+  homePath?: string | null;
   url?: string | null;
+  isDispatch?: boolean;
 }
 
 interface WorkspaceAppFrameProps {
@@ -320,7 +322,9 @@ export function WorkspaceAppFrame({
     id: app.id,
     name: app.name,
     path: app.path ?? "",
+    homePath: app.homePath ?? undefined,
     url: app.url,
+    isDispatch: app.isDispatch ?? isDispatchWorkspaceAppId(app.id),
   });
   const topWindowHref = useMemo(() => {
     if (embedPath !== undefined) {
@@ -336,12 +340,8 @@ export function WorkspaceAppFrame({
       );
     }
 
-    const target = workspaceAppEmbedTarget({
-      path: app.path ?? "",
-      url: app.url,
-    });
-    return target.url ?? target.path ?? null;
-  }, [app.path, app.url, embedPath, initialPath]);
+    return appHref;
+  }, [appHref, embedPath, initialPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${initialPath ?? ""}\u0000${embedAttempt}`;
   const topWindowSsoAttemptedRef = useRef<string | null>(null);
@@ -355,7 +355,7 @@ export function WorkspaceAppFrame({
     if (!appHref) return null;
     return {
       app: app.id,
-      ...workspaceAppEmbedTarget({ path: app.path ?? "", url: app.url }),
+      ...(app.url?.trim() ? { url: appHref } : { path: appHref }),
       chrome: "minimal",
     };
   }, [app.id, app.path, app.url, appHref, embedPath, initialPath]);
@@ -445,12 +445,14 @@ export function WorkspaceAppFrame({
           return;
         }
         setIsDirectFallback(true);
-        setEmbedUrl(
-          workspaceAppDirectHref(
-            { path: app.path ?? "", url: app.url },
-            initialPath ?? embedPath ?? "/",
-          ),
-        );
+        const fallbackHref =
+          initialPath !== undefined || embedPath !== undefined
+            ? workspaceAppDirectHref(
+                { path: app.path ?? "", url: app.url },
+                initialPath ?? embedPath ?? "/",
+              )
+            : appHref;
+        setEmbedUrl(fallbackHref);
         setEmbedError(error);
       });
     return () => {
@@ -460,6 +462,7 @@ export function WorkspaceAppFrame({
     app.id,
     app.path,
     app.url,
+    appHref,
     createEmbedSession.mutateAsync,
     createWorkspaceSsoEmbedSession.mutateAsync,
     embedInput,

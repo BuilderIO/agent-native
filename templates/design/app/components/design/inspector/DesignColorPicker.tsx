@@ -31,6 +31,7 @@ import {
   type ElementType,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -235,6 +236,18 @@ export interface DesignColorPickerProps {
   allowDesignHistoryHotkeys?: boolean;
   disabled?: boolean;
   className?: string;
+  /**
+   * Replaces the default swatch+hex+opacity trigger button with a
+   * caller-provided one (e.g. a fill-layer row showing "Linear 1" +
+   * opacity instead of a hex value), while still opening this component's
+   * own single `Popover`. Always render exactly one `DesignColorPicker` per
+   * fill row rather than wrapping it in a second, independent `Popover` for
+   * a custom-looking trigger — two nested popovers each dismiss on the
+   * other's portaled content, which both requires an extra click to reach
+   * the real picker and closes it the instant the gradient editor inside is
+   * touched.
+   */
+  trigger?: ReactNode;
 }
 
 // ─── Internal types ────────────────────────────────────────────────────────────
@@ -563,6 +576,7 @@ export function DesignColorPicker({
   allowDesignHistoryHotkeys = false,
   disabled = false,
   className,
+  trigger,
 }: DesignColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
   // Memoized because it is a memo/effect dependency below: an object rebuilt
@@ -1171,29 +1185,31 @@ export function DesignColorPicker({
     <div className={cn("space-y-1.5", className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          {/* Trigger: compact swatch + hex + opacity% — matches the design editor's fill row */}
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={copy.trigger}
-            className={cn(
-              "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
-              "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-              disabled && "pointer-events-none opacity-50",
-            )}
-          >
-            {/* Flat swatch chip — no shadow-inner (the design editor uses a flat chip) */}
-            <span
-              className="size-4 shrink-0 rounded-[3px] border border-border/60"
-              style={triggerSwatchStyle(value, color)}
-            />
-            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
-              {triggerLabel(effectivePaintType, color)}
-            </span>
-            <span className="tabular-nums text-muted-foreground !text-[11px]">
-              {effectiveOpacity}%
-            </span>
-          </button>
+          {trigger ?? (
+            /* Trigger: compact swatch + hex + opacity% — matches the design editor's fill row */
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={copy.trigger}
+              className={cn(
+                "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
+                "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                disabled && "pointer-events-none opacity-50",
+              )}
+            >
+              {/* Flat swatch chip — no shadow-inner (the design editor uses a flat chip) */}
+              <span
+                className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                style={triggerSwatchStyle(value, color)}
+              />
+              <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
+                {triggerLabel(effectivePaintType, color)}
+              </span>
+              <span className="tabular-nums text-muted-foreground !text-[11px]">
+                {effectiveOpacity}%
+              </span>
+            </button>
+          )}
         </PopoverTrigger>
 
         {/* design popover: ~240px wide, uniform 12px padding, tight controls */}

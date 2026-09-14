@@ -25,6 +25,7 @@ vi.mock("./run-store.js", () => ({
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
+  getCurrentTurnEventsForThread: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   isContinuationTerminalReason: (reason: unknown) =>
     reason === "auto_continue" ||
@@ -149,6 +150,7 @@ import {
   resolveRunNoProgressTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
   getActiveRunForThreadAsync,
+  getRun,
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
@@ -157,6 +159,7 @@ import {
   resolveSqlSubscriptionRetryMs,
   startRun,
   subscribeToRun,
+  replayCompletedTurn,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
   SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS,
   SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
@@ -174,6 +177,7 @@ import {
   getRunById,
   getRunByThread,
   getRunEventsSince,
+  getCurrentTurnEventsForThread,
   markRunAborted,
   updateRunStatus,
   updateRunStatusIfRunning,
@@ -393,6 +397,20 @@ describe("run manager soft timeout", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
+  });
+
+  it("does not reinsert a run row claimed atomically by the caller", async () => {
+    vi.mocked(insertRun).mockClear();
+    const run = startRun(
+      "run-preinserted",
+      "thread-preinserted",
+      async () => {},
+      undefined,
+      { runRowAlreadyInserted: true },
+    );
+
+    await run.finalized;
+    expect(insertRun).not.toHaveBeenCalled();
   });
 
   it("emits an internal continuation signal and aborts the run chunk", async () => {
@@ -1150,6 +1168,39 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
+  });
+
+  it("replays every chunk of a completed logical turn as one stream", async () => {
+    vi.mocked(getCurrentTurnEventsForThread).mockResolvedValueOnce([
+      { type: "text", text: "first chunk" },
+      { type: "auto_continue", reason: "run_timeout" },
+      { type: "text", text: "second chunk" },
+      { type: "done" },
+    ]);
+
+    const stream = await replayCompletedTurn("thread-turn", "turn-1");
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      'data: {"type":"text","text":"first chunk","seq":0}',
+    );
+    expect(output).toContain(
+      'data: {"type":"text","text":"second chunk","seq":1}',
+    );
+    expect(output).toContain('data: {"type":"done","seq":2}');
+    expect(output).not.toContain("auto_continue");
+    expect(getCurrentTurnEventsForThread).toHaveBeenCalledWith(
+      "thread-turn",
+      "turn-1",
+    );
   });
 
   it("keeps an in-memory abort successful when durable cleanup fails", async () => {
@@ -3828,6 +3879,117 @@ describe("run manager soft timeout", () => {
     expect(persistOrder.indexOf(0)).toBeLessThan(persistOrder.indexOf(1));
   });
 
+  it("retries a failed sequence before persisting later events", async () => {
+    const attempts: number[] = [];
+    const durableOrder: number[] = [];
+    let seq0Attempts = 0;
+    const transientError = new Error("transient event persistence failure");
+
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      attempts.push(seq);
+      if (seq === 0 && seq0Attempts++ === 0) {
+        throw transientError;
+      }
+      durableOrder.push(seq);
+    });
+
+    const run = startRun(
+      "run-persist-retry-order",
+      "thread-persist-retry-order",
+      async (send) => {
+        send({ type: "text", text: "first" });
+        send({ type: "text", text: "second" });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await run.finalized;
+
+    expect(attempts).toEqual([0, 0, 1, 2]);
+    expect(durableOrder).toEqual([0, 1, 2]);
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-persist-retry-order",
+      "completed",
+    );
+  });
+
+  it.each(["done", "auto_continue"] as const)(
+    "does not finalize %s after a permanent gap",
+    async (terminalType) => {
+      const attempts: number[] = [];
+      const durableOrder: number[] = [];
+      const permanentError = new Error("permanent event persistence failure");
+      const onComplete = vi.fn();
+
+      vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+        attempts.push(seq);
+        if (seq === 0) throw permanentError;
+        durableOrder.push(seq);
+      });
+
+      const run = startRun(
+        "run-persist-permanent-gap",
+        "thread-persist-permanent-gap",
+        async (send) => {
+          send({ type: "text", text: "first" });
+          send({ type: "text", text: "second" });
+          send(
+            terminalType === "done"
+              ? { type: "done" }
+              : { type: "auto_continue", reason: "stream_ended" },
+          );
+        },
+        onComplete,
+        { softTimeoutMs: 0 },
+      );
+
+      await expect(run.finalized).rejects.toThrow(
+        "permanent event persistence failure",
+      );
+
+      expect(attempts).toEqual([0, 0]);
+      expect(durableOrder).toEqual([]);
+      expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "completed",
+      );
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "errored",
+      );
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "run_event_persistence_failed",
+        "Agent run ended unexpectedly",
+      );
+      expect(onComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "errored",
+          events: expect.arrayContaining([
+            expect.objectContaining({
+              event: expect.objectContaining({
+                type: "error",
+                errorCode: "run_event_persistence_failed",
+              }),
+            }),
+          ]),
+        }),
+      );
+      expect(onComplete.mock.calls[0][0].events.at(-1).event.type).toBe(
+        "error",
+      );
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-persist-permanent-gap",
+        "error:run_event_persistence_failed",
+      );
+      expect(cleanupOldRuns).toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(getRun("run-persist-permanent-gap")).toBeNull();
+    },
+  );
+
   // ─── No-progress backstop (RUN_NO_PROGRESS_HARD_TIMEOUT_MS) ────────────────
   // Timer-driven, independent of the in-loop watchdogs: catches a stall in a
   // segment that never emits a real-progress event (only keepalives), while
@@ -4623,6 +4785,8 @@ describe("run manager soft timeout", () => {
       await run.finalized;
 
       expect(completions).toEqual(["errored"]);
+      expect(run.status).toBe("errored");
+      expect(getRun("run-terminal-error-return")?.status).toBe("errored");
     });
 
     it("counts a boundary as recovered only once a round actually starts", async () => {

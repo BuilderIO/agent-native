@@ -1856,6 +1856,13 @@ describe("SSE event processor no-progress recovery", () => {
         "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
       ],
       ["authentication_error", "Missing Authentication header"],
+      // The server already retried this bare-403 load-shedding signature
+      // before it reached the client; auto-continuing here would just POST
+      // the same request into the same throttle.
+      [
+        "provider_transient_rejection",
+        "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
+      ],
     ]) {
       const caught = await (async () => {
         try {
@@ -2028,8 +2035,10 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:run-error",
         detail: {
-          message: "Forbidden",
+          message:
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
           errorCode: "http_403",
+          details: "Forbidden",
           tabId: "tab-http-403",
         },
       }),
@@ -2075,8 +2084,10 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({
         type: "agent-chat:run-error",
         detail: {
-          message: "Forbidden",
+          message:
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
           errorCode: "http_403",
+          details: "Forbidden",
           recoverable: true,
           tabId: "tab-http-403",
         },
@@ -2176,6 +2187,56 @@ describe("SSE event processor error classification", () => {
               "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
             details: "429 status code (no body)",
             errorCode: "provider_rate_limited",
+          },
+        },
+      },
+    });
+  });
+
+  it("surfaces a bare-403 transient rejection as a terminal run error, not a credential rejection", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    const rawMessage =
+      "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.";
+    const expectedMessage =
+      "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: rawMessage,
+            errorCode: "provider_transient_rejection",
+            details: rawMessage,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-transient-403",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message: expectedMessage,
+          details: rawMessage,
+          errorCode: "provider_transient_rejection",
+          tabId: "tab-transient-403",
+        },
+      }),
+    );
+    expect(results[0]).toEqual({
+      content: [{ type: "text", text: `Error: ${expectedMessage}` }],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: expectedMessage,
+            details: rawMessage,
+            errorCode: "provider_transient_rejection",
           },
         },
       },
@@ -3894,6 +3955,67 @@ describe("SSE event processor error classification", () => {
           message: "The agent stopped before finishing.",
           recoverable: true,
         }),
+      }),
+    );
+  });
+
+  // http_429/http_529 used to auto-continue here. The server now owns
+  // rate-limit recovery end to end (in-loop retries, sibling-model fallback,
+  // one cooled continuation, then a terminal `provider_rate_limited`) and
+  // caps the continuation chain it hands back. Re-POSTing a client
+  // continuation for an exhausted rate-limit error bypasses that one-hop cap
+  // and restarts the retry/fallback budget the server already spent, so both
+  // codes must render with the manual Retry affordance instead.
+  it.each([
+    "http_429",
+    "http_529",
+    "rate_limited",
+    "too_many_concurrent_requests",
+  ])("does not auto-continue a %s error", async (errorCode) => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "Rate limited",
+            errorCode,
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-rate-limit-code",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({ errorCode }),
       }),
     );
   });

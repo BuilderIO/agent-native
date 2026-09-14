@@ -15,6 +15,7 @@ import {
   assertCanDraft,
   assertCanUseAssets,
   assertCanUseRuns,
+  draftProvenanceAccess,
   draftScopeForLibrary,
 } from "../server/lib/library-access.js";
 import { serializeGenerationSession } from "./_helpers.js";
@@ -213,12 +214,7 @@ export default defineAction({
               },
             ],
       },
-      {
-        artifactAccess: {
-          resourceType: "asset-library",
-          resourceId: args.libraryId,
-        },
-      },
+      { artifactAccess: draftProvenanceAccess(args.libraryId) },
     );
     return {
       ...serializeGenerationSession(session),

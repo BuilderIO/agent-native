@@ -24,6 +24,9 @@ const messages = {
       extensions: "Erweiterungen",
       noteToSelf: "Notiz an mich",
     },
+    inbox: {
+      syncing: "Posteingang wird synchronisiert…",
+    },
     toolbar: {
       toggleMenu: "Menü umschalten",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Seitenleiste anheften",
       unpinSidebar: "Seitenleiste lösen",
+      closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
     },
     search: {
@@ -86,6 +90,8 @@ const messages = {
       cancel: "Abbrechen",
       code: "Code",
       deleteDraft: "Entwurf löschen",
+      deleteDrafts: "Entwürfe löschen",
+      reopenDraft: "Wieder öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",
@@ -282,6 +288,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Nachricht gesendet.",
+      failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
+      failedToDeleteDraft: "Entwurf konnte nicht gelöscht werden.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -294,6 +303,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Entwurf geschlossen.",
+      draftsClosed: "{{count}} Entwürfe geschlossen.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -315,6 +326,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "Konnte nicht laden: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",

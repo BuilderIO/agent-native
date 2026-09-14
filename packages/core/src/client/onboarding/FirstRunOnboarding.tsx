@@ -43,6 +43,7 @@ import {
   getDefaultMcpIntegrations,
   isMcpIntegrationUrl,
   navigateToMcpOAuthStart,
+  requiresMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
@@ -438,7 +439,10 @@ export function FirstRunOnboarding({
     if (
       integration.authMode === "oauth" &&
       integration.connectionMode === "oauth" &&
-      integration.availability === "ready"
+      integration.availability === "ready" &&
+      // An org-only integration has no personal connection to start, and with
+      // no workspace yet the dialog is the surface that explains why.
+      !requiresMcpIntegrationOrganizationScope(integration)
     ) {
       const opened = navigateToMcpOAuthStart(
         appPath(

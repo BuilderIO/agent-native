@@ -50,6 +50,7 @@ interface HarnessProps {
   contentUpdatedAt: string;
   contentRevision?: string;
   editorOwnedFocus?: boolean;
+  isEditorFocused?: () => boolean;
 }
 
 interface CollabSeedHarnessProps {
@@ -58,6 +59,7 @@ interface CollabSeedHarnessProps {
   value?: string;
   contentRevision?: string;
   contentUpdatedAt?: string;
+  initialAppliedUpdatedAt?: string | null;
 }
 
 interface Captured {
@@ -79,6 +81,7 @@ function makeHarness() {
     contentUpdatedAt,
     contentRevision,
     editorOwnedFocus = false,
+    isEditorFocused,
   }: HarnessProps) {
     const guardsRef = React.useRef<ReturnType<
       typeof useCollabReconcile
@@ -109,7 +112,7 @@ function makeHarness() {
         });
       },
       editable: true,
-      isEditorFocused: () => editorOwnedFocus,
+      isEditorFocused: isEditorFocused ?? (() => editorOwnedFocus),
       getMarkdown: getEditorMarkdown,
       setContent: (ed, v, options) => {
         captured.setContentCalls += 1;
@@ -144,6 +147,7 @@ function makeCollabSeedHarness(initialContent = "") {
     value = "seeded content",
     contentRevision,
     contentUpdatedAt = "2024-01-01T00:00:01.000Z",
+    initialAppliedUpdatedAt,
   }: CollabSeedHarnessProps) {
     const guardsRef = React.useRef<ReturnType<
       typeof useCollabReconcile
@@ -178,6 +182,7 @@ function makeCollabSeedHarness(initialContent = "") {
       value,
       contentUpdatedAt,
       contentRevision,
+      initialAppliedUpdatedAt,
       onBaseAwareReconcile: (result) => {
         (captured.reconciled ??= []).push({
           status: result.status,
@@ -207,6 +212,169 @@ async function flush() {
   });
 }
 
+function makePeerReconcileHarness(initialContent = "original body") {
+  const ydoc = new Y.Doc();
+  ydoc.clientID = 2;
+  const seedEditor = new CoreEditor({
+    extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
+  });
+  seedEditor.commands.setContent(initialContent);
+  seedEditor.destroy();
+  const awareness = new Awareness(ydoc);
+  awareness.getStates().set(3, {
+    user: { name: "Peer" },
+    visible: true,
+    canFlushDocument: true,
+  });
+  const writes: Array<{ value: string; callbackVersion: number }> = [];
+  const reconciled: Array<{ status: string; baseRevision: string }> = [];
+  let editor: Editor | null = null;
+  function Harness({
+    value = initialContent,
+    revision = "revision-1",
+    callbackVersion = 0,
+    available = true,
+    collabContentRevision,
+    requestCollabSync,
+    baseAware = false,
+  }: {
+    value?: string;
+    revision?: string;
+    callbackVersion?: number;
+    available?: boolean;
+    collabContentRevision?: string;
+    requestCollabSync?: () => Promise<{
+      status: "synced" | "failed" | "unavailable";
+    }>;
+    baseAware?: boolean;
+  }) {
+    editor = useEditor({
+      extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
+    });
+    useCollabReconcile({
+      editor: available ? editor : null,
+      ydoc,
+      awareness,
+      collabSynced: true,
+      value,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: revision,
+      collabContentRevision,
+      requestCollabSync,
+      initialAppliedUpdatedAt: null,
+      editable: true,
+      parseValue: baseAware ? undefined : false,
+      onBaseAwareReconcile: baseAware
+        ? (result) => {
+            reconciled.push(result);
+          }
+        : undefined,
+      getMarkdown: (editorToRead) => getEditorMarkdown(editorToRead),
+      setContent: (editorToWrite, nextValue, options) => {
+        writes.push({ value: nextValue, callbackVersion });
+        editorToWrite.commands.setContent(nextValue, {
+          emitUpdate: options.emitUpdate,
+        });
+      },
+    });
+    return React.createElement("div", null);
+  }
+  return {
+    Harness,
+    writes,
+    reconciled,
+    awareness,
+    ydoc,
+    editor: () => editor!,
+    markdown: () => getEditorMarkdown(editor!),
+    dispose: () => {
+      act(() => root.unmount());
+      root = createRoot(container);
+      awareness.destroy();
+      ydoc.destroy();
+    },
+  };
+}
+
+function makeConnectedEditorHarness(authorLeads: boolean) {
+  const docs = [new Y.Doc(), new Y.Doc()];
+  docs[0]!.clientID = authorLeads ? 1 : 2;
+  docs[1]!.clientID = authorLeads ? 2 : 1;
+  const awareness = docs.map((doc) => new Awareness(doc));
+  docs.forEach((doc, index) => {
+    doc.on("update", (update, origin) => {
+      if (origin !== "peer") Y.applyUpdate(docs[1 - index]!, update, "peer");
+    });
+    awareness[index]!.getStates().set(1, {
+      user: { name: "First editor" },
+      visible: true,
+      canFlushDocument: true,
+    });
+    awareness[index]!.getStates().set(2, {
+      user: { name: "Second editor" },
+      visible: true,
+      canFlushDocument: true,
+    });
+  });
+  const editors: Array<Editor | null> = [null, null];
+  const emitted: string[][] = [[], []];
+  const reconciled: Array<{ status: string; content: string }> = [];
+  function Probe({ index, ...props }: HarnessProps & { index: number }) {
+    const guardsRef = React.useRef<ReturnType<
+      typeof useCollabReconcile
+    > | null>(null);
+    const editor = useEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: docs[index],
+      }),
+      onUpdate: ({ editor, transaction }) => {
+        const guards = guardsRef.current;
+        if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+        const markdown = getEditorMarkdown(editor);
+        if (guards.registerEmitted(markdown)) emitted[index]!.push(markdown);
+      },
+    });
+    editors[index] = editor;
+    guardsRef.current = useCollabReconcile({
+      editor,
+      ydoc: docs[index],
+      awareness: awareness[index],
+      collabSynced: true,
+      value: props.value,
+      contentUpdatedAt: props.contentUpdatedAt,
+      contentRevision: props.contentRevision,
+      onBaseAwareReconcile: (result) =>
+        reconciled.push({ status: result.status, content: result.content }),
+      getMarkdown: (editorToRead) => getEditorMarkdown(editorToRead),
+      initialAppliedUpdatedAt: null,
+      editable: true,
+    });
+    return React.createElement("div");
+  }
+  function Harness(props: HarnessProps) {
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(Probe, { ...props, index: 0 }),
+      React.createElement(Probe, { ...props, index: 1 }),
+    );
+  }
+  return {
+    Harness,
+    editors,
+    emitted,
+    reconciled,
+    markdown: () => editors.map((editor) => getEditorMarkdown(editor!)),
+    dispose: () => {
+      act(() => root.unmount());
+      root = createRoot(container);
+      awareness.forEach((state) => state.destroy());
+      docs.forEach((doc) => doc.destroy());
+    },
+  };
+}
+
 function render(
   root: Root,
   Harness: (p: HarnessProps) => React.ReactElement,
@@ -218,6 +386,561 @@ function render(
 }
 
 describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
+  it("does not seed an empty editor from a collab-backed SQL snapshot", async () => {
+    vi.useFakeTimers();
+    const harness = makePeerReconcileHarness("");
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    serverEditor.commands.insertContentAt(1, "Accepted body");
+    let finishSync!: (result: { status: "synced" }) => void;
+    const requestCollabSync = () =>
+      new Promise<{ status: "synced" }>((resolve) => {
+        finishSync = resolve;
+      });
+    try {
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "Accepted body",
+            revision: "revision-2",
+            collabContentRevision: "revision-2",
+            requestCollabSync,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe("");
+      expect(harness.writes).toEqual([]);
+      act(() =>
+        Y.applyUpdate(harness.ydoc, Y.encodeStateAsUpdate(serverDoc), "remote"),
+      );
+      await act(async () => finishSync({ status: "synced" }));
+      expect(harness.markdown()).toBe("Accepted body");
+      expect(harness.writes).toEqual([]);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      harness.dispose();
+    }
+  });
+
+  it.each([
+    [false, false],
+    [true, false],
+    [true, true],
+  ])(
+    "receives a collab-backed revision exactly once without SQL fallback (local tail: %s, sync failure: %s)",
+    async (localTail, syncFailure) => {
+      vi.useFakeTimers();
+      const baseline = "original body\n\nSecond paragraph.";
+      const harness = makePeerReconcileHarness(baseline);
+      const serverDoc = new Y.Doc();
+      Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+      const serverEditor = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: serverDoc,
+        }),
+      });
+      let finishSync!: (result: { status: "synced" }) => void;
+      const requestSync = vi.fn<() => Promise<{ status: "synced" | "failed" }>>(
+        () =>
+          new Promise((resolve) => {
+            finishSync = resolve;
+          }),
+      );
+      if (syncFailure) requestSync.mockResolvedValueOnce({ status: "failed" });
+      try {
+        act(() => root.render(React.createElement(harness.Harness)));
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        const stateVector = Y.encodeStateVector(harness.ydoc);
+        serverEditor.commands.insertContentAt(1, "Accepted ");
+        if (localTail) {
+          act(() =>
+            harness
+              .editor()
+              .commands.insertContentAt(
+                harness.editor().state.doc.content.size - 1,
+                " local tail",
+              ),
+          );
+        }
+        const props = {
+          value: `Accepted ${baseline}`,
+          revision: "revision-2",
+          collabContentRevision: "revision-2",
+          requestCollabSync: requestSync,
+          baseAware: true,
+        };
+        act(() => root.render(React.createElement(harness.Harness, props)));
+        await act(async () => vi.advanceTimersByTimeAsync(30000));
+        act(() =>
+          root.render(
+            React.createElement(harness.Harness, {
+              ...props,
+              callbackVersion: 1,
+            }),
+          ),
+        );
+        expect(requestSync).toHaveBeenCalledTimes(syncFailure ? 2 : 1);
+        expect(harness.writes).toEqual([]);
+        expect(harness.markdown()).toBe(
+          localTail ? `${baseline} local tail` : baseline,
+        );
+        act(() =>
+          Y.applyUpdate(
+            harness.ydoc,
+            Y.encodeStateAsUpdate(serverDoc, stateVector),
+            "remote",
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(30000));
+        expect(harness.markdown()).toBe(
+          `Accepted ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        expect(harness.writes).toEqual([]);
+        // A partial cache update can retain the old marker; a different body
+        // token must still take the ordinary SQL reconciliation path.
+        act(() =>
+          root.render(
+            React.createElement(harness.Harness, {
+              ...props,
+              value: `Revised ${baseline}`,
+              revision: "revision-3",
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        expect(harness.writes).toEqual([]);
+        expect(harness.reconciled).toEqual([]);
+        expect(harness.markdown()).toBe(
+          `Accepted ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        await act(async () => finishSync({ status: "synced" }));
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        expect(harness.markdown()).toBe(
+          `Revised ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        if (localTail)
+          expect(harness.reconciled).toEqual([
+            expect.objectContaining({
+              status: "merged",
+              baseRevision: "revision-2",
+            }),
+          ]);
+      } finally {
+        serverEditor.destroy();
+        serverDoc.destroy();
+        harness.dispose();
+      }
+    },
+  );
+  it.each([true, false])(
+    "preserves ordinary mark removal before SQL catches up (author leads: %s)",
+    async (authorLeads) => {
+      const harness = makeConnectedEditorHarness(authorLeads);
+      const baseline = "***Bold*** sample.";
+      const props = {
+        value: baseline,
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        contentRevision: "revision-1",
+      };
+      vi.useFakeTimers();
+      try {
+        render(root, harness.Harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        expect(harness.markdown()).toEqual([baseline, baseline]);
+        act(() => {
+          harness.editors[0]!.chain()
+            .setTextSelection({ from: 1, to: 5 })
+            .toggleItalic()
+            .run();
+        });
+        expect(harness.markdown()).toEqual([
+          "**Bold** sample.",
+          "**Bold** sample.",
+        ]);
+        expect(harness.emitted).toEqual([["**Bold** sample."], []]);
+        render(root, harness.Harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        expect(harness.markdown()).toEqual([
+          "**Bold** sample.",
+          "**Bold** sample.",
+        ]);
+        expect(harness.emitted).toEqual([["**Bold** sample."], []]);
+      } finally {
+        harness.dispose();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "merges newer authority after a remote mark change (timestamp ties: %s)",
+    async (timestampTies) => {
+      const harness = makeConnectedEditorHarness(false);
+      const baseline = "***Bold*** sample.\n\nSecond line.";
+      const props = {
+        value: baseline,
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        contentRevision: "revision-1",
+      };
+      vi.useFakeTimers();
+      try {
+        render(root, harness.Harness, props);
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        act(() => {
+          harness.editors[0]!.chain()
+            .setTextSelection({ from: 1, to: 5 })
+            .toggleItalic()
+            .run();
+        });
+        render(root, harness.Harness, {
+          value: "***Bold*** sample.\n\nServer line.",
+          contentUpdatedAt: timestampTies
+            ? props.contentUpdatedAt
+            : "2024-01-01T00:00:02.000Z",
+          contentRevision: "revision-2",
+        });
+        await act(async () => vi.advanceTimersByTimeAsync(2501));
+        expect(harness.markdown()).toEqual([
+          "**Bold** sample.\n\nServer line.",
+          "**Bold** sample.\n\nServer line.",
+        ]);
+        expect(harness.reconciled).toEqual([
+          { status: "merged", content: "**Bold** sample.\n\nServer line." },
+        ]);
+      } finally {
+        harness.dispose();
+      }
+    },
+  );
+
+  it("uses the latest callback at the original peer deadline, including the default normalizer", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      for (
+        let callbackVersion = 1;
+        callbackVersion <= 5;
+        callbackVersion += 1
+      ) {
+        act(() =>
+          root.render(
+            React.createElement(harness.Harness, {
+              value: "accepted body",
+              revision: "revision-2",
+              callbackVersion,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(500));
+      }
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(harness.writes).toEqual([
+        { value: "accepted body", callbackVersion: 5 },
+      ]);
+      expect(harness.markdown()).toBe("accepted body");
+      await act(async () => vi.advanceTimersByTimeAsync(5000));
+      expect(harness.writes).toHaveLength(1);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it("cancels an obsolete snapshot and starts the peer window for a newer revision", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "accepted body",
+            revision: "revision-2",
+            callbackVersion: 1,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "newer body",
+            revision: "revision-3",
+            callbackVersion: 2,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(501));
+      expect(harness.writes).toEqual([]);
+      expect(harness.markdown()).toBe("original body");
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(harness.writes).toEqual([
+        { value: "newer body", callbackVersion: 2 },
+      ]);
+      expect(harness.markdown()).toBe("newer body");
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it("cancels a peer reconciliation on unmount", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "accepted body",
+            revision: "revision-2",
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      act(() => root.render(null));
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      expect(harness.writes).toEqual([]);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it("starts a fresh peer window when the same editor returns after being unavailable", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    const snapshot = { value: "accepted body", revision: "revision-2" };
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() => root.render(React.createElement(harness.Harness, snapshot)));
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            ...snapshot,
+            available: false,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(harness.writes).toEqual([]);
+      act(() => root.render(React.createElement(harness.Harness, snapshot)));
+      await act(async () => vi.advanceTimersByTimeAsync(2499));
+      expect(harness.writes).toEqual([]);
+      await act(async () => vi.advanceTimersByTimeAsync(2));
+      expect(harness.markdown()).toBe("accepted body");
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it("cancels the peer deadline when leadership is lost and waits again after regaining it", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "accepted body",
+            revision: "revision-2",
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      act(() => {
+        harness.awareness
+          .getStates()
+          .set(1, { user: { name: "Lead peer" }, visible: true });
+        harness.awareness.emit("change", [
+          { added: [1], updated: [], removed: [] },
+          "remote",
+        ]);
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      expect(harness.writes).toEqual([]);
+      act(() => {
+        harness.awareness.getStates().delete(1);
+        harness.awareness.emit("change", [
+          { added: [], updated: [], removed: [1] },
+          "remote",
+        ]);
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(2499));
+      expect(harness.writes).toEqual([]);
+      await act(async () => vi.advanceTimersByTimeAsync(2));
+      expect(harness.markdown()).toBe("accepted body");
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it.each([false, true])(
+    "adopts an accepted canonical revision during repeated renders (fresh callbacks: %s)",
+    async (freshCallbacks) => {
+      const liveYdoc = new Y.Doc();
+      liveYdoc.clientID = 1;
+      const persistedEditor = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: liveYdoc,
+        }),
+      });
+      persistedEditor.commands.setContent("**Bold** sample");
+      persistedEditor.destroy();
+      const awareness = new Awareness(liveYdoc);
+      awareness.getStates().set(2, {
+        user: { name: "Peer" },
+        visible: true,
+        canFlushDocument: true,
+      });
+      let capturedEditor: Editor | null = null;
+      const stableRead = (editor: Editor) => getEditorMarkdown(editor);
+      const normalizeValue = (value: string) => value;
+      const stableWrite = (editor: Editor, value: string) => {
+        editor.commands.setContent(value);
+      };
+      function Probe({ accepted }: { accepted: boolean }) {
+        const editor = useEditor({
+          extensions: createRichMarkdownExtensions({
+            dialect: "gfm",
+            ydoc: liveYdoc,
+          }),
+        });
+        capturedEditor = editor;
+        useCollabReconcile({
+          editor,
+          ydoc: liveYdoc,
+          awareness,
+          collabSynced: true,
+          value: accepted ? "**Changed** sample" : "**Bold** sample",
+          contentUpdatedAt: accepted
+            ? "2024-01-01T00:00:02.000Z"
+            : "2024-01-01T00:00:01.000Z",
+          editable: true,
+          initialAppliedUpdatedAt: null,
+          normalizeValue,
+          getMarkdown: freshCallbacks
+            ? (editor) => stableRead(editor)
+            : stableRead,
+          setContent: freshCallbacks
+            ? (editor, value) => stableWrite(editor, value)
+            : stableWrite,
+        });
+        return React.createElement("div", null);
+      }
+      vi.useFakeTimers();
+      try {
+        act(() => root.render(React.createElement(Probe, { accepted: false })));
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        expect(getEditorMarkdown(capturedEditor!)).toBe("**Bold** sample");
+        const originalEditor = capturedEditor;
+        act(() => root.render(React.createElement(Probe, { accepted: true })));
+        for (let renderIndex = 0; renderIndex < 6; renderIndex += 1) {
+          await act(async () => vi.advanceTimersByTimeAsync(500));
+          act(() =>
+            root.render(React.createElement(Probe, { accepted: true })),
+          );
+        }
+        expect(capturedEditor).toBe(originalEditor);
+        expect(getEditorMarkdown(capturedEditor!)).toBe("**Changed** sample");
+      } finally {
+        act(() => root.unmount());
+        root = createRoot(container);
+        awareness.destroy();
+        liveYdoc.destroy();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "acknowledges peer acceptance before a later local edit (arrival during apply: %s)",
+    async (duringApply) => {
+      const { captured, Harness } = makeHarness();
+      const baseline =
+        "Writers review exact changes.\n\nReaders retain context.";
+      const accepted = baseline.replace("exact", "careful");
+      const props = {
+        value: accepted,
+        contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+        contentRevision: "revision-2",
+      };
+      render(root, Harness, {
+        value: baseline,
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        contentRevision: "revision-1",
+      });
+      await flush();
+      const deliverPeer = () => {
+        act(() =>
+          captured.editor!.commands.setContent(accepted, { emitUpdate: false }),
+        );
+      };
+      if (!duringApply) deliverPeer();
+      render(root, Harness, props);
+      if (duringApply) deliverPeer();
+      await flush();
+      expect(getEditorMarkdown(captured.editor!)).toBe(accepted);
+      expect(captured.reconciled ?? []).toEqual([]);
+
+      const draft = `${accepted} Peer suffix.`;
+      act(() => captured.editor!.commands.setContent(draft));
+      render(root, Harness, props);
+      await flush();
+      expect(getEditorMarkdown(captured.editor!)).toBe(draft);
+      expect(captured.reconciled ?? []).toEqual([]);
+    },
+  );
+
+  it("persists a local suffix when SQL acceptance arrives after peer text", async () => {
+    const { captured, Harness } = makeHarness();
+    const baseline =
+      "Writers review precise changes.\n\nReaders retain context. Peer suffix.";
+    const accepted = baseline.replace("precise", "clearse");
+    render(root, Harness, {
+      value: baseline,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await flush();
+    act(() =>
+      captured.editor!.commands.setContent(accepted, { emitUpdate: false }),
+    );
+    const draft = `${accepted} Trace suffix.`;
+    act(() =>
+      captured.editor!.commands.insertContentAt(
+        captured.editor!.state.doc.content.size - 1,
+        " Trace suffix.",
+      ),
+    );
+    const before = captured.editor!.state.doc;
+    const props = {
+      value: accepted,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    };
+    render(root, Harness, props);
+    await flush();
+    expect(captured.editor!.state.doc).toBe(before);
+    expect(getEditorMarkdown(captured.editor!)).toBe(draft);
+    expect(captured.reconciled).toEqual([{ status: "merged", content: draft }]);
+    render(root, Harness, props);
+    await flush();
+    expect(captured.reconciled).toHaveLength(1);
+  });
+
   it("merges a newer non-overlapping revision and reports the combined draft", async () => {
     const { captured, Harness } = makeHarness();
     render(root, Harness, {
@@ -379,6 +1102,139 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
 
     expect(captured.setContentCalls).toBe(0);
     expect(getEditorMarkdown(captured.editor!)).toBe("seeded content");
+  });
+
+  it("preserves a registered local collab mark over an older-or-equal controlled snapshot", async () => {
+    const canonical = "[Link](https://example.com/second) sample.";
+    const { captured, Harness } = makeCollabSeedHarness(canonical);
+    const props = {
+      collabSynced: true,
+      fragmentLength: 1,
+      value: canonical,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      initialAppliedUpdatedAt: null,
+    };
+    act(() => root.render(React.createElement(Harness, props)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+
+    act(() => {
+      captured
+        .editor!.chain()
+        .setTextSelection({ from: 1, to: 5 })
+        .unsetLink()
+        .run();
+    });
+    expect(captured.emitted.at(-1)).toBe("Link sample.");
+
+    act(() => root.render(React.createElement(Harness, props)));
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe("Link sample.");
+    expect(captured.setContentCalls).toBe(0);
+  });
+
+  it("still applies newer authority after a registered local collab mark", async () => {
+    const canonical = "[Link](https://example.com/second) sample.";
+    const { captured, Harness } = makeCollabSeedHarness(canonical);
+    act(() =>
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: true,
+          fragmentLength: 1,
+          value: canonical,
+          contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+          initialAppliedUpdatedAt: null,
+        }),
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    act(() => {
+      captured.editor!.commands.setContent("Link sample.");
+    });
+    expect(captured.emitted.at(-1)).toBe("Link sample.");
+
+    act(() =>
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: true,
+          fragmentLength: 1,
+          value: "[Link](https://example.com/server) sample.",
+          contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+          initialAppliedUpdatedAt: null,
+        }),
+      ),
+    );
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "[Link](https://example.com/server) sample.",
+    );
+  });
+
+  it("still reconciles a changed authority revision when its timestamp ties", async () => {
+    const canonical = "Alpha\n\nBravo";
+    const { captured, Harness } = makeCollabSeedHarness(canonical);
+    act(() =>
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: true,
+          fragmentLength: 1,
+          value: canonical,
+          contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+          contentRevision: "revision-1",
+          initialAppliedUpdatedAt: null,
+        }),
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+    act(() => {
+      captured.editor!.commands.setContent("Alpha local\n\nBravo");
+    });
+    expect(captured.emitted.at(-1)).toBe("Alpha local\n\nBravo");
+
+    act(() =>
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: true,
+          fragmentLength: 1,
+          value: "Alpha\n\nBravo server",
+          contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+          contentRevision: "revision-2",
+          initialAppliedUpdatedAt: null,
+        }),
+      ),
+    );
+    await flush();
+
+    expect(captured.reconciled).toEqual([
+      {
+        status: "merged",
+        content: "Alpha local\n\nBravo server",
+      },
+    ]);
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha local\n\nBravo server",
+    );
+  });
+
+  it("still clears a stale collab value when there is no local emission", async () => {
+    const { captured, Harness } = makeCollabSeedHarness("stale persisted body");
+    act(() =>
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: true,
+          fragmentLength: 1,
+          value: "canonical SQL body",
+          contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+          initialAppliedUpdatedAt: null,
+        }),
+      ),
+    );
+    expect(getEditorMarkdown(captured.editor!)).toBe("stale persisted body");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe("canonical SQL body");
+    expect(captured.emitted).toEqual([]);
   });
 
   it("uses the collaborative seed as the base for a later three-way merge", async () => {
@@ -870,6 +1726,46 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(getEditorMarkdown(captured.editor!)).toBe("# Doc updated by agent");
+  });
+
+  it("does not roll back a blurred local mark while its controlled echo is queued", async () => {
+    const { captured, Harness } = makeHarness();
+    const canonical = "[Link](https://example.com/first) sample.";
+    let editorFocused = false;
+    const isEditorFocused = () => editorFocused;
+    const props = {
+      value: canonical,
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      isEditorFocused,
+    };
+
+    render(root, Harness, props);
+    await flush();
+    expect(captured.setContentCalls).toBe(0);
+
+    act(() => {
+      captured
+        .editor!.chain()
+        .setTextSelection({ from: 1, to: 5 })
+        .unsetLink()
+        .run();
+    });
+    const localDraft = captured.emitted.at(-1)!;
+    expect(localDraft).toBe("Link sample.");
+
+    // A sibling-state render can arrive before the host's deferred onChange.
+    // The toolbar input still owns focus when reconcile observes the stale
+    // controlled value; editor focus returns before its timer applies.
+    render(root, Harness, props);
+    editorFocused = true;
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(localDraft);
+    expect(captured.setContentCalls).toBe(0);
+
+    render(root, Harness, { ...props, value: localDraft });
+    await flush();
+    expect(getEditorMarkdown(captured.editor!)).toBe(localDraft);
   });
 
   it("persists a non-lead client's own local edit to a nonempty shared document", async () => {

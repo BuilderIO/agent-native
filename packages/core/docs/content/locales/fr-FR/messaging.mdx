@@ -11,7 +11,7 @@ Connectez votre agent à Slack, Microsoft Teams, aux interactions Discord, à l�
 >
 > Teams requiert `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` et `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. Discord requiert `DISCORD_APPLICATION_ID` et `DISCORD_PUBLIC_KEY`. Telegram requiert aussi `TELEGRAM_WEBHOOK_SECRET`, et WhatsApp `WHATSAPP_APP_SECRET`.
 
-> **Vous utilisez le modèle Dispatch ?** Tout cela est configuré pour vous dans **Paramètres → Messagerie**. Cliquez pour connecter chaque plateforme. Vous n'avez pas besoin de lire le reste de cette page, sauf si vous personnalisez ou créez votre propre modèle. Voir [Dispatch](/docs/dispatch) ou [Dispatch template reference](/docs/template-dispatch).
+> **Vous utilisez le modèle Dispatch ?** Tout cela est configuré pour vous dans **Administration → Messagerie**. Cliquez pour connecter chaque plateforme. Vous n'avez pas besoin de lire le reste de cette page, sauf si vous personnalisez ou créez votre propre modèle. Voir [Dispatch](/docs/dispatch) ou [Dispatch template reference](/docs/template-dispatch).
 
 ## Ce que vous pouvez faire {#what-you-can-do}
 
@@ -135,7 +135,7 @@ et les événements `link_shared` vers le gestionnaire de déploiement des clips
 
 ### Add to Slack géré
 
-OAuth géré est la configuration recommandée. Dans **Paramètres → Messagerie**,
+OAuth géré est la configuration recommandée. Dans **Administration → Messagerie**,
 sélectionnez **Agent manifest** pour télécharger le fichier propre à l’hôte
 `agent-native-slack-manifest.json`, puis importez-le dans **App Manifest** dans
 Slack. Le manifeste active l’expérience `agent_view` actuelle et un onglet
@@ -176,7 +176,7 @@ Abonnez-vous à `app_home_opened`, `app_context_changed`, `app_mention`,
 `message.im`.
 Configurez `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` et
 `SLACK_SIGNING_SECRET`, puis cliquez sur **Add to Slack** dans
-**Paramètres → Messagerie**. Chaque installation conserve son jeton chiffré et
+**Administration → Messagerie**. Chaque installation conserve son jeton chiffré et
 isole ses clés par espace, application, canal et fil.
 
 Réinstallez l’application Slack après toute modification du manifeste, des
@@ -499,7 +499,7 @@ Pourquoi c'est sympa :
 
 - **Un agent, une boîte de réception.** Tous vos canaux (Slack, e-mail, Telegram, WhatsApp) circulent dans Dispatch. Vous ne configurez les intégrations qu'une seule fois.
 - **Répartir les délégués.** Demander « résumer les inscriptions de la semaine dernière » – Dispatch appelle l'agent d'analyse. Demandez « rédigez une réponse à Alice » – Dispatch appelle l'agent de messagerie.
-- **Clics, pas de configuration.** La page **Paramètres → Messagerie** de Dispatch comporte des boutons de connexion pour chaque plate-forme avec les champs env-var intégrés.
+- **Clics, pas de configuration.** La page **Administration → Messagerie** de Dispatch comporte des boutons de connexion pour chaque plate-forme avec les champs env-var intégrés.
 
 Si vous n'avez pas besoin d'un orchestrateur, n'importe quel modèle peut connecter la messagerie directement à l'aide des variables d'environnement de cette page.
 

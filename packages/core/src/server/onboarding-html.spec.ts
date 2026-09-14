@@ -5,6 +5,7 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import type { AuthPageProps } from "../client/auth/AuthPage.js";
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -15,6 +16,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 
 function readAuthPageData(html: string): AuthPageProps {
@@ -39,14 +41,24 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
-  it("includes a beta switcher on the standalone auth page", () => {
-    const html = getOnboardingHtml({
-      requestHost: "beta.analytics.agent-native.com",
-    });
+  it("includes an environment switcher on the standalone auth page", () => {
+    // Auth responses inject the shared switcher at the login boundary; the
+    // React shell alone only ships lane config + document styles.
+    const html = injectBetaOptOutPersistence(
+      getOnboardingHtml({
+        requestHost: "beta.analytics.agent-native.com",
+      }),
+    );
 
     expect(html).toContain('id="environment-badge"');
-    expect(html).toContain("You&#x27;re on Agent-Native Beta");
-    expect(html).toContain("Switch to production");
+    expect(html).toContain(
+      `var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};`,
+    );
+    expect(html).toContain('data-agent-native-environment-switcher-script="1"');
+    expect(html).toContain("button.textContent = messages.betaLabel");
+    expect(html).toContain(
+      "productionLink.textContent = messages.switchToProduction",
+    );
     expect(html).toContain('id="environment-hide-badge"');
     expect(readAuthPageData(html).environmentBetaHosts).toHaveProperty(
       "analytics.agent-native.com",

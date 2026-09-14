@@ -17,6 +17,7 @@ import {
   getDraftGeometryFromPoints,
   quantizeToStep,
   WHOLE_PIXEL_SNAP_STEP,
+  getElementWorldBoundsForZoomFit,
   getFrameBounds,
   getFrameGroupBounds,
   getNudgeDelta,
@@ -2035,6 +2036,31 @@ describe("canvas group bounds and camera math", () => {
       centerX: 35,
       centerY: 80,
     });
+  });
+
+  it("translates a selected element's screen-local rect into world-space bounds for zoom-to-selection", () => {
+    // Shift+2 (zoom to selection) on an in-screen element must fit that
+    // element's own bounds, translated by the owning screen's world-space
+    // frame origin — not the screen's whole bounds and not the untranslated
+    // local rect (see the parity-yt-mobile-landing.spec.ts ground truth).
+    const screenGeometry: FrameGeometry = {
+      x: 500,
+      y: 1000,
+      width: 1440,
+      height: 3000,
+    };
+    const localRect = { x: 40, y: 20, width: 300, height: 64 };
+    expect(getElementWorldBoundsForZoomFit(screenGeometry, localRect)).toEqual(
+      getFrameBounds({ x: 540, y: 1020, width: 300, height: 64 }),
+    );
+    // Tighter than the whole screen's own bounds — the point of the fix.
+    const wholeScreenBounds = getFrameBounds(screenGeometry);
+    const elementBounds = getElementWorldBoundsForZoomFit(
+      screenGeometry,
+      localRect,
+    );
+    expect(elementBounds.width).toBeLessThan(wholeScreenBounds.width);
+    expect(elementBounds.height).toBeLessThan(wholeScreenBounds.height);
   });
 
   it("fits bounds into the viewport using the canvas camera convention", () => {

@@ -137,6 +137,10 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain(
       "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: flex-start;",
     );
+    expect(onboardingHtml).toContain("padding: 1rem clamp(1rem, 4vw, 4rem);");
+    expect(onboardingHtml).toContain(
+      ".auth-marketing-home.has-product-screenshot .form-panel {\n      min-width: 0;\n      align-items: center;\n      padding: 1rem;",
+    );
     expect(onboardingHtml).toContain(
       ".auth-marketing-home.has-product-screenshot .form-panel > .card {\n    margin-block: auto;\n  }",
     );

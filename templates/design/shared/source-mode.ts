@@ -105,6 +105,7 @@ export type ElementProvenanceMethod =
   | "data-attribute" // build-time transform's data-source-*/data-loc attributes
   | "debug-source" // React <=18 structured `_debugSource` fiber field
   | "debug-stack" // React 19 `_debugStack` owner stack
+  | "debug-stack-remapped" // React 19 stack position remapped through a source map
   | "vue-inspector" // Vue dev compiler's `__v_inspector` vnode prop
   | "svelte-meta"; // Svelte dev compiler's `__svelte_meta.loc`
 
@@ -120,6 +121,7 @@ export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
   "data-attribute",
   "debug-source",
   "debug-stack",
+  "debug-stack-remapped",
   "vue-inspector",
   "svelte-meta",
 ];
@@ -134,9 +136,11 @@ export type SourcePositionPrecision = "authored" | "transformed" | "unknown";
  * the authored one: measured on the React 19.2 + Vite 8 target, `<h1>`
  * authored at line 13 reports as line 26.
  *
- * So a `debug-stack` position must never be presented as the authored JSX
- * line, and deterministic writers must not seek to it. `unknown` (no tier
- * reported) is deliberately not folded into `authored`.
+ * So an unmapped `debug-stack` position must never be presented as the
+ * authored JSX line, and deterministic writers must not seek to it. A
+ * `debug-stack-remapped` position has crossed a verified source map and is
+ * authored again. `unknown` (no tier reported) is deliberately not folded
+ * into `authored`.
  */
 export function sourcePositionPrecision(
   method: ElementProvenanceMethod | undefined,

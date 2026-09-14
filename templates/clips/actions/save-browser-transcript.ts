@@ -17,6 +17,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -104,7 +105,7 @@ export default defineAction({
       .optional()
       .describe("Why native speech recognition could not save text"),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
     await assertAccess("recording", args.recordingId, "editor");
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
@@ -239,10 +240,27 @@ export default defineAction({
         titleSource: schema.recordings.titleSource,
         description: schema.recordings.description,
         status: schema.recordings.status,
+        durationMs: schema.recordings.durationMs,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
+
+    if (!hasReadyTranscript && savedStatus === "ready") {
+      track(
+        "recording_completed",
+        {
+          app_name: "clips",
+          template_name: "clips",
+          output_id: args.recordingId,
+          output_type: "clip",
+          duration_s: Math.round((rec?.durationMs ?? 0) / 1000),
+          has_transcript: true,
+          transcription_source: args.source ?? "native",
+        },
+        context,
+      );
+    }
 
     const titleQueued = !!(
       rec && isAutoTitleReplaceable(rec.title, rec.titleSource)

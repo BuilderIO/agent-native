@@ -121,7 +121,10 @@ import {
 } from "@shared/clip-intake";
 import { toast } from "sonner";
 
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import {
+  CaptureInstallButton,
+  DesktopPlatformIcon,
+} from "@/components/capture-install-options";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
 import {
@@ -651,13 +654,14 @@ function PreRecordPanelSkeleton() {
 function DesktopRecorderCallout() {
   const t = useT();
   return (
-    <aside className="flex justify-center">
+    <aside className="flex justify-center pt-3">
       <CaptureInstallButton
         size="sm"
         variant="ghost"
-        className="h-8 text-xs font-normal text-muted-foreground hover:text-foreground"
+        className="h-9 gap-2 px-3 text-sm font-medium"
         downloadedChildren={t("captureInstall.openDesktopApp")}
       >
+        <DesktopPlatformIcon className="size-4" />
         {t("recordRoute.downloadDesktopApp")}
       </CaptureInstallButton>
     </aside>
@@ -2159,6 +2163,19 @@ export default function RecordRoute() {
         resource_type: "recording",
         resource_id: pendingRef.current?.id,
       });
+      trackEvent("recording_started", {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: pendingRef.current?.id,
+        capture_type:
+          recordingMode === "camera"
+            ? "camera"
+            : resolvedDisplaySurface === "browser"
+              ? "tab"
+              : "screen",
+        has_extension: Boolean(extensionCapture),
+        surface: "recorder",
+      });
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
@@ -2194,7 +2211,12 @@ export default function RecordRoute() {
       setUiState("error");
       showRecordingErrorToast(message);
     }
-  }, [extensionCapture, showRecordingErrorToast]);
+  }, [
+    extensionCapture,
+    recordingMode,
+    resolvedDisplaySurface,
+    showRecordingErrorToast,
+  ]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.

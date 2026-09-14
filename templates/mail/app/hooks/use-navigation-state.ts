@@ -11,6 +11,8 @@ export interface NavigationState {
   label?: string;
   filter?: string;
   activeInboxTab?: string;
+  /** Inbox tab id from a `navigate({ tab })` agent command; see actions/navigate.ts. */
+  tab?: string;
   activeAccounts?: string[];
   queuedDraftId?: string;
   queueScope?: string;

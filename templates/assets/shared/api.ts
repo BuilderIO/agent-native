@@ -1,3 +1,17 @@
+import {
+  isValidWorkspaceAppIdFormat,
+  normalizeTrackingDimension,
+} from "@agent-native/core/shared";
+
+export function normalizeCallerAppId(value: unknown): string | undefined {
+  const normalized = normalizeTrackingDimension(value);
+  return normalized &&
+    normalized.length <= 64 &&
+    isValidWorkspaceAppIdFormat(normalized)
+    ? normalized
+    : undefined;
+}
+
 export const IMAGE_CATEGORIES = [
   "hero",
   "landing",

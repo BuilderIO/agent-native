@@ -25,7 +25,7 @@ const actionSchema = z.intersection(
 
 export default defineAction({
   description:
-    "Set one Content database property on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent.",
+    "Set one Content collection property on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent.",
   mcpTool: true,
   schema: actionSchema,
   run: async (args) => {

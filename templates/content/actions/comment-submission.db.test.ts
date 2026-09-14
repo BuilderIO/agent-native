@@ -45,7 +45,22 @@ let schema: typeof import("../server/db/schema.js");
 let add: typeof import("./add-comment.js").default;
 let update: typeof import("./update-comment.js").default;
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${dbPath}`;
+  const fixtureUrl = `pglite:${dbPath}`;
+  vi.stubEnv("APP_NAME", "");
+  vi.stubEnv("DATABASE_URL", fixtureUrl);
+  vi.stubEnv("DATABASE_URL_UNPOOLED", fixtureUrl);
+  vi.stubEnv("NETLIFY_DATABASE_URL", fixtureUrl);
+  vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", fixtureUrl);
+  const { getDatabaseUrl, getRuntimeDatabaseUrl } =
+    await import("@agent-native/core/db");
+  if (
+    getDatabaseUrl() !== fixtureUrl ||
+    getRuntimeDatabaseUrl() !== fixtureUrl
+  ) {
+    throw new Error(
+      "Comment submission test requires its isolated fixture database",
+    );
+  }
   const module = await import("../server/db/index.js");
   schema = module.schema;
   db = module.getDb();
@@ -53,7 +68,11 @@ beforeAll(async () => {
   add = (await import("./add-comment.js")).default;
   update = (await import("./update-comment.js")).default;
 }, 60000);
-afterAll(() => rmSync(dbPath, { force: true, recursive: true }));
+afterAll(async () => {
+  await (await import("@agent-native/core/db")).closeDbExec();
+  vi.unstubAllEnvs();
+  rmSync(dbPath, { force: true, recursive: true });
+});
 const create = (args: Record<string, unknown>) =>
   (add as any).run({
     documentId: "receipt-fixture",

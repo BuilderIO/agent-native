@@ -77,11 +77,12 @@ export default defineAction({
     connectionId: z.string().describe("Localhost connection ID."),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId, connectionId }) => {
     await assertAccess("design", designId, "editor");
 
-    const scope = await resolveLocalhostConnectionScope();
+    const scope = await resolveLocalhostConnectionScope({ designId });
     const connection = await resolveLocalhostBridgeConnection({
       connectionId,
       ...scope,

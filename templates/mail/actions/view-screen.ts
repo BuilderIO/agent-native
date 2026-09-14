@@ -28,6 +28,16 @@ import {
   gmailToEmailMessage,
   fetchGmailLabelMap,
 } from "../server/lib/google-auth.js";
+import {
+  inboxRowToItem,
+  readCachedLabels,
+  readInboxThreads,
+} from "../server/lib/inbox-store.js";
+import {
+  partitionInboxItems,
+  resolveActiveTabId,
+  resolveInboxTabs,
+} from "../server/lib/inbox-tabs-server.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
 import { readSettings } from "../server/lib/mail-settings.js";
 import {
@@ -428,6 +438,54 @@ async function fetchThreadMessages(threadId: string): Promise<any> {
   }
 }
 
+/**
+ * Inbox tab bar + active tab id, from the same store-backed partition
+ * `list-inbox-threads` uses — bounded to counts (no row bodies) so it's
+ * cheap to include on every inbox screen snapshot. Never throws: a store
+ * hiccup just omits `tabs` from the screen rather than failing view-screen.
+ */
+async function buildInboxTabsSummary(
+  ownerEmail: string,
+  requestedTab: string | undefined,
+): Promise<{ tabs: unknown[]; activeTabId: string } | null> {
+  try {
+    const [googleConnected, settings, rows, { labels, labelMapByAccount }] =
+      await Promise.all([
+        isConnected(ownerEmail),
+        readSettings(ownerEmail),
+        readInboxThreads(ownerEmail),
+        readCachedLabels(ownerEmail),
+      ]);
+    const items = rows.map((row) =>
+      inboxRowToItem(row, labelMapByAccount.get(row.accountEmail)),
+    );
+    const config = {
+      pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, googleConnected),
+      savedFilters: settings.savedFilters ?? [],
+      labelAliases: settings.labelAliases ?? {},
+      combineInbox: settings.combineInbox,
+    };
+    const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
+    const tabs = resolveInboxTabs(config, labelNameById);
+    const byTab = partitionInboxItems(items, tabs);
+    return {
+      tabs: tabs.map((tab) => ({
+        id: tab.id,
+        kind: tab.kind,
+        name: tab.name,
+        total: byTab.get(tab.id)?.length ?? 0,
+        unread: (byTab.get(tab.id) ?? []).filter((i) => i.unreadCount > 0)
+          .length,
+      })),
+      activeTabId: resolveActiveTabId(requestedTab, tabs),
+    };
+  } catch {
+    // coercion-ok: null is a distinguishable "omit tabs from this screen"
+    // signal the caller below checks for — never merged into a fake summary.
+    return null;
+  }
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, a bounded email preview, and the open thread (if any). Use list-emails for a full inventory. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
@@ -530,6 +588,18 @@ export default defineAction({
         },
         emails: compact,
       };
+      if (nav.view === "inbox" && !nav.search) {
+        const ownerEmail = getRequestUserEmail();
+        const requestedTab = nav.tab ?? nav.activeInboxTab ?? nav.label;
+        const inboxTabs = ownerEmail
+          ? await buildInboxTabsSummary(ownerEmail, requestedTab)
+          : null;
+        if (inboxTabs) {
+          (screen.emailList as Record<string, unknown>).tabs = inboxTabs.tabs;
+          (screen.emailList as Record<string, unknown>).activeTabId =
+            inboxTabs.activeTabId;
+        }
+      }
     }
 
     // Fetch thread messages directly via Gmail API if the user is viewing a thread

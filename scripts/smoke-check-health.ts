@@ -135,21 +135,9 @@ async function checkHealth(
     }
     return { ok: false, reason: "health returned a non-JSON body" };
   }
-  const previewDatabaseGap =
-    allowPreview &&
-    response.status === 503 &&
-    body.ok === true &&
-    body.ready === false &&
-    body.db === false &&
-    body.database?.configured === false;
-  if (previewDatabaseGap) {
-    console.warn(
-      "WARN (health): preview runtime has no database variables; readiness is checked again when deployed with its site environment.",
-    );
-  }
-  if (body.ready !== true && !previewDatabaseGap)
+  if (body.ready !== true)
     return { ok: false, reason: `health reports ready=${body.ready}` };
-  if (body.db !== true && !previewDatabaseGap)
+  if (body.db !== true)
     return { ok: false, reason: `health reports db=${body.db}` };
 
   // `identityMismatch` is only ever true when the database was recorded for
@@ -204,10 +192,7 @@ async function checkHealth(
       };
     }
   }
-  if (
-    !previewDatabaseGap &&
-    (response.status < 200 || response.status >= 300)
-  ) {
+  if (response.status < 200 || response.status >= 300) {
     return {
       ok: false,
       reason: `health returned HTTP ${response.status} after retries`,

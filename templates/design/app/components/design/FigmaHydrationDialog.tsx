@@ -25,6 +25,7 @@ import {
   MAX_FIG_UPLOAD_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
+import { figmaHydrationErrorMessage } from "@/lib/design-import";
 import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
@@ -139,17 +140,12 @@ export function FigmaHydrationDialog({
         }),
       });
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : t("common.genericError");
-      const is403 =
-        message.includes("403") || message.toLowerCase().includes("forbidden");
-      const isServerError = /internal server error/i.test(message);
       setError(
-        is403
-          ? 'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.'
-          : isServerError
-            ? "Server error — Figma's API may be rate-limited. Wait ~1 minute then try again; repeated retries extend the cooldown."
-            : message,
+        figmaHydrationErrorMessage(
+          err,
+          t("common.genericError"),
+          'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.',
+        ),
       );
     } finally {
       setBusy(false);

@@ -1,3 +1,4 @@
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import type { ChatModelRunResult } from "@assistant-ui/react";
 
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
@@ -6,7 +7,11 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
-import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+} from "../agent/engine/error-detail.js";
+import type { AgentChatRichEventEnvelope } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { emitChatFirstOpenApp } from "./chat-first.js";
@@ -78,6 +83,8 @@ export type ContentPart =
 export interface SSEEvent {
   type: string;
   text?: string;
+  suggestions?: AgentSuggestion[];
+  event?: AgentChatRichEventEnvelope;
   tool?: string;
   /** Server-assigned call identifier emitted on tool_start / tool_done events. */
   id?: string;
@@ -99,6 +106,11 @@ export interface SSEEvent {
   askId?: string;
   /** False when this action requires a fresh approval for every call. */
   allowPersistentApproval?: false;
+  /** Host-resolved connection request. URLs and scopes are never streamed. */
+  requestId?: string;
+  provider?: string;
+  connectionReason?: "connect" | "grant" | "reauthorize" | "admin_required";
+  appId?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -108,6 +120,7 @@ export interface SSEEvent {
   detail?: string;
   agentCallId?: string;
   durationMs?: number;
+  terminalCode?: string;
   snapshot?: A2AAgentActivitySnapshot;
   reason?: string;
   // Agent task fields
@@ -837,7 +850,25 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "request_too_large" ||
     code === "not_found_error" ||
     code === "model_not_found" ||
+    // The server now owns rate-limit recovery end to end (in-loop retries,
+    // sibling-model fallback, one cooled continuation, then a terminal
+    // `provider_rate_limited`) and caps the continuation chain it hands back
+    // to the client. Auto-recovering a bare `http_429`/`http_529` here would
+    // let an exhausted rate-limit error re-POST as a client continuation,
+    // bypassing that one-hop cap and restarting the retry/fallback budget
+    // the server just spent. Render with the manual Retry affordance like
+    // `provider_rate_limited` below, not auto-continued.
+    code === "http_429" ||
+    code === "http_529" ||
+    // The gateway's own throttle codes, same reasoning.
+    code === "rate_limited" ||
+    code === "too_many_concurrent_requests" ||
     code === "provider_rate_limited" ||
+    // The server already retried the bare-403 load-shedding signature before
+    // this reached the client; another automatic POST would just hammer the
+    // same throttle. Renders with the manual Retry affordance like
+    // `provider_rate_limited` above, not auto-continued.
+    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
     // `builder_gateway_error` is the no-detail fallback the Builder engine
     // emits when the gateway returns `{type:"stop",reason:"error"}` with no
     // explanation — almost always the upstream provider giving up (model
@@ -875,7 +906,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
-    code === "http_429" ||
     code === "http_500" ||
     // The gateway's unhandled-500 envelope delivered in-stream instead of as a
     // status. Recoverable for the same reason `http_500` is.
@@ -883,8 +913,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
-    code === "rate_limited" ||
-    code === "too_many_concurrent_requests" ||
     code === "overloaded_error" ||
     // A gateway stream that ended without a stop event. The partial turn is
     // real, so this continues rather than retrying: the code carries what the

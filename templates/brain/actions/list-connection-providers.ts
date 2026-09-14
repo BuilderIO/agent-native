@@ -34,20 +34,22 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "github",
 ]);
 
-function dispatchBaseHref(): string | undefined {
-  const workspaceDispatch = findWorkspaceDispatchAgent();
+async function dispatchBaseHref(): Promise<string | undefined> {
+  const workspaceDispatch = await findWorkspaceDispatchAgent();
   if (workspaceDispatch?.url) return workspaceDispatch.url;
 
   return getBuiltinAgents(APP_ID).find((agent) => agent.id === "dispatch")?.url;
 }
 
-function dispatchIntegrationsHref(providerId: string): string | undefined {
+function dispatchIntegrationsHref(
+  providerId: string,
+  dispatchHref: string | undefined,
+): string | undefined {
   const params = new URLSearchParams({
     provider: providerId,
     appId: APP_ID,
     returnTo: "ask",
   });
-  const dispatchHref = dispatchBaseHref();
   if (!dispatchHref) return undefined;
   const base = dispatchHref
     .replace(/\/(?:overview|apps)\/?$/, "")
@@ -305,6 +307,7 @@ export default defineAction({
       sourceCounts.set(row.provider, (sourceCounts.get(row.provider) ?? 0) + 1);
     }
 
+    const dispatchHref = await dispatchBaseHref();
     const providers = await Promise.all(
       (workspace.catalog?.providers ?? []).map(async (provider) => {
         const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
@@ -338,7 +341,7 @@ export default defineAction({
           configured:
             providerApiIsConfigured ??
             (sourceProviderSupported ? credentialHealth.available : null),
-          setupLink: dispatchIntegrationsHref(provider.id),
+          setupLink: dispatchIntegrationsHref(provider.id, dispatchHref),
           credentialHealth,
           providerHealth: providerHealthForProvider({
             credentialHealth,
