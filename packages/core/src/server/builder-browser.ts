@@ -2449,6 +2449,22 @@ export async function provisionBuilderAccount(input: {
   return parseBuilderAccountProvisioningResponse(parsed);
 }
 
+/**
+ * A 401 from Builder means the stored credential was rejected upstream, which
+ * no amount of retrying fixes - the user has to reconnect. Callers classify on
+ * `errorCode`, so it is raised with the same code the local authorization check
+ * uses. 403 is deliberately excluded: Builder also returns it for a Space
+ * membership problem, where telling the user to reconnect would be wrong.
+ */
+function builderApiFailure(status: number, message: string): Error {
+  return status === 401
+    ? new ActionContractError(message, {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      })
+    : new Error(message);
+}
+
 function builderApiErrorMessage(
   parsed: Record<string, unknown>,
   fallback: string,
@@ -2551,7 +2567,8 @@ export async function createBuilderProject(args: {
   );
   const parsed = await readBuilderApiObject(response, "project creation");
   if (!response.ok) {
-    throw new Error(
+    throw builderApiFailure(
+      response.status,
       builderApiErrorMessage(
         parsed,
         `Builder project creation failed (${response.status})`,
@@ -2685,7 +2702,7 @@ export async function runBuilderAgent(
       typeof parsed.error === "string"
         ? parsed.error
         : `Builder agent run failed (${response.status})`;
-    throw new Error(msg);
+    throw builderApiFailure(response.status, msg);
   }
 
   return {

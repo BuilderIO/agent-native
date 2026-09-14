@@ -1538,6 +1538,33 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
   });
 
+  // Revocation upstream is not an outage: the stored credential is present but
+  // rejected, so retry prose sends the user back into the same wall.
+  it("treats a Builder-rejected credential as reconnectable, not transient", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-9",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(
+      new ActionContractError("Unauthorized", {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.connectRequired?.provider).toBe("builder");
+    expect(result.detail).toBe("Unauthorized");
+    expect(result.message).not.toContain("try again");
+  });
+
   it("keeps an unreadable credential store separate from a missing connection", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();

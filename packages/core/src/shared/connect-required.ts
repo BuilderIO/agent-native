@@ -42,15 +42,19 @@ function optionalString(value: unknown): string | undefined {
  * A connect target reaches the DOM as an `href`, and shape matching means it
  * can arrive from an MCP server or a remote A2A agent rather than from this
  * repo. Only a root-relative path or an absolute http(s) URL is a connect
- * target; anything else (`javascript:`, `data:`, or a protocol-relative
- * `//host` that leaves the origin) is dropped. Dropping the href keeps the
+ * target; anything else (`javascript:`, `data:`, or an authority-prefixed
+ * value that leaves the origin) is dropped. Dropping the href keeps the
  * blocker text, so the user still reads what to connect and only loses a link
  * that was never usable.
+ *
+ * The leading pair is checked as `[/\\]{2}` rather than `//` because a URL
+ * parser reading a special scheme treats a backslash as a slash, so `/\host`
+ * and `\/host` reach the same off-origin authority that `//host` does.
  */
 function safeConnectHref(value: unknown): string | undefined {
   const href = optionalString(value);
   if (!href) return undefined;
-  if (href.startsWith("//")) return undefined;
+  if (/^[/\\]{2}/.test(href)) return undefined;
   if (href.startsWith("/")) return href;
   return /^https?:\/\//i.test(href) ? href : undefined;
 }

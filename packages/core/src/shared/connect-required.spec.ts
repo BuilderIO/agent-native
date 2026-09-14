@@ -52,6 +52,10 @@ describe("connectRequiredResult", () => {
     "data:text/html,<script>alert(1)</script>",
     "vbscript:msgbox(1)",
     "//evil.test/connect",
+    "/\\evil.test/connect",
+    "\\/evil.test/connect",
+    "\\\\evil.test/connect",
+    "\\evil.test/connect",
     "connect",
   ])("drops the unsafe connect target %s", (connectUrl) => {
     const result = connectRequiredResult({
