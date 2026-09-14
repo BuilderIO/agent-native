@@ -1,4 +1,9 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import {
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "@agent-native/core/server";
 
 export interface BuilderCmsWriteRequest {
   method: "POST" | "PATCH";
@@ -20,19 +25,55 @@ export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
 
 type FetchLike = typeof fetch;
 
-function builderWriteApiHost() {
+function builderWriteApiHost(source: BuilderRequestAuthorization["source"]) {
   return (
     process.env.BUILDER_CONTENT_API_HOST ??
     process.env.BUILDER_CMS_API_HOST ??
-    "https://builder.io"
+    (source === "oauth" ? BUILDER_OAUTH_RESOURCE : "https://builder.io")
   ).replace(/\/+$/, "");
 }
 
-async function readBuilderPrivateKey() {
-  return (
-    (await resolveBuilderCredential("BUILDER_PRIVATE_KEY")) ??
-    (await resolveBuilderCredential("BUILDER_CMS_PRIVATE_KEY"))
-  );
+async function readBuilderWriteAuthorization() {
+  return resolveBuilderRequestAuthorization({
+    oauthResource: "general",
+    requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
+    legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+  });
+}
+
+function assertBuilderWriteSourceBinding(
+  authorization: Awaited<ReturnType<typeof readBuilderWriteAuthorization>>,
+  expectedSourceSpace: string | null | undefined,
+  expectedSourceConnectionId: string | null | undefined,
+  required: boolean,
+) {
+  if (
+    expectedSourceSpace &&
+    expectedSourceConnectionId &&
+    (authorization?.source !== "oauth" ||
+      authorization.oauthResource !== "general")
+  ) {
+    throw new Error(
+      "This Builder source's OAuth connection is unavailable. Reconnect the source before writing.",
+    );
+  }
+  if (authorization?.source !== "oauth") return;
+  if (!required && !expectedSourceSpace && !expectedSourceConnectionId) return;
+  if (!expectedSourceSpace || !expectedSourceConnectionId) {
+    throw new Error(
+      "This Builder source is not bound to its connected space. Refresh the source before writing.",
+    );
+  }
+  if (authorization.oauthSelectedPublicKey !== expectedSourceSpace) {
+    throw new Error(
+      "The connected Builder space does not match this Content source. Reconnect the source's Builder space before writing.",
+    );
+  }
+  if (authorization.oauthConnectionId !== expectedSourceConnectionId) {
+    throw new Error(
+      "The connected Builder credential does not match this Content source. Reconnect the source before writing.",
+    );
+  }
 }
 
 function parseResponseBody(text: string): unknown {
@@ -136,22 +177,34 @@ function buildWriteResult(args: {
 
 export async function executeBuilderCmsWrite(args: {
   request: BuilderCmsWriteRequest;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  requireSourceBinding?: boolean;
   fetchImpl?: FetchLike;
   /** @deprecated Never used: retrying another transport after dispatch is unsafe. */
   nodeRequestImpl?: unknown;
   timeoutMs?: number;
 }): Promise<BuilderCmsWriteResult> {
-  const privateKey = await readBuilderPrivateKey();
-  if (!privateKey) {
+  const authorization = await readBuilderWriteAuthorization();
+  if (!authorization) {
     return {
       ok: false,
       status: 0,
       responseBody: null,
-      error: "Builder private key is not configured.",
+      error: "Builder write access is not connected.",
     };
   }
+  assertBuilderWriteSourceBinding(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+    args.requireSourceBinding === true,
+  );
 
-  const url = new URL(args.request.path, builderWriteApiHost());
+  const url = new URL(
+    args.request.path,
+    builderWriteApiHost(authorization.source),
+  );
   for (const [key, value] of Object.entries(args.request.query ?? {})) {
     url.searchParams.set(key, value);
   }
@@ -159,7 +212,7 @@ export async function executeBuilderCmsWrite(args: {
   const body = JSON.stringify(args.request.body);
   const headers = {
     accept: "application/json",
-    authorization: `Bearer ${privateKey}`,
+    authorization: authorization.authorization,
     "content-type": "application/json",
   };
 

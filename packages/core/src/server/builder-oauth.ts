@@ -26,11 +26,15 @@ export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
 export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
+export const BUILDER_CONTENT_READ_SCOPE = "builder:content:read";
+export const BUILDER_CONTENT_WRITE_SCOPE = "builder:content:write";
 export const BUILDER_OAUTH_SCOPES = [
   BUILDER_OAUTH_SCOPE,
   "builder:agents:run",
   "builder:browser:connect",
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
   "builder:projects:read",
   "builder:projects:write",
   "builder:designsystem:read",
@@ -110,6 +114,8 @@ export type BuilderOAuthSession = {
   expiresAt?: number;
   scopes: string[];
   scope: BuilderOAuthScope;
+  /** Opaque identity of the selected stored OAuth credential lane. */
+  connectionId?: string;
 };
 
 export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
@@ -433,6 +439,7 @@ export async function getBuilderOAuthSession(
       expiresAt: credentials.tokenExpiresAt,
       scopes,
       scope: options.scope,
+      connectionId: options.key,
     };
   }
   if (requiredScope && missingRequiredScope) {

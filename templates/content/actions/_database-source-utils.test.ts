@@ -17,6 +17,7 @@ import {
 } from "./_builder-cms-source-adapter";
 import { resolveBuilderCmsWriteEffect } from "./_builder-cms-write-adapter";
 import {
+  assertBuilderCmsContinuationIdentity,
   buildBuilderLocalOutboundChangeSets,
   builderBodyChangeForLocalContent,
   builderBodyChangeForSourceSnapshotDocument,
@@ -106,6 +107,22 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("rejects saved continuation identity drift and cross-page overlap", () => {
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1"],
+      }),
+    ).toThrow(/does not match its saved offset/);
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1", "entry-2"],
+        entries: [{ id: "entry-2" }, { id: "entry-3" }],
+      }),
+    ).toThrow(/repeated an entry from an earlier page/);
+  });
+
   it("page-scopes primary Builder rows without truncating secondary federation", () => {
     expect(
       sourceSnapshotPageDocumentIds({
@@ -405,6 +422,8 @@ describe("database source helpers", () => {
             hasMore: true,
             partial: true,
             readMode: "builder-api",
+            sourceSpacePublicKey: "selected-space-key",
+            sourceConnectionId: "builder-oauth-connection-1",
           },
           sourceFetchState: "fetching",
         }),
@@ -420,6 +439,8 @@ describe("database source helpers", () => {
       lastReadHasMore: true,
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
+      builderSpacePublicKey: "selected-space-key",
+      connectionId: "builder-oauth-connection-1",
     });
   });
 
