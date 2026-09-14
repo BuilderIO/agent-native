@@ -77,6 +77,7 @@ import { cn } from "@/lib/utils";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
 import { SidebarFeedbackButton } from "./sidebar-feedback-button";
+import { getMeetingsSidebarHref } from "./sidebar-nav-hrefs";
 import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
@@ -440,7 +441,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
     },
     {
-      to: meetingsLabEnabled ? "/meetings" : "/settings#lab-clips.meetings",
+      to: getMeetingsSidebarHref(meetingsLabEnabled, CLIPS_MEETINGS.key),
       label: t("navigation.meetings"),
       icon: IconCalendar,
       match: (p) => p.startsWith("/meetings"),
