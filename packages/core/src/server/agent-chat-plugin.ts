@@ -5654,10 +5654,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (listMatch && method === "GET") {
             const query = getQuery(event);
             const goalId = query.goalId ? String(query.goalId) : undefined;
-            const requestedLimit = Number(query.limit);
+            // `limit` is opt-in. MultiTabAssistantChat polls
+            // `?goalId=agent-team` with no limit and drives sub-agent tab state
+            // off the complete list, so a default bound here would silently
+            // drop its tabs.
+            const requestedLimit =
+              query.limit === undefined ? Number.NaN : Number(query.limit);
             const limit = Number.isFinite(requestedLimit)
               ? Math.min(Math.max(Math.floor(requestedLimit), 1), 50)
-              : 5;
+              : undefined;
             const runs = await runWithRequestContext(
               { userEmail: owner, orgId },
               async () => {
@@ -5699,7 +5704,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     })),
                   );
                 }
-                return runs;
+                // Bound every source, not just the chat read, so an explicit
+                // limit actually caps the response. Order by recency first:
+                // slicing the concatenation would let a long background list
+                // starve the chat runs the tray was asking for, and this
+                // matches how the tray itself merges and truncates.
+                if (limit === undefined) return runs;
+                const updatedAt = (run: unknown) =>
+                  (run as { updatedAt?: string })?.updatedAt ?? "";
+                return [...runs]
+                  .sort((a, b) => updatedAt(b).localeCompare(updatedAt(a)))
+                  .slice(0, limit);
               },
             );
             return { status: "ok", goalId, runs };

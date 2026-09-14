@@ -13,7 +13,11 @@ import {
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { recordChange } from "../server/poll.js";
@@ -39,16 +43,51 @@ export const RUN_STALE_MS = 15_000;
  * Announce a run lifecycle transition on the shared `runs` poll source so the
  * Agent runs tray refreshes. The tray is mounted with idle polling disabled in
  * the agent panel, so without this a run that starts or ends between mounts is
- * never picked up. Best-effort and synchronous: poll state is in-memory, and a
- * failure here must never fail the run it is reporting on.
+ * never picked up.
+ *
+ * The event carries the thread's owner and its shareable identity. An event
+ * with no owner, org, or resource tag is delivered to every authenticated user
+ * (`getChangeVisibilityForUser`), which would both fan every user's tray out on
+ * unrelated private chat activity and put a private thread id in a globally
+ * visible payload. `owner` grants the owner immediately; `resourceType` /
+ * `resourceId` let a sharee resolve through the access-aware branch. The owner
+ * fast path matters: the access branch returns "pending" on a cold cache and
+ * drops that event, which for a two-event run lifecycle would hide the whole
+ * running state and only reveal the run once it finished.
+ *
+ * Best-effort: poll delivery is advisory, the tray still polls while a run
+ * reads as active, and a failure here must never fail the run it reports on.
  */
 function bumpRunsPoll(threadId: string): void {
-  try {
-    recordChange({ source: "runs", type: "change", key: threadId });
-  } catch {
-    // coercion-ok: poll notification is advisory; the tray still polls while a
-    // run reads as active, and a missed bump cannot corrupt run state.
-  }
+  void (async () => {
+    // An unresolved owner is not a reason to broadcast: fall back to the
+    // access-gated tags alone rather than emitting a globally visible event.
+    let owner: string | null = null;
+    try {
+      const { rows } = await getDbExec().execute({
+        sql: `SELECT owner_email FROM chat_threads WHERE id = ? LIMIT 1`,
+        args: [threadId],
+      });
+      const value = (rows?.[0] as { owner_email?: unknown } | undefined)
+        ?.owner_email;
+      owner = typeof value === "string" && value.trim() ? value : null;
+    } catch {
+      owner = null;
+    }
+    try {
+      recordChange({
+        source: "runs",
+        type: "change",
+        key: threadId,
+        resourceType: "chat_thread",
+        resourceId: threadId,
+        ...(owner ? { owner } : {}),
+      });
+    } catch {
+      // coercion-ok: a dropped poll notification cannot corrupt run state, and
+      // the tray's active-run polling still converges on the terminal status.
+    }
+  })();
 }
 
 /**
@@ -529,6 +568,18 @@ export async function ensureRunTables(): Promise<void> {
           `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
         );
       }
+      // `agent_runs` had no index beyond its primary key, so every
+      // thread-scoped read and the Agent runs tray's recent-run query scanned
+      // and sorted the whole retained ledger before applying a small LIMIT.
+      // Both run on a poll cadence, so the cost grew with retention.
+      await ensureIndexExists(
+        "idx_agent_runs_started_at",
+        `CREATE INDEX IF NOT EXISTS idx_agent_runs_started_at ON agent_runs (started_at DESC)`,
+      );
+      await ensureIndexExists(
+        "idx_agent_runs_thread_started_at",
+        `CREATE INDEX IF NOT EXISTS idx_agent_runs_thread_started_at ON agent_runs (thread_id, started_at DESC)`,
+      );
       await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
       await ensureColumnExists(
         "agent_run_events",
@@ -1205,7 +1256,7 @@ export async function tryClaimRunSlot(
   if (!client.transaction) {
     throw new Error("Atomic run-slot claims require transaction support");
   }
-  return client.transaction(async (tx) => {
+  const result = await client.transaction(async (tx) => {
     await tx.execute({
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
@@ -1276,9 +1327,12 @@ export async function tryClaimRunSlot(
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to insert claimed run ${runId}`);
     }
-    bumpRunsPoll(threadId);
     return { claimed: true, activeRunId: null };
   });
+  // Announce only after commit. A subscriber that refreshed inside the
+  // transaction would read no row and then never hear about it again.
+  if (result.claimed) bumpRunsPoll(threadId);
+  return result;
 }
 
 /**
@@ -2450,10 +2504,13 @@ export async function markRunAborted(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'`,
+  const { rowsAffected, rows } = await client.execute({
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running' RETURNING thread_id`,
     args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
   });
+  const abortedThreadId = (rows[0] as { thread_id?: string } | undefined)
+    ?.thread_id;
+  if (abortedThreadId) bumpRunsPoll(abortedThreadId);
   if ((rowsAffected ?? 0) > 0) {
     await safeAppendTerminalRunEvent(
       runId,
@@ -2497,11 +2554,16 @@ export async function markTurnAborted(
   const runIds = rows
     .map((row) => String((row as { id?: unknown }).id ?? ""))
     .filter(Boolean);
-  if (runIds.length === 0) return;
+  if (runIds.length === 0) {
+    // The marker row itself is a terminal transition the tray should see.
+    bumpRunsPoll(threadId);
+    return;
+  }
   await client.execute({
     sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
     args: [reason, Date.now(), `aborted:${reason}`, threadId, turnId],
   });
+  bumpRunsPoll(threadId);
   await Promise.all(
     runIds.map((runId) =>
       safeAppendTerminalRunEvent(
