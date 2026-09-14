@@ -784,8 +784,17 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   restored focus to To, and preserved the route and open compose. The compose
   draft was not edited or sent. Automated focus regressions now cover Cmd+K and
   Ctrl+K from To, the two-step Escape behavior, recipient/search preservation,
-  and route preservation. This is Mail-only evidence; paired Superhuman behavior
-  remains unverified.
+  and route preservation. A paired live replay on 2026-09-14 confirmed that
+  Superhuman's Cmd+K opens Command from a selected thread with the search field
+  focused; `shortcuts` filters to Shortcuts, the first Escape clears the query
+  while keeping Command open, and the second closes it and returns focus to the
+  thread. Superhuman's Shortcuts result opens a categorized reference, which
+  closes with Escape. In local Mail, Cmd+K from To with an empty query closes
+  with one Escape, restores To focus, and preserves the synthetic route, search
+  query, and existing draft; automated Cmd+K/Ctrl+K regressions now cover that
+  one-Escape path. No message content was edited and nothing was sent. These
+  paired observations cover thread and recipient focus only; the other
+  SETTINGS-001 contexts remain open.
 - SETTINGS-002 — Open shortcut reference and hover every action. Confirm the
   displayed shortcut is the one that actually runs. Compare US QWERTY with the
   documented Belgian/French/German alternatives for Search, Trash, Tab, snippet,
@@ -839,8 +848,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   compare ordinary attachment/link handling with Superhuman separately. G+A
   routes to `/all`; an isolated, memory-backed browser replay on 2026-09-13
   verified the palette labels and G+A → `/all` / G+E → `/archive` routes.
-  Superhuman paired replay is still pending. The other source findings remain
-  gaps to validate, not runtime parity evidence. On 2026-09-14, a hook test
+  On 2026-09-14, paired desktop replay from a Superhuman thread verified
+  Cmd+K opens Command with search focused, `shortcuts` filters to the Shortcuts
+  result, and the first Escape clears the query while the second closes Command
+  and returns focus to the thread. The Shortcuts result opened the categorized
+  reference and Escape returned to the thread. Empty-query Command dismissal
+  closed in one Escape in both Superhuman and local Mail. This verifies only
+  these Command/Shortcuts paths; the other source findings remain gaps to
+  validate, not runtime parity evidence. On 2026-09-14, a hook test
   exposed a stale-sequence bug: AppLayout's inline sequence list caused the
   listener effect to restart on rerender, canceling the one-second expiry while
   leaving the partial key buffered. `useSequenceShortcuts` now keeps one
@@ -854,15 +869,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Global, Message list, Conversation, and Compose scopes. Escape clears the
   palette query while keeping the reference open; a second Escape closes
   Command, returns to `/all`, restores page focus, and leaves the existing
-  compose panel open. This is Mail-only behavior evidence; paired Superhuman
-  comparison remains unverified. Mail now has a four-scope local
+  compose panel open. Mail now has a four-scope local
   Command → Shortcuts reference (Global, Message list, Conversation, Compose)
   cross-checked against the actual shortcut handlers. Regression coverage
   checks scope-specific mappings including list versus conversation J/K,
-  conversation N/P and Escape, read-state toggling, conversation select-all, and
-  compose send-and-mark-done. This is a partial Mail inventory, not the full
-  Superhuman shortcut baseline; a live paired replay and behavior parity remain
-  unverified.
+  conversation N/P and Escape, read-state toggling, conversation select-all,
+  and compose send-and-mark-done. The paired 2026-09-14 live replay verifies
+  Command/Shortcuts behavior only; the full Superhuman shortcut baseline and
+  behavior parity across its mappings remain unverified.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

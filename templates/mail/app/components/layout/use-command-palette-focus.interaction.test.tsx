@@ -155,6 +155,44 @@ describe("Mail command palette focus recovery", () => {
     { name: "Command", metaKey: true, ctrlKey: false },
     { name: "Control", metaKey: false, ctrlKey: true },
   ])(
+    "closes an empty palette opened with $name+K from To and restores focus",
+    async ({ metaKey, ctrlKey }) => {
+      render(<PaletteHarness />);
+
+      const recipient = screen.getByRole("textbox", { name: "To" });
+      recipient.focus();
+      const shortcutEvent = pressPaletteShortcut(recipient, {
+        metaKey,
+        ctrlKey,
+      });
+      expect(shortcutEvent.defaultPrevented).toBe(true);
+
+      const commandInput =
+        document.querySelector<HTMLInputElement>("[cmdk-input]");
+      expect(commandInput).toBeTruthy();
+      await waitFor(() => expect(document.activeElement).toBe(commandInput));
+      expect(commandInput?.value).toBe("");
+
+      pressEscape();
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(recipient));
+      expect((recipient as HTMLInputElement).value).toBe("");
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: "Mail search",
+          }) as HTMLInputElement
+        ).value,
+      ).toBe(SEARCH_QUERY);
+      expect(screen.getByTestId("route").textContent).toBe(SEARCH_ROUTE);
+    },
+  );
+
+  it.each([
+    { name: "Command", metaKey: true, ctrlKey: false },
+    { name: "Control", metaKey: false, ctrlKey: true },
+  ])(
     "opens with $name+K from To and restores recipient focus on Escape",
     async ({ metaKey, ctrlKey }) => {
       render(<PaletteHarness />);
