@@ -596,6 +596,9 @@ const messages = {
     addSignatureImage: "Ajouter une image",
     signatureImageUploadFailed: "Impossible de téléverser l’image de signature",
     writingStyle: "Style d’écriture",
+    autocomplete: "Saisie automatique",
+    autocompleteSaveFailed:
+      "Impossible d’enregistrer le réglage de saisie automatique.",
     writingStylePlaceholder:
       "Court, précis, chaleureux. Évitez le remplissage formel.",
     saveDraftingSettings: "Enregistrer les paramètres de rédaction",
@@ -684,6 +687,8 @@ const messages = {
     goToDrafts: "Aller aux brouillons",
     goToArchive: "Aller aux archives",
     goToTrash: "Aller a la corbeille",
+    enableAutocomplete: "Activer la saisie automatique",
+    disableAutocomplete: "Désactiver la saisie automatique",
     privacy: "Confidentialité",
     imagesShowAll: "Images : tout afficher",
     imagesBlockTrackers: "Images : bloquer les traqueurs connus",

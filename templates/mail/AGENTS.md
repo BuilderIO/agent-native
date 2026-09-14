@@ -76,7 +76,7 @@ Read the relevant skill before deeper work:
 | `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
 | `get-ai-filter` / `apply-ai-filter` | Reversible AI filtering, feedback, and learned instructions. |
 | `respond-calendar-invite` | Accept/decline/tentative an invite. |
-| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Signature and writing style. |
+| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Signature, writing style, and autocomplete preference. |
 | `manage-snippets` | Saved reply snippets. |
 | `get-tracking` | Open/click stats for a sent message. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw Gmail/Calendar/HubSpot API calls. |

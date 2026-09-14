@@ -593,6 +593,8 @@ const messages = {
     addSignatureImage: "Añadir imagen",
     signatureImageUploadFailed: "No se pudo subir la imagen de la firma",
     writingStyle: "Estilo de escritura",
+    autocomplete: "Autocompletar",
+    autocompleteSaveFailed: "No se pudo guardar el ajuste de autocompletado.",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",
@@ -680,6 +682,8 @@ const messages = {
     goToDrafts: "Ir a borradores",
     goToArchive: "Ir al archivo",
     goToTrash: "Ir a papelera",
+    enableAutocomplete: "Activar autocompletado",
+    disableAutocomplete: "Desactivar autocompletado",
     privacy: "Privacidad",
     imagesShowAll: "Imagenes: mostrar todas",
     imagesBlockTrackers: "Imagenes: bloquear rastreadores conocidos",

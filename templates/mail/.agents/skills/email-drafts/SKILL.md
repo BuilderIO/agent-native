@@ -93,6 +93,11 @@ the settings first, then create the separately requested draft using the
 confirmed settings. A style-setting request alone must leave compose state
 unchanged.
 
+Autocomplete is a separate presentation preference; it changes inline compose
+suggestions and never changes generated draft text. Only change it when the user
+explicitly asks to enable or disable autocomplete. Read the current settings
+first, update only `autocompleteEnabled`, and re-read to verify persistence.
+
 ## How It Works
 
 1. **Write** `writeAppState("compose-{id}", draft)` — the shared application state row changes

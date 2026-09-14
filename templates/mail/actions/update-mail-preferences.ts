@@ -35,6 +35,7 @@ const patchSchema = z.object({
   avatar: z.string().optional(),
   signature: z.string().optional(),
   writingStyle: z.string().optional(),
+  autocompleteEnabled: z.boolean().optional(),
   theme: z.enum(["light", "dark", "system"]).optional(),
   density: z.enum(["compact", "comfortable", "spacious"]).optional(),
   previewPane: z.enum(["right", "bottom", "off"]).optional(),

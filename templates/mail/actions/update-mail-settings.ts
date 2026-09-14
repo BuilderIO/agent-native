@@ -20,11 +20,17 @@ const settingsSchema = z.object({
     .describe(
       "Persistent writing rules for generated drafts. Read the current setting first, merge the requested change, and preserve unrelated rules.",
     ),
+  autocompleteEnabled: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether to show local common-phrase autocomplete while composing.",
+    ),
 });
 
 export default defineAction({
   description:
-    "Update the user's persistent mail drafting settings, including signature and writing style. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
+    "Update the user's persistent mail drafting settings, including signature, writing style, and autocomplete. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
   schema: settingsSchema,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
@@ -42,6 +48,9 @@ export default defineAction({
     if (args.writingStyle !== undefined) {
       updates.writingStyle = args.writingStyle.trim();
     }
+    if (args.autocompleteEnabled !== undefined) {
+      updates.autocompleteEnabled = args.autocompleteEnabled;
+    }
 
     const next = {
       ...current,
@@ -54,6 +63,7 @@ export default defineAction({
       email: next.email || ownerEmail,
       signature: next.signature ?? "",
       writingStyle: next.writingStyle ?? "",
+      autocompleteEnabled: next.autocompleteEnabled === true,
     };
   },
 });

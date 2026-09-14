@@ -204,6 +204,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   layout, scroll and focus, and draft persistence after leaving and reopening.
   Exercise mocked send failure and recovery. Keep notification Quick Reply as
   the distinct SEND-009 case; never send during the default pass.
+- THREAD-017 — Open message details from the sender/header area. Record how SH
+  reveals full From/To/Cc/Bcc addresses, sent/received time, and account; then
+  repeat for each message in a multi-message thread. Exercise copy-address
+  controls, keyboard focus, Escape/outside-click dismissal, missing or malformed
+  headers, and clipboard permission denial. In Mail, verify copied values are
+  exact and no detail panel changes recipients or draft state. Capture SH's
+  precise affordances and dismissal rules side by side rather than assuming
+  them. Close the details view and confirm the original thread/message focus.
 
 ## Compose, recipients, and autocomplete
 
@@ -228,13 +236,23 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   all, keyboard navigation, and contenteditable focus transitions. If
   autocorrect changes a word, use Cmd/Ctrl+Z to undo that correction, then test
   the offered “Learn word” action without losing adjacent draft text.
-- COMPOSE-007 — Test Superhuman-style word/phrase autocomplete reference states:
-  enable it in Settings and disable it from Settings and Command; verify a
-  gray inline suggestion in the current draft, accept with Tab or Right Arrow,
-  dismiss with Escape or continued typing, and confirm no suggestion when the
-  feature is off. The reference is desktop-only, English-only, and uses the
-  current draft plus a common-phrase library rather than learning from prior
-  emails or drafts; record Mail as a gap until it has an intentional equivalent.
+- COMPOSE-007 — Autocomplete. In SH, record the initial preference, enable it
+  in Settings, and disable/enable it again from Cmd/Ctrl+K. Type matching phrase
+  prefixes in a new message, reply, inline reply, and popped-out draft. Compare
+  the gray inline suffix, timing, caret placement, wrapping, and exact suggestion
+  against Mail. Accept with Tab and Right Arrow; confirm each suffix is inserted
+  exactly once and saved as body text. Dismiss with Escape (then verify the next
+  Escape follows the normal compose-close behavior) or by continuing to type.
+  Try upper/lower case, partial words, trailing spaces, punctuation, paragraph
+  boundaries, cursor-in-middle, a selection, link/code marks, paste, and a
+  suggestion that changes as the current draft changes. Confirm no suggestion
+  on mobile or when disabled, native Tab/Right Arrow behavior without a live
+  suggestion, and that an unaccepted gray suffix is never saved or sent. Verify
+  settings survive reload and a second compose surface. The reference is
+  desktop-only and English-only; it uses the current draft and common phrases,
+  not prior emails or drafts. Mail currently uses a small deterministic local
+  phrase list, so keyboard/state parity is partial and prediction quality,
+  timing, and exact visual parity remain unverified until paired browser replay.
 - COMPOSE-008 — Use slash menu, generate/agent handoff, code block language
   picker, link dialog, image paste/drop/upload/failure, and toolbar
   button focus/tooltip states.
@@ -361,6 +379,28 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   suggestions/versions/placeholders, user review, disablement, and recovery.
   Confirm an AI draft is never sent automatically. Treat plan-gated features as
   a documented product gap when they are unavailable, not as a failed test.
+- ORGANIZE-007 — Create a disposable filter/rule from Settings and, if SH
+  exposes it, from a message. Use synthetic messages that separately match
+  sender, recipient, subject, and label criteria; exercise AND/OR combinations,
+  empty/invalid criteria, duplicate rules, enable/disable, edit, reorder if
+  available, delete/cancel, and apply-to-existing if offered. Deliver matching
+  and nonmatching fixtures through the synthetic provider; verify resulting
+  folder/label/read state and counts, then refresh and reopen Settings. Record
+  SH's available criteria, precedence, preview, and retroactive-apply semantics
+  rather than inferring them. Remove the disposable rule and its fixtures.
+
+## Account connection and recovery
+
+- ACCOUNT-001 — Using a mocked OAuth/provider boundary and synthetic accounts,
+  exercise add-account start/cancel, consent success, denied consent, missing
+  scopes, expired authorization, reconnect, duplicate account identity, and
+  disconnect. After each transition verify account-picker state, affected
+  mailbox coverage, error/retry affordance, and whether cached rows remain
+  distinguishable from current provider data. Confirm disconnect/reconnect does
+  not silently retarget an open draft or mutate another account. Record SH's
+  exact confirmation, cache, and recovery behavior side by side; do not connect,
+  disconnect, or modify a real mailbox. Remove synthetic accounts and reset
+  provider mocks after the case.
 
 ## Splits, calendar, and collaboration
 

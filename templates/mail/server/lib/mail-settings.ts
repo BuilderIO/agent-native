@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   email: "",
   signature: "",
   writingStyle: "",
+  autocompleteEnabled: false,
   theme: "dark",
   density: "comfortable",
   previewPane: "right",
@@ -150,6 +151,10 @@ export function normalizeMailSettings(
       ...(dataWithoutSavedFilters as Partial<UserSettings>),
       email: (data as Partial<UserSettings>).email || email,
       signature: normalizeSignature((data as Partial<UserSettings>).signature),
+      autocompleteEnabled:
+        typeof data.autocompleteEnabled === "boolean"
+          ? data.autocompleteEnabled
+          : DEFAULT_SETTINGS.autocompleteEnabled,
       ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }

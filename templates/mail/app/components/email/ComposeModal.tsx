@@ -898,6 +898,7 @@ export function ComposeModal({
             showQuoted={showQuoted}
             setShowQuoted={setShowQuoted}
             signature={settings?.signature}
+            autocompleteEnabled={settings?.autocompleteEnabled ?? false}
             onUploadImage={handleUploadImage}
           />
 
@@ -1071,6 +1072,7 @@ function ComposeBody({
   showQuoted,
   setShowQuoted,
   signature,
+  autocompleteEnabled,
   onUploadImage,
 }: {
   activeDraft: ComposeState;
@@ -1090,6 +1092,7 @@ function ComposeBody({
   showQuoted: boolean;
   setShowQuoted: (show: boolean) => void;
   signature?: string;
+  autocompleteEnabled: boolean;
   onUploadImage: (file: File) => Promise<string>;
 }) {
   const t = useT();
@@ -1149,6 +1152,7 @@ function ComposeBody({
         onClose={() => onClose(activeId)}
         onFlush={() => onFlush(activeId)}
         isGenerating={isGenerating}
+        autocompleteEnabled={autocompleteEnabled}
         draftId={activeId}
         getCurrentDraftBody={(editor) =>
           getCurrentDraftBodyFromEditor({

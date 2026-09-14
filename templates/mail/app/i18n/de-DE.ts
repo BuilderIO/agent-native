@@ -598,6 +598,9 @@ const messages = {
     signatureImageUploadFailed:
       "Das Signaturbild konnte nicht hochgeladen werden",
     writingStyle: "Schreibstil",
+    autocomplete: "Autovervollständigung",
+    autocompleteSaveFailed:
+      "Die Autovervollständigungseinstellung konnte nicht gespeichert werden.",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",
     saveDraftingSettings: "Entwurfseinstellungen speichern",
@@ -686,6 +689,8 @@ const messages = {
     goToDrafts: "Zu Entwurfen",
     goToArchive: "Zum Archiv",
     goToTrash: "Zum Papierkorb",
+    enableAutocomplete: "Autovervollständigung aktivieren",
+    disableAutocomplete: "Autovervollständigung deaktivieren",
     privacy: "Datenschutz",
     imagesShowAll: "Bilder: alle anzeigen",
     imagesBlockTrackers: "Bilder: bekannte Tracker blockieren",

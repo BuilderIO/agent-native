@@ -553,6 +553,7 @@ export const InlineReplyComposer = forwardRef<
           onClose={() => onClose(draft.id)}
           onFlush={() => onFlush(draft.id)}
           isGenerating={isGenerating}
+          autocompleteEnabled={settings?.autocompleteEnabled ?? false}
           draftId={draft.id}
           getCurrentDraftBody={(editor) =>
             getCurrentDraftBodyFromEditor({

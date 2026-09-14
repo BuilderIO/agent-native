@@ -25,6 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { getNextTheme, getResolvedTheme } from "@/lib/theme";
@@ -102,9 +103,10 @@ export function CommandPalette({
   const navigate = useNavigate();
   const { resolvedTheme, setTheme, theme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
-  const { data: settings } = useSettings();
+  const { data: settings, isLoading: settingsLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const imagePolicy = settings?.imagePolicy ?? "show";
+  const autocompleteEnabled = settings?.autocompleteEnabled ?? false;
 
   return (
     <CommandMenu
@@ -125,6 +127,34 @@ export function CommandPalette({
           {t("commandPalette.compose")}
           <CommandMenu.Shortcut>C</CommandMenu.Shortcut>
         </CommandMenu.Item>
+        {!settingsLoading && settings && (
+          <CommandMenu.Item
+            onSelect={() => {
+              if (updateSettings.isPending) return;
+              updateSettings.mutate(
+                {
+                  autocompleteEnabled: !autocompleteEnabled,
+                },
+                {
+                  onError: (error) =>
+                    toast.error(
+                      error instanceof Error
+                        ? error.message
+                        : t("settings.autocompleteSaveFailed"),
+                    ),
+                },
+              );
+            }}
+            keywords={["autocomplete", "completion", "writing", "suggestions"]}
+          >
+            <IconPencil className="h-4 w-4" />
+            {t(
+              autocompleteEnabled
+                ? "commandPalette.disableAutocomplete"
+                : "commandPalette.enableAutocomplete",
+            )}
+          </CommandMenu.Item>
+        )}
         {onReply && (
           <CommandMenu.Item onSelect={onReply} keywords={["reply", "respond"]}>
             <IconCornerUpLeft className="h-4 w-4 rtl:-scale-x-100" />
