@@ -278,12 +278,16 @@ const VECTOR_PRIMITIVE_KINDS = new Set([
   "arrow",
   "polygon",
   "star",
+  "rect",
+  "rectangle",
+  "ellipse",
+  "circle",
 ]);
 
 /**
- * True for a pen path, line, arrow, polygon, or star. Their paint is SVG
- * `fill`/`stroke` on the shape child, not `background`/`border` on the box —
- * see `vectorPaintTarget` (bridge) and `vectorPaintChild` (code-layer).
+ * True for SVG vector wrappers. Their paint is SVG `fill`/`stroke` on the
+ * shape child, not `background`/`border` on the box — see `vectorPaintTarget`
+ * (bridge) and `vectorPaintChild` (code-layer).
  */
 export function isVectorShapeElement(element: ElementInfo): boolean {
   // The board's migrated polygons and stars are plain divs carrying the same
@@ -317,6 +321,10 @@ export function isTextElement(element: ElementInfo): boolean {
   if (nodeId.startsWith("draft-rect-") || nodeId.startsWith("draft-frame-")) {
     return false;
   }
+  // A selected element can own a text node and also contain inline children,
+  // as with a headline split by a styled span. The bridge reports direct text
+  // ownership explicitly; the childless fallback below cannot recognize it.
+  if (element.hasOwnText !== undefined) return element.hasOwnText;
   // Fallback for payloads with no primitive marker at all: approximate a
   // text node with a content heuristic — a childless div that has its own
   // text content. This intentionally excludes empty frames/shapes (no text)

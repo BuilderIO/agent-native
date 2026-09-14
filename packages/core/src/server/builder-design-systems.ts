@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { DesignSystemSourceInput } from "@builder.io/ai-utils";
 
+import { fail } from "../action.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   resolveBuilderRequestAuthorization,
@@ -741,6 +742,27 @@ async function assertOk(response: Response, label: string): Promise<void> {
   );
 }
 
+async function assertBuilderDesignSystemIndexOk(
+  response: Response,
+): Promise<void> {
+  if (response.ok) return;
+
+  const message = await parseErrorBody(response);
+  if (
+    response.status === 409 &&
+    /design system name already exists in this scope/i.test(message)
+  ) {
+    fail(
+      "A design system with this name already exists. Choose a different name and try again.",
+      { statusCode: 409, errorCode: "design_system_name_conflict" },
+    );
+  }
+
+  throw new Error(
+    `Builder design-system indexing failed (${response.status}): ${message}`,
+  );
+}
+
 // GCS reports the highest committed byte in a `Range: bytes=0-<end>` header.
 function committedOffsetFromRange(response: Response): number | null {
   const match = response.headers.get("Range")?.match(/bytes=0-(\d+)/);
@@ -1371,7 +1393,7 @@ export async function indexBuilderDesignSystem(
     },
     idempotencyKey,
   );
-  await assertOk(index, "Builder design-system indexing failed");
+  await assertBuilderDesignSystemIndexOk(index);
   const indexed = (await index.json()) as IndexResponse;
   if (!indexed.designSystemId) {
     throw new Error(

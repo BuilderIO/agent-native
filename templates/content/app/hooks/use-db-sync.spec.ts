@@ -66,6 +66,7 @@ describe("contentActionInvalidatePredicate", () => {
 
   it.each([
     "create-resource-suggestion",
+    "suggest-document-edit",
     "update-resource-suggestion",
     "decide-resource-suggestion",
   ])("refreshes current-document suggestions after %s", (action) => {
@@ -86,6 +87,7 @@ describe("contentActionInvalidatePredicate", () => {
 
   it.each([
     "create-resource-suggestion",
+    "suggest-document-edit",
     "decide-resource-suggestion",
     "create-review-comment",
     "reply-review-comment",

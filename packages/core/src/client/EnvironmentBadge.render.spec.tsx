@@ -261,6 +261,7 @@ describe("EnvironmentBadge render", () => {
 
     const popover = document.body.querySelector('[data-side="top"]');
     expect(popover?.getAttribute("data-align")).toBe("start");
+    expect(popover?.textContent).toContain("You're on Agent-Native Alpha");
 
     const productionLink = [...document.body.querySelectorAll("a")].find(
       (link) => link.textContent?.includes("Switch to production"),

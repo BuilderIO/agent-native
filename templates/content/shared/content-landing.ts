@@ -3,6 +3,8 @@ export const CONTENT_WELCOME_PAGE_STATE_KEY = "content-welcome-page-v1";
 
 export type ContentLastLocationState = {
   documentId: string;
+  /** Title of the page when it last loaded; absent on older writes. */
+  title?: string;
 };
 
 export type ContentWelcomePageState = {

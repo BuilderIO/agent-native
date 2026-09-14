@@ -1,6 +1,8 @@
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
+  type CodeLayerNode,
+  type CodeLayerProjection,
 } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -19,6 +21,20 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { shouldUseRuntimeLayerProjection } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+function getSourceParentNodeId(
+  projection: CodeLayerProjection,
+  node: CodeLayerNode,
+): string | undefined {
+  if (!node.parentId) return undefined;
+  const parent = projection.nodes.find(
+    (candidate) => candidate.id === node.parentId,
+  );
+  if (parent?.dataAttributes["data-agent-native-group-wrapper"] !== "true") {
+    return undefined;
+  }
+  return parent.dataAttributes["data-agent-native-node-id"];
+}
 
 export interface GetSelectedLayerSnapshotsArgs {
   activeFile: DesignFile;
@@ -99,6 +115,7 @@ export function runGetSelectedLayerSnapshots({
       snapshots.push({
         html,
         rootNodeId: node.dataAttributes["data-agent-native-node-id"] ?? node.id,
+        sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: file.id,
         portableStyleSnapshot,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(
@@ -143,6 +160,7 @@ export function runGetSelectedLayerSnapshots({
           node.dataAttributes["data-agent-native-node-id"] ??
           selectedElement.sourceId ??
           selectedElement.id,
+        sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: activeFile.id,
         portableStyleSnapshot: selectedElement.portableStyleSnapshot,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(

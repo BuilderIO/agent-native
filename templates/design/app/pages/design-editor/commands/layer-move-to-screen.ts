@@ -59,6 +59,7 @@ export interface LayerMoveToScreenArgs {
   effectiveCodeLayerState: EffectiveCodeLayerState;
   files: DesignFile[];
   getFreshActiveContent: () => string;
+  getScreenContent: (screenId: string) => string;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryEntry: (change: ContentHistoryChange) => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
@@ -83,6 +84,7 @@ export function runLayerMoveToScreen(
     effectiveCodeLayerState,
     files,
     getFreshActiveContent,
+    getScreenContent,
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
     runtimeStructureInsertRevisionRef,
@@ -101,7 +103,9 @@ export function runLayerMoveToScreen(
   const destContent =
     targetFileId === activeFile?.id
       ? freshActiveContent
-      : (destFile?.content ?? "");
+      : destFile
+        ? getScreenContent(targetFileId)
+        : "";
   if (!destContent) return;
 
   if (isStandaloneHttpUrl(destContent)) {
@@ -131,12 +135,11 @@ export function runLayerMoveToScreen(
       });
       return;
     }
-    const sourceFile = files.find((file) => file.id === draggedOwner.fileId);
     const sourceContent = getLayerMoveSourceContent({
       sourceFileId: draggedOwner.fileId,
       activeFileId: activeFile?.id,
       activeContent: freshActiveContent,
-      sourceFileContent: sourceFile?.content,
+      sourceFileContent: getScreenContent(draggedOwner.fileId),
       sourceContentMap: new Map(),
     });
     const nodeId =
@@ -174,6 +177,20 @@ export function runLayerMoveToScreen(
   for (const draggedId of intent.draggedIds) {
     const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
     if (!draggedOwner || effectiveCodeLayerState.lockedIds.has(draggedId)) {
+      continue;
+    }
+    if (draggedOwner.runtimeOnly) {
+      // A runtime-only node (an Alpine x-for clone, script-appended DOM, …)
+      // has no counterpart in this screen's saved sourceHtml, so the
+      // moveNodeBetweenDocuments/applyVisualEdit calls below can never
+      // resolve its id there — they'd fail with a raw "Node with
+      // data-agent-native-node-id=... not found in sourceHtml" error text
+      // instead of moving anything. Refuse with the same plain-language,
+      // already-localized copy every other move failure in this function
+      // uses, rather than let that technical message reach the user.
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
       continue;
     }
     movedNodeSnapshots.set(draggedId, draggedOwner.node);
@@ -228,7 +245,7 @@ export function runLayerMoveToScreen(
       sourceFileId,
       activeFileId: activeFile?.id,
       activeContent: freshActiveContent,
-      sourceFileContent: srcFile.content,
+      sourceFileContent: getScreenContent(sourceFileId),
       sourceContentMap,
     });
     if (!sourceOriginalContentMap.has(sourceFileId)) {
