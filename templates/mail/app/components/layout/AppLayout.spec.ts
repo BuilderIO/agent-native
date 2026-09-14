@@ -117,8 +117,10 @@ describe("AppLayout inbox tab bar", () => {
       "escapeDismissRef.current = !commandInput?.value",
     );
     expect(focusHook).toContain(
-      "returnFocusTarget.focus({ preventScroll: true })",
+      "const focusTarget = returnFocusTarget?.isConnected",
     );
+    expect(focusHook).toContain("document.getElementById(returnFocusTargetId)");
+    expect(focusHook).toContain("focusTarget.focus({ preventScroll: true })");
   });
 
   it("uses the tab cog to persist and apply the combined inbox preference", () => {
