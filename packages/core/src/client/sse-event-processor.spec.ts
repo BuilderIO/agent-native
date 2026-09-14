@@ -2641,6 +2641,95 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("does not let a rendered custom UI hide a tool that failed after it", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Rendering the widget." },
+          {
+            type: "tool_start",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            result: '{"rendered":true}',
+            chatUI: { renderer: "core.inline-extension" },
+          },
+          {
+            type: "tool_start",
+            tool: "provider-api-request",
+            id: "call-2",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "provider-api-request",
+            id: "call-2",
+            result: "Error running provider-api-request: rate limited.",
+            isError: true,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-custom-ui-then-failure",
+      ),
+    );
+
+    expect(results.at(-1)?.metadata).toMatchObject({
+      custom: { runWarning: { failedTools: ["provider-api-request"] } },
+    });
+  });
+
+  it("keeps a custom UI result terminal when the failure came before it", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Trying the API, then rendering." },
+          {
+            type: "tool_start",
+            tool: "provider-api-request",
+            id: "call-1",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "provider-api-request",
+            id: "call-1",
+            result: "Error running provider-api-request: rate limited.",
+            isError: true,
+          },
+          {
+            type: "tool_start",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "render-inline-extension",
+            id: "call-ui",
+            result: '{"rendered":true}',
+            chatUI: { renderer: "core.inline-extension" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-failure-then-custom-ui",
+      ),
+    );
+
+    expect(
+      (results.at(-1)?.metadata as { custom?: { runWarning?: unknown } })
+        ?.custom?.runWarning,
+    ).toBeUndefined();
+  });
+
   it("keeps the completed-action note when the trailing tools all succeeded", async () => {
     const results = await drain(
       readSSEStream(

@@ -1374,6 +1374,7 @@ export function appendMissingFinalResponseWarning(
     ),
   ];
   let lastToolIndex = -1;
+  let lastToolResultFailed = false;
   const materializedToolNames = new Set<string>();
   for (let index = lastTextIndex + 1; index < content.length; index++) {
     const part = content[index];
@@ -1383,10 +1384,15 @@ export function appendMissingFinalResponseWarning(
       part.result !== undefined
     ) {
       lastToolIndex = index;
+      lastToolResultFailed = part.isError === true;
       materializedToolNames.add(part.toolName);
     }
   }
-  if (hasCompletedCustomUi(content)) return null;
+  // A rendered custom UI is a legitimate final answer only when nothing failed
+  // after it. `hasCompletedCustomUi` skips errored results, so without this a
+  // widget followed by a failing tool would silently claim the turn finished —
+  // the same verdict the run manager makes from the last tool_done.
+  if (!lastToolResultFailed && hasCompletedCustomUi(content)) return null;
   if (successfulToolNames.length === 0 && lastTextIndex > lastToolIndex) {
     return null;
   }
