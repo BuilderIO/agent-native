@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyInlineAttachment,
+  describeInlineBlockReason,
   formatBase64CharBudget,
   isInlineVisionMediaType,
   MAX_INLINE_FILE_BASE64_CHARS,
@@ -64,6 +65,59 @@ describe("classifyInlineAttachment", () => {
       kind: "unsupported-image-format",
       mediaType: "image/heic",
     });
+  });
+
+  // translate-anthropic renders every non-PDF file part as a bare
+  // "[Attached file: name (type)]" placeholder, so calling a DOCX readable
+  // invites the model to invent its contents.
+  it("does not call a generic binary readable just because it is small", () => {
+    expect(
+      classifyInlineAttachment({
+        type: "file",
+        name: "notes.docx",
+        contentType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        data: "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,UEsDBA==",
+      }),
+    ).toMatchObject({ kind: "unsupported-file-format" });
+  });
+
+  it("keeps PDFs, text, and spreadsheets readable", () => {
+    expect(
+      classifyInlineAttachment({
+        type: "file",
+        name: "report.pdf",
+        contentType: "application/pdf",
+        data: "data:application/pdf;base64,JVBERi0x",
+      }),
+    ).toBeNull();
+    // Spreadsheets are readable because preUploadAttachments injects a parsed
+    // text preview of the cells alongside the attachment.
+    expect(
+      classifyInlineAttachment({
+        type: "file",
+        name: "budget.xlsx",
+        contentType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        data: "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,UEsDBA==",
+      }),
+    ).toBeNull();
+  });
+
+  it("describes each block reason without implying storage would fix it", () => {
+    expect(
+      describeInlineBlockReason({
+        kind: "over-inline-limit",
+        maxChars: MAX_INLINE_IMAGE_BASE64_CHARS,
+        actualChars: 9_000_000,
+      }),
+    ).toBe("over the 3.6 MB inline limit");
+    expect(
+      describeInlineBlockReason({
+        kind: "unsupported-image-format",
+        mediaType: "image/heic",
+      }),
+    ).toContain("image/heic");
   });
 
   it("holds files to the stricter file_url ceiling", () => {

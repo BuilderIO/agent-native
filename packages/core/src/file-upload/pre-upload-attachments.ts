@@ -3,7 +3,11 @@ import {
   isSpreadsheetDocument,
   parseSpreadsheetDocument,
 } from "../ingestion/spreadsheet.js";
-import { classifyInlineAttachment } from "./inline-attachment-limits.js";
+import {
+  classifyInlineAttachment,
+  describeInlineBlockReason,
+  type InlineAttachmentBlockReason,
+} from "./inline-attachment-limits.js";
 import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
 
 export interface PreUploadedImageAttachment {
@@ -150,6 +154,11 @@ async function parseSpreadsheetAttachment(
   }
 }
 
+interface StorageGapEntry {
+  label: string;
+  reason: InlineAttachmentBlockReason;
+}
+
 function quoteNames(names: string[]): string {
   return names.map((name) => `"${name}"`).join(", ");
 }
@@ -158,20 +167,20 @@ function quoteNames(names: string[]): string {
  * Model-visible account of what storage did and did not do to the attachments.
  *
  * The contract this enforces: a missing storage provider is reported as a
- * missing durable URL, never as a missing or oversized attachment. Attached
- * images are vision input and reach the model whether or not storage exists,
- * so the storage card must not be the answer to "read this photo".
+ * missing durable URL, never as a missing or oversized attachment, and never
+ * as the cure for one. Attached images are vision input and reach the model
+ * whether or not storage exists, so the storage card must not be the answer to
+ * "read this photo" — nor to "this photo is too big to read", where connecting
+ * storage buys a reference URL and no readability at all.
  */
 function buildStorageStatusLines(args: {
   providerMissing: boolean;
   uploadFailed: boolean;
   uploadError: string | undefined;
   readableWithoutStorage: string[];
-  unreadableWithoutStorage: string[];
+  unreadableWithoutStorage: StorageGapEntry[];
 }): string[] {
   const { readableWithoutStorage, unreadableWithoutStorage } = args;
-  const needsConnectCard =
-    args.providerMissing && unreadableWithoutStorage.length > 0;
   const isError = unreadableWithoutStorage.length > 0 || args.uploadFailed;
   const tag = isError
     ? "chat-file-attachment-upload-error"
@@ -188,9 +197,16 @@ function buildStorageStatusLines(args: {
   }
 
   if (unreadableWithoutStorage.length > 0) {
+    const detailed = unreadableWithoutStorage
+      .map(
+        (entry) =>
+          `"${entry.label}" (${describeInlineBlockReason(entry.reason)})`,
+      )
+      .join(", ");
     body.push(
-      `These attachments have no durable storage URL and you could not read their contents this turn: ${quoteNames(unreadableWithoutStorage)}.`,
-      "Give the user the specific reason stated for each attachment above. Do not invent a size limit, and do not describe a storage-configuration problem as a size problem or the reverse.",
+      `You could not read the contents of these attachments this turn: ${detailed}.`,
+      "Give the user that specific reason. Do not invent a size limit, and do not describe a storage-configuration problem as a size problem or the reverse.",
+      "Connecting file storage would give these a durable reference URL; it would NOT make their contents readable. Never tell the user that connecting storage will let you read them. Offer `connect-file-storage` only if the user wants a stored copy or a link to share.",
     );
   }
 
@@ -204,12 +220,6 @@ function buildStorageStatusLines(args: {
     body.push(
       `A configured object-storage provider failed to upload an attachment${args.uploadError ? `: ${escapeXmlAttr(args.uploadError)}` : "."}`,
       "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
-    );
-  }
-
-  if (needsConnectCard) {
-    body.push(
-      "Call `connect-file-storage` to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage.",
     );
   }
 
@@ -270,7 +280,7 @@ export async function preUploadAttachments(opts: {
   let uploadFailed = false;
   let uploadError: string | undefined;
   const readableWithoutStorage: string[] = [];
-  const unreadableWithoutStorage: string[] = [];
+  const unreadableWithoutStorage: StorageGapEntry[] = [];
 
   if (list.length === 0) {
     return {
@@ -290,10 +300,11 @@ export async function preUploadAttachments(opts: {
   // unreadable oversized file that needed storage connected.
   const recordStorageGap = (att: AgentChatAttachment) => {
     const label = att.name || att.type || "attachment";
-    if (classifyInlineAttachment(att) === null) {
+    const reason = classifyInlineAttachment(att);
+    if (reason === null) {
       readableWithoutStorage.push(label);
     } else {
-      unreadableWithoutStorage.push(label);
+      unreadableWithoutStorage.push({ label, reason });
     }
   };
 

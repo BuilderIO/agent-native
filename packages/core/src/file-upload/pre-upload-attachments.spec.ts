@@ -449,9 +449,33 @@ describe("preUploadAttachments", () => {
     });
 
     expect(result.readableWithoutStorage).toEqual([]);
-    expect(result.injectedText).toContain("could not read their contents");
+    expect(result.injectedText).toContain("could not read the contents");
+    expect(result.injectedText).toContain("over the 0.7 MB inline limit");
     expect(result.injectedText).toContain("Do not invent a size limit");
-    expect(result.injectedText).toContain("connect-file-storage");
+    // Storage buys a reference URL, never readability. Offering the card as
+    // the cure for an over-limit file is the original bug in a new costume.
+    expect(result.injectedText).toContain(
+      "would NOT make their contents readable",
+    );
+  });
+
+  it("does not promise that a small DOCX is readable without storage", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const att = makeFileAtt({
+      name: "notes.docx",
+      contentType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      data: "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,UEsDBA==",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readableWithoutStorage).toEqual([]);
+    expect(result.injectedText).toContain("not a document format");
   });
 
   it("handles an empty attachment list gracefully", async () => {
