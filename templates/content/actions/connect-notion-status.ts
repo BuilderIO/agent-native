@@ -1,10 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { findConnectedMcpServersForProvider } from "@agent-native/core/mcp-client";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-  resolveSecret,
-} from "@agent-native/core/server";
+import { getRequestOrgId, resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { getNotionConnectionForOwner } from "../server/lib/notion.js";
