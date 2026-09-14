@@ -364,6 +364,14 @@ export function validateTrustedAcceptanceReaper(
     issues.push("reaper must use the generic protected profile mapping");
   if (!source.includes("controller.ts reap"))
     issues.push("reaper must invoke the trusted runtime-authority controller");
+  if (
+    !source.includes("workspace.enabled === true") ||
+    !source.includes("selected.length > 0") ||
+    !source.includes("needs.plan.outputs.has_workspaces == 'true'")
+  )
+    issues.push(
+      "reaper must skip disabled workspaces and an empty schedule matrix",
+    );
   return { ok: issues.length === 0, issues };
 }
 
