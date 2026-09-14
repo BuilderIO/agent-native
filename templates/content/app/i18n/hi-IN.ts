@@ -919,6 +919,8 @@ const sidebarPinned = {
   moveToPosition: "स्थान पर ले जाएँ",
   positionNumber: "स्थान {{position}}",
   failedSaveOrder: "क्रम सहेजा नहीं जा सका",
+  addedPageToCollection: "{{page}} को {{collection}} में जोड़ा गया",
+  failedAddPageToCollection: "पेज को संग्रह में नहीं जोड़ा जा सका",
   moreActionsFor: "{{label}} के लिए और कार्रवाइयाँ",
   orderButton: "क्रम: {{order}}",
   orderMode: {

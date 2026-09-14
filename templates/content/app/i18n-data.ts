@@ -1360,6 +1360,8 @@ const enUS = {
     moveToPosition: "Move to position",
     positionNumber: "Position {{position}}",
     failedSaveOrder: "Could not save order",
+    addedPageToCollection: "Added {{page}} to {{collection}}",
+    failedAddPageToCollection: "Could not add the page to the collection",
     moreActionsFor: "More actions for {{label}}",
     orderButton: "Order: {{order}}",
     orderMode: {

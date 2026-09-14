@@ -932,6 +932,8 @@ const sidebarPinned = {
   moveToPosition: "指定位置に移動",
   positionNumber: "位置 {{position}}",
   failedSaveOrder: "並び順を保存できませんでした",
+  addedPageToCollection: "{{page}} を {{collection}} に追加しました",
+  failedAddPageToCollection: "ページをコレクションに追加できませんでした",
   moreActionsFor: "{{label}} のその他の操作",
   orderButton: "並び順: {{order}}",
   orderMode: {

@@ -113,6 +113,8 @@ const sidebarPinned = {
   moveToPosition: "移至位置",
   positionNumber: "第 {{position}} 個位置",
   failedSaveOrder: "無法儲存排序",
+  addedPageToCollection: "已將 {{page}} 加入 {{collection}}",
+  failedAddPageToCollection: "無法將頁面加入集合",
   moreActionsFor: "{{label}} 的更多操作",
   orderButton: "排序：{{order}}",
   orderMode: {
@@ -1475,6 +1477,8 @@ const overrides = {
     moveToPosition: "移至位置",
     positionNumber: "第 {{position}} 個位置",
     failedSaveOrder: "無法儲存排序",
+    addedPageToCollection: "已將 {{page}} 加入 {{collection}}",
+    failedAddPageToCollection: "無法將頁面加入集合",
     moreActionsFor: "{{label}} 的更多操作",
     orderButton: "排序：{{order}}",
     orderMode: {

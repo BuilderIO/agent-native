@@ -958,6 +958,9 @@ const sidebarPinned = {
   moveToPosition: "An Position verschieben",
   positionNumber: "Position {{position}}",
   failedSaveOrder: "Reihenfolge konnte nicht gespeichert werden",
+  addedPageToCollection: "{{page}} zu {{collection}} hinzugefügt",
+  failedAddPageToCollection:
+    "Die Seite konnte der Sammlung nicht hinzugefügt werden",
   moreActionsFor: "Weitere Aktionen für {{label}}",
   orderButton: "Reihenfolge: {{order}}",
   orderMode: {

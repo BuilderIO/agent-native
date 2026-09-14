@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   constrainedSidebarTransform,
+  crossParentSidebarDropTarget,
   isSidebarDragReleaseClick,
   isPointerSidebarDrag,
   reorderedSidebarItemIds,
@@ -103,5 +104,23 @@ describe("reorderedSidebarItemIds", () => {
 
     expect(announcement).toBe("Reordering Child B. Position 1.");
     expect(announcement).not.toContain("child-b");
+  });
+});
+
+describe("crossParentSidebarDropTarget", () => {
+  it("surfaces the drop reordering refuses", () => {
+    expect(crossParentSidebarDropTarget(items, "two", "child-a")).toBe(
+      "child-a",
+    );
+    expect(reorderedSidebarItemIds(items, "two", "child-a")).toEqual(
+      items.map((entry) => entry.id),
+    );
+  });
+
+  it("stays null for same-parent, self, unknown, and own-child drops", () => {
+    expect(crossParentSidebarDropTarget(items, "one", "two")).toBeNull();
+    expect(crossParentSidebarDropTarget(items, "one", "one")).toBeNull();
+    expect(crossParentSidebarDropTarget(items, "one", "missing")).toBeNull();
+    expect(crossParentSidebarDropTarget(items, "one", "child-a")).toBeNull();
   });
 });

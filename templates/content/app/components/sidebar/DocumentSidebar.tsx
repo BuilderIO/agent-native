@@ -395,6 +395,7 @@ function WorkspaceSidebarItem({
   onCreateChildDatabase,
   onDeleteItem,
   onToggleFavorite,
+  onAddPageToCollection,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
@@ -418,6 +419,10 @@ function WorkspaceSidebarItem({
   ) => void;
   onDeleteItem: (item: ContentDatabaseItem) => void;
   onToggleFavorite: (item: ContentDatabaseItem) => void;
+  onAddPageToCollection: (
+    page: ContentDatabaseItem,
+    collection: ContentDatabaseItem,
+  ) => void;
 }) {
   const t = useT();
   const [localWorkingCopies, setLocalWorkingCopies] = useState<
@@ -825,6 +830,7 @@ function WorkspaceSidebarItem({
                       labels: reorderLabels,
                       onReorder: (itemIds) =>
                         updateSidebarOrder({ ...sidebarOrder, itemIds }),
+                      onAddPageToCollection,
                     }
               }
               onOpenItem={(item: ContentDatabaseItem) => {
@@ -924,6 +930,10 @@ export function DocumentSidebar({
   const moveWorkspaceItem = useMoveDatabaseItem(
     workspaceCatalogDocumentId ?? "",
   );
+  const addPageToCollection = useActionMutation<
+    { databaseId: string; documentId: string },
+    unknown
+  >("add-document-to-content-database");
   const attemptedSpaceReconciliationKeyRef = useRef<string | null>(null);
   const spaceReconciliationRetryTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -1758,6 +1768,35 @@ export function DocumentSidebar({
     [moveWorkspaceItem, t, workspaceCatalogDatabaseId],
   );
 
+  const handleAddPageToCollection = useCallback(
+    (page: ContentDatabaseItem, collection: ContentDatabaseItem) => {
+      const collectionId = collection.document.database?.id;
+      if (!collectionId) return;
+      addPageToCollection.mutate(
+        { databaseId: collectionId, documentId: page.document.id },
+        {
+          onSuccess: () => {
+            toast.success(
+              t("sidebar.addedPageToCollection", {
+                page: page.document.title || t("sidebar.untitled"),
+                collection: collection.document.title || t("sidebar.untitled"),
+              }),
+            );
+          },
+          onError: (error) => {
+            toast.error(t("sidebar.failedAddPageToCollection"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
+    },
+    [addPageToCollection, t],
+  );
+
   const handleToggleFavorite = useCallback(
     (id: string, isFavorite: boolean) => {
       updateDocument.mutate(
@@ -1996,6 +2035,7 @@ export function DocumentSidebar({
       onToggleFavorite={(item) =>
         handleToggleFavorite(item.document.id, !item.document.isFavorite)
       }
+      onAddPageToCollection={handleAddPageToCollection}
     />
   );
 

@@ -69,7 +69,37 @@ export interface ContentFilesSidebarManualReorder {
     itemIds: string[],
     moved: { itemId: string; position: number },
   ) => void;
+  /**
+   * Dropping a page onto a collection row. Reordering cannot express this, so
+   * the provider hands the gesture here instead of discarding it.
+   */
+  onAddPageToCollection?: (
+    page: ContentDatabaseItem,
+    collection: ContentDatabaseItem,
+  ) => void;
   labels: SidebarReorderLabels;
+}
+
+/**
+ * Only a collection row can adopt a dropped page, and only when the dropped row
+ * is an ordinary page. Anything else stays a no-op rather than guessing.
+ */
+export function resolveSidebarCollectionDrop(
+  items: ContentDatabaseItem[],
+  activeItemId: string,
+  overItemId: string,
+): { page: ContentDatabaseItem; collection: ContentDatabaseItem } | null {
+  const page = items.find((item) => item.id === activeItemId);
+  const collection = items.find((item) => item.id === overItemId);
+  if (!page || !collection) return null;
+  if (!collection.document.database) return null;
+  if (page.document.database) return null;
+  if (page.document.canEdit === false) return null;
+  if (collection.document.canEdit === false) return null;
+  if (page.document.source?.mode === "local-files") return null;
+  if (collection.document.source?.mode === "local-files") return null;
+  if (page.document.parentId === collection.document.id) return null;
+  return { page, collection };
 }
 
 export interface ContentFilesSidebarRenderReorder {
@@ -581,11 +611,25 @@ export function DatabaseSidebarView({
     untitledLabel,
     Boolean(hierarchyItems),
   );
+  const collectionDropItems = hierarchyUniverseItems ?? hierarchyItems ?? items;
+  const onAddPageToCollection = manualReorder?.onAddPageToCollection;
   const reorderableNavigation = manualReorder ? (
     <SidebarReorderProvider
       items={reorderItems}
       labels={manualReorder.labels}
       onReorder={manualReorder.onReorder}
+      onDropInto={
+        onAddPageToCollection
+          ? (activeItemId, overItemId) => {
+              const drop = resolveSidebarCollectionDrop(
+                collectionDropItems,
+                activeItemId,
+                overItemId,
+              );
+              if (drop) onAddPageToCollection(drop.page, drop.collection);
+            }
+          : undefined
+      }
     >
       {navigation}
     </SidebarReorderProvider>

@@ -79,6 +79,26 @@ export function isPointerSidebarDrag(activatorEvent: Event) {
   );
 }
 
+/**
+ * The drop `reorderedSidebarItemIds` refuses: two rows in different sibling
+ * sets. Reordering cannot express it, so unless a caller opts in through
+ * `onDropInto` the gesture ends as a silent no-op, which is what dragging a
+ * page onto a collection used to do.
+ */
+export function crossParentSidebarDropTarget(
+  items: SidebarReorderItem[],
+  activeId: string,
+  overId: string,
+): string | null {
+  if (activeId === overId) return null;
+  const active = items.find((item) => item.id === activeId);
+  const over = items.find((item) => item.id === overId);
+  if (!active || !over) return null;
+  if (active.parentId === over.parentId) return null;
+  if (over.parentId === active.id) return null;
+  return over.id;
+}
+
 export function reorderedSidebarItemIds(
   items: SidebarReorderItem[],
   activeId: string,
@@ -146,6 +166,7 @@ export function SidebarReorderProvider({
   items,
   labels,
   onReorder,
+  onDropInto,
   children,
 }: {
   items: SidebarReorderItem[];
@@ -154,6 +175,7 @@ export function SidebarReorderProvider({
     itemIds: string[],
     moved: { itemId: string; position: number },
   ) => void;
+  onDropInto?: (activeItemId: string, overItemId: string) => void;
   children: ReactNode;
 }) {
   const itemNodes = useRef(new Map<string, HTMLElement>());
@@ -275,13 +297,16 @@ export function SidebarReorderProvider({
     const overId = event.over?.id;
     if (overId) {
       const currentIds = items.map((item) => item.id);
-      const nextIds = reorderedSidebarItemIds(
-        items,
-        String(event.active.id),
-        String(overId),
-      );
+      const nextIds = reorderedSidebarItemIds(items, itemId, String(overId));
       if (nextIds.some((id, index) => id !== currentIds[index])) {
         onReorder(nextIds, { itemId, position: nextIds.indexOf(itemId) });
+      } else if (onDropInto) {
+        const dropTargetId = crossParentSidebarDropTarget(
+          items,
+          itemId,
+          String(overId),
+        );
+        if (dropTargetId) onDropInto(itemId, dropTargetId);
       }
     }
     clearDragState();
