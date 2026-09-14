@@ -150,4 +150,18 @@ describe("threshold parity with scripts/chat-health.mjs", () => {
       MAX_SAME_QUERY_CONCURRENCY,
     );
   });
+
+  it("groups full query text so shared prefixes do not look like one query", () => {
+    const script = readFileSync(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        "../../../../scripts/chat-health.mjs",
+      ),
+      "utf8",
+    );
+    for (const sql of [DB_PRESSURE_SQL, script]) {
+      expect(sql).toMatch(/GROUP BY\s+query\b/);
+      expect(sql).not.toMatch(/left\s*\(\s*query\s*,\s*60\s*\)/);
+    }
+  });
 });
