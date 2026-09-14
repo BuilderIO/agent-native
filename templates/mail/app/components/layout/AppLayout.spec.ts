@@ -12,6 +12,13 @@ function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
 }
 
+function commandPaletteFocusSource(): string {
+  return readFileSync(
+    new URL("./use-command-palette-focus.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 describe("AppLayout inbox tab bar", () => {
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
     const source = appLayoutSource();
@@ -99,13 +106,17 @@ describe("AppLayout inbox tab bar", () => {
   });
 
   it("restores the invoking control's focus after Escape closes the palette", () => {
-    const source = appLayoutSource();
+    const appLayout = appLayoutSource();
+    const focusHook = commandPaletteFocusSource();
 
-    expect(source).toContain("onCloseAutoFocus={restorePaletteFocus}");
-    expect(source).toContain(
-      "paletteEscapeDismissRef.current = !commandInput?.value",
+    expect(appLayout).toContain("onCloseAutoFocus={restorePaletteFocus}");
+    expect(appLayout).toContain(
+      "} = useCommandPaletteFocus(paletteOpen, setPaletteOpen);",
     );
-    expect(source).toContain(
+    expect(focusHook).toContain(
+      "escapeDismissRef.current = !commandInput?.value",
+    );
+    expect(focusHook).toContain(
       "returnFocusTarget.focus({ preventScroll: true })",
     );
   });

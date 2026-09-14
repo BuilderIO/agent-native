@@ -114,6 +114,7 @@ import { isKnownMailView } from "@/routes/$view";
 import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
+import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -353,42 +354,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const paletteReturnFocusRef = useRef<HTMLElement | null>(null);
-  const paletteEscapeDismissRef = useRef(false);
-  const openPalette = useCallback(() => {
-    if (paletteOpen) return;
-    const activeElement = document.activeElement;
-    paletteReturnFocusRef.current =
-      activeElement instanceof HTMLElement && activeElement !== document.body
-        ? activeElement
-        : null;
-    paletteEscapeDismissRef.current = false;
-    setPaletteOpen(true);
-  }, [paletteOpen]);
-  const handlePaletteOpenChange = useCallback(
-    (open: boolean) => {
-      if (open) {
-        openPalette();
-        return;
-      }
-
-      setPaletteOpen(false);
-      if (!paletteEscapeDismissRef.current) {
-        paletteReturnFocusRef.current = null;
-      }
-    },
-    [openPalette],
-  );
-  const restorePaletteFocus = useCallback((event: Event) => {
-    const returnFocusTarget = paletteReturnFocusRef.current;
-    const shouldRestoreFocus = paletteEscapeDismissRef.current;
-    paletteEscapeDismissRef.current = false;
-    paletteReturnFocusRef.current = null;
-
-    if (!shouldRestoreFocus || !returnFocusTarget?.isConnected) return;
-    event.preventDefault();
-    returnFocusTarget.focus({ preventScroll: true });
-  }, []);
+  const {
+    openPalette,
+    handleOpenChange: handlePaletteOpenChange,
+    restoreFocusAfterEscape: restorePaletteFocus,
+  } = useCommandPaletteFocus(paletteOpen, setPaletteOpen);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // When the user requests snooze from the list, we need to snooze the live
   // focused/selected rows — not whatever is currently in navigation state.
@@ -1168,25 +1138,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       },
     },
   ]);
-
-  useEffect(() => {
-    if (!paletteOpen) return;
-
-    const markEscapeDismissal = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        paletteEscapeDismissRef.current = false;
-        return;
-      }
-
-      const commandInput =
-        document.querySelector<HTMLInputElement>("[cmdk-input]");
-      paletteEscapeDismissRef.current = !commandInput?.value;
-    };
-
-    window.addEventListener("keydown", markEscapeDismissal, true);
-    return () =>
-      window.removeEventListener("keydown", markEscapeDismissal, true);
-  }, [paletteOpen]);
 
   useEffect(() => {
     const handler = openPalette;
