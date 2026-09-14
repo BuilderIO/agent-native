@@ -6,7 +6,7 @@ import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting"
 
 import {
   draftSuggestionAnchors,
-  markdownSuggestionOperationsForReplacements,
+  markdownSuggestionOperationsForEditorRevision,
 } from "./markdown-operation";
 
 export function canonicalSuggestionRevision(
@@ -190,14 +190,14 @@ export function suggestionDraftOperations(
   session: SuggestionDraftSession,
   draftContent: string,
 ) {
-  const operations = markdownSuggestionOperationsForReplacements({
+  const operations = markdownSuggestionOperationsForEditorRevision({
     before: session.baseContent,
     after: draftContent,
     replacements: session.replacementIntents ?? [],
   });
   if (!session.existingSuggestion || operations.length < 2) return operations;
   // An amendment retains the saved proposal's single-operation identity.
-  return markdownSuggestionOperationsForReplacements({
+  return markdownSuggestionOperationsForEditorRevision({
     before: session.baseContent,
     after: draftContent,
     replacements: [

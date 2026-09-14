@@ -32,6 +32,13 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
+  AGENT_PACK_FILE_ACCEPT,
+  AGENT_PROFILE_FILE_ACCEPT,
+  AGENT_PROFILE_FILE_EXTENSIONS,
+  isImportableAgentPackFile,
+  isImportableAgentProfileFile,
+} from "../lib/agent-pack.js";
+import {
   buildSimpleAgentContent,
   slugifyAgentName,
 } from "../lib/simple-agent-profile.js";
@@ -107,6 +114,34 @@ interface AgentPackResponse {
 interface AgentPackFileInput {
   path: string;
   content: string;
+}
+
+const MAX_LISTED_SKIPPED_FILES = 3;
+
+/**
+ * Folder pickers cannot filter by extension, so unsupported files are only
+ * visible after selection. Name them without turning a 40-file photo folder
+ * into a 40-line warning.
+ */
+export function summarizeSkippedPackFiles(
+  skipped: string[],
+  keptCount: number,
+): string[] {
+  if (skipped.length === 0) return [];
+  if (keptCount === 0) {
+    return [
+      "No importable files in that folder. Agent folders take text files such as Markdown, JSON, and YAML.",
+    ];
+  }
+  const listed = skipped.slice(0, MAX_LISTED_SKIPPED_FILES);
+  const remaining = skipped.length - listed.length;
+  const names =
+    remaining > 0
+      ? `${listed.join(", ")}, and ${remaining} more`
+      : listed.join(", ");
+  return [
+    `Skipped ${skipped.length} non-text ${skipped.length === 1 ? "file" : "files"}: ${names}.`,
+  ];
 }
 
 const AGENT_ICON_KEYS = [
@@ -739,12 +774,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     onError: (error) => toast.error(error.message),
   });
 
-  useEffect(() => {
-    if (!folderRef.current) return;
-    folderRef.current.setAttribute("webkitdirectory", "");
-    folderRef.current.setAttribute("directory", "");
-  }, [mode, open]);
-
   function reset() {
     setMode("file");
     setSource("");
@@ -760,24 +789,33 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file) return;
+    // `accept` is only a picker hint: every OS dialog lets the user switch to
+    // "All Files", and reading a PDF with file.text() yields mojibake that
+    // looks like a valid definition.
+    if (!isImportableAgentProfileFile(file.name)) {
+      toast.error(
+        `${file.name} is not a supported agent file. Choose a ${AGENT_PROFILE_FILE_EXTENSIONS.join(", ")} file.`,
+      );
+      return;
+    }
     setFileName(file.name);
     setSource(await file.text());
   }
 
   async function handleFolder(event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
     if (selectedFiles.length === 0) return;
-    const warnings: string[] = [];
-    const textExtensions =
-      /\.(md|markdown|txt|json|yaml|yml|csv|html|xml|toml|ts|tsx|js|mjs|py|sh)$/i;
+    const skipped: string[] = [];
     const pack = await Promise.all(
       selectedFiles.map(async (file) => {
         const path =
           (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
           file.name;
-        if (!textExtensions.test(path)) {
-          warnings.push(`Skipped non-text file: ${path}`);
+        if (!isImportableAgentPackFile(path)) {
+          skipped.push(path);
           return null;
         }
         return { path, content: await file.text() };
@@ -788,7 +826,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     );
     setPackFiles(files);
     setPackName(files[0]?.path.split("/")[0] || "Selected folder");
-    setPackWarnings(warnings);
+    setPackWarnings(summarizeSkippedPackFiles(skipped, files.length));
   }
 
   return (
@@ -837,7 +875,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               <input
                 ref={fileRef}
                 type="file"
-                accept=".md,.markdown,.json,.txt"
+                accept={AGENT_PROFILE_FILE_ACCEPT}
                 className="hidden"
                 onChange={(event) => void handleFile(event)}
               />
@@ -900,13 +938,24 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 ref={folderRef}
                 type="file"
                 multiple
+                // Set declaratively: an effect keyed on the tab runs before
+                // Radix mounts this panel, so the ref is still null and the
+                // input silently stays a plain file picker.
+                {...({ webkitdirectory: "", directory: "" } as {
+                  webkitdirectory: string;
+                  directory: string;
+                })}
+                // Directory pickers ignore accept; it only applies where
+                // webkitdirectory is unsupported and this falls back to
+                // multi-file selection.
+                accept={AGENT_PACK_FILE_ACCEPT}
                 className="hidden"
                 onChange={(event) => void handleFolder(event)}
               />
               <span className="text-xs text-muted-foreground">
                 {packName
                   ? `${packName} · ${packFiles.length} files`
-                  : "Claude Project or Cowork-style folder"}
+                  : "Claude Project or Cowork-style folder · text files only"}
               </span>
             </div>
             {packWarnings.length > 0 ? (
