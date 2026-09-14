@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
+import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -229,6 +232,228 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     expect(nextDestinationContent).toContain("left: 130px");
     expect(nextDestinationContent).toContain("top: 238px");
   });
+
+  it("never leaves the dropped copy sharing the still-live source's node id", () => {
+    // Regression for B4: an alt-drag duplicate across the screen boundary
+    // leaves the ORIGINAL alive in its own file. insertClonedHtmlLayers's
+    // preserveIncomingNodeIds only reserved ids already in the destination
+    // doc, so the copy silently kept the source's own
+    // data-agent-native-node-id — two live elements, two files, one id,
+    // which broke every id-keyed lookup on either (including the
+    // subsequent Option+Arrow nudge landing on/writing to the wrong file).
+    const SOURCE_SCREEN = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"></div>
+</body></html>`;
+    const runtimeStructureInsertRevisionRef = { current: 0 };
+    let nextDestinationContent = "";
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate: (_fileId, nextContent) => {
+          nextDestinationContent = nextContent;
+        },
+        boardFileId: "board",
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: new Map() },
+        designSourceType: "inline",
+        getScreenContent: (screenId) =>
+          screenId === "board" ? SOURCE_SCREEN : SCREEN_WITH_FRAME,
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: SCREEN_WITH_FRAME,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: () => {},
+        runtimeStructureInsertRevisionRef,
+        sendRuntimeLayerMoveSemanticHandoff: () => true,
+        setActiveFileId: () => {},
+        setCreatedOverviewLayerSelection: () => {},
+        setOverviewSelectedScreenIds: () => {},
+        setRuntimeStructureInsertRequest: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: "#source-frame",
+        sourceNodeId: "source-id",
+        sourceScreenId: "board",
+        targetScreenId: "target",
+        targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
+        targetAnchorPlacement: "inside",
+        targetDropMode: "absolute-container",
+        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetLocalPoint: { x: 240, y: 300 },
+        sourcePointerOffset: { x: 10, y: 12 },
+        duplicate: true,
+        sourceCloneHtml:
+          '<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"></div>',
+      },
+    );
+
+    const projection = buildCodeLayerProjection(nextDestinationContent);
+    const copyIds = projection.nodes
+      .map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((id) => id && id !== "frame-1");
+    expect(copyIds).toHaveLength(1);
+    expect(copyIds[0]).not.toBe("source-id");
+  });
+
+  it("still reserves the still-live source's id when the source is a localhost/fusion screen", () => {
+    // A localhost/fusion source's stored content is its route URL, not
+    // markup (see getScreenContent) — buildCodeLayerProjection over it finds
+    // no ids, so a naive reservation set built only from that projection
+    // would be empty and let the duplicate silently keep the id it was
+    // stamped with by the live bridge, colliding with the still-running
+    // source node. The clone itself must be read for reserved ids too.
+    const runtimeStructureInsertRevisionRef = { current: 0 };
+    let nextDestinationContent = "";
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate: (_fileId, nextContent) => {
+          nextDestinationContent = nextContent;
+        },
+        boardFileId: undefined,
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: new Map() },
+        designSourceType: "inline",
+        getScreenContent: (screenId) =>
+          screenId === "source" ? "http://localhost:5173/" : SCREEN_WITH_FRAME,
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: SCREEN_WITH_FRAME,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: () => {},
+        runtimeStructureInsertRevisionRef,
+        sendRuntimeLayerMoveSemanticHandoff: () => true,
+        setActiveFileId: () => {},
+        setCreatedOverviewLayerSelection: () => {},
+        setOverviewSelectedScreenIds: () => {},
+        setRuntimeStructureInsertRequest: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: "#live-node",
+        sourceNodeId: "live-node-1",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
+        targetAnchorPlacement: "inside",
+        targetDropMode: "absolute-container",
+        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetLocalPoint: { x: 240, y: 300 },
+        duplicate: true,
+        sourceCloneHtml:
+          '<div id="live-node" data-agent-native-node-id="live-node-1" style="position:absolute;left:20px;top:20px;width:60px;height:60px;"></div>',
+      },
+    );
+
+    const projection = buildCodeLayerProjection(nextDestinationContent);
+    const copyIds = projection.nodes
+      .map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((id) => id && id !== "frame-1");
+    expect(copyIds).toHaveLength(1);
+    expect(copyIds[0]).not.toBe("live-node-1");
+  });
+});
+
+describe("runCrossScreenElementDrop ordinary move routing", () => {
+  it("keeps the moved node's authored id — only duplicates need a fresh one", () => {
+    // Companion to the "never leaves the dropped copy sharing..." duplicate
+    // regression above. An ordinary (non-alt-drag) cross-screen move runs
+    // through moveNodeBetweenDocuments, never insertClonedHtmlLayers's
+    // clone-id reservation, so it must never remint an id: the node is
+    // relocated, not cloned, and its source copy is gone afterward.
+    const SOURCE_SCREEN = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div id="move-me" data-agent-native-node-id="move-id" style="position:absolute;left:10px;top:10px;width:40px;height:40px;"></div>
+</body></html>`;
+    const screens: Record<string, string> = {
+      source: SOURCE_SCREEN,
+      target: SCREEN_WITH_FRAME,
+    };
+    const applyFileContentUpdate = vi.fn((fileId: string, next: string) => {
+      screens[fileId] = next;
+    });
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate,
+        boardFileId: undefined,
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: new Map() },
+        designSourceType: "inline",
+        getScreenContent: (screenId) => screens[screenId] ?? "",
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: screens.target!,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry: () => {},
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        sendRuntimeLayerMoveSemanticHandoff: () => true,
+        setActiveFileId: () => {},
+        setCreatedOverviewLayerSelection: () => {},
+        setOverviewSelectedScreenIds: () => {},
+        setRuntimeStructureInsertRequest: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: "#move-me",
+        sourceNodeId: "move-id",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetLocalPoint: { x: 240, y: 300 },
+      },
+    );
+
+    const targetIds = buildCodeLayerProjection(screens.target)
+      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+      .filter((id) => id && id !== "frame-1");
+    expect(targetIds).toEqual(["move-id"]);
+    // The source no longer carries the node at all — it moved, not copied.
+    const sourceIds = buildCodeLayerProjection(screens.source).nodes.map(
+      (node) => node.dataAttributes["data-agent-native-node-id"],
+    );
+    expect(sourceIds).not.toContain("move-id");
+  });
 });
 
 describe("runCrossScreenElementDrop runtime-only routing", () => {
@@ -332,5 +557,93 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       "after",
     );
     expect(applyFileContentUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("runCrossScreenElementDrop — portable style capture failure", () => {
+  it("refuses the move: no history entry, no file write for either file, both files' content unchanged, toast shown once", () => {
+    // A real (mutable) per-file store, not just call-count mocks — writing
+    // TO it is what "applyFileContentUpdate" would mean, so reading it back
+    // afterward is a real "the file didn't change" assertion, not an
+    // inference from a spy never having been called.
+    const screens: Record<string, string> = {
+      source: SCREEN_WITH_FRAME,
+      target: SCREEN_WITH_FRAME,
+    };
+    const applyFileContentUpdate = vi.fn((fileId: string, next: string) => {
+      screens[fileId] = next;
+    });
+    const recordContentHistoryEntry = vi.fn();
+    const sendRuntimeLayerMoveSemanticHandoff = vi.fn();
+    const setRuntimeStructureInsertRequest = vi.fn();
+    const setSelectedElement = vi.fn();
+    const setSelectedLayerIdsState = vi.fn();
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate,
+        boardFileId: undefined,
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: new Map() },
+        designSourceType: "inline",
+        getScreenContent: (screenId) => screens[screenId] ?? "",
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: screens.target!,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        sendRuntimeLayerMoveSemanticHandoff,
+        setActiveFileId: () => {},
+        setCreatedOverviewLayerSelection: () => {},
+        setOverviewSelectedScreenIds: () => {},
+        setRuntimeStructureInsertRequest,
+        setSelectedElement,
+        setSelectedLayerIdsState,
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: '[data-agent-native-node-id="frame-1"]',
+        sourceNodeId: "frame-1",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorSelector: "body",
+        targetAnchorPlacement: "inside",
+        targetDropMode: "absolute-container",
+        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetLocalPoint: { x: 240, y: 300 },
+        // The capture-failed signal — distinct from `styleSnapshot: undefined`
+        // (legitimately nothing to carry), which must keep moving normally;
+        // see the "queues an inline Alt-drag copy" tests above for that case.
+        styleSnapshotCaptureFailed: true,
+      },
+    );
+
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(recordContentHistoryEntry).not.toHaveBeenCalled();
+    expect(sendRuntimeLayerMoveSemanticHandoff).not.toHaveBeenCalled();
+    expect(setRuntimeStructureInsertRequest).not.toHaveBeenCalled();
+    expect(setSelectedElement).not.toHaveBeenCalled();
+    expect(setSelectedLayerIdsState).not.toHaveBeenCalled();
+    // Read back the store itself — not just "the write function wasn't
+    // called" — as the actual "both files unchanged" proof.
+    expect(screens.source).toBe(SCREEN_WITH_FRAME);
+    expect(screens.target).toBe(SCREEN_WITH_FRAME);
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      expect.any(Object),
+    );
   });
 });

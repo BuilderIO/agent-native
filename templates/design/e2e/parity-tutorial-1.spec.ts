@@ -10,6 +10,7 @@ import { e2eBaseURL } from "./base-url";
 import {
   createFixtureDesign,
   designFrame,
+  elementInner,
   gotoEditor,
   installBridge,
   selectByText,
@@ -88,6 +89,116 @@ async function fileContent(page: Page, filename: string): Promise<string> {
 }
 
 let currentDesignId = "";
+
+/**
+ * Board-level frames/shapes drawn outside any screen render inside the
+ * board's own same-origin iframe stamped only with data-agent-native-node-id
+ * (shared/board-file.ts) — no `data-board-object-id` attribute exists
+ * anywhere in the app, and even if it did `page.locator` cannot pierce an
+ * iframe boundary. Parse __board__.html's own markup instead (mirrors
+ * parity-tutorial-2.spec.ts's boardObjects helper).
+ */
+async function boardObjects(page: Page): Promise<Record<string, true>> {
+  const html = await fileContent(page, "__board__.html");
+  const result: Record<string, true> = {};
+  for (const match of html.matchAll(/data-agent-native-node-id="([^"]+)"/g)) {
+    result[match[1]!] = true;
+  }
+  return result;
+}
+
+/** Page-relative bounding box of a node id wherever it lives — the screen
+ * iframe or the board iframe alike — by reaching directly into each
+ * same-origin iframe's contentDocument.
+ *
+ * The overview canvas zooms by CSS-transform-scaling an ancestor of the
+ * iframe, not by resizing it: `iframe.getBoundingClientRect()` reflects that
+ * scale (it is page space), but `el.getBoundingClientRect()` computed INSIDE
+ * the iframe's own document does not — it is the iframe's native, unscaled
+ * layout space. Adding the two directly only works at 100% zoom; at any other
+ * zoom (the overview's usual "fit all screens" default) it returns a page
+ * position off by the zoom factor, which silently sends a driven mouse drag
+ * built from it to empty canvas. Rescale by the iframe's own
+ * rendered-vs-native width ratio (mirrors helpers.ts's canvasZoom) before
+ * combining the two coordinate spaces. */
+async function boardObjectBoundingBox(
+  page: Page,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  return page.evaluate((id) => {
+    for (const iframe of Array.from(
+      document.querySelectorAll("iframe"),
+    ) as HTMLIFrameElement[]) {
+      const doc = iframe.contentDocument;
+      const el = doc?.querySelector(`[data-agent-native-node-id="${id}"]`);
+      if (!el) continue;
+      const iframeRect = iframe.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const scale = iframe.clientWidth
+        ? iframeRect.width / iframe.clientWidth
+        : 1;
+      return {
+        x: iframeRect.left + elRect.left * scale,
+        y: iframeRect.top + elRect.top * scale,
+        width: elRect.width * scale,
+        height: elRect.height * scale,
+      };
+    }
+    return null;
+  }, nodeId);
+}
+
+/** An empty point on the overview board, away from any screen card — a
+ * fixed offset from the screen shell can land on left-shell chrome or the
+ * layers panel instead of open canvas (see parity-tutorial-2.spec.ts's
+ * identical helper, the proven pattern for this scan). */
+async function emptyBoardPoint(page: Page) {
+  const point = await page.evaluate(() => {
+    const world = document.querySelector("[data-multi-screen-canvas-world]");
+    const surface = (world?.parentElement ?? world) as HTMLElement | null;
+    if (!surface) return null;
+    const r = surface.getBoundingClientRect();
+    const cards = Array.from(
+      document.querySelectorAll("[data-screen-iframe-id]"),
+    ).map((el) => el.getBoundingClientRect());
+    for (let y = r.top + 60; y < r.bottom - 60; y += 40) {
+      for (let x = r.left + 60; x < r.right - 60; x += 40) {
+        if (
+          cards.some(
+            (c) =>
+              x >= c.left - 24 &&
+              x <= c.right + 24 &&
+              y >= c.top - 24 &&
+              y <= c.bottom + 24,
+          )
+        )
+          continue;
+        const hit = document.elementFromPoint(x, y);
+        if (hit && surface.contains(hit)) return { x, y };
+      }
+    }
+    return null;
+  });
+  if (!point) throw new Error("no empty canvas point found");
+  return point;
+}
+
+/** Poll until a NEW board object id (not in `before`) appears. */
+async function waitForNewBoardObjectId(
+  page: Page,
+  before: Set<string>,
+  timeoutMs = 10_000,
+): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const ids = Object.keys(await boardObjects(page)).filter(
+      (id) => !before.has(id) && !id.startsWith("draft-"),
+    );
+    if (ids.length > 0) return ids[0]!;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error("no new stable board object id appeared in time");
+}
 
 function screenShell(page: Page): Locator {
   return page.locator("[data-screen-shell]").first();
@@ -381,14 +492,29 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
       type: "auto-layout-wrapper-default-name",
       description: `expected "Frame", got "${wrapperNameBefore}"`,
     });
+    // nextSequentialWrapperName (shared/code-layer.ts) scans the WHOLE
+    // document for existing "Frame"/"Frame N" layers, by design — the
+    // shared FIXTURE_HTML fixture already has an unnamed <div> that becomes
+    // "Frame" before this wrap runs, so the freshly-created wrapper
+    // legitimately becomes "Frame 2" under the app's own numbering
+    // contract. Assert the Figma-correct family, not the bare first name.
     expect(
       wrapperNameBefore,
-      'Figma names a Shift+A single-object auto-layout wrapper "Frame", not "Group"',
-    ).toBe("Frame");
+      'Figma names a Shift+A single-object auto-layout wrapper "Frame" or the next sequential "Frame N"',
+    ).toMatch(/^Frame(?: \d+)?$/);
 
     // --- Step 11: double-click text, retype "Sign up", verify auto-resize ---
+    // exact: true matters here — this fixture also has "Alpha Button", "Beta
+    // Button", and "Deep Layer Button" on screen, all substring-matching a
+    // loose "Button" search. Without it, .first() silently grabbed one of
+    // those unrelated fixture buttons instead of the node this test created,
+    // and compared its width to "Sign up"'s — a stale, unrelated pair of
+    // boxes that made a correctly-resizing hug-contents frame look broken.
     const widthBefore = (
-      await designFrame(page).getByText("Button").first().boundingBox()
+      await designFrame(page)
+        .getByText("Button", { exact: true })
+        .first()
+        .boundingBox()
     )?.width;
     await designFrame(page)
       .getByText("Button", { exact: true })
@@ -399,28 +525,32 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     await page.keyboard.press(selectAll);
     await page.keyboard.type("Sign up");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(400);
 
-    html = await fileContent(page, "index.html");
-    expect(hasNode(html, textId)).toBe(true);
-    const retyped = await page.evaluate(
-      ({ html, id }) => {
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        return doc
-          .querySelector(`[data-agent-native-node-id="${id}"]`)
-          ?.textContent?.trim();
-      },
-      { html, id: textId },
-    );
-    expect(retyped).toBe("Sign up");
-
+    // Assert the immediate DOM result first — Playwright's locator
+    // auto-waits for the live iframe to reflect the retyped text, no fixed
+    // sleep needed.
     const widthAfter = (
-      await designFrame(page).getByText("Sign up").first().boundingBox()
+      await designFrame(page)
+        .getByText("Sign up", { exact: true })
+        .first()
+        .boundingBox()
     )?.width;
     expect(widthBefore).toBeTruthy();
     expect(widthAfter).toBeTruthy();
     // "Sign up" is longer than "Button": a hug-contents frame must resize.
     expect(widthAfter!).toBeGreaterThan(widthBefore! - 1);
+
+    // The save queue can wait up to 400ms before issuing the persist RPC —
+    // poll for the exact persisted text instead of racing it with a fixed
+    // sleep.
+    await expect
+      .poll(async () => {
+        const polledHtml = await fileContent(page, "index.html");
+        return hasNode(polledHtml, textId)
+          ? elementInner(polledHtml, textId).trim()
+          : null;
+      })
+      .toBe("Sign up");
   });
 
   test("steps 6-10: fill, stroke, corner radius, drop shadow, padding via inspector (peer-owned)", async ({
@@ -438,13 +568,19 @@ test.describe("parity: Figma Tutorial 1 - create a simple button component", () 
     if (!card) throw new Error("no screen card box");
     await placeText(page, card, "Button");
 
+    // Capture the text leaf's node id BEFORE Shift+A wraps it: once wrapped,
+    // the wrapper's own trimmed textContent is also "Button" (its only
+    // child), so a post-wrap textPrimitiveNodeIds() match picks up the
+    // ancestor wrapper first (querySelectorAll returns ancestors before
+    // descendants), not the text leaf — see the sibling test above.
+    const textIds = await textPrimitiveNodeIds(page, "index.html", "Button");
+    const textId = textIds[0]!;
+
     await selectByText(page, "Button");
     await page.keyboard.press("Shift+A");
     await page.waitForTimeout(400);
 
     let html = await fileContent(page, "index.html");
-    const textIds = await textPrimitiveNodeIds(page, "index.html", "Button");
-    const textId = textIds[0]!;
     const wrapperMatch = new RegExp(
       `data-agent-native-node-id="([^"]+)"[^>]*>(?:(?!data-agent-native-node-id)[\\s\\S])*?data-agent-native-node-id="${textId}"`,
     ).exec(html);
@@ -683,37 +819,45 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
-    const shellBox = await screenShell(page).boundingBox();
-    if (!shellBox) throw new Error("no screen shell box");
-    const outsideX = Math.max(20, shellBox.x - 220);
-    const outsideY = shellBox.y + 80;
+    // A fixed offset from the screen shell can land on left-shell chrome
+    // (the layers panel) instead of open canvas — no drag/select trace
+    // events fired at all when this test used shellBox.x - 220. Scan for a
+    // real empty point instead, the way emptyBoardPoint does elsewhere.
+    const { x: outsideX, y: outsideY } = await emptyBoardPoint(page);
 
+    const beforeIds = new Set(Object.keys(await boardObjects(page)));
     await pressToolKey(page, "r"); // rectangle tool, per TOOL_SHORTCUTS
-    await page.mouse.click(outsideX, outsideY);
+    // A plain click (no drag) never committed a shape here — use the same
+    // real drag gesture proven to create board shapes elsewhere in this
+    // suite (parity-tutorial-2.spec.ts's drawWithTool).
+    await page.mouse.move(outsideX, outsideY);
+    await page.mouse.down();
+    await page.mouse.move(outsideX + 100, outsideY + 100, { steps: 8 });
+    await page.mouse.up();
     await page.waitForTimeout(400);
 
-    // A click (no drag) with a shape tool creates a default 100x100 shape
-    // (figma-interaction-spec Part 3). Locate it and drag it.
-    const boardShape = page.locator("[data-board-object-id]").first();
-    let before = await boardShape.boundingBox();
-    if (!before) {
-      await expect
-        .poll(() => boardShape.boundingBox(), {
-          timeout: 10_000,
-          message:
-            "board-object-camera-and-click: harness could not locate the created board shape",
-        })
-        .not.toBeNull();
-      before = (await boardShape.boundingBox())!;
-    }
+    // It renders inside the board's own same-origin iframe — reach into it
+    // rather than the host page.
+    const shapeId = await waitForNewBoardObjectId(page, beforeIds);
+    const before = await boardObjectBoundingBox(page, shapeId);
+    expect(
+      before,
+      "no bounding box for the created board shape",
+    ).not.toBeNull();
+    // Drawing a shape leaves the Rectangle tool itself still armed — a
+    // mouse-down on the shape without switching back to Move would start
+    // drawing a SECOND shape instead of moving the existing one (see
+    // placeText's identical "press v" step for the text-tool equivalent).
+    await pressToolKey(page, "v");
+    await page.waitForTimeout(200);
     await page.mouse.move(
-      before.x + before.width / 2,
-      before.y + before.height / 2,
+      before!.x + before!.width / 2,
+      before!.y + before!.height / 2,
     );
     await page.mouse.down();
     await page.mouse.move(
-      before.x + before.width / 2 + 80,
-      before.y + before.height / 2 + 40,
+      before!.x + before!.width / 2 + 80,
+      before!.y + before!.height / 2 + 40,
       {
         steps: 10,
       },
@@ -721,9 +865,9 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.mouse.up();
     await page.waitForTimeout(400);
 
-    const after = await boardShape.boundingBox();
+    const after = await boardObjectBoundingBox(page, shapeId);
     expect(after).not.toBeNull();
-    expect(Math.abs(after!.x - before.x - 80)).toBeLessThan(20);
+    expect(Math.abs(after!.x - before!.x - 80)).toBeLessThan(20);
   });
 
   test("dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each)", async ({
@@ -752,10 +896,10 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     if (!box) throw new Error("no bounding box for element");
     const startX = box.x + box.width / 2;
     const startY = box.y + box.height / 2;
-    const shellBox = await screenShell(page).boundingBox();
-    if (!shellBox) throw new Error("no screen shell box");
-    const outsideX = Math.max(20, shellBox.x - 200);
-    const outsideY = shellBox.y + 200;
+    // A fixed offset from the screen shell can land on left-shell chrome or
+    // the layers panel instead of open canvas — scan for a real empty point
+    // the way the board-object tests do, rather than guessing an offset.
+    const { x: outsideX, y: outsideY } = await emptyBoardPoint(page);
 
     await page.mouse.move(startX, startY);
     await page.mouse.down();
@@ -765,10 +909,11 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.mouse.move(outsideX, outsideY, { steps: 8 });
     await page.waitForTimeout(150);
     await page.mouse.up();
-    await page.waitForTimeout(500);
 
-    const indexHtmlAfterOut = await fileContent(page, "index.html");
-    const outResult = await (async () => {
+    // The cross-screen persist is two async server writes (remove from the
+    // source file, add to the board file) — poll for both to land instead of
+    // a fixed sleep, which under load reads back mid-write.
+    const readBoth = async () => {
       const params = new URLSearchParams({ id: currentDesignId });
       const res = await page.request.get(
         `${baseURLForActions}/_agent-native/actions/get-design?${params}`,
@@ -782,12 +927,29 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
       ].find((candidate: any) => Array.isArray(candidate?.files));
       const files: { filename?: string; content?: string }[] =
         design?.files ?? [];
-      return files.find((f) => f.filename === "__board__.html")?.content ?? "";
-    })();
+      return {
+        index: files.find((f) => f.filename === "index.html")?.content ?? "",
+        board:
+          files.find((f) => f.filename === "__board__.html")?.content ?? "",
+      };
+    };
+    await expect
+      .poll(
+        async () => {
+          const result = await readBoth();
+          return (
+            !hasNode(result.index, textId) && result.board.includes(textId)
+          );
+        },
+        {
+          timeout: 10_000,
+          message:
+            "cross-screen drop must remove the node from index.html and add it to the board file",
+        },
+      )
+      .toBe(true);
 
-    expect(
-      hasNode(indexHtmlAfterOut, textId) && !outResult.includes(textId),
-    ).toBe(false); // documents which side kept the node, asserted below explicitly.
+    const { index: indexHtmlAfterOut, board: outResult } = await readBoth();
     const leftScreen = !hasNode(indexHtmlAfterOut, textId);
     const enteredBoard = outResult.includes(textId);
 
@@ -800,15 +962,31 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
       "dragging out onto open canvas should reparent it into the board",
     ).toBe(true);
 
-    // Now drag it back into the screen.
-    const boardNode = page
-      .locator(`[data-agent-native-node-id="${textId}"]`)
-      .first();
-    const boardBox = await boardNode.boundingBox();
+    // Now drag it back into the screen. The board node lives inside the
+    // board's own same-origin iframe, which a bare page.locator cannot pierce
+    // (see boardObjectBoundingBox's doc comment) — it would otherwise hang
+    // until its actionability timeout waiting for a match that never appears.
+    const boardBox = await boardObjectBoundingBox(page, textId);
     if (!boardBox)
       throw new Error("could not find board node after reparent-out");
-    const backX = card.x + card.width * 0.5;
-    const backY = card.y + card.height * 0.5;
+    // Re-measure the screen card instead of reusing the box captured before
+    // the first drag — dropping a node onto the board can shift the overview
+    // layout, and a stale target position lands the drop on empty canvas
+    // instead of the screen (drop:resolve-target never even fires for it).
+    const cardNow = await homeScreenCard(page).boundingBox();
+    if (!cardNow) throw new Error("no screen card box for the return drag");
+    const backX = cardNow.x + cardNow.width * 0.5;
+    const backY = cardNow.y + cardNow.height * 0.5;
+    // The board node stays selected from the out-drag above, and this
+    // node's on-screen box is tiny at the current zoom (~36x6px) — small
+    // enough that its own resize-handle overlay (a fixed-size hit strip,
+    // not scaled down with the object) covers the object's center. A
+    // mousedown there grabs the "s" resize handle instead of the object
+    // itself, so no drag ever starts. Deselecting first removes the
+    // handles; the click below both re-selects and starts the drag, same
+    // as a real click-drag on an unselected object.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
     await page.mouse.move(
       boardBox.x + boardBox.width / 2,
       boardBox.y + boardBox.height / 2,
@@ -820,13 +998,22 @@ test.describe("parity: overview-canvas (outside any screen) and cross-boundary s
     await page.mouse.move(backX, backY, { steps: 8 });
     await page.waitForTimeout(150);
     await page.mouse.up();
-    await page.waitForTimeout(500);
 
-    const indexHtmlAfterIn = await fileContent(page, "index.html");
-    expect(
-      hasNode(indexHtmlAfterIn, textId),
-      "dragging back onto the screen should reparent it back into index.html",
-    ).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const result = await readBoth();
+          return (
+            hasNode(result.index, textId) && !result.board.includes(textId)
+          );
+        },
+        {
+          timeout: 10_000,
+          message:
+            "dragging back onto the screen should reparent it back into index.html and remove it from the board file",
+        },
+      )
+      .toBe(true);
   });
 
   test.afterEach(async ({ request }) => {

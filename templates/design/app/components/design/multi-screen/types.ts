@@ -176,6 +176,13 @@ export interface MultiScreenCanvasProps {
     widthPx: number,
     heightPx: number,
   ) => void;
+  // Fires whenever a PRIMARY (non-breakpoint) inline screen iframe reports a
+  // measured content height taller than its persisted canvasFrames geometry —
+  // the same content-fit signal canvasFrames already applies to what's drawn
+  // on screen (see the `autoHeight` derivation), surfaced so callers whose
+  // fit math reads persisted geometry directly (camera zoom-to-fit/selection)
+  // can fit the height actually rendered instead of a stale default.
+  onPrimaryContentHeightChange?: (screenId: string, heightPx: number) => void;
   onCreatePrimitive?: (
     screenId: string,
     primitive: CanvasPrimitiveInsert,
@@ -344,6 +351,12 @@ export interface MultiScreenCanvasProps {
     sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
+    /** True when the source bridge could not measure the bare-tag probe
+     *  (portableStyleTagDefaults returned null) — distinct from a legitimately
+     *  absent snapshot (`styleSnapshot === undefined`, nothing to carry). The
+     *  drop command must refuse the move rather than silently drop a
+     *  class-only appearance it never got a chance to carry. */
+    styleSnapshotCaptureFailed?: boolean;
   }) => void;
   // ── Board file (new model) ───────────────────────────────────────────────
   /**
@@ -451,12 +464,22 @@ export interface MultiScreenCanvasProps {
   ) => boolean | "pending" | void;
   /**
    * Called when a style property changes on a board element.
-   * Target file is boardFileId.
+   * Target file is boardFileId. `metadata` must mirror DesignCanvas's own
+   * `onVisualStyleChange` signature exactly — this callback is wired
+   * straight through from that event (see MultiScreenCanvas's board
+   * DesignCanvas) — or a resize/drag commit's `phase`/`originalStyles`
+   * silently drops before it reaches undo history, leaving one Cmd+Z
+   * unable to restore the pre-drag geometry.
    */
   onBoardVisualStyleChange?: (
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
+    metadata?: {
+      phase?: "preview" | "commit";
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   /**
    * Called when an alt-drag clone is created on the board surface.

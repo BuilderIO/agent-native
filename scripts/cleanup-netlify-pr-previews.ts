@@ -286,6 +286,7 @@ async function deleteNetlifyDeploy(input: {
       method: "DELETE",
     },
   );
+  if (response.status === 404) return;
   if (!response.ok) {
     const body = await response.text();
     throw new Error(
