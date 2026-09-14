@@ -26,6 +26,7 @@ import {
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import { canonicalizeNfm } from "@shared/nfm";
 import {
   SuggestionFormattingMappingError,
   suggestionMarkedSourceRanges,
@@ -76,7 +77,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
-import { useComments } from "@/hooks/use-comments";
+import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
   useCreateContentDatabase,
   useDeleteContentDatabase,
@@ -207,6 +208,14 @@ import type {
   VisualEditorPersistenceController,
 } from "./VisualEditor";
 
+const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function documentEditorCommentThreads(
+  threads: CommentThread[] | null | undefined,
+) {
+  return threads ?? NO_COMMENT_THREADS;
+}
+
 const TAB_ID = generateTabId();
 
 export function applyHistoryToDocumentBody(
@@ -325,6 +334,19 @@ export function suggestionPresentation(
   }
   const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
   if (!range) return null;
+  const editorMarkdown = canonicalizeNfm(currentMarkdown);
+  const currentText = currentMarkdown.slice(range.from, range.to);
+  const editorRange = resolveMarkdownSuggestionRange(editorMarkdown, {
+    before: { markdown: currentMarkdown, changedText: currentText },
+    after: { markdown: currentMarkdown, changedText: currentText },
+    anchor: {
+      from: range.from,
+      to: range.to,
+      prefix: currentMarkdown.slice(Math.max(0, range.from - 32), range.from),
+      suffix: currentMarkdown.slice(range.to, range.to + 32),
+    },
+  });
+  if (!editorRange) return null;
   return {
     id: suggestion.id,
     kind: operation.kind as VisualEditorSuggestion["kind"],
@@ -341,9 +363,12 @@ export function suggestionPresentation(
       to: operationAnchor.from + after.changedText.length,
     },
     anchor: {
-      from: range.from,
-      prefix: currentMarkdown.slice(Math.max(0, range.from - 32), range.from),
-      suffix: currentMarkdown.slice(range.to, range.to + 32),
+      from: editorRange.from,
+      prefix: editorMarkdown.slice(
+        Math.max(0, editorRange.from - 32),
+        editorRange.from,
+      ),
+      suffix: editorMarkdown.slice(editorRange.to, editorRange.to + 32),
     },
     presentation: "canonical",
   };
@@ -4421,7 +4446,7 @@ function PageEditorSessionBody({
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
-      threads={threads ?? []}
+      threads={documentEditorCommentThreads(threads)}
       isLoading={commentsLoading}
       pendingComment={pendingComment}
       pendingTargetValid={pendingCommentTargetValid}

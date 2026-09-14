@@ -14,6 +14,7 @@ import {
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
+import { documentEditorCommentThreads } from "./DocumentEditor";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -35,6 +36,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  generateTabId: () => "test-tab",
   sendToAgentChat: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -218,5 +220,19 @@ describe("comment sidebar keystroke cost", () => {
     expect(rebuilds).toBe(0);
     expect(disconnects).toBe(0);
     expect(resizeObservers - baselineResize).toBe(0);
+  });
+
+  it("keeps the parent fallback stable across pending draft changes", () => {
+    const observedThreads: CommentThread[][] = [];
+    let previousThreads: CommentThread[] | undefined;
+
+    for (let draftLength = 0; draftLength <= 5; draftLength += 1) {
+      const nextThreads = documentEditorCommentThreads(undefined);
+      if (nextThreads !== previousThreads) observedThreads.push(nextThreads);
+      previousThreads = nextThreads;
+    }
+
+    expect(observedThreads).toHaveLength(1);
+    expect(documentEditorCommentThreads(null)).toBe(observedThreads[0]);
   });
 });

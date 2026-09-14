@@ -146,6 +146,154 @@ import {
 } from "./VisualEditor";
 
 describe("suggestion replacement intent", () => {
+  it("keeps a plain-word replacement on the canonical paragraph/list revision", () => {
+    const canonical =
+      "Alpha bravo charlie delta.\n\n- Echo foxtrot golf\n- Hotel india juliet\n- Kilo lima mike";
+    const editor = createMarkdownEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "paragraph-list-word",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    try {
+      const from = 7;
+      const to = from + "bravo".length;
+      const transaction = editor.state.tr.insertText("BRAVISSIMO", from, to);
+      const intent = suggestionReplacementIntentForTransaction(transaction, {
+        from,
+        to,
+        empty: false,
+      });
+      expect(intent).toMatchObject({
+        beforeText: "bravo",
+        afterText: "BRAVISSIMO",
+        startOffset: canonical.indexOf("bravo"),
+      });
+      recordSuggestionReplacementIntent(
+        session,
+        intent!,
+        intent!.beforeMarkdown,
+      );
+      editor.view.dispatch(transaction);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const operations = suggestionDraftOperations(session, draft);
+
+      expect(operations).toHaveLength(1);
+      expect(operations[0]).toMatchObject({
+        kind: "replace_text",
+        before: { markdown: canonical, changedText: "bravo" },
+        after: {
+          markdown: canonical.replace("bravo", "BRAVISSIMO"),
+          changedText: "BRAVISSIMO",
+        },
+        anchor: {
+          from: canonical.indexOf("bravo"),
+          to: canonical.indexOf("bravo") + "bravo".length,
+        },
+      });
+      const draftAnchor = draftSuggestionAnchors(operations, draft)[0]!;
+      expect(
+        suggestionTextPresentationForSource(operations[0]!.after.changedText, {
+          source: operations[0]!.after.markdown,
+          from: operations[0]!.anchor.from,
+          to:
+            operations[0]!.anchor.from +
+            operations[0]!.after.changedText.length,
+        }),
+      ).not.toBeNull();
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "paragraph-list-word",
+          kind: operations[0]!.kind,
+          beforeText: operations[0]!.before.changedText,
+          afterText: operations[0]!.after.changedText,
+          beforePresentation: {
+            source: operations[0]!.before.markdown,
+            from: operations[0]!.anchor.from,
+            to: operations[0]!.anchor.to,
+          },
+          afterPresentation: {
+            source: operations[0]!.after.markdown,
+            from: operations[0]!.anchor.from,
+            to:
+              operations[0]!.anchor.from +
+              operations[0]!.after.changedText.length,
+          },
+          anchor: draftAnchor,
+          presentation: "draft",
+        }),
+      ).not.toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("maps three raw-revision replacements to every draft preview and highlight", () => {
+    const raw = "one alpha.\n\n- two beta\n- three gamma";
+    const draft = "ONE alpha.\n- TWO beta\n- THREE gamma";
+    const session = createSuggestionDraftSession({
+      id: "three-replacements",
+      baseContent: raw,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    const operations = suggestionDraftOperations(session, draft);
+    expect(
+      operations.map(({ before, after }) => [
+        before.changedText,
+        after.changedText,
+      ]),
+    ).toEqual([
+      ["one", "ONE"],
+      ["two", "TWO"],
+      ["three", "THREE"],
+    ]);
+    expect(
+      operations.every((operation) => operation.before.markdown === raw),
+    ).toBe(true);
+
+    const anchors = draftSuggestionAnchors(operations, draft);
+    const editor = createMarkdownEditor(draft);
+    try {
+      operations.forEach((operation, index) => {
+        const anchor = anchors[index]!;
+        expect(draft.slice(anchor.from, anchor.to)).toBe(
+          operation.after.changedText,
+        );
+        expect(
+          suggestionTextPresentationForSource(operation.after.changedText, {
+            source: operation.after.markdown,
+            from: operation.anchor.from,
+            to: operation.anchor.from + operation.after.changedText.length,
+          }),
+        ).not.toBeNull();
+        expect(
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `three-replacements-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            beforePresentation: {
+              source: operation.before.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.to,
+            },
+            afterPresentation: {
+              source: operation.after.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.from + operation.after.changedText.length,
+            },
+            anchor,
+            presentation: "draft",
+          }),
+        ).not.toBeNull();
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps a suffix Add after native backspaces cancel an insertion in a mixed session", () => {
     const editor = createMarkdownEditor(
       "This reads better compared to the original.\n\nEditors publish carefully.\n\nFinal sentence.",
