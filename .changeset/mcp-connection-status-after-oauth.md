@@ -8,7 +8,7 @@ that opened it, and the shared QueryClient deliberately disables
 `refetchOnWindowFocus`, so the integrations list kept rendering "Connect" for
 an integration that was already connected until the page was reloaded. The
 `["mcp-servers"]` query now revalidates on focus, visibility, and connection
-completion inside a bounded five-minute window after an authorization starts,
+completion for as long as the server will still accept that authorization,
 which covers every OAuth connector in the catalog rather than one provider.
 
 Rename the Builder Publish connector to "Builder.io Publish". Onboarding
