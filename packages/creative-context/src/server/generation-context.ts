@@ -583,6 +583,7 @@ export async function recordGenerationCreativeContext(
   input: IsolatedRecordPayload,
   options: { db?: any; artifactAccess?: GenerationArtifactAccessTarget } = {},
 ) {
+  if (!(await creativeContextLabEnabled())) return null;
   const artifactAccessTarget = collaborativeArtifactTarget(
     input,
     options.artifactAccess,

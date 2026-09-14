@@ -159,6 +159,31 @@ describe("generation context isolated A2A routing", () => {
     expect(mocks.getLocal).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { path: "isolated A2A", hasA2A: true },
+    { path: "local storage", hasA2A: false },
+  ])(
+    "does not record through $path when Labs is disabled",
+    async ({ hasA2A }) => {
+      mocks.isCreativeContextLabAvailable.mockResolvedValue(false);
+      mocks.hasA2A.mockReturnValue(hasA2A);
+
+      await expect(
+        recordGenerationCreativeContext({
+          appId: "slides",
+          artifactType: "deck",
+          artifactId: "deck-1",
+          contextMode: "auto",
+          contextPackId: null,
+          reuseLabels: [],
+        }),
+      ).resolves.toBeNull();
+
+      expect(mocks.callA2A).not.toHaveBeenCalled();
+      expect(mocks.recordLocal).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps the in-process path as the zero-configuration default", async () => {
     mocks.hasA2A.mockReturnValue(false);
     mocks.performCreativeContextSearch.mockResolvedValue({
