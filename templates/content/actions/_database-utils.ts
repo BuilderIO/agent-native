@@ -645,33 +645,28 @@ export async function getContentDatabasePageResponse(
           )
           .map((row) => row.documentId)
       : null;
-  const favoritesVisibleDocumentIds =
+  const favoritesVisibleDocumentQuery =
     database.systemRole === "favorites" && userEmail
-      ? (
-          await db
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(
-              and(
-                or(
+      ? db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(
+            and(
+              or(
+                accessFilter(schema.documents, schema.documentShares, {
+                  userEmail,
+                }),
+                ...authorizedOrgIds.map((orgId) =>
                   accessFilter(schema.documents, schema.documentShares, {
                     userEmail,
+                    orgId,
                   }),
-                  ...authorizedOrgIds.map((orgId) =>
-                    accessFilter(schema.documents, schema.documentShares, {
-                      userEmail,
-                      orgId,
-                    }),
-                  ),
                 ),
-                isNull(schema.documents.trashedAt),
-                documentDiscoveryFilter({
-                  userEmail,
-                  orgIds: authorizedOrgIds,
-                }),
               ),
-            )
-        ).map((document) => document.id)
+              isNull(schema.documents.trashedAt),
+              documentDiscoveryFilter({ userEmail, orgIds: authorizedOrgIds }),
+            ),
+          )
       : null;
   const organizationFilesItemFilter =
     database.systemRole === "files" && database.orgId
@@ -703,13 +698,11 @@ export async function getContentDatabasePageResponse(
         )
       : undefined,
     organizationFilesItemFilter,
-    favoritesVisibleDocumentIds
-      ? favoritesVisibleDocumentIds.length > 0
-        ? inArray(
-            schema.contentDatabaseItems.documentId,
-            favoritesVisibleDocumentIds,
-          )
-        : sql`1 = 0`
+    favoritesVisibleDocumentQuery
+      ? inArray(
+          schema.contentDatabaseItems.documentId,
+          favoritesVisibleDocumentQuery,
+        )
       : undefined,
     workspacesVisibleDocumentIds
       ? workspacesVisibleDocumentIds.length > 0
@@ -929,27 +922,23 @@ export async function getContentDatabasePageResponse(
                 items.map((item) => item.documentId),
               ),
               isNull(schema.documents.trashedAt),
-              database.systemRole === "favorites"
-                ? favoritesVisibleDocumentIds?.length
-                  ? inArray(schema.documents.id, favoritesVisibleDocumentIds)
+              database.systemRole === "workspaces"
+                ? workspacesVisibleDocumentIds?.length
+                  ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
                   : sql`1 = 0`
-                : database.systemRole === "workspaces"
-                  ? workspacesVisibleDocumentIds?.length
-                    ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
-                    : sql`1 = 0`
-                  : database.systemRole === "files" && database.orgId
-                    ? and(
-                        eq(schema.documents.orgId, database.orgId),
-                        or(
-                          eq(schema.documents.visibility, "org"),
-                          eq(schema.documents.visibility, "public"),
-                        ),
-                        or(
-                          eq(schema.documents.hideFromSearch, 0),
-                          isNull(schema.documents.hideFromSearch),
-                        ),
-                      )
-                    : eq(schema.documents.ownerEmail, database.ownerEmail),
+                : database.systemRole === "files" && database.orgId
+                  ? and(
+                      eq(schema.documents.orgId, database.orgId),
+                      or(
+                        eq(schema.documents.visibility, "org"),
+                        eq(schema.documents.visibility, "public"),
+                      ),
+                      or(
+                        eq(schema.documents.hideFromSearch, 0),
+                        isNull(schema.documents.hideFromSearch),
+                      ),
+                    )
+                  : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];
@@ -1061,6 +1050,38 @@ export async function getContentDatabasePageResponse(
           ).map((row) => row.databaseItemId),
         )
       : new Set<string>();
+  const workspaceMemberships =
+    database.systemRole === "favorites" && documents.length > 0
+      ? await db
+          .select({
+            documentId: schema.contentDatabaseItems.documentId,
+            databaseId: schema.contentDatabaseItems.databaseId,
+          })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.contentDatabases,
+            eq(
+              schema.contentDatabases.id,
+              schema.contentDatabaseItems.databaseId,
+            ),
+          )
+          .where(
+            and(
+              inArray(
+                schema.contentDatabaseItems.documentId,
+                documents.map((document) => document.id),
+              ),
+              eq(schema.contentDatabases.systemRole, "files"),
+              isNull(schema.contentDatabases.deletedAt),
+            ),
+          )
+      : [];
+  const workspaceDatabaseIdByDocumentId = new Map(
+    workspaceMemberships.map((membership) => [
+      membership.documentId,
+      membership.databaseId,
+    ]),
+  );
 
   const serializedCandidateItems = [];
   for (const item of items) {
@@ -1081,6 +1102,8 @@ export async function getContentDatabasePageResponse(
         favorites.has(document.id),
       ),
       position: item.position,
+      workspaceFilesDatabaseId:
+        workspaceDatabaseIdByDocumentId.get(document.id) ?? null,
       bodyHydration: serializeBodyHydration(item, {
         queued: bodyHydrationQueued,
       }),

@@ -4,6 +4,7 @@ import {
   contentRecentHref,
   readContentRecentState,
   recordContentRecentVisit,
+  contentRecentVisitKey,
 } from "./content-personal-navigation";
 
 describe("personal Recent navigation", () => {
@@ -18,7 +19,7 @@ describe("personal Recent navigation", () => {
       visitedAt: "2026-09-09T11:00:00.000Z",
     });
     state = recordContentRecentVisit(state, {
-      target,
+      target: { ...target, viewId: "table" },
       visitedAt: "2026-09-09T10:00:00.000Z",
     });
     expect(state.entries).toEqual([
@@ -30,7 +31,7 @@ describe("personal Recent navigation", () => {
     ]);
   });
 
-  it("retains separate Views and promotes only the explicitly visited identity", () => {
+  it("keeps one database entry while restoring its latest visited View", () => {
     const table = { documentId: "page", databaseId: "db", viewId: "table" };
     const board = { ...table, viewId: "board" };
     let state = readContentRecentState(null);
@@ -48,11 +49,44 @@ describe("personal Recent navigation", () => {
     });
     expect(state.entries.map((entry) => entry.target.viewId)).toEqual([
       "table",
-      "board",
     ]);
+    expect(contentRecentVisitKey(table)).not.toBe(contentRecentVisitKey(board));
     expect(contentRecentHref(table)).toBe(
       "/page/page?databaseId=db&viewId=table",
     );
+  });
+
+  it("migrates v1 View duplicates deterministically and keeps the newest visit", () => {
+    const state = readContentRecentState({
+      version: 1,
+      entries: [
+        {
+          target: { documentId: "page", databaseId: "db", viewId: "board" },
+          visitedAt: "2026-09-09T12:00:00.000Z",
+        },
+        {
+          target: { documentId: "page", databaseId: "db", viewId: "table" },
+          visitedAt: "2026-09-09T12:00:00.000Z",
+        },
+        {
+          target: { documentId: "other" },
+          visitedAt: "2026-09-09T11:00:00.000Z",
+        },
+      ],
+    });
+    expect(state).toEqual({
+      version: 2,
+      entries: [
+        {
+          target: { documentId: "page", databaseId: "db", viewId: "board" },
+          visitedAt: "2026-09-09T12:00:00.000Z",
+        },
+        {
+          target: { documentId: "other" },
+          visitedAt: "2026-09-09T11:00:00.000Z",
+        },
+      ],
+    });
   });
 
   it("bounds navigation history without storing target metadata", () => {

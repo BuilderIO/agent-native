@@ -1,11 +1,16 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
   ContentDatabaseItem,
+  ContentDatabaseNavigationItem,
+  ContentDatabaseNavigationPageResponse,
+  ContentDatabaseNavigationSort,
   ContentDatabaseOpenPagesIn,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentDatabaseViewConfig,
   ContentSidebarViewOrder,
+  Document,
 } from "@shared/api";
 import {
   IconChevronDown,
@@ -75,6 +80,267 @@ export interface ContentFilesSidebarManualReorder {
 export interface ContentFilesSidebarRenderReorder {
   controls: ReturnType<typeof useSidebarReorderItem>;
   labels: SidebarReorderLabels;
+}
+
+function navigationItemAsDatabaseItem(
+  item: ContentDatabaseNavigationItem,
+  document: Document | undefined,
+): ContentDatabaseItem {
+  return {
+    id: item.membershipId,
+    databaseId: "",
+    position: item.membershipPosition,
+    properties: [],
+    document: document ?? {
+      id: item.documentId,
+      parentId: item.parentId,
+      title: item.title,
+      content: "",
+      icon: item.icon,
+      position: item.membershipPosition,
+      isFavorite: item.isFavorite,
+      hideFromSearch: false,
+      canEdit: item.canEdit,
+      canManage: item.canManage,
+      source: item.sourceKind
+        ? { mode: "database", kind: item.sourceKind }
+        : undefined,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    },
+  };
+}
+
+export function PagedContentFilesSidebarView({
+  databaseId,
+  sort,
+  viewId,
+  activeDocumentId,
+  expandedDocumentIds,
+  onDocumentExpandedChange,
+  documentMetadata,
+  activePathDocuments = [],
+  onOpenItem,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
+  navigationLabel,
+  untitledLabel,
+}: {
+  databaseId: string;
+  sort: ContentDatabaseNavigationSort;
+  viewId?: string;
+  activeDocumentId?: string | null;
+  expandedDocumentIds: ReadonlySet<string>;
+  onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
+  documentMetadata: ReadonlyMap<string, Document>;
+  activePathDocuments?: readonly Document[];
+  onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  onCreateChildPage?: (item: ContentDatabaseItem) => void;
+  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
+  onDeleteItem?: (item: ContentDatabaseItem) => void;
+  onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  navigationLabel: string;
+  untitledLabel: string;
+}) {
+  return (
+    <nav
+      aria-label={navigationLabel}
+      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+      data-paged-files-navigation
+    >
+      <PagedContentFilesBranch
+        key={`${databaseId}:root:${sort}:${viewId ?? ""}`}
+        databaseId={databaseId}
+        parentId={null}
+        sort={sort}
+        viewId={viewId}
+        depth={0}
+        activeDocumentId={activeDocumentId}
+        expandedDocumentIds={expandedDocumentIds}
+        onDocumentExpandedChange={onDocumentExpandedChange}
+        documentMetadata={documentMetadata}
+        activePathDocuments={activePathDocuments}
+        onOpenItem={onOpenItem}
+        onCreateChildPage={onCreateChildPage}
+        onCreateChildDatabase={onCreateChildDatabase}
+        onDeleteItem={onDeleteItem}
+        onToggleFavorite={onToggleFavorite}
+        untitledLabel={untitledLabel}
+      />
+    </nav>
+  );
+}
+
+function PagedContentFilesBranch({
+  cursor,
+  precedingDocumentIds = new Set(),
+  ...props
+}: {
+  databaseId: string;
+  parentId: string | null;
+  cursor?: string;
+  precedingDocumentIds?: ReadonlySet<string>;
+  sort: ContentDatabaseNavigationSort;
+  viewId?: string;
+  depth: number;
+  activeDocumentId?: string | null;
+  expandedDocumentIds: ReadonlySet<string>;
+  onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
+  documentMetadata: ReadonlyMap<string, Document>;
+  activePathDocuments: readonly Document[];
+  onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  onCreateChildPage?: (item: ContentDatabaseItem) => void;
+  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
+  onDeleteItem?: (item: ContentDatabaseItem) => void;
+  onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  untitledLabel: string;
+}) {
+  const t = useT();
+  const [nextPageVisible, setNextPageVisible] = useState(false);
+  const query = useActionQuery("query-content-database-items", {
+    databaseId: props.databaseId,
+    limit: 20,
+    navigation: {
+      parentId: props.parentId,
+      sort: props.sort,
+      viewId: props.viewId,
+      cursor,
+    },
+  });
+  const data =
+    query.data && !("available" in query.data)
+      ? (query.data as ContentDatabaseNavigationPageResponse)
+      : undefined;
+
+  if (query.isLoading) {
+    return (
+      <div aria-hidden="true" className="grid gap-1 p-1">
+        {[70, 55, 85].map((width) => (
+          <div key={width} className="flex h-7 items-center gap-1.5 px-1.5">
+            <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+            <Skeleton className="h-3 rounded" style={{ width: `${width}%` }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (query.isError || !data) {
+    return (
+      <div className="px-1 py-1">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {t("database.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  const pageItems = data.items.filter(
+    (item) => !precedingDocumentIds.has(item.documentId),
+  );
+  const pageDocumentIds = new Set([
+    ...precedingDocumentIds,
+    ...pageItems.map((item) => item.documentId),
+  ]);
+  const revealedItems = props.activePathDocuments
+    .filter(
+      (document) =>
+        document.parentId === props.parentId &&
+        !pageDocumentIds.has(document.id),
+    )
+    .map((document) => ({
+      membershipId: `active-path-${document.id}`,
+      membershipPosition: document.position,
+      documentId: document.id,
+      parentId: document.parentId,
+      title: document.title,
+      icon: document.icon,
+      type: document.database ? ("database" as const) : ("page" as const),
+      hasChildren: props.activePathDocuments.some(
+        (candidate) => candidate.parentId === document.id,
+      ),
+      spaceId: null,
+      sourceKind: document.source?.kind ?? null,
+      isFavorite: document.isFavorite,
+      canEdit: document.canEdit !== false,
+      canManage: document.canManage === true,
+      createdAt: document.createdAt,
+      updatedAt: document.updatedAt,
+    }));
+  const items = [...pageItems, ...revealedItems];
+  const composedDocumentIds = new Set([
+    ...pageDocumentIds,
+    ...revealedItems.map((item) => item.documentId),
+  ]);
+
+  return (
+    <>
+      {items.map((navigationItem) => {
+        const metadata = props.documentMetadata.get(navigationItem.documentId);
+        const item = navigationItemAsDatabaseItem(navigationItem, metadata);
+        const expanded = props.expandedDocumentIds.has(
+          navigationItem.documentId,
+        );
+        return (
+          <div key={navigationItem.membershipId} className="min-w-0">
+            <DatabaseSidebarRow
+              item={item}
+              openPagesIn="full_page"
+              onPreview={() => {}}
+              onOpenItem={props.onOpenItem}
+              active={navigationItem.documentId === props.activeDocumentId}
+              onCreateChildPage={props.onCreateChildPage}
+              onCreateChildDatabase={props.onCreateChildDatabase}
+              onDeleteItem={props.onDeleteItem}
+              onToggleFavorite={props.onToggleFavorite}
+              untitledLabel={props.untitledLabel}
+              depth={props.depth}
+              hasChildren={navigationItem.hasChildren}
+              expanded={expanded}
+              onToggleExpanded={(open) =>
+                props.onDocumentExpandedChange(navigationItem.documentId, open)
+              }
+            />
+            {expanded && navigationItem.hasChildren ? (
+              <PagedContentFilesBranch
+                {...props}
+                key={`${props.databaseId}:${navigationItem.documentId}:${props.sort}:${props.viewId ?? ""}`}
+                parentId={navigationItem.documentId}
+                depth={props.depth + 1}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+      {data.pagination.hasMore && data.pagination.nextCursor ? (
+        nextPageVisible ? (
+          <PagedContentFilesBranch
+            {...props}
+            key={data.pagination.nextCursor}
+            cursor={data.pagination.nextCursor}
+            precedingDocumentIds={composedDocumentIds}
+          />
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 justify-start text-xs text-muted-foreground"
+            onClick={() => setNextPageVisible(true)}
+          >
+            {t("sidebar.showMore")}
+          </Button>
+        )
+      ) : null}
+    </>
+  );
 }
 
 export function databaseSidebarReorderItems(

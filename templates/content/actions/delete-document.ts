@@ -936,6 +936,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Database page the deletion was initiated from"),
+    activeDocumentId: z
+      .string()
+      .optional()
+      .describe(
+        "Currently open document, used only to return an explicit navigation outcome.",
+      ),
   }),
   run: async (args) => {
     const id = args.id;
@@ -1011,6 +1017,16 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { success: true, deleted: deleted.length };
+    return {
+      success: true,
+      deleted: deleted.length,
+      activeTargetDeleted: args.activeDocumentId
+        ? deleted.includes(args.activeDocumentId)
+        : false,
+      navigationPath:
+        args.activeDocumentId && deleted.includes(args.activeDocumentId)
+          ? "/home"
+          : null,
+    };
   },
 });

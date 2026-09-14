@@ -40,6 +40,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -72,6 +73,7 @@ import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
+import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
 import {
   contentCommandDocumentPath,
   groupContentCommandSearchResults,
@@ -528,9 +530,11 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 function ContentCommandMenu({
   open,
   onOpenChange,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -538,6 +542,7 @@ function ContentCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       placeholder={t("root.commandSearchPlaceholder")}
       changelog={changelog}
       changelogKey="content"
@@ -564,9 +569,28 @@ function ContentCommandMenu({
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const commandMenuReturnFocusRef = useRef<HTMLElement | null>(null);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  useEffect(() => {
+    const handleOpen = (event: Event) => {
+      commandMenuReturnFocusRef.current =
+        (event as CustomEvent<{ returnFocusTo?: HTMLElement }>).detail
+          ?.returnFocusTo ?? null;
+      setCmdkOpen(true);
+    };
+    window.addEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+    return () =>
+      window.removeEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+  }, []);
+  const handleCommandMenuCloseAutoFocus = useCallback((event: Event) => {
+    const target = commandMenuReturnFocusRef.current;
+    if (!target?.isConnected) return;
+    event.preventDefault();
+    commandMenuReturnFocusRef.current = null;
+    target.focus();
+  }, []);
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.
@@ -625,7 +649,11 @@ export default function Root() {
         <AppSetup />
         <Toaster />
         <RouteTransitionIndicator />
-        <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <ContentCommandMenu
+          open={cmdkOpen}
+          onOpenChange={setCmdkOpen}
+          onCloseAutoFocus={handleCommandMenuCloseAutoFocus}
+        />
         <Outlet />
       </AppProviders>
     </AppToolkitProvider>

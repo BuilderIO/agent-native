@@ -50,8 +50,12 @@ export const contentRecentEntrySchema = z.object({
   visitedAt: z.string().datetime(),
 });
 export type ContentRecentEntry = z.infer<typeof contentRecentEntrySchema>;
-export const contentRecentStateSchema = z.object({
+const contentRecentStateV1Schema = z.object({
   version: z.literal(1),
+  entries: z.array(contentRecentEntrySchema),
+});
+export const contentRecentStateSchema = z.object({
+  version: z.literal(2),
   entries: z.array(contentRecentEntrySchema).max(CONTENT_RECENT_LIMIT),
 });
 export type ContentRecentState = z.infer<typeof contentRecentStateSchema>;
@@ -59,9 +63,16 @@ export type ContentRecentResult = ContentRecentEntry & {
   title: string;
   icon: string | null;
   viewName: string | null;
+  fallback?: { reason: "saved_view_unavailable"; requestedViewId: string };
 };
 
 export function contentRecentTargetKey(target: ContentRecentTarget) {
+  return target.databaseId
+    ? JSON.stringify(["database", target.databaseId])
+    : JSON.stringify(["document", target.documentId]);
+}
+
+export function contentRecentVisitKey(target: ContentRecentTarget) {
   return JSON.stringify([
     target.documentId,
     target.databaseId ?? null,
@@ -70,8 +81,26 @@ export function contentRecentTargetKey(target: ContentRecentTarget) {
 }
 
 export function readContentRecentState(value: unknown): ContentRecentState {
-  if (value === null) return { version: 1, entries: [] };
-  return contentRecentStateSchema.parse(value);
+  if (value === null) return { version: 2, entries: [] };
+  const current = contentRecentStateSchema.safeParse(value);
+  if (current.success) return current.data;
+  const legacy = contentRecentStateV1Schema.parse(value);
+  return migrateContentRecentState(legacy.entries);
+}
+
+function migrateContentRecentState(
+  entries: ContentRecentEntry[],
+): ContentRecentState {
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort(
+      (a, b) =>
+        b.entry.visitedAt.localeCompare(a.entry.visitedAt) || a.index - b.index,
+    )
+    .reduce<ContentRecentState>(
+      (state, { entry }) => recordContentRecentVisit(state, entry),
+      { version: 2, entries: [] },
+    );
 }
 
 export function recordContentRecentVisit(
@@ -82,9 +111,9 @@ export function recordContentRecentVisit(
   const existing = state.entries.find(
     (candidate) => contentRecentTargetKey(candidate.target) === key,
   );
-  if (existing && existing.visitedAt > entry.visitedAt) return state;
+  if (existing && existing.visitedAt >= entry.visitedAt) return state;
   return {
-    version: 1,
+    version: 2,
     entries: [
       entry,
       ...state.entries.filter(

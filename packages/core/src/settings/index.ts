@@ -2,6 +2,7 @@
 export {
   getSetting,
   mutateSetting,
+  mutateSettingTransaction,
   putSetting,
   deleteSetting,
   deleteSettingIfValue,
@@ -9,6 +10,7 @@ export {
   listSettingsByPrefix,
   getSettingsEmitter,
   type StoreWriteOptions,
+  type SettingsTransaction,
 } from "./store.js";
 
 // H3 route handlers
@@ -25,6 +27,7 @@ export { readSetting, writeSetting, removeSetting } from "./script-helpers.js";
 export {
   getUserSetting,
   mutateUserSetting,
+  mutateUserSettingTransaction,
   putUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";

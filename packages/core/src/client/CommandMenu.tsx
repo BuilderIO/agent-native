@@ -259,6 +259,7 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
 export interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: (event: Event) => void;
   children: ReactNode;
   /** Render app-specific dynamic results from the current search value. */
   renderResults?: (search: string) => ReactNode;
@@ -296,6 +297,7 @@ export interface CommandMenuProps {
 export function CommandMenu({
   open,
   onOpenChange,
+  onCloseAutoFocus,
   children,
   renderResults,
   placeholder = "Type a command or ask AI...",
@@ -484,6 +486,7 @@ export function CommandMenu({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           ref={containerRef}
+          onCloseAutoFocus={onCloseAutoFocus}
           aria-describedby={undefined}
           hideClose
           motion="instant"

@@ -8,6 +8,10 @@ function readLayoutSource() {
   });
 }
 
+function readRootSource() {
+  return readFileSync(new URL("../../root.tsx", import.meta.url), "utf8");
+}
+
 describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
@@ -60,6 +64,15 @@ describe("app layout", () => {
     const source = readLayoutSource();
 
     expect(source).toContain("useCreatePage({ awaitPersist: false })");
+  });
+
+  it("returns command-menu focus to the recorded visible launcher without a timer", () => {
+    const source = readRootSource();
+
+    expect(source).toContain("CONTENT_COMMAND_MENU_OPEN_EVENT");
+    expect(source).toContain("commandMenuReturnFocusRef.current =");
+    expect(source).toContain("target.focus()");
+    expect(source).not.toContain("setTimeout(() => target.focus");
   });
 
   it("includes the current document revision in chat history restores", () => {

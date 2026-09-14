@@ -1,9 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import {
-  deleteUserSetting,
-  mutateUserSetting,
-  putUserSetting,
-} from "@agent-native/core/settings";
+import { mutateUserSettingTransaction } from "@agent-native/core/settings";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -48,11 +44,28 @@ export default defineAction({
     ),
   run: async ({ databaseId, overrides, navigation }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    const userEmail = ctx.userEmail;
     await assertContentDatabaseViewerAccess(databaseId);
 
     const key = personalDatabaseViewSettingKey(databaseId);
+    const db = getDb();
+    const mutateSetting = <T>(
+      updater: (
+        tx: ReturnType<typeof getDb>,
+        current: Record<string, unknown> | null,
+      ) =>
+        | Promise<{ value: Record<string, unknown> | null; result: T }>
+        | { value: Record<string, unknown> | null; result: T },
+    ) =>
+      mutateUserSettingTransaction(
+        (callback) => db.transaction(callback),
+        userEmail,
+        key,
+        (tx, current) =>
+          updater(tx as unknown as ReturnType<typeof getDb>, current),
+      );
     if (navigation) {
-      const [database] = await getDb()
+      const [database] = await db
         .select({
           viewConfigJson: schema.contentDatabases.viewConfigJson,
           systemRole: schema.contentDatabases.systemRole,
@@ -85,73 +98,156 @@ export default defineAction({
           statusCode: 404,
           errorCode: "view_unavailable",
         });
-      const requestedItemIds = navigation.sidebarOrder?.itemIds ?? [];
-      const validItemIds = new Set<string>();
-      for (const itemIds of chunks(
-        requestedItemIds,
-        Math.max(1, bulkChunkSizeForColumnCount(1) - 1),
-      )) {
-        const rows = await getDb()
-          .select({ id: schema.contentDatabaseItems.id })
-          .from(schema.contentDatabaseItems)
-          .where(
-            and(
-              eq(schema.contentDatabaseItems.databaseId, databaseId),
-              inArray(schema.contentDatabaseItems.id, itemIds),
-            ),
-          );
-        for (const row of rows) validItemIds.add(row.id);
-      }
-      const patch = navigation.sidebarOrder
-        ? {
-            ...navigation,
-            sidebarOrder: {
-              ...navigation.sidebarOrder,
-              itemIds: navigation.sidebarOrder.itemIds.filter((id) =>
-                validItemIds.has(id),
+      const { value: saved } = await mutateSetting(async (tx, current) => {
+        const requestedItemIds = navigation.sidebarOrder
+          ? navigation.sidebarOrder.operation === "replace"
+            ? navigation.sidebarOrder.itemIds
+            : [navigation.sidebarOrder.itemId]
+          : [];
+        const validItemIds = new Set<string>();
+        for (const itemIds of chunks(
+          requestedItemIds,
+          Math.max(1, bulkChunkSizeForColumnCount(1) - 1),
+        )) {
+          const rows = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, databaseId),
+                inArray(schema.contentDatabaseItems.id, itemIds),
               ),
-            },
-          }
-        : navigation;
-      const saved = await mutateUserSetting(ctx.userEmail, key, (current) => ({
-        ...applyContentPersonalNavigationPatch(
-          migratePersonalDatabaseViewOverrides(
-            current,
-            databaseId,
-            database.systemRole,
-          ),
-          patch,
-          config.views,
-        ),
-      }));
+            );
+          for (const row of rows) validItemIds.add(row.id);
+        }
+        const migrated = migratePersonalDatabaseViewOverrides(
+          current,
+          databaseId,
+          database.systemRole,
+        );
+        const currentOrder = navigation.sidebarOrder
+          ? (migrated?.views.find(
+              (view) => view.id === navigation.sidebarOrder?.viewId,
+            )?.sidebarOrder?.itemIds ?? [])
+          : [];
+        for (const itemIds of chunks(
+          currentOrder,
+          Math.max(1, bulkChunkSizeForColumnCount(1) - 1),
+        )) {
+          const rows = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, databaseId),
+                inArray(schema.contentDatabaseItems.id, itemIds),
+              ),
+            );
+          for (const row of rows) validItemIds.add(row.id);
+        }
+        const replaceOrder =
+          navigation.sidebarOrder?.operation === "replace"
+            ? navigation.sidebarOrder
+            : null;
+        const incrementalOrder =
+          navigation.sidebarOrder?.operation !== "replace"
+            ? navigation.sidebarOrder
+            : null;
+        const patch = replaceOrder
+          ? {
+              ...navigation,
+              sidebarOrder: {
+                ...replaceOrder,
+                itemIds: [
+                  ...replaceOrder.itemIds.filter((id) => validItemIds.has(id)),
+                  ...currentOrder.filter(
+                    (id) =>
+                      validItemIds.has(id) &&
+                      !replaceOrder.itemIds.includes(id),
+                  ),
+                ],
+              },
+            }
+          : incrementalOrder && !validItemIds.has(incrementalOrder.itemId)
+            ? fail("This sidebar item is unavailable.", {
+                statusCode: 404,
+                errorCode: "item_unavailable",
+              })
+            : navigation;
+        const value = {
+          ...applyContentPersonalNavigationPatch(migrated, patch, config.views),
+        };
+        return {
+          value: value as unknown as Record<string, unknown>,
+          result: undefined,
+        };
+      });
       return {
         databaseId,
         overrides: personalViewOverridesSchema.parse(saved),
       };
     }
     if (overrides) {
-      const requestedItemIds = personalSidebarOrderItemIds(overrides);
-      const validItemIds = new Set<string>();
-      const itemIdChunkSize = Math.max(1, bulkChunkSizeForColumnCount(1) - 1);
-      for (const itemIds of chunks(requestedItemIds, itemIdChunkSize)) {
-        const rows = await getDb()
-          .select({ id: schema.contentDatabaseItems.id })
-          .from(schema.contentDatabaseItems)
-          .where(
-            and(
-              eq(schema.contentDatabaseItems.databaseId, databaseId),
-              inArray(schema.contentDatabaseItems.id, itemIds),
-            ),
-          );
-        for (const row of rows) validItemIds.add(row.id);
-      }
-      overrides = normalizePersonalDatabaseViewOverrides(
-        overrides,
-        validItemIds,
-      );
-      await putUserSetting(ctx.userEmail, key, overrides);
+      const requested = overrides;
+      const { value } = await mutateSetting(async (tx, current) => {
+        const currentOverrides =
+          current === null ? null : personalViewOverridesSchema.parse(current);
+        const requestedItemIds = [
+          ...new Set([
+            ...personalSidebarOrderItemIds(requested),
+            ...(currentOverrides
+              ? personalSidebarOrderItemIds(currentOverrides)
+              : []),
+          ]),
+        ];
+        const validItemIds = new Set<string>();
+        const itemIdChunkSize = Math.max(1, bulkChunkSizeForColumnCount(1) - 1);
+        for (const itemIds of chunks(requestedItemIds, itemIdChunkSize)) {
+          const rows = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, databaseId),
+                inArray(schema.contentDatabaseItems.id, itemIds),
+              ),
+            );
+          for (const row of rows) validItemIds.add(row.id);
+        }
+        const normalized = normalizePersonalDatabaseViewOverrides(
+          requested,
+          validItemIds,
+        );
+        return {
+          value: {
+            ...normalized,
+            views: normalized.views.map((view) => {
+              const currentOrder =
+                currentOverrides?.views.find(
+                  (candidate) => candidate.id === view.id,
+                )?.sidebarOrder?.itemIds ?? [];
+              return {
+                ...view,
+                sidebarOrder: {
+                  ...view.sidebarOrder,
+                  itemIds: [
+                    ...view.sidebarOrder.itemIds,
+                    ...currentOrder.filter(
+                      (id) =>
+                        validItemIds.has(id) &&
+                        !view.sidebarOrder.itemIds.includes(id),
+                    ),
+                  ],
+                },
+              };
+            }),
+          } as unknown as Record<string, unknown>,
+          result: undefined,
+        };
+      });
+      overrides = personalViewOverridesSchema.parse(value);
     } else {
-      await deleteUserSetting(ctx.userEmail, key);
+      await mutateSetting(() => ({ value: null, result: undefined }));
     }
 
     return { databaseId, overrides };

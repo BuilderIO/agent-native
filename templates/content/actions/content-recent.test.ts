@@ -125,7 +125,7 @@ describe("Recent access resolution", () => {
     },
   );
 
-  it("does not invent a removed default View when other saved Views exist", async () => {
+  it("falls back explicitly to the first saved View when the recent View was removed", async () => {
     rowsOnce([{ id: "page", title: "Database", icon: null }]);
     rowsOnce([
       {
@@ -140,7 +140,19 @@ describe("Recent access resolution", () => {
       await resolveContentRecentEntries(alice.userEmail, [
         entry("page", { databaseId: "db", viewId: "default" }),
       ]),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        ...entry("page", { databaseId: "db", viewId: "default" }),
+        target: { documentId: "page", databaseId: "db", viewId: "board" },
+        title: "Database",
+        icon: null,
+        viewName: "Board",
+        fallback: {
+          reason: "saved_view_unavailable",
+          requestedViewId: "default",
+        },
+      },
+    ]);
   });
 
   it("uses only the current org context and the requesting user", async () => {
@@ -176,7 +188,7 @@ describe("Recent access resolution", () => {
     expect(boundary.select).toHaveBeenCalledTimes(2);
   });
 
-  it("never substitutes another View or Database for an unavailable exact target", async () => {
+  it("falls back within the same database and omits an unavailable database", async () => {
     rowsOnce([{ id: "page", title: "Database page", icon: null }]);
     rowsOnce([
       {
@@ -193,7 +205,75 @@ describe("Recent access resolution", () => {
         entry("page", { databaseId: "db", viewId: "removed" }),
         entry("page", { databaseId: "deleted-db", viewId: "default" }),
       ]),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        ...entry("page", { databaseId: "db", viewId: "removed" }),
+        target: { documentId: "page", databaseId: "db", viewId: "default" },
+        title: "Database page",
+        icon: null,
+        viewName: "Default",
+        fallback: {
+          reason: "saved_view_unavailable",
+          requestedViewId: "removed",
+        },
+      },
+    ]);
+  });
+
+  it("prefers a valid personal active View for a removed recent View", async () => {
+    stored.set(
+      settingId(alice.userEmail, "content-database-personal-view:db"),
+      {
+        version: 2,
+        activeViewId: "board",
+        views: [],
+      },
+    );
+    rowsOnce([{ id: "page", title: "Database", icon: null }]);
+    rowsOnce([
+      {
+        id: "db",
+        documentId: "page",
+        viewConfigJson: JSON.stringify({
+          activeViewId: "table",
+          views: [
+            { id: "table", name: "Table" },
+            { id: "board", name: "Board" },
+          ],
+        }),
+      },
+    ]);
+    const [result] = await resolveContentRecentEntries(alice.userEmail, [
+      entry("page", { databaseId: "db", viewId: "removed" }),
+    ]);
+    expect(result.target.viewId).toBe("board");
+    expect(result.fallback).toEqual({
+      reason: "saved_view_unavailable",
+      requestedViewId: "removed",
+    });
+  });
+
+  it("reconciles an accessible database alias to its backing page", async () => {
+    rowsOnce([{ id: "alias", title: "Alias", icon: null }]);
+    rowsOnce([
+      {
+        id: "db",
+        documentId: "backing-page",
+        viewConfigJson: JSON.stringify({
+          views: [{ id: "table", name: "Table" }],
+        }),
+      },
+    ]);
+    rowsOnce([{ id: "backing-page", title: "Database", icon: null }]);
+    const [result] = await resolveContentRecentEntries(alice.userEmail, [
+      entry("alias", { databaseId: "db", viewId: "table" }),
+    ]);
+    expect(result.target).toEqual({
+      documentId: "backing-page",
+      databaseId: "db",
+      viewId: "table",
+    });
+    expect(result.title).toBe("Database");
   });
 
   it("uses the exact View's current label and rejects corrupt View configuration", async () => {
@@ -227,6 +307,38 @@ describe("Recent access resolution", () => {
 });
 
 describe("Recent action persistence", () => {
+  it("atomically migrates v1 duplicates against the latest setting value", async () => {
+    const id = settingId(alice.userEmail, contentRecentSettingKey());
+    const legacy = {
+      version: 1,
+      entries: [
+        entry("page", { databaseId: "db", viewId: "table" }),
+        entry("page", { databaseId: "db", viewId: "board" }),
+      ],
+    };
+    boundary.getSetting.mockResolvedValueOnce(legacy);
+    stored.set(id, {
+      version: 2,
+      entries: [entry("page", { databaseId: "db", viewId: "board" })],
+    });
+    rowsOnce([{ id: "page", title: "Database", icon: null }]);
+    rowsOnce([
+      {
+        id: "db",
+        documentId: "page",
+        viewConfigJson: JSON.stringify({
+          views: [{ id: "table", name: "Table" }],
+        }),
+      },
+    ]);
+    const result = await getRecent.run({}, alice);
+    expect(result.entries).toHaveLength(1);
+    expect(stored.get(id)).toMatchObject({
+      version: 2,
+      entries: [{ target: { databaseId: "db", viewId: "board" } }],
+    });
+  });
+
   it("records a newly created database's implicit default View", async () => {
     rowsOnce([{ id: "page", title: "New database", icon: null }]);
     rowsOnce([{ id: "db", documentId: "page", viewConfigJson: "{}" }]);

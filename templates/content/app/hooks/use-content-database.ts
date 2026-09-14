@@ -17,6 +17,7 @@ import type {
   ContentDatabaseSourceAttachmentAck,
   ContentDatabaseSourceAttachmentResult,
   ContentDatabaseItemsPageResponse,
+  ContentDatabaseNavigationPageResponse,
   ContentDatabaseTableQuery,
   ContentDatabaseItem,
   ContentDatabasePersonalViewResponse,
@@ -65,8 +66,15 @@ export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
 }
 
-export function contentDatabaseByIdQueryKey(databaseId: string) {
-  return ["action", "get-content-database", { databaseId }] as const;
+export function contentDatabaseByIdQueryKey(
+  databaseId: string,
+  limit?: number,
+) {
+  return [
+    "action",
+    "get-content-database",
+    { databaseId, ...(limit ? { limit } : {}) },
+  ] as const;
 }
 
 export const contentDatabaseItemsPageQueryKey = [
@@ -215,12 +223,41 @@ export function contentDatabaseItemsContainingDocumentFilter(
     predicate: (query: Query) => {
       const data = query.state.data as
         | ContentDatabaseItemsPageResponse
+        | ContentDatabaseNavigationPageResponse
         | undefined;
       return (
-        data?.items.some((item) => item.document.id === documentId) === true
+        data?.items.some((item) =>
+          "document" in item
+            ? item.document.id === documentId
+            : item.documentId === documentId,
+        ) === true
       );
     },
   };
+}
+
+export function invalidateContentDatabaseNavigationQueries(
+  queryClient: Pick<QueryClient, "invalidateQueries">,
+  scope: { databaseId?: string; parentId?: string | null } = {},
+) {
+  void queryClient.invalidateQueries({
+    queryKey: contentDatabaseItemsPageQueryKey,
+    predicate: (query) => {
+      const params = query.queryKey[2];
+      if (!params || typeof params !== "object") return false;
+      const args = params as {
+        databaseId?: unknown;
+        navigation?: { parentId?: unknown };
+      };
+      if (!args.navigation) return false;
+      if (scope.databaseId && args.databaseId !== scope.databaseId)
+        return false;
+      return (
+        scope.parentId === undefined ||
+        args.navigation.parentId === scope.parentId
+      );
+    },
+  });
 }
 
 export function writeContentDatabaseResponseToCache(
@@ -738,11 +775,13 @@ export function isContentDatabaseByIdQueryEnabled(
 
 export function useContentDatabaseById(
   databaseId: string | null,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; limit?: number },
 ) {
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
-    databaseId ? { databaseId } : undefined,
+    databaseId
+      ? { databaseId, ...(options?.limit ? { limit: options.limit } : {}) }
+      : undefined,
     {
       enabled: isContentDatabaseByIdQueryEnabled(databaseId, options),
       retry: false,
@@ -778,6 +817,7 @@ export function useCreateContentDatabase(
             queryKey: ["action", "list-documents"],
           });
         }
+        invalidateContentDatabaseNavigationQueries(queryClient);
       },
     },
   );
@@ -802,6 +842,7 @@ export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
+      invalidateContentDatabaseNavigationQueries(queryClient);
     },
   });
 }
@@ -814,13 +855,18 @@ export function useDeleteContentDatabase() {
       databaseId: string;
       documentId: string;
       deletedAt: string;
+      activeTargetDeleted: boolean;
+      navigationPath: string | null;
     },
-    { databaseId: string }
+    { databaseId: string; activeDocumentId?: string }
   >("delete-content-database", {
     onSuccess: (data) => {
       clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.databaseId,
       });
     },
   });
@@ -837,7 +883,7 @@ export function useRestoreContentDatabase() {
     },
     { databaseId: string }
   >("restore-content-database", {
-    onSuccess: () => {
+    onSuccess: (data) => {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
@@ -855,6 +901,9 @@ export function useRestoreContentDatabase() {
       });
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-content-databases"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.databaseId,
       });
     },
   });
@@ -908,6 +957,9 @@ export function useAddDatabaseItem(documentId: string) {
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.receipt.target.databaseId,
+      });
     },
   });
 }
@@ -960,12 +1012,15 @@ export function useDuplicateDatabaseItems(documentId: string) {
   return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
     "duplicate-database-items",
     {
-      onSuccess: () => {
+      onSuccess: (data) => {
         void queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
+        });
+        invalidateContentDatabaseNavigationQueries(queryClient, {
+          databaseId: data.database.id,
         });
       },
     },
@@ -977,12 +1032,15 @@ export function useRemoveDatabaseItems(documentId: string) {
   return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
     "remove-database-items",
     {
-      onSuccess: () => {
+      onSuccess: (data) => {
         void queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
+        });
+        invalidateContentDatabaseNavigationQueries(queryClient, {
+          databaseId: data.database.id,
         });
       },
     },
@@ -1052,6 +1110,9 @@ export function useMoveDatabaseItem(documentId: string) {
         }
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
+        });
+        invalidateContentDatabaseNavigationQueries(queryClient, {
+          databaseId: variables.databaseId,
         });
       },
     },

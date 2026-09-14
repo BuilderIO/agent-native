@@ -125,7 +125,7 @@ describe("document sidebar layout", () => {
     expect(iconSource.indexOf("if (document.database)")).toBeLessThan(
       iconSource.indexOf('return "page"'),
     );
-    expect(sidebar).toContain("<DocumentSidebarIcon document={doc} />");
+    expect(treeItem).toContain("<DocumentSidebarIcon document={node} />");
   });
 
   it("uses the database icon as the default for database pages", () => {
@@ -166,13 +166,36 @@ describe("document sidebar layout", () => {
     );
   });
 
-  it("settles search dismissal by clearing the hidden query", () => {
+  it("keeps hosted sidebar reads bounded while isolating exhaustive local inventory", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const documentsHook = readSidebarSource("../../hooks/use-documents.ts");
 
-    expect(sidebar).toContain("const closeSearch = useCallback");
-    expect(sidebar).toContain('setSearchQuery("")');
-    expect(sidebar).toContain("if (isSearching)");
-    expect(sidebar).toContain("closeSearch();");
+    expect(sidebar).not.toContain("const documentsQuery = useDocuments();");
+    expect(sidebar).toContain("useDocuments({ enabled: localFileMode })");
+    expect(sidebar).toContain('"get-content-navigation-context"');
+    expect(sidebar).toContain("limit: 50");
+    expect(sidebar).toContain("limit: Math.max(contentSpaces.length, 1)");
+    expect(documentsHook).toContain("enabled: options?.enabled !== false");
+  });
+
+  it("keeps one command-menu search launcher above the navigation scroller", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const layout = readSidebarSource("../layout/Layout.tsx");
+
+    expect(sidebar).toContain("openContentCommandMenu");
+    expect(sidebar).toContain("openCommandMenuFrom(searchTriggerRef.current)");
+    expect(sidebar).toContain('{isMac ? "⌘ K" : "Ctrl K"}');
+    expect(sidebar.indexOf("{searchButton}")).toBeLessThan(
+      sidebar.indexOf('<ScrollArea className="min-h-0 flex-1'),
+    );
+    expect(sidebar).not.toContain("searchQuery");
+    expect(sidebar).not.toContain("isSearching");
+    expect(sidebar).not.toContain("filteredDocuments");
+    expect(sidebar).not.toContain("search={searchButton}");
+    expect(layout).toContain("openSearchAfterSidebarCloseRef");
+    expect(layout).toContain(
+      "openContentCommandMenu(\n                      sidebarTriggerRef.current ?? undefined",
+    );
   });
 
   it("reveals child destinations without concurrent rollback conflicts", () => {
@@ -214,9 +237,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("selectedSpace?.id");
     expect(sidebar).toContain("spaceId: parentId ? undefined : rootSpaceId");
     expect(sidebar).toContain("const handleCreatePageInSpace = useCallback");
-    expect(sidebar).toContain(
-      "const renderNewButton = (space = selectedSpace) =>",
-    );
     expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
     expect(sidebar).toContain('t("sidebar.newPage")');
     expect(sidebar).not.toContain(
@@ -267,7 +287,12 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "stored?.expandedWorkspaceIds ?? contentSpaces.map",
     );
-    expect(sidebar).toContain("expandedDocumentIds={expandedDocumentIdSet}");
+    expect(sidebar).toContain(
+      "expandedDocumentIds={visibleExpandedDocumentIds}",
+    );
+    expect(sidebar).toContain(
+      "new Set([...expandedDocumentIds, ...activeAncestorIds])",
+    );
     expect(sidebar).toContain("toggleExpandedWorkspaceIds(current, space.id)");
     expect(sidebar).toContain("ensureWorkspaceExpanded(current, space.id)");
     expect(sidebar).not.toContain(
@@ -362,6 +387,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("renderItem={(item, reorder) =>");
     expect(sidebar).toContain("name: item.document.title || space.name");
     expect(sidebar).toContain("scroll={false}");
+    expect(sidebar.match(/scroll=\{false\}/g)).toHaveLength(3);
   });
 
   it("never empties the Files tree while a deferred database read is paused", () => {
@@ -448,6 +474,8 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("database.documentId");
     expect(sidebar).toContain("database.canPermanentlyDelete");
     expect(sidebar).toContain("deletedDocument?.database");
+    expect(sidebar).toContain("activeTargetDeleted");
+    expect(sidebar).toContain("result.navigationPath");
     expect(sidebar).toContain("deleteContentDatabase.mutateAsync");
     expect(sidebar).toContain("databaseId: deletedDocument.database.id");
     expect(sidebar).toContain('t("sidebar.restoreDatabase")');
@@ -515,7 +543,7 @@ describe("document sidebar layout", () => {
     expect(sections).toContain("aria-expanded={expanded}");
     expect(sections).toContain('expanded && "rotate-90"');
     expect(sections).toContain("renderPinned(sections.pinned.limit)");
-    expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId)");
+    expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId, {");
     expect(sidebar).toContain("favoritesData.items,");
     expect(sidebar).toContain(").slice(0, limit)");
     expect(sidebar).toContain(
@@ -530,6 +558,35 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).not.toContain("<FavoriteDocumentItem");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
+  });
+
+  it("keeps section visibility inside each section menu instead of a duplicate customize row", () => {
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+
+    // A standalone sidebar-level 3-dot row duplicated the section header menu
+    // and burned a whole row of vertical space.
+    expect(sections).not.toContain('className="flex justify-end px-3"');
+    expect(sections).not.toContain('<IconDots className="size-4" />');
+
+    // The visibility toggles now live under Move up/Move down in every section
+    // menu, so a hidden section is always restorable.
+    expect(sections).toContain("<DropdownMenuSeparator />");
+    expect(sections).toContain("checked={sections[sectionId].visible}");
+    expect(sections).toContain("onChangeVisible(sectionId, visible)");
+    expect(sections).toContain("change(sectionId, { visible })");
+
+    // Both call sites, including the always-visible "workspaces" section, wire
+    // the visibility group.
+    expect(
+      sections.split("onChangeVisible={(sectionId, visible) =>").length - 1,
+    ).toBe(2);
+
+    // The section menu trigger must not reuse the drag handle's label.
+    expect(sections).toContain('aria-label={t("sidebar.customizeSidebar")}');
+    const menuTrigger = sections.slice(
+      sections.indexOf("<DropdownMenuTrigger"),
+    );
+    expect(menuTrigger).not.toContain("aria-label={reorderLabels.drag(label)}");
   });
 
   it("keeps delete confirmation owned by the stable sidebar", () => {

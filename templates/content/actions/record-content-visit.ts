@@ -25,11 +25,15 @@ export default defineAction({
         statusCode: 404,
         errorCode: "location_unavailable",
       });
+    const canonicalEntry = { ...entry, target: resolved[0].target };
     await mutateUserSetting(
       ctx.userEmail,
       contentRecentSettingKey(),
       (current) =>
-        recordContentRecentVisit(readContentRecentState(current), entry),
+        recordContentRecentVisit(
+          readContentRecentState(current),
+          canonicalEntry,
+        ),
     );
     return { recorded: true };
   },

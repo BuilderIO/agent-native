@@ -1367,7 +1367,7 @@ const messages = {
     page: "頁面",
     private: "私人",
     results: "結果",
-    search: "搜尋",
+    search: "搜尋...",
     searchPages: "搜尋頁面...",
     refreshConnection: "重新整理連線",
     restoreDatabase: "還原",

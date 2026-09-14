@@ -5,7 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
-  contentRecentTargetKey,
+  contentRecentVisitKey,
   type ContentRecentTarget,
 } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -67,7 +67,7 @@ export function useRecordContentVisit(
   const record = useContentVisitRecorder();
   const targetRef = useRef(target);
   targetRef.current = target;
-  const key = target ? contentRecentTargetKey(target) : null;
+  const key = target ? contentRecentVisitKey(target) : null;
   const recordedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!enabled || !key) return;

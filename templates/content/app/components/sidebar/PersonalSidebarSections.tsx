@@ -24,6 +24,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -123,33 +124,6 @@ export function PersonalSidebarSections({
     );
   return (
     <>
-      <div className="flex justify-end px-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={t("sidebar.customizeSidebar")}
-            >
-              <IconDots className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuGroup>
-              {(["pinned", "recent"] as const).map((id) => (
-                <DropdownMenuCheckboxItem
-                  key={id}
-                  checked={sections[id].visible}
-                  onCheckedChange={(visible) => change(id, { visible })}
-                >
-                  {labels[id]}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
       <SidebarReorderProvider
         items={sections.order.map((id) => ({
           id,
@@ -168,6 +142,11 @@ export function PersonalSidebarSections({
               id={id}
               label={labels[id]}
               reorderLabels={reorderLabels}
+              sections={sections}
+              labels={labels}
+              onChangeVisible={(sectionId, visible) =>
+                change(sectionId, { visible })
+              }
             >
               {renderWorkspaces()}
             </PersonalSection>
@@ -179,6 +158,11 @@ export function PersonalSidebarSections({
               expanded={sections[id].expanded}
               onToggle={() => change(id, { expanded: !sections[id].expanded })}
               reorderLabels={reorderLabels}
+              sections={sections}
+              labels={labels}
+              onChangeVisible={(sectionId, visible) =>
+                change(sectionId, { visible })
+              }
             >
               {sections[id].expanded && (
                 <>
@@ -262,6 +246,9 @@ function PersonalSection({
   expanded,
   onToggle,
   reorderLabels,
+  sections,
+  labels,
+  onChangeVisible,
   children,
 }: {
   id: ContentSidebarSectionId;
@@ -269,8 +256,12 @@ function PersonalSection({
   expanded?: boolean;
   onToggle?: () => void;
   reorderLabels: SidebarReorderLabels;
+  sections: ContentSidebarSections;
+  labels: Record<ContentSidebarSectionId, string>;
+  onChangeVisible: (id: "pinned" | "recent", visible: boolean) => void;
   children: ReactNode;
 }) {
+  const t = useT();
   const reorder = useSidebarReorderItem(id);
   return (
     <section
@@ -307,7 +298,7 @@ function PersonalSection({
               variant="ghost"
               size="icon"
               className="size-7"
-              aria-label={reorderLabels.drag(label)}
+              aria-label={t("sidebar.customizeSidebar")}
             >
               <IconDots className="size-3.5" />
             </Button>
@@ -326,6 +317,22 @@ function PersonalSection({
               >
                 {reorderLabels.moveDown}
               </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            {/* Every section menu carries the visibility toggles, so a hidden
+                section stays restorable from the sections that remain. */}
+            <DropdownMenuGroup>
+              {(["pinned", "recent"] as const).map((sectionId) => (
+                <DropdownMenuCheckboxItem
+                  key={sectionId}
+                  checked={sections[sectionId].visible}
+                  onCheckedChange={(visible) =>
+                    onChangeVisible(sectionId, visible)
+                  }
+                >
+                  {labels[sectionId]}
+                </DropdownMenuCheckboxItem>
+              ))}
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>

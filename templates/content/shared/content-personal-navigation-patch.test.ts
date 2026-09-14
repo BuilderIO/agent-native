@@ -85,4 +85,51 @@ describe("personal navigation patch", () => {
   it("rejects empty patches instead of reporting a no-op save", () => {
     expect(() => contentPersonalNavigationPatchSchema.parse({})).toThrow();
   });
+  it("merges relative pin changes without replacing unloaded order or alternate sort", () => {
+    const current = {
+      version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+      activeViewId: "table",
+      views: [
+        {
+          id: "table",
+          sorts: [],
+          filters: [],
+          filterMode: "and" as const,
+          sidebarOrder: {
+            mode: "name" as const,
+            itemIds: ["a", "b", "c", "d", "e", "f"],
+          },
+        },
+      ],
+    };
+    const pinned = applyContentPersonalNavigationPatch(current, {
+      sidebarOrder: {
+        operation: "prepend",
+        viewId: "table",
+        itemId: "new-membership",
+      },
+    });
+    expect(pinned.views[0].sidebarOrder).toEqual({
+      mode: "name",
+      itemIds: ["new-membership", "a", "b", "c", "d", "e", "f"],
+    });
+    expect(
+      applyContentPersonalNavigationPatch(pinned, {
+        sidebarOrder: {
+          operation: "prepend",
+          viewId: "table",
+          itemId: "new-membership",
+        },
+      }),
+    ).toEqual(pinned);
+    expect(
+      applyContentPersonalNavigationPatch(pinned, {
+        sidebarOrder: {
+          operation: "remove",
+          viewId: "table",
+          itemId: "new-membership",
+        },
+      }).views[0].sidebarOrder?.itemIds,
+    ).toEqual(["a", "b", "c", "d", "e", "f"]);
+  });
 });

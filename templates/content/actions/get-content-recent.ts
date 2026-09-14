@@ -1,6 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
-import { getUserSetting } from "@agent-native/core/settings";
+import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { readContentRecentState } from "../shared/content-personal-navigation.js";
@@ -25,9 +25,16 @@ export default defineAction({
         statusCode: 409,
         errorCode: "context_changed",
       });
-    const state = readContentRecentState(
-      await getUserSetting(ctx.userEmail, contentRecentSettingKey()),
-    );
+    const settingKey = contentRecentSettingKey();
+    const stored = await getUserSetting(ctx.userEmail, settingKey);
+    let state = readContentRecentState(stored);
+    if (stored !== null && (stored as { version?: unknown }).version === 1) {
+      state = readContentRecentState(
+        await mutateUserSetting(ctx.userEmail, settingKey, (latest) =>
+          readContentRecentState(latest),
+        ),
+      );
+    }
     return {
       scopeKey,
       entries: await resolveContentRecentEntries(ctx.userEmail, state.entries),

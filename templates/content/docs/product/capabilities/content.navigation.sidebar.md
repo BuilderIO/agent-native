@@ -30,9 +30,11 @@ evidence:
     "../../../actions/content-recent.test.ts",
     "../../../actions/content-personal-navigation-patch.test.ts",
     "../../../app/components/editor/database/DatabaseView.recent.test.ts",
+    "../../../app/components/sidebar/DocumentSidebar.layout.test.ts",
+    "../../../app/hooks/use-content-database.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-14"
 ---
 
 # Personal sidebar
@@ -78,17 +80,21 @@ Existing sidebar section tests and sidebar rendering show useful donor behavior.
 not prove the full Reference/query, access, recovery, and personal-state contract; this
 Capability remains `approved_shape`.
 
-Personal section settings and bounded Recent navigation now use per-user Actions.
-Recent stores target and exact View identity, resolves current labels under current
-context access, and records successful foreground visits rather than edits. Focused
-tests cover bounded recency, scope rejection, concurrent navigation patches, legacy
-preference migration, and preservation of inherited filters. Local authenticated UI
-checks cover exact Table/Board navigation, reload, pointer and keyboard pin order,
-retained keyboard focus, section settings, mobile drawer navigation, and independent
-owner/viewer preferences. Action reads confirm unchanged parentage, membership,
-shared View configuration, and access grants after personal navigation changes.
-Mounted rename reconciliation passed only with the separately owned lifecycle overlay;
-mounted revocation/deletion and failed-read/write UI recovery remain integration gates.
+Personal section settings and bounded Recent navigation use per-user Actions. Recent
+stores one entry per Database with its latest successfully visited View, resolves
+current labels under current access, and records successful foreground visits rather
+than reads or edits. New pins prepend in personal custom order without changing shared
+parentage or membership. The persistent Search launcher opens the existing command
+menu instead of maintaining a second sidebar search implementation.
+
+Database-backed workspace trees read at most 20 roots or immediate children per page,
+use cursor-based Show more, and resolve an active path without enumerating every
+document. Focused tests cover paging limits, parent-scoped reads, access filtering,
+cursor scope and staleness, active-path context, bounded deletion outcomes, bounded
+recency, legacy Recent migration, personal pin ordering, and navigation patch
+concurrency. These are useful implementation and test evidence, not complete atomic
+contract proof. Local authenticated UI evidence and mounted lifecycle recovery remain
+incomplete, so this Capability remains `approved_shape`.
 
 ## Proof plan
 
@@ -98,7 +104,14 @@ mounted revocation/deletion and failed-read/write UI recovery remain integration
 
 ## Open questions
 
-The initial catalog is Pinned and Recent alongside existing workspace navigation.
-Pinned and Recent start visible and expanded, show five entries initially, and allow
-five-entry increments up to fifty. Section order, visibility, expansion, and display
-limits are personal preferences. Additional dynamic sections remain outside this slice.
+- The initial catalog is Pinned and Recent alongside existing workspace navigation.
+  Pinned and Recent start visible and expanded, show five entries initially, and allow
+  five-entry increments up to fifty. Section order, visibility, expansion, and display
+  limits are personal preferences.
+- Database Recent identity is one entry per Database, retaining its latest visited View;
+  plain Pages remain separate destinations. Explicit exact-View links and existing
+  exact-View pins are not changed by this behavior.
+- Database-backed workspace navigation is bounded to 20 roots or children per page.
+  Local-file mode still builds its sidebar from an unbounded document inventory and is
+  the explicit residual before the full bounded-navigation promise can be proven.
+- Additional dynamic sections remain outside this slice.

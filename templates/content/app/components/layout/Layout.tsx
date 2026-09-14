@@ -31,6 +31,7 @@ import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
+import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
@@ -168,6 +169,7 @@ export function Layout({ children }: LayoutProps) {
     });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
+  const openSearchAfterSidebarCloseRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 
   const handleSidebarResize = useCallback((width: number) => {
@@ -241,6 +243,14 @@ export function Layout({ children }: LayoutProps) {
                 showClose={false}
                 className="w-[85vw] max-w-80 p-0"
                 onCloseAutoFocus={(event) => {
+                  if (openSearchAfterSidebarCloseRef.current) {
+                    event.preventDefault();
+                    openSearchAfterSidebarCloseRef.current = false;
+                    openContentCommandMenu(
+                      sidebarTriggerRef.current ?? undefined,
+                    );
+                    return;
+                  }
                   if (sidebarTriggerRef.current) {
                     event.preventDefault();
                     sidebarTriggerRef.current.focus();
@@ -255,6 +265,10 @@ export function Layout({ children }: LayoutProps) {
                   collapsed={false}
                   onToggleCollapsed={() => setMobileSidebarOpen(false)}
                   onNavigate={() => setMobileSidebarOpen(false)}
+                  onOpenSearch={() => {
+                    openSearchAfterSidebarCloseRef.current = true;
+                    setMobileSidebarOpen(false);
+                  }}
                 />
               </SheetContent>
             </Sheet>

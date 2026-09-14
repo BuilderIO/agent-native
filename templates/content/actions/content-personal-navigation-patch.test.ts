@@ -4,19 +4,19 @@ const boundary = vi.hoisted(() => ({
   access: vi.fn(),
   select: vi.fn(),
   mutate: vi.fn(),
-  put: vi.fn(),
-  remove: vi.fn(),
   read: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: boundary.read,
-  mutateUserSetting: boundary.mutate,
-  putUserSetting: boundary.put,
-  deleteUserSetting: boundary.remove,
+  mutateUserSettingTransaction: boundary.mutate,
 }));
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ select: boundary.select }),
+  getDb: () => ({
+    select: boundary.select,
+    transaction: (callback: (tx: unknown) => unknown) =>
+      callback({ select: boundary.select }),
+  }),
   schema: {
     contentDatabases: { id: "database-id", viewConfigJson: "view-config" },
     contentDatabaseItems: { id: "item-id", databaseId: "database-id" },
@@ -92,10 +92,25 @@ beforeEach(() => {
   // Serialize callbacks at the settings boundary; SQL/CAS belongs to its own tests.
   let queue = Promise.resolve();
   boundary.mutate.mockImplementation(
-    (_email: string, _key: string, mutate: (current: unknown) => unknown) => {
-      const result = queue.then(() => {
-        saved = mutate(saved);
-        return saved;
+    (
+      runTransaction: (callback: (tx: unknown) => unknown) => unknown,
+      _email: string,
+      _key: string,
+      mutate: (
+        tx: unknown,
+        current: unknown,
+      ) => {
+        value: unknown;
+        result: unknown;
+      },
+    ) => {
+      const result = queue.then(async () => {
+        const mutation = (await runTransaction((tx) => mutate(tx, saved))) as {
+          value: unknown;
+          result: unknown;
+        };
+        saved = mutation.value;
+        return mutation;
       });
       queue = result.then(
         () => undefined,
@@ -140,6 +155,41 @@ describe("personal navigation patch action", () => {
         },
       ],
     });
+  });
+  it("prepends and removes one validated membership without replacing the saved tail", async () => {
+    saved = initialState();
+    await action.run(
+      {
+        databaseId: "db",
+        navigation: {
+          sidebarOrder: {
+            operation: "prepend",
+            viewId: "table",
+            itemId: "item-a",
+          },
+        },
+      },
+      ctx,
+    );
+    expect(
+      (saved as ContentDatabasePersonalViewOverrides).views[0].sidebarOrder,
+    ).toEqual({ mode: "custom", itemIds: ["item-a", "old-item"] });
+    await action.run(
+      {
+        databaseId: "db",
+        navigation: {
+          sidebarOrder: {
+            operation: "remove",
+            viewId: "table",
+            itemId: "item-a",
+          },
+        },
+      },
+      ctx,
+    );
+    expect(
+      (saved as ContentDatabasePersonalViewOverrides).views[0].sidebarOrder,
+    ).toEqual({ mode: "custom", itemIds: ["old-item"] });
   });
 
   it.each([null, "files"])(
@@ -229,12 +279,11 @@ describe("personal navigation patch action", () => {
       expect(boundary.access).toHaveBeenCalledTimes(2);
       expect(boundary.mutate).toHaveBeenCalledTimes(2);
       expect(boundary.mutate).toHaveBeenCalledWith(
+        expect.any(Function),
         ctx.userEmail,
         "content-database-personal-view:db",
         expect.any(Function),
       );
-      expect(boundary.put).not.toHaveBeenCalled();
-      expect(boundary.remove).not.toHaveBeenCalled();
     },
   );
 

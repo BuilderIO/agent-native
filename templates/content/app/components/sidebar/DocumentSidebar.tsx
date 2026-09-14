@@ -15,6 +15,7 @@ import type {
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentSidebarViewOrder,
+  ContentNavigationContext,
   Document,
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
@@ -41,6 +42,7 @@ import { toast } from "sonner";
 
 import {
   ContentFilesSidebarView,
+  PagedContentFilesSidebarView,
   contentSidebarOrderedItems,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
@@ -56,6 +58,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -100,12 +103,12 @@ import {
   useRestoreDocument,
   useTrashedDocuments,
   useUpdateDocument,
-  filterDocumentTreeDocuments,
   documentQueryFilter,
   rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
@@ -122,8 +125,6 @@ import {
 } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
-import { getDocumentSidebarSections } from "./document-sidebar-sections";
-import { DocumentSidebarIcon } from "./DocumentTreeItem";
 import {
   firstLocalSourceDocumentId,
   localSourceItemIdentity,
@@ -158,8 +159,13 @@ interface DocumentSidebarProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onNavigate?: () => void;
+  onOpenSearch?: () => void;
   width?: number;
   onResize?: (width: number) => void;
+}
+
+function openCommandMenuFrom(trigger: HTMLButtonElement | null) {
+  openContentCommandMenu(trigger ?? undefined);
 }
 
 const LIST_DOCUMENTS_QUERY_KEY = [
@@ -379,11 +385,14 @@ function WorkspaceSidebarItem({
   space,
   selected,
   expanded,
+  localFileMode,
   deferInitialReadUntilDocumentId,
   reorder,
   createDocumentPending,
   activeDocumentId,
   expandedDocumentIds,
+  documentMetadata,
+  activePathDocuments,
   onDocumentExpandedChange,
   onActivate,
   onToggleExpanded,
@@ -396,11 +405,14 @@ function WorkspaceSidebarItem({
   space: ContentSpaceSummary;
   selected: boolean;
   expanded: boolean;
+  localFileMode: boolean;
   deferInitialReadUntilDocumentId: string | null;
   reorder?: ContentFilesSidebarRenderReorder;
   createDocumentPending: boolean;
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
+  documentMetadata: ReadonlyMap<string, Document>;
+  activePathDocuments: readonly Document[];
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onToggleExpanded: () => void;
@@ -474,7 +486,7 @@ function WorkspaceSidebarItem({
     deferInitialReadUntilDocumentId,
   );
   const filesDatabase = useContentDatabaseById(
-    deferredFilesDatabase.databaseId,
+    localFileMode ? deferredFilesDatabase.databaseId : null,
     { enabled: deferredFilesDatabase.enabled },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
@@ -563,7 +575,9 @@ function WorkspaceSidebarItem({
     openedWorkingCopyIdRef.current = selectedWorkingCopy.id;
     onActivate(space, firstDocumentId);
   }, [onActivate, selectedWorkingCopy, space, visibleFilesDatabaseData]);
-  const resolvedFilesDatabaseId = filesDatabaseData?.database.id ?? null;
+  const resolvedFilesDatabaseId = localFileMode
+    ? (filesDatabaseData?.database.id ?? null)
+    : space.filesDatabaseId;
   const filesPersonalView = useContentDatabasePersonalView(
     resolvedFilesDatabaseId,
   );
@@ -571,10 +585,15 @@ function WorkspaceSidebarItem({
     resolvedFilesDatabaseId,
   );
   const failed = filesDatabase.isError || filesPersonalView.isError;
-  const { activeViewId, order: sidebarOrder } = personalSidebarOrderForDatabase(
-    filesDatabaseData,
-    filesPersonalView.data?.overrides,
-  );
+  const pagedOverrides = filesPersonalView.data?.overrides;
+  const { activeViewId, order: sidebarOrder } = localFileMode
+    ? personalSidebarOrderForDatabase(filesDatabaseData, pagedOverrides)
+    : {
+        activeViewId: pagedOverrides?.activeViewId ?? "default",
+        order: pagedOverrides?.views.find(
+          (view) => view.id === (pagedOverrides.activeViewId ?? "default"),
+        )?.sidebarOrder ?? { mode: "custom" as const, itemIds: [] },
+      };
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -793,7 +812,7 @@ function WorkspaceSidebarItem({
                 filesDatabase.isFetching || filesPersonalView.isFetching
               }
             />
-          ) : (
+          ) : localFileMode ? (
             <ContentFilesSidebarView
               data={visibleFilesDatabaseData}
               overrides={filesPersonalView.data?.overrides}
@@ -835,12 +854,37 @@ function WorkspaceSidebarItem({
               }
               onDeleteItem={onDeleteItem}
               onToggleFavorite={onToggleFavorite}
+              scroll={false}
               labels={{
                 noMatchesLabel: t("database.noRowsMatchThisView"),
                 clearLabel: t("database.clearSearchAndFilters"),
                 navigationLabel: `${space.name} ${t("sidebar.files")}`,
                 untitledLabel: t("sidebar.untitled"),
               }}
+            />
+          ) : (
+            <PagedContentFilesSidebarView
+              databaseId={space.filesDatabaseId}
+              sort={sidebarOrder.mode}
+              viewId={activeViewId}
+              activeDocumentId={activeDocumentId}
+              expandedDocumentIds={expandedDocumentIds}
+              onDocumentExpandedChange={onDocumentExpandedChange}
+              documentMetadata={documentMetadata}
+              activePathDocuments={activePathDocuments}
+              onOpenItem={(item) => {
+                if (selected) return false;
+                onActivate(space, item.document.id);
+                return true;
+              }}
+              onCreateChildPage={(item) => onCreateChildPage(space, item)}
+              onCreateChildDatabase={(item) =>
+                onCreateChildDatabase(space, item)
+              }
+              onDeleteItem={onDeleteItem}
+              onToggleFavorite={onToggleFavorite}
+              navigationLabel={`${space.name} ${t("sidebar.files")}`}
+              untitledLabel={t("sidebar.untitled")}
             />
           )}
         </div>
@@ -854,6 +898,7 @@ export function DocumentSidebar({
   collapsed,
   onToggleCollapsed,
   onNavigate,
+  onOpenSearch,
   width,
   onResize,
 }: DocumentSidebarProps) {
@@ -861,6 +906,14 @@ export function DocumentSidebar({
   const location = useLocation();
   const queryClient = useQueryClient();
   const t = useT();
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
+  const handleOpenSearch = useCallback(() => {
+    if (onOpenSearch) {
+      onOpenSearch();
+      return;
+    }
+    openCommandMenuFrom(searchTriggerRef.current);
+  }, [onOpenSearch]);
   const sidebarReorderLabels = useMemo<SidebarReorderLabels>(
     () => ({
       drag: (label) => t("sidebar.dragToReorder", { label }),
@@ -871,7 +924,9 @@ export function DocumentSidebar({
     }),
     [t],
   );
-  const documentsQuery = useDocuments();
+  const contentSpacesQuery = useContentSpaces();
+  const localFileMode = contentSpacesQuery.data?.sourceMode === "local-files";
+  const documentsQuery = useDocuments({ enabled: localFileMode });
   const { data: documents = [] } = documentsQuery;
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null, {
@@ -887,7 +942,6 @@ export function DocumentSidebar({
   const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
-  const contentSpacesQuery = useContentSpaces();
   const ensureContentSpaces = useEnsureContentSpaces();
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
@@ -895,9 +949,12 @@ export function DocumentSidebar({
     contentSpacesQuery.data?.catalogDatabaseId ?? null;
   const favoritesDatabaseId =
     contentSpacesQuery.data?.favoritesDatabaseId ?? null;
-  const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId);
+  const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId, {
+    limit: 50,
+  });
   const workspaceCatalogDatabase = useContentDatabaseById(
     workspaceCatalogDatabaseId,
+    { limit: Math.max(contentSpaces.length, 1) },
   );
   const workspaceCatalogDatabaseData = isContentDatabaseUnavailable(
     workspaceCatalogDatabase.data,
@@ -1014,10 +1071,6 @@ export function DocumentSidebar({
     [],
   );
   const [expandedDocumentIds, setExpandedDocumentIds] = useState<string[]>([]);
-  const expandedDocumentIdSet = useMemo(
-    () => new Set(expandedDocumentIds),
-    [expandedDocumentIds],
-  );
   const sidebarStateHydratedRef = useRef(false);
   const expandedWorkspaceIdsRef = useRef<string[]>([]);
   const expandedDocumentIdsRef = useRef<string[]>([]);
@@ -1232,15 +1285,10 @@ export function DocumentSidebar({
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
   >("remove-local-file-source");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const closeSearch = useCallback(() => {
-    setIsSearching(false);
-    setSearchQuery("");
-  }, []);
+  const [isMac, setIsMac] = useState(false);
   useEffect(() => {
-    closeSearch();
-  }, [closeSearch, location.key]);
+    setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
+  }, []);
   // Track user-expanded nodes only; active ancestors are derived below so they
   // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
@@ -1278,13 +1326,13 @@ export function DocumentSidebar({
   const settleOptimisticListRefresh = useCallback(
     (id: string) => {
       pendingOptimisticCreationIdsRef.current.delete(id);
-      if (pendingOptimisticCreationIdsRef.current.size === 0) {
+      if (localFileMode && pendingOptimisticCreationIdsRef.current.size === 0) {
         void queryClient.invalidateQueries({
           queryKey: LIST_DOCUMENTS_QUERY_KEY,
         });
       }
     },
-    [queryClient],
+    [localFileMode, queryClient],
   );
   const settingsActive = location.pathname.startsWith("/settings");
 
@@ -1317,33 +1365,71 @@ export function DocumentSidebar({
     [onResize, width],
   );
 
-  const treeDocuments = filterDocumentTreeDocuments(documents);
-  const { localFileMode, databaseDocuments } = getDocumentSidebarSections(
-    documents,
-    treeDocuments,
+  const navigationContextQuery = useActionQuery<ContentNavigationContext>(
+    "get-content-navigation-context",
+    activeDocumentId ? { id: activeDocumentId } : undefined,
+    { enabled: Boolean(activeDocumentId) },
   );
-
-  const activeDocument = activeDocumentId
-    ? documents.find((doc) => doc.id === activeDocumentId)
-    : null;
+  const activeDocument = navigationContextQuery.data?.document ?? null;
   const trashItems = trashedDatabases?.databases ?? [];
   const trashedPageItems = trashedDocuments?.documents ?? [];
-  const parentByDocumentId = useMemo(
-    () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
-    [documents],
+  const activePathDocuments = useMemo(
+    () =>
+      localFileMode
+        ? documents.filter((document) =>
+            navigationContextQuery.data?.path.some(
+              (entry) => entry.id === document.id,
+            ),
+          )
+        : (navigationContextQuery.data?.path.map(
+            (entry): Document => ({
+              id: entry.id,
+              parentId: entry.parentId,
+              title: entry.title,
+              content: "",
+              description: "",
+              icon: entry.icon,
+              position: 0,
+              isFavorite: entry.isFavorite,
+              hideFromSearch: false,
+              visibility: entry.visibility,
+              accessRole: entry.accessRole,
+              canView: entry.canView,
+              canComment: entry.canComment,
+              canEdit: entry.canEdit,
+              canManage: entry.canManage,
+              source: entry.source,
+              database: undefined,
+              createdAt: entry.createdAt,
+              updatedAt: entry.updatedAt,
+              databaseMembership: entry.databaseId
+                ? {
+                    databaseId: entry.databaseId,
+                    databaseDocumentId: entry.databaseDocumentId,
+                    databaseTitle: null,
+                    position: null,
+                  }
+                : undefined,
+            }),
+          ) ?? []),
+    [documents, localFileMode, navigationContextQuery.data?.path],
+  );
+  const documentMetadata = useMemo(
+    () => new Map(activePathDocuments.map((doc) => [doc.id, doc])),
+    [activePathDocuments],
   );
 
   const activeAncestorIds = useMemo(() => {
     const ids = new Set<string>();
-    let parentId = activeDocumentId
-      ? (parentByDocumentId.get(activeDocumentId) ?? null)
-      : null;
-    while (parentId && !ids.has(parentId)) {
-      ids.add(parentId);
-      parentId = parentByDocumentId.get(parentId) ?? null;
+    for (const entry of navigationContextQuery.data?.path ?? []) {
+      if (entry.id !== activeDocumentId) ids.add(entry.id);
     }
     return ids;
-  }, [activeDocumentId, parentByDocumentId]);
+  }, [activeDocumentId, navigationContextQuery.data?.path]);
+  const visibleExpandedDocumentIds = useMemo(
+    () => new Set([...expandedDocumentIds, ...activeAncestorIds]),
+    [activeAncestorIds, expandedDocumentIds],
+  );
 
   const expandedIds = new Set(expandedIdsRef.current);
   for (const id of activeAncestorIds) expandedIds.add(id);
@@ -1413,9 +1499,9 @@ export function DocumentSidebar({
         createdAt: now,
         updatedAt: now,
       });
-      const previousDocuments = queryClient.getQueryData(
-        LIST_DOCUMENTS_QUERY_KEY,
-      );
+      const previousDocuments = localFileMode
+        ? queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)
+        : undefined;
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
@@ -1536,17 +1622,19 @@ export function DocumentSidebar({
         createdAt: now,
         updatedAt: now,
       });
-      const previousDocuments = queryClient.getQueryData(
-        LIST_DOCUMENTS_QUERY_KEY,
-      );
+      const previousDocuments = localFileMode
+        ? queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)
+        : undefined;
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
-        const docs: Document[] =
-          old?.documents ?? (Array.isArray(old) ? old : documents);
-        return withDocumentsCacheShape(old, [...docs, tempDoc]);
-      });
+      if (localFileMode) {
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+          const docs: Document[] =
+            old?.documents ?? (Array.isArray(old) ? old : documents);
+          return withDocumentsCacheShape(old, [...docs, tempDoc]);
+        });
+      }
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
       navigateToDocument(id);
       onNavigate?.();
@@ -1568,11 +1656,13 @@ export function DocumentSidebar({
         settleParentExpansion(true);
       } catch (err) {
         settleParentExpansion(false);
-        rollbackOptimisticCreatedDocument(
-          queryClient,
-          id,
-          previousDocuments !== undefined,
-        );
+        if (localFileMode) {
+          rollbackOptimisticCreatedDocument(
+            queryClient,
+            id,
+            previousDocuments !== undefined,
+          );
+        }
         queryClient.removeQueries(documentQueryFilter(id));
         settleOptimisticListRefresh(id);
         if (window.location.pathname === `/page/${id}`) {
@@ -1617,9 +1707,11 @@ export function DocumentSidebar({
 
   const handleDelete = useCallback(
     async (id: string) => {
-      const deletedDocument = documents.find((doc) => doc.id === id) ?? null;
-      const deletedIds = collectDocumentSubtreeIds(documents, id);
-      const activeDeleted = activeDocumentId
+      const deletedDocument = documentMetadata.get(id) ?? null;
+      const deletedIds = localFileMode
+        ? collectDocumentSubtreeIds(documents, id)
+        : new Set([id]);
+      let activeDeleted = activeDocumentId
         ? deletedIds.has(activeDocumentId)
         : false;
       const survivingDocuments = documents.filter(
@@ -1640,15 +1732,17 @@ export function DocumentSidebar({
       );
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
-        const cachedDocs: Document[] =
-          (old as { documents?: Document[] })?.documents ??
-          (Array.isArray(old) ? old : documents);
-        return withDocumentsCacheShape(
-          old,
-          cachedDocs.filter((doc) => !deletedIds.has(doc.id)),
-        );
-      });
+      if (localFileMode) {
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
+          const cachedDocs: Document[] =
+            (old as { documents?: Document[] })?.documents ??
+            (Array.isArray(old) ? old : documents);
+          return withDocumentsCacheShape(
+            old,
+            cachedDocs.filter((doc) => !deletedIds.has(doc.id)),
+          );
+        });
+      }
       for (const deletedId of deletedIds) {
         queryClient.removeQueries(documentQueryFilter(deletedId));
       }
@@ -1662,22 +1756,42 @@ export function DocumentSidebar({
 
       try {
         if (deletedDocument?.database) {
-          await deleteContentDatabase.mutateAsync({
+          const result = await deleteContentDatabase.mutateAsync({
             databaseId: deletedDocument.database.id,
+            activeDocumentId: activeDocumentId ?? undefined,
           });
+          activeDeleted = result.activeTargetDeleted;
+          if (result.navigationPath) {
+            void navigate(result.navigationPath, {
+              replace: true,
+              flushSync: true,
+            });
+          }
         } else {
-          await deleteDocument.mutateAsync({ id });
+          const result = await deleteDocument.mutateAsync({
+            id,
+            activeDocumentId: activeDocumentId ?? undefined,
+          });
+          activeDeleted = result.activeTargetDeleted ?? false;
+          if (result.navigationPath) {
+            void navigate(result.navigationPath, {
+              replace: true,
+              flushSync: true,
+            });
+          }
         }
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
-        restoreDeletedDocumentSnapshots(
-          queryClient,
-          previousDocuments,
-          previousDocumentQueries,
-          deletedIds,
-        );
+        if (localFileMode) {
+          restoreDeletedDocumentSnapshots(
+            queryClient,
+            previousDocuments,
+            previousDocumentQueries,
+            deletedIds,
+          );
+        }
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -1878,25 +1992,6 @@ export function DocumentSidebar({
     }
   }, [queryClient, removeLocalFileSource, t]);
 
-  const filteredDocuments = searchQuery
-    ? documents.filter((d) =>
-        d.title.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : null;
-
-  const renderNewButton = (space = selectedSpace) =>
-    space ? (
-      <button
-        type="button"
-        className="flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-        disabled={createDocument.isPending}
-        onClick={() => void handleCreatePageInSpace(space)}
-      >
-        <IconPlus size={14} className="shrink-0" />
-        <span>{t("sidebar.newPage")}</span>
-      </button>
-    ) : null;
-
   const renderCollapsedNewButton = () =>
     selectedSpace ? (
       <Tooltip>
@@ -1952,26 +2047,40 @@ export function DocumentSidebar({
       </TooltipContent>
     </Tooltip>
   );
-  const searchButton = (
+  const collapsedSearchButton = (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Button
+          ref={searchTriggerRef}
           type="button"
           aria-label={t("sidebar.search")}
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={() => {
-            if (isSearching) {
-              closeSearch();
-            } else {
-              setIsSearching(true);
-            }
-          }}
+          variant="ghost"
+          size="icon"
+          className="size-10 text-muted-foreground hover:text-foreground"
+          onClick={handleOpenSearch}
         >
           <IconSearch size={16} />
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
     </Tooltip>
+  );
+  const searchButton = (
+    <Button
+      ref={searchTriggerRef}
+      type="button"
+      variant="outline"
+      className="h-9 w-full justify-start gap-2 bg-background px-2.5 text-muted-foreground shadow-none hover:bg-accent/50 hover:text-foreground"
+      onClick={handleOpenSearch}
+    >
+      <IconSearch size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("sidebar.search")}
+      </span>
+      <kbd className="shrink-0 font-sans text-[11px] font-normal text-muted-foreground">
+        {isMac ? "⌘ K" : "Ctrl K"}
+      </kbd>
+    </Button>
   );
   const feedbackButton = (
     <FeedbackButton
@@ -2033,16 +2142,27 @@ export function DocumentSidebar({
       space={space}
       selected={selectedSpace?.id === space.id}
       expanded={expandedWorkspaceIds.includes(space.id)}
+      localFileMode={localFileMode}
       deferInitialReadUntilDocumentId={
         activeDocumentId &&
-        databaseDocuments.some((document) => document.id === activeDocumentId)
+        navigationContextQuery.data?.workspaceFilesDatabaseId ===
+          space.filesDatabaseId
           ? activeDocumentId
           : null
       }
       reorder={reorder}
       createDocumentPending={createDocument.isPending}
       activeDocumentId={activeDocumentId}
-      expandedDocumentIds={expandedDocumentIdSet}
+      expandedDocumentIds={visibleExpandedDocumentIds}
+      documentMetadata={documentMetadata}
+      activePathDocuments={
+        activePathDocuments.some(
+          (document) =>
+            document.databaseMembership?.databaseId === space.filesDatabaseId,
+        )
+          ? activePathDocuments
+          : []
+      }
       onDocumentExpandedChange={handleDocumentExpandedChange}
       onToggleExpanded={() =>
         updateExpandedWorkspaceIds((current) =>
@@ -2396,11 +2516,11 @@ export function DocumentSidebar({
     return (
       <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
         {brandButton(true)}
+        {collapsedSearchButton}
         {renderCollapsedNewButton()}
         <SidebarFooterActions
           collapsed
           feedback={feedbackButton}
-          search={searchButton}
           collapse={collapseButton}
           className="mt-auto"
         />
@@ -2437,155 +2557,89 @@ export function DocumentSidebar({
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
         {brandButton(false)}
       </div>
-
-      {/* Search */}
-      {isSearching && (
-        <div className="px-3 py-2 border-b border-border">
-          <input
-            autoFocus
-            type="text"
-            placeholder={t("sidebar.searchPages")}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                closeSearch();
-              }
-            }}
-            className="w-full px-2 py-1.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
-      )}
+      <div className="shrink-0 px-3 py-2">{searchButton}</div>
 
       <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
         <div className="w-full min-w-0 py-2 pe-2">
-          {/* Search results */}
-          {filteredDocuments ? (
-            <>
-              <div>
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {t("sidebar.results")}
-                </div>
-                {filteredDocuments.length === 0 ? (
-                  <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    {t("sidebar.noPagesFound")}
-                  </div>
-                ) : (
-                  filteredDocuments.map((doc) => (
-                    <button
-                      key={doc.id}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-start rounded-md",
-                        doc.id === activeDocumentId
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                      )}
-                      onClick={() => {
-                        navigateToDocument(doc.id);
-                        closeSearch();
-                        onNavigate?.();
-                      }}
-                    >
-                      <span className="flex-shrink-0 w-5 text-center">
-                        <DocumentSidebarIcon document={doc} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {doc.title || t("sidebar.untitled")}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-              {renderNewButton()}
-            </>
-          ) : (
-            <>
-              <PersonalSidebarSections
-                pinnedCount={favoritesData?.items.length ?? 0}
-                renderWorkspaces={renderWorkspaceNavigation}
-                onNavigate={onNavigate}
-                reorderLabels={sidebarReorderLabels}
-                renderPinned={(limit) =>
-                  favoritesDatabase.isError || favoritesPersonalView.isError ? (
-                    <QueryErrorState
-                      compact
-                      onRetry={() => {
-                        void favoritesDatabase.refetch();
-                        void favoritesPersonalView.refetch();
-                      }}
-                    />
-                  ) : (
-                    <ContentFilesSidebarView
-                      data={
-                        favoritesData
-                          ? {
-                              ...favoritesData,
-                              items: contentSidebarOrderedItems(
-                                favoritesData.items,
-                                favoritesOrder.order,
-                              ).slice(0, limit),
-                            }
-                          : undefined
-                      }
-                      overrides={favoritesPersonalView.data?.overrides}
-                      sidebarOrder={favoritesOrder.order}
-                      isLoading={
-                        favoritesDatabase.isLoading ||
-                        favoritesPersonalView.isLoading
-                      }
-                      activeDocumentId={activeDocumentId}
-                      manualReorder={{
-                        labels: sidebarReorderLabels,
-                        onReorder: handlePinnedReorder,
-                      }}
-                      onOpenItem={(item) => {
-                        const document = documents.find(
-                          (candidate) => candidate.id === item.document.id,
-                        );
-                        const space = document
-                          ? contentSpaces.find(
-                              (candidate) =>
-                                candidate.filesDocumentId ===
-                                document.databaseMembership?.databaseDocumentId,
-                            )
-                          : undefined;
-                        if (!space || selectedSpace?.id === space.id) {
-                          onNavigate?.();
-                          return false;
+          <PersonalSidebarSections
+            pinnedCount={favoritesData?.items.length ?? 0}
+            renderWorkspaces={renderWorkspaceNavigation}
+            onNavigate={onNavigate}
+            reorderLabels={sidebarReorderLabels}
+            renderPinned={(limit) =>
+              favoritesDatabase.isError || favoritesPersonalView.isError ? (
+                <QueryErrorState
+                  compact
+                  onRetry={() => {
+                    void favoritesDatabase.refetch();
+                    void favoritesPersonalView.refetch();
+                  }}
+                />
+              ) : (
+                <ContentFilesSidebarView
+                  data={
+                    favoritesData
+                      ? {
+                          ...favoritesData,
+                          items: contentSidebarOrderedItems(
+                            favoritesData.items,
+                            favoritesOrder.order,
+                          ).slice(0, limit),
                         }
-                        void handleSelectContentSpace(space, item.document.id);
-                        onNavigate?.();
-                        return true;
-                      }}
-                      onCreateChildPage={(item) =>
-                        void handleCreatePage(item.document.id)
-                      }
-                      onCreateChildDatabase={(item) =>
-                        void handleCreateDatabase(item.document.id)
-                      }
-                      onDeleteItem={(item) =>
-                        requestDelete(
-                          item.document.id,
-                          item.document.title || t("sidebar.untitled"),
-                        )
-                      }
-                      onToggleFavorite={(item) =>
-                        handleToggleFavorite(item.document.id, false)
-                      }
-                      scroll={false}
-                      labels={{
-                        noMatchesLabel: t("database.noRowsMatchThisView"),
-                        clearLabel: t("database.clearSearchAndFilters"),
-                        navigationLabel: t("sidebar.pinned"),
-                        untitledLabel: t("sidebar.untitled"),
-                      }}
-                    />
-                  )
-                }
-              />
-              {renderTrashSection()}
-            </>
-          )}
+                      : undefined
+                  }
+                  overrides={favoritesPersonalView.data?.overrides}
+                  sidebarOrder={favoritesOrder.order}
+                  isLoading={
+                    favoritesDatabase.isLoading ||
+                    favoritesPersonalView.isLoading
+                  }
+                  activeDocumentId={activeDocumentId}
+                  manualReorder={{
+                    labels: sidebarReorderLabels,
+                    onReorder: handlePinnedReorder,
+                  }}
+                  onOpenItem={(item) => {
+                    const space = contentSpaces.find(
+                      (candidate) =>
+                        candidate.filesDatabaseId ===
+                        item.workspaceFilesDatabaseId,
+                    );
+                    if (!space || selectedSpace?.id === space.id) {
+                      onNavigate?.();
+                      return false;
+                    }
+                    void handleSelectContentSpace(space, item.document.id);
+                    onNavigate?.();
+                    return true;
+                  }}
+                  onCreateChildPage={(item) =>
+                    void handleCreatePage(item.document.id)
+                  }
+                  onCreateChildDatabase={(item) =>
+                    void handleCreateDatabase(item.document.id)
+                  }
+                  onDeleteItem={(item) =>
+                    requestDelete(
+                      item.document.id,
+                      item.document.title || t("sidebar.untitled"),
+                    )
+                  }
+                  onToggleFavorite={(item) =>
+                    handleToggleFavorite(item.document.id, false)
+                  }
+                  scroll={false}
+                  labels={{
+                    noMatchesLabel: t("database.noRowsMatchThisView"),
+                    clearLabel: t("database.clearSearchAndFilters"),
+                    navigationLabel: t("sidebar.pinned"),
+                    untitledLabel: t("sidebar.untitled"),
+                  }}
+                />
+              )
+            }
+          />
+          {renderTrashSection()}
         </div>
       </ScrollArea>
 
@@ -2616,7 +2670,6 @@ export function DocumentSidebar({
         {isCodeMode ? <DevDatabaseLink /> : null}
         <SidebarFooterActions
           feedback={feedbackButton}
-          search={searchButton}
           collapse={collapseButton}
           className="px-0 py-0"
         />

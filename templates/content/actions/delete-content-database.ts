@@ -15,8 +15,14 @@ export default defineAction({
     "Soft-delete a content database without deleting its documents or rows.",
   schema: z.object({
     databaseId: z.string().describe("Content database ID"),
+    activeDocumentId: z
+      .string()
+      .optional()
+      .describe(
+        "Currently open document, used only to return an explicit navigation outcome.",
+      ),
   }),
-  run: async ({ databaseId }) => {
+  run: async ({ databaseId, activeDocumentId }) => {
     const { database } = await assertContentDatabaseLifecycleAccess(databaseId);
     if (database.systemRole) {
       throw new Error("System Content databases cannot be deleted");
@@ -24,7 +30,7 @@ export default defineAction({
     await assertAccess("document", database.documentId, "admin");
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
-    await db.transaction(async (tx) => {
+    const deletedDocumentIds = await db.transaction(async (tx) => {
       const transactionDb = tx as unknown as ReturnType<typeof getDb>;
       const lockedDatabaseIds = await lockDatabasesForTrash(
         transactionDb,
@@ -47,6 +53,13 @@ export default defineAction({
       databaseId,
       documentId: database.documentId,
       deletedAt,
+      activeTargetDeleted: activeDocumentId
+        ? deletedDocumentIds.includes(activeDocumentId)
+        : false,
+      navigationPath:
+        activeDocumentId && deletedDocumentIds.includes(activeDocumentId)
+          ? "/home"
+          : null,
     };
   },
 });

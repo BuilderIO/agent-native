@@ -11,18 +11,26 @@ export const contentPersonalNavigationPatchSchema = z
   .object({
     activeViewId: idSchema.optional(),
     sidebarOrder: z
-      .object({
-        viewId: idSchema,
-        mode: z.enum(["custom", "last_edited", "name", "created"]),
-        itemIds: z.array(idSchema).max(5_000),
-      })
+      .discriminatedUnion("operation", [
+        z.object({
+          operation: z.literal("replace").optional().default("replace"),
+          viewId: idSchema,
+          mode: z.enum(["custom", "last_edited", "name", "created"]),
+          itemIds: z.array(idSchema).max(5_000),
+        }),
+        z.object({
+          operation: z.enum(["prepend", "remove"]),
+          viewId: idSchema,
+          itemId: idSchema,
+        }),
+      ])
       .optional(),
   })
   .refine(
     (patch) =>
       patch.activeViewId !== undefined || patch.sidebarOrder !== undefined,
   );
-export type ContentPersonalNavigationPatch = z.infer<
+export type ContentPersonalNavigationPatch = z.input<
   typeof contentPersonalNavigationPatchSchema
 >;
 
@@ -39,20 +47,41 @@ export function applyContentPersonalNavigationPatch(
   };
   if (!patch.sidebarOrder)
     return { ...next, activeViewId: patch.activeViewId ?? next.activeViewId };
-  const { viewId, ...sidebarOrder } = patch.sidebarOrder;
+  const sidebarPatch = patch.sidebarOrder;
+  const { viewId } = sidebarPatch;
   const previous = next.views.find((view) => view.id === viewId);
   const query = previous ?? sharedViews.find((view) => view.id === viewId);
   if (!query) throw new Error("Shared View query is unavailable.");
+  const previousOrder = previous?.sidebarOrder ?? {
+    mode: "custom" as const,
+    itemIds: [],
+  };
+  const sidebarOrder =
+    "itemId" in sidebarPatch && sidebarPatch.operation === "prepend"
+      ? {
+          ...previousOrder,
+          itemIds: previousOrder.itemIds.includes(sidebarPatch.itemId)
+            ? previousOrder.itemIds
+            : [sidebarPatch.itemId, ...previousOrder.itemIds],
+        }
+      : "itemId" in sidebarPatch
+        ? {
+            ...previousOrder,
+            itemIds: previousOrder.itemIds.filter(
+              (id) => id !== sidebarPatch.itemId,
+            ),
+          }
+        : {
+            mode: sidebarPatch.mode,
+            itemIds: [...new Set(sidebarPatch.itemIds)],
+          };
   const view = {
     id: viewId,
     sorts: query.sorts,
     filters: query.filters,
     filterMode: query.filterMode ?? "and",
     ...previous,
-    sidebarOrder: {
-      ...sidebarOrder,
-      itemIds: [...new Set(sidebarOrder.itemIds)],
-    },
+    sidebarOrder,
   };
   return {
     ...next,
