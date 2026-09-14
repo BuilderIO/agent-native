@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -104,6 +107,15 @@ beforeEach(() => {
 });
 
 describe("poll-slack-channel action", () => {
+  it("does not repair Factory automation metadata during poll", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("./poll-slack-channel.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(source).not.toMatch(/repairFactoryAutomationsFromConfig/);
+    expect(source).not.toMatch(/ensureFactoryAutomations/);
+  });
+
   it("uses the supplied automation identity without an HTTP request context", async () => {
     const { default: action } = await import("./poll-slack-channel.js");
 
