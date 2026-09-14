@@ -47,4 +47,24 @@ describe("resolveDeployEnvironment", () => {
 
     expect(resolveDeployEnvironment()).toBe("production");
   });
+
+  it("lets a caller choose the metadata-free default without overriding explicit signals", () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "");
+    vi.stubEnv("CONTEXT", "");
+    vi.stubEnv("NETLIFY_CONTEXT", "");
+    vi.stubEnv("BRANCH", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "");
+
+    expect(resolveDeployEnvironment()).toBe("production");
+    expect(resolveDeployEnvironment({ metadataFreeDefault: "local" })).toBe(
+      "local",
+    );
+
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "preview");
+    expect(resolveDeployEnvironment({ metadataFreeDefault: "local" })).toBe(
+      "preview",
+    );
+  });
 });

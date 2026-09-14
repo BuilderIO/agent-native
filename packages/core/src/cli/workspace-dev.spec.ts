@@ -21,6 +21,8 @@ import {
   shouldEagerStartWorkspaceApps,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  workspaceBindHost,
+  workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
@@ -40,6 +42,85 @@ afterEach(() => {
 });
 
 describe("workspace dev startup", () => {
+  it.each([
+    ["127.0.0.1", "http://127.0.0.1:8080"],
+    ["localhost", "http://localhost:8080"],
+    ["0.0.0.0", "http://127.0.0.1:8080"],
+    ["::", "http://[::1]:8080"],
+    ["[::]", "http://[::1]:8080"],
+    ["::1", "http://[::1]:8080"],
+    ["2001:db8::1", "http://[2001:db8::1]:8080"],
+    ["[::1]", "http://[::1]:8080"],
+  ])("builds a usable gateway URL for bind host %s", (host, expected) => {
+    expect(workspaceGatewayUrl(host, 8080)).toBe(expected);
+  });
+
+  it.each([
+    ["::1", "::1"],
+    ["[::1]", "::1"],
+    ["2001:db8::1", "2001:db8::1"],
+    ["[2001:db8::1]", "2001:db8::1"],
+  ])("normalizes IPv6 bind host %s for Node", (host, expected) => {
+    expect(workspaceBindHost(host)).toBe(expected);
+  });
+
+  it("advertises and injects a loopback URL when bound to every IPv4 interface", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_HOST: "0.0.0.0" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    expect(output).toContain(`[workspace] Gateway: ${url}`);
+    expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
+  });
+
+  it("starts from a bracketed IPv6 bind host and advertises a valid URL", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_HOST: "[::1]" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+
+    expect(url).toMatch(/^http:\/\/\[::1\]:/);
+    await expect(fetch(`${url}/_workspace/apps`)).resolves.toMatchObject({
+      status: 200,
+    });
+    expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
+  });
+
+  it("starts from a bracketed IPv6 wildcard and advertises loopback", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_HOST: "[::]" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    expect(url).toMatch(/^http:\/\/\[::1\]:/);
+    await expect(fetch(`${url}/_workspace/apps`)).resolves.toMatchObject({
+      status: 200,
+    });
+    expect(output).toContain(`[workspace] Gateway: ${url}`);
+    expect(fake.calls()[0]?.options?.env?.WORKSPACE_GATEWAY_URL).toBe(url);
+  });
+
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();

@@ -33,7 +33,9 @@ function normalizeFallbackEnvironment(
 }
 
 /** The deploy environment name, e.g. `production`, `beta`, or `preview`. */
-export function resolveDeployEnvironment(): string {
+export function resolveDeployEnvironment(options?: {
+  metadataFreeDefault?: "local" | "production";
+}): string {
   const explicit = firstNonEmpty(
     process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
   )?.toLowerCase();
@@ -74,7 +76,9 @@ export function resolveDeployEnvironment(): string {
     return (
       normalizeFallbackEnvironment(
         firstNonEmpty(process.env.SENTRY_ENVIRONMENT, process.env.NODE_ENV),
-      ) ?? "production"
+      ) ??
+      options?.metadataFreeDefault ??
+      "production"
     );
   }
 

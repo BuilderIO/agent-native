@@ -75,6 +75,13 @@ describe("resolveAuthSecret", () => {
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.NODE_ENV;
+    delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+    delete process.env.SENTRY_ENVIRONMENT;
+    delete process.env.CONTEXT;
+    delete process.env.NETLIFY_CONTEXT;
+    delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+    delete process.env.BRANCH;
+    delete process.env.VERCEL_ENV;
   });
 
   afterEach(() => {
@@ -91,6 +98,12 @@ describe("resolveAuthSecret", () => {
 
   it("throws in production when BETTER_AUTH_SECRET is missing", () => {
     process.env.NODE_ENV = "production";
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("uses explicit deployment classification for the production guard", () => {
+    process.env.NODE_ENV = "development";
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "production";
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
   });
 
@@ -134,8 +147,7 @@ describe("resolveAuthSecret", () => {
     }
   }
 
-  it("does not throw in dev when missing (persists a generated secret instead)", () => {
-    process.env.NODE_ENV = "development";
+  it("persists a generated secret when local startup has no metadata", () => {
     inTempAppRoot((appRoot) => {
       expect(() => getAuthSecret()).not.toThrow();
       const secret = getAuthSecret();
@@ -144,6 +156,14 @@ describe("resolveAuthSecret", () => {
       expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(secret);
       // A second resolution in the same directory reuses the persisted value.
       expect(getAuthSecret()).toBe(secret);
+    });
+  });
+
+  it("lets an explicitly local runtime proceed with production NODE_ENV", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "local";
+    inTempAppRoot(() => {
+      expect(() => getAuthSecret()).not.toThrow();
     });
   });
 

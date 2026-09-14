@@ -486,13 +486,17 @@ function resolveAuthSecret(): string {
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
 
+  const deployEnvironment = resolveDeployEnvironment({
+    metadataFreeDefault: "local",
+  });
+
   // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every
   // signed session cookie on the next cold start (serverless filesystems
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices.
-  if (process.env.NODE_ENV === "production") {
+  if (deployEnvironment === "production") {
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },
@@ -516,7 +520,7 @@ function resolveAuthSecret(): string {
   if (existing) return existing;
 
   if (!inMemoryDevAuthSecret) {
-    if (resolveDeployEnvironment() === "local") {
+    if (deployEnvironment === "local") {
       // The persisted file is the dev-session contract: a per-process secret
       // would silently sign everyone out on every restart and strand the
       // auto dev account behind a password nobody has. Persistence failures
