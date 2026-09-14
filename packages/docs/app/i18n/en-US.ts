@@ -1446,27 +1446,66 @@ const enUS = {
     },
     dispatch: {
       faq: {
-        question1:
-          "How do I run several AI agents without babysitting each one?",
+        question1: "What is Agent-Native Dispatch?",
         answer1:
-          "Dispatch is the home base: message it from Slack or Telegram and it routes work to your other agents — Mail, Slides, Design — over A2A, with approvals and schedules in one place.",
-        question2: "Can I talk to my agent from Slack?",
+          "Agent-Native Dispatch is a free and open-source AI agent orchestration app for an Agent-Native workspace. It coordinates requests across connected apps, receives messages from supported channels, schedules recurring tasks, and manages shared integrations.",
+        question2: "Which apps can Dispatch work with?",
         answer2:
-          "Yes — bidirectional messaging with thread context and inline approvals, in Slack or Telegram. The agent's results come back to the same conversation.",
-        question3: "Can the agent work on a schedule?",
+          "Dispatch delegates to apps connected and available to it in your workspace, such as Analytics or Mail. Each app handles its own tasks and data. Configure the relevant connections and grants before asking Dispatch to use them.",
+        question3: "Can I use Dispatch from Slack or Telegram?",
         answer3:
-          "Yes — cron-based jobs: daily standups, weekly digests, hourly checks. Results are delivered to your messenger, not a dashboard you have to remember to open.",
-        question4: "Does it remember previous conversations?",
+          "Yes. Configure the messaging channel and link your identity to your workspace account as needed. Dispatch can receive requests and return results through that channel. Connecting a channel does not automatically give every sender access to every app.",
+        question4: "Can agents run tasks on a schedule?",
         answer4:
-          "Yes — learnings are auto-captured from every conversation and scoped per user, per organization, or global. Memory is inspectable and editable, not a black box.",
-        question5: "What if I don't want it acting alone?",
+          "Yes. Set up a recurring task and, when needed, a delivery destination for its results. Dispatch shows the task's last run, next run, and error status so you can check whether it ran successfully.",
+        question5: "Do Dispatch approvals cover everything an agent does?",
         answer5:
-          "Approval workflows are built in: sensitive actions — send an email, post an update, run an automation — wait for a one-tap approval in Slack. You configure which actions need sign-off.",
-        question6: "Is Dispatch free?",
-        answer6:
-          "Yes. Free and open source, next to per-seat agent platforms charging monthly.",
+          "No. In a team workspace, Dispatch can require review of its own changes to shared resources and settings. Actions inside connected apps, such as sending email, follow those apps' controls. The Dispatch approval queue is not a universal gate for every agent action.",
       },
       s001: "Dispatch app screenshot",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "Coordinate your AI agents from one place",
+      heroDescription:
+        "Dispatch is a free and open-source AI agent orchestration app for delegating work to connected Agent-Native apps, scheduling recurring tasks, and managing shared connections.",
+      heroCta: "Open Dispatch",
+      useCasesHeading: "What can you do with Dispatch?",
+      useCasesBody:
+        "Ask a connected app for help, set up a regular update, or investigate an agent run that needs attention.",
+      useCase1Title: "Delegate work from one conversation",
+      useCase1Body:
+        "Ask for a metrics summary or a draft reply. Dispatch passes the request to the connected Analytics or Mail agent and returns the result.",
+      useCase2Title: "Set up recurring team updates",
+      useCase2Body:
+        "Schedule a daily metrics summary or weekly digest from your connected apps. Choose a configured channel or inbox where the result should arrive.",
+      useCase3Title: "Investigate agent activity",
+      useCase3Body:
+        "Check a task's last run and any errors. Use available thread and monitoring details to investigate what happened when a workflow needs attention.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading:
+        "Everything you need to delegate, schedule, and monitor",
+      feature1Title: "Cross-app delegation",
+      feature1Body:
+        "Send requests to the connected app that handles the work. Each app uses its own agent, actions, and data to respond.",
+      feature2Title: "Messaging connections",
+      feature2Body:
+        "Connect channels such as Slack or Telegram to send requests and receive replies. Link identities so Dispatch knows which workspace user is asking.",
+      feature3Title: "Scheduled tasks",
+      feature3Body:
+        "Give recurring work a schedule. See whether a task is enabled, when it last ran, its next run, and any recorded error.",
+      feature4Title: "Saved delivery destinations",
+      feature4Body:
+        "Save a Slack channel, Telegram chat, or email address as a delivery target. Reuse it for scheduled results and inspect delivery status.",
+      feature5Title: "Shared integrations",
+      feature5Body:
+        "Configure a provider connection once and grant access to the apps that need it. Manage shared connections and app access from Dispatch.",
+      feature6Title: "Workspace change approvals",
+      feature6Body:
+        "Require another admin to review Dispatch's changes to shared resources and settings. Review pending requests and approve or reject them in a team workspace.",
+      finalCtaHeading: "Start with one connected task",
+      finalCtaBody:
+        "Choose the apps you need and ask Dispatch to coordinate the work.",
+      finalCtaButton: "Open Dispatch",
       s002: "+ Telegram",
       s003: "Inter-agent",
       s004: "Memory",

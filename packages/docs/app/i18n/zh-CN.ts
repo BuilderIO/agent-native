@@ -1350,6 +1350,47 @@ const zhCN = {
     },
     dispatch: {
       s001: "Dispatch 模板屏幕截图",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "在一个地方协调你的 AI 代理",
+      heroDescription:
+        "Dispatch 是一款免费的开源 AI 代理编排应用，用于将工作委派给已连接的 Agent-Native 应用、安排周期性任务，并管理共享连接。",
+      heroCta: "打开 Dispatch",
+      useCasesHeading: "你能用 Dispatch 做什么？",
+      useCasesBody:
+        "向已连接的应用寻求帮助，设置定期更新，或调查需要关注的代理运行情况。",
+      useCase1Title: "在一次对话中委派工作",
+      useCase1Body:
+        "请求获取指标摘要或草拟回复。Dispatch 会将请求转发给已连接的 Analytics 或 Mail 代理，并返回结果。",
+      useCase2Title: "设置周期性团队更新",
+      useCase2Body:
+        "为已连接的应用安排每日指标摘要或每周汇总。选择结果应发送到的已配置频道或收件箱。",
+      useCase3Title: "调查代理活动",
+      useCase3Body:
+        "查看某个任务的最近一次运行情况及任何错误。借助可用的对话串和监控详情，调查工作流出现问题时发生了什么。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "委派、调度和监控所需的一切",
+      feature1Title: "跨应用委派",
+      feature1Body:
+        "将请求发送给能处理该工作的已连接应用。每个应用都使用自己的代理、操作和数据来响应。",
+      feature2Title: "消息连接",
+      feature2Body:
+        "连接 Slack 或 Telegram 等渠道以发送请求和接收回复。关联身份，让 Dispatch 知道是哪位工作区用户在提问。",
+      feature3Title: "计划任务",
+      feature3Body:
+        "为周期性工作设置计划。查看任务是否启用、上次运行时间、下次运行时间以及任何记录的错误。",
+      feature4Title: "已保存的投递目的地",
+      feature4Body:
+        "将 Slack 频道、Telegram 聊天或电子邮件地址保存为投递目标。可复用于计划结果，并检查投递状态。",
+      feature5Title: "共享集成",
+      feature5Body:
+        "配置一次服务商连接，并授予需要它的应用访问权限。在 Dispatch 中管理共享连接和应用访问权限。",
+      feature6Title: "工作区变更审批",
+      feature6Body:
+        "要求另一位管理员审核 Dispatch 对共享资源和设置所做的更改。在团队工作区中审核待处理请求并批准或拒绝。",
+      finalCtaHeading: "从一个已连接的任务开始",
+      finalCtaBody: "选择你需要的应用，让 Dispatch 协调这项工作。",
+      finalCtaButton: "打开 Dispatch",
       s002: "+ Telegram 支持",
       s003: "代理间",
       s004: "内存",
@@ -1404,23 +1445,21 @@ const zhCN = {
       s053: "阅读文档",
       s054: "查看所有模板",
       faq: {
-        question1: "如何同时运行多个 AI 代理，而不必逐个盯着它们？",
+        question1: "什么是 Agent-Native Dispatch？",
         answer1:
-          "Dispatch 是统一控制中心：从 Slack 或 Telegram 给它发消息，它会通过 A2A 将工作路由到 Mail、Slides、Design 等其他代理，并在一个地方管理审批和日程。",
-        question2: "我可以从 Slack 与代理对话吗？",
+          "Agent-Native Dispatch 是一款面向 Agent-Native 工作区的免费开源 AI 代理编排应用。它可以协调跨已连接应用的请求，接收来自受支持渠道的消息，安排周期性任务，并管理共享集成。",
+        question2: "Dispatch 可以与哪些应用配合使用？",
         answer2:
-          "可以。Slack 和 Telegram 都支持带对话串上下文和内联审批的双向消息，代理的结果会回到同一段对话中。",
-        question3: "代理可以按计划运行吗？",
+          "Dispatch 会将工作委派给已连接且在你工作区中可用的应用，例如 Analytics 或 Mail。每个应用负责处理自己的任务和数据。在让 Dispatch 使用这些应用之前，请先配置好相关连接和授权。",
+        question3: "我可以通过 Slack 或 Telegram 使用 Dispatch 吗？",
         answer3:
-          "可以。它支持基于 cron 的任务，例如每日站会、每周摘要和每小时检查。结果会发送到你的消息工具，而不是留在一个需要你记得打开的仪表板中。",
-        question4: "它会记住以前的对话吗？",
+          "可以。根据需要配置消息渠道，并将你的身份关联到工作区账户。Dispatch 可以通过该渠道接收请求并返回结果。连接某个渠道并不会自动让每个发送者都获得对每个应用的访问权限。",
+        question4: "代理可以按计划运行任务吗？",
         answer4:
-          "会。每次对话中的经验都会自动捕获，并可按用户、组织或全局限定范围。记忆可查看、可编辑，不是黑箱。",
-        question5: "如果我不希望它自行采取行动怎么办？",
+          "可以。设置一个周期性任务，并在需要时为其结果设置投递目的地。Dispatch 会显示任务的上次运行、下次运行和错误状态，方便你检查任务是否成功运行。",
+        question5: "Dispatch 的审批是否涵盖代理所做的一切？",
         answer5:
-          "内置审批工作流：发送邮件、发布更新或运行自动化等敏感操作，会等待 Slack 中的一键批准。你可以配置哪些操作需要签字确认。",
-        question6: "Dispatch 免费吗？",
-        answer6: "免费且开源；相比之下，许多代理平台按席位每月收费。",
+          "不是。在团队工作区中，Dispatch 可以要求审核其对共享资源和设置所做的更改。已连接应用内部的操作（例如发送电子邮件）遵循这些应用自身的控制机制。Dispatch 的审批队列并不是针对每一次代理操作的通用关卡。",
       },
     },
     forms: {

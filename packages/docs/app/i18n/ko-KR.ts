@@ -1377,6 +1377,47 @@ const koKR = {
     },
     dispatch: {
       s001: "Dispatch 템플릿 스크린샷",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "AI 에이전트를 한곳에서 조율하세요",
+      heroDescription:
+        "Dispatch는 연결된 Agent-Native 앱에 작업을 위임하고, 반복 작업을 예약하고, 공유 연결을 관리하는 무료 오픈소스 AI 에이전트 오케스트레이션 앱입니다.",
+      heroCta: "Dispatch 열기",
+      useCasesHeading: "Dispatch로 무엇을 할 수 있나요?",
+      useCasesBody:
+        "연결된 앱에 도움을 요청하거나, 정기 업데이트를 설정하거나, 주의가 필요한 에이전트 실행을 조사하세요.",
+      useCase1Title: "하나의 대화에서 작업 위임하기",
+      useCase1Body:
+        "지표 요약이나 답장 초안을 요청하세요. Dispatch가 연결된 Analytics 또는 Mail 에이전트에 요청을 전달하고 결과를 반환합니다.",
+      useCase2Title: "반복되는 팀 업데이트 설정하기",
+      useCase2Body:
+        "연결된 앱에서 일일 지표 요약이나 주간 다이제스트를 예약하세요. 결과가 도착할 구성된 채널이나 받은편지함을 선택하세요.",
+      useCase3Title: "에이전트 활동 조사하기",
+      useCase3Body:
+        "작업의 마지막 실행 결과와 오류를 확인하세요. 워크플로에 주의가 필요할 때 무슨 일이 있었는지 조사하기 위해 사용 가능한 스레드 및 모니터링 정보를 활용하세요.",
+      keyFeaturesEyebrow: "주요 기능",
+      keyFeaturesHeading: "위임, 예약, 모니터링에 필요한 모든 것",
+      feature1Title: "앱 간 위임",
+      feature1Body:
+        "작업을 처리할 연결된 앱으로 요청을 전송합니다. 각 앱은 자체 에이전트, 작업, 데이터를 사용하여 응답합니다.",
+      feature2Title: "메시징 연결",
+      feature2Body:
+        "Slack이나 Telegram 같은 채널을 연결해 요청을 보내고 답장을 받으세요. ID를 연결하면 Dispatch가 어떤 워크스페이스 사용자가 요청하는지 알 수 있습니다.",
+      feature3Title: "예약된 작업",
+      feature3Body:
+        "반복 작업에 일정을 지정하세요. 작업 활성화 여부, 마지막 실행 시각, 다음 실행 시각, 기록된 오류를 확인할 수 있습니다.",
+      feature4Title: "저장된 전송 대상",
+      feature4Body:
+        "Slack 채널, Telegram 채팅 또는 이메일 주소를 전송 대상으로 저장하세요. 예약된 결과에 재사용하고 전송 상태를 확인할 수 있습니다.",
+      feature5Title: "공유 통합",
+      feature5Body:
+        "제공업체 연결을 한 번 구성하고 이를 필요로 하는 앱에 접근 권한을 부여하세요. Dispatch에서 공유 연결과 앱 접근 권한을 관리하세요.",
+      feature6Title: "워크스페이스 변경 승인",
+      feature6Body:
+        "다른 관리자가 Dispatch의 공유 리소스 및 설정 변경 사항을 검토하도록 요구하세요. 팀 워크스페이스에서 대기 중인 요청을 검토하고 승인하거나 거부하세요.",
+      finalCtaHeading: "연결된 작업 하나로 시작하세요",
+      finalCtaBody: "필요한 앱을 선택하고 Dispatch에 작업 조율을 요청하세요.",
+      finalCtaButton: "Dispatch 열기",
       s002: "+ Telegram 지원",
       s003: "에이전트 간",
       s004: "메모리",
@@ -1431,25 +1472,21 @@ const koKR = {
       s053: "문서 읽기",
       s054: "모든 템플릿 보기",
       faq: {
-        question1:
-          "여러 AI 에이전트를 일일이 지켜보지 않고 실행하려면 어떻게 하나요?",
+        question1: "Agent-Native Dispatch란 무엇인가요?",
         answer1:
-          "Dispatch가 본부 역할을 합니다. Slack이나 Telegram에서 메시지를 보내면 A2A로 Mail, Slides, Design 같은 다른 에이전트에 작업을 전달하고 승인과 일정도 한곳에서 관리합니다.",
-        question2: "Slack에서 에이전트와 대화할 수 있나요?",
+          "Agent-Native Dispatch는 Agent-Native 워크스페이스를 위한 무료 오픈소스 AI 에이전트 오케스트레이션 앱입니다. 연결된 앱 전반의 요청을 조율하고, 지원되는 채널에서 메시지를 수신하며, 반복 작업을 예약하고, 공유 통합을 관리합니다.",
+        question2: "Dispatch는 어떤 앱과 함께 작동할 수 있나요?",
         answer2:
-          "네. Slack과 Telegram에서 스레드 맥락과 인라인 승인을 포함한 양방향 메시지를 지원합니다. 에이전트의 결과는 같은 대화로 돌아옵니다.",
-        question3: "에이전트가 일정에 따라 작업할 수 있나요?",
+          "Dispatch는 워크스페이스에 연결되어 사용 가능한 앱(예: Analytics 또는 Mail)에 작업을 위임합니다. 각 앱은 자체 작업과 데이터를 처리합니다. Dispatch에 사용을 요청하기 전에 관련 연결과 권한을 구성하세요.",
+        question3: "Slack이나 Telegram에서 Dispatch를 사용할 수 있나요?",
         answer3:
-          "네. 일일 스탠드업, 주간 요약, 매시간 확인 같은 cron 기반 작업을 실행할 수 있습니다. 결과는 따로 기억해서 열어야 하는 대시보드가 아니라 메신저로 전달됩니다.",
-        question4: "이전 대화를 기억하나요?",
+          "네. 필요에 따라 메시징 채널을 구성하고 ID를 워크스페이스 계정에 연결하세요. Dispatch는 해당 채널을 통해 요청을 받고 결과를 반환할 수 있습니다. 채널을 연결한다고 해서 모든 발신자에게 모든 앱에 대한 접근 권한이 자동으로 부여되는 것은 아닙니다.",
+        question4: "에이전트가 일정에 따라 작업을 실행할 수 있나요?",
         answer4:
-          "네. 모든 대화에서 학습 내용을 자동으로 수집하고 사용자별, 조직별, 전역 범위로 설정할 수 있습니다. 메모리는 블랙박스가 아니라 확인하고 편집할 수 있습니다.",
-        question5: "에이전트가 혼자 행동하지 않게 하려면 어떻게 하나요?",
+          "네. 반복 작업을 설정하고 필요한 경우 결과를 위한 전송 대상을 설정하세요. Dispatch는 작업의 마지막 실행, 다음 실행, 오류 상태를 표시하여 작업이 성공적으로 실행되었는지 확인할 수 있게 해줍니다.",
+        question5: "Dispatch의 승인이 에이전트가 하는 모든 작업을 포괄하나요?",
         answer5:
-          "승인 워크플로가 내장되어 있습니다. 이메일 보내기, 업데이트 게시, 자동화 실행 같은 민감한 작업은 Slack의 원탭 승인을 기다립니다. 어떤 작업에 승인이 필요한지 직접 설정할 수 있습니다.",
-        question6: "Dispatch는 무료인가요?",
-        answer6:
-          "네. 무료 오픈 소스입니다. 좌석별로 월 요금을 부과하는 에이전트 플랫폼과 다릅니다.",
+          "아니요. 팀 워크스페이스에서 Dispatch는 공유 리소스 및 설정에 대한 자체 변경 사항의 검토를 요구할 수 있습니다. 이메일 전송 같은 연결된 앱 내부의 작업은 해당 앱 자체의 제어를 따릅니다. Dispatch 승인 대기열은 모든 에이전트 작업에 대한 보편적인 관문이 아닙니다.",
       },
     },
     forms: {

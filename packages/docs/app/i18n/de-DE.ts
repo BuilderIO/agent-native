@@ -1461,27 +1461,66 @@ const deDE = {
     },
     dispatch: {
       faq: {
-        question1:
-          "Wie betreibe ich mehrere KI-Agents, ohne jeden einzeln beaufsichtigen zu müssen?",
+        question1: "Was ist Agent-Native Dispatch?",
         answer1:
-          "Dispatch ist die Zentrale: Schreiben Sie aus Slack oder Telegram, und Dispatch leitet die Arbeit über A2A an Ihre anderen Agents weiter — Mail, Slides, Design — mit Freigaben und Zeitplänen an einem Ort.",
-        question2: "Kann ich aus Slack mit meinem Agenten sprechen?",
+          "Agent-Native Dispatch ist eine kostenlose Open-Source-KI-Agent-Orchestrierungs-App für einen Agent-Native-Workspace. Sie koordiniert Anfragen über verbundene Apps hinweg, empfängt Nachrichten von unterstützten Kanälen, plant wiederkehrende Aufgaben und verwaltet gemeinsame Integrationen.",
+        question2: "Mit welchen Apps kann Dispatch zusammenarbeiten?",
         answer2:
-          "Ja — bidirektionales Messaging mit Thread-Kontext und Inline-Freigaben in Slack oder Telegram. Die Ergebnisse des Agenten kommen in dieselbe Unterhaltung zurück.",
-        question3: "Kann der Agent nach einem Zeitplan arbeiten?",
+          "Dispatch delegiert an Apps, die in deinem Workspace verbunden und verfügbar sind, etwa Analytics oder Mail. Jede App übernimmt ihre eigenen Aufgaben und Daten. Richte die entsprechenden Verbindungen und Berechtigungen ein, bevor du Dispatch bittest, sie zu nutzen.",
+        question3: "Kann ich Dispatch über Slack oder Telegram nutzen?",
         answer3:
-          "Ja — Cron-basierte Jobs: tägliche Stand-ups, wöchentliche Zusammenfassungen und stündliche Prüfungen. Die Ergebnisse werden an Ihren Messenger gesendet, nicht an ein Dashboard, an dessen Öffnen Sie denken müssen.",
-        question4: "Erinnert sich Dispatch an frühere Unterhaltungen?",
+          "Ja. Richte den Nachrichtenkanal ein und verknüpfe bei Bedarf deine Identität mit deinem Workspace-Konto. Dispatch kann Anfragen über diesen Kanal empfangen und Ergebnisse zurückgeben. Das Verbinden eines Kanals gibt nicht automatisch jedem Absender Zugriff auf jede App.",
+        question4: "Können Agents Aufgaben nach einem Zeitplan ausführen?",
         answer4:
-          "Ja — Erkenntnisse werden aus jeder Unterhaltung automatisch erfasst und pro Benutzer, pro Organisation oder global begrenzt. Das Gedächtnis ist einsehbar und bearbeitbar, keine Blackbox.",
-        question5: "Was ist, wenn der Agent nicht selbstständig handeln soll?",
+          "Ja. Richte eine wiederkehrende Aufgabe ein und bei Bedarf ein Zustellziel für ihre Ergebnisse. Dispatch zeigt die letzte Ausführung, die nächste Ausführung und den Fehlerstatus der Aufgabe an, damit du prüfen kannst, ob sie erfolgreich lief.",
+        question5: "Decken Dispatch-Freigaben alles ab, was ein Agent tut?",
         answer5:
-          "Freigabe-Workflows sind integriert: Sensible Aktionen — eine E-Mail senden, ein Update veröffentlichen, eine Automatisierung ausführen — warten in Slack auf eine Freigabe mit einem Tippen. Sie legen fest, welche Aktionen eine Zustimmung benötigen.",
-        question6: "Ist Dispatch kostenlos?",
-        answer6:
-          "Ja. Kostenlos und Open Source, im Gegensatz zu Agent-Plattformen, die monatlich pro Nutzer abrechnen.",
+          "Nein. In einem Team-Workspace kann Dispatch eine Überprüfung seiner eigenen Änderungen an gemeinsamen Ressourcen und Einstellungen verlangen. Aktionen innerhalb verbundener Apps, etwa das Versenden einer E-Mail, folgen den Kontrollen dieser Apps. Die Dispatch-Freigabe-Warteschlange ist kein universelles Tor für jede Agentenaktion.",
       },
       s001: "Screenshot der Vorlage Dispatch",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "Koordiniere deine KI-Agents an einem Ort",
+      heroDescription:
+        "Dispatch ist eine kostenlose Open-Source-KI-Agent-Orchestrierungs-App, um Arbeit an verbundene Agent-Native-Apps zu delegieren, wiederkehrende Aufgaben zu planen und gemeinsame Verbindungen zu verwalten.",
+      heroCta: "Dispatch öffnen",
+      useCasesHeading: "Was kannst du mit Dispatch machen?",
+      useCasesBody:
+        "Bitte eine verbundene App um Hilfe, richte ein regelmäßiges Update ein oder untersuche einen Agentenlauf, der Aufmerksamkeit braucht.",
+      useCase1Title: "Arbeit aus einer Unterhaltung delegieren",
+      useCase1Body:
+        "Bitte um eine Kennzahlen-Zusammenfassung oder einen Antwortentwurf. Dispatch leitet die Anfrage an den verbundenen Analytics- oder Mail-Agenten weiter und gibt das Ergebnis zurück.",
+      useCase2Title: "Wiederkehrende Team-Updates einrichten",
+      useCase2Body:
+        "Plane eine tägliche Kennzahlen-Zusammenfassung oder einen wöchentlichen Digest aus deinen verbundenen Apps. Wähle einen konfigurierten Kanal oder ein Postfach, an das das Ergebnis gehen soll.",
+      useCase3Title: "Agentenaktivität untersuchen",
+      useCase3Body:
+        "Prüfe die letzte Ausführung einer Aufgabe und etwaige Fehler. Nutze verfügbare Thread- und Überwachungsdetails, um zu untersuchen, was passiert ist, wenn ein Workflow Aufmerksamkeit braucht.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Delegieren, Planen und Überwachen brauchst",
+      feature1Title: "App-übergreifende Delegierung",
+      feature1Body:
+        "Sende Anfragen an die verbundene App, die die Arbeit erledigt. Jede App nutzt ihren eigenen Agenten, ihre Aktionen und Daten, um zu antworten.",
+      feature2Title: "Messaging-Verbindungen",
+      feature2Body:
+        "Verbinde Kanäle wie Slack oder Telegram, um Anfragen zu senden und Antworten zu empfangen. Verknüpfe Identitäten, damit Dispatch weiß, welcher Workspace-Nutzer fragt.",
+      feature3Title: "Geplante Aufgaben",
+      feature3Body:
+        "Gib wiederkehrender Arbeit einen Zeitplan. Sieh, ob eine Aufgabe aktiviert ist, wann sie zuletzt lief, ihre nächste Ausführung und etwaige protokollierte Fehler.",
+      feature4Title: "Gespeicherte Zustellziele",
+      feature4Body:
+        "Speichere einen Slack-Kanal, einen Telegram-Chat oder eine E-Mail-Adresse als Zustellziel. Nutze es für geplante Ergebnisse wieder und prüfe den Zustellstatus.",
+      feature5Title: "Gemeinsame Integrationen",
+      feature5Body:
+        "Richte eine Anbieterverbindung einmal ein und gewähre den Apps, die sie benötigen, Zugriff. Verwalte gemeinsame Verbindungen und App-Zugriff von Dispatch aus.",
+      feature6Title: "Freigaben für Workspace-Änderungen",
+      feature6Body:
+        "Verlange, dass ein weiterer Admin Dispatchs Änderungen an gemeinsamen Ressourcen und Einstellungen überprüft. Prüfe ausstehende Anfragen und genehmige oder lehne sie in einem Team-Workspace ab.",
+      finalCtaHeading: "Beginne mit einer verbundenen Aufgabe",
+      finalCtaBody:
+        "Wähle die Apps, die du brauchst, und bitte Dispatch, die Arbeit zu koordinieren.",
+      finalCtaButton: "Dispatch öffnen",
       s002: "+ Telegram dabei",
       s003: "Inter-Agent",
       s004: "Erinnerung",

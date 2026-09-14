@@ -1350,6 +1350,47 @@ const messages = {
     },
     dispatch: {
       s001: "Dispatch 範本螢幕截圖",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "在同一個地方協調你的 AI 代理",
+      heroDescription:
+        "Dispatch 是一款免費的開源 AI 代理協調應用程式，用於將工作委派給已連線的 Agent-Native 應用程式、排程週期性工作，並管理共用連線。",
+      heroCta: "開啟 Dispatch",
+      useCasesHeading: "你能用 Dispatch 做什麼？",
+      useCasesBody:
+        "向已連線的應用程式尋求協助、設定定期更新，或調查需要留意的代理執行狀況。",
+      useCase1Title: "在單一對話中委派工作",
+      useCase1Body:
+        "要求取得指標摘要或草擬回覆。Dispatch 會將請求轉交給已連線的 Analytics 或 Mail 代理，並傳回結果。",
+      useCase2Title: "設定週期性團隊更新",
+      useCase2Body:
+        "為已連線的應用程式排程每日指標摘要或每週彙整。選擇結果應送達的已設定頻道或收件匣。",
+      useCase3Title: "調查代理活動",
+      useCase3Body:
+        "查看某項工作的上次執行狀況及任何錯誤。運用可用的對話串與監控詳情，調查工作流程需要留意時發生了什麼事。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "委派、排程與監控所需的一切",
+      feature1Title: "跨應用程式委派",
+      feature1Body:
+        "將請求傳送給能處理該工作的已連線應用程式。每個應用程式都使用自己的代理、操作與資料來回應。",
+      feature2Title: "訊息連線",
+      feature2Body:
+        "連接 Slack 或 Telegram 等頻道以傳送請求及接收回覆。連結身分，讓 Dispatch 知道是哪位工作區使用者在詢問。",
+      feature3Title: "排程工作",
+      feature3Body:
+        "為週期性工作設定排程。查看工作是否已啟用、上次執行時間、下次執行時間，以及任何記錄的錯誤。",
+      feature4Title: "已儲存的傳送目的地",
+      feature4Body:
+        "將 Slack 頻道、Telegram 對話或電子郵件地址儲存為傳送目標。可重複用於排程結果，並檢查傳送狀態。",
+      feature5Title: "共用整合",
+      feature5Body:
+        "設定一次服務供應商連線，並授予需要它的應用程式存取權限。在 Dispatch 中管理共用連線與應用程式存取權限。",
+      feature6Title: "工作區變更核准",
+      feature6Body:
+        "要求另一位管理員審核 Dispatch 對共用資源與設定所做的變更。在團隊工作區中審核待處理請求並核准或拒絕。",
+      finalCtaHeading: "從一項已連線的工作開始",
+      finalCtaBody: "選擇你需要的應用程式，讓 Dispatch 協調這項工作。",
+      finalCtaButton: "開啟 Dispatch",
       s002: "+ Telegram 支援",
       s003: "代理間",
       s004: "記憶",
@@ -1404,23 +1445,21 @@ const messages = {
       s053: "閱讀檔案",
       s054: "檢視所有範本",
       faq: {
-        question1: "如何同時執行多個 AI 代理，而不必逐一盯著它們？",
+        question1: "什麼是 Agent-Native Dispatch？",
         answer1:
-          "Dispatch 是統一控制中心：從 Slack 或 Telegram 傳訊息給它，它會透過 A2A 將工作路由到 Mail、Slides、Design 等其他代理，並在同一處管理核准和排程。",
-        question2: "我可以從 Slack 與代理對話嗎？",
+          "Agent-Native Dispatch 是一款專為 Agent-Native 工作區設計的免費開源 AI 代理協調應用程式。它能協調跨已連線應用程式的請求、接收來自受支援頻道的訊息、排程週期性工作，並管理共用整合。",
+        question2: "Dispatch 可以搭配哪些應用程式使用？",
         answer2:
-          "可以。Slack 和 Telegram 都支援帶有對話串脈絡和行內核准的雙向訊息，代理的結果會回到同一段對話中。",
-        question3: "代理可以按排程執行嗎？",
+          "Dispatch 會將工作委派給已連線且在你的工作區中可用的應用程式，例如 Analytics 或 Mail。每個應用程式各自處理自己的工作與資料。在請 Dispatch 使用這些應用程式之前，請先設定好相關連線與授權。",
+        question3: "我可以透過 Slack 或 Telegram 使用 Dispatch 嗎？",
         answer3:
-          "可以。它支援以 cron 為基礎的工作，例如每日站會、每週摘要和每小時檢查。結果會傳送到你的訊息工具，而不是留在一個需要你記得開啟的儀表板中。",
-        question4: "它會記住以前的對話嗎？",
+          "可以。視需要設定訊息頻道，並將你的身分連結到工作區帳戶。Dispatch 可以透過該頻道接收請求並傳回結果。連結某個頻道並不會自動讓每位傳送者都取得每個應用程式的存取權限。",
+        question4: "代理可以按排程執行工作嗎？",
         answer4:
-          "會。每次對話中的經驗都會自動擷取，並可按使用者、組織或全域限定範圍。記憶可檢查、可編輯，不是黑箱。",
-        question5: "如果我不希望它自行採取行動怎麼辦？",
+          "可以。設定一項週期性工作，並視需要為其結果設定傳送目的地。Dispatch 會顯示工作的上次執行、下次執行與錯誤狀態，方便你檢查工作是否成功執行。",
+        question5: "Dispatch 的核准是否涵蓋代理所做的一切？",
         answer5:
-          "內建核准工作流程：傳送電子郵件、發布更新或執行自動化等敏感操作，會等待 Slack 中的一鍵核准。你可以設定哪些操作需要簽核。",
-        question6: "Dispatch 免費嗎？",
-        answer6: "免費且開放原始碼；相較之下，許多代理平台按席次每月收費。",
+          "不是。在團隊工作區中，Dispatch 可以要求審核其對共用資源與設定所做的變更。已連線應用程式內部的操作（例如傳送電子郵件）遵循這些應用程式自身的控管機制。Dispatch 的核准佇列並非針對每一次代理操作的通用關卡。",
       },
     },
     forms: {
