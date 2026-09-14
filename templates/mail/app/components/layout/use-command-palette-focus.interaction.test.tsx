@@ -9,14 +9,15 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
 const SEARCH_QUERY = "qzxvnoresulttoken90385671zz";
 const SEARCH_ROUTE = `/all?q=${SEARCH_QUERY}`;
-const OPEN_COMMAND_MENU_EVENT = "agent-native:open-command-menu";
 
 function PaletteHarness() {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -28,11 +29,9 @@ function PaletteHarness() {
   const { openPalette, handleOpenChange, restoreFocusAfterEscape } =
     useCommandPaletteFocus(paletteOpen, setPaletteOpen);
 
-  useEffect(() => {
-    window.addEventListener(OPEN_COMMAND_MENU_EVENT, openPalette);
-    return () =>
-      window.removeEventListener(OPEN_COMMAND_MENU_EVENT, openPalette);
-  }, [openPalette]);
+  useKeyboardShortcuts([
+    { key: "k", meta: true, handler: openPalette, skipInInput: false },
+  ]);
 
   return (
     <>
@@ -46,11 +45,7 @@ function PaletteHarness() {
       <output data-testid="close-focus-prevented">
         {closeFocusPrevented === null ? "unset" : String(closeFocusPrevented)}
       </output>
-      <button
-        onClick={() => window.dispatchEvent(new Event(OPEN_COMMAND_MENU_EVENT))}
-      >
-        Open command menu
-      </button>
+      <button onClick={openPalette}>Open command menu</button>
       <CommandMenu
         open={paletteOpen}
         onOpenChange={handleOpenChange}
@@ -87,6 +82,22 @@ function pressEscape() {
   });
 }
 
+function pressPaletteShortcut(
+  target: HTMLElement,
+  modifier: { metaKey: boolean; ctrlKey: boolean },
+) {
+  const event = new KeyboardEvent("keydown", {
+    key: "k",
+    ...modifier,
+    bubbles: true,
+    cancelable: true,
+  });
+  act(() => {
+    target.dispatchEvent(event);
+  });
+  return event;
+}
+
 describe("Mail command palette focus recovery", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -102,36 +113,41 @@ describe("Mail command palette focus recovery", () => {
     vi.unstubAllGlobals();
   });
 
-  it("clears the palette query first, then restores Search without changing its route or query", async () => {
-    render(<PaletteHarness />);
+  it.each([
+    { name: "Command", metaKey: true, ctrlKey: false },
+    { name: "Control", metaKey: false, ctrlKey: true },
+  ])(
+    "opens with $name+K and restores Search without changing its route or query",
+    async ({ metaKey, ctrlKey }) => {
+      render(<PaletteHarness />);
 
-    const search = screen.getByRole("textbox", { name: "Mail search" });
-    search.focus();
-    act(() => {
-      window.dispatchEvent(new Event(OPEN_COMMAND_MENU_EVENT));
-    });
+      const search = screen.getByRole("textbox", { name: "Mail search" });
+      search.focus();
+      const shortcutEvent = pressPaletteShortcut(search, { metaKey, ctrlKey });
+      expect(shortcutEvent.defaultPrevented).toBe(true);
 
-    const commandInput =
-      document.querySelector<HTMLInputElement>("[cmdk-input]");
-    expect(commandInput).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(commandInput));
+      const commandInput =
+        document.querySelector<HTMLInputElement>("[cmdk-input]");
+      expect(commandInput).toBeTruthy();
+      await waitFor(() => expect(document.activeElement).toBe(commandInput));
 
-    fireEvent.change(commandInput!, { target: { value: "archive" } });
-    expect(commandInput?.value).toBe("archive");
+      fireEvent.change(commandInput!, { target: { value: "archive" } });
+      expect(commandInput?.value).toBe("archive");
 
-    pressEscape();
+      pressEscape();
 
-    expect(commandInput?.value).toBe("");
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(document.activeElement).toBe(commandInput);
+      expect(commandInput?.value).toBe("");
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      expect(document.activeElement).toBe(commandInput);
 
-    pressEscape();
+      pressEscape();
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(search));
-    expect((search as HTMLInputElement).value).toBe(SEARCH_QUERY);
-    expect(screen.getByTestId("route").textContent).toBe(SEARCH_ROUTE);
-  });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(search));
+      expect((search as HTMLInputElement).value).toBe(SEARCH_QUERY);
+      expect(screen.getByTestId("route").textContent).toBe(SEARCH_ROUTE);
+    },
+  );
 
   it("does not run Escape focus restoration when a command is selected", async () => {
     render(<PaletteHarness />);
