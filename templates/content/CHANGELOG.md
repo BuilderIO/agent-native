@@ -3,6 +3,26 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-14
+
+### Fixed
+
+- The block drag-handle menu now always opens beside the block instead of sometimes jumping to the corner of the window.
+- Pasting a checklist from Notion or GitHub now keeps its checkboxes instead of turning into plain bullets.
+- Asking the agent about Notion no longer reports "not connected" when the Notion MCP server is connected — it now names the account connection and the MCP connection separately.
+
+## 2026-09-12
+
+### Changed
+
+- Databases are now called **collections** across Content — same pages, views, and sharing, friendlier name.
+
+## 2026-09-10
+
+### Fixed
+
+- Opening a page link your account cannot read now lands on a page you can open and says why, instead of stopping on a "Document unavailable" screen — so a brand-new account no longer arrives on a dead end after signing up.
+
 ## 2026-09-09
 
 ### Added

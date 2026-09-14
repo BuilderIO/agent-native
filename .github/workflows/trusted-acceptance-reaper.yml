@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.workspaces.outputs.matrix }}
+      has_workspaces: ${{ steps.workspaces.outputs.has_workspaces }}
     steps:
       - name: Require the trusted default-branch reaper
         env:
@@ -44,16 +45,18 @@ jobs:
           node - <<'NODE'
           const fs = require("node:fs");
           const config = JSON.parse(fs.readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8"));
-          const configured = config.workspaces.filter(workspace => workspace.runtimeAuthority?.provisioner?.kind === "trusted-lease-v1");
+          const configured = config.workspaces.filter(workspace => workspace.enabled === true && workspace.runtimeAuthority?.provisioner?.kind === "trusted-lease-v1");
           let selected = configured;
           if (process.env.EVENT_NAME === "workflow_dispatch") {
             selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);
             if (selected.length !== 1) throw new Error("Requested workspace has no configured trusted lease authority");
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({include: selected.map(({id}) => ({workspace: id}))})}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\n`);
           NODE
 
   reap:
+    if: needs.plan.outputs.has_workspaces == 'true'
     needs: plan
     strategy:
       fail-fast: false

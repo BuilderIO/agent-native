@@ -1539,7 +1539,10 @@ export function isMissingFinalResponseWarningText(text: string): boolean {
   }
   return (
     normalized.includes("stopped before sending a final message") ||
-    normalized.includes("stopped without sending a final message")
+    normalized.includes("stopped without sending a final message") ||
+    // "stopped after <action> failed, without sending a final message."
+    (normalized.startsWith("The agent stopped after ") &&
+      normalized.includes("without sending a final message"))
   );
 }
 

@@ -388,6 +388,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "उपयोगी नहीं",
   "feedback.placeholder": "बताएं कि क्या गलत हुआ...",
   "feedback.submit": "जमा करें",
+  "feedback.submitted": "फ़ीडबैक सबमिट किया गया",
   "feedback.thumbsDown": "नापसंद",
   "feedback.thumbsUp": "पसंद",
   "feedback.tooSlow": "बहुत धीमा",

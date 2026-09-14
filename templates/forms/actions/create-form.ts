@@ -50,20 +50,24 @@ export default defineAction({
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
-    // Accept either a JSON string (agent CLI / older callers) or an actual
-    // array/object — the UI POSTs JSON bodies via useActionMutation, which
-    // serializes the inputs directly.
+    // Declared as the real array/object, never `string | array`. A JSON string
+    // still works — `coerceGatewayStringifiedArgs` parses it because the
+    // declared type is `array`/`object` — but the parsed value is then checked
+    // against this schema. Re-adding a `z.string()` branch turns that back off
+    // (the coercion deliberately skips any param that also accepts a string)
+    // AND skips per-field validation, which is how `type: undefined` once
+    // reached the database layer.
     fields: z
-      .union([z.string(), z.array(formFieldSchema)])
+      .array(formFieldSchema)
       .optional()
       .describe(
-        "Array of complete field objects (or JSON string of the same). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'.",
+        "Array of complete field objects (a JSON string of the same array is also accepted). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'.",
       ),
     settings: z
-      .union([z.string(), z.record(z.string(), z.any())])
+      .record(z.string(), z.any())
       .optional()
       .describe(
-        `Form settings object (or JSON string). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.`,
+        `Form settings object (a JSON string of the same object is also accepted). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.`,
       ),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
@@ -88,19 +92,9 @@ export default defineAction({
     const title = args.title || "Untitled Form";
     const slug = args.slug || slugify(title) + "-" + id.slice(0, 6);
 
-    let fields: FormField[] = [];
-    if (args.fields) {
-      if (typeof args.fields === "string") {
-        try {
-          fields = JSON.parse(args.fields);
-        } catch {
-          fail("--fields must be valid JSON", { errorCode: "invalid_fields" });
-        }
-      } else {
-        fields = args.fields as unknown as FormField[];
-      }
-    }
-    fields = normalizeFieldIds(fields) as FormField[];
+    const fields = normalizeFieldIds(
+      (args.fields ?? []) as unknown as FormField[],
+    ) as FormField[];
     assertValidFields(fields);
 
     const defaultSettings: FormSettings = {
@@ -110,20 +104,7 @@ export default defineAction({
       emailOnNewResponses: false,
     };
 
-    let incomingSettings: FormSettings = {};
-    if (args.settings) {
-      if (typeof args.settings === "string") {
-        try {
-          incomingSettings = JSON.parse(args.settings) as FormSettings;
-        } catch {
-          fail("--settings must be valid JSON", {
-            errorCode: "invalid_settings",
-          });
-        }
-      } else {
-        incomingSettings = args.settings as unknown as FormSettings;
-      }
-    }
+    const incomingSettings = (args.settings ?? {}) as unknown as FormSettings;
     assertValidFormCompletionSettings(incomingSettings);
     const settings = { ...defaultSettings, ...incomingSettings };
     // Reject blocked integration URLs at save time. fireIntegrations also
