@@ -64,7 +64,10 @@ function trigger() {
  * nothing opens, nothing spins, and nothing explains why.
  */
 describe("BuilderConnectPopover before the status read resolves", () => {
-  it("runs the connect intent once the capability resolves", () => {
+  it("never replays a queued click into the popup path", () => {
+    // `flow.start` reaches `window.open`, which only survives inside the click
+    // that asked for it. Replaying it from an effect would swap a dead button
+    // for a blocked popup and an "allow popups" message blaming the user.
     const onConnect = vi.fn();
     const retry = vi.fn();
     const flow = {
@@ -72,6 +75,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       start: vi.fn(),
       retry,
       statusResolved: false,
+      statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,
     };
 
@@ -87,20 +91,28 @@ describe("BuilderConnectPopover before the status read resolves", () => {
 
     // Re-reading status on an unresolved click is correct and must stay.
     expect(retry).toHaveBeenCalledTimes(1);
+    expect(connectButton().getAttribute("aria-busy")).toBe("true");
 
-    // The status read lands a moment later with provisioning unavailable, so
-    // the resolved behavior for this click is the direct connect path.
+    // The read resolves with provisioning unavailable, so the only honest
+    // answer needs a popup. Release the intent; the resolved trigger answers
+    // the next real click synchronously.
     render(
       React.createElement(
         BuilderConnectPopover,
         {
-          flow: { ...flow, statusResolved: true },
+          flow: { ...flow, statusResolved: true, statusReadSettledCount: 1 },
           onConnect,
         },
         trigger(),
       ),
     );
 
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(flow.start).not.toHaveBeenCalled();
+    expect(connectButton().getAttribute("aria-busy")).toBeNull();
+
+    // The next click is a real gesture and goes straight through.
+    click(connectButton());
     expect(onConnect).toHaveBeenCalledTimes(1);
     expect(onConnect).toHaveBeenCalledWith(false);
   });
@@ -112,6 +124,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       start: vi.fn(),
       retry: vi.fn(),
       statusResolved: false,
+      statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,
     };
 
@@ -132,6 +145,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
           flow: {
             ...flow,
             statusResolved: true,
+            statusReadSettledCount: 1,
             agentNativeProvisioningEnabled: true,
           },
           onConnect,
@@ -147,15 +161,15 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
   });
 
-  it("releases the queued click when the status read itself fails", () => {
+  it("releases the queued click when the read it triggered settles unresolved", () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
       start: vi.fn(),
       retry: vi.fn(),
       statusResolved: false,
+      statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,
-      error: null as string | null,
     };
 
     render(
@@ -169,24 +183,71 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     click(connectButton());
     expect(connectButton().getAttribute("aria-busy")).toBe("true");
 
+    // The read came back and still did not resolve the capability. Guessing a
+    // connect path here is how a failure gets reported as a normal flow, and
+    // holding the intent would leave the trigger busy forever.
     render(
       React.createElement(
         BuilderConnectPopover,
         {
-          flow: {
-            ...flow,
-            error: "Couldn't reach Builder to check your account. Retrying.",
-          },
+          flow: { ...flow, statusReadSettledCount: 1 },
           onConnect,
         },
         trigger(),
       ),
     );
 
-    // An unreadable status is not a resolved capability: guessing a connect
-    // path here is how a failure gets reported as a normal flow.
     expect(onConnect).not.toHaveBeenCalled();
     expect(connectButton().getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("keeps a click queued across a retry that started from a prior failure", () => {
+    // A trigger clicked while an earlier read error is already on screen must
+    // still honour the retry it kicks off. Keying the release on the error
+    // string would cancel this intent before the retry could land.
+    const onConnect = vi.fn();
+    const retry = vi.fn();
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry,
+      statusResolved: false,
+      statusReadSettledCount: 3,
+      agentNativeProvisioningEnabled: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { flow, onConnect, contentTestId: "consent" },
+        trigger(),
+      ),
+    );
+
+    click(connectButton());
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(connectButton().getAttribute("aria-busy")).toBe("true");
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow: {
+            ...flow,
+            statusResolved: true,
+            statusReadSettledCount: 4,
+            agentNativeProvisioningEnabled: true,
+            error: null,
+          },
+          onConnect,
+          contentTestId: "consent",
+        },
+        trigger(),
+      ),
+    );
+
+    expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
   });
 
   it("does not replay a pending click that the user never made", () => {
@@ -196,6 +257,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       start: vi.fn(),
       retry: vi.fn(),
       statusResolved: false,
+      statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,
     };
 
@@ -210,7 +272,10 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     render(
       React.createElement(
         BuilderConnectPopover,
-        { flow: { ...flow, statusResolved: true }, onConnect },
+        {
+          flow: { ...flow, statusResolved: true, statusReadSettledCount: 1 },
+          onConnect,
+        },
         trigger(),
       ),
     );

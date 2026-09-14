@@ -22,8 +22,8 @@ export interface BuilderConnectPopoverProps {
     /** Retry the status request without bypassing provisioning consent. */
     retry?: () => void;
     statusResolved?: boolean;
-    /** Set when the status read itself failed, so a queued click can stop. */
-    error?: string | null;
+    /** Bounds a queued click: increments whenever a status read settles. */
+    statusReadSettledCount?: number;
   };
   children: BuilderConnectTrigger;
   /** Preserve a surface-specific tracking source or callback when choosing a path. */
@@ -56,12 +56,15 @@ export function BuilderConnectPopover({
   const accountExists = capabilityResolved && flow.accountExists;
   const initiatedByThisTriggerRef = useRef(false);
   // A click landing before the first status read cannot be answered yet:
-  // whether it connects directly or asks for provisioning consent is exactly
-  // what that read decides. The trigger renders as an ordinary enabled button
-  // for that whole window, which is seconds long on a cold serverless start,
-  // so the intent is held rather than discarded.
-  const [clickPendingCapability, setClickPendingCapability] = useState(false);
-  const statusUnreadable = Boolean(flow.error);
+  // whether it opens the provisioning consent choice is exactly what that read
+  // decides. The trigger renders as an ordinary enabled button for that whole
+  // window, which is seconds long on a cold serverless start, so the intent is
+  // held rather than discarded. The snapshot bounds the wait: once the read
+  // this click asked for has settled without resolving, the intent is dropped.
+  const [queuedClick, setQueuedClick] = useState<{ settledAt: number } | null>(
+    null,
+  );
+  const settledCount = flow.statusReadSettledCount ?? 0;
 
   useEffect(() => {
     if (accountExists && initiatedByThisTriggerRef.current) {
@@ -80,33 +83,35 @@ export function BuilderConnectPopover({
     flow.start({ provisionAccount });
   };
 
-  const releaseQueuedClick = () => {
-    setClickPendingCapability(false);
-    if (showPopover) {
-      setOpen(true);
-      return;
-    }
-    start(false);
+  // Only ever replays work that needs no popup. `flow.start` reaches
+  // `window.open`, which browsers permit solely inside the click that asked
+  // for it; calling it from this effect would trade a dead button for a
+  // blocked popup and an "allow popups" message that blames the user for a
+  // gesture we dropped. When the resolved capability has no consent choice to
+  // show, the intent is released instead, and the now-resolved trigger answers
+  // the next click synchronously.
+  const openQueuedPopoverRef = useRef<() => void>(() => {});
+  openQueuedPopoverRef.current = () => {
+    setQueuedClick(null);
+    if (showPopover) setOpen(true);
   };
-  const releaseQueuedClickRef = useRef(releaseQueuedClick);
-  releaseQueuedClickRef.current = releaseQueuedClick;
 
   useEffect(() => {
-    if (!clickPendingCapability) return;
+    if (!queuedClick) return;
     if (capabilityResolved) {
-      releaseQueuedClickRef.current();
+      openQueuedPopoverRef.current();
       return;
     }
-    // An unresolved capability plus a surfaced read error is a settled
-    // failure, not a slow read. Surfaces that render this popover also render
-    // `flow.error`, so the user already has the reason; dropping the intent
-    // here is what keeps the trigger from sitting busy forever against an
-    // unreachable status route.
-    if (statusUnreadable) setClickPendingCapability(false);
-  }, [clickPendingCapability, capabilityResolved, statusUnreadable]);
+    // The read this click triggered came back and still did not resolve the
+    // capability. Surfaces that render this popover also render `flow.error`,
+    // so the user already has the reason; dropping the intent here is what
+    // keeps the trigger from sitting busy forever against an unreachable
+    // status route.
+    if (settledCount > queuedClick.settledAt) setQueuedClick(null);
+  }, [queuedClick, capabilityResolved, settledCount]);
 
   const trigger = React.cloneElement(children, {
-    "aria-busy": clickPendingCapability ? true : undefined,
+    "aria-busy": queuedClick ? true : undefined,
     onClick: (event) => {
       if (flow.connecting) {
         event.preventDefault();
@@ -120,7 +125,7 @@ export function BuilderConnectPopover({
           setOpen(true);
           return;
         }
-        setClickPendingCapability(true);
+        setQueuedClick({ settledAt: settledCount });
         flow.retry?.();
         return;
       }

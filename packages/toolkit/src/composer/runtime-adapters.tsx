@@ -52,6 +52,7 @@ export interface ComposerBuilderConnectFlow {
   envManaged: boolean;
   connecting: boolean;
   statusResolved: boolean;
+  statusReadSettledCount?: number;
   error: string | null;
   agentNativeProvisioningEnabled?: boolean;
   accountExists?: boolean;
@@ -236,6 +237,7 @@ const fallbackBuilderFlow = {
   envManaged: false,
   connecting: false,
   statusResolved: false,
+  statusReadSettledCount: 0,
   error: null,
   agentNativeProvisioningEnabled: false,
   accountExists: false,

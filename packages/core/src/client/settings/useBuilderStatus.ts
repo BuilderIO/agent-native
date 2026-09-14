@@ -210,6 +210,14 @@ export interface BuilderConnectFlow {
   /** True after at least one successful Builder connection-status response. */
   statusResolved: boolean;
   /**
+   * Increments every time a `retry`/lifecycle status read settles, whether it
+   * resolved or failed. `statusResolved` alone cannot bound a caller waiting
+   * on a read, because a second failure leaves it false with no observable
+   * change. Consumers that queue work on a read need the settle, not the
+   * outcome.
+   */
+  statusReadSettledCount: number;
+  /**
    * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
    * is still available so users can override the fallback with their own
    * Builder account.
@@ -662,6 +670,7 @@ export function useBuilderConnectFlow(
   const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
+  const [statusReadSettledCount, setStatusReadSettledCount] = useState(0);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   // When statusConnectUrl was last fetched. The server signs the embedded
   // _an_connect token with a 10-minute TTL; using an older URL fails the
@@ -770,6 +779,7 @@ export function useBuilderConnectFlow(
       setAccountExists(false);
       setHasFetchedStatus(false);
       setStatusResolved(false);
+      setStatusReadSettledCount(0);
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
       connectAttemptIdRef.current = null;
@@ -790,6 +800,7 @@ export function useBuilderConnectFlow(
       // "use initial props until the hook has an answer" pattern wants to
       // stop waiting after we've tried, regardless of network outcome.
       setHasFetchedStatus(true);
+      setStatusReadSettledCount((count) => count + 1);
       if (!s) {
         // "Could not read the status" must not render the same as "no status
         // yet". `statusResolved` only flips on success, so without a visible
@@ -1397,6 +1408,7 @@ export function useBuilderConnectFlow(
     configured,
     codeChangeConfigured,
     statusResolved,
+    statusReadSettledCount,
     envManaged,
     credentialSource,
     canDisconnect,
