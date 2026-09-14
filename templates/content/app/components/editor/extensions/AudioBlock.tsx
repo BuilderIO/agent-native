@@ -1,4 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
@@ -132,10 +133,9 @@ async function copyAudio(
     failed: string;
   },
 ) {
-  try {
-    await navigator.clipboard.writeText(src);
+  if (await writeClipboardText(src)) {
     toast.success(copy.copied);
-  } catch {
+  } else {
     toast.error(copy.failed);
   }
 }
