@@ -59,6 +59,7 @@ import {
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
+  isCreditsLimitErrorCode,
   isProviderConnectionErrorMessage,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
@@ -615,7 +616,12 @@ function gatewayErrorStop(
     type: "stop",
     reason: "error",
     ...(creditsLane
-      ? gatewayVisitorFacingError(errorCode)
+      ? {
+          ...gatewayVisitorFacingError(errorCode),
+          ...(isCreditsLimitErrorCode(errorCode) && upgradeUrl
+            ? { upgradeUrl }
+            : {}),
+        }
       : {
           error,
           ...(errorCode ? { errorCode } : {}),
@@ -1043,7 +1049,13 @@ async function* parseJsonlStream(
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
             );
-            yield stop({ error: errMsg, errorCode: errCode });
+            yield stop({
+              error: errMsg,
+              errorCode: errCode,
+              ...(isCreditsLimitErrorCode(errCode)
+                ? { upgradeUrl: await buildUpgradeUrl() }
+                : {}),
+            });
           } else if (reason === "error") {
             // Surface every diagnostic the gateway gave us so the user (and
             // our logs) get more than a bare "Gateway error". The gateway
@@ -1134,6 +1146,9 @@ async function* parseJsonlStream(
                 ? "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying."
                 : String(errMsg),
               ...(errCode ? { errorCode: errCode } : {}),
+              ...(isCreditsLimitErrorCode(errCode)
+                ? { upgradeUrl: await buildUpgradeUrl() }
+                : {}),
               ...(isBareRejection ? { statusCode: 403 } : {}),
               // The upstream provider giving up ("Overloaded", a bare 529) is
               // retryable, and the raw text is the only place it says so — a
