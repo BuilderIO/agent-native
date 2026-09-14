@@ -92,30 +92,54 @@ test("ignores a template that does not render the package", () => {
   }
 });
 
-test("flags more than one resolved dismissable-layer copy", () => {
-  const lockfile = [
-    "  '@radix-ui/react-dismissable-layer@1.1.11':",
+const PEERS =
+  "(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)";
+
+function lockfile(snapshotKeys: string[]): string {
+  return [
+    "packages:",
+    "  '@radix-ui/react-dismissable-layer@1.1.19':",
     "    resolution: {integrity: sha512-aaa}",
-    "  '@radix-ui/react-dismissable-layer@1.1.13':",
-    "    resolution: {integrity: sha512-bbb}",
+    "snapshots:",
+    ...snapshotKeys.flatMap((key) => [`  '${key}':`, "    dependencies: {}"]),
   ].join("\n");
-  assert.deepEqual(findDuplicateLayerResolutions(lockfile), [
-    "1.1.11",
-    "1.1.13",
+}
+
+test("flags more than one resolved dismissable-layer version", () => {
+  const source = lockfile([
+    `@radix-ui/react-dismissable-layer@1.1.11${PEERS}`,
+    `@radix-ui/react-dismissable-layer@1.1.13${PEERS}`,
   ]);
-  const errors = checkLayerSingleton(lockfile);
+  assert.equal(findDuplicateLayerResolutions(source).length, 2);
+  const errors = checkLayerSingleton(source);
   assert.equal(errors.length, 1);
-  assert.match(errors[0]!, /resolves to 2 versions/);
+  assert.match(errors[0]!, /resolves to 2 instances/);
   assert.match(errors[0]!, /pointer-events/);
 });
 
-test("accepts a single resolved dismissable-layer copy", () => {
-  const lockfile = [
-    "  '@radix-ui/react-dismissable-layer@1.1.19':",
-    "    resolution: {integrity: sha512-aaa}",
-    "  '@radix-ui/react-dismissable-layer@1.1.19(react@19.2.7)':",
-    "    dependencies: {}",
-  ].join("\n");
-  assert.deepEqual(findDuplicateLayerResolutions(lockfile), ["1.1.19"]);
-  assert.deepEqual(checkLayerSingleton(lockfile), []);
+test("flags the same version resolved against different peers", () => {
+  // Two peer-resolved snapshots are two directories and two module scopes, so
+  // collapsing them to the published version would miss the real duplicate.
+  const source = lockfile([
+    "@radix-ui/react-dismissable-layer@1.1.19(@types/react@18.3.1)(react@18.3.1)",
+    `@radix-ui/react-dismissable-layer@1.1.19${PEERS}`,
+  ]);
+  assert.equal(findDuplicateLayerResolutions(source).length, 2);
+  assert.match(checkLayerSingleton(source)[0]!, /resolves to 2 instances/);
+});
+
+test("accepts a single resolved dismissable-layer instance", () => {
+  const source = lockfile([`@radix-ui/react-dismissable-layer@1.1.19${PEERS}`]);
+  assert.deepEqual(findDuplicateLayerResolutions(source), [
+    `@radix-ui/react-dismissable-layer@1.1.19${PEERS}`,
+  ]);
+  assert.deepEqual(checkLayerSingleton(source), []);
+});
+
+test("ignores unrelated packages that share the name prefix", () => {
+  const source = lockfile([
+    `@radix-ui/react-dismissable-layer@1.1.19${PEERS}`,
+    `@radix-ui/react-dismissable-layer-extra@9.9.9${PEERS}`,
+  ]);
+  assert.equal(findDuplicateLayerResolutions(source).length, 1);
 });

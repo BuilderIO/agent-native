@@ -99,26 +99,45 @@ export function checkTemplateStyleSources(
   return { checked, errors };
 }
 
+/**
+ * pnpm keys each installed instance by its full `snapshots:` locator, peer
+ * suffix included. Two entries of the same published version resolved against
+ * different peers are still two directories and therefore two module scopes,
+ * so the locator - not the version - is the instance boundary here. The
+ * `packages:` section lists each version once and would hide that.
+ */
 export function findDuplicateLayerResolutions(
   lockfile: string,
   packageName: string = SINGLETON_LAYER_PACKAGE,
 ): string[] {
   const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`'?${escaped}@([0-9][^'():\\s]*)`, "g");
-  const versions = new Set<string>();
-  for (const match of lockfile.matchAll(pattern)) {
-    if (match[1]) versions.add(match[1]);
+  const locator = new RegExp(`^ {2}'?(${escaped}@[^':]+)'?:`);
+  const locators = new Set<string>();
+  let inSnapshots = false;
+
+  for (const line of lockfile.split(/\r?\n/)) {
+    if (/^snapshots:/.test(line)) {
+      inSnapshots = true;
+      continue;
+    }
+    if (inSnapshots && /^\S/.test(line)) break;
+    if (!inSnapshots) continue;
+    const match = line.match(locator);
+    if (match?.[1]) locators.add(match[1]);
   }
-  return [...versions].sort();
+
+  return [...locators].sort();
 }
 
 export function checkLayerSingleton(lockfile: string): string[] {
-  const versions = findDuplicateLayerResolutions(lockfile);
-  if (versions.length <= 1) return [];
+  const locators = findDuplicateLayerResolutions(lockfile);
+  if (locators.length <= 1) return [];
   return [
-    `${SINGLETON_LAYER_PACKAGE} resolves to ${versions.length} versions (${versions.join(", ")}). ` +
-      `Each copy tracks open layers and the original body pointer-events in its own module scope, so an ` +
-      `overlapping menu and dialog leave document.body non-interactive. Pin one version in pnpm.overrides.`,
+    `${SINGLETON_LAYER_PACKAGE} resolves to ${locators.length} instances:\n` +
+      locators.map((locator) => `    ${locator}`).join("\n") +
+      `\n  Each instance tracks open layers and the original body pointer-events in its own ` +
+      `module scope, so an overlapping menu and dialog leave document.body non-interactive. ` +
+      `Pin one resolution in pnpm.overrides.`,
   ];
 }
 
