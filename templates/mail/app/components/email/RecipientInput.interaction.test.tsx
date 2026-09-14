@@ -175,6 +175,17 @@ describe("RecipientInput autocomplete interaction", () => {
     expect(input.value).toBe("");
   });
 
+  it("keeps malformed recipient text visible after blur instead of committing it", () => {
+    render(<RecipientHarness />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "unfinished recipient" } });
+    fireEvent.blur(input);
+
+    expect(input.value).toBe("unfinished recipient");
+    expect(screen.queryByText("unfinished recipient")).toBeNull();
+  });
+
   it("splits pasted addresses, dedupes case-insensitively, and preserves leftovers", () => {
     render(<RecipientHarness initialValue="ADA@example.test" />);
     const input = screen.getByRole("combobox") as HTMLInputElement;

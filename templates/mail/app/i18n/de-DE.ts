@@ -299,6 +299,8 @@ const messages = {
       failedToDeleteDraft: "Entwurf konnte nicht gelöscht werden.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "Füge den Empfänger hinzu oder lösche den Text, bevor du sendest.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",

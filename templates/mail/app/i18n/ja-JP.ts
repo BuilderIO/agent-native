@@ -298,6 +298,8 @@ const messages = {
       failedToDeleteDraft: "下書きを削除できませんでした。",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "送信する前に宛先を追加するか、入力中のテキストを消してください。",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",

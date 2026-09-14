@@ -217,6 +217,7 @@ export function ComposeModal({
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
+  const composeRef = useRef<HTMLDivElement>(null);
 
   // Observe agent sidebar width so compose window stays to its left
   const [sidebarRight, setSidebarRight] = useState(16); // default 16px (right-4)
@@ -293,9 +294,21 @@ export function ComposeModal({
     onInitialExpandedConsumed?.();
   }, [activeDraft?.id, initialExpanded, onInitialExpandedConsumed]);
 
+  // Partially typed recipients live in RecipientInput, outside the draft snapshot.
+  const hasUncommittedRecipientText = () =>
+    Array.from(
+      composeRef.current?.querySelectorAll<HTMLInputElement>(
+        "[data-mail-recipient-input]",
+      ) ?? [],
+    ).some((input) => input.value.trim().length > 0);
+
   const handleSend = async () => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
+    if (hasUncommittedRecipientText()) {
+      toast.error(t("mail.toasts.finishRecipientInput"));
+      return;
+    }
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
@@ -388,6 +401,10 @@ export function ComposeModal({
 
   const handleSendLater = async (runAt: number) => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
+    if (hasUncommittedRecipientText()) {
+      toast.error(t("mail.toasts.finishRecipientInput"));
+      return;
+    }
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
@@ -434,7 +451,6 @@ export function ComposeModal({
     }
   };
 
-  const composeRef = useRef<HTMLDivElement>(null);
   const composeAnimationRef = useRef<Animation | null>(null);
   const focusBccAfterExpandRef = useRef(false);
 

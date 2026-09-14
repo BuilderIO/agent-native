@@ -293,6 +293,7 @@ const messages = {
       failedToSaveDraft: "無法儲存草稿。",
       failedToDeleteDraft: "無法刪除草稿。",
       failedToScheduleEmailDraftKeptOpen: "定時傳送失敗 - 草稿仍保持開啟",
+      finishRecipientInput: "請先新增收件人或清除輸入內容，再傳送。",
       pleaseAddRecipient: "請至少新增一個收件人",
       aiEngineRequired: "使用生成前，請先連線 Builder 或其他 AI 引擎。",
       couldNotUnsubscribe: "無法取消訂閱",

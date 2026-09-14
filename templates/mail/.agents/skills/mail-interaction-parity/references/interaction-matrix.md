@@ -286,7 +286,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
   commas, semicolons, newline paste, drag between fields, duplicate casing,
   invalid address, display name, whitespace, Backspace, Delete, Enter, Tab,
-  arrows, Escape, blur, and mouse click.
+  arrows, Escape, blur, and mouse click. A 2026-09-14 regression pass found
+  that unfinished recipient text could remain local to To/Cc/Bcc while Send or
+  Schedule snapshotted the committed draft, silently omitting the visible text.
+  `ComposeModal` now blocks both paths while any recipient input still contains
+  uncommitted text; mocked interaction tests cover all three fields and assert
+  no send staging or provider call occurs. An isolated memory-backed browser
+  replay with one allowlisted recipient confirmed that Send and Schedule each
+  show the localized finish-input notice and leave the compose open; no Google
+  account was connected and no provider call occurred. Superhuman behavior and
+  a connected-provider round trip remain unverified.
 - COMPOSE-004 — Navigate recipient suggestions with arrows, Enter, Tab, hover,
   click, scroll, and no-match/error/slow contact data. Confirm selected option,
   chip order, focus, `aria-selected`, and no duplicate send target.

@@ -295,6 +295,7 @@ const messages = {
       failedToSaveDraft: "无法保存草稿。",
       failedToDeleteDraft: "无法删除草稿。",
       failedToScheduleEmailDraftKeptOpen: "定时发送失败 - 草稿仍保持打开",
+      finishRecipientInput: "请先添加收件人或清空输入内容，然后再发送。",
       pleaseAddRecipient: "请至少添加一个收件人",
       aiEngineRequired: "使用生成前，请先连接 Builder 或其他 AI 引擎。",
       couldNotUnsubscribe: "无法取消订阅",

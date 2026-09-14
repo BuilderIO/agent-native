@@ -296,6 +296,8 @@ const messages = {
       failedToDeleteDraft: "초안을 삭제하지 못했습니다.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "보내기 전에 받는 사람을 추가하거나 입력 중인 텍스트를 지우세요.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",

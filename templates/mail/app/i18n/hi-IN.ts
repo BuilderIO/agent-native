@@ -296,6 +296,8 @@ const messages = {
       failedToDeleteDraft: "ड्राफ़्ट हटाया नहीं जा सका।",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "भेजने से पहले प्राप्तकर्ता जोड़ें या दर्ज किया गया टेक्स्ट हटाएँ।",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",

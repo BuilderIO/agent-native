@@ -297,6 +297,8 @@ const messages = {
       failedToDeleteDraft: "No se pudo eliminar el borrador.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "Termina de añadir el destinatario o borra el texto antes de enviar.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",

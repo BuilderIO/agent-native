@@ -107,24 +107,40 @@ vi.mock("./RecipientInput", () => ({
     value?: string;
     onChange?: (value: string) => void;
   }) => (
-    <input
-      data-recipient-field={field}
-      value={value}
-      onChange={(event) => onChange?.(event.target.value)}
-    />
+    <>
+      <input
+        data-recipient-field={field}
+        value={value}
+        onChange={(event) => onChange?.(event.target.value)}
+      />
+      <input
+        data-mail-recipient-input
+        data-pending-recipient-field={field}
+        defaultValue=""
+      />
+    </>
   ),
 }));
 vi.mock("./SendLaterButton", () => ({
   SendLaterButton: ({
     onSend,
     onSendLater,
+    disabled,
   }: {
     onSend: () => void;
     onSendLater: (runAt: number) => void;
+    disabled?: boolean;
   }) => (
     <>
-      <button onClick={onSend}>mail.compose.send</button>
-      <button onClick={() => onSendLater(Date.now() + 60_000)}>Schedule</button>
+      <button disabled={disabled} onClick={onSend}>
+        mail.compose.send
+      </button>
+      <button
+        disabled={disabled}
+        onClick={() => onSendLater(Date.now() + 60_000)}
+      >
+        Schedule
+      </button>
     </>
   ),
 }));
@@ -144,6 +160,7 @@ describe("ComposeModal scheduling", () => {
     mockScheduleEmail.mockReset();
     mockSendEmailAsync.mockReset();
     mockToast.mockClear();
+    mockToast.error.mockClear();
     mockAccounts.length = 0;
   });
 
@@ -176,6 +193,63 @@ describe("ComposeModal scheduling", () => {
       }).getAttribute("aria-pressed"),
     ).toBe("true");
   });
+
+  it.each(["to", "cc", "bcc"] as const)(
+    "blocks send and scheduling while %s contains uncommitted text",
+    (field) => {
+      const onStageForSend = vi.fn();
+      const currentDraft =
+        field === "to" ? draft : { ...draft, cc: "", bcc: "" };
+      const { container, getByRole } = render(
+        <ComposeModal
+          drafts={[currentDraft]}
+          activeId={currentDraft.id}
+          activeDraft={currentDraft}
+          onSetActiveId={vi.fn()}
+          onUpdate={vi.fn()}
+          onClose={vi.fn()}
+          onCloseAll={vi.fn()}
+          onDiscard={vi.fn()}
+          onStageForSend={onStageForSend}
+          onRestoreAfterSend={vi.fn()}
+          onNewDraft={vi.fn()}
+          onFlush={vi.fn()}
+        />,
+      );
+
+      if (field !== "to") {
+        fireEvent.click(
+          getByRole("button", {
+            name: "mail.draftQueue.cc / mail.draftQueue.bcc",
+          }),
+        );
+      }
+
+      const recipientInput = container.querySelector<HTMLInputElement>(
+        `[data-pending-recipient-field="${field}"]`,
+      );
+      if (!recipientInput) throw new Error(`Missing ${field} recipient input`);
+      fireEvent.change(recipientInput, {
+        target: { value: "unfinished recipient" },
+      });
+      fireEvent.blur(recipientInput);
+
+      fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+      expect(mockToast.error).toHaveBeenNthCalledWith(
+        1,
+        "mail.toasts.finishRecipientInput",
+      );
+      expect(onStageForSend).not.toHaveBeenCalled();
+      expect(mockSendEmailAsync).not.toHaveBeenCalled();
+
+      fireEvent.click(getByRole("button", { name: "Schedule" }));
+      expect(mockToast.error).toHaveBeenNthCalledWith(
+        2,
+        "mail.toasts.finishRecipientInput",
+      );
+      expect(mockScheduleEmail).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps reply drafts in their current compact compose mode", () => {
     const replyDraft: ComposeState = { ...draft, mode: "reply" };

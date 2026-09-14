@@ -294,6 +294,8 @@ const messages = {
       failedToDeleteDraft: "Failed to delete draft.",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",
+      finishRecipientInput:
+        "Finish adding or clear the recipient text before sending.",
       pleaseAddRecipient: "Please add at least one recipient",
       aiEngineRequired:
         "Connect Builder (free tier available) or another AI engine before using Generate.",

@@ -297,6 +297,8 @@ const messages = {
       failedToDeleteDraft: "Échec de la suppression du brouillon.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "Terminez d’ajouter le destinataire ou effacez le texte avant d’envoyer.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",

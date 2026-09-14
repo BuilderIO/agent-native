@@ -296,6 +296,7 @@ const messages = {
       failedToDeleteDraft: "تعذر حذف المسودة.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput: "أكمل إضافة المستلم أو امسح النص قبل الإرسال.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",
