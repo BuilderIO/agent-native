@@ -263,9 +263,11 @@ const SLIDES_MOCK_CSS = [
 
   // Palette, mirroring templates/slides/app/global.css. Dark by default; the
   // `html.light` block at the end swaps the whole mock when the docs shell is
-  // light. `--sm-accent-row` is the rail's `bg-accent`, and `--sm-primary` is
+  // light. `--sm-accent-row` is the rail's `bg-accent`, carrying the app's own
+  // `--accent` value in both themes rather than an eyeballed grey, and
+  // `--sm-primary` is
   // the filled Share/Present pair.
-  ".slides-mock { --sm-background: hsl(0 0% 13%); --sm-surface: hsl(0 0% 10%); --sm-card: hsl(0 0% 15%); --sm-border: hsl(0 0% 24%); --sm-foreground: hsl(0 0% 93%); --sm-muted-foreground: hsl(0 0% 55%); --sm-accent-row: hsl(0 0% 22%); --sm-primary: hsl(0 0% 90%); --sm-primary-foreground: hsl(0 0% 10%); --sm-avatar-fg: hsl(0 0% 85%); --sm-avatar-1: hsl(0 0% 40%); --sm-avatar-2: hsl(0 0% 32%); --sm-avatar-3: hsl(0 0% 25%); }",
+  ".slides-mock { --sm-background: hsl(0 0% 13%); --sm-surface: hsl(0 0% 10%); --sm-card: hsl(0 0% 15%); --sm-border: hsl(0 0% 24%); --sm-foreground: hsl(0 0% 93%); --sm-muted-foreground: hsl(0 0% 55%); --sm-accent-row: hsl(0 0% 18%); --sm-primary: hsl(0 0% 90%); --sm-primary-foreground: hsl(0 0% 10%); --sm-avatar-fg: hsl(0 0% 85%); --sm-avatar-1: hsl(0 0% 40%); --sm-avatar-2: hsl(0 0% 32%); --sm-avatar-3: hsl(0 0% 25%); }",
 
   ".slides-mock .sm-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; border: 1px solid var(--sm-border); background: var(--sm-background); color: var(--sm-foreground); font-family: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif; }",
   ".slides-mock .sm-window-topbar { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--sm-border); background: var(--sm-surface); }",
@@ -324,7 +326,7 @@ const SLIDES_MOCK_CSS = [
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the chrome
   // follows the visitor's theme. The slides themselves do not — see the note
   // in SlidesDeckArtwork.tsx.
-  "html.light .slides-mock { --sm-background: hsl(0 0% 100%); --sm-surface: hsl(0 0% 96%); --sm-card: hsl(0 0% 97%); --sm-border: hsl(0 0% 90%); --sm-foreground: hsl(0 0% 10%); --sm-muted-foreground: hsl(0 0% 46%); --sm-accent-row: hsl(0 0% 93%); --sm-primary: hsl(0 0% 15%); --sm-primary-foreground: hsl(0 0% 98%); --sm-avatar-fg: hsl(0 0% 30%); --sm-avatar-1: hsl(0 0% 72%); --sm-avatar-2: hsl(0 0% 79%); --sm-avatar-3: hsl(0 0% 86%); }",
+  "html.light .slides-mock { --sm-background: hsl(0 0% 100%); --sm-surface: hsl(0 0% 96%); --sm-card: hsl(0 0% 97%); --sm-border: hsl(0 0% 90%); --sm-foreground: hsl(0 0% 10%); --sm-muted-foreground: hsl(0 0% 46%); --sm-accent-row: hsl(0 0% 96%); --sm-primary: hsl(0 0% 15%); --sm-primary-foreground: hsl(0 0% 98%); --sm-avatar-fg: hsl(0 0% 30%); --sm-avatar-1: hsl(0 0% 72%); --sm-avatar-2: hsl(0 0% 79%); --sm-avatar-3: hsl(0 0% 86%); }",
   "html.light .slides-mock .sm-workspace .sd-slide-box { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.22); }",
 
   // Narrow screens. The window becomes a fixed-width split that scales as a
