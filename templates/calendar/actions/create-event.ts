@@ -29,7 +29,6 @@ import {
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
-  validateEventTimeOrder,
   validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
@@ -159,11 +158,6 @@ export default defineAction({
     const normalized = normalizeCreateEventInput(args);
     validateStatusEventTiming({
       eventType: args.eventType,
-      allDay: normalized.allDay,
-      start: normalized.start,
-      end: normalized.end,
-    });
-    validateEventTimeOrder({
       allDay: normalized.allDay,
       start: normalized.start,
       end: normalized.end,

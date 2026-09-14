@@ -111,7 +111,6 @@ import {
 } from "@/lib/event-popover-style";
 import {
   applyEndTimeChange,
-  eventDurationMinutes,
   shiftEndForStartChange,
 } from "@/lib/event-time-range";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
@@ -1924,19 +1923,32 @@ export function EventDetailPopover({
                             editEndDate === editDate ? editStartTime : undefined
                           }
                           getOptionMeta={(value) => {
-                            const duration = eventDurationMinutes(
-                              applyEndTimeChange(
-                                {
-                                  date: editDate,
-                                  endDate: editEndDate,
-                                  startTime: editStartTime,
-                                  endTime: editEndTime,
-                                },
-                                value,
+                            const next = applyEndTimeChange(
+                              {
+                                date: editDate,
+                                endDate: editEndDate,
+                                startTime: editStartTime,
+                                endTime: editEndTime,
+                              },
+                              value,
+                            );
+                            const duration = differenceInMinutes(
+                              new Date(
+                                dateTimeInTimezoneToIso(
+                                  next.endDate,
+                                  next.endTime,
+                                  editTimezone,
+                                ),
+                              ),
+                              new Date(
+                                dateTimeInTimezoneToIso(
+                                  next.date,
+                                  next.startTime,
+                                  editTimezone,
+                                ),
                               ),
                             );
-                            if (duration === null || duration <= 0)
-                              return undefined;
+                            if (duration <= 0) return undefined;
                             if (duration < 60) return `${duration}min`;
                             const hours = Math.floor(duration / 60);
                             const minutes = duration % 60;

@@ -105,7 +105,6 @@ import {
 } from "@/lib/event-popover-style";
 import {
   applyEndTimeChange,
-  eventDurationMinutes,
   shiftEndForStartChange,
 } from "@/lib/event-time-range";
 
@@ -1022,13 +1021,27 @@ export function CreateEventPopover({
                       className="px-1.5 py-1"
                       after={endDate === date ? startTime : undefined}
                       getOptionMeta={(value) => {
-                        const duration = eventDurationMinutes(
-                          applyEndTimeChange(
-                            { date, startTime, endDate, endTime },
-                            value,
+                        const next = applyEndTimeChange(
+                          { date, startTime, endDate, endTime },
+                          value,
+                        );
+                        const duration = differenceInMinutes(
+                          new Date(
+                            dateTimeInTimezoneToIso(
+                              next.endDate,
+                              next.endTime,
+                              eventTimezone,
+                            ),
+                          ),
+                          new Date(
+                            dateTimeInTimezoneToIso(
+                              next.date,
+                              next.startTime,
+                              eventTimezone,
+                            ),
                           ),
                         );
-                        return duration !== null && duration > 0
+                        return duration > 0
                           ? formatDurationLabel(duration, t)
                           : undefined;
                       }}

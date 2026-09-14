@@ -229,6 +229,24 @@ describe("buildStatusEventFields", () => {
 });
 
 describe("normalizeCreateEventInput", () => {
+  // create-event relies on this for ordering, so it carries no second guard.
+  it("rejects a timed event that ends at or before its start", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Standup",
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T09:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start.");
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Standup",
+        start: "2026-07-06T13:30:00.000Z",
+        end: "2026-07-06T13:30:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start.");
+  });
+
   it("defaults the OOO title and translates one inclusive date into timed bounds", () => {
     expect(
       normalizeCreateEventInput({
@@ -474,7 +492,7 @@ describe("validateEventTimeOrder", () => {
     ).not.toThrow();
   });
 
-  it("leaves all-day spans to the status-event rules", () => {
+  it("leaves explicit all-day spans to the status-event rules", () => {
     expect(() =>
       validateEventTimeOrder({
         allDay: true,
@@ -482,9 +500,30 @@ describe("validateEventTimeOrder", () => {
         end: "2026-07-06",
       }),
     ).not.toThrow();
+  });
+
+  it("orders date-only bounds instead of waving them through", () => {
+    expect(() =>
+      validateEventTimeOrder({ start: "2026-07-08", end: "2026-07-06" }),
+    ).toThrow("Event end must be after its start");
     expect(() =>
       validateEventTimeOrder({ start: "2026-07-06", end: "2026-07-06" }),
+    ).toThrow("Event end must be after its start");
+    expect(() =>
+      validateEventTimeOrder({ start: "2026-07-06", end: "2026-07-07" }),
     ).not.toThrow();
+  });
+
+  it("orders a date-only bound against an instant bound", () => {
+    // The shape a malformed timed update arrives in: a date-only start landing
+    // after the event's existing ISO end.
+    expect(() =>
+      validateEventTimeOrder({
+        allDay: false,
+        start: "2026-07-08",
+        end: "2026-07-06T10:00:00.000Z",
+      }),
+    ).toThrow("Event end must be after its start");
   });
 
   it("fails loudly on an unparseable bound instead of passing it through", () => {
