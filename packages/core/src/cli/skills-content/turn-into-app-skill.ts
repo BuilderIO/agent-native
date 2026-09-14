@@ -30,9 +30,12 @@ or Builder connector does not make a coding host an online host:
   create artifacts, or start a local dev server. After writing the bounded
   source brief, call the connected Dispatch action
   \`start-workspace-app-creation\`. Pass the brief and repeatable workflow in
-  \`prompt\`, plus the inferred \`appId\`, \`description\`, \`template\`, and selected
-  \`resourceIds\` when available — reference resources by ID rather than pasting
-  whole knowledge files into the prompt. Then report what Dispatch actually
+  \`prompt\`, plus the inferred \`appId\`, \`description\`, \`template\`, selected
+  \`resourceIds\`, and relevant source attachments when available. Pass supported
+  attachments as message context; do not paste binary data into \`prompt\`, and do
+  not assume an attachment becomes a file in the generated workspace. Reference
+  resources by ID rather than pasting whole knowledge files into the prompt. Then
+  report what Dispatch actually
   returned — the branch, the path, and the status it gave. This host cannot run
   or inspect the app, and the returned path can 404 until the branch merges and
   deploys, so the handoff ends at a pending or unverified status unless a status
@@ -111,6 +114,12 @@ project chats, private URLs, account settings, or credentials. Do not claim
 private web access, invent an importer, add fake OAuth, or scrape a logged-in
 page. If the needed context is not visible, ask for an export, transcript, or
 attachment and treat that artifact as imported source material.
+
+### Dispatch handoff attachments
+
+Read [the attachment handoff reference](references/attachments.md) when calling
+\`start-workspace-app-creation\` with source files. It defines the supported upload
+and public URL shapes, encoding rules, and handoff behavior.
 
 ### Spreadsheet sources
 

@@ -668,6 +668,9 @@ export {
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,
+  type BuilderAgentAttachment,
+  type BuilderAgentUploadAttachment,
+  type BuilderAgentUrlAttachment,
   type BuilderProjectResult,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
