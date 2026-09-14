@@ -55,7 +55,7 @@ A reviewer writes a Comment containing a Page reference and a code Block, while 
 
 ## Boundaries and non-goals
 
-- A Blocks field does not become a top-level Page, Database row, or sharing principal.
+- A Blocks field does not become a top-level Page, Collection row, or sharing principal.
 - It does not decide Page Version branching, cross-field merge, or generic query history.
 - Shared grammar does not imply every renderer is supported in every host.
 
@@ -71,7 +71,7 @@ Given a Page with two Blocks fields, when an authorized editor restores one fiel
 
 ## Current evidence
 
-Primary and additional database Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Shared actions can list and mutate one exact database Blocks field with field-level compare-and-swap, sibling preservation, stable IDs, durable retry receipts, and verified read-back. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
+Primary and additional collection Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Shared actions can list and mutate one exact collection Blocks field with field-level compare-and-swap, sibling preservation, stable IDs, durable retry receipts, and verified read-back. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 

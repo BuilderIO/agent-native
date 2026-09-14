@@ -127,7 +127,7 @@ describe("document database layout", () => {
 
     expect(source).toContain("function databaseToolbarIconButtonClass");
     expect(source).toContain('aria-label="Search"');
-    expect(source).toContain(': "Database settings"');
+    expect(source).toContain(': "Collection settings"');
     expect(source).toContain("Property visibility");
     expect(source).toContain("bg-foreground px-2.5 text-xs font-medium");
   });
@@ -137,7 +137,7 @@ describe("document database layout", () => {
 
     expect(source).toContain("type DatabaseSettingsPanel");
     expect(source).toContain("function DatabaseSettingsPanelSheet");
-    expect(source).toContain("Database settings");
+    expect(source).toContain("Collection settings");
     expect(source).toContain("function DatabaseSettingsLayoutPanel");
     expect(source).toContain(
       "function DatabaseSettingsPropertyVisibilityPanel",

@@ -169,6 +169,7 @@ const messages = {
     "Configure Anthropic, OpenAI, or another provider",
   "composer.connectAbove": "Connect AI above to continue...",
   "composer.connectBuilder": "Connect Builder.io",
+  "composer.connectKeys": "Connect keys",
   "composer.connectingBuilder": "Connecting Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",
@@ -295,7 +296,7 @@ const messages = {
   "voiceMode.errors.unsupported":
     "This browser does not support realtime voice conversations.",
   "voiceMode.hideChat": "Hide chat",
-  "voiceMode.keepDictating": "Dictate",
+  "voiceMode.keepDictating": "Dictate a message",
   "voiceMode.promptDescription":
     "Voice mode keeps listening while the agent navigates and takes actions.",
   "voiceMode.promptTitle": "Use your voice",
@@ -337,7 +338,7 @@ const messages = {
     "Connect Builder.io to use managed voice with free credits, or add your own keys.",
   "voiceMode.setupTitle": "Set up voice mode",
   "voiceMode.showChat": "Show chat",
-  "voiceMode.start": "Real-time voice",
+  "voiceMode.start": "Start voice chat",
   "voiceMode.startWithOpenAiKey": "Start with OpenAI key",
   "voiceMode.status.connecting": "Connecting",
   "voiceMode.status.ending": "Ending voice mode",

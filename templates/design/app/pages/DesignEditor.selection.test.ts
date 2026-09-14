@@ -85,6 +85,7 @@ import {
   getSidebarCodeLayerSelectionState,
   isScreenRootElementInfo,
   resolveAvailableActiveFileId,
+  resolveMarqueeAdditive,
   getSelectedScreenIdsForEditorState,
   getSelectedScreenGeometryForInspector,
   shouldLimitEditorChromeUntilContentReady,
@@ -2870,6 +2871,29 @@ describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
         additive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveMarqueeAdditive", () => {
+  // Figma spec §1 (matching screen-element-select.ts's click-path
+  // additiveSelection): Shift is additive; Cmd/Ctrl alone deep-selects and
+  // REPLACES like a plain click, so it must not make a marquee additive.
+  it("is additive on shift", () => {
+    expect(resolveMarqueeAdditive({ shiftKey: true })).toBe(true);
+  });
+
+  it("is additive on an explicit additive/range intent", () => {
+    expect(resolveMarqueeAdditive({ additive: true })).toBe(true);
+    expect(resolveMarqueeAdditive({ range: true })).toBe(true);
+  });
+
+  it("is NOT additive on Cmd or Ctrl alone", () => {
+    expect(resolveMarqueeAdditive({ metaKey: true })).toBe(false);
+    expect(resolveMarqueeAdditive({ ctrlKey: true })).toBe(false);
+  });
+
+  it("is not additive with no intent at all", () => {
+    expect(resolveMarqueeAdditive(undefined)).toBe(false);
   });
 });
 

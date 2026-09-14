@@ -13,8 +13,8 @@ import {
 } from "./_database-utils.js";
 
 const getContentDatabaseSchema = z.object({
-  databaseId: z.string().optional().describe("Database ID"),
-  documentId: z.string().optional().describe("Database document/page ID"),
+  databaseId: z.string().optional().describe("Collection ID"),
+  documentId: z.string().optional().describe("Collection document/page ID"),
   limit: z.coerce
     .number()
     .int()
@@ -34,7 +34,7 @@ export function resolveContentDatabaseReadLimit(
 
 export default defineAction({
   description:
-    "Get a content database table, including its property schema, mutation contract, and item pages. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
+    "Get a content collection table, including its property schema, mutation contract, and item pages. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
   mcpTool: true,
   schema: getContentDatabaseSchema,
   agentInputSchema: getContentDatabaseSchema.extend({

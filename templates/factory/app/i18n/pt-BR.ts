@@ -107,6 +107,7 @@ const messages = {
     status: "Status",
     coverage: "Cobertura",
     reason: "Motivo",
+    summary: "Resumo",
     evidence: "Evidência",
     actionsTaken: "Registro",
     threadTruncated: "Este tópico do Slack está truncado.",

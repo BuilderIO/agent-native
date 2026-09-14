@@ -690,6 +690,29 @@ export function geometryContainsGeometry(
   );
 }
 
+/** Decides which screen wins a hit-test tie for `findTopFrameEntryAtPoint`'s
+ *  `foregroundId`. Must mirror `topScreenId` in MultiScreenCanvas exactly —
+ *  that's the id the canvas gives an additive z-index boost when painting
+ *  (selected screen, else the sticky `activeId`, else the first screen), so
+ *  whichever screen is visually on top of an overlapping neighbour is also
+ *  the one a mousedown/draw at that point resolves to. Do not special-case
+ *  "fresh gesture" callers with a different fallback — that desyncs hit
+ *  testing from paint order and routes a gesture into the frame *under* the
+ *  one the user is actually looking at. */
+export function resolveHitTestForegroundId(options: {
+  selectedIds: readonly string[];
+  hasGeometry: (id: string) => boolean;
+  activeId: string | null | undefined;
+  firstScreenId: string | undefined;
+}): string | undefined {
+  const selected = options.selectedIds.find((id) => options.hasGeometry(id));
+  if (selected !== undefined) return selected;
+  if (options.activeId && options.hasGeometry(options.activeId)) {
+    return options.activeId;
+  }
+  return options.firstScreenId;
+}
+
 export function findTopFrameEntryAtPoint<
   T extends { id: string; geometry: FrameGeometry },
 >(

@@ -6,12 +6,12 @@ description: "Connect Markdown and MDX folders to Content's database-backed spac
 # Local folder sources
 
 Content has one data model: every page lives in SQL, belongs to a **space**, and
-is a member of that space's system **Files** database. A local Markdown or MDX
+is a member of that space's system **Files** collection. A local Markdown or MDX
 folder is a source connected to Files. It is not a second application mode and
-does not replace the database.
+does not replace the collection.
 
 This means local files can keep their familiar repo workflow while Content still
-provides collaboration, sharing, comments, history, search, database properties,
+provides collaboration, sharing, comments, history, search, collection properties,
 and the same action surface everywhere. There is no `AGENT_NATIVE_MODE` switch
 and no database/local fork in document actions.
 
@@ -21,11 +21,11 @@ Content provisions:
 
 - a personal space for each user
 - an organization space for each organization the user can access
-- a system **Files** database in every space
+- a system **Files** collection in every space
 - a personal **Workspaces** catalog that references the spaces shown in the app
 
-Every ordinary page belongs to exactly one space and exactly one Files database.
-Files is a normal Content database: add properties, save views, filter, sort, or
+Every ordinary page belongs to exactly one space and exactly one Files collection.
+Files is a normal Content collection: add properties, save views, filter, sort, or
 group it. Its sidebar view renders those same rows as navigation. Grouping a
 sidebar view creates collapsible sections, while saved views can become alternate
 sidebar tabs.
@@ -42,8 +42,8 @@ does not store the absolute path, browser handle, or raw file bodies there.
 
 A folder can be connected in either way:
 
-- attach it to the Files database of an existing personal or organization space
-- create a private folder-backed space with its own Files database
+- attach it to the Files collection of an existing personal or organization space
+- create a private folder-backed space with its own Files collection
 
 Choose a truth policy for the connection:
 
@@ -130,7 +130,7 @@ with `agent-native content <file-or-folder>`.
 
 After the first connection and sync, verify:
 
-1. the folder appears as a source on the intended Files database
+1. the folder appears as a source on the intended Files collection
 2. each imported page belongs to the intended space
 3. custom properties and saved sidebar views work normally
 4. concurrent edits appear as reviewable change sets
@@ -143,5 +143,5 @@ less likely to leave half the product living in a parallel universe.
 ## What's next
 
 - [**Database**](/docs/server-database) — the SQL model every Content page and space is backed by, mode switch or not
-- [**Content**](/docs/template-content) — the app this connects to: spaces, the Files database, and the editor built on top of it
+- [**Content**](/docs/template-content) — the app this connects to: spaces, the Files collection, and the editor built on top of it
 - [**Content: Local Files, Notion & Builder CMS Sync**](/docs/template-content-sync) — connecting a folder day-to-day, local MDX components, and conflict handling

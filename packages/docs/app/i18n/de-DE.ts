@@ -2337,7 +2337,7 @@ const deDE = {
     content: "Inhalt",
     contentOverview: "Überblick",
     contentEditing: "Schreiben und Organisieren",
-    contentDatabases: "Datenbanken und Formulare",
+    contentDatabases: "Sammlungen und Formulare",
     contentSync: "Lokale Dateien und Sync",
     contentDevelopers: "Entwicklerhandbuch",
     plans: "Plans",

@@ -25,6 +25,7 @@ vi.mock("./run-store.js", () => ({
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
+  getCurrentTurnEventsForThread: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   isContinuationTerminalReason: (reason: unknown) =>
     reason === "auto_continue" ||
@@ -158,6 +159,7 @@ import {
   resolveSqlSubscriptionRetryMs,
   startRun,
   subscribeToRun,
+  replayCompletedTurn,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
   SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS,
   SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
@@ -175,6 +177,7 @@ import {
   getRunById,
   getRunByThread,
   getRunEventsSince,
+  getCurrentTurnEventsForThread,
   markRunAborted,
   updateRunStatus,
   updateRunStatusIfRunning,
@@ -394,6 +397,20 @@ describe("run manager soft timeout", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
+  });
+
+  it("does not reinsert a run row claimed atomically by the caller", async () => {
+    vi.mocked(insertRun).mockClear();
+    const run = startRun(
+      "run-preinserted",
+      "thread-preinserted",
+      async () => {},
+      undefined,
+      { runRowAlreadyInserted: true },
+    );
+
+    await run.finalized;
+    expect(insertRun).not.toHaveBeenCalled();
   });
 
   it("emits an internal continuation signal and aborts the run chunk", async () => {
@@ -1151,6 +1168,39 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
+  });
+
+  it("replays every chunk of a completed logical turn as one stream", async () => {
+    vi.mocked(getCurrentTurnEventsForThread).mockResolvedValueOnce([
+      { type: "text", text: "first chunk" },
+      { type: "auto_continue", reason: "run_timeout" },
+      { type: "text", text: "second chunk" },
+      { type: "done" },
+    ]);
+
+    const stream = await replayCompletedTurn("thread-turn", "turn-1");
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      'data: {"type":"text","text":"first chunk","seq":0}',
+    );
+    expect(output).toContain(
+      'data: {"type":"text","text":"second chunk","seq":1}',
+    );
+    expect(output).toContain('data: {"type":"done","seq":2}');
+    expect(output).not.toContain("auto_continue");
+    expect(getCurrentTurnEventsForThread).toHaveBeenCalledWith(
+      "thread-turn",
+      "turn-1",
+    );
   });
 
   it("keeps an in-memory abort successful when durable cleanup fails", async () => {
