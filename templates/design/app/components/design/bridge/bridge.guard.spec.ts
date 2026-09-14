@@ -2900,6 +2900,9 @@ it(
       <text id="vector-text" x="0" y="30">abc</text>
     </svg>
   </div>
+  <svg id="vector-native-oracle" aria-hidden="true" viewBox="0 0 40 40" style="position:absolute;left:700px;top:0;width:48px;height:48px;font-size:20px">
+    <text id="vector-native-oracle-text" x="0" y="30">abc</text>
+  </svg>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -2931,9 +2934,6 @@ it(
       if (!bounds) throw new Error("resize handle not found");
       const startX = bounds.x + bounds.width / 2;
       const startY = bounds.y + bounds.height / 2;
-      const textBefore = await page
-        .locator("#vector-text")
-        .evaluate((element) => element.getBoundingClientRect().width);
       await page.mouse.move(startX, startY);
       await page.mouse.down();
       await page.mouse.move(startX + 40, startY + 40, { steps: 5 });
@@ -2991,6 +2991,20 @@ it(
               document.querySelector<HTMLElement>("#card")!,
             ).fontSize,
           },
+          nativeVector: {
+            width: document
+              .querySelector<SVGSVGElement>("#vector-native-oracle")!
+              .getBoundingClientRect().width,
+            height: document
+              .querySelector<SVGSVGElement>("#vector-native-oracle")!
+              .getBoundingClientRect().height,
+            fontSize: getComputedStyle(
+              document.querySelector<SVGSVGElement>("#vector-native-oracle")!,
+            ).fontSize,
+            textWidth: document
+              .querySelector<SVGTextElement>("#vector-native-oracle-text")!
+              .getBoundingClientRect().width,
+          },
           vectorCommitted: (
             window as unknown as {
               __scaleChanges: Array<{ changes?: Array<{ selector: string }> }>;
@@ -3032,7 +3046,12 @@ it(
         fontSize: "20px",
         cardFontSize: "24px",
       });
-      expect(result.vector.textWidth).toBeCloseTo(textBefore * 1.2, 1);
+      expect(result.nativeVector).toMatchObject({
+        width: 48,
+        height: 48,
+        fontSize: "20px",
+      });
+      expect(result.vector.textWidth).toBe(result.nativeVector.textWidth);
       expect(result.vectorCommitted).toBe(false);
       expect(result.batchCount).toBe(1);
       expect(pageErrors).toEqual([]);

@@ -415,6 +415,12 @@ interface EditPanelProps {
     content: string,
     updatedAt?: string,
   ) => void;
+  /** Called only when a GLSL source write has finished persisting. */
+  onShaderSourceApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+  ) => void;
   /**
    * Called after a token edit is applied so the parent can push the resolved
    * CSS-var map into the iframe via the tweak-values postMessage.
@@ -2396,6 +2402,7 @@ export const EditPanel = memo(function EditPanel({
   files,
   designId,
   onComponentPropApplied,
+  onShaderSourceApplied,
   reviewPanelProps,
   reviewCommentsPanelProps,
   reviewCommentsCount = 0,
@@ -2521,9 +2528,7 @@ export const EditPanel = memo(function EditPanel({
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
   // Persistence context for the code-backed GLSL Shader paint/effect type.
-  // Requires the design + active file plus a stable node id on the selection;
-  // reuses the component-prop onComponentPropApplied contract so the host
-  // editor syncs its local/collab content after a persisted shader write.
+  // Requires the design + active file plus a stable node id on the selection.
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !fileId || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
@@ -2533,7 +2538,7 @@ export const EditPanel = memo(function EditPanel({
       fileId,
       nodeId,
       selector: inspectorElement?.selector,
-      onApplied: onComponentPropApplied,
+      onApplied: onShaderSourceApplied,
       onEditCode,
     };
   }, [
@@ -2542,7 +2547,7 @@ export const EditPanel = memo(function EditPanel({
     selectedCount,
     inspectorElement?.sourceId,
     inspectorElement?.selector,
-    onComponentPropApplied,
+    onShaderSourceApplied,
     onEditCode,
   ]);
   // Document-wide color palette (real "Document colors", not just the

@@ -766,6 +766,7 @@ import {
   getFreshActiveFileContent,
   getFreshScreenContent,
   getLocalhostRouteSourceFile,
+  createPersistedContentHostSyncHandler,
   getPersistedContentHostSyncOptions,
   isStandaloneHttpUrl,
   previewContentReplaceNeedsRenderFallback,
@@ -8715,7 +8716,7 @@ function DesignEditor() {
         historyBeforeContent?: string;
         sourceBaseContent?: string;
         identityMigrationSourceContent?: string;
-        sourceAlreadyPersisted?: boolean;
+        shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
@@ -8796,7 +8797,7 @@ function DesignEditor() {
         historyBeforeContent?: string;
         sourceBaseContent?: string;
         identityMigrationSourceContent?: string;
-        sourceAlreadyPersisted?: boolean;
+        shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
@@ -8855,6 +8856,9 @@ function DesignEditor() {
       t,
     ],
   );
+
+  const applyFileContentUpdateRef = useRef(applyFileContentUpdate);
+  applyFileContentUpdateRef.current = applyFileContentUpdate;
 
   type LinkedComponentQueueRuntime = Omit<
     LinkedComponentMutationQueueArgs,
@@ -9029,24 +9033,22 @@ function DesignEditor() {
   );
 
   // ── Component instances and review feedback routing ────────────────────────
-  const handleComponentPropApplied = useCallback(
-    // Also the GLSL shader picker's onApplied host-sync (glslShaderContext in
-    // EditPanel.tsx reuses this contract for apply/remove/knob commits). Must
-    // stay on the in-place replace route — see
-    // getPersistedContentHostSyncOptions' doc comment (shader-apply white
-    // flash regression).
-    (fileId: string, nextContent: string, updatedAt?: string) => {
-      applyFileContentUpdate(
-        fileId,
-        nextContent,
-        getPersistedContentHostSyncOptions({
-          fileId,
-          activeFileId: activeFile?.id ?? null,
-          updatedAt,
-        }),
-      );
-    },
-    [activeFile?.id, applyFileContentUpdate],
+  const handleComponentPropApplied = useMemo(
+    () =>
+      createPersistedContentHostSyncHandler({
+        activeFileIdRef,
+        applyFileContentUpdateRef,
+      }),
+    [],
+  );
+  const handleShaderSourceApplied = useMemo(
+    () =>
+      createPersistedContentHostSyncHandler({
+        activeFileIdRef,
+        applyFileContentUpdateRef,
+        shaderWriteCompletion: true,
+      }),
+    [],
   );
 
   // Instance-only operations (Figma's Go to main component / Swap instance /
@@ -23032,6 +23034,7 @@ function DesignEditor() {
     componentDetailsReady,
     componentSwapPickerRequest,
     onComponentPropApplied: handleComponentPropApplied,
+    onShaderSourceApplied: handleShaderSourceApplied,
     onTweakChange: handleTweakChange,
     onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,

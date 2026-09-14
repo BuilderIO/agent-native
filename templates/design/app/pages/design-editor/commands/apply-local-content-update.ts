@@ -136,7 +136,7 @@ export function runApplyLocalContentUpdate(
     historyBeforeContent?: string;
     sourceBaseContent?: string;
     identityMigrationSourceContent?: string;
-    sourceAlreadyPersisted?: boolean;
+    shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
     /** Figma-parity undo selection restore for when this write lands on the
@@ -148,7 +148,7 @@ export function runApplyLocalContentUpdate(
   } = {},
 ): ApplyLocalContentUpdateResult {
   if (!activeFile || !canEditDesignRef.current) return { status: "refused" };
-  if (isShaderWriteInFlight(activeFile.id) && !options.sourceAlreadyPersisted) {
+  if (isShaderWriteInFlight(activeFile.id) && !options.shaderWriteCompletion) {
     toast.error(t("designEditor.toasts.saveConflict"), {
       id: `design-source-shader-conflict:${activeFile.id}`,
     });

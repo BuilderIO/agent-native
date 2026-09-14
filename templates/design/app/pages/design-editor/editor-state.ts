@@ -93,24 +93,58 @@ export function resolveLocalhostSourceWriteContent(args: {
  * updatedAt stamp (when present) records it as the acked base for the next
  * guarded update-file save rather than re-queueing a redundant save.
  */
+export type PersistedContentHostSyncOptions = {
+  forcePreviewFullDocument: boolean;
+  persist: false;
+  shaderWriteCompletion?: true;
+  updatedAt?: string;
+};
+
+export type PersistedContentHostSyncWriter = (
+  fileId: string,
+  content: string,
+  options: PersistedContentHostSyncOptions,
+) => void;
+
+export type PersistedContentHostSyncHandler = (
+  fileId: string,
+  content: string,
+  updatedAt?: string,
+) => void;
+
 export function getPersistedContentHostSyncOptions(args: {
   fileId: string;
   activeFileId: string | null | undefined;
   updatedAt?: string;
-}): {
-  forcePreviewFullDocument: boolean;
-  persist: false;
-  sourceAlreadyPersisted: true;
-  updatedAt?: string;
-} {
+  shaderWriteCompletion?: true;
+}): PersistedContentHostSyncOptions {
   return {
     forcePreviewFullDocument:
       args.activeFileId !== null &&
       args.activeFileId !== undefined &&
       args.fileId === args.activeFileId,
     persist: false,
-    sourceAlreadyPersisted: true,
+    ...(args.shaderWriteCompletion ? { shaderWriteCompletion: true } : {}),
     updatedAt: args.updatedAt,
+  };
+}
+
+export function createPersistedContentHostSyncHandler(args: {
+  activeFileIdRef: { current: string | null | undefined };
+  applyFileContentUpdateRef: { current: PersistedContentHostSyncWriter };
+  shaderWriteCompletion?: true;
+}): PersistedContentHostSyncHandler {
+  return (fileId, content, updatedAt) => {
+    args.applyFileContentUpdateRef.current(
+      fileId,
+      content,
+      getPersistedContentHostSyncOptions({
+        fileId,
+        activeFileId: args.activeFileIdRef.current,
+        updatedAt,
+        shaderWriteCompletion: args.shaderWriteCompletion,
+      }),
+    );
   };
 }
 

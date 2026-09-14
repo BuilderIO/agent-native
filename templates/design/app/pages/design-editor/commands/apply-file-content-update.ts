@@ -41,7 +41,7 @@ export interface ApplyFileContentUpdateArgs {
       historyBeforeContent?: string;
       sourceBaseContent?: string;
       identityMigrationSourceContent?: string;
-      sourceAlreadyPersisted?: boolean;
+      shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -58,7 +58,7 @@ export interface ApplyFileContentUpdateArgs {
       historyBeforeContent?: string;
       sourceBaseContent?: string;
       identityMigrationSourceContent?: string;
-      sourceAlreadyPersisted?: boolean;
+      shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -130,7 +130,7 @@ export function runApplyFileContentUpdate(
     historyBeforeContent?: string;
     sourceBaseContent?: string;
     identityMigrationSourceContent?: string;
-    sourceAlreadyPersisted?: boolean;
+    shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
   } = {},
@@ -138,7 +138,7 @@ export function runApplyFileContentUpdate(
   if (!canEditDesignRef.current) return { status: "refused" };
   // Raw whole-document snapshots cannot be safely replayed after a shader
   // round trip: the callback may belong to a different active Screen by then.
-  if (isShaderWriteInFlight(fileId) && !options.sourceAlreadyPersisted) {
+  if (isShaderWriteInFlight(fileId) && !options.shaderWriteCompletion) {
     toast.error(t("designEditor.toasts.saveConflict"), {
       id: `design-source-shader-conflict:${fileId}`,
     });

@@ -13,6 +13,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { getPersistedContentHostSyncOptions } from "../editor-state";
 import type { ApplyFileContentUpdateArgs } from "./apply-file-content-update";
 import { runApplyFileContentUpdate } from "./apply-file-content-update";
 import type { ApplyLocalContentUpdateArgs } from "./apply-local-content-update";
@@ -192,11 +193,12 @@ describe("shader-locked source publication", () => {
       args,
       "active",
       PERSISTED_SHADER_SOURCE,
-      {
-        persist: false,
-        sourceAlreadyPersisted: true,
+      getPersistedContentHostSyncOptions({
+        fileId: "active",
+        activeFileId: "active",
+        shaderWriteCompletion: true,
         updatedAt: "T2",
-      },
+      }),
     );
 
     expect(result.status).toBe("accepted");
@@ -206,5 +208,33 @@ describe("shader-locked source publication", () => {
     expect(localWriterArgs.queueFileContentSave).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
     queryClient.clear();
+  });
+
+  it("refuses generic persisted host sync while a shader write owns the file", () => {
+    shaderState.inFlight = true;
+    const args = fileArgs({
+      activeFileId: "active",
+      getScreenContent: () => BASE,
+    });
+
+    const result = runApplyFileContentUpdate(
+      args,
+      "active",
+      PERSISTED_SHADER_SOURCE,
+      getPersistedContentHostSyncOptions({
+        fileId: "active",
+        activeFileId: "active",
+        updatedAt: "T2",
+      }),
+    );
+
+    expect(result).toEqual({ status: "refused" });
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.toasts.saveConflict",
+      { id: "design-source-shader-conflict:active" },
+    );
+    expect(args.applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(args.recordContentHistoryEntry).not.toHaveBeenCalled();
+    args.queryClient.clear();
   });
 });
