@@ -596,6 +596,7 @@ const messages = {
     signatureImageUploadFailed: "No se pudo subir la imagen de la firma",
     writingStyle: "Estilo de escritura",
     autocomplete: "Autocompletar",
+    sendAndMarkDone: "Enviar y marcar como hecho",
     autocompleteSaveFailed: "No se pudo guardar el ajuste de autocompletado.",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",

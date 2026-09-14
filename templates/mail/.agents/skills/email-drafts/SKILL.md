@@ -3,8 +3,8 @@ name: email-drafts
 description: >-
   Create, edit, and send email drafts through compose-{id} application state,
   manage-draft, and send-email. Use when composing, replying, forwarding,
-  attaching files, applying signatures/writing style, or checking open/click
-  tracking on sent mail.
+  attaching files, applying signatures/writing style, choosing Send + Mark Done,
+  or checking open/click tracking on sent mail.
 ---
 
 # Email Drafts
@@ -222,6 +222,16 @@ It branches on whether the user has a connected Google account:
   picks the sender; when replying, it also tries each connected account until
   one can fetch the original message, and uses that account as the sender if
   `account` wasn't explicit.
+
+### Send + Mark Done
+
+`get-mail-settings.sendAndArchive` controls whether ordinary reply sends also
+mark the source thread Done. An explicit Send + Mark Done request takes
+precedence when the preference is off. For action-based sends, call
+`send-email` first and only call `archive-email` for the original reply message
+after the send succeeds. If archiving then fails, report that the reply was sent
+but the thread was not marked Done; never retry the send to recover the archive
+failure. This preference does not apply to new messages or forwards.
 
 ## Scheduled Sends
 

@@ -45,7 +45,11 @@ import {
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
 import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
-import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
+import {
+  useSendEmail,
+  useAddOptimisticReply,
+  useArchiveEmail,
+} from "@/hooks/use-emails";
 import { useSettings } from "@/hooks/use-emails";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
@@ -61,6 +65,7 @@ import {
   splitQuotedContent,
 } from "./compose-draft-context";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
+import { shouldMarkReplyDoneAfterSend } from "./mail-send-policy";
 import {
   RecipientInput,
   computeRecipientMove,
@@ -247,6 +252,7 @@ export function ComposeModal({
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const addOptimisticReply = useAddOptimisticReply();
+  const archiveEmail = useArchiveEmail();
   const updateQueuedDraft = useUpdateQueuedDraft();
   const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
@@ -302,7 +308,7 @@ export function ComposeModal({
       ) ?? [],
     ).some((input) => input.value.trim().length > 0);
 
-  const handleSend = async () => {
+  const handleSend = async (explicitlyMarkDone = false) => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
     if (hasUncommittedRecipientText()) {
@@ -318,6 +324,11 @@ export function ComposeModal({
 
     // Snapshot draft data for potential undo
     const draftSnapshot = { ...activeDraft };
+    const markDoneAfterSend = shouldMarkReplyDoneAfterSend(
+      draftSnapshot,
+      settings?.sendAndArchive === true,
+      explicitlyMarkDone,
+    );
 
     // Hide it during the undo window without deleting either draft copy.
     onStageForSend(activeId);
@@ -388,6 +399,13 @@ export function ComposeModal({
               id: draftSnapshot.queuedDraftId,
               status: "sent",
               sentMessageId: result?.id,
+            });
+          }
+          if (markDoneAfterSend && draftSnapshot.replyToId) {
+            archiveEmail.mutate({
+              id: draftSnapshot.replyToId,
+              accountEmail: draftSnapshot.accountEmail,
+              threadId: draftSnapshot.replyToThreadId,
             });
           }
         })
@@ -547,7 +565,7 @@ export function ComposeModal({
 
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      void handleSend();
+      void handleSend(e.shiftKey);
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -1135,7 +1153,7 @@ function ComposeBody({
   onUpdate: (id: string, partial: Partial<ComposeState>) => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
   onClose: (id: string) => void;
-  onSend: () => void;
+  onSend: (markDone?: boolean) => void;
   isGenerating: boolean;
   sendToAgent: (opts: {
     message: string;

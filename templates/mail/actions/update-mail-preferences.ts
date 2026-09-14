@@ -61,7 +61,7 @@ const patchSchema = z.object({
 
 export default defineAction({
   description:
-    "Update the mail preferences backing the Settings UI. Only the supplied fields change. Agents should use update-mail-settings for signature and writing style.",
+    "Update the mail preferences backing the Settings UI. Only the supplied fields change. Agents should use update-mail-settings for drafting and Send + Mark Done preferences.",
   schema: patchSchema,
   http: { method: "PUT" },
   agentTool: false,

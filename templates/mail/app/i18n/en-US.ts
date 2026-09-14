@@ -585,6 +585,7 @@ const messages = {
     signatureImageUploadFailed: "Failed to upload signature image",
     writingStyle: "Writing style",
     autocomplete: "Autocomplete",
+    sendAndMarkDone: "Send + Mark Done",
     autocompleteSaveFailed: "Could not save the autocomplete setting.",
     writingStylePlaceholder: "Short, specific, warm. Avoid formal filler.",
     saveDraftingSettings: "Save drafting settings",

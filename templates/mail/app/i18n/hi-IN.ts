@@ -586,6 +586,7 @@ const messages = {
     signatureImageUploadFailed: "हस्ताक्षर इमेज अपलोड नहीं हो सकी",
     writingStyle: "लेखन शैली",
     autocomplete: "ऑटोकंप्लीट",
+    sendAndMarkDone: "भेजें और पूर्ण के रूप में चिह्नित करें",
     autocompleteSaveFailed: "ऑटोकंप्लीट सेटिंग सेव नहीं हो सकी।",
     writingStylePlaceholder: "छोटा, विशिष्ट, गर्मजोशी भरा। औपचारिक filler से बचें।",
     saveDraftingSettings: "Drafting settings सहेजें",

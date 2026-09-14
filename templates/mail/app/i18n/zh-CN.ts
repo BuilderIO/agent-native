@@ -569,6 +569,7 @@ const messages = {
     signatureImageUploadFailed: "签名图片上传失败",
     writingStyle: "写作风格",
     autocomplete: "自动补全",
+    sendAndMarkDone: "发送并标记为已完成",
     autocompleteSaveFailed: "无法保存自动补全设置。",
     writingStylePlaceholder: "简短、具体、温暖。避免正式套话。",
     saveDraftingSettings: "保存草稿设置",

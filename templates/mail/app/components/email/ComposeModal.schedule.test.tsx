@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
+const mockArchiveEmail = vi.hoisted(() => vi.fn());
+const mockSettings = vi.hoisted(() => ({ sendAndArchive: false }));
 const mockAccounts = vi.hoisted(
   () => [] as Array<{ email: string; displayName?: string }>,
 );
@@ -71,7 +73,8 @@ vi.mock("@/hooks/use-emails", () => ({
     isPending: false,
     mutateAsync: mockSendEmailAsync,
   }),
-  useSettings: () => ({ data: undefined }),
+  useArchiveEmail: () => ({ mutate: mockArchiveEmail }),
+  useSettings: () => ({ data: mockSettings }),
 }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("@/hooks/use-scheduled-jobs", () => ({
@@ -96,7 +99,13 @@ vi.mock("@/lib/utils", () => ({
 
 vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
 vi.mock("./ComposeEditor", () => ({
-  ComposeEditor: () => <div data-testid="compose-editor" />,
+  ComposeEditor: ({ onSend }: { onSend: (markDone?: boolean) => void }) => (
+    <div data-testid="compose-editor">
+      <button type="button" onClick={() => onSend(true)}>
+        Send + Mark Done
+      </button>
+    </div>
+  ),
 }));
 vi.mock("./RecipientInput", () => ({
   RecipientInput: ({
@@ -155,11 +164,21 @@ const draft: ComposeState = {
   body: "Body",
   mode: "compose",
 };
+const replyDraft: ComposeState = {
+  ...draft,
+  id: "reply-draft-1",
+  mode: "reply",
+  replyToId: "source-message",
+  replyToThreadId: "source-thread",
+  accountEmail: "steve@builder.io",
+};
 
 describe("ComposeModal scheduling", () => {
   beforeEach(() => {
     mockScheduleEmail.mockReset();
     mockSendEmailAsync.mockReset();
+    mockArchiveEmail.mockReset();
+    mockSettings.sendAndArchive = false;
     mockToast.mockClear();
     mockToast.error.mockClear();
     mockAccounts.length = 0;
@@ -543,8 +562,118 @@ describe("ComposeModal scheduling", () => {
     );
   });
 
+  it("marks a reply thread Done only after the explicit send succeeds", async () => {
+    vi.useFakeTimers();
+    let resolveSend!: (result: { id: string }) => void;
+    mockSendEmailAsync.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      }),
+    );
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Send + Mark Done" }));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockSendEmailAsync).toHaveBeenCalledOnce();
+    expect(mockArchiveEmail).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSend({ id: "sent-reply" });
+      await Promise.resolve();
+    });
+
+    expect(mockArchiveEmail).toHaveBeenCalledWith({
+      id: replyDraft.replyToId,
+      accountEmail: replyDraft.accountEmail,
+      threadId: replyDraft.replyToThreadId,
+    });
+    expect(mockToast.error).not.toHaveBeenCalledWith(
+      "mail.toasts.failedToSendEmail",
+    );
+  });
+
+  it("applies the saved preference to ordinary reply sends", async () => {
+    vi.useFakeTimers();
+    mockSettings.sendAndArchive = true;
+    mockSendEmailAsync.mockResolvedValue({ id: "sent-reply" });
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(mockSendEmailAsync).toHaveBeenCalledOnce();
+    expect(mockArchiveEmail).toHaveBeenCalledWith({
+      id: replyDraft.replyToId,
+      accountEmail: replyDraft.accountEmail,
+      threadId: replyDraft.replyToThreadId,
+    });
+  });
+
+  it("does not archive new messages when Send + Mark Done is selected", async () => {
+    vi.useFakeTimers();
+    mockSettings.sendAndArchive = true;
+    mockSendEmailAsync.mockResolvedValue({ id: "sent-new" });
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Send + Mark Done" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(mockSendEmailAsync).toHaveBeenCalledOnce();
+    expect(mockArchiveEmail).not.toHaveBeenCalled();
+  });
+
   it("reports provider failure and reopens the draft after the popout unmounts", async () => {
     vi.useFakeTimers();
+    mockSettings.sendAndArchive = true;
     let rejectSend!: (error: Error) => void;
     mockSendEmailAsync.mockReturnValue(
       new Promise((_resolve, reject) => {
@@ -556,9 +685,9 @@ describe("ComposeModal scheduling", () => {
     const onDiscard = vi.fn();
     const { getByRole, unmount } = render(
       <ComposeModal
-        drafts={[draft]}
-        activeId={draft.id}
-        activeDraft={draft}
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
         onSetActiveId={vi.fn()}
         onUpdate={vi.fn()}
         onClose={vi.fn()}
@@ -571,7 +700,7 @@ describe("ComposeModal scheduling", () => {
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    fireEvent.click(getByRole("button", { name: "Send + Mark Done" }));
     await vi.advanceTimersByTimeAsync(10_000);
     expect(mockSendEmailAsync).toHaveBeenCalledOnce();
 
@@ -585,8 +714,9 @@ describe("ComposeModal scheduling", () => {
     expect(mockToast.error).toHaveBeenCalledWith(
       "mail.toasts.failedToSendEmail",
     );
+    expect(mockArchiveEmail).not.toHaveBeenCalled();
     expect(onDiscard).not.toHaveBeenCalled();
-    expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
+    expect(onRestoreAfterSend).toHaveBeenCalledWith(replyDraft.id);
   });
 
   it("restores a failed staged draft for editing and dispatches one retry", async () => {

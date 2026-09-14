@@ -566,6 +566,7 @@ const messages = {
     signatureImageUploadFailed: "簽名圖片上傳失敗",
     writingStyle: "寫作風格",
     autocomplete: "自動完成",
+    sendAndMarkDone: "傳送並標記為已完成",
     autocompleteSaveFailed: "無法儲存自動完成設定。",
     writingStylePlaceholder: "簡短、具體、溫暖。避免正式套話。",
     saveDraftingSettings: "儲存草稿設定",

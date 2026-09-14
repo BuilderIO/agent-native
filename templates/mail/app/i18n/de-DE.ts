@@ -601,6 +601,7 @@ const messages = {
       "Das Signaturbild konnte nicht hochgeladen werden",
     writingStyle: "Schreibstil",
     autocomplete: "Autovervollständigung",
+    sendAndMarkDone: "Senden und als erledigt markieren",
     autocompleteSaveFailed:
       "Die Autovervollständigungseinstellung konnte nicht gespeichert werden.",
     writingStylePlaceholder:

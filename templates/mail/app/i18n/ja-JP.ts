@@ -589,6 +589,7 @@ const messages = {
     signatureImageUploadFailed: "署名画像のアップロードに失敗しました",
     writingStyle: "文章スタイル",
     autocomplete: "自動補完",
+    sendAndMarkDone: "送信して完了にする",
     autocompleteSaveFailed: "自動補完の設定を保存できませんでした。",
     writingStylePlaceholder: "短く、具体的に、温かく。形式的な埋め草は避ける。",
     saveDraftingSettings: "下書き設定を保存",

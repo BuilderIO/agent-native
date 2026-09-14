@@ -599,6 +599,7 @@ const messages = {
     signatureImageUploadFailed: "Impossible de téléverser l’image de signature",
     writingStyle: "Style d’écriture",
     autocomplete: "Saisie automatique",
+    sendAndMarkDone: "Envoyer et marquer comme terminé",
     autocompleteSaveFailed:
       "Impossible d’enregistrer le réglage de saisie automatique.",
     writingStylePlaceholder:

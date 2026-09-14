@@ -596,6 +596,7 @@ const messages = {
     signatureImageUploadFailed: "Falha ao enviar a imagem da assinatura",
     writingStyle: "Estilo de escrita",
     autocomplete: "Autocompletar",
+    sendAndMarkDone: "Enviar e marcar como concluído",
     autocompleteSaveFailed:
       "Não foi possível salvar a configuração de autocompletar.",
     writingStylePlaceholder:

@@ -1278,6 +1278,29 @@ function DraftingSection() {
               />
             </div>
 
+            <div className="flex items-center justify-between rounded-lg border border-border/20 bg-card/50 px-4 py-3">
+              <label
+                htmlFor="mail-send-and-mark-done-setting"
+                className="text-[13px] font-medium text-foreground"
+              >
+                {t("settings.sendAndMarkDone")}
+              </label>
+              <Switch
+                id="mail-send-and-mark-done-setting"
+                checked={settings?.sendAndArchive ?? false}
+                onCheckedChange={(checked) =>
+                  updateSettings.mutate(
+                    { sendAndArchive: checked },
+                    {
+                      onError: () =>
+                        toast.error(t("settings.draftingSettingsSaveFailed")),
+                    },
+                  )
+                }
+                disabled={updateSettings.isPending}
+              />
+            </div>
+
             <div className="rounded-lg border border-border/20 bg-card/50 p-4">
               <div className="mb-1.5 flex items-center justify-between gap-3">
                 <label className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">

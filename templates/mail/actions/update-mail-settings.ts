@@ -26,11 +26,17 @@ const settingsSchema = z.object({
     .describe(
       "Whether to show local common-phrase autocomplete while composing.",
     ),
+  sendAndArchive: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether ordinary reply sends mark the existing thread Done. Explicit Send + Mark Done remains available when this is off.",
+    ),
 });
 
 export default defineAction({
   description:
-    "Update the user's persistent mail drafting settings, including signature, writing style, and autocomplete. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
+    "Update the user's persistent mail drafting settings, including signature, writing style, autocomplete, and Send + Mark Done. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
   schema: settingsSchema,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
@@ -51,6 +57,9 @@ export default defineAction({
     if (args.autocompleteEnabled !== undefined) {
       updates.autocompleteEnabled = args.autocompleteEnabled;
     }
+    if (args.sendAndArchive !== undefined) {
+      updates.sendAndArchive = args.sendAndArchive;
+    }
 
     const next = {
       ...current,
@@ -64,6 +73,7 @@ export default defineAction({
       signature: next.signature ?? "",
       writingStyle: next.writingStyle ?? "",
       autocompleteEnabled: next.autocompleteEnabled === true,
+      sendAndArchive: next.sendAndArchive === true,
     };
   },
 });

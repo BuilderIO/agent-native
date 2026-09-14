@@ -29,6 +29,7 @@ describe("get-mail-settings action", () => {
       expect.objectContaining({
         email: "owner@example.com",
         autocompleteEnabled: false,
+        sendAndArchive: false,
       }),
     );
   });
@@ -38,6 +39,7 @@ describe("get-mail-settings action", () => {
       signature: "Best,",
       writingStyle: "Keep it concise.",
       autocompleteEnabled: true,
+      sendAndArchive: true,
     });
 
     await expect(action.run({})).resolves.toEqual(
@@ -45,6 +47,7 @@ describe("get-mail-settings action", () => {
         signature: "Best,",
         writingStyle: "Keep it concise.",
         autocompleteEnabled: true,
+        sendAndArchive: true,
       }),
     );
   });

@@ -25,6 +25,7 @@ describe("update-mail-settings action", () => {
       writingStyle: "Keep it concise.",
       signature: "Best,",
       autocompleteEnabled: false,
+      sendAndArchive: false,
     });
     mocks.putUserSetting.mockResolvedValue(undefined);
   });
@@ -46,6 +47,28 @@ describe("update-mail-settings action", () => {
         writingStyle: "Keep it concise.",
         signature: "Best,",
         autocompleteEnabled: true,
+      }),
+    );
+  });
+
+  it("updates Send + Mark Done while preserving drafting settings", async () => {
+    const result = await action.run({ sendAndArchive: true });
+
+    expect(mocks.putUserSetting).toHaveBeenCalledWith(
+      "owner@example.com",
+      "mail-settings",
+      expect.objectContaining({
+        writingStyle: "Keep it concise.",
+        signature: "Best,",
+        autocompleteEnabled: false,
+        sendAndArchive: true,
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        writingStyle: "Keep it concise.",
+        signature: "Best,",
+        sendAndArchive: true,
       }),
     );
   });

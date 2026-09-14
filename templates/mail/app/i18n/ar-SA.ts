@@ -584,6 +584,7 @@ const messages = {
     signatureImageUploadFailed: "فشل تحميل صورة التوقيع",
     writingStyle: "أسلوب الكتابة",
     autocomplete: "الإكمال التلقائي",
+    sendAndMarkDone: "إرسال ووضع علامة كمكتمل",
     autocompleteSaveFailed: "تعذر حفظ إعداد الإكمال التلقائي.",
     writingStylePlaceholder: "قصير ومحدد ودافئ. تجنب الحشو الرسمي.",
     saveDraftingSettings: "حفظ إعدادات المسودات",

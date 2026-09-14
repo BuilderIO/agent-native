@@ -504,9 +504,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   visible send button, and Cmd/Ctrl+Shift+Enter Send + Done. Verify the latter's
   exact Done target (reply thread versus new message), archive timing, failure
   recovery, approval/confirmation boundary, and no duplicate sends from double
-  click, key repeat, retry, or rerender. Mail's source currently routes
-  Cmd/Ctrl+Shift+Enter through ordinary Send; this is a known mismatch, not a
-  completed parity case. Use mocked sends only.
+  click, key repeat, retry, or rerender. With the preference off, ordinary reply
+  sends leave the thread in Inbox and Cmd/Ctrl+Shift+Enter marks the replied-to
+  thread Done; with it on, ordinary reply sends also mark that thread Done.
+  New-message and forward drafts never archive a source thread. Archive only
+  after send succeeds; if archive fails, preserve the sent state and do not
+  retry the send. Mail now implements these paths locally, based on the
+  [official Send + Mark Done guide](https://help.superhuman.com/hc/en-us/articles/47439134613773-Mark-Done);
+  live Superhuman replay is still pending. Use mocked sends only.
 - SEND-003 — Test optimistic send, `Z` Undo within the reference’s 10-second
   window and at the boundary, after toast change, after navigation, and after
   refresh. Never call a message “sent” before the provider result is

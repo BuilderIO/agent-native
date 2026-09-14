@@ -39,6 +39,7 @@ import {
   shouldApplyComposeContent,
   COMPOSE_TYPING_GRACE_MS,
 } from "./compose-draft-context";
+import { handleComposeSendShortcut } from "./compose-shortcuts";
 import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
 import { ComposeSlashMenu } from "./ComposeSlashMenu";
 import { ComposeImageNode } from "./extensions/ComposeImageNode";
@@ -57,7 +58,7 @@ interface ComposeEditorProps {
   content: string;
   onChange: (markdown: string) => void;
   onGenerate: () => void;
-  onSend: () => void;
+  onSend: (markDone?: boolean) => void;
   onClose: () => void;
   onFlush: () => Promise<unknown> | undefined;
   isGenerating: boolean;
@@ -231,12 +232,7 @@ export const ComposeEditor = forwardRef<
         ) {
           return true;
         }
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-          event.preventDefault();
-          event.stopPropagation();
-          onSendRef.current();
-          return true;
-        }
+        if (handleComposeSendShortcut(event, onSendRef.current)) return true;
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();

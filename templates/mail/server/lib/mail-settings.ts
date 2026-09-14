@@ -155,6 +155,10 @@ export function normalizeMailSettings(
         typeof data.autocompleteEnabled === "boolean"
           ? data.autocompleteEnabled
           : DEFAULT_SETTINGS.autocompleteEnabled,
+      sendAndArchive:
+        typeof data.sendAndArchive === "boolean"
+          ? data.sendAndArchive
+          : DEFAULT_SETTINGS.sendAndArchive,
       ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }

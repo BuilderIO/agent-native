@@ -588,6 +588,7 @@ const messages = {
     signatureImageUploadFailed: "서명 이미지를 업로드하지 못했습니다",
     writingStyle: "작성 스타일",
     autocomplete: "자동 완성",
+    sendAndMarkDone: "보내고 완료로 표시",
     autocompleteSaveFailed: "자동 완성 설정을 저장하지 못했습니다.",
     writingStylePlaceholder:
       "짧고 구체적이며 따뜻하게. 형식적인 군더더기는 피하세요.",
