@@ -23,13 +23,30 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  *    width/height are carried ONLY when authored on the element's own
  *    inline style — never diffed against the probe at all.
  *
- * Known limitation: an element sized entirely through a stylesheet rule
- * (e.g. `.card { width: 320px }`, no inline width) is NOT carried — a
- * stylesheet-rule walk to disambiguate "class-authored" from "flex/grid-
- * resolved to the same pixel value" was tried and reverted as unsound
- * (cross-origin sheets throw on `cssRules`; media/container-query/cascade
- * overrides can't be replayed correctly outside the browser's own layout).
- * Such an element loses its explicit size across a cross-screen move today.
+ * Known limitation: width/height carrying is a provenance check, not a
+ * cascade engine. Same-origin sheets (`document.styleSheets`, both
+ * documents' and a shadow root's `adoptedStyleSheets`, and readable
+ * `@import`s, recursed) are scanned for a top-level (unwrapped) stylesheet
+ * rule with a PLAIN selector (type/class/id/attribute + descendant/child
+ * combinators only, quoted attribute values exempted — an allowlist, since
+ * the pseudo-classes that describe a transient state rather than permanent
+ * provenance, e.g. `:hover`/`:checked`/`:disabled`/`:nth-*()`/`:is()`, are
+ * unbounded and a denylist always misses one). A px-literal value (rule or
+ * inline) is carried only when it is the ONE such rule matching the element
+ * for that property and it agrees with the computed size. A non-px inline
+ * value (`50%`, `2rem`, `calc(...)`) has no computed-px form to check, so it
+ * is carried verbatim as authored UNLESS a matching rule for that property
+ * is `!important` anywhere reachable — the one concrete, checkable sign that
+ * something else may have actually won. This is fail-closed, not
+ * best-effort: a second matching rule (whatever it says), a cross-origin
+ * sheet or `@import` (`cssRules` throws, or the import hasn't resolved), a
+ * rule type this walk does not evaluate at all but which also cannot
+ * declare a matching `width`/`height` (`@font-face`, `@keyframes`, …, which
+ * are simply ignored, not masked), or ANY same-property rule for a matching
+ * selector inside `@media`/`@supports`/`@container`/`@layer`/`@scope` —
+ * matching or not, since the condition isn't evaluated — all mask the
+ * result and leave the element fluid rather than resolve a winner by
+ * specificity/cascade order.
  */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
@@ -239,6 +256,223 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       // moment it lands anywhere the row's width differs.
       expect(styles?.width).toBeUndefined();
       expect(styles?.height).toBeUndefined();
+    },
+  );
+
+  it(
+    "carries a class-authored width/height with no inline style at all",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;height:200px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // Exactly one same-origin, unwrapped rule matches and its literal px
+      // value agrees with the rendered size — the one case this provenance
+      // check can trust without replaying the cascade.
+      expect(styles?.width).toBe("320px");
+      expect(styles?.height).toBe("200px");
+    },
+  );
+
+  it(
+    "leaves width uncarried when a second matching rule overrides it (ambiguous, not resolved by specificity)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px}.row>.card{width:auto}</style></head><body style="margin:0">
+        <div class="row"><div class="card" data-agent-native-node-id="card"></div></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // Two rules match `.card` for width. The more specific one wins in a
+      // real cascade, but this probe deliberately does not compute
+      // specificity — a second matching rule makes the winner ambiguous, so
+      // neither is trusted and the property is left fluid.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "leaves width uncarried when a same-property rule for the same selector exists inside @media, matching or not",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px}@media (min-width:99999px){.card{width:9999px}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The @media condition never matches this viewport, but this walk
+      // never evaluates it — a same-property, same-selector rule sitting
+      // inside ANY grouping construct masks the visible top-level match
+      // instead of being ignored, fail-closed.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "ignores a :hover-only rule as size provenance, still carrying the plain rule it sits beside",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px}.card:hover{width:340px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // `:hover` describes a transient state, not the resting size — it
+      // must be excluded entirely (neither a candidate nor a masking
+      // competitor), leaving the plain rule as the sole, trusted match.
+      expect(styles?.width).toBe("320px");
+    },
+  );
+
+  it(
+    "leaves width uncarried when an @import points to an unreadable cross-origin sheet",
+    { timeout: 30_000 },
+    async () => {
+      // @import must precede all other rules (besides @charset/@layer
+      // statements) to parse at all. A cross-origin `@import` never grants
+      // `cssRules` access (there's no `crossorigin` opt-in for `@import`,
+      // unlike `<link>`), regardless of whether the URL ever resolves.
+      const html = `<!doctype html><html><head><style>@import url("https://portable-style-unreadable-import.invalid/x.css");.card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The imported sheet might carry a competing declaration this walk
+      // has no way to read — unreadable, so it masks rather than being
+      // silently treated as empty.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "recurses into a readable (data:) @import instead of treating it as opaque",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@import url("data:text/css,.card{width:280px}");.card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // If the import were masked outright (or ignored as opaque), the
+      // local `.card{width:320px}` would wrongly look like the sole
+      // candidate. It's readable, so its own `.card{width:280px}` is a
+      // second, real, matching candidate — ambiguous, left fluid.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "accepts an attribute selector whose quoted value contains a colon, comma, and asterisk",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>[data-x="a:b,c*d"]{width:320px}</style></head><body style="margin:0">
+        <div data-x="a:b,c*d" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The `:`/`,`/`*` characters live inside a quoted attribute value, not
+      // in the selector's own grammar — a naive char scan over the whole
+      // selector text would wrongly reject this as unsafe.
+      expect(styles?.width).toBe("320px");
+    },
+  );
+
+  it(
+    "carries a non-px inline size (%, rem, calc()) verbatim when nothing overrides it",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="width:600px">
+          <div data-agent-native-node-id="pct" style="width:50%;height:2rem"></div>
+        </div>
+        <div data-agent-native-node-id="calc" style="width:calc(100% - 20px)"></div>
+      </body></html>`;
+      const pct = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="pct"]',
+      );
+      // A non-px inline value has no computed-px form to agree with — it
+      // must still be carried as authored (this is the previously-working
+      // behavior a stricter px-only check would have regressed).
+      expect(pct?.width).toBe("50%");
+      expect(pct?.height).toBe("2rem");
+      const calc = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="calc"]',
+      );
+      expect(calc?.width).toBe("calc(100% - 20px)");
+    },
+  );
+
+  it(
+    "omits a non-px inline size only when a matching stylesheet rule is !important",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:999px!important}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card" style="width:50%"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // Can't compare "50%" against a computed px value directly, but a
+      // matching `!important` rule is a concrete, visible sign that the
+      // inline value likely isn't what's really rendered.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "leaves width uncarried when the sole matching rule uses a stateful pseudo-class (:checked)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card:checked{width:320px}</style></head><body style="margin:0">
+        <input type="checkbox" checked class="card" data-agent-native-node-id="card" />
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The checkbox IS checked, so a denylist that only knew about
+      // :hover/:focus/:active would have let this rule through as the sole,
+      // computed-agreeing candidate — trusting a transient toggle state as
+      // permanent provenance. The allowlist rejects any `:` outright.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "leaves width uncarried when an inline value is overridden by a stylesheet !important rule",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:200px!important}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card" style="width:320px;height:100px"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The real cascade renders 200px (the !important rule wins), but the
+      // raw inline attribute still reads "320px" — trusting the inline
+      // string without checking it against computed style would carry a
+      // value the element doesn't actually render at.
+      expect(styles?.width).toBeUndefined();
     },
   );
 

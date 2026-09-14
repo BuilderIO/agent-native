@@ -2613,24 +2613,235 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // auto-size (fills its actual containing block, or matches its actual
   // content) — nearly every ordinary flow element would read as
   // "customized" and have its fluid size frozen into a pixel value on
-  // every move/duplicate. Only a size the element itself authored inline
-  // is portable; a class-driven or flow-driven size is the destination's
-  // to decide.
-  //
-  // KNOWN LIMITATION: an element sized entirely through a stylesheet rule
-  // (e.g. `.card { width: 320px }`, no inline width) is NOT carried either.
-  // A stylesheet-rule walk was tried and reverted: computed style alone
-  // cannot tell "an authored class rule set this" apart from "flex/grid
-  // resolved this to the same pixel value," and reliably replaying the
-  // cascade (media/container-query overrides, specificity, cross-origin
-  // sheets that throw on `cssRules`) outside the browser's own layout
-  // engine is not something a diff-vs-defaults probe can do soundly. Such
-  // an element loses its explicit size across a cross-screen move/
-  // duplicate today; see portable-style-snapshot.bridge.spec.ts.
+  // every move/duplicate. Only a size the element itself authored (inline,
+  // or an unambiguous same-origin stylesheet rule, see
+  // resolvePortableBoxSizeValue below) is portable; a flow/flex/grid-
+  // resolved size is the destination's to decide.
   var PORTABLE_STYLE_BOX_SIZE_PROPERTIES: Record<string, boolean> = {
     width: true,
     height: true,
   };
+
+  var PORTABLE_STYLE_PX_LENGTH = /^-?\d+(\.\d+)?px$/;
+
+  // Allowlist, not a denylist: the space of pseudo-classes/elements this
+  // walk cannot treat as permanent provenance (:hover, :checked, :disabled,
+  // :nth-*(), :is()/:where()/:has()/:not(), …) is unbounded, and a denylist
+  // always misses the next one — `:checked` and `:disabled` were missed
+  // this way (a currently-`:checked` checkbox's rule would win as the sole,
+  // "agreeing with computed" candidate, even though that size only applies
+  // in that transient state). Only a plain type/class/id/attribute selector
+  // chain with descendant/child combinators is accepted; anything with a
+  // `:`, sibling combinator, universal selector, or comma-list is rejected
+  // — excluded outright, same as before: never a candidate, never a masking
+  // competitor either. Quoted attribute-value contents (`[data-x="a:b,c"]`)
+  // are stripped before the check so a literal `:`/`,`/`*` INSIDE a value
+  // doesn't falsely reject an otherwise-plain selector.
+  var PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS = /[:,+~*]/;
+  var PORTABLE_STYLE_QUOTED_STRING = /"[^"]*"|'[^']*'/g;
+
+  function isPortableStyleSimpleSelector(selector: string): boolean {
+    if (typeof selector !== "string" || !selector) return false;
+    var withoutQuotedValues = selector.replace(
+      PORTABLE_STYLE_QUOTED_STRING,
+      "",
+    );
+    return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
+  }
+
+  function isPortableStyleGroupingRule(rule: CSSRule): boolean {
+    return (
+      (typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule) ||
+      (typeof CSSSupportsRule !== "undefined" &&
+        rule instanceof CSSSupportsRule) ||
+      (typeof CSSLayerBlockRule !== "undefined" &&
+        rule instanceof CSSLayerBlockRule) ||
+      (typeof CSSContainerRule !== "undefined" &&
+        rule instanceof CSSContainerRule) ||
+      (typeof CSSScopeRule !== "undefined" && rule instanceof CSSScopeRule)
+    );
+  }
+
+  type PortableStyleWalkState = {
+    values: string[];
+    masked: boolean;
+    importantMatch: boolean;
+  };
+
+  function walkPortableStyleRules(
+    ruleList: CSSRuleList,
+    el: Element,
+    property: string,
+    grouped: boolean,
+    state: PortableStyleWalkState,
+  ): void {
+    for (var r = 0; r < ruleList.length; r += 1) {
+      var rule = ruleList[r];
+      if (isPortableStyleGroupingRule(rule)) {
+        var nested = (rule as any).cssRules as CSSRuleList | undefined;
+        if (nested) walkPortableStyleRules(nested, el, property, true, state);
+        continue;
+      }
+      if (
+        typeof CSSImportRule !== "undefined" &&
+        rule instanceof CSSImportRule
+      ) {
+        var importedRules: CSSRuleList | undefined;
+        try {
+          importedRules = rule.styleSheet && rule.styleSheet.cssRules;
+        } catch (_err) {
+          state.masked = true; // cross-origin import: cannot rule out a competing declaration
+          continue;
+        }
+        // A readable same-origin import (including a `data:` sheet) is
+        // walked exactly like the rules it inlines would be — an unresolved
+        // import (`styleSheet` present but not yet populated) is treated the
+        // same as unreadable, since its eventual rules can't be ruled out.
+        if (importedRules) {
+          walkPortableStyleRules(importedRules, el, property, grouped, state);
+        } else {
+          state.masked = true;
+        }
+        continue;
+      }
+      if (
+        typeof CSSStyleRule === "undefined" ||
+        !(rule instanceof CSSStyleRule)
+      ) {
+        // A rule type that cannot declare a `width`/`height` matching an
+        // arbitrary element via a selector (@font-face, @keyframes, @page,
+        // @counter-style, @property, …) is genuinely harmless — ignored,
+        // not masked.
+        continue;
+      }
+      var raw = rule.style.getPropertyValue(property);
+      if (!raw) continue;
+      if (!isPortableStyleSimpleSelector(rule.selectorText || "")) {
+        continue;
+      }
+      try {
+        if (!el.matches(rule.selectorText)) continue;
+      } catch (_err) {
+        continue; // selector this engine can't evaluate
+      }
+      if (rule.style.getPropertyPriority(property) === "important") {
+        state.importantMatch = true;
+      }
+      // A match inside ANY grouping construct (@media/@supports/@layer/
+      // @container/@scope) is never trusted as the winner — its condition
+      // may or may not be currently active, and layer/container ordering
+      // isn't replayed — but its mere existence means a competing
+      // declaration might apply, so it masks the top-level match instead of
+      // being ignored outright.
+      if (grouped) {
+        state.masked = true;
+      } else {
+        state.values.push(raw.trim());
+      }
+    }
+  }
+
+  // Same-origin document/shadow-root stylesheets a portable-style capture
+  // must consider: `document.styleSheets` plus both documents' and (if `el`
+  // lives in a shadow tree) the owning ShadowRoot's `adoptedStyleSheets` —
+  // constructed sheets never throw on `cssRules` (they are never
+  // cross-origin), so they need no try/catch of their own.
+  function portableStyleSheetsFor(el: Element): CSSStyleSheet[] {
+    var doc = el.ownerDocument;
+    var sheets: CSSStyleSheet[] = [];
+    if (doc && doc.styleSheets) {
+      for (var i = 0; i < doc.styleSheets.length; i += 1) {
+        sheets.push(doc.styleSheets[i] as unknown as CSSStyleSheet);
+      }
+    }
+    if (doc && (doc as any).adoptedStyleSheets) {
+      sheets = sheets.concat(
+        Array.prototype.slice.call((doc as any).adoptedStyleSheets),
+      );
+    }
+    var root = el.getRootNode ? el.getRootNode() : null;
+    if (root && root !== doc && (root as any).adoptedStyleSheets) {
+      sheets = sheets.concat(
+        Array.prototype.slice.call((root as any).adoptedStyleSheets),
+      );
+    }
+    return sheets;
+  }
+
+  // Deliberately NOT a cascade engine: no specificity, no media/container/
+  // layer evaluation. Only a same-origin, top-level (unwrapped) CSSStyleRule
+  // with a plain selector counts as a candidate, and only when it is the ONE
+  // such candidate for `property` — anything this walk cannot fully account
+  // for (an unreadable cross-origin sheet or `@import`, or a same-origin
+  // rule that could ALSO apply to this element for `property` from inside
+  // @media/@supports/@layer/@container/@scope) masks the result instead of
+  // being skipped: a hidden, conditional, or otherwise invisible competing
+  // declaration might exist, so the one visible match can't be trusted
+  // either.
+  function collectMatchingPxDeclarations(
+    el: Element,
+    property: string,
+  ): PortableStyleWalkState {
+    var sheets = portableStyleSheetsFor(el);
+    var state: PortableStyleWalkState = {
+      values: [],
+      masked: false,
+      importantMatch: false,
+    };
+    for (var s = 0; s < sheets.length; s += 1) {
+      var rules: CSSRuleList | undefined;
+      try {
+        rules = sheets[s].cssRules;
+      } catch (_err) {
+        state.masked = true; // cross-origin: cannot rule out a competing declaration
+        continue;
+      }
+      if (!rules) continue;
+      walkPortableStyleRules(rules, el, property, false, state);
+    }
+    return state;
+  }
+
+  function resolvePortableBoxSizeValue(
+    el: Element,
+    cs: CSSStyleDeclaration,
+    hostStyle: CSSStyleDeclaration | undefined,
+    property: string,
+  ): string | null {
+    var computed = cs[property] || cs.getPropertyValue(property);
+    var inline = hostStyle && (hostStyle as any)[property];
+    if (inline) {
+      if (PORTABLE_STYLE_PX_LENGTH.test(inline)) {
+        // A stylesheet `!important` rule can still win the real cascade
+        // over a plain inline px declaration — the raw inline string
+        // doesn't know that it lost. Trust it only when it agrees with what
+        // actually rendered.
+        return typeof computed === "string" && computed.trim() === inline
+          ? inline
+          : null;
+      }
+      // A non-px inline expression (`50%`, `2rem`, `calc(100% - 20px)`) has
+      // no computed-px form to agree with — it is carried verbatim as
+      // authored, same as always, UNLESS a same-origin rule with
+      // `!important` for this property matches this element anywhere
+      // reachable, in which case that rule (not the inline value) may be
+      // what actually won the cascade.
+      return collectMatchingPxDeclarations(el, property).importantMatch
+        ? null
+        : inline;
+    }
+    var result = collectMatchingPxDeclarations(el, property);
+    if (result.masked || result.values.length !== 1) return null; // masked, none, or ambiguous
+    var declared = result.values[0];
+    if (!PORTABLE_STYLE_PX_LENGTH.test(declared)) return null; // not a literal px length
+    // The rule must agree with what actually rendered — a mismatch means
+    // something else (min/max-width, a rule this walk couldn't see) is
+    // overriding it, so trusting the rule's literal text would be a guess.
+    if (typeof computed !== "string" || computed.trim() !== declared) {
+      return null;
+    }
+    return declared;
+  }
 
   function collectPortableComputedStyles(
     el: Element | null,
@@ -2643,8 +2854,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var styles: Record<string, string> = {};
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) {
-        var authored = hostStyle && (hostStyle as any)[property];
-        if (authored) styles[property] = authored;
+        var resolved = resolvePortableBoxSizeValue(el, cs, hostStyle, property);
+        if (resolved) styles[property] = resolved;
         return;
       }
       var value = cs[property] || cs.getPropertyValue(property);

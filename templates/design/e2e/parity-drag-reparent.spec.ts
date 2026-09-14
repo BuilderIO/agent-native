@@ -837,13 +837,26 @@ test.describe("drag reparent parity", () => {
     const trace = await dumpTrace(page);
     await page.mouse.up();
 
+    // The move writes screen one (source) and screen two (destination) as
+    // two separate, independently debounced (~400ms) autosaves — polling
+    // the destination alone and then reading the source ONCE is a race, not
+    // proof of move-not-copy semantics: the destination save can win that
+    // race while the source save is still in flight. Poll both together
+    // until they agree on the same instant.
     let screenTwoHtml = "";
+    let screenOneHtmlAfter = "";
     await expect
       .poll(
         async () => {
-          screenTwoHtml = await fileContent(page, id, "page-two.html");
+          [screenOneHtmlAfter, screenTwoHtml] = await Promise.all([
+            fileContent(page, id, "index.html"),
+            fileContent(page, id, "page-two.html"),
+          ]);
           const style = styleOf(screenTwoHtml, "style-card");
           return (
+            !screenOneHtmlAfter.includes(
+              'data-agent-native-node-id="style-card"',
+            ) &&
             screenTwoHtml.includes('data-agent-native-node-id="style-card"') &&
             style.includes(colorBefore) &&
             style.includes(backgroundBefore)
@@ -851,18 +864,10 @@ test.describe("drag reparent parity", () => {
         },
         {
           timeout: 10_000,
-          message: `Style Card must land inside screen two with its class-authored color/background carried as inline style. Trace: ${trace.slice(-800)}`,
+          message: `Style Card must leave screen one and land inside screen two with its class-authored color/background carried as inline style. Trace: ${trace.slice(-800)}`,
         },
       )
       .toBe(true);
-
-    // The gesture is a move, not a copy — the source screen must no longer
-    // carry the node once it has landed in screen two.
-    const screenOneHtmlAfter = await fileContent(page, id, "index.html");
-    expect(
-      screenOneHtmlAfter.includes('data-agent-native-node-id="style-card"'),
-      "Style Card must leave screen one once the cross-screen drag lands it in screen two",
-    ).toBe(false);
 
     // Live check: screen two has no `.card` rule, so the destination node's
     // rendered appearance must match the source's only via the carried
@@ -879,11 +884,21 @@ test.describe("drag reparent parity", () => {
       )
       .toEqual([colorBefore, backgroundBefore]);
 
-    // KNOWN LIMITATION (see portableStyleTagDefaults / PORTABLE_STYLE_BOX_
-    // SIZE_PROPERTIES in editor-chrome.bridge.ts and portable-style-
-    // snapshot.bridge.spec.ts): width/height are carried only when authored
-    // on the element's own inline style. `.card`'s `width:320px` is class-
-    // authored, not inline, so the moved node is NOT required to keep it —
-    // intentionally not asserted here.
+    // `.card`'s `width:320px` is class-authored (not inline) but is the ONE
+    // rule matching `style-card` for width, agreeing with its rendered size
+    // — resolvePortableBoxSizeValue's unambiguous case (see
+    // editor-chrome.bridge.ts / portable-style-snapshot.bridge.spec.ts) — so
+    // the moved node must keep it as a persisted inline style, and its
+    // rendered box in screen two must match.
+    expect(
+      styleOf(screenTwoHtml, "style-card"),
+      "Style Card must persist width:320px as inline style after landing in screen two",
+    ).toMatch(/width\s*:\s*320px/);
+    // computed style inside the frame, not an on-screen boundingBox() — the
+    // overview canvas can render screen two below 1:1 zoom, which would
+    // shrink a raw pixel bounding box without the carried width being wrong.
+    expect(await destNode.evaluate((el) => getComputedStyle(el).width)).toBe(
+      "320px",
+    );
   });
 });

@@ -9033,10 +9033,17 @@ function DesignEditor() {
         spaceForwardArmedRef.current,
         Boolean(activeEditorDragRef.current),
       );
-      if (armKeydown.broadcast !== null) {
+      // `armed` (not just `broadcast !== null`) is the consumption signal: a
+      // duplicate keydown that arrives after mouseup while Space is still
+      // held down (dragActive now false) keeps `armed` true with no new
+      // broadcast to send — checking `broadcast` alone would miss that and
+      // fall through into arming the temporary hand tool mid-hold.
+      if (armKeydown.armed) {
         event.preventDefault();
-        spaceForwardArmedRef.current = armKeydown.armed;
-        broadcastSpaceHeldToIframes(armKeydown.broadcast);
+        spaceForwardArmedRef.current = true;
+        if (armKeydown.broadcast !== null) {
+          broadcastSpaceHeldToIframes(armKeydown.broadcast);
+        }
         return;
       }
       if (spacePanStashedToolRef.current !== null) return;

@@ -2594,6 +2594,122 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
+    var PORTABLE_STYLE_PX_LENGTH = /^-?\\d+(\\.\\d+)?px$/;
+    var PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS = /[:,+~*]/;
+    var PORTABLE_STYLE_QUOTED_STRING = /"[^"]*"|'[^']*'/g;
+    function isPortableStyleSimpleSelector(selector) {
+      if (typeof selector !== "string" || !selector) return false;
+      var withoutQuotedValues = selector.replace(PORTABLE_STYLE_QUOTED_STRING, "");
+      return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
+    }
+    function isPortableStyleGroupingRule(rule) {
+      return typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule || typeof CSSSupportsRule !== "undefined" && rule instanceof CSSSupportsRule || typeof CSSLayerBlockRule !== "undefined" && rule instanceof CSSLayerBlockRule || typeof CSSContainerRule !== "undefined" && rule instanceof CSSContainerRule || typeof CSSScopeRule !== "undefined" && rule instanceof CSSScopeRule;
+    }
+    function walkPortableStyleRules(ruleList, el, property, grouped, state) {
+      for (var r = 0; r < ruleList.length; r += 1) {
+        var rule = ruleList[r];
+        if (isPortableStyleGroupingRule(rule)) {
+          var nested = rule.cssRules;
+          if (nested) walkPortableStyleRules(nested, el, property, true, state);
+          continue;
+        }
+        if (typeof CSSImportRule !== "undefined" && rule instanceof CSSImportRule) {
+          var importedRules;
+          try {
+            importedRules = rule.styleSheet && rule.styleSheet.cssRules;
+          } catch (_err) {
+            state.masked = true;
+            continue;
+          }
+          if (importedRules) {
+            walkPortableStyleRules(importedRules, el, property, grouped, state);
+          } else {
+            state.masked = true;
+          }
+          continue;
+        }
+        if (typeof CSSStyleRule === "undefined" || !(rule instanceof CSSStyleRule)) {
+          continue;
+        }
+        var raw = rule.style.getPropertyValue(property);
+        if (!raw) continue;
+        if (!isPortableStyleSimpleSelector(rule.selectorText || "")) {
+          continue;
+        }
+        try {
+          if (!el.matches(rule.selectorText)) continue;
+        } catch (_err) {
+          continue;
+        }
+        if (rule.style.getPropertyPriority(property) === "important") {
+          state.importantMatch = true;
+        }
+        if (grouped) {
+          state.masked = true;
+        } else {
+          state.values.push(raw.trim());
+        }
+      }
+    }
+    function portableStyleSheetsFor(el) {
+      var doc = el.ownerDocument;
+      var sheets = [];
+      if (doc && doc.styleSheets) {
+        for (var i = 0; i < doc.styleSheets.length; i += 1) {
+          sheets.push(doc.styleSheets[i]);
+        }
+      }
+      if (doc && doc.adoptedStyleSheets) {
+        sheets = sheets.concat(
+          Array.prototype.slice.call(doc.adoptedStyleSheets)
+        );
+      }
+      var root = el.getRootNode ? el.getRootNode() : null;
+      if (root && root !== doc && root.adoptedStyleSheets) {
+        sheets = sheets.concat(
+          Array.prototype.slice.call(root.adoptedStyleSheets)
+        );
+      }
+      return sheets;
+    }
+    function collectMatchingPxDeclarations(el, property) {
+      var sheets = portableStyleSheetsFor(el);
+      var state = {
+        values: [],
+        masked: false,
+        importantMatch: false
+      };
+      for (var s = 0; s < sheets.length; s += 1) {
+        var rules;
+        try {
+          rules = sheets[s].cssRules;
+        } catch (_err) {
+          state.masked = true;
+          continue;
+        }
+        if (!rules) continue;
+        walkPortableStyleRules(rules, el, property, false, state);
+      }
+      return state;
+    }
+    function resolvePortableBoxSizeValue(el, cs, hostStyle, property) {
+      var computed = cs[property] || cs.getPropertyValue(property);
+      var inline = hostStyle && hostStyle[property];
+      if (inline) {
+        if (PORTABLE_STYLE_PX_LENGTH.test(inline)) {
+          return typeof computed === "string" && computed.trim() === inline ? inline : null;
+        }
+        return collectMatchingPxDeclarations(el, property).importantMatch ? null : inline;
+      }
+      var result = collectMatchingPxDeclarations(el, property);
+      if (result.masked || result.values.length !== 1) return null;
+      var declared = result.values[0];
+      if (!PORTABLE_STYLE_PX_LENGTH.test(declared)) return null;
+      if (typeof computed !== "string" || computed.trim() !== declared) {
+        return null;
+      }
+      return declared;
+    }
     function collectPortableComputedStyles(el) {
       if (!el) return {};
       var cs = window.getComputedStyle(el);
@@ -2603,8 +2719,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var styles = {};
       PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) {
-          var authored = hostStyle && hostStyle[property];
-          if (authored) styles[property] = authored;
+          var resolved = resolvePortableBoxSizeValue(el, cs, hostStyle, property);
+          if (resolved) styles[property] = resolved;
           return;
         }
         var value = cs[property] || cs.getPropertyValue(property);

@@ -103,6 +103,48 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     expect(dropped.style.top).toBe("8px");
   });
 
+  it("applies a class-authored width/height to a destination with no source stylesheet, leaving an auto-sized child fluid", () => {
+    // The destination has no `.card` rule at all — same shape as a
+    // cross-screen move (see editor-chrome.bridge.ts's
+    // resolvePortableBoxSizeValue / portable-style-snapshot.bridge.spec.ts
+    // for how the source captures this).
+    const destWithChild = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"></head><body>
+<div data-agent-native-node-id="dropped" style="position:absolute;left:12px;top:8px;">
+  <div data-agent-native-node-id="dropped-child"></div>
+</div>
+</body></html>`;
+    const result = applyPortableStyleSnapshotToHtml(destWithChild, "dropped", {
+      version: 1,
+      rootSourceId: "dropped",
+      nodes: [
+        {
+          sourceId: "dropped",
+          path: [],
+          styles: { width: "320px", height: "200px" },
+        },
+        {
+          // A plain flow/flex child the source capture never assigned a
+          // size to (no matching rule) — nothing here should freeze it.
+          sourceId: "dropped-child",
+          path: [0],
+          styles: {},
+        },
+      ],
+    });
+    const doc = new DOMParser().parseFromString(result, "text/html");
+    const dropped = doc.querySelector(
+      '[data-agent-native-node-id="dropped"]',
+    ) as HTMLElement;
+    const child = doc.querySelector(
+      '[data-agent-native-node-id="dropped-child"]',
+    ) as HTMLElement;
+    expect(dropped.style.width).toBe("320px");
+    expect(dropped.style.height).toBe("200px");
+    expect(child.style.width).toBe("");
+    expect(child.style.height).toBe("");
+  });
+
   it("is a no-op when the snapshot has nothing left after filtering", () => {
     const result = applyPortableStyleSnapshotToHtml(
       DEST_BARE_SCREEN,
