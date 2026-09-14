@@ -369,8 +369,17 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   in the main workspace by default; minimize and restore remain reversible.
   An isolated, memory-backed browser pass on 2026-09-13 opened New message from
   both the Compose email button and `c`; both focused the To field and left Send
-  disabled. Command palette, reply/forward, route persistence, and paired
-  Superhuman behavior remain unverified.
+  disabled. Command palette, reply/forward, route persistence, and further
+  paired behavior from other starting states remain unverified.
+  Paired live check on 2026-09-14 (Superhuman 1041.0.54; Mail commit
+  `13aa214a29cbd5142d94f12d8ff85168c5372dad`; 1280×720): `c` from a Superhuman
+  search-result view opened a main-workspace compose with To focused. In Mail,
+  `c` did nothing while the minimized-draft Restore button held focus; after
+  focus moved to the inbox web area, `c` opened a floating compose and focused
+  To. The recipient-free test draft had Send disabled and was discarded; the
+  pre-existing draft was left untouched. The opening layout differs (main
+  workspace vs. floating compose), and the initial focus-dependent no-op,
+  other focus targets, and paired button/command-palette behavior remain open.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation.
@@ -456,8 +465,9 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   or produces no match. The official [Autocomplete](https://help.superhuman.com/hc/en-us/articles/46005685782669-Autocomplete)
   article documents phrase autocomplete, not recipient/contact ranking. Keep
   those sources and behaviors separate. Mail currently uses a small deterministic
-  local phrase list, so keyboard/state parity is partial and prediction quality,
-  timing, and exact visual parity remain unverified until paired browser replay.
+  local phrase list, so keyboard/state parity is partial; prediction quality,
+  timing, and exact visual parity remain unverified beyond the paired live sample
+  below.
   A synthetic Mail browser pass at commit `baba8a1` verified the gray preview,
   Settings and Cmd/Ctrl+K toggles, Tab acceptance, and Escape dismissal before
   the next Escape closed the unsent compose. Send stayed disabled with no
@@ -470,8 +480,23 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   `Thanks` suffix, single-insertion Tab/Right acceptance, Escape dismissal
   without text mutation, and a second Escape closing the compose. Send stayed
   disabled, and the test draft disappeared with the memory-only server.
-  Superhuman remained on its loading screen, so paired runtime comparison is
-  still unverified.
+  That run was Mail-only, not paired evidence. A paired live replay on 2026-09-14
+  used Superhuman 1041.0.54 and Mail commit
+  `13aa214a29cbd5142d94f12d8ff85168c5372dad` at 1280×720. Each pass started from
+  a signed-in surface and a new recipient-free compose. The identical synthetic
+  prefix `Thanks for` showed an inline suffix in both apps, but the observed
+  text differed (Superhuman `the`; Mail `taking the time.`), so this sample does
+  not establish prediction-quality parity. Escape removed the preview without
+  changing the typed prefix in Superhuman (`Thanks for`) and in Mail's separate
+  `Thanks` case. Tab acceptance was confirmed for `Thanks for` in both (in
+  Superhuman, the suffix remained after Tab and a subsequent Escape).
+  Superhuman Autocomplete was on when first inspected and left unchanged; Mail
+  was off at the start, enabled for its test, then restored off. No recipient
+  was entered and no message was sent. Both test drafts were discarded; the
+  pre-existing local draft was left untouched. No screenshot artifacts were
+  saved. Timing, caret/wrapping, Right Arrow acceptance in Superhuman, toggle
+  persistence, mobile/language boundaries, and the other COMPOSE-007 cases
+  remain unverified.
 - COMPOSE-008 — Use slash menu, generate/agent handoff, code block language
   picker, link dialog, image paste/drop/upload/failure, and toolbar
   button focus/tooltip states.
