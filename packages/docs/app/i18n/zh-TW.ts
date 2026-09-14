@@ -863,19 +863,63 @@ const messages = {
     },
     assets: {
       faq: {
-        question1: "AI 能產生符合品牌的圖片嗎？",
+        question1: "什麼是 Agent-Native Assets？",
         answer1:
-          "可以。生成會以你上傳的品牌素材庫和參考資料為依據，而不是依賴通用模型的審美。代理會實際讀取規則，據此生成符合品牌的圖片和影片。",
-        question2: "Assets 與 DAM 有什麼不同？",
+          "Agent-Native Assets 是一款免費開源的品牌素材庫，具備 AI 圖片與影片生成能力。你可以整理現有媒體、提供品牌參考資料，並與 AI 代理協作，在多個專案中生成、編輯與重複使用素材。",
+        question2: "Assets 如何運用我的品牌規範？",
         answer2:
-          "DAM 儲存經過核准的檔案，供人搜尋。Assets 不僅能做到這點，還會讓品牌資訊變得機器可讀，使代理預設就能生成並選擇符合品牌的媒體。",
-        question3: "我的其他應用可以使用它嗎？",
+          "把你的標誌、參考圖片、色彩和風格說明加入品牌套件。可重複使用的範本會針對特定內容類型提供生成指示。你的 AI 代理會依據這些脈絡來引導生成過程，你也可以在儲存前檢視並完善結果。",
+        question3: "我可以上傳並整理現有的圖片和影片嗎？",
         answer3:
-          "可以。任何 Agent-Native 應用都能透過 A2A 呼叫 Assets，或將它嵌入為選取器，因此 Slides、Design 等應用可使用同一個經過核准的素材庫。",
-        question4: "Assets 免費嗎？",
+          "可以。上傳現有媒體，或透過 URL 匯入素材，然後將其與生成內容一起歸入素材庫和資料夾中。你可以瀏覽、搜尋素材庫，將素材當作參考再次使用，或將其匯出用於其他專案。",
+        question4: "我的 AI 代理可以從其他應用程式呼叫 Assets 嗎？",
         answer4:
-          "免費且開放原始碼。執行 `npx @agent-native/core@latest create my-assets-app --template assets`，它就屬於你。",
+          "可以。透過 Assets 的 MCP 整合連接受支援的代理，即可在聊天中搜尋、生成與選擇媒體。Agent-Native 應用程式也可以請求素材或嵌入選擇器。實際可用的體驗取決於主應用程式及其與 Assets 的連接方式。",
+        question5: "Assets 能在生成的圖片中使用我的真實標誌嗎？",
+        answer5:
+          "可以。在品牌套件中設定一個標準標誌，並在生成時啟用標誌合成。Assets 會在生成完成後把原始標誌置入圖片，因此影像模型不會重新繪製它。使用前請檢查標誌的位置以及周圍圖像的效果。",
       },
+      s001: "Assets 應用程式截圖",
+      heroEyebrow: "Assets",
+      heroTitle: "用你的 AI 代理建立與管理品牌素材",
+      heroDescription:
+        "Assets 是一款免費開源的品牌素材庫，用於整理你的圖片、影片和品牌參考資料，並配有 AI 代理，能運用你的品牌套件生成與編輯媒體。",
+      heroCta: "開啟 Assets",
+      useCasesHeading: "用 Assets 能做什麼？",
+      useCasesBody:
+        "建立行銷活動圖片，為新專案調整素材，或為團隊和 AI 代理提供共用的品牌素材庫。",
+      useCase1Title: "建立行銷活動素材",
+      useCase1Body:
+        "請你的 AI 代理根據品牌參考資料產生部落格配圖、社群圖片或上市宣傳素材。比較不同選項，再完善你選中的那一個。",
+      useCase2Title: "為新專案調整圖片",
+      useCase2Body:
+        "把一張現有圖片交給你的 AI 代理，說明你需要的改動，例如更換背景，或為標題預留空間。",
+      useCase3Title: "在各項工作中共用品牌素材",
+      useCase3Body:
+        "把標誌、產品圖片和品牌參考資料集中存放，讓團隊成員和已連接的 AI 代理都能找到用於簡報、網站和其他專案的媒體。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "生成、完善與重複使用所需的一切",
+      feature1Title: "品牌素材庫",
+      feature1Body:
+        "在素材庫和資料夾中整理上傳與生成的媒體。新增標誌、參考圖片和風格說明，供你的 AI 代理使用。",
+      feature2Title: "AI 圖片與影片生成",
+      feature2Body:
+        "描述你需要的媒體，選擇你的品牌參考資料。產生多個圖片方案或短影片，儲存前先檢視結果。",
+      feature3Title: "圖片編輯",
+      feature3Body:
+        "請你的 AI 代理編輯或重新設計一張圖片。以現有素材為參考，透過回饋持續完善。",
+      feature4Title: "可重複使用的範本",
+      feature4Body:
+        "為部落格封面、社群圖片等常見工作儲存生成指示。將範本關聯到品牌套件，以重複使用其參考資料。",
+      feature5Title: "原始標誌置入",
+      feature5Body:
+        "在品牌套件中設定你的標誌，並將其加入生成的圖片中。標誌合成會直接置入原始檔案，而不是重新生成一份。",
+      feature6Title: "代理存取",
+      feature6Body:
+        "連接你的 AI 代理即可搜尋素材庫、生成媒體，並在聊天中選擇素材。受支援的應用程式還可以嵌入素材選擇器。",
+      finalCtaHeading: "建立你的下一份品牌素材",
+      finalCtaBody: "選好參考資料，告訴你的 AI 代理你需要什麼。",
+      finalCtaButton: "開啟 Assets",
     },
     clips: {
       s001: "Clips 範本螢幕截圖",

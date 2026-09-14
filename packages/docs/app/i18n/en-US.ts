@@ -726,19 +726,64 @@ const enUS = {
     },
     assets: {
       faq: {
-        question1: "Can AI generate on-brand images?",
+        question1: "What is Agent-Native Assets?",
         answer1:
-          "Yes — generation grounded in your uploaded brand libraries and references, not a generic model's taste. On-brand image and video, from rules the agent actually read.",
-        question2: "How is Assets different from a DAM?",
+          "Agent-Native Assets is a free and open-source brand asset library with AI image and video generation. Organize existing media, supply brand references, and work with an AI agent to generate, edit, and reuse assets across projects.",
+        question2: "How does Assets use my brand guidelines?",
         answer2:
-          "A DAM stores approved files for humans to search. Assets does that and makes the brand machine-readable — so agents generate and pick media that's on-brand by default.",
-        question3: "Can my other apps use it?",
+          "Add your logo, reference images, colors, and style notes to a brand kit. Reusable templates provide instructions for specific types of content. Your AI agent uses that context to guide generation, and you can review and refine the results before saving them.",
+        question3: "Can I upload and organize existing images and videos?",
         answer3:
-          "Yes — any Agent-Native app can invoke Assets through A2A or embed it as a picker, so apps like Slides and Design pull from the same approved library.",
-        question4: "Is Assets free?",
+          "Yes. Upload existing media or import an asset from a URL, then organize it in libraries and folders alongside generated work. You can browse and search the library, reuse assets as references, or export them for another project.",
+        question4: "Can my AI agent use Assets from another app?",
         answer4:
-          "Yes — free and open source. `npx @agent-native/core@latest create my-assets-app --template assets` and it's yours.",
+          "Yes. Connect a supported agent through Assets' MCP integration to search, generate, and select media from chat. Agent-Native apps can also request assets or embed a picker. The available experience depends on the host app and its connection to Assets.",
+        question5: "Can Assets use my actual logo in generated images?",
+        answer5:
+          "Yes. Set a canonical logo in your brand kit and enable logo compositing for the generation. Assets places the original logo onto the image after generation, so the image model does not redraw it. Review its placement and the surrounding image before use.",
       },
+      s001: "Assets app screenshot",
+      // V3 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Assets",
+      heroTitle: "Create and manage brand assets with your AI agent",
+      heroDescription:
+        "Assets is a free and open-source brand asset library for organizing your images, videos, and brand references, with an AI agent that generates and edits media using your brand kit.",
+      heroCta: "Open Assets",
+      useCasesHeading: "What can you do with Assets?",
+      useCasesBody:
+        "Create campaign images, adapt visuals for new projects, or give your team and AI agents a shared brand library.",
+      useCase1Title: "Create campaign visuals",
+      useCase1Body:
+        "Ask your AI agent for blog images, social graphics, or launch visuals using your brand references. Compare options and refine the one you choose.",
+      useCase2Title: "Adapt images for new projects",
+      useCase2Body:
+        "Give your AI agent an existing image and describe the changes you need, such as a different background or space for a headline.",
+      useCase3Title: "Share brand assets across your work",
+      useCase3Body:
+        "Keep logos, product images, and brand references together so teammates and connected AI agents can find media for presentations, websites, and other projects.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading: "Everything you need to generate, refine, and reuse",
+      feature1Title: "Brand asset libraries",
+      feature1Body:
+        "Organize uploaded and generated media in libraries and folders. Add logos, reference images, and style notes for your AI agent to use.",
+      feature2Title: "AI image and video generation",
+      feature2Body:
+        "Describe the media you need and choose your brand references. Generate image options or short videos, then review the results before saving.",
+      feature3Title: "Image editing",
+      feature3Body:
+        "Ask your AI agent to edit or restyle an image. Use the existing asset as a reference and refine it through feedback.",
+      feature4Title: "Reusable templates",
+      feature4Body:
+        "Save generation instructions for recurring work, such as blog covers or social graphics. Associate templates with a brand kit to reuse its references.",
+      feature5Title: "Original logo placement",
+      feature5Body:
+        "Set your brand kit's logo and add it to generated images. Logo compositing places the original file instead of generating a new version.",
+      feature6Title: "Agent access",
+      feature6Body:
+        "Connect your AI agent to search the library, generate media, and choose assets from chat. Supported apps can also embed an asset picker.",
+      finalCtaHeading: "Create your next brand asset",
+      finalCtaBody: "Choose your references and tell your AI agent what you need.",
+      finalCtaButton: "Open Assets",
     },
     chat: {
       faq: {

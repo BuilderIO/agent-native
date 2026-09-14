@@ -894,19 +894,67 @@ const esES = {
     },
     assets: {
       faq: {
-        question1: "¿Puede la IA generar imágenes que respeten mi marca?",
+        question1: "¿Qué es Agent-Native Assets?",
         answer1:
-          "Sí: la generación se basa en tus bibliotecas de marca y referencias subidas, no en el gusto de un modelo genérico. Imágenes y vídeo fieles a la marca, creados a partir de reglas que el agente ha leído realmente.",
-        question2: "¿En qué se diferencia Assets de un DAM?",
+          "Agent-Native Assets es una biblioteca de activos de marca gratuita y de código abierto con generación de imágenes y vídeo por IA. Organiza el contenido multimedia existente, aporta referencias de marca y trabaja con un agente de IA para generar, editar y reutilizar activos en distintos proyectos.",
+        question2: "¿Cómo usa Assets mis directrices de marca?",
         answer2:
-          "Un DAM almacena archivos aprobados para que las personas los busquen. Assets hace eso y además convierte la marca en información legible por máquinas, para que los agentes generen y elijan contenido multimedia fiel a ella de forma predeterminada.",
-        question3: "¿Pueden usarlo mis otras apps?",
+          "Añade tu logotipo, imágenes de referencia, colores y notas de estilo a un kit de marca. Las plantillas reutilizables aportan instrucciones para tipos de contenido concretos. Tu agente de IA usa ese contexto para guiar la generación, y puedes revisar y perfeccionar los resultados antes de guardarlos.",
+        question3: "¿Puedo subir y organizar imágenes y vídeos existentes?",
         answer3:
-          "Sí: cualquier app Agent-Native puede invocar Assets mediante A2A o integrarlo como selector, para que apps como Slides y Design utilicen la misma biblioteca aprobada.",
-        question4: "¿Assets es gratuito?",
+          "Sí. Sube contenido multimedia existente o importa un activo desde una URL, y organízalo en bibliotecas y carpetas junto con el trabajo generado. Puedes explorar y buscar en la biblioteca, reutilizar activos como referencias o exportarlos para otro proyecto.",
+        question4: "¿Puede mi agente de IA usar Assets desde otra app?",
         answer4:
-          "Sí, es gratuito y de código abierto. Ejecuta `npx @agent-native/core@latest create my-assets-app --template assets` y será tuyo.",
+          "Sí. Conecta un agente compatible mediante la integración MCP de Assets para buscar, generar y seleccionar contenido multimedia desde el chat. Las apps Agent-Native también pueden solicitar activos o integrar un selector. La experiencia disponible depende de la app anfitriona y de su conexión con Assets.",
+        question5:
+          "¿Puede Assets usar mi logotipo real en las imágenes generadas?",
+        answer5:
+          "Sí. Define un logotipo canónico en tu kit de marca y activa la composición del logotipo para la generación. Assets coloca el logotipo original sobre la imagen después de generarla, de modo que el modelo de imagen no lo vuelve a dibujar. Revisa su colocación y la imagen circundante antes de usarla.",
       },
+      s001: "Assets captura de pantalla de la plantilla",
+      // V3 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Assets",
+      heroTitle: "Crea y gestiona recursos de marca con tu agente de IA",
+      heroDescription:
+        "Assets es una biblioteca de activos de marca gratuita y de código abierto para organizar tus imágenes, vídeos y referencias de marca, con un agente de IA que genera y edita contenido multimedia usando tu kit de marca.",
+      heroCta: "Abrir Assets",
+      useCasesHeading: "¿Qué puedes hacer con Assets?",
+      useCasesBody:
+        "Crea imágenes de campaña, adapta visuales para nuevos proyectos, o dale a tu equipo y a tus agentes de IA una biblioteca de marca compartida.",
+      useCase1Title: "Crear visuales de campaña",
+      useCase1Body:
+        "Pide a tu agente de IA imágenes para el blog, gráficos para redes sociales o visuales de lanzamiento usando tus referencias de marca. Compara las opciones y perfecciona la que elijas.",
+      useCase2Title: "Adaptar imágenes para nuevos proyectos",
+      useCase2Body:
+        "Dale a tu agente de IA una imagen existente y describe los cambios que necesitas, como un fondo distinto o espacio para un titular.",
+      useCase3Title: "Compartir recursos de marca en todo tu trabajo",
+      useCase3Body:
+        "Mantén juntos los logotipos, las imágenes de producto y las referencias de marca para que tus compañeros y los agentes de IA conectados encuentren contenido multimedia para presentaciones, sitios web y otros proyectos.",
+      keyFeaturesEyebrow: "Funciones clave",
+      keyFeaturesHeading:
+        "Todo lo que necesitas para generar, perfeccionar y reutilizar",
+      feature1Title: "Bibliotecas de activos de marca",
+      feature1Body:
+        "Organiza el contenido multimedia subido y generado en bibliotecas y carpetas. Añade logotipos, imágenes de referencia y notas de estilo para que los use tu agente de IA.",
+      feature2Title: "Generación de imágenes y vídeo con IA",
+      feature2Body:
+        "Describe el contenido multimedia que necesitas y elige tus referencias de marca. Genera opciones de imágenes o vídeos cortos, y revisa los resultados antes de guardarlos.",
+      feature3Title: "Edición de imágenes",
+      feature3Body:
+        "Pide a tu agente de IA que edite o modifique el estilo de una imagen. Usa el activo existente como referencia y perfecciónalo con tus comentarios.",
+      feature4Title: "Plantillas reutilizables",
+      feature4Body:
+        "Guarda instrucciones de generación para trabajos recurrentes, como portadas de blog o gráficos para redes sociales. Asocia plantillas a un kit de marca para reutilizar sus referencias.",
+      feature5Title: "Colocación del logotipo original",
+      feature5Body:
+        "Define el logotipo de tu kit de marca y añádelo a las imágenes generadas. La composición del logotipo coloca el archivo original en lugar de generar una versión nueva.",
+      feature6Title: "Acceso del agente",
+      feature6Body:
+        "Conecta tu agente de IA para buscar en la biblioteca, generar contenido multimedia y elegir activos desde el chat. Las apps compatibles también pueden integrar un selector de activos.",
+      finalCtaHeading: "Crea tu próximo recurso de marca",
+      finalCtaBody:
+        "Elige tus referencias y dile a tu agente de IA lo que necesitas.",
+      finalCtaButton: "Abrir Assets",
     },
     chat: {
       faq: {
