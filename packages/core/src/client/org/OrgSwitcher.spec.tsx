@@ -167,6 +167,17 @@ describe("OrgSwitcher", () => {
     expect(button).not.toBeNull();
     expect(button?.getAttribute("aria-label")).toBe("Brent's workspace");
     expect(button?.textContent).toBe("");
+    // Rail neighbours use the shared tooltip; a native `title` reads as a
+    // missing tooltip next to them.
+    expect(button?.getAttribute("title")).toBeNull();
+    act(() => {
+      button?.focus();
+    });
+    expect(
+      Array.from(document.querySelectorAll('[role="tooltip"]')).map(
+        (node) => node.textContent,
+      ),
+    ).toContain("Brent's workspace");
   });
 
   it("renders app utility links in the workspace menu", () => {

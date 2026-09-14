@@ -12,9 +12,12 @@ import {
   useContext,
   useMemo,
   useState,
+  type AnchorHTMLAttributes,
   type ComponentType,
+  type ForwardRefExoticComponent,
   type HTMLAttributes,
   type MouseEvent,
+  type RefAttributes,
   type ReactNode,
 } from "react";
 
@@ -36,14 +39,25 @@ import { usePersistentSidebarCollapsed } from "./use-persistent-sidebar-collapse
 // Context
 // ---------------------------------------------------------------------------
 
-export type AppSidebarLinkComponent = ComponentType<{
+export interface AppSidebarLinkProps extends Omit<
+  AnchorHTMLAttributes<HTMLAnchorElement>,
+  "href"
+> {
   to?: string;
   href?: string;
-  className?: string;
-  onClick?: (event: MouseEvent) => void;
-  children?: ReactNode;
-  "aria-label"?: string;
-}>;
+}
+
+/**
+ * Sidebar links are rendered inside `asChild` triggers (tooltips on the
+ * collapsed rail, and any popover/menu an app layers on top). Radix passes its
+ * event handlers, `data-state`, and ref through props, so a link component that
+ * only destructures the props it recognizes silently drops the trigger and the
+ * tooltip never opens. Forwarding the ref and spreading the rest is the
+ * contract, not an optional nicety.
+ */
+export type AppSidebarLinkComponent = ForwardRefExoticComponent<
+  AppSidebarLinkProps & RefAttributes<HTMLAnchorElement>
+>;
 
 export interface AppSidebarContextValue {
   collapsed: boolean;
@@ -56,32 +70,15 @@ export interface AppSidebarContextValue {
 
 const AppSidebarContext = createContext<AppSidebarContextValue | null>(null);
 
-function NativeSidebarLink({
-  to,
-  href,
-  className,
-  onClick,
-  children,
-  "aria-label": ariaLabel,
-}: {
-  to?: string;
-  href?: string;
-  className?: string;
-  onClick?: (event: MouseEvent) => void;
-  children?: ReactNode;
-  "aria-label"?: string;
-}) {
-  return (
-    <a
-      href={to ?? href}
-      className={className}
-      onClick={onClick}
-      aria-label={ariaLabel}
-    >
-      {children}
-    </a>
-  );
-}
+const NativeSidebarLink: AppSidebarLinkComponent = forwardRef<
+  HTMLAnchorElement,
+  AppSidebarLinkProps
+>(({ to, href, children, ...props }, ref) => (
+  <a ref={ref} href={to ?? href} {...props}>
+    {children}
+  </a>
+));
+NativeSidebarLink.displayName = "NativeSidebarLink";
 
 const defaultSidebarContextValue: AppSidebarContextValue = {
   collapsed: false,
@@ -163,6 +160,26 @@ export const AppSidebarHeader = forwardRef<
     const collapsed = propCollapsed ?? context.collapsed;
     const LinkComponent = context.LinkComponent;
 
+    const brand = brandLink ?? (
+      <LinkComponent
+        to={brandHref}
+        href={brandHref}
+        aria-label={typeof brandName === "string" ? brandName : undefined}
+        onClick={onBrandClick}
+        className={cn(
+          "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          collapsed ? "size-8 justify-center" : "shrink-0",
+        )}
+      >
+        {brandIcon}
+        {!collapsed && brandName && (
+          <span className="truncate text-sm font-semibold text-primary">
+            {brandName}
+          </span>
+        )}
+      </LinkComponent>
+    );
+
     return (
       <div
         ref={ref}
@@ -174,24 +191,17 @@ export const AppSidebarHeader = forwardRef<
         )}
         {...props}
       >
-        {brandLink ?? (
-          <LinkComponent
-            to={brandHref}
-            href={brandHref}
-            aria-label={typeof brandName === "string" ? brandName : undefined}
-            onClick={onBrandClick}
-            className={cn(
-              "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              collapsed ? "size-8 justify-center" : "shrink-0",
-            )}
-          >
-            {brandIcon}
-            {!collapsed && brandName && (
-              <span className="truncate text-sm font-semibold text-primary">
-                {brandName}
-              </span>
-            )}
-          </LinkComponent>
+        {collapsed && !brandLink && brandName ? (
+          // Own provider: the header is exported on its own, so it cannot
+          // assume an AppSidebar TooltipProvider above it.
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>{brand}</TooltipTrigger>
+              <TooltipContent side="right">{brandName}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          brand
         )}
         {badge}
         {children}

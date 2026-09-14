@@ -45,6 +45,12 @@ import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
@@ -434,14 +440,20 @@ export function OrgSwitcher({
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <PopoverPrimitive.Trigger asChild>
         {compact ? (
-          <button
-            type="button"
-            title={triggerLabel}
-            aria-label={triggerLabel}
-            className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-          >
-            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-          </button>
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={triggerLabel}
+                  className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+                >
+                  <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{triggerLabel}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         ) : (
           <button
             type="button"
