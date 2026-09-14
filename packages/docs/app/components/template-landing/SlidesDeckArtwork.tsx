@@ -244,31 +244,79 @@ export function PlanSlide() {
   );
 }
 
-/** The `content` layout as a monthly business update. */
+const OKR_ROWS = [
+  {
+    objective: "Grow net new ARR",
+    target: "$4.5M",
+    actual: "$4.8M",
+    status: "On track",
+  },
+  {
+    objective: "Lift net revenue retention",
+    target: "120%",
+    actual: "118%",
+    status: "At risk",
+    atRisk: true,
+  },
+  {
+    objective: "Activate 2,000 teams",
+    target: "2,000",
+    actual: "2,140",
+    status: "Hit",
+  },
+] as const;
+
+const OKR_NEXT_STEPS = [
+  "Ship guided setup for the top three data sources in October.",
+  "Win back the four EMEA accounts behind the retention gap.",
+];
+
+/** The `content` layout as a monthly business update, tracked as a table. */
 export function UpdateSlide() {
   return (
-    <div className="sd-layout sd-layout-content">
-      <span className="sd-eyebrow">September update</span>
-      <h2 className="sd-heading">Shipped, learned, and next</h2>
-      <div className="sd-update-grid">
-        <div className="sd-update-cell">
-          <span className="sd-update-label">Shipped</span>
-          <span className="sd-update-body">
-            Scheduled reports, Slack digests, and the new billing portal.
-          </span>
-        </div>
-        <div className="sd-update-cell">
-          <span className="sd-update-label">Learned</span>
-          <span className="sd-update-body">
-            Teams that connect a data source in week one retain twice as well.
-          </span>
-        </div>
-        <div className="sd-update-cell">
-          <span className="sd-update-label">Next</span>
-          <span className="sd-update-body">
-            Guided setup for the top three sources, starting in October.
-          </span>
-        </div>
+    <div className="sd-layout sd-layout-content sd-layout-okr">
+      <div className="sd-okr-title">
+        <span className="sd-eyebrow">September update</span>
+        <h2 className="sd-heading">Tracking to our Q3 objectives</h2>
+      </div>
+      <table className="sd-table">
+        <thead>
+          <tr>
+            <th>Objective</th>
+            <th className="sd-table-num">Target</th>
+            <th className="sd-table-num">Actual</th>
+            <th className="sd-table-end">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {OKR_ROWS.map((row) => (
+            <tr key={row.objective}>
+              <td>{row.objective}</td>
+              <td className="sd-table-num">{row.target}</td>
+              <td className="sd-table-num">{row.actual}</td>
+              <td className="sd-table-end">
+                <span
+                  className={
+                    "atRisk" in row && row.atRisk
+                      ? "sd-status is-risk"
+                      : "sd-status"
+                  }
+                >
+                  <span className="sd-status-dot" />
+                  {row.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="sd-next">
+        <span className="sd-next-label">Next</span>
+        <ul className="sd-next-list">
+          {OKR_NEXT_STEPS.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ul>
       </div>
     </div>
   );
@@ -370,10 +418,29 @@ export const SLIDE_ARTWORK_CSS = [
   ".sd-slide .sd-phase-title { font-family: var(--ds-heading-font); font-size: 26px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }",
   ".sd-slide .sd-phase-detail { color: var(--ds-text-muted); font-size: 19px; line-height: 1.4; }",
 
-  ".sd-slide .sd-update-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
-  ".sd-slide .sd-update-cell { display: flex; flex-direction: column; gap: 12px; padding: 26px; border-radius: var(--ds-radius); background: var(--ds-surface); }",
-  ".sd-slide .sd-update-label { color: var(--ds-accent); font-size: 17px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }",
-  ".sd-slide .sd-update-body { font-size: 20px; line-height: 1.4; color: var(--ds-text-muted); }",
+  // OKR table. Tighter than the other content layouts because a header row,
+  // three data rows, and the next-steps block all have to clear 540px.
+  ".sd-slide .sd-layout-okr { gap: 28px; }",
+  ".sd-slide .sd-okr-title { display: flex; flex-direction: column; gap: 14px; }",
+
+  ".sd-slide .sd-table { width: 100%; border-collapse: collapse; }",
+  ".sd-slide .sd-table th { padding: 0 0 12px; border-bottom: 2px solid var(--ds-grid); color: var(--ds-text-muted); font-size: 16px; font-weight: 600; letter-spacing: 0.06em; text-align: left; text-transform: uppercase; }",
+  ".sd-slide .sd-table td { padding: 15px 0; border-bottom: 1px solid var(--ds-grid); font-size: 20px; line-height: 1.3; }",
+  ".sd-slide .sd-table tr > *:first-child { width: 46%; font-weight: 600; }",
+  ".sd-slide .sd-table tbody tr:last-child td { border-bottom: 0; }",
+  ".sd-slide .sd-table-num { width: 15%; color: var(--ds-text-muted); font-variant-numeric: tabular-nums; text-align: right; }",
+  ".sd-slide .sd-table-end { text-align: right; }",
+
+  ".sd-slide .sd-status { display: inline-flex; align-items: center; gap: 9px; padding: 6px 14px; border-radius: 999px; background: var(--ds-surface); color: var(--ds-accent); font-size: 17px; font-weight: 600; }",
+  ".sd-slide .sd-status-dot { width: 9px; height: 9px; flex-shrink: 0; border-radius: 999px; background: currentColor; }",
+  // The off-track row reads as muted rather than as a second accent: a warning
+  // hue would be a colour the deck's design system never defined.
+  ".sd-slide .sd-status.is-risk { color: var(--ds-text-muted); }",
+
+  ".sd-slide .sd-next { display: flex; align-items: flex-start; gap: 18px; }",
+  ".sd-slide .sd-next-label { flex-shrink: 0; padding-top: 3px; color: var(--ds-accent); font-size: 17px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }",
+  ".sd-slide .sd-next-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }",
+  ".sd-slide .sd-next-list li { color: var(--ds-text-muted); font-size: 19px; line-height: 1.4; }",
 
   // Paper. The renderer's own light fallbacks, applied when the docs shell is
   // light. Stays last so it wins on source order over the dark values above.
