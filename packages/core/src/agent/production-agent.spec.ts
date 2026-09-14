@@ -661,7 +661,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "huge.png",
       contentType: "image/png",
-      data: `data:image/png;base64,${"A".repeat(1_000_001)}`,
+      data: `data:image/png;base64,${"A".repeat(5_000_001)}`,
       url: "https://cdn.example.com/huge.png",
     };
     const parts = buildUserContentWithAttachments({
@@ -671,7 +671,49 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "image")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("https://cdn.example.com/huge.png");
-    expect(text).toContain("too large to send inline");
+    expect(text).toContain("per-image limit");
+  });
+
+  // The file_url cap is an OpenAI limit on a different field. Applying it to
+  // images made an ordinary phone photo unreadable: the user was told the
+  // image was too large AND that storage had to be connected, neither of which
+  // was actionable. A photo this size is vision input and needs no storage.
+  it("inlines a multi-megabyte photo with no upload URL and no storage configured", () => {
+    const att: any = {
+      type: "image",
+      name: "camera_photo.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(2_500_000)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "add these places to Wednesday",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(true);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).not.toMatch(/too large/i);
+    expect(text).not.toMatch(/smaller/i);
+  });
+
+  // Over the real image ceiling the model must get the number, or it invents
+  // one and then contradicts itself when the user asks what the limit is.
+  it("quotes the actual image limit and rules out storage as the cause", () => {
+    const att: any = {
+      type: "image",
+      name: "enormous.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(5_000_001)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "read this",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("3.6 MB");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("still inlines an image that fits", () => {
@@ -705,7 +747,8 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "file")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("huge.pdf");
-    expect(text).toContain("no upload URL");
+    expect(text).toContain("per-file limit");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -2177,6 +2220,25 @@ describe("createProductionAgentHandler", () => {
       }),
     );
   });
+
+  it("terminalizes a preclaimed row when turn persistence fails", () => {
+    const source = readFileSync(
+      new URL("./production-agent.ts", import.meta.url),
+      "utf8",
+    );
+    const preparation = source.slice(
+      source.indexOf("if (options.onRunPrepared"),
+      source.indexOf("// ─── Durable-background dispatch decision"),
+    );
+
+    expect(preparation).toContain("await options.onRunPrepared");
+    expect(preparation).toContain("if (foregroundRunRowInserted)");
+    expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
+    expect(preparation).toContain(
+      'setRunTerminalReason(runId, "run_preparation_failed")',
+    );
+    expect(preparation).toContain("throw error");
+  });
 });
 
 describe("filterActionsByAllowedNames", () => {
@@ -3226,6 +3288,64 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
+  it("auto-continues when assistant text follows partial action input", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "should not execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          text: '{"designId":"design-1",',
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "I will update the template now." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "edit-design": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+  });
+
   it("does NOT checkpoint a zero-byte tool input that stays quiet", async () => {
     // The zero-byte restart tripwire is gone with the rest of the
     // action-preparation machinery. A tool input announced with no bytes yet is
@@ -4191,7 +4311,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a fresh read-only input id streaming after an abandoned zero-byte id", async () => {
@@ -4268,7 +4391,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps a different tool streaming after an abandoned zero-byte tool", async () => {
@@ -4344,7 +4470,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("keeps assembling a large action input while bytes keep streaming", async () => {
@@ -4412,7 +4541,10 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
   });
 
   it("serializes tool calls when a turn includes mutating actions", async () => {

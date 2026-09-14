@@ -47,12 +47,16 @@ async function fetchWithTimeout(url: string): Promise<Response> {
  */
 async function fetchWithRetry(
   url: string,
+  shouldRetryResponse: (response: Response) => boolean = (response) =>
+    !response.ok,
 ): Promise<{ response?: Response; error?: unknown }> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const response = await fetchWithTimeout(url);
-      if (response.ok || attempt === MAX_ATTEMPTS) return { response };
+      if (!shouldRetryResponse(response) || attempt === MAX_ATTEMPTS) {
+        return { response };
+      }
       lastError = new Error(`HTTP ${response.status}`);
     } catch (err) {
       lastError = err;
@@ -202,23 +206,26 @@ async function checkHealth(
 }
 
 async function checkRoot(baseUrl: string): Promise<CheckResult> {
-  try {
-    const response = await fetchWithTimeout(`${baseUrl}/`);
-    if (response.status < 200 || response.status >= 400) {
-      return { ok: false, reason: `/ returned HTTP ${response.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: `/ network error: ${errorMessage(err)}` };
+  const { response, error } = await fetchWithRetry(`${baseUrl}/`);
+  if (!response) {
+    return { ok: false, reason: `/ network error: ${errorMessage(error)}` };
   }
+  if (response.status < 200 || response.status >= 400) {
+    return {
+      ok: false,
+      reason: `/ returned HTTP ${response.status} after retries`,
+    };
+  }
+  return { ok: true };
 }
 
 async function checkAuthRoutes(baseUrl: string): Promise<CheckResult> {
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(`${baseUrl}/_agent-native/auth/ba/jwks`);
-  } catch (err) {
-    return { ok: false, reason: `jwks network error: ${errorMessage(err)}` };
+  const { response, error } = await fetchWithRetry(
+    `${baseUrl}/_agent-native/auth/ba/jwks`,
+    (result) => result.status !== 404 && !result.ok,
+  );
+  if (!response) {
+    return { ok: false, reason: `jwks network error: ${errorMessage(error)}` };
   }
   // Not every template mounts Better Auth; 404 means it wasn't, not that it broke.
   if (response.status === 404) return { ok: true };

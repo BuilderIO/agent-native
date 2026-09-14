@@ -1221,6 +1221,60 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
   });
 
+  it("shows a connection label for a selected model whose provider is unconfigured", () => {
+    function Harness({ configured }: { configured: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "openai",
+                label: "OpenAI",
+                models: ["gpt-5.6-luna"],
+                configured,
+              },
+            ],
+            selectedModel: "gpt-5.6-luna",
+            selectedEngine: "openai",
+            onModelChange: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness, { configured: false })));
+    const modelButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    expect(modelButton?.textContent).toContain("Connect keys");
+    expect(modelButton?.textContent).not.toContain("GPT-5.6 Luna");
+    expect(modelButton?.getAttribute("aria-label")).toContain("Connect keys");
+    expect(modelButton?.getAttribute("aria-label")).not.toContain(
+      "GPT-5.6 Luna",
+    );
+
+    act(() => modelButton?.click());
+    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+      (tab) => tab.textContent?.includes("Connect keys"),
+    );
+    expect(modelTab?.textContent).toContain("Connect keys");
+
+    act(() => root.render(React.createElement(Harness, { configured: true })));
+    expect(
+      container.querySelector('[data-agent-composer-slot="model-button"]')
+        ?.textContent,
+    ).toContain("GPT-5.6 Luna");
+  });
+
   it("resets a hidden model when switching to Claude Code", async () => {
     const onModelChange = vi.fn();
 

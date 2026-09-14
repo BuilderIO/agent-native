@@ -53,6 +53,7 @@
     "pako": "^3.0.0",
     "parse5": "^8.0.1",
     "pdf-parse": "^2.4.5",
+    "playwright": "^1.63.0",
     "prettier": "^3.9.4",
     "yjs": "catalog:",
     "zod": "^4.3.6"

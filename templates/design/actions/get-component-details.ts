@@ -15,7 +15,11 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -67,8 +71,6 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId, nodeId, fileId }) => {
-    const db = getDb();
-
     // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
@@ -76,6 +78,11 @@ export default defineAction({
     // ── Source type + capabilities ───────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
+    if (sourceType !== "inline") {
+      await assertAccess("design", designId, "editor");
+    }
+
+    const db = getDb();
     const caps = resolveSourceCapabilities(sourceType);
     const canResolveToFile = hasCapability(caps, "resolveNodeToFile");
     const hasFullIndex = hasCapability(caps, "indexComponents");
@@ -90,7 +97,9 @@ export default defineAction({
 
     // ── Fetch design file ────────────────────────────────────────────────────
     const conditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       eq(schema.designFiles.designId, designId),
       fileId
         ? eq(schema.designFiles.id, fileId)

@@ -9,6 +9,7 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import { isCodeLayerNodeOrDescendant } from "@/pages/design-editor/commands/visual-duplicate-change";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface ScreenVisualDuplicateChangeArgs {
@@ -86,16 +87,28 @@ export function runScreenVisualDuplicateChange(
     details?.anchorSelector,
     details?.anchorSourceId,
   );
+  // See the matching guard in visual-duplicate-change.ts: a same-row
+  // flow-reorder can resolve its own drop anchor onto the source node or a
+  // descendant of it, nesting the copy inside the element it was copied
+  // from — a structure assertDesignHtmlEditIntegrity rejects outright.
+  const anchorNestedInTarget =
+    targetNode &&
+    anchorNode &&
+    isCodeLayerNodeOrDescendant(projection, anchorNode.id, targetNode.id);
+  const effectiveAnchorNode = anchorNestedInTarget ? targetNode : anchorNode;
+  const effectivePlacement = anchorNestedInTarget
+    ? "after"
+    : (details?.placement ?? "after");
   const nextContent = insertClonedHtmlLayer(baseContent, cloneHtml, {
     targetSelectors: targetNode
       ? codeLayerSelectorAliases(targetNode)
       : [selector],
-    anchorSelectors: anchorNode
-      ? codeLayerSelectorAliases(anchorNode)
+    anchorSelectors: effectiveAnchorNode
+      ? codeLayerSelectorAliases(effectiveAnchorNode)
       : details?.anchorSelector
         ? [details.anchorSelector]
         : undefined,
-    placement: details?.placement ?? "after",
+    placement: effectivePlacement,
     preserveIncomingNodeIds: true,
   });
   if (!nextContent) {

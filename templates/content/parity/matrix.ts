@@ -173,6 +173,28 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.suggested-edits",
+    surface: "editor",
+    label: "Propose reviewable suggested edits (track changes)",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/ReviewDiscussionTools.tsx",
+      "app/components/editor/CommentsSidebar.tsx",
+    ],
+    durableEffect:
+      "Pending suggestions are stored as authored proposal records; the canonical page body stays unchanged until a reviewer accepts.",
+    uiImplementation:
+      "The editor's suggesting mode creates proposals through the core create-resource-suggestion action with tracked-change operations; agents propose typed find/replace suggestions through suggest-document-edit.",
+    status: "action-backed",
+    actions: ["suggest-document-edit"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/suggest-document-edit.db.test.ts"],
+  },
+  {
     id: "editor.blocks-field-word-count",
     surface: "editor",
     label: "Inspect per-field word counts",

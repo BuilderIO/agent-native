@@ -484,6 +484,27 @@ export function getFrameGroupBounds(
   });
 }
 
+/**
+ * Zoom-to-selection (Shift+2) must fit the selected element's own bounds when
+ * only an in-screen element is selected (no screen-frame selection) — Figma
+ * zooms tighter to just that element, not the whole design. `localRect` is
+ * the element's bounding rect in its owning screen's own document coordinate
+ * space (`ElementInfo.boundingRect`); `screenGeometry` is that screen's
+ * canvas/world-space frame. A screen renders its content 1:1 with its frame
+ * geometry, so translating one into the other is a plain offset.
+ */
+export function getElementWorldBoundsForZoomFit(
+  screenGeometry: FrameGeometry,
+  localRect: { x: number; y: number; width: number; height: number },
+): FrameBounds {
+  return getFrameBounds({
+    x: screenGeometry.x + localRect.x,
+    y: screenGeometry.y + localRect.y,
+    width: localRect.width,
+    height: localRect.height,
+  });
+}
+
 export function assignRegions(
   count: number,
   options: AssignRegionsOptions = {},

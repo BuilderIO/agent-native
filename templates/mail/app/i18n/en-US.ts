@@ -89,6 +89,8 @@ const messages = {
       cancel: "Cancel",
       code: "Code",
       deleteDraft: "Delete draft",
+      deleteDrafts: "Delete drafts",
+      reopenDraft: "Reopen",
       discardDraft: "Discard draft",
       enterLinkUrl: "Enter the URL for the link.",
       forward: "Forward",
@@ -282,6 +284,9 @@ const messages = {
       failedToAttachFile: "Failed to attach file",
       failedToUploadImage: "Failed to upload image",
       failedToSendEmail: "Failed to send email",
+      messageSent: "Message sent.",
+      failedToSaveDraft: "Failed to save draft.",
+      failedToDeleteDraft: "Failed to delete draft.",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",
       pleaseAddRecipient: "Please add at least one recipient",
@@ -294,6 +299,8 @@ const messages = {
       draftDismissed: "Draft dismissed.",
       openedInCompose: "Opened in compose.",
       draftSent: "Draft sent.",
+      draftClosed: "Draft closed.",
+      draftsClosed: "{{count}} drafts closed.",
       failedToSendDraft: "Failed to send draft.",
       snoozeDbNotReady:
         "Snooze DB not ready. Run: pnpm db:push in the mail template.",

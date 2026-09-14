@@ -120,6 +120,13 @@ export function FigmaPasteImagesNotice({
       ref={setNoticeEl}
       className="w-full rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg"
     >
+      <input
+        ref={figInputRef}
+        type="file"
+        accept=".fig"
+        className="hidden"
+        onChange={(event) => void handleFigSelected(event)}
+      />
       <div className="flex items-center gap-2 px-1">
         <IconPhotoOff className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs">
@@ -147,13 +154,6 @@ export function FigmaPasteImagesNotice({
             sideOffset={8}
             className="w-56 origin-[--radix-popover-content-transform-origin] p-1"
           >
-            <input
-              ref={figInputRef}
-              type="file"
-              accept=".fig"
-              className="hidden"
-              onChange={(event) => void handleFigSelected(event)}
-            />
             <button
               type="button"
               className={rowClass}

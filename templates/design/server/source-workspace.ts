@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   CollabBaseVersionConflictError,
   hasCollabState,
@@ -160,7 +161,9 @@ export async function resolveSourceWorkspace(
   options: { includeContent?: boolean } = {},
 ): Promise<SourceWorkspaceContext> {
   const access = await resolveAccess("design", designId);
-  if (!access) throw new Error("Design not found");
+  if (!access) {
+    fail("Design not found", { statusCode: 404, errorCode: "not_found" });
+  }
 
   const db = getDb();
   const files = options.includeContent

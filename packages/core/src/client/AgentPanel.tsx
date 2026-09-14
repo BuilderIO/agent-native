@@ -89,6 +89,7 @@ const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
 export function preloadAgentChatSurface(): Promise<void> {
   return loadMultiTabAssistantChat().then(() => undefined);
 }
+import { RealtimeVoiceModeProvider } from "@agent-native/toolkit/composer/useRealtimeVoiceMode";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 
@@ -128,7 +129,6 @@ import {
   startAgentChatViewTransition,
 } from "./chat-view-transition.js";
 import { fetchBuilderStatus } from "./client-status-requests.js";
-import { RealtimeVoiceModeProvider } from "./composer/index.js";
 import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
@@ -1610,7 +1610,7 @@ function AgentPanelInner({
           <DropdownMenuContent
             align="end"
             sideOffset={6}
-            className="w-48"
+            className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-48 overflow-y-auto"
             onCloseAutoFocus={(event) => {
               // A sibling overlay owns focus next; restoring it to the menu
               // trigger would dismiss that overlay as an outside interaction.

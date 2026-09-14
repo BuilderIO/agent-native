@@ -7,24 +7,24 @@ export const DATABASE_ROW_BATCH_LIMIT = 100;
 
 export const databaseRowBatchSchema = z
   .object({
-    databaseId: z.string().optional().describe("Content database ID"),
+    databaseId: z.string().optional().describe("Content collection ID"),
     documentId: z
       .string()
       .optional()
-      .describe("Content database backing document ID"),
+      .describe("Content collection backing document ID"),
     itemIds: z
       .array(z.string())
       .max(DATABASE_ROW_BATCH_LIMIT)
       .optional()
       .describe(
-        'Native JSON array of database row item IDs to mutate in one batch, for example ["item_1", "item_2"].',
+        'Native JSON array of collection row item IDs to mutate in one batch, for example ["item_1", "item_2"].',
       ),
     documentIds: z
       .array(z.string())
       .max(DATABASE_ROW_BATCH_LIMIT)
       .optional()
       .describe(
-        'Native JSON array of database row document IDs to mutate in one batch, for example ["doc_1", "doc_2"].',
+        'Native JSON array of collection row document IDs to mutate in one batch, for example ["doc_1", "doc_2"].',
       ),
   })
   .superRefine((value, ctx) => {
