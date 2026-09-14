@@ -292,7 +292,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "यह ब्राउज़र रीयल-टाइम वॉइस बातचीत का समर्थन नहीं करता।",
   "voiceMode.hideChat": "चैट छिपाएँ",
-  "voiceMode.keepDictating": "बोलकर लिखें",
+  "voiceMode.keepDictating": "संदेश बोलकर लिखें",
   "voiceMode.promptDescription":
     "जब एजेंट नेविगेट करता है और कार्रवाई करता है, तब वॉइस मोड सुनता रहता है।",
   "voiceMode.promptTitle": "अपनी आवाज़ का उपयोग करें",
@@ -334,7 +334,7 @@ const messages: AgentChatTranslation = {
     "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
-  "voiceMode.start": "रीयल-टाइम वॉइस",
+  "voiceMode.start": "वॉइस चैट शुरू करें",
   "voiceMode.startWithOpenAiKey": "OpenAI कुंजी से शुरू करें",
   "voiceMode.status.connecting": "कनेक्ट किया जा रहा है",
   "voiceMode.status.ending": "वॉइस मोड समाप्त हो रहा है",
