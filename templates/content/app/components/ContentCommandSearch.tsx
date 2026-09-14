@@ -1,6 +1,9 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { CommandMenu } from "@agent-native/core/client/navigation";
+import {
+  CommandMenu,
+  useCommandMenuNestedDialog,
+} from "@agent-native/core/client/navigation";
 import { parseSearchQuery, searchQueryNeedles } from "@shared/search-query";
 import {
   IconDatabase,
@@ -168,7 +171,7 @@ function normalizeTimestamp(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function DateSearchChoice({
+export function DateSearchChoice({
   label,
   triggerLabel,
   presetValue,
@@ -187,15 +190,31 @@ function DateSearchChoice({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useCommandMenuNestedDialog(open ? () => setOpen(false) : null);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null,
+  );
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const presets = [
     { value: "all" as const, label: t("root.searchAnyDate") },
     { value: "7" as const, label: t("root.searchPastWeek") },
     { value: "30" as const, label: t("root.searchPastMonth") },
   ];
   return (
-    <Popover open={open} onOpenChange={setOpen} modal>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          setPortalContainer(
+            triggerRef.current?.closest<HTMLElement>('[role="dialog"]') ?? null,
+          );
+        }
+        setOpen(nextOpen);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           variant="outline"
           size="sm"
           className="max-w-full"
@@ -205,13 +224,10 @@ function DateSearchChoice({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        container={portalContainer}
         className="w-auto p-2"
         align="start"
-        onEscapeKeyDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setOpen(false);
-        }}
+        aria-label={label}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           focusInput();

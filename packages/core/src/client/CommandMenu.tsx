@@ -55,6 +55,7 @@ import { cn } from "./utils.js";
 interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
+  registerNestedDialog: (dismiss: () => void) => () => void;
 }
 
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
@@ -63,6 +64,17 @@ function useCommandMenuContext() {
   const ctx = useContext(CommandMenuContext);
   if (!ctx) throw new Error("CommandMenu.* must be used inside <CommandMenu>");
   return ctx;
+}
+
+export function useCommandMenuNestedDialog(dismiss: (() => void) | null) {
+  const { registerNestedDialog } = useCommandMenuContext();
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+
+  useEffect(() => {
+    if (!dismiss) return;
+    return registerNestedDialog(() => dismissRef.current?.());
+  }, [dismiss !== null, registerNestedDialog]);
 }
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────
@@ -322,7 +334,16 @@ export function CommandMenu({
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const nestedDialogsRef = useRef<Array<() => void>>([]);
   const t = useT();
+  const registerNestedDialog = useCallback((dismiss: () => void) => {
+    nestedDialogsRef.current.push(dismiss);
+    return () => {
+      nestedDialogsRef.current = nestedDialogsRef.current.filter(
+        (registered) => registered !== dismiss,
+      );
+    };
+  }, []);
 
   // Built-in "What's new" changelog surface (only active when `changelog` is
   // passed). The dialog is rendered alongside the menu so it survives the menu
@@ -576,10 +597,22 @@ export function CommandMenu({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && nestedDialogsRef.current.length > 0) return;
+          onOpenChange(nextOpen);
+        }}
+      >
         <DialogContent
           ref={containerRef}
           aria-describedby={undefined}
+          onEscapeKeyDown={(event) => {
+            const dismissNested = nestedDialogsRef.current.at(-1);
+            if (!dismissNested) return;
+            event.preventDefault();
+            queueMicrotask(dismissNested);
+          }}
           hideClose
           motion="instant"
           overlayClassName="fixed inset-0 backdrop-blur-none transition-none"
@@ -605,7 +638,9 @@ export function CommandMenu({
             shouldFilter={false}
             className="h-auto rounded-lg"
           >
-            <CommandMenuContext.Provider value={{ search, onOpenChange }}>
+            <CommandMenuContext.Provider
+              value={{ search, onOpenChange, registerNestedDialog }}
+            >
               {/* Search input */}
               <CommandInputPrimitive
                 ref={inputRef}

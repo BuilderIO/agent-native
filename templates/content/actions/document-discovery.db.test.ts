@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -209,6 +210,37 @@ describe("bounded document discovery", () => {
       expect(result.documents[0]?.snippet).toContain("abyssal-giraffe-sonata");
       expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
     }
+  });
+
+  it("returns title matches with absent bodies alongside populated results", async () => {
+    await getDb().execute(
+      sql`alter table ${schema.documents} alter column content drop not null`,
+    );
+    await getDb().execute(sql`
+      insert into ${schema.documents} (id, owner_email, title, content) values
+        ('search-null-body', ${OWNER}, 'Nullable body match', null),
+        ('search-populated-body', ${OWNER}, 'Nullable body match companion', 'bounded companion body')
+    `);
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Nullable body match",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    const byId = new Map(
+      result.documents.map((document) => [document.id, document]),
+    );
+
+    expect(byId.get("search-null-body")).toMatchObject({
+      snippet: "",
+      contentLength: 0,
+    });
+    expect(byId.get("search-populated-body")).toMatchObject({
+      snippet: "bounded companion body",
+      contentLength: 22,
+    });
   });
 
   it("selects the earliest present eligible body needle per result", async () => {

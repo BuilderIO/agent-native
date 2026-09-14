@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CommandMenu,
   openAgentSettings,
+  useCommandMenuNestedDialog,
   useCommandMenuShortcut,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
@@ -481,6 +482,42 @@ describe("CommandMenu docs group", () => {
 
     expect(onOpenChange).toHaveBeenCalledOnce();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("dismisses a nested dialog before the command dialog", async () => {
+    const dismissNested = vi.fn();
+    const onOpenChange = vi.fn();
+    function NestedDialog() {
+      useCommandMenuNestedDialog(dismissNested);
+      return <div role="dialog" aria-label="Date picker" />;
+    }
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={onOpenChange}
+          showAgentFallback={false}
+          renderContent={() => <NestedDialog />}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await act(async () => Promise.resolve());
+
+    expect(dismissNested).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("can opt into opening from a contenteditable target", () => {

@@ -221,6 +221,7 @@ export default defineAction({
     // off a truncated string. Mirrors the
     // `substr`/`length` projection style in list-documents.ts; `position`,
     // `substr`, and `length` all work in PostgreSQL and PGlite.
+    const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
     const selectedBodyNeedle = bodyNeedles.length
       ? sql<string>`(
           select candidate.needle
@@ -228,14 +229,14 @@ export default defineAction({
             bodyNeedles.map((needle) => sql`${needle}`),
             sql`, `,
           )}]::text[]) with ordinality as candidate(needle, query_order)
-          where position(lower(candidate.needle) in lower(${schema.documents.content})) > 0
-          order by position(lower(candidate.needle) in lower(${schema.documents.content})), candidate.query_order
+          where position(lower(candidate.needle) in lower(${normalizedContent})) > 0
+          order by position(lower(candidate.needle) in lower(${normalizedContent})), candidate.query_order
           limit 1
         )`
       : undefined;
     const matchWindow = selectedBodyNeedle
-      ? sql<string>`case when ${selectedBodyNeedle} is not null then substr(${schema.documents.content}, greatest(1, position(lower(${selectedBodyNeedle}) in lower(${schema.documents.content})) - 120), 240 + length(${selectedBodyNeedle})) else substr(${schema.documents.content}, 1, 5000) end`
-      : sql<string>`substr(${schema.documents.content}, 1, 5000)`;
+      ? sql<string>`case when ${selectedBodyNeedle} is not null then substr(${normalizedContent}, greatest(1, position(lower(${selectedBodyNeedle}) in lower(${normalizedContent})) - 120), 240 + length(${selectedBodyNeedle})) else substr(${normalizedContent}, 1, 5000) end`
+      : sql<string>`substr(${normalizedContent}, 1, 5000)`;
     const docs = await db
       .select({
         id: schema.documents.id,
@@ -245,7 +246,7 @@ export default defineAction({
         icon: schema.documents.icon,
         contentPreview: matchWindow,
         snippetNeedle: selectedBodyNeedle ?? sql<string>`''`,
-        contentLength: sql<number>`length(${schema.documents.content})`,
+        contentLength: sql<number>`length(${normalizedContent})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
         sourceKind: schema.documents.sourceKind,
