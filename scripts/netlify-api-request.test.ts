@@ -69,6 +69,27 @@ describe("requestNetlifyApi", () => {
     }
   });
 
+  it("retries transient transport errors for idempotent deletes", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async (_url, options) => {
+      assert.equal(options?.method, "DELETE");
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return new Response(null, { status: 204 });
+    };
+
+    try {
+      const response = await requestNetlifyApi("https://example.test", {
+        method: "DELETE",
+      });
+      assert.equal(response.status, 204);
+      assert.equal(calls, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("preserves the final delete error body after bounded retries", async () => {
     const originalFetch = globalThis.fetch;
     let calls = 0;

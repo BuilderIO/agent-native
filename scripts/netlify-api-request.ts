@@ -32,10 +32,29 @@ export async function requestNetlifyApi(
   let deleteServerErrorAttempts = 0;
   const method = (options.method ?? "GET").toUpperCase();
   while (true) {
-    const response = await fetch(url, {
-      ...options,
-      signal: AbortSignal.timeout(30_000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (error) {
+      if (
+        method !== "DELETE" ||
+        deleteServerErrorAttempts >= MAX_DELETE_SERVER_ERROR_ATTEMPTS - 1
+      ) {
+        throw error;
+      }
+
+      const delay =
+        DELETE_SERVER_ERROR_BACKOFF_MS * 2 ** deleteServerErrorAttempts;
+      deleteServerErrorAttempts += 1;
+      console.warn(
+        `Netlify API transport error during delete; retrying in ${delay}ms.`,
+      );
+      await sleep(delay);
+      continue;
+    }
     if (response.status === 429) {
       if (rateLimitAttempts >= MAX_RATE_LIMIT_ATTEMPTS - 1) return response;
 
