@@ -707,12 +707,13 @@ async function* emitHttpError(
       opts.requestShape,
     );
 
-  // Belt-and-suspenders: 402 without a structured `credits-limit` code
-  // (e.g. bare proxy response) still means quota → show upgrade CTA.
-  if (code.startsWith("credits-limit") || status === 402) {
+  // A bare or otherwise uncoded 402 still means quota on the Builder gateway.
+  const quotaErrorCode =
+    status === 402 && !isCreditsLimitErrorCode(code) ? "http_402" : code;
+  if (isCreditsLimitErrorCode(code) || status === 402) {
     yield stop({
       error: message,
-      errorCode: code,
+      errorCode: quotaErrorCode,
       upgradeUrl: await buildUpgradeUrl(),
     });
     return;
