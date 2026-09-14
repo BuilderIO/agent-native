@@ -595,7 +595,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   after send succeeds; if archive fails, preserve the sent state and do not
   retry the send. Mail now implements these paths locally, based on the
   [official Send + Mark Done guide](https://help.superhuman.com/hc/en-us/articles/47439134613773-Mark-Done);
-  live Superhuman replay is still pending. Use mocked sends only.
+  live Superhuman replay is still pending. Use mocked sends only. Current
+  ComposeModal unit evidence covers only the cases named by its tests; it does
+  not by itself prove command-palette or queued-draft send, duplicate-send
+  defenses, or archive-failure behavior. Keep each of those paths unverified
+  until its own focused regression or observed replay passes; do not mark
+  SEND-002 complete based on ComposeModal coverage alone.
 - SEND-003 — Test optimistic send, `Z` Undo within the reference’s 10-second
   window and at the boundary, after toast change, after navigation, and after
   refresh. Never call a message “sent” before the provider result is
@@ -617,7 +622,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   current user explicitly allowlisted for this run. Send one exact approved
   test message, wait for Sent, receive on the other allowed account, verify
   thread grouping, read/unread, reply, and cleanup/archive. Do not persist those
-  addresses in fixtures or documentation, and do not contact anyone else.
+  addresses in fixtures or documentation, and do not contact anyone else. Live
+  evidence (2026-09-14): one self-directed message was sent using an explicitly
+  approved account; Superhuman showed “Message sent,” and an exact-subject
+  search showed the message as “Me.” Only one Superhuman account was connected.
+  Mail was on its local development account and the second allowed mailbox was
+  not connected, so cross-account receive/thread/reply/read-state verification
+  and Mail real-provider send remain unverified. SEND-007 is not complete.
 - SEND-008 — Force a provider send failure in a mocked browser test. Verify the
   failure notification is discoverable, open its recovery entry point, edit or
   discard, then read back Sent and Drafts to rule out silent loss or duplicate
@@ -677,7 +688,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   and nonmatching fixtures through the synthetic provider; verify resulting
   folder/label/read state and counts, then refresh and reopen Settings. Record
   SH's available criteria, precedence, preview, and retroactive-apply semantics
-  rather than inferring them. Remove the disposable rule and its fixtures.
+  rather than inferring them. For Mail's Gmail filter editor, explicitly verify
+  account selection/scope, create and edit-or-replace semantics, each available
+  filter action, and loading, error, and retry states. Use synthetic accounts
+  and data only; read back the saved filter and matching effects in the same
+  account scope. Remove the disposable rule and its fixtures.
 - ORGANIZE-008 — Compare manual Remind Me from `h`, Command, and
   Cmd/Ctrl+Shift+H in compose. Exercise day/time presets, custom time, timezone,
   “if no reply” vs “regardless,” editing/removing a pending reminder,
@@ -810,10 +825,21 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - SETTINGS-003 — Settings navigation/search/back/refresh. Test signature,
   drafting style, snippets, aliases, tracking, accounts, split/combine inbox,
   filters, automations, AI filter, Auto Labels/Archive/Drafts/Reminders,
-  integration/team permissions, theme, and unsaved changes.
+  integration/team permissions, theme, and unsaved changes. Exercise the
+  rendered theme control toggles light ↔ dark; with system or no saved
+  preference, verify it follows the resolved OS theme and a click selects the
+  opposite explicit theme. Verify saved preference after reload and behavior
+  when the OS theme changes while system is selected. In AI Filter settings,
+  test enable/disable and auto-filter toggles,
+  threshold changes and persistence, editing/saving/canceling instructions,
+  and Keep/Filter review decisions, including loading, error, retry, and state
+  readback; use synthetic messages only.
 - SETTINGS-004 — Use `view-screen`, `navigate`, `get-thread`, `list-inbox-threads`,
   `list-emails`, `search-emails`, `find-contact`, `manage-draft`, and mutation
-  actions against the same visible state. Read back after every write.
+  actions against the same visible state. Include the `export-emails` action;
+  verify its success/output shape and safely read back the exported message
+  identifiers/content against the synthetic source state, without exposing
+  unrelated personal mail. Read back after every write.
 - SETTINGS-005 — Confirm navigation state includes view, tab, threadId,
   focusedEmailId, selectedThreadIds, search, label, filter, active accounts,
   queuedDraftId, settings section, and composeDraftId where applicable.
@@ -946,6 +972,12 @@ an automated DOM assertion alone.
   exact key/mouse sequence, expected Superhuman appearance/behavior, actual
   Mail appearance/behavior, before screenshot for each product, the fix, and
   after screenshots for both products. Re-run the exact sequence after the fix.
+
+For every paired live observation, record the exact Superhuman build/version,
+Mail commit, matched viewport dimensions, matched starting state, and a
+screenshot or artifact reference for each product. If any item is unavailable,
+mark the observation non-reproducible and do not treat it as complete parity
+evidence.
 
 Use synthetic fixture mail only. Inbox screenshots must not capture unrelated
 personal messages; crop or obscure unrelated content before saving evidence.
