@@ -4,6 +4,10 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  AGENT_IMPORT_ERROR_CODES,
+  failAgentImport,
+} from "../lib/agent-import-errors.js";
+import {
   AGENT_PACK_MAX_FILE_BYTES,
   AGENT_PACK_MAX_FILES,
   agentPackProfileContent,
@@ -115,8 +119,9 @@ export default defineAction({
       };
     }
     if (existingProfile) {
-      throw new Error(
+      failAgentImport(
         `An agent already exists at ${root}. Rename the source before importing it.`,
+        AGENT_IMPORT_ERROR_CODES.duplicate,
       );
     }
 

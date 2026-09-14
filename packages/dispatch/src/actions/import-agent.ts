@@ -4,6 +4,10 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  AGENT_IMPORT_ERROR_CODES,
+  failAgentImport,
+} from "../lib/agent-import-errors.js";
+import {
   buildSimpleAgentContent,
   normalizeImportedAgent,
   validateImportedAgentTools,
@@ -80,8 +84,9 @@ export default defineAction({
           warnings,
         };
       }
-      throw new Error(
+      failAgentImport(
         `An agent already exists at ${path}. Rename the source before importing it.`,
+        AGENT_IMPORT_ERROR_CODES.duplicate,
       );
     }
 

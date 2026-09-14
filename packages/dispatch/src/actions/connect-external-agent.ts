@@ -8,9 +8,24 @@ import {
 import { z } from "zod";
 
 import {
+  AGENT_IMPORT_ERROR_CODES,
+  failAgentImport,
+} from "../lib/agent-import-errors.js";
+import {
   currentOrgId,
   currentOwnerEmail,
 } from "../server/lib/dispatch-store.js";
+
+function parseAgentEndpointUrl(value: string): URL {
+  try {
+    return new URL(value.trim());
+  } catch {
+    failAgentImport(
+      "Enter a valid http:// or https:// endpoint URL.",
+      AGENT_IMPORT_ERROR_CODES.inputInvalid,
+    );
+  }
+}
 
 function slugify(value: string): string {
   return (
@@ -54,12 +69,18 @@ export default defineAction({
       .describe("Share with the workspace or keep the connection personal"),
   }),
   run: async ({ url, name, description, scope }) => {
-    const parsed = new URL(url.trim());
+    const parsed = parseAgentEndpointUrl(url);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      throw new Error("Use an http:// or https:// endpoint URL.");
+      failAgentImport(
+        "Use an http:// or https:// endpoint URL.",
+        AGENT_IMPORT_ERROR_CODES.inputInvalid,
+      );
     }
     if (parsed.username || parsed.password) {
-      throw new Error("Do not include credentials in the endpoint URL.");
+      failAgentImport(
+        "Do not include credentials in the endpoint URL.",
+        AGENT_IMPORT_ERROR_CODES.inputInvalid,
+      );
     }
 
     if (scope === "shared") await assertCanManageSharedAgent();
@@ -72,8 +93,9 @@ export default defineAction({
         : currentOwnerEmail();
     const existing = await resourceGetByPath(owner, path);
     if (existing) {
-      throw new Error(
+      failAgentImport(
         `An external agent already exists at ${path}. Rename it before connecting again.`,
+        AGENT_IMPORT_ERROR_CODES.duplicate,
       );
     }
 

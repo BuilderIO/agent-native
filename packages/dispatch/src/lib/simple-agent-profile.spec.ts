@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -72,6 +73,21 @@ describe("simple agent profiles", () => {
   it("creates stable slugs for names", () => {
     expect(slugifyAgentName("  User Research / KPMG  ")).toBe(
       "user-research-kpmg",
+    );
+  });
+
+  it("rejects malformed JSON as a clean validation error, not a crash", () => {
+    let caught: unknown;
+    try {
+      normalizeImportedAgent("{ not valid json", "agent.json");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(isActionContractError(caught)).toBe(true);
+    expect((caught as { statusCode?: number }).statusCode).toBe(400);
+    expect((caught as Error).message).toContain(
+      "it is not valid JSON",
     );
   });
 });
