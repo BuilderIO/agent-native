@@ -138,6 +138,12 @@ export const PROVIDER_TRANSIENT_REJECTION_ERROR_CODE =
  */
 export const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
 
+/** Shared so the gateway, chat copy, and error presentation classify quotas alike. */
+export function isCreditsLimitErrorCode(errorCode?: string): boolean {
+  const code = errorCode?.trim().toLowerCase();
+  return code === "http_402" || code?.startsWith("credits-limit") === true;
+}
+
 /**
  * A 403 whose "reason" is only an SDK/proxy status echo — an empty body, a
  * bare "Forbidden", or the AI SDK's "403 status code (no body)" — carries no

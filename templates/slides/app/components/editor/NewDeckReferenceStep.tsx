@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
+import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -82,6 +83,9 @@ interface NewDeckReferenceStepProps {
   ) => Promise<ImportedReference | null>;
   onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
+  /** Called after the inline "create a design system" dialog completes, so
+   * the caller can refetch the list and surface the new option. */
+  onDesignSystemsChanged: () => void;
   importing?: boolean;
   title: string;
   designSystemLabel: string;
@@ -104,6 +108,7 @@ export function NewDeckReferenceStep({
   onImportSource,
   onSkip,
   onOpenChange,
+  onDesignSystemsChanged,
   importing = false,
   title,
   designSystemLabel,
@@ -121,6 +126,9 @@ export function NewDeckReferenceStep({
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
+  const [referenceDeckTouched, setReferenceDeckTouched] = useState(
+    defaultReferenceDeckId !== null,
+  );
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
   const [selectedSource, setSelectedSource] =
@@ -129,6 +137,7 @@ export function NewDeckReferenceStep({
   const [continuing, setContinuing] = useState(false);
   const [importingSource, setImportingSource] =
     useState<FileImportSource | null>(null);
+  const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
@@ -141,6 +150,7 @@ export function NewDeckReferenceStep({
     if (!open) return;
     setSelectedDesignSystemId(defaultDesignSystemId);
     setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
@@ -169,6 +179,7 @@ export function NewDeckReferenceStep({
   const applyImportedReference = (imported: ImportedReference) => {
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(imported.id);
+    setReferenceDeckTouched(true);
     setSelectedSource(null);
     setImportedReference(imported);
   };
@@ -234,6 +245,7 @@ export function NewDeckReferenceStep({
       setSelectedDesignSystemId(null);
     } else {
       setSelectedReferenceDeckId(null);
+      setReferenceDeckTouched(true);
       setImportedReference(null);
     }
   };
@@ -284,14 +296,13 @@ export function NewDeckReferenceStep({
                   {designSystemLabel}
                 </span>
                 {designSystems.length === 0 && (
-                  <a
-                    href="/design-systems"
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => setShowDesignSystemSetup(true)}
                     className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
                   >
                     {t("home.addDesignSystem")}
-                  </a>
+                  </button>
                 )}
               </div>
               <Select
@@ -338,7 +349,10 @@ export function NewDeckReferenceStep({
                     className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="truncate">
-                      {selectedReferenceDeckTitle ?? chooseDeckLabel}
+                      {selectedReferenceDeckTitle ??
+                        (referenceDeckTouched
+                          ? t("home.none")
+                          : chooseDeckLabel)}
                     </span>
                     <IconChevronDown className="size-4 shrink-0 opacity-50" />
                   </button>
@@ -366,6 +380,7 @@ export function NewDeckReferenceStep({
                           disabled={busy}
                           onSelect={() => {
                             setSelectedReferenceDeckId(null);
+                            setReferenceDeckTouched(true);
                             setImportedReference(null);
                             setSelectedSource(null);
                             setReferenceDeckSearchOpen(false);
@@ -388,6 +403,7 @@ export function NewDeckReferenceStep({
                             disabled={busy}
                             onSelect={() => {
                               setSelectedReferenceDeckId(deck.id);
+                              setReferenceDeckTouched(true);
                               setImportedReference(null);
                               setSelectedSource(null);
                               setReferenceDeckSearchOpen(false);
@@ -555,6 +571,20 @@ export function NewDeckReferenceStep({
           <IconCheck className="ms-1.5 size-4" />
         </Button>
       </footer>
+
+      <DesignSystemSetup
+        open={showDesignSystemSetup}
+        onClose={() => setShowDesignSystemSetup(false)}
+        onComplete={() => {
+          setShowDesignSystemSetup(false);
+          // Most sources hand off to the agent and complete before the row
+          // exists, so this can be a no-op; it only helps the synchronous
+          // edit/GitHub-only paths. The dropdown still catches up once the
+          // agent-created row lands, via the shared action-query sync in
+          // useDbSync (see root.tsx), not through this call.
+          onDesignSystemsChanged();
+        }}
+      />
     </div>
   ) : null;
 }

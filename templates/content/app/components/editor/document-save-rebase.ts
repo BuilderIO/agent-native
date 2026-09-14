@@ -8,7 +8,11 @@ import type { DocumentUpdateConflictResponse } from "@/hooks/use-documents";
 
 import { createVisualEditorExtensions } from "./VisualEditor";
 
-export type DocumentContentBase = { content: string; updatedAt: string | null };
+export type DocumentContentBase = {
+  content: string;
+  updatedAt: string | null;
+  revision?: string;
+};
 export type RebasedDocumentSaveResult =
   | { status: "saved"; document: Document; content: string }
   | { status: "conflict"; localDraft: string };
@@ -83,7 +87,11 @@ export async function saveDocumentWithRebase({
       if (plan.status !== "noop") {
         return conflict();
       }
-      attemptedBase = { content: winner.content, updatedAt: winner.updatedAt };
+      attemptedBase = {
+        content: winner.content,
+        updatedAt: winner.updatedAt,
+        revision: winner.revision,
+      };
     } catch {
       return conflict();
     }

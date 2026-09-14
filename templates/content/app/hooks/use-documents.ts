@@ -9,6 +9,7 @@ import type {
   ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
+  DocumentCreateResult,
   DocumentListResponse,
   DocumentPropertiesResponse,
   DocumentUpdateRequest,
@@ -245,6 +246,10 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   id: string;
   /** updatedAt of the snapshot this save is based on; enables CAS for content saves. */
   baseUpdatedAt?: string;
+  /** Opaque body revision from get-document; ignores unrelated metadata writes. */
+  baseRevision?: string;
+  /** Exact title baseline when a title and body are saved together. */
+  baseTitle?: string;
 };
 
 export type DocumentUpdateResult =
@@ -612,10 +617,31 @@ export function useUpdatePreviewDocumentDraft() {
   });
 }
 
+export function useResolvePreviewDocumentDraft() {
+  return useActionMutation<
+    {
+      status: "resolved" | "document_conflict";
+      choice?: "keep_mine" | "use_saved" | "save_separately";
+      document?: Document;
+      createdDocumentId?: string;
+      urlPath?: string;
+    },
+    {
+      choice: "keep_mine" | "use_saved" | "save_separately";
+      documentId: string;
+      expectedDraftVersion: number;
+      expectedDraftTitle: string;
+      expectedDraftContent: string;
+      expectedDocumentUpdatedAt?: string;
+    }
+  >("resolve-preview-document-draft");
+}
+
 export function useCreateDocument() {
-  return useActionMutation<Document, DocumentCreateRequest>("create-document", {
-    skipActionQueryInvalidation: true,
-  });
+  return useActionMutation<DocumentCreateResult, DocumentCreateRequest>(
+    "create-document",
+    { skipActionQueryInvalidation: true },
+  );
 }
 
 export function useUpdateDocument() {

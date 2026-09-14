@@ -91,16 +91,16 @@ describe("normalizeProductionUrlEntry", () => {
     ).toEqual({ value, normalized: false });
   });
 
-  it("uses the current starter deployment origin for the chat source template", () => {
+  it("uses the Chat production origin for the chat source template", () => {
     expect(
       normalizeProductionUrlEntry(
         "starter",
         "production",
         "APP_URL",
-        "https://chat.agent-native.com",
+        "https://starter.agent-native.com",
       ),
     ).toEqual({
-      value: "https://starter.agent-native.com",
+      value: "https://chat.agent-native.com",
       normalized: true,
     });
   });
