@@ -87,7 +87,10 @@ export {
   type CreativeContextShareTabProps,
 } from "./CreativeContextShareTab.js";
 export { CreativeContextSettingsLink } from "./CreativeContextSettingsLink.js";
-export { useCreativeContextLab } from "./useCreativeContextLab.js";
+export {
+  useCreativeContextLab,
+  useCreativeContextLabState,
+} from "./useCreativeContextLab.js";
 export {
   createCreativeContextAgentTab,
   type CreativeContextAgentTabFactory,

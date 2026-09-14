@@ -16,6 +16,15 @@ const mocks = vi.hoisted(() => ({
   },
   headerActions: null as unknown,
   creativeContextLabEnabled: { value: false },
+  creativeContexts: vi.fn(() => ({ data: undefined, isLoading: false })),
+  creativeContextState: vi.fn(() => ({
+    state: {
+      contextMode: "auto",
+      selectedContextId: "saved-context",
+      pinnedPackId: null,
+    },
+    setState: vi.fn().mockResolvedValue(undefined),
+  })),
   promptPopoverProps: undefined as Record<string, unknown> | undefined,
 }));
 
@@ -75,15 +84,8 @@ vi.mock("@agent-native/creative-context/client", () => ({
   ),
   parseCreativeContexts: () => [],
   useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
-  useCreativeContexts: () => ({ data: undefined, isLoading: false }),
-  useCreativeContextState: () => ({
-    state: {
-      contextMode: "auto",
-      selectedContextId: "saved-context",
-      pinnedPackId: null,
-    },
-    setState: vi.fn().mockResolvedValue(undefined),
-  }),
+  useCreativeContexts: mocks.creativeContexts,
+  useCreativeContextState: mocks.creativeContextState,
 }));
 
 vi.mock("@agent-native/toolkit/app-shell", () => ({
@@ -267,6 +269,13 @@ describe("Index rename dialog accessibility", () => {
 
 describe("Index Creative Context Labs gate", () => {
   it("hides context picker props and sharing UI while the lab is disabled", () => {
+    expect(mocks.creativeContexts).toHaveBeenLastCalledWith(
+      {},
+      { enabled: false },
+    );
+    expect(mocks.creativeContextState).toHaveBeenLastCalledWith({
+      enabled: false,
+    });
     expect(mocks.promptPopoverProps).toMatchObject({
       creativeContexts: [],
       creativeContextsLoading: false,
@@ -285,6 +294,13 @@ describe("Index Creative Context Labs gate", () => {
     mocks.creativeContextLabEnabled.value = true;
     await act(async () => root.render(<Index />));
 
+    expect(mocks.creativeContexts).toHaveBeenLastCalledWith(
+      {},
+      { enabled: true },
+    );
+    expect(mocks.creativeContextState).toHaveBeenLastCalledWith({
+      enabled: true,
+    });
     expect(mocks.promptPopoverProps?.onCreativeContextChange).toEqual(
       expect.any(Function),
     );

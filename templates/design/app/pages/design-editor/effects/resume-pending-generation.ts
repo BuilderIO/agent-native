@@ -34,6 +34,8 @@ export interface ResumePendingGenerationArgs {
   ) => string;
   clearGenerationCompleteTimer: () => void;
   creativeContextEnabled: boolean;
+  creativeContextLabLoading: boolean;
+  creativeContextLabError: string | null;
   design: DesignData | null;
   files: DesignFile[];
   generationModelRef: RefObject<{
@@ -53,6 +55,8 @@ export function runResumePendingGeneration({
   agentSubmit,
   clearGenerationCompleteTimer,
   creativeContextEnabled,
+  creativeContextLabLoading,
+  creativeContextLabError,
   design,
   files,
   generationModelRef,
@@ -64,6 +68,7 @@ export function runResumePendingGeneration({
   trackAgentGeneration,
 }: ResumePendingGenerationArgs) {
   if (!id || !design) return;
+  if (creativeContextLabLoading) return;
 
   const pending = readPendingGeneration(id);
   if (!pending) {
@@ -85,6 +90,17 @@ export function runResumePendingGeneration({
     return;
   }
 
+  if (pending.autoGenerate === false) {
+    setGenerationIssue(null);
+    setHasPendingGeneration(true);
+    return;
+  }
+  if (creativeContextLabError) {
+    setGenerationIssue(creativeContextLabError);
+    setHasPendingGeneration(true);
+    return;
+  }
+
   const prompt =
     pending.prompt && pending.prompt.trim().length > 0
       ? pending.prompt
@@ -99,12 +115,6 @@ export function runResumePendingGeneration({
     pending.designSystemId === undefined
       ? design.designSystemId
       : pending.designSystemId;
-
-  if (pending.autoGenerate === false) {
-    setGenerationIssue(null);
-    setHasPendingGeneration(true);
-    return;
-  }
 
   let cancelled = false;
   void (async () => {

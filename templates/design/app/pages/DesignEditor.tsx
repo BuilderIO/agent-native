@@ -63,7 +63,7 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareTab,
   parseCreativeContexts,
-  useCreativeContextLab,
+  useCreativeContextLabState,
   useCreativeContexts,
   useCreativeContextState,
   readCreativeContextState,
@@ -3142,7 +3142,8 @@ function DesignEditor() {
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
-  const creativeContextEnabled = useCreativeContextLab();
+  const creativeContextLab = useCreativeContextLabState();
+  const creativeContextEnabled = creativeContextLab.enabled;
   const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
   const canCommentDesign =
     isSignedIn &&
@@ -3843,8 +3844,13 @@ function DesignEditor() {
     t,
   ]);
 
-  const creativeContextsQuery = useCreativeContexts();
-  const creativeContextState = useCreativeContextState();
+  const creativeContextsQuery = useCreativeContexts(
+    {},
+    { enabled: creativeContextEnabled },
+  );
+  const creativeContextState = useCreativeContextState({
+    enabled: creativeContextEnabled,
+  });
   const creativeContextOptions = useMemo(
     () =>
       parseCreativeContexts(creativeContextsQuery.data)
@@ -4751,6 +4757,10 @@ function DesignEditor() {
         agentSubmit,
         clearGenerationCompleteTimer,
         creativeContextEnabled,
+        creativeContextLabLoading: creativeContextLab.isLoading,
+        creativeContextLabError: creativeContextLab.isError
+          ? t("designEditor.generationStoppedRetry")
+          : null,
         design,
         files,
         generationModelRef,
@@ -4766,10 +4776,13 @@ function DesignEditor() {
       design,
       files.length,
       creativeContextEnabled,
+      creativeContextLab.isLoading,
+      creativeContextLab.isError,
       agentSubmit,
       markGenerationStale,
       trackAgentGeneration,
       clearGenerationCompleteTimer,
+      t,
     ],
   );
 

@@ -230,8 +230,13 @@ export default function Index() {
     [templatesData?.templates],
   );
   const creativeContextEnabled = useCreativeContextLab();
-  const creativeContextsQuery = useCreativeContexts();
-  const creativeContextState = useCreativeContextState();
+  const creativeContextsQuery = useCreativeContexts(
+    {},
+    { enabled: creativeContextEnabled },
+  );
+  const creativeContextState = useCreativeContextState({
+    enabled: creativeContextEnabled,
+  });
   const creativeContextOptions = useMemo(
     () =>
       parseCreativeContexts(creativeContextsQuery.data)

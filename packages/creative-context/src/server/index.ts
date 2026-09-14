@@ -27,6 +27,8 @@ import { createCreativeContextMediaPlugin } from "./media.js";
 import { registerCreativeContextPromptProvider } from "./prompt-provider.js";
 import { getCreativeContextResourcePath } from "./resource-paths.js";
 
+export { isCreativeContextLabAvailable } from "./labs.js";
+
 export interface CreativeContextSetupOptions extends Partial<
   Omit<CreativeContextServerContext, "connectorContext">
 > {
