@@ -1730,51 +1730,35 @@ test("container-first selection: plain click selects the screen's direct child, 
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
     )
     .contentFrame();
-  // A bare page-wide "Brand" text search is ambiguous once the FD4B footer
-  // duplicate (a second Navbar-shaped subtree) has run earlier in this
-  // serial suite: disambiguate by content the same way the final-structure
-  // test does (the footer copy's wordmark was retyped to "(c) 2026 Brand"),
-  // then scope the query to the TRUE Navbar's subtree.
-  const html = await screenHtml(page, deskScreenId);
-  const navbarIds = nodeIdsForLayerName(html, "Navbar");
-  const trueNavbarId = navbarIds.find(
-    (id) => !elementInner(html, id).includes("(c) 2026 Brand"),
-  )!;
-  const brand = frame
-    .locator(`[data-agent-native-node-id="${trueNavbarId}"]`)
-    .getByText("Brand", { exact: true })
+  // The serial fixture has a Footer copy overlapping Navbar, so use the
+  // unoccluded HeroImage to exercise the same screen-child selection contract.
+  const heroImage = frame
+    .locator('[data-agent-native-layer-name="HeroImage"]')
     .first();
-  await expect(brand).toBeVisible({ timeout: 10_000 });
+  await expect(heroImage).toBeVisible({ timeout: 10_000 });
   await expandAllLayers(page);
   await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
-  // Read the click point AFTER expanding the layers tree, not before — the
-  // panel expansion can still be reflowing the canvas when a box captured
-  // earlier is used, and a stale box drifts onto whatever now sits at those
-  // page coordinates (observed: landed on the FD4B footer duplicate).
-  const box = (await brand.boundingBox())!;
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-
-  // Deselect first (click empty board space), then a single plain click on
-  // Brand's on-screen position must select Navbar — Brand's container and
-  // the screen's direct child — not Brand itself.
+  // Deselect before measuring because deselection can reflow the canvas.
   const empty = await emptyBoardPoint(page);
   await page.mouse.click(empty.x, empty.y);
   await page.waitForTimeout(300);
+  const box = (await heroImage.boundingBox())!;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
   await page.mouse.click(cx, cy);
   await page.waitForTimeout(400);
   expect(
     await selectedLayerName(page),
-    `single click on a Navbar-nested element must select Navbar first; trace: ${await dumpTrace(page)}`,
-  ).toBe("Navbar");
+    `single click on a Hero-nested element must select Hero first; trace: ${await dumpTrace(page)}`,
+  ).toBe("Hero");
 
   // A second click (double-click) at the same point drills one level in.
   await page.mouse.dblclick(cx, cy);
   await page.waitForTimeout(400);
   expect(
     await selectedLayerName(page),
-    "double-click must drill in to select Brand directly",
-  ).toBe("Brand");
+    "double-click must drill in to select HeroImage directly",
+  ).toBe("HeroImage");
 
   // Deselect, then Cmd/Ctrl-click deep-selects in one step.
   await page.mouse.click(empty.x, empty.y);
@@ -1785,8 +1769,8 @@ test("container-first selection: plain click selects the screen's direct child, 
   await page.waitForTimeout(400);
   expect(
     await selectedLayerName(page),
-    `${MOD}-click must deep-select Brand in one step`,
-  ).toBe("Brand");
+    `${MOD}-click must deep-select HeroImage in one step`,
+  ).toBe("HeroImage");
 });
 
 // Kept AFTER the required structure/export tests for the same reason as the
@@ -2002,6 +1986,9 @@ test("trailing: typed Gap values commit on NavLinks, HeroCTAGroup, and HeroCopy"
   await expandLayer(await layerRowForPath(page, "Landing Page", []));
   await expandLayer(await layerRowForPath(page, "Navbar", ["Landing Page"]));
   await expandLayer(await layerRowForPath(page, "Hero", ["Landing Page"]));
+  await expandLayer(
+    await layerRowForPath(page, "HeroCopy", ["Landing Page", "Hero"]),
+  );
 
   // The tree contains both desktop and mobile copies with the same layer
   // names; resolve the desktop row through its full ancestor path.

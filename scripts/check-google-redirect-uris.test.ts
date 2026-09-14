@@ -121,6 +121,7 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
     googleRedirectProbeExitCode({
       expected: 1,
       unregistered: 1,
+      healthMismatches: 0,
       unknown: 0,
       unprobeable: 0,
       invalidCredentials: 0,
@@ -132,6 +133,19 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
     googleRedirectProbeExitCode({
       expected: 1,
       unregistered: 0,
+      healthMismatches: 1,
+      unknown: 0,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+    }),
+    1,
+  );
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 1,
+      unregistered: 0,
+      healthMismatches: 0,
       unknown: 1,
       unprobeable: 0,
       invalidCredentials: 0,
@@ -143,6 +157,7 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
     googleRedirectProbeExitCode({
       expected: 0,
       unregistered: 0,
+      healthMismatches: 0,
       unknown: 0,
       unprobeable: 0,
       invalidCredentials: 0,
@@ -158,6 +173,7 @@ test("allows explicitly enabled legacy health with no redirect coverage", () => 
     googleRedirectProbeExitCode({
       expected: 0,
       unregistered: 0,
+      healthMismatches: 0,
       unknown: 0,
       unprobeable: 0,
       invalidCredentials: 0,
@@ -173,6 +189,7 @@ test("does not let legacy no coverage hide an inconclusive health result", () =>
     googleRedirectProbeExitCode({
       expected: 0,
       unregistered: 0,
+      healthMismatches: 0,
       unknown: 1,
       unprobeable: 0,
       invalidCredentials: 0,

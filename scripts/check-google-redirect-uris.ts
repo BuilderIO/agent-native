@@ -114,13 +114,14 @@ export function isInconclusiveGoogleHealthStatus(
 export function googleRedirectProbeExitCode(input: {
   expected: number;
   unregistered: number;
+  healthMismatches: number;
   unknown: number;
   unprobeable: number;
   invalidCredentials: number;
   skippedRequired: number;
   allowNoCoverage?: boolean;
 }): number {
-  if (input.unregistered > 0) return 1;
+  if (input.unregistered > 0 || input.healthMismatches > 0) return 1;
   if (
     input.unknown > 0 ||
     input.unprobeable > 0 ||
@@ -942,6 +943,7 @@ async function run(argv: string[]): Promise<number> {
   );
 
   let unregistered = 0;
+  let healthMismatches = 0;
   let unknown = 0;
   let unprobeable = 0;
   let invalidCredentials = 0;
@@ -1021,7 +1023,7 @@ async function run(argv: string[]): Promise<number> {
         client,
       );
       if (redirectUriMismatch) {
-        unregistered += 1;
+        healthMismatches += 1;
         console.log(
           `FAIL\t${row.host}\t${client}\thealth\t${redirectUriMismatch}`,
         );
@@ -1057,11 +1059,12 @@ async function run(argv: string[]): Promise<number> {
   }
 
   console.log(
-    `\nSummary: hosts=${rows.length} paths=${options.paths?.length ?? "auto"} sign_in_hosts=${signInHosts} managed_hosts=${managedHosts} expected=${expected} verified=${verified} unregistered=${unregistered} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
+    `\nSummary: hosts=${rows.length} paths=${options.paths?.length ?? "auto"} sign_in_hosts=${signInHosts} managed_hosts=${managedHosts} expected=${expected} verified=${verified} unregistered=${unregistered} health_mismatches=${healthMismatches} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
   );
   return googleRedirectProbeExitCode({
     expected,
     unregistered,
+    healthMismatches,
     unknown,
     unprobeable,
     invalidCredentials,
