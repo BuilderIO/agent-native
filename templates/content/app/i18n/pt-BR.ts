@@ -824,6 +824,18 @@ const rawLiterals = {
     useDiskVersion: "Usar versão do disco",
     keepLocalDraft: "Manter minha versão",
     previewDraftRecovery: "Rascunho de página não salvo",
+    previewDraftCompare: "Escolha qual versão manter",
+    previewDraftYourEdits: "Suas edições",
+    previewDraftSavedVersion: "Versão salva",
+    previewDraftKeepMine: "Manter minha versão",
+    previewDraftUseSaved: "Usar a versão salva",
+    previewDraftSaveSeparately: "Salvar a minha como página separada",
+    previewDraftSavedToHistory: "Suas edições foram salvas no histórico",
+    previewDraftSavedSeparately:
+      "Suas edições foram salvas como página separada",
+    previewDraftOpenSavedPage: "Abrir página",
+    previewDraftConflict:
+      "Este rascunho está em conflito com uma versão mais recente da página. Ele não foi restaurado.",
     restorePreviewDraft: "Restaurar rascunho",
     pageSaveBeforeNavigationFailed:
       "Não foi possível salvar as últimas alterações. Tente novamente antes de sair desta página.",
@@ -1046,6 +1058,7 @@ const history = {
   historyCheckpointAfter: "Depois",
   historyCheckpointBefore: "Antes",
   historyCheckpointLegacy: "Salvo",
+  historyCheckpointRecovery: "Rascunho recuperado",
   historyCheckpointLoadError:
     "Não foi possível carregar os pontos de controle.",
   historyDetailLoadError: "Não foi possível carregar este ponto de controle.",

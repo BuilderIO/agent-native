@@ -265,7 +265,11 @@ export interface PageEditorSurfaceProps extends DocumentEditorProps {
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
-type ContentSaveWatermark = { content: string; updatedAt: string | null };
+type ContentSaveWatermark = {
+  content: string;
+  updatedAt: string | null;
+  revision?: string;
+};
 type DocumentUtilityPanel = "info" | "comments" | null;
 
 export function documentCanonicalMutationsEnabled(
@@ -475,7 +479,11 @@ function adoptConfirmedSaveWatermarks({
     };
   }
   if (updates.content !== undefined) {
-    lastSavedContentRef.current = { content, updatedAt: savedAt };
+    lastSavedContentRef.current = {
+      content,
+      updatedAt: savedAt,
+      revision: saved?.revision,
+    };
   } else if (
     (updates.title !== undefined || updates.icon !== undefined) &&
     saved?.content === lastSavedContentRef.current.content
@@ -1799,10 +1807,11 @@ function PageEditorSessionBody({
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
-  const lastSavedContentRef = useRef<{
-    content: string;
-    updatedAt: string | null;
-  }>({ content: "", updatedAt: null });
+  const lastSavedContentRef = useRef<ContentSaveWatermark>({
+    content: "",
+    updatedAt: null,
+    revision: undefined,
+  });
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localTitleRef = useRef(localTitle);
@@ -1824,6 +1833,8 @@ function PageEditorSessionBody({
   documentUpdatedAtRef.current = document.updatedAt ?? null;
   const documentContentRef = useRef(document.content);
   documentContentRef.current = document.content;
+  const documentRevisionRef = useRef(document.revision);
+  documentRevisionRef.current = document.revision;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
       toast.error(t("empty.genericError"), {
@@ -2080,6 +2091,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? null,
+        revision: document.revision,
       };
       isInitializedRef.current = true;
       if (!document.title) {
@@ -2156,6 +2168,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: serverContent,
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
+        revision: document.revision,
       };
     }
   }, [
@@ -2191,6 +2204,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
+        revision: document.revision,
       };
     }
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
@@ -2326,6 +2340,10 @@ function PageEditorSessionBody({
             ? ((options.contentBase ?? lastSavedContentRef.current).updatedAt ??
               undefined)
             : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? (options.contentBase ?? lastSavedContentRef.current).revision
+            : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
           loadedUpdatedAt:
@@ -2343,6 +2361,10 @@ function PageEditorSessionBody({
             options.historySessionId ??
             historySessionRef.current.activity(documentId),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? { baseTitle: lastSavedTitleRef.current.title }
+            : {}),
         });
       } catch (error) {
         if (updates.title !== undefined) {
@@ -2393,6 +2415,7 @@ function PageEditorSessionBody({
               }
               if (result.content === lastSavedContentRef.current.content) {
                 lastSavedContentRef.current.updatedAt = result.updatedAt;
+                lastSavedContentRef.current.revision = result.revision;
               }
             }
             for (const field of fields) {
@@ -2549,6 +2572,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: document.content,
       updatedAt: document.updatedAt,
+      revision: document.revision,
     };
   }, [
     document.content,
@@ -2569,6 +2593,7 @@ function PageEditorSessionBody({
         lastSavedContentRef.current = {
           content: documentContentRef.current,
           updatedAt: documentUpdatedAtRef.current,
+          revision: document.revision,
         };
       }
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
@@ -2586,9 +2611,9 @@ function PageEditorSessionBody({
         documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
         !isLinkedLocalSourceDocument &&
-        documentUpdatedAtRef.current &&
-        lastSavedContentRef.current.updatedAt &&
-        documentUpdatedAtRef.current > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!lastSavedContentRef.current.revision &&
+        documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
       const updates: Record<string, string> = {};
       if (title !== lastSavedTitleRef.current.title && !titleIsStale)
@@ -2918,6 +2943,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: restored.content,
       updatedAt: restored.updatedAt ?? null,
+      revision: restored.revision,
     };
     historySessionRef.current.reset();
     return editorApplied
@@ -3017,9 +3043,9 @@ function PageEditorSessionBody({
         !!lastSavedTitleRef.current.updatedAt &&
         serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
-        !!serverUpdatedAt &&
-        !!lastSavedContentRef.current.updatedAt &&
-        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!lastSavedContentRef.current.revision &&
+        documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
       const updates: Record<string, string> = {};
       if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
@@ -3049,6 +3075,10 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (lastSavedContentRef.current.updatedAt ?? undefined)
             : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? lastSavedContentRef.current.revision
+            : undefined;
         const loadedContentWasEmpty =
           updates.content !== undefined
             ? isEffectivelyEmptyDocumentContent(
@@ -3068,6 +3098,10 @@ function PageEditorSessionBody({
             : {}),
           ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? { baseTitle: lastSavedTitleRef.current.title }
+            : {}),
         });
         const ok = fetch(url, {
           method: "POST",
@@ -3092,6 +3126,7 @@ function PageEditorSessionBody({
         }
         if (updates.content !== undefined) {
           lastSavedContentRef.current = {
+            ...lastSavedContentRef.current,
             content: pending.content,
             updatedAt: optimisticAt,
           };
