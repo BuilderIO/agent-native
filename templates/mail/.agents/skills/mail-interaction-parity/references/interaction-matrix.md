@@ -31,6 +31,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   scoped to the same accounts.
 - NAV-010 — Use browser Back/Forward through search, thread, compose fullscreen,
   settings, and draft queue. Confirm no stale optimistic screen remains.
+- NAV-011 — Open Important and Other from navigation and their documented
+  shortcuts. With synthetic messages, verify partition membership, counts,
+  account scope, and how read, Done, archive, and move actions affect each
+  partition. Check Back/Forward and refresh after every membership change.
+- NAV-012 — Open No Reply from navigation and its documented shortcut. Use
+  synthetic sent, unanswered, and later-answered threads to verify membership,
+  counts, removal after a reply, and Back/Forward/refresh behavior. Keep this
+  surface distinct from reminder scheduling and auto-reminder detection.
 
 ## Search and search autocomplete
 
@@ -95,11 +103,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   empty, virtualized, and newly fetched rows.
 - LIST-004 — Use Cmd/Ctrl+A in the list, with a selected subset, on an input,
   in a thread, and in compose. Confirm scope and native text selection behavior.
-- LIST-005 — Test each product's displayed e/Done/archive, d or #/trash, u
-  toggle, Shift+I read, Shift+U unread, s star/pin, r reply, reply-all, f
-  forward, h snooze, Shift+! spam, and z undo mappings. Record the actual key
-  shown by Superhuman Command and the corresponding Mail key; do not assume
-  Gmail semantics.
+- LIST-005 — For each product, record the actual key shown by its command
+  surface for Done/archive, trash, read/unread, star, reply/reply-all, forward,
+  snooze, spam, and undo. The 2026-09-13 Superhuman inventory maps `u` to
+  Read/Unread, Shift+U to Unread, and Shift+I to Important; do not classify
+  Shift+I as Read or infer either product's mapping from Gmail semantics.
 - LIST-006 — Select noncontiguous rows, contiguous rows with Shift, select all,
   deselect one, clear selection, then bulk archive, trash, read/unread, star,
   move, label, spam, and snooze.
@@ -190,6 +198,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   On mobile, open it from the participant area above Subject and swipe between
   participants. Edit only the signed-in user's profile; do not use referral,
   team-invite, or other outbound actions.
+- THREAD-016 — On a mobile viewport, reply and reply-all from the open thread,
+  then reply to an earlier message through its overflow menu. Verify target
+  message, recipient scope, quoted text, signature, keyboard-open/dismissed
+  layout, scroll and focus, and draft persistence after leaving and reopening.
+  Exercise mocked send failure and recovery. Keep notification Quick Reply as
+  the distinct SEND-009 case; never send during the default pass.
 
 ## Compose, recipients, and autocomplete
 
