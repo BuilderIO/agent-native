@@ -1,5 +1,13 @@
 # @agent-native/creative-context
 
+## 0.7.25
+
+### Patch Changes
+
+- fba0dbc: Let a host declare the role that recording generation provenance requires, so drafting in a resource you can only read no longer fails on its own provenance write.
+- Release all public npm packages with a patch version bump.
+- bd3e96e: Use the shared serverless Chromium runtime for Design exports and copy it for apps that declare Playwright directly.
+
 ## 0.7.24
 
 ### Patch Changes

@@ -3,6 +3,40 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-12
+
+### Improved
+
+- Inbox tabs are easier to distinguish
+- New-message compose opens in the main workspace by default
+
+### Fixed
+
+- Closing a draft preserves its saved account and backend so recovery actions affect the correct mailbox.
+- Harden draft close recovery and keyboard interaction states
+- Keep mail autocomplete accessibility references valid while suggestions close or filter
+- Mail keeps saved drafts on their owning backend and preserves them through Send Undo and close-all.
+- Saved drafts stay in their original mailbox when reopened, autosaved, or discarded.
+- Send status now follows provider results, undo stays available only before dispatch, and draft-save failures are visible. Closing drafts no longer claims a save is complete before persistence, and deleting a draft targets the draft endpoint.
+
+## 2026-09-11
+
+### Fixed
+
+- Inbox tabs now load from a synced local index: counts match the rows shown, custom label and filter tabs only show unarchived mail, and the inbox stays fast under Gmail rate limits.
+- Inline images in Gmail emails display reliably, including embedded image data
+- Nested Gmail labels now render under their parent labels in the label list.
+- On mobile the sidebar shows a close button instead of a pin control that did nothing.
+- Opening a label no longer fails with a 502 while Gmail is rate limiting; the app now reports the brief pause with a retry time.
+- The inbox tab bar stays on one line and scrolls instead of wrapping.
+
+## 2026-09-10
+
+### Fixed
+
+- Attachments use your connected Builder.io storage in hosted Mail
+- Fixed Google sign-in being blocked with an 'unverified password account' error for workspace users provisioned through cross-app SSO.
+
 ## 2026-09-09
 
 ### Improved
