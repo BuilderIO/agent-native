@@ -89,6 +89,19 @@ export interface DocumentSyncStatus {
   warnings: string[];
 }
 
+export interface NotionMcpConnectionStatus {
+  connected: boolean;
+  servers: Array<{ id: string; name: string; url: string; scope: string }>;
+  /** Scopes whose saved MCP server list could not be read. */
+  unreadableScopes: string[];
+}
+
+/**
+ * `connected` is the per-user Notion OAuth account Content links and syncs
+ * documents with. `mcp` is the separate Notion MCP server shown under Settings
+ * > Integrations. Neither implies the other, so anything that reports Notion
+ * status to a human must read both.
+ */
 export interface NotionConnectionStatus {
   connected: boolean;
   workspaceName: string | null;
@@ -96,6 +109,8 @@ export interface NotionConnectionStatus {
   authUrl: string | null;
   error?: "missing_credentials";
   mode?: "oauth" | null;
+  mcp?: NotionMcpConnectionStatus;
+  statusSummary?: string;
 }
 
 export interface LinkNotionPageRequest {
