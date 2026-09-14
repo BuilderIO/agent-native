@@ -1415,6 +1415,7 @@ test("mobile: Cmd+D duplicates the Landing Page screen; the copy becomes an inde
   });
   await expandAllLayers(page);
   await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await clickLayerRow(page, "Landing Page copy");
   await renameSelected(page, "Landing Page Mobile");
   await waitForPersisted(
     page,
@@ -1823,16 +1824,38 @@ test("layers panel: dragging a row reorders it in the DOM", async ({
 
   const cardRowRow = layerRow(page, "CardRow");
   const heroRow = layerRow(page, "Hero");
-  await cardRowRow.dragTo(heroRow, { targetPosition: { x: 10, y: 2 } });
-  await page.waitForTimeout(600);
+  await expect(cardRowRow).toBeVisible();
+  await expect(heroRow).toBeVisible();
+  await expect(cardRowRow).toHaveAttribute("draggable", "true");
+  await heroRow.getByRole("button", { name: "Collapse layer" }).click();
+  const heroBounds = await heroRow.boundingBox();
+  expect(heroBounds).not.toBeNull();
+  await cardRowRow.dragTo(heroRow, {
+    targetPosition: { x: 24, y: heroBounds!.height - 2 },
+  });
 
-  const html = await screenHtml(page, deskScreenId);
-  const order = [
-    ...html.matchAll(/data-agent-native-layer-name="([^"]+)"/g),
-  ].map((m) => m[1]);
-  const topLevel = order.filter((n) =>
-    ["Navbar", "Hero", "CardRow"].includes(n),
-  );
+  const persistedTopLevelOrder = async () => {
+    const html = await screenHtml(page, deskScreenId);
+    const order = [
+      ...html.matchAll(/data-agent-native-layer-name="([^"]+)"/g),
+    ].map((m) => m[1]);
+    return order.filter((n) => ["Navbar", "Hero", "CardRow"].includes(n));
+  };
+  await expect
+    .poll(
+      async () => {
+        const topLevel = await persistedTopLevelOrder();
+        const cardRowIndex = topLevel.indexOf("CardRow");
+        const heroIndex = topLevel.indexOf("Hero");
+        return cardRowIndex >= 0 && heroIndex >= 0 && cardRowIndex < heroIndex;
+      },
+      {
+        timeout: 15_000,
+        message: "dragging CardRow above Hero must persist the layer order",
+      },
+    )
+    .toBe(true);
+  const topLevel = await persistedTopLevelOrder();
   expect(
     topLevel.indexOf("CardRow"),
     `dragging CardRow above Hero in the layers panel must reorder the DOM; order was ${JSON.stringify(topLevel)}; trace: ${await dumpTrace(page)}`,

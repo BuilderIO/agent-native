@@ -3,6 +3,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 const MAX_RATE_LIMIT_ATTEMPTS = 6;
 const RATE_LIMIT_BACKOFF_MS = 30_000;
 const MAX_RATE_LIMIT_DELAY_MS = 120_000;
+const MAX_DELETE_SERVER_ERROR_ATTEMPTS = 3;
+const DELETE_SERVER_ERROR_BACKOFF_MS = 1_000;
 
 function retryDelayMilliseconds(response: Response, attempt: number): number {
   const retryAfter = response.headers.get("retry-after");
@@ -26,22 +28,47 @@ export async function requestNetlifyApi(
   url: string,
   options: RequestInit = {},
 ): Promise<Response> {
-  for (let attempt = 0; attempt < MAX_RATE_LIMIT_ATTEMPTS; attempt += 1) {
+  let rateLimitAttempts = 0;
+  let deleteServerErrorAttempts = 0;
+  const method = (options.method ?? "GET").toUpperCase();
+  while (true) {
     const response = await fetch(url, {
       ...options,
       signal: AbortSignal.timeout(30_000),
     });
-    if (response.status !== 429) return response;
+    if (response.status === 429) {
+      await response.arrayBuffer();
+      if (rateLimitAttempts >= MAX_RATE_LIMIT_ATTEMPTS - 1) return response;
 
-    await response.arrayBuffer();
-    if (attempt === MAX_RATE_LIMIT_ATTEMPTS - 1) return response;
+      const delay = retryDelayMilliseconds(response, rateLimitAttempts);
+      rateLimitAttempts += 1;
+      console.warn(
+        `Netlify API rate limited; retrying in ${Math.ceil(delay / 1000)}s.`,
+      );
+      await sleep(delay);
+      continue;
+    }
 
-    const delay = retryDelayMilliseconds(response, attempt);
-    console.warn(
-      `Netlify API rate limited; retrying in ${Math.ceil(delay / 1000)}s.`,
-    );
-    await sleep(delay);
+    if (
+      method === "DELETE" &&
+      response.status >= 500 &&
+      response.status < 600
+    ) {
+      await response.arrayBuffer();
+      if (deleteServerErrorAttempts >= MAX_DELETE_SERVER_ERROR_ATTEMPTS - 1) {
+        return response;
+      }
+
+      const delay =
+        DELETE_SERVER_ERROR_BACKOFF_MS * 2 ** deleteServerErrorAttempts;
+      deleteServerErrorAttempts += 1;
+      console.warn(
+        `Netlify API server error during delete; retrying in ${delay}ms.`,
+      );
+      await sleep(delay);
+      continue;
+    }
+
+    return response;
   }
-
-  throw new Error("Netlify API request exhausted its rate-limit retries.");
 }

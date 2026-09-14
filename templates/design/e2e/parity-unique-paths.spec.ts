@@ -70,17 +70,28 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("Alt-drag inside the Layers panel duplicates a layer without touching the canvas", async ({
     page,
   }) => {
-    await selectByText(page, "Alpha Button");
     await openLayerSearch(page, "Button");
+    const target = layerRowButton(page, "Beta Button").first();
+    const sourceRow = layerRowButton(page, "Alpha Button");
+    await expect(sourceRow).toBeVisible();
+    await expect(target).toBeVisible();
+    await sourceRow.click();
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     const before = await topLevelLayerNodeIds(page);
     const beforeCount = before.length;
 
-    const target = layerRowButton(page, "Beta Button").first();
-    const sourceRow = layerRowButton(page, "Alpha Button");
     const sourceLayerNodeId =
       await sourceRow.getAttribute("data-layer-node-id");
+    expect(sourceLayerNodeId).toBeTruthy();
     const sourceBox = (await sourceRow.boundingBox())!;
     const targetBox = (await target.boundingBox())!;
+    const beforeHtml = await getFileHtml(page);
+    const persistedNodeCount = (html: string) =>
+      [...html.matchAll(/data-agent-native-node-id=/g)].length;
+    const beforePersistedNodeCount = persistedNodeCount(beforeHtml);
 
     await page.mouse.move(
       sourceBox.x + sourceBox.width / 2,
@@ -95,7 +106,15 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await page.mouse.up();
     await page.keyboard.up("Alt");
-    await page.waitForTimeout(300);
+    await expect
+      .poll(async () => persistedNodeCount(await getFileHtml(page)), {
+        timeout: 15_000,
+        message: "the Alt-drag duplicate must persist before undo",
+      })
+      .toBeGreaterThan(beforePersistedNodeCount);
+    await expect
+      .poll(async () => (await topLevelLayerNodeIds(page)).length)
+      .toBeGreaterThan(beforeCount);
 
     const after = await topLevelLayerNodeIds(page);
     // A button-shaped leaf's visible text is a real wrapped <span> child
@@ -116,7 +135,15 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toContain(sourceLayerNodeId);
 
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(200);
+    await expect
+      .poll(async () => persistedNodeCount(await getFileHtml(page)), {
+        timeout: 15_000,
+        message: "undo must remove the persisted Alt-drag duplicate",
+      })
+      .toBe(beforePersistedNodeCount);
+    await expect
+      .poll(() => topLevelLayerNodeIds(page))
+      .toHaveLength(beforeCount);
     const undone = await topLevelLayerNodeIds(page);
     expect(undone.length).toBe(beforeCount);
   });

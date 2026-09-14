@@ -571,9 +571,29 @@ test("undo walks back through a trailing selection change before reverting a san
   const id = await newDesign(page);
   await openEditor(page, id);
 
+  const boxALayer = layerRow(page, "Box A");
   await selectViaTree(page, "Box A");
+  await expect(boxALayer).toHaveAttribute("aria-selected", "true");
   const before = await geom(page, id, "box-a");
-  await dragElement(page, "box-a", 100, 0);
+  const source = await box(page, "box-a");
+  const startX = source.x + source.width / 2;
+  const startY = source.y + source.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 100, startY, { steps: 16 });
+  await page.mouse.up();
+  await expect
+    .poll(
+      async () => {
+        const current = await geom(page, id, "box-a");
+        return [current.left, current.top];
+      },
+      {
+        timeout: 15_000,
+        message: "the Box A drag must persist before testing undo history",
+      },
+    )
+    .not.toEqual([before.left, before.top]);
   const dropped = await geom(page, id, "box-a");
   expect(
     [dropped.left, dropped.top],
@@ -588,7 +608,6 @@ test("undo walks back through a trailing selection change before reverting a san
 
   // Undo #1: re-selects Box A; the move is STILL applied.
   await page.keyboard.press(UNDO);
-  await page.waitForTimeout(500);
   await expect(
     layerRow(page, "Box A"),
     "first undo only reverts the trailing selection change (select Box B)",
@@ -601,7 +620,18 @@ test("undo walks back through a trailing selection change before reverting a san
 
   // Undo #2: reverts the move itself; Box A remains selected.
   await page.keyboard.press(UNDO);
-  await page.waitForTimeout(500);
+  await expect
+    .poll(
+      async () => {
+        const current = await geom(page, id, "box-a");
+        return [current.left, current.top];
+      },
+      {
+        timeout: 15_000,
+        message: "undo must persist Box A's original position",
+      },
+    )
+    .toEqual([before.left, before.top]);
   const afterUndo2 = await geom(page, id, "box-a");
   expect(
     [afterUndo2.left, afterUndo2.top],
@@ -615,7 +645,18 @@ test("undo walks back through a trailing selection change before reverting a san
   // Redo #1: reapplies the move (selection stays on Box A, matching what
   // was selected when the drag committed).
   await page.keyboard.press(REDO);
-  await page.waitForTimeout(500);
+  await expect
+    .poll(
+      async () => {
+        const current = await geom(page, id, "box-a");
+        return [current.left, current.top];
+      },
+      {
+        timeout: 15_000,
+        message: "redo must persist Box A's dropped position",
+      },
+    )
+    .toEqual([dropped.left, dropped.top]);
   const afterRedo1 = await geom(page, id, "box-a");
   expect(
     [afterRedo1.left, afterRedo1.top],

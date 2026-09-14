@@ -45,4 +45,45 @@ describe("requestNetlifyApi", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("retries transient server errors for idempotent deletes", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async (_url, options) => {
+      assert.equal(options?.method, "DELETE");
+      calls += 1;
+      return calls === 1
+        ? new Response(null, { status: 500 })
+        : new Response(null, { status: 204 });
+    };
+
+    try {
+      const response = await requestNetlifyApi("https://example.test", {
+        method: "DELETE",
+      });
+      assert.equal(response.status, 204);
+      assert.equal(calls, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not retry server errors for non-idempotent requests", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(null, { status: 500 });
+    };
+
+    try {
+      const response = await requestNetlifyApi("https://example.test", {
+        method: "POST",
+      });
+      assert.equal(response.status, 500);
+      assert.equal(calls, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

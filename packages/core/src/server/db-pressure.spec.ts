@@ -76,6 +76,12 @@ describe("probeDbPressure", () => {
     }
   });
 
+  it("limits both activity scans to the database being probed", () => {
+    for (const sql of [DB_PRESSURE_SQL, CHAT_HEALTH_SCRIPT]) {
+      expect(sql.match(/datname = current_database\(\)/g)).toHaveLength(2);
+    }
+  });
+
   it("uses a provided liveness query duration", async () => {
     const queries: string[] = [];
     const result = await probeDbPressure(

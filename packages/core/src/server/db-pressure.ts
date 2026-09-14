@@ -64,13 +64,15 @@ SELECT
     SELECT max(c) FROM (
       SELECT count(*)::int AS c FROM pg_stat_activity
       WHERE pid <> pg_backend_pid()
+        AND datname = current_database()
         AND state = 'active'
         AND query <> ''
       GROUP BY query
     ) q
   ), 0)::int AS max_same_query
 FROM pg_stat_activity
-WHERE pid <> pg_backend_pid()`;
+WHERE pid <> pg_backend_pid()
+  AND datname = current_database()`;
 
 /** Reasons this database looks pressured, or [] when it looks fine. */
 export function dbPressureWarnings(p: DbPressureCounters): string[] {
