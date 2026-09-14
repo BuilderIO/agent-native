@@ -13,8 +13,10 @@ import type {
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   canonicalizeElementInfoFromProjection,
+  elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import { withMeasuredGeometry } from "@/pages/design-editor/editor-helpers";
 import {
   dedupeStringIds,
   isScreenRootElementInfo,
@@ -223,8 +225,45 @@ export function runScreenElementSelect(
   setHoveredElement(null);
   setHoveredElementScreenId(null);
   if (node && additiveSelection) {
+    // Figma spec §1: Shift+click toggles membership — an already-selected
+    // object is removed, same as Screens' overview toggle
+    // (MultiScreenCanvas.tsx's handleFrameClick). Cmd/Ctrl never reaches
+    // here: additiveSelection above is shiftKey/additive/range only, so
+    // this branch is exclusively the Shift gesture.
+    if (selectedLayerIdsState.includes(node.id)) {
+      // `selectedElement` was just set to the clicked node above, but that
+      // node is the one being REMOVED — selectedCodeLayerNode (and the
+      // inspector/motion tools it feeds) derives from selectedElement, so it
+      // must follow the member that remains, not stay pointed at a node no
+      // longer selected. Pick the same member Screens' own toggle would
+      // (nextSelectedIds[nextSelectedIds.length - 1]).
+      const remainingIds = selectedLayerIdsState.filter(
+        (layerId) => layerId !== node.id,
+      );
+      const remainingId = remainingIds[remainingIds.length - 1];
+      const remainingNode = remainingId
+        ? (projection?.nodes.find(
+            (candidate) => candidate.id === remainingId,
+          ) ?? null)
+        : null;
+      setSelectedElement(
+        remainingNode
+          ? // elementInfoFromCodeLayerNode's boundingRect is always zero (it
+            // has no live DOM to measure) — Shift+2 zoom-to-selection and
+            // the inspector both need a real rect, so measure the live
+            // preview node the same way projection-derived selections
+            // already do elsewhere.
+            withMeasuredGeometry(
+              elementInfoFromCodeLayerNode(remainingNode),
+              screenId,
+            )
+          : null,
+      );
+    }
     setSelectedLayerIdsState((current) =>
-      dedupeStringIds([...current, node.id]),
+      current.includes(node.id)
+        ? current.filter((layerId) => layerId !== node.id)
+        : dedupeStringIds([...current, node.id]),
     );
   } else if (node) {
     // An intent-less select is the bridge re-anchoring after a content

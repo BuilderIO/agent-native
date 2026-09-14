@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
+import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -409,5 +412,93 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       "after",
     );
     expect(applyFileContentUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("runCrossScreenElementDrop — portable style capture failure", () => {
+  it("refuses the move: no history entry, no file write for either file, both files' content unchanged, toast shown once", () => {
+    // A real (mutable) per-file store, not just call-count mocks — writing
+    // TO it is what "applyFileContentUpdate" would mean, so reading it back
+    // afterward is a real "the file didn't change" assertion, not an
+    // inference from a spy never having been called.
+    const screens: Record<string, string> = {
+      source: SCREEN_WITH_FRAME,
+      target: SCREEN_WITH_FRAME,
+    };
+    const applyFileContentUpdate = vi.fn((fileId: string, next: string) => {
+      screens[fileId] = next;
+    });
+    const recordContentHistoryEntry = vi.fn();
+    const sendRuntimeLayerMoveSemanticHandoff = vi.fn();
+    const setRuntimeStructureInsertRequest = vi.fn();
+    const setSelectedElement = vi.fn();
+    const setSelectedLayerIdsState = vi.fn();
+
+    runCrossScreenElementDrop(
+      {
+        applyFileContentUpdate,
+        boardFileId: undefined,
+        canEditDesign: true,
+        clearPendingOverviewLayerSelectionTimer: () => {},
+        codeLayerOwnerByNodeIdRef: { current: new Map() },
+        designSourceType: "inline",
+        getScreenContent: (screenId) => screens[screenId] ?? "",
+        id: undefined,
+        overviewScreens: [
+          {
+            id: "target",
+            filename: "target.html",
+            content: screens.target!,
+            updatedAt: "2026-09-11T00:00:00.000Z",
+            heightPinned: false,
+            sourceType: "inline",
+          },
+        ],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        recordContentHistoryEntry,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        sendRuntimeLayerMoveSemanticHandoff,
+        setActiveFileId: () => {},
+        setCreatedOverviewLayerSelection: () => {},
+        setOverviewSelectedScreenIds: () => {},
+        setRuntimeStructureInsertRequest,
+        setSelectedElement,
+        setSelectedLayerIdsState,
+        t: (key) => key,
+        viewModeRef: { current: "overview" },
+      },
+      {
+        sourceSelector: '[data-agent-native-node-id="frame-1"]',
+        sourceNodeId: "frame-1",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorSelector: "body",
+        targetAnchorPlacement: "inside",
+        targetDropMode: "absolute-container",
+        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetLocalPoint: { x: 240, y: 300 },
+        // The capture-failed signal — distinct from `styleSnapshot: undefined`
+        // (legitimately nothing to carry), which must keep moving normally;
+        // see the "queues an inline Alt-drag copy" tests above for that case.
+        styleSnapshotCaptureFailed: true,
+      },
+    );
+
+    expect(applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(recordContentHistoryEntry).not.toHaveBeenCalled();
+    expect(sendRuntimeLayerMoveSemanticHandoff).not.toHaveBeenCalled();
+    expect(setRuntimeStructureInsertRequest).not.toHaveBeenCalled();
+    expect(setSelectedElement).not.toHaveBeenCalled();
+    expect(setSelectedLayerIdsState).not.toHaveBeenCalled();
+    // Read back the store itself — not just "the write function wasn't
+    // called" — as the actual "both files unchanged" proof.
+    expect(screens.source).toBe(SCREEN_WITH_FRAME);
+    expect(screens.target).toBe(SCREEN_WITH_FRAME);
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      expect.any(Object),
+    );
   });
 });

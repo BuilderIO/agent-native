@@ -351,6 +351,12 @@ export interface MultiScreenCanvasProps {
     sourceCloneHtml?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
+    /** True when the source bridge could not measure the bare-tag probe
+     *  (portableStyleTagDefaults returned null) — distinct from a legitimately
+     *  absent snapshot (`styleSnapshot === undefined`, nothing to carry). The
+     *  drop command must refuse the move rather than silently drop a
+     *  class-only appearance it never got a chance to carry. */
+    styleSnapshotCaptureFailed?: boolean;
   }) => void;
   // ── Board file (new model) ───────────────────────────────────────────────
   /**

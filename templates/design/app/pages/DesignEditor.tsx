@@ -855,6 +855,7 @@ import {
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   resolveAvailableActiveFileId,
+  resolveEffectiveSelectedLayerIds,
   resolveMarqueeAdditive,
   sameStringIds,
   selectionHistorySnapshotsEqual,
@@ -12774,6 +12775,7 @@ function DesignEditor() {
       duplicate?: boolean;
       sourceCloneHtml?: string;
       styleSnapshot?: PortableStyleSnapshot;
+      styleSnapshotCaptureFailed?: boolean;
     }) =>
       runCrossScreenElementDrop(
         {
@@ -16515,11 +16517,7 @@ function DesignEditor() {
             : selectedLayerIdsState
           : selectedLayerIdsState;
     const filtered = baseSelection.filter((layerId) => validIds.has(layerId));
-    if (selectedElementLayerId && !filtered.includes(selectedElementLayerId)) {
-      if (filtered.length > 1) return [...filtered, selectedElementLayerId];
-      return [selectedElementLayerId];
-    }
-    return filtered;
+    return resolveEffectiveSelectedLayerIds(filtered, selectedElementLayerId);
   }, [
     activeCodeLayerProjection.nodes,
     activeFile?.id,

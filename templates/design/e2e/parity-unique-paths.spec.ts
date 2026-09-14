@@ -272,6 +272,8 @@ test.describe.serial("rare-but-real unique paths", () => {
       await frameNode(page, "Fixture Card Title")
     ).boundingBox())!;
     const beforeHtml = await getFileHtml(page);
+    const beforeParentTag = parentTagNameOf(beforeHtml, "e2e-alpha-button");
+    const beforeLiveParent = await liveParentSignature(page, "Alpha Button");
 
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
@@ -282,7 +284,16 @@ test.describe.serial("rare-but-real unique paths", () => {
         steps: 10,
       },
     );
-    await page.keyboard.down("Space");
+    await page.evaluate(() =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: " ",
+          code: "Space",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
     await page.mouse.move(
       sectionBox.x + sectionBox.width / 2,
       sectionBox.y + sectionBox.height / 2,
@@ -290,13 +301,19 @@ test.describe.serial("rare-but-real unique paths", () => {
         steps: 10,
       },
     );
-    await page.keyboard.up("Space");
     await page.mouse.up();
-    // The commit's own file save is debounced (queueFileContentSave's
-    // 400ms coalescing window in DesignEditor.tsx) — wait past it before
-    // reading the persisted document, or this read (and the undo below)
-    // races an in-flight/not-yet-sent save.
-    await page.waitForTimeout(500);
+    await page.evaluate(() =>
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", {
+          key: " ",
+          code: "Space",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    await expect.poll(() => getFileHtml(page)).not.toBe(beforeHtml);
 
     const html = await getFileHtml(page);
     // The fixture's "Fixture Card Title" h2 carries no explicit
@@ -315,16 +332,33 @@ test.describe.serial("rare-but-real unique paths", () => {
         alphaIdx > sectionCloseIdx,
       "Alpha Button must not land inside the section while Space is held during the drag",
     ).toBe(true);
+    // "Positioned after the section's close tag" alone doesn't prove Alpha
+    // became a real sibling of the section at the screen root — it would
+    // equally be satisfied by an accidental wrap in some OTHER new container
+    // placed after the section. Pin down the actual parent, both in the
+    // persisted document and in the live iframe: the screen root here is
+    // <body> (isScreenRootElementInfo's boundary), not the <main> content
+    // wrapper — Space's "keep the current parent" reparents up to the root
+    // when the element is dragged out from under everything, same as
+    // dragging it out of the flex-row would.
+    const afterParentTag = parentTagNameOf(html, "e2e-alpha-button");
+    expect(
+      afterParentTag,
+      `Alpha Button must become a direct child of the screen root <body> (a real sibling of <main>/the section), not merely "somewhere after" the section. before-parent=${beforeParentTag} after-parent=${afterParentTag}`,
+    ).toBe("body");
+    const afterLiveParent = await liveParentSignature(page, "Alpha Button");
+    expect(
+      afterLiveParent.startsWith("BODY|"),
+      `Alpha Button's live DOM parent must be <body> (the screen root) after the Space-held drop; before=${beforeLiveParent} after=${afterLiveParent}`,
+    ).toBe(true);
 
     await page.keyboard.press(`${MOD}+z`);
-    // Undo's own save is immediate (no debounce), but still a real
-    // network round trip — give it time to land before reading back.
-    await page.waitForTimeout(400);
-    const undoneHtml = await getFileHtml(page);
-    expect(
-      undoneHtml,
-      "one undo after a Space-held drag must restore the original document (parent and position), not just deselect",
-    ).toBe(beforeHtml);
+    await expect
+      .poll(() => getFileHtml(page), {
+        message:
+          "one undo after a Space-held drag must restore the original document (parent and position), not just deselect",
+      })
+      .toBe(beforeHtml);
     const restoredBox = (await (
       await frameNode(page, "Alpha Button")
     ).boundingBox())!;
@@ -333,6 +367,79 @@ test.describe.serial("rare-but-real unique paths", () => {
         Math.abs(restoredBox.y - box.y) < 1,
       `one undo must restore Alpha Button's live position; before=(${box.x},${box.y}) after-undo=(${restoredBox.x},${restoredBox.y})`,
     ).toBe(true);
+
+    // Reselect Alpha explicitly via the Layers panel — frameNode only reads
+    // a box, it never clicks anything, and a raw drag off whatever undo left
+    // selected could grab an ancestor instead of Alpha itself (it sits two
+    // levels deep: main > flex row > button). The Layers panel picks the
+    // exact layer directly, unlike a canvas double-click drill-in, which is
+    // timing-sensitive right after undo's own re-render.
+    await layerRowButton(page, "Alpha Button").click();
+    await page.waitForTimeout(100);
+    const restoredTargetBox = (await (
+      await frameNode(page, "Alpha Button")
+    ).boundingBox())!;
+    // frameNode's smallest-bounding-box tie-break resolves "Fixture Card
+    // Title" to the <h2> itself, not the <section> around it — go straight
+    // to the section element so the drop point below is computed against
+    // its real box, not the heading's.
+    await enterDirectMode(page);
+    const currentSectionBox = (await designFrame(page)
+      .locator("section")
+      .first()
+      .boundingBox())!;
+    await page.mouse.move(
+      restoredTargetBox.x + restoredTargetBox.width / 2,
+      restoredTargetBox.y + restoredTargetBox.height / 2,
+    );
+    await page.mouse.down();
+    // A small initial move registers drag-start (vs. a plain click) before
+    // jumping to the target — matches the footer-nesting drag in
+    // parity-drag-reparent.spec.ts.
+    await page.mouse.move(
+      restoredTargetBox.x + restoredTargetBox.width / 2 + 10,
+      restoredTargetBox.y + restoredTargetBox.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      currentSectionBox.x + currentSectionBox.width / 2,
+      currentSectionBox.y + currentSectionBox.height / 2,
+      { steps: 20 },
+    );
+    // Let the hover/insertion-guide detection settle before releasing —
+    // it is debounced, same as the footer-nesting drag above.
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+
+    await expect
+      .poll(
+        async () => {
+          const movedHtml = await getFileHtml(page);
+          const movedAlphaIdx = movedHtml.indexOf(
+            'data-agent-native-node-id="e2e-alpha-button"',
+          );
+          // DOM containment via the persisted `<section` open tag itself,
+          // not the heading's text position — Alpha landing BEFORE the
+          // heading (still between `<section>` and `</section>`) is a
+          // valid order and must not fail this check.
+          const movedSectionOpen = movedHtml.indexOf("<section");
+          const movedSectionClose = movedHtml.indexOf(
+            "</section>",
+            movedSectionOpen,
+          );
+          return (
+            movedSectionOpen > 0 &&
+            movedSectionClose > 0 &&
+            movedAlphaIdx > movedSectionOpen &&
+            movedAlphaIdx < movedSectionClose
+          );
+        },
+        {
+          message:
+            "a subsequent ordinary drag must reparent Alpha Button into the section",
+        },
+      )
+      .toBe(true);
   });
 
   test("click-dragging across multiple eye icons in the Layers panel toggles visibility for the whole run", async ({
@@ -801,4 +908,54 @@ async function getFileHtml(page: Page): Promise<string> {
   const files: any[] = body?.files ?? body?.data?.files ?? [];
   const file = files.find((f) => f.filename === "index.html") ?? files[0];
   return String(file?.content ?? "");
+}
+
+/**
+ * The tag name of `nodeIdAttr`'s immediate enclosing element in `html`, via a
+ * real tag-depth stack walk (not a nearest-preceding-`<` scan, which only
+ * works when the node happens to be its parent's first child — Alpha Button
+ * is NOT always that, e.g. once reparented to the end of `<main>`). Used as a
+ * same-parent identity check that does not depend on the parent having a
+ * persisted data-agent-native-node-id (the flex-row wrapper here has none):
+ * "positioned after the section's close tag" alone doesn't prove the node
+ * became a real sibling of the section (a direct `<main>` child) rather than
+ * landing inside some other new wrapper placed after it.
+ */
+function parentTagNameOf(html: string, nodeIdAttr: string): string | null {
+  const tagRe = /<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>|<\/([a-zA-Z][a-zA-Z0-9]*)>/g;
+  const stack: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    if (match[1]) {
+      const tag = match[1].toLowerCase();
+      const attrs = match[2] ?? "";
+      if (attrs.includes(`data-agent-native-node-id="${nodeIdAttr}"`)) {
+        return stack.length > 0 ? stack[stack.length - 1]! : null;
+      }
+      const selfClosing = /\/\s*$/.test(attrs) || /\/>$/.test(match[0]);
+      if (!selfClosing) stack.push(tag);
+    } else if (match[3]) {
+      const tag = match[3].toLowerCase();
+      for (let index = stack.length - 1; index >= 0; index -= 1) {
+        if (stack[index] === tag) {
+          stack.length = index;
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Live-iframe counterpart of parentTagNameOf: tag name + inline
+ * style of the CURRENT DOM parent of the node matched by `text`, read fresh
+ * (not id-based — the flex-row wrapper has no persisted id either). */
+async function liveParentSignature(page: Page, text: string): Promise<string> {
+  const node = await frameNode(page, text);
+  return node.evaluate((el) => {
+    const parent = el.parentElement;
+    return parent
+      ? `${parent.tagName}|${parent.getAttribute("style") ?? ""}`
+      : "(no parent)";
+  });
 }

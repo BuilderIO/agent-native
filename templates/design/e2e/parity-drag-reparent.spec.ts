@@ -48,6 +48,31 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
+// Style-carry fixture (host-path proof for portableStyleTagDefaults/
+// collectPortableStyleSnapshot in editor-chrome.bridge.ts): the card's
+// appearance comes ONLY from a class rule the destination screen doesn't
+// have, so it can only survive the cross-screen move if the bare-tag-probe
+// diff actually ran and captured it as an inline style.
+const STYLE_CARRY_SOURCE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Style Carry Source</title>
+    <style>.card{color:teal;background-color:#123456;width:320px}</style>
+  </head>
+  <body style="margin:0;position:relative;min-height:900px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <div class="card" data-agent-native-node-id="style-card" data-agent-native-layer-name="StyleCard"
+         style="position:absolute;left:60px;top:60px;height:80px">Style Card</div>
+  </body>
+</html>`;
+
+const STYLE_CARRY_DEST = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Style Carry Dest</title></head>
+  <body style="margin:0;position:relative;min-height:900px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <section data-agent-native-node-id="style-dest-target" data-agent-native-layer-name="StyleDestTarget"
+             style="position:absolute;left:60px;top:60px;width:400px;height:300px;background:#312e81"></section>
+  </body>
+</html>`;
+
 let baseURL = "";
 
 async function postAction(
@@ -84,6 +109,28 @@ async function newTwoScreenDesign(page: Page): Promise<string> {
     designId: id,
     filename: "page-two.html",
     content: SCREEN_TWO,
+    fileType: "html",
+  });
+  return id;
+}
+
+async function newStyleCarryTwoScreenDesign(page: Page): Promise<string> {
+  const created = await postAction(page, "create-design", {
+    title: "parity style carry",
+    projectType: "prototype",
+  });
+  const id = created?.id ?? created?.data?.id;
+  if (!id) throw new Error("create-design returned no id");
+  await postAction(page, "create-file", {
+    designId: id,
+    filename: "index.html",
+    content: STYLE_CARRY_SOURCE,
+    fileType: "html",
+  });
+  await postAction(page, "create-file", {
+    designId: id,
+    filename: "page-two.html",
+    content: STYLE_CARRY_DEST,
     fileType: "html",
   });
   return id;
@@ -734,5 +781,109 @@ test.describe("drag reparent parity", () => {
         },
       )
       .toBe(true);
+  });
+
+  test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
+    page,
+  }) => {
+    const id = await newStyleCarryTwoScreenDesign(page);
+    await gotoEditor(page, id);
+    await page.keyboard.press("Shift+1");
+    const screenOneId = await fileIdFor(page, id, "index.html");
+    const screenTwoId = await fileIdFor(page, id, "page-two.html");
+
+    let lastTargetBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await boxFor(page, screenTwoId, "style-dest-target");
+          const stable =
+            lastTargetBox !== null &&
+            Math.abs(box.x - lastTargetBox.x) < 1 &&
+            Math.abs(box.y - lastTargetBox.y) < 1;
+          lastTargetBox = box;
+          return stable;
+        },
+        { timeout: 5_000, message: "zoom-to-fit never settled" },
+      )
+      .toBe(true);
+
+    const sourceNode = designFrame(page, screenOneId).locator(
+      '[data-agent-native-node-id="style-card"]',
+    );
+    // Read the class-authored appearance directly off the live source node
+    // rather than hardcoding the browser's keyword/hex-to-rgb() conversion.
+    const [colorBefore, backgroundBefore] = await sourceNode.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return [cs.color, cs.backgroundColor];
+    });
+
+    const card = await boxFor(page, screenOneId, "style-card");
+    const target = await boxFor(page, screenTwoId, "style-dest-target");
+
+    await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      card.x + card.width / 2 + 20,
+      card.y + card.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 30 },
+    );
+    await page.waitForTimeout(500);
+    const trace = await dumpTrace(page);
+    await page.mouse.up();
+
+    let screenTwoHtml = "";
+    await expect
+      .poll(
+        async () => {
+          screenTwoHtml = await fileContent(page, id, "page-two.html");
+          const style = styleOf(screenTwoHtml, "style-card");
+          return (
+            screenTwoHtml.includes('data-agent-native-node-id="style-card"') &&
+            style.includes(colorBefore) &&
+            style.includes(backgroundBefore)
+          );
+        },
+        {
+          timeout: 10_000,
+          message: `Style Card must land inside screen two with its class-authored color/background carried as inline style. Trace: ${trace.slice(-800)}`,
+        },
+      )
+      .toBe(true);
+
+    // The gesture is a move, not a copy — the source screen must no longer
+    // carry the node once it has landed in screen two.
+    const screenOneHtmlAfter = await fileContent(page, id, "index.html");
+    expect(
+      screenOneHtmlAfter.includes('data-agent-native-node-id="style-card"'),
+      "Style Card must leave screen one once the cross-screen drag lands it in screen two",
+    ).toBe(false);
+
+    // Live check: screen two has no `.card` rule, so the destination node's
+    // rendered appearance must match the source's only via the carried
+    // inline style, not any stylesheet it inherited.
+    const destNode = designFrame(page, screenTwoId).locator(
+      '[data-agent-native-node-id="style-card"]',
+    );
+    await expect
+      .poll(async () =>
+        destNode.evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return [cs.color, cs.backgroundColor];
+        }),
+      )
+      .toEqual([colorBefore, backgroundBefore]);
+
+    // KNOWN LIMITATION (see portableStyleTagDefaults / PORTABLE_STYLE_BOX_
+    // SIZE_PROPERTIES in editor-chrome.bridge.ts and portable-style-
+    // snapshot.bridge.spec.ts): width/height are carried only when authored
+    // on the element's own inline style. `.card`'s `width:320px` is class-
+    // authored, not inline, so the moved node is NOT required to keep it —
+    // intentionally not asserted here.
   });
 });

@@ -92,6 +92,75 @@ async function portableStyleSnapshotStylesFor(
   }
 }
 
+/**
+ * Same drive-a-real-browser flow, but with `document.createElement("iframe")`
+ * stubbed to throw before the bridge script loads — the only way
+ * portableStyleProbeDocument's own try/catch can fail (sandboxed iframe, CSP,
+ * etc.). Returns the whole snapshot (not drilled into `.styles`) so a caller
+ * can assert it is `undefined` — the loud, distinguishable failure — rather
+ * than a `{}`-per-node snapshot that reads as "nothing here is customized".
+ */
+async function portableStyleSnapshotWithBrokenIframeProbe(
+  html: string,
+  selector: string,
+): Promise<
+  { nodes?: Array<{ styles: Record<string, string> }> } | null | undefined
+> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.evaluate(() => {
+      const realCreateElement = document.createElement.bind(document);
+      document.createElement = ((
+        tagName: string,
+        options?: ElementCreationOptions,
+      ) => {
+        if (tagName.toLowerCase() === "iframe") {
+          throw new Error("iframe creation blocked (test)");
+        }
+        return realCreateElement(tagName, options);
+      }) as typeof document.createElement;
+    });
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as any).__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        (window as any).__messages.push(event.data);
+      });
+    });
+    await page.evaluate((sel) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: [sel] },
+        "*",
+      );
+    }, selector);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.type === "element-select",
+      ),
+    );
+    const messages: Array<Record<string, unknown>> = await page.evaluate(
+      () => (window as any).__messages,
+    );
+    const select = messages.find(
+      (message) => message.type === "element-select",
+    ) as {
+      payload?: {
+        portableStyleSnapshot?: {
+          nodes?: Array<{ styles: Record<string, string> }>;
+        };
+      };
+    };
+    return select?.payload?.portableStyleSnapshot;
+  } finally {
+    await browser.close();
+  }
+}
+
 describe("portable style snapshot diff-vs-defaults probe", () => {
   it(
     "carries a bare tag's authored appearance from the source document's own stylesheet (not just classed elements)",
@@ -170,6 +239,30 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       // moment it lands anywhere the row's width differs.
       expect(styles?.width).toBeUndefined();
       expect(styles?.height).toBeUndefined();
+    },
+  );
+
+  it(
+    "skips the whole snapshot (never a {}-per-node one) when the bare-tag probe iframe can't be created",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <button data-agent-native-node-id="btn">Click</button>
+      </body></html>`;
+      const snapshot = await portableStyleSnapshotWithBrokenIframeProbe(
+        html,
+        '[data-agent-native-node-id="btn"]',
+      );
+      // A `{}` default here would make every computed property look
+      // "customized" (nothing to diff against) — the over-carrying bug this
+      // guards. `null` — not `undefined`, which means "legitimately nothing
+      // to carry" — is the loud, distinguishable CAPTURE-FAILED signal;
+      // collectPortableStyleSnapshot's cross-screen caller pairs it with an
+      // explicit `styleSnapshotCaptureFailed` flag and refuses the move (see
+      // "runCrossScreenElementDrop — portable style capture failure" in
+      // cross-screen-element-drop.spec.ts) rather than silently dropping the
+      // appearance carry-over.
+      expect(snapshot).toBeNull();
     },
   );
 });

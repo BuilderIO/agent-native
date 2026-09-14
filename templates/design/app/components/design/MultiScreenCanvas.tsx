@@ -1042,6 +1042,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     duplicate?: boolean;
     sourceCloneHtml?: string;
     styleSnapshot?: PortableStyleSnapshot;
+    styleSnapshotCaptureFailed?: boolean;
   } | null>(null);
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
   /** Board-space point from the last cross-screen-drag "move" message. */
@@ -2707,6 +2708,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         duplicate?: boolean;
         sourceCloneHtml?: string;
         styleSnapshot?: PortableStyleSnapshot;
+        styleSnapshotCaptureFailed?: boolean;
       },
       lastBoardPoint: Point | null,
     ) => {
@@ -2811,6 +2813,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               duplicate: payload.duplicate,
               sourceCloneHtml: payload.sourceCloneHtml,
               styleSnapshot: payload.styleSnapshot,
+              styleSnapshotCaptureFailed: payload.styleSnapshotCaptureFailed,
             });
           },
         );
@@ -2858,6 +2861,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             duplicate: payload.duplicate,
             sourceCloneHtml: payload.sourceCloneHtml,
             styleSnapshot: payload.styleSnapshot,
+            styleSnapshotCaptureFailed: payload.styleSnapshotCaptureFailed,
           });
         },
       );
@@ -2905,6 +2909,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         elementRect?: CrossScreenDragElementRect;
         pointerOffset?: Point;
         styleSnapshot?: unknown;
+        styleSnapshotCaptureFailed?: boolean;
         duplicate?: boolean;
         sourceCloneHtml?: string;
       };
@@ -2922,6 +2927,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const styleSnapshot = isPortableStyleSnapshot(msg.styleSnapshot)
         ? msg.styleSnapshot
         : undefined;
+      // A shape check alone can't tell "nothing to carry" apart from
+      // "capture failed" — both validate to `undefined` above — so this
+      // travels as its own explicit flag straight from the bridge.
+      const styleSnapshotCaptureFailed =
+        msg.styleSnapshotCaptureFailed === true;
 
       if (msg.phase === "cancel") {
         // Abandoned before the release: invalidate any commit still in flight.
@@ -2986,6 +2996,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               ? msg.sourceCloneHtml
               : undefined,
           styleSnapshot,
+          styleSnapshotCaptureFailed,
         };
         stopParentCrossScreenDrag();
         const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
@@ -3049,6 +3060,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             duplicate: msg.duplicate === true,
             sourceCloneHtml: msg.sourceCloneHtml,
             styleSnapshot,
+            styleSnapshotCaptureFailed,
           };
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
           finalizeCrossScreenDrop(
@@ -3131,6 +3143,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               : crossScreenDragMsgRef.current?.sourceCloneHtml,
           styleSnapshot:
             styleSnapshot ?? crossScreenDragMsgRef.current?.styleSnapshot,
+          styleSnapshotCaptureFailed:
+            styleSnapshotCaptureFailed ||
+            crossScreenDragMsgRef.current?.styleSnapshotCaptureFailed === true,
         };
 
         // The host renders the source iframe element itself larger than the
@@ -3202,6 +3217,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           duplicate: msg.duplicate === true,
           sourceCloneHtml: msg.sourceCloneHtml,
           styleSnapshot,
+          styleSnapshotCaptureFailed,
         };
         // Derive the release point from THIS message before falling back to
         // the refs the "move" phase maintained. The refs are cleared by any

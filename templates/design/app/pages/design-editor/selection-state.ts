@@ -592,3 +592,24 @@ export function elementInfoForSelectionSnapshot(
   const owner = codeLayerOwnerByNodeId.get(selection.selectedLayerIds[0]!);
   return owner ? elementInfoFromCodeLayerNode(owner.node) : null;
 }
+
+/**
+ * Tail of DesignEditor.tsx's `selectedLayerIds` memo: the primary pick
+ * (`selectedElementLayerId`, from `selectedElement`) is re-added when a
+ * stale re-anchoring echo left it out of the otherwise-filtered array.
+ * `selectedElement` is the thing a Shift+click toggle-off must move FIRST
+ * (see runScreenElementSelect) — as long as it does, this never resurrects a
+ * member the user just removed, since the filtered array and the primary
+ * agree on which id fell out.
+ */
+export function resolveEffectiveSelectedLayerIds(
+  filtered: string[],
+  selectedElementLayerId: string | null,
+): string[] {
+  if (selectedElementLayerId && !filtered.includes(selectedElementLayerId)) {
+    return filtered.length > 1
+      ? [...filtered, selectedElementLayerId]
+      : [selectedElementLayerId];
+  }
+  return filtered;
+}

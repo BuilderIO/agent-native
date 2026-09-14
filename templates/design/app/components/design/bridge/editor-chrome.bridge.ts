@@ -2568,12 +2568,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     Record<string, string>
   > = {};
 
-  function portableStyleTagDefaults(el: Element): Record<string, string> {
+  // `null` means "the probe could not be measured" — a distinct, loud
+  // failure a caller must skip on, never `{}`. `{}` reads as "this tag has
+  // no default styles," which makes every real computed value look
+  // customized and silently falls back to over-carrying ~130 properties
+  // onto every moved/duplicated node (the exact pre-fix bug this guards).
+  function portableStyleTagDefaults(
+    el: Element,
+  ): Record<string, string> | null {
     var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
     var cached = portableStyleTagDefaultsCache[cacheKey];
     if (cached) return cached;
     var probeDoc = portableStyleProbeDocument();
-    if (!probeDoc || !probeDoc.body) return {};
+    if (!probeDoc || !probeDoc.body) {
+      dndLog("style:probe-unavailable", { tag: el.tagName });
+      return null;
+    }
     // Deliberately NOT forced to position:absolute: that changes width's
     // auto-sizing algorithm (shrink-to-fit vs filling the containing
     // block), so an ordinary static element would look "different from
@@ -2624,10 +2634,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function collectPortableComputedStyles(
     el: Element | null,
-  ): Record<string, string> {
+  ): Record<string, string> | null {
     if (!el) return {};
     var cs = window.getComputedStyle(el);
     var defaults = portableStyleTagDefaults(el);
+    if (!defaults) return null;
     var hostStyle = (el as HTMLElement).style;
     var styles: Record<string, string> = {};
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
@@ -2673,22 +2684,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!root || isDocumentRootElement(root)) return undefined;
     var nodes = [];
     var maxNodes = 80;
+    // If the bare-tag probe can't be measured, every property on every node
+    // would otherwise read as "customized" (see portableStyleTagDefaults) —
+    // skip the ENTIRE snapshot for this move rather than return one that
+    // mixes real and over-carried properties, and say so on the DnD log the
+    // same way other refusals are reported.
+    var probeFailed = false;
     function pushNode(node: Element) {
-      if (nodes.length >= maxNodes) return;
+      if (nodes.length >= maxNodes || probeFailed) return;
+      var styles = collectPortableComputedStyles(node);
+      if (styles === null) {
+        probeFailed = true;
+        return;
+      }
       nodes.push({
         sourceId: getSourceId(node) || undefined,
         path: elementPathFromRoot(root, node),
-        styles: collectPortableComputedStyles(node),
+        styles: styles,
       });
     }
     pushNode(root);
     var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
     for (
       var index = 0;
-      index < descendants.length && nodes.length < maxNodes;
+      index < descendants.length && nodes.length < maxNodes && !probeFailed;
       index += 1
     ) {
       pushNode(descendants[index]);
+    }
+    if (probeFailed) {
+      dndLog("style:snapshot-skipped", { el: getSelector(root) });
+      // `null` (not `undefined`) marks CAPTURE FAILED, distinct from a
+      // legitimately absent snapshot (isDocumentRootElement/no root above,
+      // which returns `undefined`). Callers that post this cross-screen must
+      // forward that distinction as its own flag — a probe failure means
+      // "we don't know this element's appearance," not "there is nothing to
+      // carry," and a cross-screen move must refuse rather than silently
+      // drop a class-only appearance it never got to measure.
+      return null;
     }
     return {
       version: 1,
@@ -10636,6 +10669,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        // Explicit sibling flag, not just `styleSnapshot === null` — the
+        // host must not have to infer capture-failed from a value shape
+        // that could change; see collectPortableStyleSnapshot's doc.
+        styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         duplicate: options?.duplicate === true ? true : undefined,
         sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
       },

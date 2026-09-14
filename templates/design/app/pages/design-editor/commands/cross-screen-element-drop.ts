@@ -180,6 +180,7 @@ export function runCrossScreenElementDrop(
     duplicate,
     sourceCloneHtml,
     styleSnapshot,
+    styleSnapshotCaptureFailed,
   }: {
     sourceSelector: string;
     sourceNodeId?: string;
@@ -203,6 +204,7 @@ export function runCrossScreenElementDrop(
     duplicate?: boolean;
     sourceCloneHtml?: string;
     styleSnapshot?: PortableStyleSnapshot;
+    styleSnapshotCaptureFailed?: boolean;
   },
 ) {
   dndHostLog("persist:cross-screen", {
@@ -211,6 +213,29 @@ export function runCrossScreenElementDrop(
     targetAnchorPlacement,
     targetDropMode,
   });
+  // The bridge could not measure the bare-tag probe for this move — a
+  // class-only appearance (color/background/etc. authored only by a
+  // stylesheet rule, never inline) would be silently dropped once this node
+  // lands in a destination screen without that rule. Refuse the whole move
+  // at this boundary: source untouched, destination untouched. Distinct from
+  // a legitimately absent snapshot (`styleSnapshot === undefined`, nothing to
+  // carry), which must keep working — see collectPortableStyleSnapshot.
+  if (styleSnapshotCaptureFailed) {
+    trace("drop", "refused", {
+      reason:
+        "portable style capture failed — refusing to lose class-only appearance",
+      from: sourceScreenId,
+      to: targetScreenId,
+      node: sourceNodeId ?? sourceSelector,
+    });
+    dndHostLog("persist:cross-screen-refused", {
+      reason: "style-capture-failed",
+      sourceScreenId,
+      targetScreenId,
+    });
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
   trace("drop", "cross-screen-persist", {
     from: sourceScreenId,
     to: targetScreenId,

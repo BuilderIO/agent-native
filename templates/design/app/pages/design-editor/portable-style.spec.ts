@@ -117,4 +117,27 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     );
     expect(result).toBe(DEST_BARE_SCREEN);
   });
+
+  it("is a safe no-op for a LEGITIMATELY absent snapshot (nothing to carry) — not a lost/corrupted node", () => {
+    // `undefined` means "nothing to carry" (isDocumentRootElement / no root /
+    // not asked for) — this is the ordinary case for e.g. a paste or a drop
+    // whose source never had a portable-style snapshot at all, and this
+    // function's job is only to apply what it was given, safely, never to
+    // decide whether the move itself should proceed.
+    //
+    // A CAPTURE FAILURE (the bare-tag probe iframe couldn't be created) is a
+    // different value entirely — the bridge marks it with the
+    // `styleSnapshotCaptureFailed` flag alongside `styleSnapshot: null` — and
+    // is refused at the command boundary in cross-screen-element-drop.ts
+    // BEFORE this function is ever called, so a capture failure never reaches
+    // here as a plain `undefined`. See
+    // "runCrossScreenElementDrop — portable style capture failure" in
+    // cross-screen-element-drop.spec.ts for that refusal contract.
+    const result = applyPortableStyleSnapshotToHtml(
+      DEST_BARE_SCREEN,
+      "dropped",
+      undefined,
+    );
+    expect(result).toBe(DEST_BARE_SCREEN);
+  });
 });

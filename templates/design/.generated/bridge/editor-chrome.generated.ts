@@ -2574,7 +2574,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cached = portableStyleTagDefaultsCache[cacheKey];
       if (cached) return cached;
       var probeDoc = portableStyleProbeDocument();
-      if (!probeDoc || !probeDoc.body) return {};
+      if (!probeDoc || !probeDoc.body) {
+        dndLog("style:probe-unavailable", { tag: el.tagName });
+        return null;
+      }
       var probe = el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml" ? probeDoc.createElementNS(el.namespaceURI, el.tagName) : probeDoc.createElement(el.tagName);
       probeDoc.body.appendChild(probe);
       var probeWindow = probeDoc.defaultView || window;
@@ -2595,6 +2598,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el) return {};
       var cs = window.getComputedStyle(el);
       var defaults = portableStyleTagDefaults(el);
+      if (!defaults) return null;
       var hostStyle = el.style;
       var styles = {};
       PORTABLE_STYLE_PROPERTIES.forEach(function(property) {
@@ -2623,18 +2627,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!root || isDocumentRootElement(root)) return void 0;
       var nodes = [];
       var maxNodes = 80;
+      var probeFailed = false;
       function pushNode(node) {
-        if (nodes.length >= maxNodes) return;
+        if (nodes.length >= maxNodes || probeFailed) return;
+        var styles = collectPortableComputedStyles(node);
+        if (styles === null) {
+          probeFailed = true;
+          return;
+        }
         nodes.push({
           sourceId: getSourceId(node) || void 0,
           path: elementPathFromRoot(root, node),
-          styles: collectPortableComputedStyles(node)
+          styles
         });
       }
       pushNode(root);
       var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
-      for (var index = 0; index < descendants.length && nodes.length < maxNodes; index += 1) {
+      for (var index = 0; index < descendants.length && nodes.length < maxNodes && !probeFailed; index += 1) {
         pushNode(descendants[index]);
+      }
+      if (probeFailed) {
+        dndLog("style:snapshot-skipped", { el: getSelector(root) });
+        return null;
       }
       return {
         version: 1,
@@ -7897,6 +7911,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           } : void 0,
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
+          // Explicit sibling flag, not just \`styleSnapshot === null\` — the
+          // host must not have to infer capture-failed from a value shape
+          // that could change; see collectPortableStyleSnapshot's doc.
+          styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           duplicate: options?.duplicate === true ? true : void 0,
           sourceCloneHtml: options?.duplicate && el ? el.outerHTML : void 0
         },
