@@ -99,6 +99,116 @@ async function fileContent(page: Page, filename: string): Promise<string> {
   return file.content;
 }
 
+/**
+ * Board-level frames/shapes drawn outside any screen render inside the
+ * board's own same-origin iframe stamped only with data-agent-native-node-id
+ * (shared/board-file.ts) — no `data-board-object-id` attribute exists
+ * anywhere in the app, and even if it did `page.locator` cannot pierce an
+ * iframe boundary. Parse __board__.html's own markup instead (mirrors
+ * parity-tutorial-2.spec.ts's boardObjects helper).
+ */
+async function boardObjects(page: Page): Promise<Record<string, true>> {
+  const html = await fileContent(page, "__board__.html");
+  const result: Record<string, true> = {};
+  for (const match of html.matchAll(/data-agent-native-node-id="([^"]+)"/g)) {
+    result[match[1]!] = true;
+  }
+  return result;
+}
+
+/** Page-relative bounding box of a node id wherever it lives — the screen
+ * iframe or the board iframe alike — by reaching directly into each
+ * same-origin iframe's contentDocument.
+ *
+ * The overview canvas zooms by CSS-transform-scaling an ancestor of the
+ * iframe, not by resizing it: `iframe.getBoundingClientRect()` reflects that
+ * scale (it is page space), but `el.getBoundingClientRect()` computed INSIDE
+ * the iframe's own document does not — it is the iframe's native, unscaled
+ * layout space. Adding the two directly only works at 100% zoom; at any other
+ * zoom (the overview's usual "fit all screens" default) it returns a page
+ * position off by the zoom factor, which silently sends a driven mouse drag
+ * built from it to empty canvas. Rescale by the iframe's own
+ * rendered-vs-native width ratio (mirrors helpers.ts's canvasZoom, and
+ * parity-tutorial-1.spec.ts's identical helper) before combining the two
+ * coordinate spaces. */
+async function boardObjectBoundingBox(
+  page: Page,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  return page.evaluate((id) => {
+    for (const iframe of Array.from(
+      document.querySelectorAll("iframe"),
+    ) as HTMLIFrameElement[]) {
+      const doc = iframe.contentDocument;
+      const el = doc?.querySelector(`[data-agent-native-node-id="${id}"]`);
+      if (!el) continue;
+      const iframeRect = iframe.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const scale = iframe.clientWidth
+        ? iframeRect.width / iframe.clientWidth
+        : 1;
+      return {
+        x: iframeRect.left + elRect.left * scale,
+        y: iframeRect.top + elRect.top * scale,
+        width: elRect.width * scale,
+        height: elRect.height * scale,
+      };
+    }
+    return null;
+  }, nodeId);
+}
+
+/** Poll until a NEW board object id (not in `before`) appears. */
+async function waitForNewBoardObjectId(
+  page: Page,
+  before: Set<string>,
+  timeoutMs = 10_000,
+): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const ids = Object.keys(await boardObjects(page)).filter(
+      (id) => !before.has(id) && !id.startsWith("draft-"),
+    );
+    if (ids.length > 0) return ids[0]!;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error("no new stable board object id appeared in time");
+}
+
+/** An empty point on the overview board, away from any screen card — a
+ * fixed offset from the screen shell can land on left-shell chrome instead
+ * of open canvas (see parity-tutorial-2.spec.ts's identical helper). */
+async function emptyBoardPoint(page: Page) {
+  const point = await page.evaluate(() => {
+    const world = document.querySelector("[data-multi-screen-canvas-world]");
+    const surface = (world?.parentElement ?? world) as HTMLElement | null;
+    if (!surface) return null;
+    const r = surface.getBoundingClientRect();
+    const cards = Array.from(
+      document.querySelectorAll("[data-screen-iframe-id]"),
+    ).map((el) => el.getBoundingClientRect());
+    for (let y = r.top + 60; y < r.bottom - 60; y += 40) {
+      for (let x = r.left + 60; x < r.right - 60; x += 40) {
+        if (
+          cards.some(
+            (c) =>
+              x >= c.left - 24 &&
+              x <= c.right + 24 &&
+              y >= c.top - 24 &&
+              y <= c.bottom + 24,
+          )
+        )
+          continue;
+        const hit = document.elementFromPoint(x, y);
+        if (hit && surface.contains(hit)) return { x, y };
+      }
+    }
+    return null;
+  });
+  if (!point) throw new Error("no empty canvas point found");
+  return point;
+}
+
 function screenShell(page: Page): Locator {
   return page.locator("[data-screen-shell]").first();
 }
@@ -827,11 +937,9 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
-    const shellBox = await screenShell(page).boundingBox();
-    if (!shellBox) throw new Error("no screen shell box");
-    const outsideX = Math.max(20, shellBox.x - 200);
-    const outsideY = shellBox.y + 100;
+    const { x: outsideX, y: outsideY } = await emptyBoardPoint(page);
 
+    const before = new Set(Object.keys(await boardObjects(page)));
     await pressToolKey(page, "f");
     await page.mouse.move(outsideX, outsideY);
     await page.mouse.down();
@@ -839,12 +947,20 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.mouse.up();
     await page.waitForTimeout(400);
 
-    const boardObject = page.locator("[data-board-object-id]").first();
-    await expect(
-      boardObject,
+    const frameId = await waitForNewBoardObjectId(page, before);
+    const box = await boardObjectBoundingBox(page, frameId);
+    expect(
+      box,
       "board-object-camera-and-click: harness could not locate the created board frame",
-    ).toHaveCount(1, { timeout: 10_000 });
-    await expect(boardObject).toBeVisible();
+    ).not.toBeNull();
+    expect(
+      box!.width,
+      "created board frame must have a real width",
+    ).toBeGreaterThan(0);
+    expect(
+      box!.height,
+      "created board frame must have a real height",
+    ).toBeGreaterThan(0);
   });
 
   test("Alt-drag duplicates a board-object frame outside any screen", async ({
@@ -858,42 +974,52 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
-    const shellBox = await screenShell(page).boundingBox();
-    if (!shellBox) throw new Error("no screen shell box");
-    const outsideX = Math.max(20, shellBox.x - 220);
-    const outsideY = shellBox.y + 80;
+    const { x: outsideX, y: outsideY } = await emptyBoardPoint(page);
 
+    const beforeDraw = new Set(Object.keys(await boardObjects(page)));
     await pressToolKey(page, "r");
-    await page.mouse.click(outsideX, outsideY);
+    // A plain click (no drag) never committed a shape here — draw it with a
+    // real drag instead (proven reliable elsewhere in this suite).
+    await page.mouse.move(outsideX, outsideY);
+    await page.mouse.down();
+    await page.mouse.move(outsideX + 100, outsideY + 100, { steps: 8 });
+    await page.mouse.up();
     await page.waitForTimeout(400);
 
-    const shape = page.locator("[data-board-object-id]").first();
-    let before = await shape.boundingBox();
-    if (!before) {
-      await expect
-        .poll(() => shape.boundingBox(), {
-          timeout: 10_000,
-          message:
-            "board-object-camera-and-click: harness could not locate the created board shape",
-        })
-        .not.toBeNull();
-      before = (await shape.boundingBox())!;
-    }
-    const countBefore = await page.locator("[data-board-object-id]").count();
+    const shapeId = await waitForNewBoardObjectId(page, beforeDraw);
+    const before = await boardObjectBoundingBox(page, shapeId);
+    expect(
+      before,
+      "board-object-camera-and-click: harness could not locate the created board shape",
+    ).not.toBeNull();
+    expect(
+      before!.width,
+      "created board shape must have a real width",
+    ).toBeGreaterThan(0);
+    expect(
+      before!.height,
+      "created board shape must have a real height",
+    ).toBeGreaterThan(0);
+    // Drawing a shape leaves the Rectangle tool itself still armed — a
+    // mouse-down on the shape without switching back to Move would start
+    // drawing a SECOND shape instead of alt-dragging the existing one.
+    await pressToolKey(page, "v");
+    await page.waitForTimeout(200);
+    const countBefore = Object.keys(await boardObjects(page)).length;
 
     await page.mouse.move(
-      before.x + before.width / 2,
-      before.y + before.height / 2,
+      before!.x + before!.width / 2,
+      before!.y + before!.height / 2,
     );
     await page.mouse.down();
     await page.keyboard.down("Alt");
-    await page.mouse.move(before.x + 100, before.y + 40, { steps: 10 });
+    await page.mouse.move(before!.x + 100, before!.y + 40, { steps: 10 });
     await page.waitForTimeout(120);
     await page.mouse.up();
     await page.keyboard.up("Alt");
     await page.waitForTimeout(400);
 
-    const countAfter = await page.locator("[data-board-object-id]").count();
+    const countAfter = Object.keys(await boardObjects(page)).length;
     expect(
       countAfter,
       "alt-drag on the overview canvas should duplicate the board object",
@@ -942,10 +1068,9 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     if (!box) throw new Error("no bounding box for button frame");
     const startX = box.x + box.width / 2;
     const startY = box.y + box.height / 2;
-    const shellBox = await screenShell(page).boundingBox();
-    if (!shellBox) throw new Error("no screen shell box");
-    const outsideX = Math.max(20, shellBox.x - 200);
-    const outsideY = shellBox.y + 200;
+    // A fixed offset from the screen shell can land on left-shell chrome
+    // instead of open canvas — scan for a real empty point instead.
+    const { x: outsideX, y: outsideY } = await emptyBoardPoint(page);
 
     await page.mouse.move(startX, startY);
     await page.mouse.down();

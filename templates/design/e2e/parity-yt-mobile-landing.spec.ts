@@ -151,11 +151,16 @@ const MOBILE_HOME_HTML = `<!doctype html>
 </html>`;
 
 // --- Fixture: a slice of tutorial #2's Landing Page — Navbar (top) and a
-// Hero containing HeroImage, the element step 18 alt-drags. ---
+// Hero containing HeroImage, the element step 18 alt-drags. min-height is
+// deliberately much taller than the Navbar+Hero content itself (720px): step
+// 20 asserts zoom-to-selection on the full-width Navbar is tighter than
+// zoom-to-fit on the page, which only has room to differ once the page is
+// tall enough that fit-to-page is height-bound rather than width-bound like
+// the full-width Navbar always is. ---
 const LANDING_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Landing Page</title></head>
-  <body style="margin:0;position:relative;min-height:1024px;background:#fff;font-family:system-ui,sans-serif">
+  <body style="margin:0;position:relative;min-height:2400px;background:#fff;font-family:system-ui,sans-serif">
     <div data-agent-native-node-id="navbar" data-agent-native-layer-name="Navbar"
          style="position:absolute;left:0;top:0;width:1440px;height:80px;background:#fff">
       <div data-agent-native-node-id="brand" data-agent-native-layer-name="Brand"

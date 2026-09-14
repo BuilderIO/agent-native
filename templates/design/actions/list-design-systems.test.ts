@@ -56,10 +56,15 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => null,
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: () => ({ __accessFilter: true }),
-  resolveAccess: (...args: [string, string]) => mocks.resolveAccess(...args),
-}));
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ...original,
+    accessFilter: () => ({ __accessFilter: true }),
+    resolveAccess: (...args: [string, string]) => mocks.resolveAccess(...args),
+  };
+});
 
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),

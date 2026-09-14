@@ -173,6 +173,15 @@ async function boardObjects(
  * same-origin iframe's contentDocument (mirrors pen-board-commit.spec.ts's
  * allVectors helper). The board iframe carries no data-screen-iframe-id, so
  * designFrame()'s selector can't target it.
+ *
+ * The overview canvas zooms by CSS-transform-scaling an ancestor of the
+ * iframe, not by resizing it: `iframe.getBoundingClientRect()` reflects that
+ * scale (it is page space), but `el.getBoundingClientRect()` computed INSIDE
+ * the iframe's own document does not — it is the iframe's native, unscaled
+ * layout space. This spec opens the overview at zoom=15, where the two
+ * spaces differ by ~6.7x, so adding them directly sent a driven drag to a
+ * page position far from the actual object. Rescale by the iframe's own
+ * rendered-vs-native width ratio before combining the two spaces.
  */
 async function boardObjectBoundingBox(
   page: Page,
@@ -187,11 +196,14 @@ async function boardObjectBoundingBox(
       if (!el) continue;
       const iframeRect = iframe.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
+      const scale = iframe.clientWidth
+        ? iframeRect.width / iframe.clientWidth
+        : 1;
       return {
-        x: iframeRect.left + elRect.left,
-        y: iframeRect.top + elRect.top,
-        width: elRect.width,
-        height: elRect.height,
+        x: iframeRect.left + elRect.left * scale,
+        y: iframeRect.top + elRect.top * scale,
+        width: elRect.width * scale,
+        height: elRect.height * scale,
       };
     }
     return null;
@@ -330,6 +342,79 @@ async function screenBox(page: Page) {
 async function screenCardBox(page: Page) {
   const box = (await page.locator("[data-screen-card]").first().boundingBox())!;
   return box;
+}
+
+/**
+ * Text tool: click the toolbar, click a page-px point, wait for real
+ * contenteditable focus, type, Escape. Occasionally the click's focus
+ * transition is a race under load — a re-render can steal a just-granted
+ * focus back before the first keystroke lands, saving a text node with no
+ * content at all (verified false starts, not a garbled/partial result:
+ * either the whole thing lands or the node stays empty). Retries the whole
+ * gesture at the same point rather than failing the step, mirroring
+ * drawBoardShapeAndWaitStable's identical retry-on-miss pattern above.
+ */
+async function typeCanvasTextWithRetry(
+  page: Page,
+  request: APIRequestContext,
+  designId: string,
+  pageX: number,
+  pageY: number,
+  text: string,
+  attempts = 3,
+): Promise<void> {
+  const textToolButton = page.locator(
+    '[data-design-bottom-toolbar] button[aria-label="Text"]',
+  );
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await textToolButton.click();
+    await expect(textToolButton).toHaveAttribute("aria-pressed", "true");
+    await page.mouse.click(pageX, pageY);
+    const focused = await page
+      .waitForFunction(
+        () => {
+          for (const iframe of Array.from(
+            document.querySelectorAll("iframe"),
+          ) as HTMLIFrameElement[]) {
+            const doc = iframe.contentDocument;
+            if (
+              doc?.activeElement?.getAttribute("contenteditable") === "true"
+            ) {
+              return true;
+            }
+          }
+          return false;
+        },
+        { timeout: 8_000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (focused) {
+      await page.waitForTimeout(150);
+      await page.keyboard.type(text);
+    }
+    await page.keyboard.press("Escape");
+    // The save queue can wait up to 400ms before issuing the persist RPC —
+    // poll for the committed text instead of racing it with one fixed sleep.
+    const committed = await expect
+      .poll(
+        async () =>
+          (await fileContent(request, designId)).includes(`>${text}<`),
+        { timeout: 2_000 },
+      )
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false);
+    if (committed) return;
+    // Escape after a truly empty text primitive can leave a dangling
+    // draft node behind — undo it before the next attempt's click drafts
+    // another one on top.
+    if (!focused) await page.keyboard.press(`${PRIMARY}+z`);
+    await page.waitForTimeout(300);
+  }
+  throw new Error(
+    `text "${text}" never landed in the document after ${attempts} attempts`,
+  );
 }
 
 /** Draw with the Frame/Screen tool at content-px coordinates inside the
@@ -623,7 +708,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       .toBe(frameId);
   });
 
-  test("step 3-4 (crossing the screen boundary): in-screen Frame tool draws album-art; alt-drag duplicates the board frame into it; Option+Arrow nudges the copy", async ({
+  test("step 3-4 (crossing the screen boundary): in-screen Frame tool draws album-art; alt-drag duplicates the board frame into it; Shift+Arrow nudges the copy", async ({
     page,
     request,
   }) => {
@@ -740,9 +825,12 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       "alt-drag must leave the original board frame in place",
     ).toContain(sourceId);
 
-    // Option+Arrow nudge 16px on the newly-dropped copy. The drop leaves the
-    // new copy selected — read its real layers-panel id off that selection
-    // rather than assuming it equals the raw newChildId.
+    // Shift+Arrow nudge (this app's registered "nudge-large" binding — see
+    // keyboard-shortcuts.ts; there is no alt+arrow nudge shortcut, so the
+    // original Option/Alt+Arrow gesture here never reached onNudge at all)
+    // on the newly-dropped copy. The drop leaves the new copy selected —
+    // read its real layers-panel id off that selection rather than assuming
+    // it equals the raw newChildId.
     const newChildId = albumArtChildren[albumArtChildren.length - 1];
     const newChildLayerNodeId = await selectedLayerNodeId(page);
     await expandAllLayers(page);
@@ -751,8 +839,8 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     const beforeNudgeMatch = new RegExp(
       `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,
     ).exec(html);
-    await page.keyboard.press("Alt+ArrowRight");
-    await page.keyboard.press("Alt+ArrowDown");
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("Shift+ArrowDown");
     await page.waitForTimeout(500);
     const htmlAfterNudge = await fileContent(request, designId);
     const afterNudgeMatch = new RegExp(
@@ -760,7 +848,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     ).exec(htmlAfterNudge);
     expect(
       afterNudgeMatch?.[1],
-      "Option+Arrow nudge should change the dropped copy's authored position",
+      "Shift+Arrow nudge should change the dropped copy's authored position",
     ).not.toBe(beforeNudgeMatch?.[1]);
   });
 
@@ -770,29 +858,71 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
   }) => {
     designId = await createDesign(request);
     await gotoEditor(page, designId);
+    // The overview layout settles asynchronously after mount with no
+    // discrete event — a screenBox() read before it settles stamps a stale
+    // rect, so the "click canvas" below can miss the screen entirely and
+    // silently create nothing (see harnessNotes). Poll until two
+    // consecutive reads agree, as the "step 2 substitute" test above does.
+    {
+      let last: string | null = null;
+      await expect
+        .poll(
+          async () => {
+            const b = await screenBox(page);
+            const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)}`;
+            const stable = key === last;
+            last = key;
+            return stable;
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+    }
 
     // Step 7: Press T, click canvas, type "title".
     const box = await screenBox(page);
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Text"]')
-      .click();
-    await page.waitForTimeout(300);
-    await page.mouse.click(box.x + 60 * box.scale, box.y + 260 * box.scale);
-    await page.waitForTimeout(300);
-    await page.keyboard.type("title");
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(500);
+    // box.y + 260 * box.scale is Figma step 7's literal content-px point,
+    // but this blank design's screen can render shorter than 260 content-px
+    // tall — the click would land BELOW the screen card entirely, on the
+    // overview canvas's own creation shield (data-canvas-creation-shield),
+    // so the text tool drew a free-floating BOARD object instead of a node
+    // inside the screen, and index.html stayed completely empty. Clamp to a
+    // point that is always inside the screen's actual rendered height.
+    const titleClickY = Math.min(260, box.height / box.scale - 40);
+    await typeCanvasTextWithRetry(
+      page,
+      request,
+      designId,
+      box.x + 60 * box.scale,
+      box.y + titleClickY * box.scale,
+      "title",
+    );
 
     let html = await fileContent(request, designId);
-    expect(html).toContain("title");
+    // Not `expect(html).toContain("title")` — the document's own
+    // `<title>Card</title>` tag contains that substring even when the
+    // canvas is empty, which let this pass while masking the real bug
+    // above (the created text node never landing at all). nodeIdForText
+    // below only matches a real `>title<` text node and throws a clear
+    // error if none exists.
     const titleId = nodeIdForText(html, "title");
+    // The layers panel keys rows by its own hashed projection id, never the
+    // raw data-agent-native-node-id titleId is (see album-art's identical
+    // note above) — read the real one off the still-selected row (Escape
+    // above exits text-edit but leaves the node selected) rather than
+    // trying to look it up by titleId, which layerRowById would never find.
+    const titleLayerNodeId = await selectedLayerNodeId(page);
 
     // Duplicate for "creator" (Cmd+D), then rename the duplicate's text.
     await expandAllLayers(page);
-    await selectLayerRowById(page, titleId);
+    await selectLayerRowById(page, titleLayerNodeId);
     await focusCanvas(page);
     await page.keyboard.press(`${PRIMARY}+d`);
     await page.waitForTimeout(500);
+    // Cmd+D leaves the duplicate selected — read its real layers-panel id
+    // the same way, instead of trying to look it up by the raw content id
+    // nodeIdForText below returns.
+    const duplicateLayerNodeId = await selectedLayerNodeId(page);
     html = await fileContent(request, designId);
     const titleCount = (html.match(/>title</g) ?? []).length;
     expect(titleCount, "Cmd+D must duplicate the title text node").toBe(2);
@@ -801,8 +931,10 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
 
     // Shift-select title + its duplicate, then Shift+A.
     await expandAllLayers(page);
-    await selectLayerRowById(page, titleId);
-    await selectLayerRowById(page, duplicateId, { modifiers: ["Shift"] });
+    await selectLayerRowById(page, titleLayerNodeId);
+    await selectLayerRowById(page, duplicateLayerNodeId, {
+      modifiers: ["Shift"],
+    });
 
     await focusCanvas(page);
     await page.keyboard.press("Shift+A");
@@ -813,14 +945,10 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       html,
       `Shift+A on two selected text layers must wrap them in a new auto-layout frame:\n${html.slice(0, 4000)}`,
     ).toMatch(/data-an-primitive="frame"/);
-    const metadataId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const match =
-        /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/.exec(
-          current,
-        );
-      return match ? [match[1]] : [];
-    });
+    // Shift+A leaves the new wrapper selected — read its LAYERS-PANEL id off
+    // the selection rather than regex-matching the raw HTML (that raw id
+    // never equals the panel's hashed data-layer-node-id, see layerRowById).
+    const metadataId = await selectedLayerNodeId(page);
 
     await expandAllLayers(page);
     await renameLayerRowById(page, metadataId, "metadata");
@@ -845,35 +973,39 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     // quickly via the same gestures as the previous test, then run the
     // higher-level wrap.
     await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 220, y: 200 });
+    // The freshly drawn frame is left selected — read its LAYERS-PANEL id
+    // straight off the selection instead of regex-extracting the raw
+    // data-agent-native-node-id from HTML (the two never coincide, see
+    // layerRowById's doc comment).
+    const albumArtId = await selectedLayerNodeId(page);
     let html = await fileContent(request, designId);
-    const albumArtId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const match =
-        /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/.exec(
-          current,
-        );
-      return match ? [match[1]] : [];
-    });
     await expandAllLayers(page);
     await renameLayerRowById(page, albumArtId, "album-art");
 
     const box = await screenBox(page);
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Text"]')
-      .click();
-    await page.waitForTimeout(300);
-    await page.mouse.click(box.x + 60 * box.scale, box.y + 260 * box.scale);
-    await page.waitForTimeout(300);
-    await page.keyboard.type("metatext");
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(500);
+    // See the steps 7-8 test's identical clamp: a blank design's screen can
+    // render shorter than the literal 260 content-px Figma step calls for,
+    // sending this click past the screen card onto the board instead.
+    const metaTextClickY = Math.min(260, box.height / box.scale - 40);
+    await typeCanvasTextWithRetry(
+      page,
+      request,
+      designId,
+      box.x + 60 * box.scale,
+      box.y + metaTextClickY * box.scale,
+      "metatext",
+    );
+    // The typed text node is left selected — read its real layers-panel id
+    // the same way album-art's was above, not the raw content id.
+    const metaTextLayerNodeId = await selectedLayerNodeId(page);
     html = await fileContent(request, designId);
-    const metaTextId = nodeIdForText(html, "metatext");
 
     // Select album-art + metatext, Shift+A → "card".
     await expandAllLayers(page);
     await selectLayerRowById(page, albumArtId!);
-    await selectLayerRowById(page, metaTextId, { modifiers: ["Shift"] });
+    await selectLayerRowById(page, metaTextLayerNodeId, {
+      modifiers: ["Shift"],
+    });
     await focusCanvas(page);
     await page.keyboard.press("Shift+A");
     await page.waitForTimeout(800);
@@ -884,15 +1016,9 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       frameCount,
       "Shift+A over album-art + metatext must add exactly one new wrapping frame",
     ).toBeGreaterThanOrEqual(2); // album-art itself + the new card wrapper
-    const cardId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const wrapperIds = [
-        ...current.matchAll(
-          /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/g,
-        ),
-      ].map((m) => m[1]);
-      return wrapperIds.filter((id) => id !== albumArtId);
-    });
+    // Shift+A leaves the new "card" wrapper selected — read its
+    // LAYERS-PANEL id off the selection (same fix as metadataId above).
+    const cardId = await selectedLayerNodeId(page);
 
     await expandAllLayers(page);
     await renameLayerRowById(page, cardId, "card");
@@ -950,16 +1076,19 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     designId = await createDesign(request);
     await gotoEditor(page, designId);
     await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 200, y: 160 });
-    const frameId = await waitForStableNodeId(async () => {
-      const current = await fileContent(request, designId);
-      const match =
-        /data-agent-native-node-id="([^"]+)"[^>]*data-an-primitive="frame"/.exec(
-          current,
-        );
-      return match ? [match[1]] : [];
-    });
+    // The freshly drawn frame is left selected already — no need to
+    // re-select it by (wrong) id, see the album-art fix above. Still wait
+    // for the draw to persist before reading "before", or this reads the
+    // pre-draw content and "no structural change" trivially passes for the
+    // wrong reason.
+    await expect
+      .poll(async () =>
+        (await fileContent(request, designId)).includes(
+          'data-an-primitive="frame"',
+        ),
+      )
+      .toBe(true);
     await expandAllLayers(page);
-    await selectLayerRowById(page, frameId);
     await focusCanvas(page);
     const before = await fileContent(request, designId);
     await page.keyboard.press(`${PRIMARY}+Alt+k`);

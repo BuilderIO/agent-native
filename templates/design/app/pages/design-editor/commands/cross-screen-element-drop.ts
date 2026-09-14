@@ -180,6 +180,7 @@ export function runCrossScreenElementDrop(
     duplicate,
     sourceCloneHtml,
     styleSnapshot,
+    styleSnapshotCaptureFailed,
   }: {
     sourceSelector: string;
     sourceNodeId?: string;
@@ -203,6 +204,7 @@ export function runCrossScreenElementDrop(
     duplicate?: boolean;
     sourceCloneHtml?: string;
     styleSnapshot?: PortableStyleSnapshot;
+    styleSnapshotCaptureFailed?: boolean;
   },
 ) {
   dndHostLog("persist:cross-screen", {
@@ -211,6 +213,29 @@ export function runCrossScreenElementDrop(
     targetAnchorPlacement,
     targetDropMode,
   });
+  // The bridge could not measure the bare-tag probe for this move — a
+  // class-only appearance (color/background/etc. authored only by a
+  // stylesheet rule, never inline) would be silently dropped once this node
+  // lands in a destination screen without that rule. Refuse the whole move
+  // at this boundary: source untouched, destination untouched. Distinct from
+  // a legitimately absent snapshot (`styleSnapshot === undefined`, nothing to
+  // carry), which must keep working — see collectPortableStyleSnapshot.
+  if (styleSnapshotCaptureFailed) {
+    trace("drop", "refused", {
+      reason:
+        "portable style capture failed — refusing to lose class-only appearance",
+      from: sourceScreenId,
+      to: targetScreenId,
+      node: sourceNodeId ?? sourceSelector,
+    });
+    dndHostLog("persist:cross-screen-refused", {
+      reason: "style-capture-failed",
+      sourceScreenId,
+      targetScreenId,
+    });
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
   trace("drop", "cross-screen-persist", {
     from: sourceScreenId,
     to: targetScreenId,
@@ -327,6 +352,32 @@ export function runCrossScreenElementDrop(
     const sourceContent = getScreenContent(sourceScreenId);
     const rawDestContent = getScreenContent(targetScreenId);
     if (!sourceContent || !rawDestContent) return;
+    // A duplicate leaves the source alive: insertClonedHtmlLayers's
+    // preserveIncomingNodeIds only reserves ids already present in
+    // rawDestContent (a different document), so without this the copy
+    // silently keeps the source's own data-agent-native-node-id — two live
+    // elements in two files sharing one id, breaking every id-keyed lookup
+    // (selection, nudge, the cross-file code-layer owner map) on either.
+    // For a localhost/fusion source, getScreenContent returns the route URL,
+    // not markup, so the projection above finds nothing — read the clone's
+    // OWN ids too (already stamped by the live bridge) so a runtime/AI-
+    // generated node the persisted source never captured still gets reserved.
+    const sourceNodeIds = [
+      ...buildCodeLayerProjection(sourceContent)
+        .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+        .filter((value): value is string => Boolean(value)),
+      ...Array.from(
+        new DOMParser()
+          .parseFromString(
+            `<template>${sourceCloneHtml}</template>`,
+            "text/html",
+          )
+          .querySelector("template")
+          ?.content.querySelectorAll("[data-agent-native-node-id]") ?? [],
+      )
+        .map((node) => node.getAttribute("data-agent-native-node-id"))
+        .filter((value): value is string => Boolean(value)),
+    ];
     const destinationProjection = buildCodeLayerProjection(rawDestContent);
     const targetAnchor = targetAnchorNodeId
       ? resolveCodeLayerNodeFromBridge(
@@ -374,6 +425,7 @@ export function runCrossScreenElementDrop(
           targetDropMode !== "absolute-container",
         styleSnapshots: [styleSnapshot],
         preserveIncomingNodeIds: true,
+        additionalReservedNodeIds: sourceNodeIds,
       },
     );
     if (!nextContent) {
@@ -697,7 +749,6 @@ export function runCrossScreenElementDrop(
     result.destHtml,
     destNodeAttrId,
     styleSnapshot,
-    sourceContent,
   );
   // Finding 8: board/screen text carrying the auto-applied white default
   // (see BOARD_TEXT_AUTO_COLOR_MARKER / defaultCanvasTextColor) must not

@@ -10,6 +10,7 @@ import {
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
+  resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
@@ -452,5 +453,35 @@ describe("elementInfoForSelectionSnapshot", () => {
         new Map(),
       ),
     ).toBeNull();
+  });
+});
+
+describe("resolveEffectiveSelectedLayerIds", () => {
+  it("does not resurrect a member a Shift+click toggle-off just removed, once the primary follows the remaining member", () => {
+    // A+B selected, Shift+click A -> stored ids [B]; runScreenElementSelect's
+    // toggle-off branch must have already moved selectedElement (and so
+    // selectedElementLayerId) to B for this not to re-add A.
+    expect(resolveEffectiveSelectedLayerIds(["node-b"], "node-b")).toEqual([
+      "node-b",
+    ]);
+  });
+
+  it("re-adds the primary when a stale re-anchoring echo dropped it from an otherwise multi-item selection", () => {
+    expect(
+      resolveEffectiveSelectedLayerIds(["node-a", "node-b"], "node-c"),
+    ).toEqual(["node-a", "node-b", "node-c"]);
+  });
+
+  it("replaces a single-item (or empty) filtered selection with just the primary when it fell out", () => {
+    expect(resolveEffectiveSelectedLayerIds(["node-a"], "node-b")).toEqual([
+      "node-b",
+    ]);
+    expect(resolveEffectiveSelectedLayerIds([], "node-b")).toEqual(["node-b"]);
+  });
+
+  it("passes the filtered selection through unchanged when there is no primary", () => {
+    expect(resolveEffectiveSelectedLayerIds(["node-a"], null)).toEqual([
+      "node-a",
+    ]);
   });
 });

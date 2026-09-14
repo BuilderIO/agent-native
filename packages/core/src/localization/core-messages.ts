@@ -1,4 +1,5 @@
 import englishMessages from "./core-messages/en-US.js";
+import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
 import { mcpSettingsMessagesForLocale } from "./mcp-settings-messages.js";
 import {
   DEFAULT_LOCALE,
@@ -177,6 +178,7 @@ export async function loadCoreMessagesForLocale(
 ): Promise<CoreLocaleMessages> {
   return {
     ...nestAgentChatMessages(await loadAgentChatMessagesForLocale(locale)),
+    environmentBadge: environmentBadgeMessagesForLocale(locale),
     settings: mcpSettingsMessagesForLocale(locale),
   };
 }
@@ -189,6 +191,7 @@ export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
     ...(locale === DEFAULT_LOCALE || !isLocaleCode(locale)
       ? englishCoreMessages
       : {}),
+    environmentBadge: environmentBadgeMessagesForLocale(locale),
     settings: mcpSettingsMessagesForLocale(locale),
   };
 }

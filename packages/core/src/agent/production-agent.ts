@@ -38,6 +38,11 @@ import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
+import {
+  formatBase64CharBudget,
+  MAX_INLINE_FILE_BASE64_CHARS,
+  MAX_INLINE_IMAGE_BASE64_CHARS,
+} from "../file-upload/inline-attachment-limits.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
@@ -1588,12 +1593,11 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
 /**
  * Text attachments have been capped since forever; binary ones never were, so
  * a large PDF or screenshot went to the provider as unbounded inline base64.
- * OpenAI rejects the whole request over 1,048,576 chars in one `file_url`
- * ("string too long", measured at 4,149,128), which kills the turn — the cap is
- * on the encoded string, so that is what this counts rather than decoded bytes.
- * Held under the limit to leave room for the `data:<mediaType>;base64,` prefix.
+ * The caps live in `inline-attachment-limits` because images and files ride
+ * different provider fields with different ceilings — both measure the encoded
+ * string, so that is what these count rather than decoded bytes.
  */
-const MAX_INLINE_ATTACHMENT_BASE64_CHARS = 1_000_000;
+const MAX_INLINE_ATTACHMENT_BASE64_CHARS = MAX_INLINE_FILE_BASE64_CHARS;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
@@ -2014,15 +2018,18 @@ export function buildUserContentWithAttachments(opts: {
       if (
         match &&
         isSupportedImageMediaType(match[1]) &&
-        match[2].length > MAX_INLINE_ATTACHMENT_BASE64_CHARS
+        match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         // The upload already happened and `uploadedUrl` is the whole point of
         // it. Inlining the bytes anyway is what made the request unsendable.
+        // Quote the real budget: with no number in the context the model
+        // invents one, then contradicts itself when asked what the limit is.
         const label = att.name ? `"${att.name}"` : "An image";
+        const limit = formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS);
         textAttachments.push(
           uploadedUrl
-            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline for vision analysis, so use the URL for embedding/reference.]`
-            : `[${label} was too large to send inline for vision analysis and no upload URL is available. Ask the user to attach a smaller image.]`,
+            ? `[${label} exceeds the ${limit} per-image limit for inline vision analysis, so it was not sent as an image. It was uploaded to ${uploadedUrl}; use that URL for embedding/reference.]`
+            : `[${label} exceeds the ${limit} per-image limit for inline vision analysis, so you cannot see it. This is a size limit, not a storage-configuration problem: connecting file storage would not make this image readable. Tell the user the image is over the ${limit} limit and ask for a smaller or more compressed version.]`,
         );
         continue;
       }
@@ -2064,10 +2071,13 @@ export function buildUserContentWithAttachments(opts: {
     if (filePart) {
       if (filePart.data.length > MAX_INLINE_ATTACHMENT_BASE64_CHARS) {
         const label = att.name ? `"${att.name}"` : "A file";
+        const limit = formatBase64CharBudget(
+          MAX_INLINE_ATTACHMENT_BASE64_CHARS,
+        );
         textAttachments.push(
           uploadedUrl
-            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline, so read it from the URL if its contents are needed.]`
-            : `[${label} was too large to send inline and no upload URL is available. Ask the user for a smaller file.]`,
+            ? `[${label} exceeds the ${limit} per-file limit for inline reading. It was uploaded to ${uploadedUrl}; read it from that URL if its contents are needed.]`
+            : `[${label} exceeds the ${limit} per-file limit for inline reading, so you cannot read its contents. This is a size limit, not a storage-configuration problem. Tell the user the file is over the ${limit} limit and ask for a smaller one.]`,
         );
         continue;
       }

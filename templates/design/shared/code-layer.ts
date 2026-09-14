@@ -506,6 +506,14 @@ export interface WrapNodesEditIntent {
   autoLayout?: boolean;
   /** Defaults to a Group; auto-layout always creates a Frame. */
   wrapperKind?: "group" | "frame";
+  /**
+   * Live-rendered width/height per target node id, used only as a fallback
+   * when a target's inline style has position/left/top but no explicit
+   * width/height (see computeAbsoluteUnionBounds). Optional: callers with no
+   * live DOM to measure (server-side edits, tests) simply omit it and get
+   * the previous behavior.
+   */
+  sizeHints?: Record<string, { width: number; height: number }>;
 }
 
 /**
@@ -4938,6 +4946,16 @@ interface AbsoluteUnionBounds {
  */
 function computeAbsoluteUnionBounds(
   elements: ParsedElement[],
+  /**
+   * Live-rendered width/height fallback, keyed by the element's own
+   * data-agent-native-node-id, for a target whose inline style carries
+   * position/left/top but omits width/height (auto-sized content, e.g. a
+   * Text-tool node sized by its text rather than an explicit box). Never
+   * overrides an explicit inline width/height — only fills the gap that
+   * would otherwise return null and leave the wrapper with no geometry at
+   * all (a frame that doesn't enclose its own content).
+   */
+  sizeHints?: Record<string, { width: number; height: number }>,
 ): AbsoluteUnionBounds | null {
   let minLeft = Infinity;
   let minTop = Infinity;
@@ -4949,8 +4967,10 @@ function computeAbsoluteUnionBounds(
     if (style.position !== "absolute") return null;
     const left = parsePixelLength(style.left);
     const top = parsePixelLength(style.top);
-    const width = parsePixelLength(style.width);
-    const height = parsePixelLength(style.height);
+    const nodeId = attributeValue(element, "data-agent-native-node-id");
+    const hint = nodeId ? sizeHints?.[nodeId] : undefined;
+    const width = parsePixelLength(style.width) ?? hint?.width ?? null;
+    const height = parsePixelLength(style.height) ?? hint?.height ?? null;
     if (left === null || top === null || width === null || height === null) {
       return null;
     }
@@ -5083,7 +5103,10 @@ function applyWrapNodes(
   // Falls back to the previous flow/auto-layout wrapper when any child isn't
   // absolutely positioned (there is no meaningful bounding box to compute
   // without a layout pass).
-  const targetGeometry = computeAbsoluteUnionBounds(targetElements);
+  const targetGeometry = computeAbsoluteUnionBounds(
+    targetElements,
+    intent.sizeHints,
+  );
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
