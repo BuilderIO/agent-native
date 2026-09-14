@@ -325,6 +325,7 @@ export function SearchBar({
           id="mail-search"
           data-mail-search
           role="combobox"
+          aria-label={t("mail.search.label")}
           aria-autocomplete="list"
           aria-controls={showDropdown ? "mail-search-suggestions" : undefined}
           aria-expanded={showDropdown}

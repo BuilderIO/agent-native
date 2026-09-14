@@ -25,13 +25,21 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   built-in Important and Other links appeared under Labels. No paired
   Superhuman replay has been captured.
 - NAV-003 — Open hidden navigation with the keyboard and close it with Escape;
-  repeat with mouse, touch, outside click, and browser Back.
+  repeat with mouse, touch, outside click, and browser Back. An isolated,
+  disconnected desktop browser pass on 2026-09-14 opened the full rail by
+  clicking Toggle menu; Escape left it open, while clicking the main pane
+  closed it. Keyboard toggle, touch, browser Back, and paired Superhuman
+  behavior remain unverified.
 - NAV-004 — Cycle tabs with Tab and Shift+Tab from the workspace and tab bar.
   Confirm focus ring, wraparound, selected tab, and URL. With multiple Split
   tabs open, verify inputs, recipient suggestions, contenteditable, buttons,
   popovers, and dialogs retain native focus/selection behavior instead of
   switching tabs. Mail's guard is covered by
-  `use-keyboard-shortcuts.spec.ts`; paired runtime replay remains required.
+  `use-keyboard-shortcuts.spec.ts`. In the isolated desktop pass, Tab from page
+  focus on Important selected Other and Shift+Tab returned to Important; Tab
+  from Search moved focus to Refresh inbox without changing the route. Focus
+  ring, wraparound, other controls, and paired Superhuman behavior remain
+  unverified.
 - NAV-005 — Open a thread, return with Back/Escape/visible back button, then
   restore the same tab, query, label, selected accounts, and focused row.
 - NAV-006 — Open a direct deep link for every view and a thread id. Refresh at
@@ -88,7 +96,9 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Search. With the Toggle menu button focused, `/` did not open Search. These
   focus-context behaviors need paired Superhuman replay before treating either
   as a parity gap. No mailbox contacts/results were available, and mobile plus
-  Superhuman behavior remain unverified.
+  Superhuman behavior remain unverified. The search combobox had no accessible
+  name in the local accessibility tree; Mail now uses its existing localized
+  `mail.search.label` for that name, with a focused regression test.
 - SEARCH-002 — Type one character, two characters, three characters, spaces,
   quoted text, unicode, punctuation, and a long query. Confirm debounce,
   local-match timing, remote-search timing, and no request for short queries.
@@ -97,7 +107,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Superhuman's official [Search in Seconds](https://help.superhuman.com/hc/en-us/articles/46005814266253-Search-in-Seconds)
   workflow says to type a query and press Enter. Treat the timing/submit
   difference as a candidate for authenticated paired replay, not a confirmed
-  discrepancy; the disconnected runtime had no mailbox results.
+  discrepancy. In the isolated browser pass, a two-character query remained on
+  the current route after about 700 ms; a three-character query navigated to
+  `/mail/all?q=abc` after about 700 ms. The disconnected runtime had no mailbox
+  results, and no paired Superhuman replay has been captured.
 - SEARCH-003 — Navigate contact suggestions with ArrowDown/ArrowUp, Home/End
   if supported, Enter, mouse hover, mouse click, and Tab. Confirm the selected
   result is the one opened and focus/URL are correct.

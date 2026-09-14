@@ -157,6 +157,14 @@ describe("SearchBar suggestion selection", () => {
     vi.unstubAllGlobals();
   });
 
+  it("exposes the localized search label to assistive technology", () => {
+    render(<SearchBar onClose={vi.fn()} />);
+
+    expect(
+      screen.getByRole("combobox", { name: "mail.search.label" }),
+    ).toBeTruthy();
+  });
+
   it("keeps Enter aligned with the visible selection after same-size results change", () => {
     render(<SearchBar onClose={vi.fn()} />);
     const input = screen.getByRole("combobox");
