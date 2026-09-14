@@ -356,6 +356,13 @@ export default defineAction({
       .describe(
         "Browser editor session ID used to group related title and body saves",
       ),
+    preserveLeadingTitleHeading: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Preserve a leading H1 that matches the title when reproducing an exact saved body.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -446,7 +453,7 @@ export default defineAction({
 
     // Strip leading H1 that duplicates the title
     let content = args.content;
-    if (content !== undefined) {
+    if (content !== undefined && !args.preserveLeadingTitleHeading) {
       const titleToCheck = args.title || existing.title;
       if (titleToCheck) {
         const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);

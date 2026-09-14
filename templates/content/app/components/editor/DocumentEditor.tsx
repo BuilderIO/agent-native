@@ -2997,9 +2997,9 @@ function PageEditorSessionBody({
         !!lastSavedTitleRef.current.updatedAt &&
         serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
-        !!serverUpdatedAt &&
-        !!lastSavedContentRef.current.updatedAt &&
-        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!lastSavedContentRef.current.revision &&
+        documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
       const updates: Record<string, string> = {};
       if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -18,6 +18,7 @@ let schema: typeof import("../server/db/schema.js");
 let getDraft: typeof import("./get-preview-document-draft.js").default;
 let updateDraft: typeof import("./update-preview-document-draft.js").default;
 let resolveDraft: typeof import("./resolve-preview-document-draft.js").default;
+let updateDocument: typeof import("./update-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -27,6 +28,7 @@ beforeAll(async () => {
   getDraft = (await import("./get-preview-document-draft.js")).default;
   updateDraft = (await import("./update-preview-document-draft.js")).default;
   resolveDraft = (await import("./resolve-preview-document-draft.js")).default;
+  updateDocument = (await import("./update-document.js")).default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
 
@@ -119,6 +121,39 @@ describe("private preview document drafts", () => {
     );
   });
 
+  it("preserves a matching leading H1 when Keep mine resolves a draft", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    const content = "# Builder row\n\nLocal recovery";
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload(content), deferredReason: "conflict" },
+      }),
+    );
+
+    await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "keep_mine",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: content,
+        expectedDocumentUpdatedAt: before.updatedAt,
+      }),
+    );
+    const [current] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(current.content).toBe(content);
+  });
+
   it("keeps a newer page and the exact draft when Keep mine sees an unseen revision", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()
@@ -155,6 +190,64 @@ describe("private preview document drafts", () => {
     expect(
       (await asUser(OWNER, () => getDraft.run({ documentId }))).draft?.content,
     ).toBe("Local recovery");
+  });
+
+  it("preserves a claimed draft in Version History when a newer draft wins restoration", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Claimed recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async () => {
+        await updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: { ...payload("Newer recovery"), deferredReason: "conflict" },
+        });
+        return { conflict: true, document: {} } as any;
+      });
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Claimed recovery",
+          expectedDocumentUpdatedAt: before.updatedAt,
+        }),
+      ),
+    ).rejects.toThrow("preserved in Version History");
+    updateSpy.mockRestore();
+
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft?.content,
+    ).toBe("Newer recovery");
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    expect(versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          content: "Claimed recovery",
+          operation: "restore-claimed-preview-draft",
+          checkpointKind: "recovery",
+        }),
+      ]),
+    );
   });
 
   it("archives local edits in Version History before using the saved page", async () => {
@@ -243,6 +336,21 @@ describe("private preview document drafts", () => {
       title: "Builder row",
       content: "Local recovery",
       ownerEmail: OWNER,
+    });
+
+    const retry = await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "save_separately",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Local recovery",
+      }),
+    );
+    expect(retry).toMatchObject({
+      status: "resolved",
+      createdDocumentId: result.createdDocumentId,
+      urlPath: result.urlPath,
     });
   });
 

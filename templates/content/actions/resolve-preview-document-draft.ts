@@ -29,6 +29,33 @@ function conflict(message: string, details?: Record<string, unknown>): never {
   });
 }
 
+async function recoveryDocumentId(args: {
+  documentId: string;
+  expectedDraftVersion: number;
+  expectedDraftTitle: string;
+  expectedDraftContent: string;
+  ownerEmail: string;
+  orgId: string;
+}): Promise<string> {
+  const input = JSON.stringify([
+    args.ownerEmail,
+    args.orgId,
+    args.documentId,
+    args.expectedDraftVersion,
+    args.expectedDraftTitle,
+    args.expectedDraftContent,
+  ]);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(input),
+  );
+  return `recovery-${Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  )
+    .join("")
+    .slice(0, 32)}`;
+}
+
 export default defineAction({
   description:
     "Resolve the current user's exact preview draft without losing either version.",
@@ -74,10 +101,38 @@ export default defineAction({
     const restoreClaimedDraft = async (
       draft: typeof schema.documentPreviewDrafts.$inferSelect,
     ) => {
-      await db
+      const restored = await db
         .insert(schema.documentPreviewDrafts)
         .values(draft)
+        .onConflictDoNothing()
+        .returning({ id: schema.documentPreviewDrafts.id });
+      if (restored.length === 1) return;
+
+      const now = new Date().toISOString();
+      const recoveryVersionId = `draft-restore-${draft.id}`;
+      await db
+        .insert(schema.documentVersions)
+        .values({
+          id: recoveryVersionId,
+          ownerEmail,
+          documentId: args.documentId,
+          title: draft.title,
+          content: draft.content,
+          actorEmail: userEmail,
+          actorKind: "human",
+          origin: ctx?.caller ?? "frontend",
+          groupKind: "operation",
+          groupId: `draft-recovery:${draft.id}`,
+          operation: "restore-claimed-preview-draft",
+          checkpointKind: "recovery",
+          createdAt: now,
+          updatedAt: now,
+        })
         .onConflictDoNothing();
+      conflict(
+        "A newer draft replaced this recovery draft. The claimed version was preserved in Version History.",
+        { recoveryVersionId },
+      );
     };
     if (args.choice === "keep_mine") {
       const draft = await claimExactDraft();
@@ -91,6 +146,7 @@ export default defineAction({
             loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
             loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
             historySessionId: `draft-recovery:${draft.id}`,
+            preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
           ctx,
@@ -149,8 +205,41 @@ export default defineAction({
       return { status: "resolved" as const, choice: args.choice };
     }
 
+    const destinationId = await recoveryDocumentId({
+      ...args,
+      ownerEmail: userEmail,
+      orgId,
+    });
+    const findExistingRecovery = async () => {
+      const [existing] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, destinationId))
+        .limit(1);
+      return existing &&
+        existing.ownerEmail === userEmail &&
+        existing.title === args.expectedDraftTitle &&
+        existing.content === args.expectedDraftContent
+        ? existing
+        : null;
+    };
+    const existingRecovery = await findExistingRecovery();
+    if (existingRecovery) {
+      return {
+        status: "resolved" as const,
+        choice: args.choice,
+        document: {
+          id: existingRecovery.id,
+          urlPath: `/page/${existingRecovery.id}`,
+          title: existingRecovery.title,
+          content: existingRecovery.content,
+        },
+        createdDocumentId: existingRecovery.id,
+        urlPath: `/page/${existingRecovery.id}`,
+      };
+    }
+
     const draft = await claimExactDraft();
-    const destinationId = `recovery-${draft.id}`;
     let created;
     try {
       try {
@@ -165,19 +254,8 @@ export default defineAction({
           ctx,
         );
       } catch (error) {
-        const [existing] = await db
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, destinationId))
-          .limit(1);
-        if (
-          !existing ||
-          existing.ownerEmail !== userEmail ||
-          existing.title !== draft.title ||
-          existing.content !== draft.content
-        ) {
-          throw error;
-        }
+        const existing = await findExistingRecovery();
+        if (!existing) throw error;
         created = {
           id: existing.id,
           urlPath: `/page/${existing.id}`,
