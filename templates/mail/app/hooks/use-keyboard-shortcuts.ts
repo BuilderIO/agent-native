@@ -37,6 +37,30 @@ export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
   );
 }
 
+export function shouldCycleMailTab(target: EventTarget | null): boolean {
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  if (!element) return true;
+
+  if (
+    element.closest(
+      '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
+    )
+  ) {
+    return false;
+  }
+  if (element.closest("[data-mail-tab-list]")) return true;
+
+  return (
+    !isKeyboardShortcutTarget(element) &&
+    element.closest('[tabindex]:not([tabindex="-1"])') === null
+  );
+}
+
 interface Shortcut {
   key: string;
   meta?: boolean;

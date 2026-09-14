@@ -154,7 +154,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("handler: () => cycleTab(true)");
     expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
     expect(source).toContain("canCycleTab");
-    expect(source).toContain("data-mail-tab-list");
+    expect(source).toContain("shouldCycleMailTab(event.target)");
     expect(
       source.match(/key: "Tab",[\s\S]{0,200}?skipInInput: false/g),
     ).toHaveLength(2);

@@ -97,7 +97,23 @@ vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
 vi.mock("./ComposeEditor", () => ({
   ComposeEditor: () => <div data-testid="compose-editor" />,
 }));
-vi.mock("./RecipientInput", () => ({ RecipientInput: () => null }));
+vi.mock("./RecipientInput", () => ({
+  RecipientInput: ({
+    field,
+    value = "",
+    onChange,
+  }: {
+    field: string;
+    value?: string;
+    onChange?: (value: string) => void;
+  }) => (
+    <input
+      data-recipient-field={field}
+      value={value}
+      onChange={(event) => onChange?.(event.target.value)}
+    />
+  ),
+}));
 vi.mock("./SendLaterButton", () => ({
   SendLaterButton: ({
     onSend,
@@ -185,6 +201,105 @@ describe("ComposeModal scheduling", () => {
         name: "mail.compose.fullScreenCompose",
       }).getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("reveals and focuses Bcc with the compose keyboard shortcut", async () => {
+    const onUpdate = vi.fn();
+    const { container } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={onUpdate}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+    const toInput = container.querySelector<HTMLInputElement>(
+      '[data-recipient-field="to"]',
+    );
+    expect(toInput).not.toBeNull();
+
+    fireEvent.keyDown(toInput!, {
+      key: "b",
+      metaKey: true,
+      shiftKey: true,
+    });
+
+    await waitFor(() => {
+      const bccInput = container.querySelector<HTMLInputElement>(
+        '[data-recipient-field="bcc"]',
+      );
+      expect(bccInput).not.toBeNull();
+      expect(document.activeElement).toBe(bccInput);
+    });
+    expect(onUpdate).toHaveBeenCalledWith(draft.id, { cc: "", bcc: "" });
+    expect(toInput?.value).toBe(draft.to);
+
+    toInput?.focus();
+    fireEvent.keyDown(toInput!, {
+      key: "B",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(document.activeElement).toBe(
+      container.querySelector('[data-recipient-field="bcc"]'),
+    );
+  });
+
+  it("preserves existing copy recipients and focuses Bcc on the Windows shortcut", async () => {
+    const populatedDraft: ComposeState = {
+      ...draft,
+      cc: "copy@example.com",
+      bcc: "blind@example.com",
+    };
+    const onUpdate = vi.fn();
+    const { container } = render(
+      <ComposeModal
+        drafts={[populatedDraft]}
+        activeId={populatedDraft.id}
+        activeDraft={populatedDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={onUpdate}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+    const toInput = container.querySelector<HTMLInputElement>(
+      '[data-recipient-field="to"]',
+    );
+
+    fireEvent.keyDown(toInput!, {
+      key: "b",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector('[data-recipient-field="bcc"]'),
+      );
+    });
+    expect(
+      container.querySelector<HTMLInputElement>('[data-recipient-field="cc"]')
+        ?.value,
+    ).toBe(populatedDraft.cc);
+    expect(
+      container.querySelector<HTMLInputElement>('[data-recipient-field="bcc"]')
+        ?.value,
+    ).toBe(populatedDraft.bcc);
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 
   it("assigns the sole connected account to a new compose draft", async () => {

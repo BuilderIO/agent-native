@@ -436,6 +436,26 @@ export function ComposeModal({
 
   const composeRef = useRef<HTMLDivElement>(null);
   const composeAnimationRef = useRef<Animation | null>(null);
+  const focusBccAfterExpandRef = useRef(false);
+
+  useEffect(() => {
+    if (!showCcBcc || !focusBccAfterExpandRef.current) return;
+    focusBccAfterExpandRef.current = false;
+    composeRef.current
+      ?.querySelector<HTMLInputElement>('[data-recipient-field="bcc"]')
+      ?.focus();
+  }, [showCcBcc]);
+
+  const revealCcBcc = () => {
+    if (!activeId || !activeDraft) return;
+    setShowCcBcc(true);
+    const missingFields: Partial<ComposeState> = {};
+    if (activeDraft.cc === undefined) missingFields.cc = "";
+    if (activeDraft.bcc === undefined) missingFields.bcc = "";
+    if (Object.keys(missingFields).length > 0) {
+      onUpdate(activeId, missingFields);
+    }
+  };
 
   const animateComposeLayout = useCallback((updateLayout: () => void) => {
     const compose = composeRef.current;
@@ -488,6 +508,26 @@ export function ComposeModal({
     // Only handle shortcuts for events originating within the compose window
     // (prevents agent chat Cmd+Enter from triggering email send)
     if (!composeRef.current?.contains(e.target as Node)) return;
+
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      e.shiftKey &&
+      e.key.toLowerCase() === "b" &&
+      activeId &&
+      activeDraft
+    ) {
+      e.preventDefault();
+      if (showCcBcc) {
+        composeRef.current
+          ?.querySelector<HTMLInputElement>('[data-recipient-field="bcc"]')
+          ?.focus();
+      } else {
+        focusBccAfterExpandRef.current = true;
+        revealCcBcc();
+      }
+      return;
+    }
 
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -821,12 +861,10 @@ export function ComposeModal({
                   aria-expanded={showCcBcc}
                   onClick={() => {
                     const next = !showCcBcc;
-                    setShowCcBcc(next);
                     if (next) {
-                      if (activeDraft.cc === undefined)
-                        onUpdate(activeId!, { cc: "" });
-                      if (activeDraft.bcc === undefined)
-                        onUpdate(activeId!, { bcc: "" });
+                      revealCcBcc();
+                    } else {
+                      setShowCcBcc(false);
                     }
                   }}
                   className="flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"

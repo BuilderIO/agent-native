@@ -15,8 +15,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   back/forward history.
 - NAV-003 — Open hidden navigation with the keyboard and close it with Escape;
   repeat with mouse, touch, outside click, and browser Back.
-- NAV-004 — Cycle tabs with Tab and Shift+Tab. Confirm focus ring, wraparound,
-  selected tab, URL, and that Tab remains native while a button/input owns focus.
+- NAV-004 — Cycle tabs with Tab and Shift+Tab from the workspace and tab bar.
+  Confirm focus ring, wraparound, selected tab, and URL. With multiple Split
+  tabs open, verify inputs, recipient suggestions, contenteditable, buttons,
+  popovers, and dialogs retain native focus/selection behavior instead of
+  switching tabs. Mail's guard is covered by
+  `use-keyboard-shortcuts.spec.ts`; paired runtime replay remains required.
 - NAV-005 — Open a thread, return with Back/Escape/visible back button, then
   restore the same tab, query, label, selected accounts, and focused row.
 - NAV-006 — Open a direct deep link for every view and a thread id. Refresh at
@@ -39,6 +43,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   synthetic sent, unanswered, and later-answered threads to verify membership,
   counts, removal after a reply, and Back/Forward/refresh behavior. Keep this
   surface distinct from reminder scheduling and auto-reminder detection.
+- NAV-013 — On mobile, open Command from the inbox pull-down/right-swipe gesture
+  and from an open message pull-down; two-finger tap a specific message for
+  message-scoped Command. Also test bottom-bar Search, pull-down Search,
+  pull-down/left refresh, folder menu, Split cycling by bottom controls and
+  horizontal swipe, iOS swipe-right return, and Android Back. Record each
+  starting surface, gesture threshold, animation, dismissal, refresh result, and
+  focus/scroll restoration. Compare platform-specific reference behavior rather
+  than treating gestures as interchangeable.
 
 ## Search and search autocomplete
 
@@ -57,9 +69,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   result is the one opened and focus/URL are correct.
 - SEARCH-004 — Navigate local thread suggestions after contacts. Confirm the
   selected local item scrolls into view and does not reuse a contact index.
-- SEARCH-005 — Search with Gmail operators: `from:`, `to:`, `subject:`,
-  `has:attachment`, `label:`, `is:unread`, date ranges, quoted phrases, OR,
-  AND, and exclusion. Confirm parser/result parity and visible query retention.
+- SEARCH-005 — Search with `from:`, `to:`, `subject:`, `has:attachment`,
+  `label:`, `is:unread`, date ranges, quoted phrases, OR, AND, and exclusion.
+  Verify documented Superhuman behavior: separate terms combine with AND,
+  explicit OR broadens results, a leading hyphen excludes, and common operators
+  are discoverable from the desktop sidebar/mobile picker. Record provider- and
+  operator-specific support; do not infer that every Gmail operator is parsed
+  identically. Confirm result parity and visible query retention.
 - SEARCH-006 — Submit with Enter, click a result, click outside, clear with the
   X, and press Escape. Confirm whether the active query stays, clears, or
   restores the pre-search route exactly as the reference does.
@@ -126,7 +142,9 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   persistence after reload.
 - LIST-010 — Swipe left/right on touch: below threshold, threshold, fast fling,
   diagonal/vertical scroll, touch cancel, missing action, action commit, modal
-  open, and trailing click suppression.
+  open, and trailing click suppression. Compare default left=Done/right=Reminder;
+  customize both in Swipes settings, add/remove/reorder actions, and re-run the
+  same gesture matrix to verify the active mapping and triage-bar actions.
 - LIST-011 — Open an inbox tab with zero rows, loading rows, exhausted pages,
   fetch-more error, account error, rate limit, needs-reauth, and sync-in-progress.
   Confirm skeleton, retry, partial coverage, and Inbox Zero are distinct.
@@ -148,8 +166,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - THREAD-005 — Test HTML/plain text/markdown bodies, long lines, tables, code,
   inline images, blocked remote images, unsafe links, new-tab links, sanitized
   markup, iframe load/error, dark mode, and responsive height.
-- THREAD-006 — Open/download one attachment, all attachments, missing URL,
-  unsupported type, large file, duplicate filename, and failed download.
+- THREAD-006 — From a message with several attachments, invoke Cmd/Ctrl+O,
+  click, and use context-menu Open Link/Copy Link. Verify PDF in-app preview,
+  PNG preview-then-download, MOV/MP4/DOCX download-first, unsupported Office or
+  cloud links, and the 8-second slow-download fallback. Include missing URL,
+  large file, duplicate name, failure/retry, mobile native viewer and
+  platform-specific Save to Photos/Files actions. Confirm each action targets
+  the selected message and preserves thread focus/scroll.
 - THREAD-007 — Test calendar invite RSVP accept/decline/tentative, missing event,
   repeated response, loading, failure, and refresh/read-back.
 - THREAD-008 — Test GitHub/extracted external action, no match, multiple matches,
@@ -229,6 +252,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - COMPOSE-004 — Navigate recipient suggestions with arrows, Enter, Tab, hover,
   click, scroll, and no-match/error/slow contact data. Confirm selected option,
   chip order, focus, `aria-selected`, and no duplicate send target.
+  Add two contacts with the same display name and compare ranking for name vs.
+  exact-address queries in To/Cc/Bcc. The public phrase-Autocomplete article
+  does not specify contact ranking; record that rule from live observation, or
+  mark it unknown rather than inferring from phrase suggestions.
+  Mail-only regression evidence (not paired parity) is in
+  `RecipientInput.interaction.test.tsx`: ArrowDown/ArrowUp/Tab keep the active
+  descendant aligned; Escape preserves the query; duplicate addresses are
+  filtered case-insensitively; and single/multi-address paste plus blur keep
+  valid chips and leftovers distinct. Superhuman behavior remains unobserved
+  until a paired replay.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,
@@ -253,15 +286,27 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   not prior emails or drafts. Mail currently uses a small deterministic local
   phrase list, so keyboard/state parity is partial and prediction quality,
   timing, and exact visual parity remain unverified until paired browser replay.
+  A synthetic Mail browser pass at commit `baba8a1` verified the gray preview,
+  Settings and Cmd/Ctrl+K toggles, Tab acceptance, and Escape dismissal before
+  the next Escape closed the unsent compose. Send stayed disabled with no
+  recipient. No Superhuman state was observed in that run.
 - COMPOSE-008 — Use slash menu, generate/agent handoff, code block language
   picker, link dialog, image paste/drop/upload/failure, and toolbar
   button focus/tooltip states.
 - COMPOSE-009 — Add/remove/reorder attachments via picker, drag/drop, paste,
   reply/forward originals, duplicate files, invalid type, size limit, upload
-  progress, upload failure, retry, and draft reopen.
-- COMPOSE-010 — Test signature absent/present/multiline/quoted text, toggle
-  quoted content, avoid duplicate signatures, reply quote boundaries, and
-  edits before/after the quote.
+  progress, upload failure, retry, and draft reopen. Compare Cmd/Ctrl+Shift+U
+  with drag/drop. Select the original message before Reply/Reply All and use
+  Include Original Attachments; Forward appends the original files. On mobile,
+  test New Message/Reply `+ → Attach`, Forward from the reply menu, and image vs.
+  document save/share paths.
+- COMPOSE-010 — Test signature absent/present/multiline/quoted text, Gmail
+  signature refresh, Outlook rich signature with image/link, include/remove on
+  replies and forwards, and how signatures are exposed from draft overflow.
+  Verify mobile respects desktop reply/forward settings but cannot configure
+  that option, only one signature is available, quoted content does not
+  duplicate it, and edits before/after the quote persist. Compare the optional
+  “Sent via Superhuman” signature setting and its desktop/mobile entry points.
 - COMPOSE-011 — Change From account and test last-used account, unavailable
   account, reauth, account-specific contacts, and preserved draft account.
 - COMPOSE-012 — Type, blur, route-change, refresh, close, reopen, multi-tab, and
@@ -307,6 +352,27 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   test Add Snippet while composing and record that snippet creation remains a
   desktop-only reference capability. Use a disposable team fixture; do not
   share a real snippet or send a message.
+- COMPOSE-019 — From To, Cc, Bcc, subject, and body, invoke Cmd/Ctrl+Shift+B.
+  Confirm Cc/Bcc rows appear once, absent values initialize to empty without
+  replacing typed chips, Bcc receives focus, and repeating the shortcut focuses
+  Bcc without hiding rows. Confirm the shortcut is scoped to an active compose
+  and never changes To/Cc recipients. Mail's component regression is covered in
+  `ComposeModal.schedule.test.tsx`; verify paired desktop behavior and Windows
+  modifier mapping.
+- COMPOSE-020 — With at least two Split tabs open, move focus through To/Cc/Bcc,
+  recipient autocomplete, subject, body/editor, formatting controls, and dialogs
+  using Tab/Shift+Tab. Confirm the suggestion list consumes Tab only when its
+  selection behavior is active, then ordinary compose focus traversal resumes;
+  no compose Tab may navigate to another Split. From the workspace/tab bar,
+  confirm Tab/Shift+Tab still wraps through Splits. Verify exact focus and URL
+  after each press.
+- COMPOSE-021 — Keep sender aliases distinct from recipient/group aliases and
+  mailbox switching. For Gmail, add an alias through Alias Settings, refresh,
+  select it through Command or Cmd/Ctrl+Shift+F, set default/Always Reply
+  behavior, and verify From on desktop. On mobile, expand an existing reply and
+  change From; record that alias setup remains desktop-only. For Outlook, verify
+  the primary alias is respected and cannot be switched in Mail. Use provider
+  mocks; do not alter a real provider account.
 
 ## Send, schedule, and failure recovery
 
@@ -314,8 +380,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   alias expansion, duplicate recipients, self-send, and To/Cc/Bcc overlap before
   any provider side effect.
 - SEND-002 — Test Send click, Cmd/Ctrl+Enter, command palette, queued draft send,
-  and visible send button. Verify approval/confirmation boundary and no duplicate
-  sends from double click, key repeat, retry, or rerender.
+  visible send button, and Cmd/Ctrl+Shift+Enter Send + Done. Verify the latter's
+  exact Done target (reply thread versus new message), archive timing, failure
+  recovery, approval/confirmation boundary, and no duplicate sends from double
+  click, key repeat, retry, or rerender. Mail's source currently routes
+  Cmd/Ctrl+Shift+Enter through ordinary Send; this is a known mismatch, not a
+  completed parity case. Use mocked sends only.
 - SEND-003 — Test optimistic send, `Z` Undo within the reference’s 10-second
   window and at the boundary, after toast change, after navigation, and after
   refresh. Never call a message “sent” before the provider result is
@@ -328,9 +398,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   With a mocked provider, verify an email scheduled before going offline still
   sends at its scheduled time, while a send/schedule queued offline waits for
   connectivity and syncs after reconnect; never use a real send for this case.
-- SEND-006 — Test Smart Send reference states: activity recommendation,
-  recipient timezone, multiple recipients, disabled/no data, scheduled override,
-  and manual send. Mark Mail's intentional gap explicitly.
+- SEND-006 — Test Smart Send on an eligible Business/Enterprise desktop account:
+  activity-data eligibility, no recommendation, recipient timezone, multiple
+  recipients and optimization choice, no-reply reminder mode, scheduled-send
+  override, reply arriving before delivery (scheduled message returns to Drafts),
+  manual Send, and plan/platform gating. Mark Mail's intentional gap explicitly.
 - SEND-007 — If a live round trip is approved, use only the exact addresses the
   current user explicitly allowlisted for this run. Send one exact approved
   test message, wait for Sent, receive on the other allowed account, verify
@@ -354,7 +426,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 
 - ORGANIZE-001 — Open label/folder menus from list, thread, command palette, and
   Settings. Test search, nested labels, duplicate names, missing labels, create,
-  rename, delete, apply, remove, move, and remove-label-and-done.
+  rename, delete, apply, remove, move, and remove-label-and-done. Compare Gmail
+  labels versus Outlook categories, category-vs-folder semantics in Move, and
+  provider handoff for deleting/renaming labels; verify folder overflow and
+  mobile platform/account support. Label and remove-label alone keep mail in
+  Inbox; Remove from Label/Shift+Y labels then Done; Move removes it from Inbox,
+  while removing a message from a folder sends it to Done. Test slash-created
+  subfolders and provider handoff for folder deletion.
 - ORGANIZE-002 — Compare Archive/Done, All Mail, Inbox, label, Sent, Trash, and
   Spam boundaries. Confirm replies to archived/done threads resurface correctly.
 - ORGANIZE-003 — On synthetic messages, distinguish Delete, Unsubscribe,
@@ -371,8 +449,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   timezone, multi-select, swipe, modal keyboard navigation, cancel, failure,
   resurface, and reminder list.
 - ORGANIZE-005 — Compare Superhuman Auto Reminders: sent/no reply detection,
-  reminder scheduling, trigger, dismiss, and cancel. Mark Mail's intentional gap
-  until implemented and covered by actions/application state.
+  reminder scheduling, trigger, dismiss, and cancel. Test needs-follow-up,
+  all-external, and off modes, default reminder time, and weekday behavior.
+  Mark Mail's intentional gap until implemented and covered by
+  actions/application state.
 - ORGANIZE-006 — Compare Auto Labels, Auto Archive, and Auto Drafts when the
   reference account/plan exposes them: onboarding and enablement, existing mail
   versus new mail, exclusions/overrides, incremental processing, draft
@@ -388,6 +468,20 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   folder/label/read state and counts, then refresh and reopen Settings. Record
   SH's available criteria, precedence, preview, and retroactive-apply semantics
   rather than inferring them. Remove the disposable rule and its fixtures.
+- ORGANIZE-008 — Compare manual Remind Me from `h`, Command, and
+  Cmd/Ctrl+Shift+H in compose. Exercise day/time presets, custom time, timezone,
+  “if no reply” vs “regardless,” editing/removing a pending reminder,
+  reply-before-due behavior,
+  “someday,” reminders on an existing-conversation draft, and the boundary that
+  a new-message draft cannot have a reminder. Verify pending Reminders-folder
+  membership, returned Reminder split/purple dot, same-thread duplicates when
+  newer mail arrives, and account scope. Use synthetic threads and mocked time.
+- ORGANIZE-009 — Customize left/right swipes and conversation triage actions:
+  Command → Swipes → each direction, plus/minus actions, drag reordering, save,
+  and cancellation. Re-run list gestures and in-thread triage to verify new
+  mappings. Compare iOS triage-bar customization and the documented Android
+  availability boundary; verify ordinary vertical scroll never triggers a
+  swipe action.
 
 ## Account connection and recovery
 
@@ -401,6 +495,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   exact confirmation, cache, and recovery behavior side by side; do not connect,
   disconnect, or modify a real mailbox. Remove synthetic accounts and reset
   provider mocks after the case.
+- ACCOUNT-002 — With two synthetic accounts, compare Command-based desktop add,
+  desktop account switching/reordering/sign-out, and per-account draft sender.
+  Repeat setup on mobile (accounts added on desktop do not auto-sync); test tap
+  to cycle and long-press to choose an account. Compare Windows' documented
+  account-switch modifier with the live shortcut inventory. Record that the
+  current Superhuman guide documents no Unified Inbox; treat Mail's combined
+  inbox as an additional capability, not parity. Verify switching never
+  silently changes an open draft's sender or mutation target.
 
 ## Splits, calendar, and collaboration
 
@@ -459,8 +561,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   focus, and after selecting a command; selection must not be mistaken for
   dismissal.
 - SETTINGS-002 — Open shortcut reference and hover every action. Confirm the
-  displayed shortcut is the one that actually runs, including international
-  keyboard alternatives and native Tab behavior.
+  displayed shortcut is the one that actually runs. Compare US QWERTY with the
+  documented Belgian/French/German alternatives for Search, Trash, Tab, snippet,
+  and calendar; test Colemak's listed reply/navigation/snippet overrides. Do not
+  infer native support for an unlisted international layout.
 - SETTINGS-003 — Settings navigation/search/back/refresh. Test signature,
   drafting style, snippets, aliases, tracking, accounts, split/combine inbox,
   filters, automations, AI filter, Auto Labels/Archive/Drafts/Reminders,
@@ -491,6 +595,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Confirm contextual conflicts resolve intentionally (including Enter, Tab,
   Cmd+Shift+A, Cmd+O, Cmd+K, Shift+U, and Shift+R), native text editing is not
   intercepted, and international keyboard layouts have usable alternatives.
+  Mail source audit on 2026-09-13 found additional mappings that need paired
+  replay: Shift+I marks read in list/thread rather than Important; G+A routes to
+  Archive while the captured reference inventory says All Mail; G+I routes only
+  to Inbox despite the reference sheet's ambiguous Inbox/Important label; and
+  Cmd+O has a Mail-specific GitHub-link handler when a PR link is detected;
+  compare ordinary attachment/link handling with Superhuman separately. These
+  source findings are gaps to validate, not runtime parity evidence.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app
@@ -501,6 +612,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   badge choices (high-priority unread, unread, off), and Android's fixed badge.
   Mock notification delivery and device permission state; do not change the
   user's OS notification settings or emit real notifications.
+- SETTINGS-009 — Configure Auto Bcc through desktop Command or mobile Command →
+  Auto Bcc Settings. Paste an address, save with Enter, add/remove excluded
+  domains and addresses, and record whether settings are shared or per sender
+  account. In a mocked compose, confirm the address is added to Bcc; use
+  Cmd/Ctrl+Shift+B to reveal Bcc and remove the automatic address for one
+  message, then open a later draft and another account to verify the rule's
+  persistence/scope. Test malformed/duplicate addresses, cancellation, and
+  settings failure without sending any message.
 
 ## Performance and quality gates
 
@@ -569,6 +688,16 @@ re-open them when the product changes:
 - [Mark Done](https://help.superhuman.com/hc/en-us/articles/47439134613773-Mark-Done)
 - [Attachments](https://help.superhuman.com/hc/en-us/articles/46005568142989-Attachments)
 - [Labels](https://help.superhuman.com/hc/en-us/articles/46005736546061-Labels)
+- [Folders](https://help.superhuman.com/hc/en-us/articles/46005732666253-Folders)
+- [Aliases](https://help.superhuman.com/hc/en-us/articles/46005743269901-Alias)
+- [Signatures](https://help.superhuman.com/hc/en-us/articles/46005771841933-Signatures)
+- [International keyboard shortcuts](https://help.superhuman.com/hc/en-us/articles/46005584339597-Shortcuts-for-International-Keyboards)
+- [Managing Accounts](https://help.superhuman.com/hc/en-us/articles/46005777934733-Managing-Accounts)
+- [Customizing Swipes and Triage Bar](https://help.superhuman.com/hc/en-us/articles/46005742942861-Customizing-Swipes-and-Triage-Bar)
+- [Remind Me](https://help.superhuman.com/hc/en-us/articles/46005666142733-Remind-Me)
+- [Reminders on Autopilot](https://help.superhuman.com/hc/en-us/articles/46005807905421-Reminders-on-Autopilot)
+- [Smart Send](https://help.superhuman.com/hc/en-us/articles/46005572688525-Smart-Send)
+- [Auto Bcc](https://help.superhuman.com/hc/en-us/articles/46005654497549-Auto-Bcc)
 - [Mobile navigation](https://help.superhuman.com/hc/en-us/articles/46005719737357-Mobile-Navigation)
 - [Failed sends](https://help.superhuman.com/hc/en-us/articles/46005543693581-Failed-Sends)
 - [Quick Quote](https://help.superhuman.com/hc/en-us/articles/46005692763661-Quick-Quote)

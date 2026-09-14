@@ -2,7 +2,10 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { isKeyboardShortcutTarget } from "./use-keyboard-shortcuts";
+import {
+  isKeyboardShortcutTarget,
+  shouldCycleMailTab,
+} from "./use-keyboard-shortcuts";
 
 describe("isKeyboardShortcutTarget", () => {
   afterEach(() => {
@@ -48,5 +51,44 @@ describe("isKeyboardShortcutTarget", () => {
     document.body.append(row);
 
     expect(isKeyboardShortcutTarget(row)).toBe(false);
+  });
+});
+
+describe("shouldCycleMailTab", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it("preserves native Tab behavior in editors and interactive controls", () => {
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.setAttribute("contenteditable", "true");
+    const button = document.createElement("button");
+    const focusable = document.createElement("div");
+    focusable.tabIndex = 0;
+    document.body.append(input, editor, button, focusable);
+
+    expect(shouldCycleMailTab(input)).toBe(false);
+    expect(shouldCycleMailTab(editor)).toBe(false);
+    expect(shouldCycleMailTab(button)).toBe(false);
+    expect(shouldCycleMailTab(focusable)).toBe(false);
+  });
+
+  it("cycles from the workspace and the mail tab bar, but not from dialogs", () => {
+    const workspace = document.createElement("main");
+    const tabList = document.createElement("div");
+    tabList.setAttribute("data-mail-tab-list", "");
+    const tab = document.createElement("button");
+    tab.setAttribute("role", "tab");
+    tabList.append(tab);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const dialogButton = document.createElement("button");
+    dialog.append(dialogButton);
+    document.body.append(workspace, tabList, dialog);
+
+    expect(shouldCycleMailTab(workspace)).toBe(true);
+    expect(shouldCycleMailTab(tab)).toBe(true);
+    expect(shouldCycleMailTab(dialogButton)).toBe(false);
   });
 });
