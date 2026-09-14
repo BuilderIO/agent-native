@@ -110,6 +110,66 @@ async function portableStyleSnapshotStylesFor(
 }
 
 /**
+ * Same drive-a-real-browser flow, but with the named grouping-rule
+ * constructors (`CSSLayerBlockRule`, `CSSContainerRule`, `CSSScopeRule`, …)
+ * deleted from `window` right after the bridge script loads — simulates an
+ * engine build that never exposed them (older Safari/Firefox) so a fix that
+ * still relies on `instanceof` against a specific global would go blind.
+ */
+async function portableStyleSnapshotStylesForWithoutGroupingConstructors(
+  html: string,
+  selector: string,
+  constructorNames: string[],
+): Promise<Record<string, string> | undefined> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate((names: string[]) => {
+      names.forEach((name) => {
+        delete (window as any)[name];
+      });
+    }, constructorNames);
+    await page.evaluate(() => {
+      (window as any).__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        (window as any).__messages.push(event.data);
+      });
+    });
+    await page.evaluate((sel) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: [sel] },
+        "*",
+      );
+    }, selector);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.type === "element-select",
+      ),
+    );
+    const messages: Array<Record<string, unknown>> = await page.evaluate(
+      () => (window as any).__messages,
+    );
+    const select = messages.find(
+      (message) => message.type === "element-select",
+    ) as {
+      payload?: {
+        portableStyleSnapshot?: {
+          nodes?: Array<{ styles: Record<string, string> }>;
+        };
+      };
+    };
+    return select?.payload?.portableStyleSnapshot?.nodes?.[0]?.styles;
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
  * Same drive-a-real-browser flow, but with `document.createElement("iframe")`
  * stubbed to throw before the bridge script loads — the only way
  * portableStyleProbeDocument's own try/catch can fail (sandboxed iframe, CSP,
@@ -556,6 +616,86 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       // cross-screen-element-drop.spec.ts) rather than silently dropping the
       // appearance carry-over.
       expect(snapshot).toBeNull();
+    },
+  );
+
+  it(
+    "still masks a grouping-rule match when the engine never exposed its constructor",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@layer base {.card{width:200px}} .card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles =
+        await portableStyleSnapshotStylesForWithoutGroupingConstructors(
+          html,
+          '[data-agent-native-node-id="card"]',
+          ["CSSLayerBlockRule", "CSSContainerRule", "CSSScopeRule"],
+        );
+      // Classifying a grouping rule by `instanceof CSSLayerBlockRule` goes
+      // blind the moment that global is missing (older engine) or the rule
+      // came from another realm — the competing `@layer` declaration would
+      // silently stop masking the top-level match. Duck-typing by shape
+      // (has `cssRules`, no `selectorText`) doesn't depend on the global.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "walks CSS nesting: a style rule's own nested rules still mask its match",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;.row & {width:auto}}</style></head><body style="margin:0">
+        <div class="row"><div class="card" data-agent-native-node-id="card"></div></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // A CSSStyleRule can carry its own nested `cssRules` (CSS nesting) —
+      // never recursed before this fix, so a nested `.row & { width: auto }`
+      // competing declaration went invisible. It must mask the outer match
+      // exactly like a rule inside @media/@supports/etc. would.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "masks a match inside a grouping construct this walk has no named case for (@starting-style)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@starting-style {.card{width:200px}} .card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // @starting-style is a real, engine-supported grouping construct this
+      // walk names no explicit case for. An `instanceof`-based classifier
+      // only recognizes constructors it was written against, so a construct
+      // added after the fact falls through as "harmless" and hides a
+      // competing declaration. Duck-typing by shape (cssRules, no
+      // selectorText) covers it without a matching update.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "ignores @font-face as harmless, still carrying the plain rule it sits beside",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@font-face{font-family:"x";src:url(data:font/woff2;base64,)}.card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // @font-face cannot declare a `width` matching an arbitrary element via
+      // a selector — it has no `cssRules` and no `selectorText`/`style`, so
+      // it must be ignored outright rather than masking the plain match.
+      expect(styles?.width).toBe("320px");
     },
   );
 });

@@ -2605,52 +2605,56 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
     }
-    function isPortableStyleGroupingRule(rule) {
-      return typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule || typeof CSSSupportsRule !== "undefined" && rule instanceof CSSSupportsRule || typeof CSSLayerBlockRule !== "undefined" && rule instanceof CSSLayerBlockRule || typeof CSSContainerRule !== "undefined" && rule instanceof CSSContainerRule || typeof CSSScopeRule !== "undefined" && rule instanceof CSSScopeRule;
-    }
     function walkPortableStyleRules(ruleList, el, property, grouped, state) {
       for (var r = 0; r < ruleList.length; r += 1) {
         var rule = ruleList[r];
-        if (isPortableStyleGroupingRule(rule)) {
-          var nested = rule.cssRules;
-          if (nested) walkPortableStyleRules(nested, el, property, true, state);
-          continue;
-        }
-        if (typeof CSSImportRule !== "undefined" && rule instanceof CSSImportRule) {
-          var importedRules;
-          try {
-            importedRules = rule.styleSheet && rule.styleSheet.cssRules;
-          } catch (_err) {
-            state.masked = true;
+        var nestedRules = rule.cssRules;
+        var selectorText = rule.selectorText;
+        var isStyleRule = typeof selectorText === "string" && !!rule.style;
+        if (!isStyleRule) {
+          if (nestedRules) {
+            walkPortableStyleRules(nestedRules, el, property, true, state);
             continue;
           }
-          if (importedRules) {
-            walkPortableStyleRules(importedRules, el, property, grouped, state);
-          } else {
-            state.masked = true;
+          if (rule.styleSheet !== void 0) {
+            var importedRules;
+            try {
+              importedRules = rule.styleSheet && rule.styleSheet.cssRules;
+            } catch (_err) {
+              state.masked = true;
+              continue;
+            }
+            if (importedRules) {
+              walkPortableStyleRules(importedRules, el, property, grouped, state);
+            } else {
+              state.masked = true;
+            }
+            continue;
           }
           continue;
         }
-        if (typeof CSSStyleRule === "undefined" || !(rule instanceof CSSStyleRule)) {
-          continue;
+        var styleRule = rule;
+        var raw = styleRule.style.getPropertyValue(property);
+        if (raw && isPortableStyleSimpleSelector(selectorText)) {
+          var matched = false;
+          try {
+            matched = el.matches(selectorText);
+          } catch (_err) {
+            matched = false;
+          }
+          if (matched) {
+            if (styleRule.style.getPropertyPriority(property) === "important") {
+              state.importantMatch = true;
+            }
+            if (grouped) {
+              state.masked = true;
+            } else {
+              state.values.push(raw.trim());
+            }
+          }
         }
-        var raw = rule.style.getPropertyValue(property);
-        if (!raw) continue;
-        if (!isPortableStyleSimpleSelector(rule.selectorText || "")) {
-          continue;
-        }
-        try {
-          if (!el.matches(rule.selectorText)) continue;
-        } catch (_err) {
-          continue;
-        }
-        if (rule.style.getPropertyPriority(property) === "important") {
-          state.importantMatch = true;
-        }
-        if (grouped) {
-          state.masked = true;
-        } else {
-          state.values.push(raw.trim());
+        if (nestedRules && nestedRules.length) {
+          walkPortableStyleRules(nestedRules, el, property, true, state);
         }
       }
     }
