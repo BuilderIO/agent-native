@@ -260,7 +260,11 @@ export default function SlidesTemplate() {
             {t("templateLanding.slides.keyFeaturesHeading")}
           </h2>
         </GridInner>
+      </PageSection>
 
+      {/* The card grid draws its own dividers, so the decorative three-column
+          overlay is off here; leaving it on would double every line. */}
+      <PageSection showGrid={false}>
         <GridInner>
           <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
             {KEY_FEATURES.map((feature) => (
@@ -277,9 +281,10 @@ export default function SlidesTemplate() {
       {/* FAQs — Clips gets this section's breathing room for free from its
           "See Clips in action" section in between; Slides has no such
           section, so add the same pt-20 rhythm directly here instead of
-          landing the FAQ flush against the feature grid above it. */}
+          landing the FAQ flush against the feature grid above it. No border-t:
+          the grid above already ends in one. */}
       <PageSection>
-        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+        <GridInner className="pt-[var(--spacing-20)]">
           <FaqAccordion
             idPrefix="slides-faq"
             eyebrow={t("templateLanding.faq.eyebrow")}
