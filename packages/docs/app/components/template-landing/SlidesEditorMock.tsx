@@ -234,7 +234,7 @@ function Toolbar() {
       <span className="sm-icon-btn">
         <IconDotsVertical size={16} />
       </span>
-      <span className="sm-btn-primary">Share</span>
+      <span className="sm-btn-secondary">Share</span>
       <span className="sm-btn-primary">
         <IconPlayerPlay size={14} />
         Present
@@ -433,6 +433,7 @@ const SLIDES_MOCK_CSS = [
   ".slides-mock .sm-icon-btn { position: relative; display: flex; height: 28px; min-width: 28px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: var(--sm-muted-foreground); }",
   ".slides-mock .sm-icon-btn-caret { margin-left: 1px; }",
   ".slides-mock .sm-btn-primary { display: flex; height: 30px; flex-shrink: 0; align-items: center; gap: 5px; padding: 0 12px; border-radius: 6px; background: var(--sm-primary); color: var(--sm-primary-foreground); font-size: 13px; font-weight: 500; }",
+  ".slides-mock .sm-btn-secondary { display: flex; height: 30px; flex-shrink: 0; align-items: center; padding: 0 12px; border: 1px solid var(--sm-border); border-radius: 6px; color: var(--sm-foreground); font-size: 13px; font-weight: 500; }",
 
   ".slides-mock .sm-presence { display: flex; flex-shrink: 0; align-items: center; padding-right: 4px; }",
   ".slides-mock .sm-avatar { display: flex; width: 26px; height: 26px; align-items: center; justify-content: center; border: 1px solid var(--sm-background); border-radius: 999px; color: var(--sm-avatar-fg); font-size: 10px; font-weight: 600; }",
