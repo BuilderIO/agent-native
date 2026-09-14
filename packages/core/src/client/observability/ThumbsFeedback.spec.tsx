@@ -617,4 +617,102 @@ describe("ThumbsFeedback localization", () => {
     expect(document.body.querySelector("textarea")).not.toBeNull();
     expect(document.body.textContent).toContain("The answer was not useful.");
   });
+
+  it("reflects the pressed vote via aria-pressed and clears the other button", async () => {
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    const down = container.querySelector(
+      '[aria-label="Thumbs down"]',
+    ) as HTMLButtonElement;
+
+    expect(up.getAttribute("aria-pressed")).toBe("false");
+    expect(down.getAttribute("aria-pressed")).toBe("false");
+
+    act(() => up.click());
+
+    await vi.waitFor(() =>
+      expect(up.getAttribute("aria-pressed")).toBe("true"),
+    );
+    expect(down.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("announces confirmation through a live region distinct from the hover/selected state", async () => {
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    const liveRegion = container.querySelector(
+      '[aria-live="polite"]',
+    ) as HTMLElement;
+    expect(liveRegion.textContent).toBe("");
+
+    act(() => up.click());
+
+    await vi.waitFor(() =>
+      expect(liveRegion.textContent).toBe("Feedback submitted"),
+    );
+    await vi.waitFor(() => expect(up.className).toContain("scale-110"));
+  });
+
+  it("does not resubmit when clicking the already-applied vote again", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+
+    act(() => up.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    act(() => up.click());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
