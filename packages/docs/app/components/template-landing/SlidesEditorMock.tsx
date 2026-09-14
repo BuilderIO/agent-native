@@ -114,6 +114,7 @@ const NARROW_STEPS = [
   { maxWidth: 600, scale: 0.4 },
   { maxWidth: 500, scale: 0.32 },
   { maxWidth: 420, scale: 0.26 },
+  { maxWidth: 360, scale: 0.22 },
 ];
 
 const DECK_SLIDES = [
