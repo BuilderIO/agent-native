@@ -390,10 +390,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   main-workspace compose returned to the prior view. In Mail, synthetic A/B
   drafts displayed the matching body after switching tabs; fullscreen toggled
   on and back off. With an existing draft minimized, `c` from inbox focus
-  created a visible second draft with To focused and Send disabled. The blank
-  test drafts were discarded, leaving the pre-existing draft untouched and
-  minimized. Close/close-all recovery, outside click, browser navigation, and
-  other platform/focus variants remain unverified.
+  created a visible second draft with To focused and Send disabled. Escape
+  closed that blank test draft and restored the pre-existing draft expanded;
+  it was minimized again without editing it. This Escape replay did not match
+  Superhuman's starting state (no existing minimized draft), so there is no
+  parity conclusion yet. The other blank test drafts were also discarded.
+  Close/close-all recovery, outside click, browser navigation, and other
+  platform/focus variants remain unverified.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
   commas, semicolons, newline paste, drag between fields, duplicate casing,
   invalid address, display name, whitespace, Backspace, Delete, Enter, Tab,
