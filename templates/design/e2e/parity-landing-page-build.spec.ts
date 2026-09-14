@@ -2196,22 +2196,20 @@ test("trailing: the mobile screen is resized to 390 wide via a typed inspector v
   page,
 }) => {
   await openOverview(page, designId, 2);
-  const mobileCard = page
+  const mobileLabel = page
     .locator(`[data-screen-shell][data-frame-id="${mobileScreenId}"]`)
     .locator("[data-frame-label]");
   // The label is a sibling of the card inside the screen shell.
-  await mobileCard.click({ force: true });
+  await mobileLabel.click({ force: true });
   await page.waitForTimeout(400);
 
-  const widthInput = page.locator(
-    'input[aria-label="W size in pixels" i], input[aria-label="Width" i]',
-  );
+  const widthInput = page.getByRole("textbox", { name: "W", exact: true });
   await expect(
     widthInput.first(),
     `no screen width field found for a selected screen; trace: ${await dumpTrace(page)}`,
   ).toBeVisible({ timeout: 8_000 });
-  await widthInput.first().fill(String(MOBILE_W));
-  await widthInput.first().press("Enter");
+  await widthInput.fill(String(MOBILE_W));
+  await widthInput.press("Enter");
   await page.waitForTimeout(800);
 
   const box = await screenIframeBox(page, mobileScreenId);
