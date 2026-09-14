@@ -923,6 +923,15 @@ export default function CodeAgentsHub({
       for (const tabId of staleTabIds) delete next[tabId];
       return next;
     });
+    setNavigationStateByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
     setNativeOAuthActiveByTab((current) => {
       const staleTabIds = Object.keys(current).filter(
         (tabId) => !openTabIds.has(tabId),
@@ -1380,7 +1389,13 @@ export default function CodeAgentsHub({
     if (!isActive || !shortcutApi?.onKeydown) return;
     return shortcutApi.onKeydown((input) => {
       const direction = resolveDesktopHistoryShortcut(input);
-      if (!direction || activeChatFirstSurfaceTab?.kind !== "app") return;
+      if (
+        !direction ||
+        activeChatFirstSurfaceTab?.kind !== "app" ||
+        activeChatFirstSurfaceTab.appId !== "content"
+      ) {
+        return;
+      }
       const webview = appWebviewRefs.current[activeChatFirstSurfaceTab.id];
       if (direction === "back") webview?.goBack();
       else webview?.goForward();

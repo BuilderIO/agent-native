@@ -38,6 +38,7 @@ describe("desktop navigation shortcut forwarding", () => {
           event,
           { type: "keyDown", key, code, meta: true },
           send,
+          true,
         ),
       ).toBe(true);
       expect(event.preventDefault).toHaveBeenCalledOnce();
@@ -59,6 +60,21 @@ describe("desktop navigation shortcut forwarding", () => {
       ctrlKey: false,
       metaKey: true,
     });
+  });
+
+  it("leaves unshifted brackets in non-Content guests", () => {
+    const event = { preventDefault: vi.fn() };
+    const send = vi.fn();
+
+    expect(
+      forwardDesktopNavigationShortcutInput(
+        event,
+        { type: "keyDown", key: "[", code: "BracketLeft", meta: true },
+        send,
+      ),
+    ).toBe(false);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("leaves unrelated key events for the guest app", () => {
