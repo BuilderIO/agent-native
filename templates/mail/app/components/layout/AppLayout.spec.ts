@@ -98,6 +98,18 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("onFocus={() => setSearchFocused(true)}");
   });
 
+  it("restores the invoking control's focus after Escape closes the palette", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("onCloseAutoFocus={restorePaletteFocus}");
+    expect(source).toContain(
+      "paletteEscapeDismissRef.current = !commandInput?.value",
+    );
+    expect(source).toContain(
+      "returnFocusTarget.focus({ preventScroll: true })",
+    );
+  });
+
   it("uses the tab cog to persist and apply the combined inbox preference", () => {
     const source = appLayoutSource();
 

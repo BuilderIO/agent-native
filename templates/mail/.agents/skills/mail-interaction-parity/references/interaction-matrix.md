@@ -397,6 +397,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - SETTINGS-001 — Open Command/Ctrl+K from list, thread, compose, search, modal,
   button, and text editor. Search commands, arrows, Enter, Escape, query reset,
   contextual command visibility, and shortcut labels.
+- KEYBOARD-PALETTE-003 — Start in Search with a nonempty query and focus in the
+  search field. Open Command/Ctrl+K, type a command query, and press Escape.
+  Confirm the first Escape clears only the palette query and keeps palette
+  focus; the next Escape closes it and returns focus to Search without changing
+  its query or route. Repeat with an empty palette query, from button/body/editor
+  focus, and after selecting a command; selection must not be mistaken for
+  dismissal.
 - SETTINGS-002 — Open shortcut reference and hover every action. Confirm the
   displayed shortcut is the one that actually runs, including international
   keyboard alternatives and native Tab behavior.

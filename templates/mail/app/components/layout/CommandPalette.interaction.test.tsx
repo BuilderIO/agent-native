@@ -27,8 +27,23 @@ vi.mock("@agent-native/core/client/navigation", async () => {
     React.createElement("span", null, children);
   const Separator = () => React.createElement("hr");
   const CommandMenu = Object.assign(
-    ({ children }: { children: React.ReactNode }) =>
-      React.createElement("div", null, children),
+    ({
+      children,
+      clearSearchOnEscape,
+      onCloseAutoFocus,
+    }: {
+      children: React.ReactNode;
+      clearSearchOnEscape?: boolean;
+      onCloseAutoFocus?: (event: Event) => void;
+    }) =>
+      React.createElement(
+        "div",
+        {
+          "data-clear-search-on-escape": String(Boolean(clearSearchOnEscape)),
+          "data-has-close-auto-focus": String(Boolean(onCloseAutoFocus)),
+        },
+        children,
+      ),
     { Group, Item, Shortcut, Separator },
   );
 
@@ -76,5 +91,25 @@ describe("CommandPalette Search action", () => {
 
     expect(onSearch).toHaveBeenCalledOnce();
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("opts into command-query clearing and focus restoration on Escape", () => {
+    const onCloseAutoFocus = vi.fn();
+    const { container } = render(
+      <CommandPalette
+        open
+        onOpenChange={vi.fn()}
+        onCloseAutoFocus={onCloseAutoFocus}
+        onCompose={vi.fn()}
+        onSearch={vi.fn()}
+      />,
+    );
+
+    expect(
+      container.querySelector('[data-clear-search-on-escape="true"]'),
+    ).toBeTruthy();
+    expect(
+      container.querySelector('[data-has-close-auto-focus="true"]'),
+    ).toBeTruthy();
   });
 });

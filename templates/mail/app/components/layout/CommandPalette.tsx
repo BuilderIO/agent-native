@@ -34,6 +34,7 @@ import changelog from "../../../CHANGELOG.md?raw";
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: (event: Event) => void;
   onCompose: () => void;
   onSearch: () => void;
   onReply?: () => void;
@@ -87,6 +88,7 @@ const navCommands = [
 export function CommandPalette({
   open,
   onOpenChange,
+  onCloseAutoFocus,
   onCompose,
   onSearch,
   onReply,
@@ -108,6 +110,8 @@ export function CommandPalette({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
+      clearSearchOnEscape
       placeholder={t("commandPalette.placeholder")}
       changelog={changelog}
       changelogKey="mail"

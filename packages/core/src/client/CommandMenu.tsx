@@ -268,6 +268,10 @@ export interface CommandMenuProps {
   emptyText?: string;
   /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
   showAgentFallback?: boolean;
+  /** Clear the current command query on Escape before dismissing the menu. */
+  clearSearchOnEscape?: boolean;
+  /** Customize focus restoration when the dialog closes. */
+  onCloseAutoFocus?: (event: Event) => void;
   /** Custom class for the dialog content */
   className?: string;
   /**
@@ -301,6 +305,8 @@ export function CommandMenu({
   placeholder = "Type a command or ask AI...",
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
+  clearSearchOnEscape = false,
+  onCloseAutoFocus,
   className,
   changelog,
   changelogLabel = "What's new",
@@ -508,6 +514,13 @@ export function CommandMenu({
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
+          onEscapeKeyDown={(event) => {
+            if (clearSearchOnEscape && search.length > 0) {
+              event.preventDefault();
+              setSearch("");
+            }
+          }}
+          onCloseAutoFocus={onCloseAutoFocus}
           style={{
             animation: "none",
             transition: "none",
