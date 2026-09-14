@@ -1834,7 +1834,11 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
 
 export function DeckProvider({ children }: { children: ReactNode }) {
   const { data: org, isLoading: orgLoading } = useOrg();
+  const activeOrgId = org?.orgId ?? null;
   const [decks, setDecks] = useState<Deck[]>([]);
+  const [deckScopeOrgId, setDeckScopeOrgId] = useState<
+    string | null | undefined
+  >(undefined);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const decksRef = useRef<Deck[]>([]);
@@ -2618,7 +2622,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     await reloadDecksWithStatus();
   }, [reloadDecksWithStatus]);
 
-  const resetDeckScope = useCallback(() => {
+  const resetDeckScope = useCallback((nextOrgId: string | null) => {
     const scopedDeckIds = new Set([
       ...decksRef.current.map((deck) => deck.id),
       ...pendingCreateIdsRef.current,
@@ -2656,6 +2660,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     undoControllerRef.current?.clear();
     lastExternalUpdateRef.current = Date.now();
     decksRef.current = [];
+    setDeckScopeOrgId(nextOrgId);
     setDecks([]);
     setLoadError(false);
     setLoading(true);
@@ -2705,12 +2710,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const orgId = org?.orgId ?? null;
     if (lastOrgIdRef.current === undefined) {
       lastOrgIdRef.current = orgId;
+      setDeckScopeOrgId(orgId);
       return;
     }
     if (lastOrgIdRef.current === orgId) return;
     lastOrgIdRef.current = orgId;
     replaceOpenDeckRouteWithDeckList();
-    resetDeckScope();
+    resetDeckScope(orgId);
     void reloadDecks();
   }, [org?.orgId, orgLoading, reloadDecks, resetDeckScope]);
 
@@ -3321,9 +3327,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [markDeckDirty, recordUndo, reconcilePersistedLayoutFit],
   );
 
+  const deckScopeMatchesOrg =
+    !orgLoading &&
+    deckScopeOrgId !== undefined &&
+    deckScopeOrgId === activeOrgId;
+  const scopedDecks = deckScopeMatchesOrg ? decks : [];
   const getDeck = useCallback(
-    (id: string) => decks.find((d) => d.id === id),
-    [decks],
+    (id: string) => scopedDecks.find((d) => d.id === id),
+    [scopedDecks],
   );
 
   const addSlide = useCallback(
@@ -3864,8 +3875,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   return (
     <DeckContext.Provider
       value={{
-        decks,
-        loading,
+        decks: scopedDecks,
+        loading: loading || !deckScopeMatchesOrg,
         loadError,
         createDeck,
         ensureDeckPersisted,
