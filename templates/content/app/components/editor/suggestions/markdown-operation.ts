@@ -23,10 +23,12 @@ export type MarkdownSuggestionOperation = {
 
 const MAX_DOCUMENT_LENGTH = 64_000;
 const MAX_EDIT_DISTANCE = 1_024;
+const EMPTY_BLOCK = "<empty-block/>";
 
 type DiffPart = { type: "equal" | "insert" | "delete"; text: string };
 
 function kindForChange(removed: string, inserted: string) {
+  if (removed && inserted === EMPTY_BLOCK) return "delete_text";
   const formatting =
     removed && inserted ? suggestionFormattingChanges(removed, inserted) : null;
   return formatting && formatting.length > 0
@@ -65,6 +67,60 @@ function operationForChange(
     },
     schemaVersion: 1,
   };
+}
+
+function lineScopedOperationsForClearedBlocks(
+  before: string,
+  after: string,
+): MarkdownSuggestionOperation[] | null {
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  if (beforeLines.length !== afterLines.length) return null;
+  if (
+    !beforeLines.some(
+      (line, index) => line && afterLines[index] === EMPTY_BLOCK,
+    )
+  )
+    return null;
+
+  const operations: MarkdownSuggestionOperation[] = [];
+  let lineOffset = 0;
+  for (let index = 0; index < beforeLines.length; index += 1) {
+    const beforeLine = beforeLines[index]!;
+    const afterLine = afterLines[index]!;
+    if (beforeLine === afterLine) {
+      lineOffset += beforeLine.length + 1;
+      continue;
+    }
+    if (beforeLine && afterLine === EMPTY_BLOCK) {
+      operations.push(
+        operationForChange(
+          before,
+          lineOffset,
+          lineOffset + beforeLine.length,
+          EMPTY_BLOCK,
+          operations.length,
+        ),
+      );
+    } else {
+      for (const operation of markdownSuggestionOperations(
+        beforeLine,
+        afterLine,
+      )) {
+        operations.push(
+          operationForChange(
+            before,
+            lineOffset + operation.anchor.from,
+            lineOffset + operation.anchor.to,
+            operation.after.changedText,
+            operations.length,
+          ),
+        );
+      }
+    }
+    lineOffset += beforeLine.length + 1;
+  }
+  return operations;
 }
 
 function coalesce(parts: DiffPart[]): DiffPart[] {
@@ -371,6 +427,8 @@ export function markdownSuggestionOperations(
   after: string,
 ): MarkdownSuggestionOperation[] {
   if (before === after) return [];
+  const clearedTextBlocks = lineScopedOperationsForClearedBlocks(before, after);
+  if (clearedTextBlocks) return clearedTextBlocks;
   const beforeMarked = suggestionMarkedSourceRanges(before);
   const afterMarked = suggestionMarkedSourceRanges(after);
   const formatting = suggestionFormattingChanges(before, after);
@@ -502,6 +560,14 @@ export function markdownSuggestionOperationsForReplacements(input: {
   if (operations.length === 0 || replacements.length === 0) return operations;
   if (replacements.length === 1) {
     const [{ from, to }] = replacements;
+    if (
+      operations.length === 1 &&
+      operations[0]!.anchor.from === from &&
+      operations[0]!.anchor.to === to &&
+      operations[0]!.after.markdown === after
+    ) {
+      return operations;
+    }
     const prefix = before.slice(0, from);
     const suffix = before.slice(to);
     if (

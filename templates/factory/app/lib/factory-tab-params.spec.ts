@@ -20,7 +20,7 @@ describe("retainFactoryTabParams", () => {
     expect(next.get("range")).toBe("today");
     expect(next.get("source")).toBe("slack");
     expect(next.get("auditRunId")).toBeNull();
-    expect(next.get("automationId")).toBeNull();
+    expect(next.get("automationId")).toBe("a1");
     expect(next.get("node")).toBeNull();
   });
 
@@ -33,6 +33,15 @@ describe("retainFactoryTabParams", () => {
     expect(next.get("node")).toBe("n1");
     expect(next.get("edge")).toBe("e1");
     expect(next.get("status")).toBeNull();
+  });
+
+  it("keeps automationId when switching to Audit", () => {
+    const current = new URLSearchParams(
+      "factoryId=f1&tab=automations&automationId=a1",
+    );
+    const next = retainFactoryTabParams(current, "audit");
+    expect(next.get("tab")).toBe("audit");
+    expect(next.get("automationId")).toBe("a1");
   });
 
   it("keeps audit filters and drops inbox filters", () => {

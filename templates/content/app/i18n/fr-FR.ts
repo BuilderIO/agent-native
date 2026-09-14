@@ -828,6 +828,19 @@ const rawLiterals = {
     useDiskVersion: "Utiliser la version du disque",
     keepLocalDraft: "Conserver ma version",
     previewDraftRecovery: "Brouillon de page non enregistré",
+    previewDraftCompare: "Choisissez la version à conserver",
+    previewDraftYourEdits: "Vos modifications",
+    previewDraftSavedVersion: "Version enregistrée",
+    previewDraftKeepMine: "Conserver ma version",
+    previewDraftUseSaved: "Utiliser la version enregistrée",
+    previewDraftSaveSeparately: "Enregistrer la mienne dans une autre page",
+    previewDraftSavedToHistory:
+      "Vos modifications ont été enregistrées dans l’historique",
+    previewDraftSavedSeparately:
+      "Vos modifications ont été enregistrées dans une autre page",
+    previewDraftOpenSavedPage: "Ouvrir la page",
+    previewDraftConflict:
+      "Ce brouillon est en conflit avec une version plus récente de la page. Il n’a pas été restauré.",
     restorePreviewDraft: "Restaurer le brouillon",
     pageSaveBeforeNavigationFailed:
       "Vos dernières modifications n’ont pas pu être enregistrées. Réessayez avant de quitter cette page.",
@@ -1055,6 +1068,7 @@ const history = {
   historyCheckpointAfter: "Après",
   historyCheckpointBefore: "Avant",
   historyCheckpointLegacy: "Enregistré",
+  historyCheckpointRecovery: "Brouillon récupéré",
   historyCheckpointLoadError: "Impossible de charger les points de contrôle.",
   historyDetailLoadError: "Impossible de charger ce point de contrôle.",
   historyGroupAgent: "Exécution de l’agent",
