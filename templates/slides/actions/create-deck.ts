@@ -436,8 +436,22 @@ export default defineAction({
         designSystemAccess.resource.data,
       );
     } else {
-      resolvedDesignSystemId =
-        (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
+      const candidateDefaultId = await resolveDefaultDesignSystemId(ownerEmail);
+      if (candidateDefaultId) {
+        // An implicit default is a convenience, not an explicit request —
+        // fall back to no design system instead of failing deck creation
+        // outright when the caller's default happens to still be indexing.
+        const [defaultRow] = await db
+          .select({ data: schema.designSystems.data })
+          .from(schema.designSystems)
+          .where(eq(schema.designSystems.id, candidateDefaultId))
+          .limit(1);
+        resolvedDesignSystemId =
+          defaultRow &&
+          parseDesignSystemIndexingStatus(defaultRow.data) === "ready"
+            ? candidateDefaultId
+            : undefined;
+      }
     }
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

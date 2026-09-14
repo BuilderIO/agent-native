@@ -20,6 +20,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 const testState = vi.hoisted(() => ({
   updates: [] as Array<Record<string, unknown>>,
+  currentRowData: undefined as string | undefined,
 }));
 
 vi.mock("drizzle-orm", async (importOriginal) => {
@@ -29,6 +30,18 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () =>
+            Promise.resolve(
+              testState.currentRowData === undefined
+                ? []
+                : [{ data: testState.currentRowData }],
+            ),
+        }),
+      }),
+    }),
     update: () => ({
       set: (fields: Record<string, unknown>) => {
         testState.updates.push(fields);
@@ -36,14 +49,27 @@ vi.mock("../server/db/index.js", () => ({
       },
     }),
   }),
-  schema: { designSystems: { id: "designSystems.id" } },
+  schema: { designSystems: { id: "designSystems.id", data: "data_col" } },
 }));
 
 import action from "./refresh-design-system-indexing-status.js";
 
+// Mirrors the real helper closely enough for these tests: a "builder" row
+// parses to a reference carrying its builderStatus, anything else is null.
+function parseReference(
+  data: string,
+): { source: "builder"; builderStatus?: string } | null {
+  const parsed = JSON.parse(data);
+  return parsed.source === "builder"
+    ? { source: "builder", builderStatus: parsed.builderStatus }
+    : null;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   testState.updates = [];
+  testState.currentRowData = undefined;
+  mockParseBuilderDesignSystemProxyReference.mockImplementation(parseReference);
 });
 
 describe("refresh-design-system-indexing-status", () => {
@@ -51,7 +77,6 @@ describe("refresh-design-system-indexing-status", () => {
     mockAssertAccess.mockResolvedValue({
       resource: { data: JSON.stringify({ colors: {} }) },
     });
-    mockParseBuilderDesignSystemProxyReference.mockReturnValue(null);
 
     const result = await action.run({ id: "ds-1" });
 
@@ -65,21 +90,14 @@ describe("refresh-design-system-indexing-status", () => {
   });
 
   it("persists a confirmed completion so the stored status stops reading as indexing", async () => {
-    mockAssertAccess.mockResolvedValue({
-      resource: {
-        data: JSON.stringify({
-          source: "builder",
-          builderDesignSystemId: "bds-1",
-          builderStatus: "in-progress",
-          colors: {},
-        }),
-      },
-    });
-    mockParseBuilderDesignSystemProxyReference.mockReturnValue({
+    const rowData = JSON.stringify({
       source: "builder",
       builderDesignSystemId: "bds-1",
       builderStatus: "in-progress",
+      colors: {},
     });
+    mockAssertAccess.mockResolvedValue({ resource: { data: rowData } });
+    testState.currentRowData = rowData;
     mockHydrateBuilderDesignSystemReference.mockResolvedValue({
       source: "builder",
       builderDesignSystemId: "bds-1",
@@ -103,18 +121,12 @@ describe("refresh-design-system-indexing-status", () => {
   });
 
   it("does not write when the confirmed status has not changed", async () => {
-    mockAssertAccess.mockResolvedValue({
-      resource: {
-        data: JSON.stringify({
-          source: "builder",
-          builderStatus: "ready",
-        }),
-      },
-    });
-    mockParseBuilderDesignSystemProxyReference.mockReturnValue({
+    const rowData = JSON.stringify({
       source: "builder",
       builderStatus: "ready",
     });
+    mockAssertAccess.mockResolvedValue({ resource: { data: rowData } });
+    testState.currentRowData = rowData;
     mockHydrateBuilderDesignSystemReference.mockResolvedValue({
       source: "builder",
       builderStatus: "ready",
@@ -135,18 +147,12 @@ describe("refresh-design-system-indexing-status", () => {
   });
 
   it("leaves an unconfirmed in-progress read unwritten", async () => {
-    mockAssertAccess.mockResolvedValue({
-      resource: {
-        data: JSON.stringify({
-          source: "builder",
-          builderStatus: "in-progress",
-        }),
-      },
-    });
-    mockParseBuilderDesignSystemProxyReference.mockReturnValue({
+    const rowData = JSON.stringify({
       source: "builder",
       builderStatus: "in-progress",
     });
+    mockAssertAccess.mockResolvedValue({ resource: { data: rowData } });
+    testState.currentRowData = rowData;
     mockHydrateBuilderDesignSystemReference.mockResolvedValue({
       source: "builder",
       builderStatus: "in-progress",
@@ -163,6 +169,67 @@ describe("refresh-design-system-indexing-status", () => {
       indexingStatus: "indexing",
       updated: false,
     });
+    expect(testState.updates).toHaveLength(0);
+  });
+
+  it("does not clobber a concurrent edit made while hydrating", async () => {
+    // The pre-hydration snapshot assertAccess saw when the action started.
+    mockAssertAccess.mockResolvedValue({
+      resource: {
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+          title: "Stale title",
+        }),
+      },
+    });
+    // update-design-system wrote a new title while the (slow) hydrate call
+    // above was in flight. The persisted status must be based on this fresh
+    // row, not the stale snapshot captured before hydration started.
+    testState.currentRowData = JSON.stringify({
+      source: "builder",
+      builderStatus: "in-progress",
+      title: "Edited title",
+    });
+    mockHydrateBuilderDesignSystemReference.mockResolvedValue({
+      source: "builder",
+      builderStatus: "ready",
+      completionConfirmed: true,
+      docs: [],
+      tokenValues: {},
+      docCount: 0,
+    });
+
+    const result = await action.run({ id: "ds-1" });
+
+    expect(result.updated).toBe(true);
+    const written = JSON.parse(testState.updates[0].data as string);
+    expect(written.title).toBe("Edited title");
+    expect(written.builderStatus).toBe("ready");
+  });
+
+  it("skips the write when the row was deleted while hydrating", async () => {
+    mockAssertAccess.mockResolvedValue({
+      resource: {
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+        }),
+      },
+    });
+    testState.currentRowData = undefined; // row no longer exists
+    mockHydrateBuilderDesignSystemReference.mockResolvedValue({
+      source: "builder",
+      builderStatus: "ready",
+      completionConfirmed: true,
+      docs: [],
+      tokenValues: {},
+      docCount: 0,
+    });
+
+    const result = await action.run({ id: "ds-1" });
+
+    expect(result.updated).toBe(false);
     expect(testState.updates).toHaveLength(0);
   });
 });

@@ -45,6 +45,7 @@ let existingDeckRow:
   | { id: string; data: string; updatedAt: string }
   | undefined = undefined;
 let defaultDesignSystemId: string | undefined = undefined;
+let defaultDesignSystemData = JSON.stringify({ colors: {} });
 let titleQueryRows: Array<{ id: string }> = [];
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
@@ -52,7 +53,9 @@ let updatedFields: Record<string, unknown> | undefined = undefined;
 // db.select().from(...).where(...).limit(...)
 const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
-  defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
+  defaultDesignSystemId
+    ? [{ id: defaultDesignSystemId, data: defaultDesignSystemData }]
+    : [],
 );
 // resolveDesignSystemIdByTitle has no `.limit()` — it awaits `.where(...)`
 // directly, so its clause is distinguished by the accessFilter sentinel that
@@ -164,6 +167,7 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   existingDeckRow = undefined;
   defaultDesignSystemId = undefined;
+  defaultDesignSystemData = JSON.stringify({ colors: {} });
   titleQueryRows = [];
   insertedRow = undefined;
   updatedFields = undefined;
@@ -220,6 +224,21 @@ describe("create-deck — aspectRatio", () => {
     expect(result.designSystemId).toBe("ds-default");
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.designSystemId).toBe("ds-default");
+  });
+
+  it("falls back to no design system when the caller's default is still indexing", async () => {
+    defaultDesignSystemId = "ds-default";
+    defaultDesignSystemData = JSON.stringify({
+      source: "builder",
+      builderStatus: "in-progress",
+    });
+
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(insertedRow!.designSystemId).toBeNull();
+    expect(result.designSystemId).toBeNull();
+    const data = JSON.parse(insertedRow!.data as string);
+    expect("designSystemId" in data).toBe(false);
   });
 
   it("uses an explicit design system instead of the default", async () => {

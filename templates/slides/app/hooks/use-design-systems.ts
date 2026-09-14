@@ -42,7 +42,15 @@ export function useDesignSystems() {
     void Promise.all(
       idsToRefresh.map((id) =>
         callAction("refresh-design-system-indexing-status", { id }).catch(
-          () => null,
+          () => {
+            // A transient failure (network blip, timeout) is not a confirmed
+            // "still indexing" — un-mark it so the next render with a real
+            // reason to re-run this effect (e.g. the list's own poll) gets
+            // another attempt, instead of leaving the row stuck for the rest
+            // of this mount's lifetime.
+            attemptedRefreshRef.current.delete(id);
+            return null;
+          },
         ),
       ),
     ).then((results) => {

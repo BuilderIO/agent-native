@@ -49,9 +49,34 @@ export default defineAction({
       return { id, indexingStatus, updated: false };
     }
 
-    const parsed = JSON.parse(access.resource.data) as Record<string, unknown>;
+    // Re-read immediately before writing instead of reusing the snapshot from
+    // before the (network-bound) hydrate call above — a concurrent
+    // update-design-system or re-sync during that window would otherwise be
+    // silently overwritten by patching the stale copy's builderStatus back.
+    const db = getDb();
+    const [currentRow] = await db
+      .select({ data: schema.designSystems.data })
+      .from(schema.designSystems)
+      .where(eq(schema.designSystems.id, id))
+      .limit(1);
+    if (!currentRow) {
+      return { id, indexingStatus, updated: false };
+    }
+    const currentReference = parseBuilderDesignSystemProxyReference(
+      currentRow.data,
+    );
+    if (
+      !currentReference ||
+      currentReference.builderStatus === resolvedBuilderStatus
+    ) {
+      // No longer a Builder-backed row, or another writer already recorded
+      // this same status while we were hydrating.
+      return { id, indexingStatus, updated: false };
+    }
+
+    const parsed = JSON.parse(currentRow.data) as Record<string, unknown>;
     parsed.builderStatus = resolvedBuilderStatus;
-    await getDb()
+    await db
       .update(schema.designSystems)
       .set({
         data: JSON.stringify(parsed),
