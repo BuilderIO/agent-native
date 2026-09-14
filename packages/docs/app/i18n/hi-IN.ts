@@ -722,22 +722,64 @@ const hiIN = {
     },
     analytics: {
       faq: {
-        question1: "क्या मैं analytics से जुड़े सवाल सामान्य भाषा में पूछ सकता हूँ?",
+        question1: "Agent-Native Analytics क्या है?",
         answer1:
-          "हाँ। सवाल पूछें; agent SQL लिखता है, उसे BigQuery पर चलाता है और chart बनाता है। Queries का history, row count और shareable URLs सुरक्षित रहते हैं।",
-        question2: "Analytics, Amplitude या Mixpanel से कैसे अलग है?",
+          "Agent-Native Analytics एक फ्री और ओपन-सोर्स AI एनालिटिक्स टूल है। कनेक्टेड डेटा के बारे में किसी AI एजेंट से सवाल पूछें, क्वेरीज़ की जांच करें, और पुन: प्रयोज्य डैशबोर्ड बनाएं। इसमें सेशन रीप्ले, एरर ट्रैकिंग, और अपटाइम मॉनिटरिंग भी शामिल है।",
+        question2: "क्या Analytics इस्तेमाल करने के लिए मुझे SQL आना ज़रूरी है?",
         answer2:
-          "वे हर user और event के हिसाब से शुल्क लेते हैं, और उनकी UI उन्हीं की रहती है। Analytics मुफ़्त और open source है, और अनुरोध करने पर agent app को खुद नए charts और connectors से आगे बढ़ाता है।",
-        question3: "मैं कौन-से data sources connect कर सकता हूँ?",
+          "आप सामान्य भाषा में सवाल पूछ सकते हैं और अपने AI एजेंट से क्वेरीज़ लिखवा सकते हैं। BigQuery के लिए, आप Explorer में टेबल्स, मीट्रिक्स, और फ़िल्टर्स सिलेक्ट करके भी चार्ट बना सकते हैं। जांच के लिए SQL हमेशा उपलब्ध रहता है, और आपके डेटा से परिचित किसी व्यक्ति को सोर्सेज़ कनेक्ट करने और मीट्रिक्स डिफ़ाइन करने में मदद करनी पड़ सकती है।",
+        question3: "मैं कौन-से डेटा सोर्सेज़ कनेक्ट कर सकता हूँ?",
         answer3:
-          "दस से अधिक built-in connectors: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud और अन्य। अगर आपका source उपलब्ध नहीं है, तो agent उसका connector बना सकता है।",
-        question4: "क्या मुझे SQL आना ज़रूरी है?",
+          "सपोर्टेड सोर्सेज़ में BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot, और Stripe शामिल हैं। हर सोर्स के लिए सही क्रेडेंशियल्स या Analytics को दिया गया एक शेयर्ड वर्कस्पेस कनेक्शन चाहिए। उपलब्ध जवाब इस पर निर्भर करते हैं कि आप कौन-सा डेटा और परमिशन कनेक्ट करते हैं।",
+        question4: "क्या मैं अपनी खुद की मीट्रिक डेफ़िनिशन्स इस्तेमाल कर सकता हूँ?",
         answer4:
-          "नहीं — सामान्य भाषा ही interface है। लेकिन जरूरत पड़ने पर SQL explorer भी वहीं मिलता है: BigQuery तक सीधी पहुँच और queries का पूरा history।",
-        question5: "क्या Analytics मुफ़्त है?",
+          "हाँ। डेफ़िनिशन्स, टेबल और कॉलम नेम्स, क्वेरी उदाहरण, और अपवादों (जैसे इंटरनल अकाउंट्स को बाहर रखना) को डॉक्यूमेंट करने के लिए डेटा डिक्शनरी का इस्तेमाल करें। आपका AI एजेंट क्वेरीज़ लिखते समय उन डेफ़िनिशन्स का इस्तेमाल कर सकता है। किसी बिज़नेस मीट्रिक को चेक करते समय SQL और नतीजों की समीक्षा करें।",
+        question5: "क्या मैं डैशबोर्ड शेयर कर सकता हूँ और रिपोर्ट्स शेड्यूल कर सकता हूँ?",
         answer5:
-          "हाँ — मुफ़्त और open source, बिना प्रति-event billing के। आपका data आपके अपने data warehouse में रहता है।",
+          "हाँ। व्यूअर, एडिटर, या एडमिन एक्सेस के साथ टीममेट्स या अपने ऑर्गनाइज़ेशन के साथ डैशबोर्ड शेयर करें। आप मौजूदा डैशबोर्ड नतीजों के साथ ईमेल रिपोर्ट्स भी शेड्यूल कर सकते हैं, या ट्रैक करने के लिए कंडीशंस के लिए अलर्ट कॉन्फ़िगर कर सकते हैं।",
       },
+      // V3 लैंडिंग पेज कॉपी (2026-09-14) — नीचे hero से final CTA तक।
+      heroEyebrow: "Analytics",
+      heroTitle: "अपने AI एजेंट से अपना डेटा एनालाइज़ करें",
+      heroDescription:
+        "Analytics एक फ्री और ओपन-सोर्स AI एनालिटिक्स टूल है, जिससे आप अपने कनेक्टेड डेटा को क्वेरी कर सकते हैं, डैशबोर्ड बना सकते हैं, और यूज़र सेशंस की जांच कर सकते हैं।",
+      heroCta: "अपना डेटा एक्सप्लोर करें",
+      useCasesHeading: "Analytics से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "प्रोडक्ट ग्रोथ ट्रैक करें, बिज़नेस परफॉर्मेंस पर रिपोर्ट करें, या अपने ऐप में किसी यूज़र को आई किसी दिक्कत की जांच करें।",
+      useCase1Title: "प्रोडक्ट ग्रोथ ट्रैक करें",
+      useCase1Body:
+        "पूछें कि साइनअप, एक्टिव यूज़र्स, या कन्वर्ज़न कैसे बदले हैं। पीरियड्स की तुलना करें और नतीजों को चैनल, प्लान या कस्टमर सेगमेंट के हिसाब से ब्रेक डाउन करें।",
+      useCase2Title: "बिज़नेस परफॉर्मेंस पर रिपोर्ट करें",
+      useCase2Body:
+        "अपनी टीम के लिए रेवेन्यू, पाइपलाइन या यूसेज मेट्रिक्स को एक डैशबोर्ड में लाएं। डेट फ़िल्टर सेट करें और अपने अगले रिव्यू के लिए दोबारा देखें।",
+      useCase3Title: "यूज़र इश्यूज़ की जांच करें",
+      useCase3Body:
+        "कोई रिकॉर्ड की गई सेशन ढूंढें और देखें कि क्या हुआ था। कंसोल एरर्स और नेटवर्क रिक्वेस्ट्स की जांच करें, फिर डायग्नोस्टिक्स को अपने AI एजेंट के साथ शेयर करें।",
+      keyFeaturesEyebrow: "मुख्य फीचर्स",
+      keyFeaturesHeading:
+        "क्वेरी करने, विज़ुअलाइज़ करने और एक्सप्लोर करने के लिए जो भी चाहिए",
+      feature1Title: "प्राकृतिक भाषा में क्वेरीज़",
+      feature1Body:
+        "अपने AI एजेंट से अपने डेटा के बारे में एक सवाल पूछें। एक चार्ट, टेबल, या मीट्रिक पाएं, फिर एक अलग ब्रेकडाउन के साथ फॉलो-अप करें।",
+      feature2Title: "पुन: प्रयोज्य डैशबोर्ड",
+      feature2Body:
+        "अपने AI एजेंट के साथ डैशबोर्ड बनाएं या खुद एडिट करें। पैनल अरेंज करें, फ़िल्टर जोड़ें, व्यू सेव करें, और अपनी टीम के साथ एक्सेस शेयर करें।",
+      feature3Title: "SQL क्वेरी एक्सप्लोरर",
+      feature3Body:
+        "BigQuery क्वेरीज़ चलाएं और उनके नतीजे और हिस्ट्री देखें। कैलकुलेशन और फ़िल्टर्स चेक करने के लिए डैशबोर्ड पैनल के पीछे के SQL की जांच करें।",
+      feature4Title: "डेटा सोर्स कनेक्शंस",
+      feature4Body:
+        "BigQuery, GA4, HubSpot, और Stripe जैसे सोर्सेज़ कनेक्ट करें। एक ही ऐप से वेयरहाउस डेटा, प्रोडक्ट इवेंट्स, कस्टमर रिकॉर्ड्स, और रेवेन्यू क्वेरी करें।",
+      feature5Title: "डेटा डिक्शनरी",
+      feature5Body:
+        "मीट्रिक डेफ़िनिशन्स, टेबल्स, और क्वेरी उदाहरण डॉक्यूमेंट करें। आपका AI एजेंट क्वेरीज़ लिखते समय और आपके डेटा के साथ काम करते समय इस कॉन्टेक्स्ट का इस्तेमाल करता है।",
+      feature6Title: "सेशन रीप्ले",
+      feature6Body:
+        "रिकॉर्ड की गई सेशंस को कंसोल और नेटवर्क एक्टिविटी के साथ रीप्ले करें। एरर्स पर जाएं और अपने AI एजेंट के लिए एक टेम्पररी डायग्नोस्टिक्स लिंक कॉपी करें।",
+      finalCtaHeading: "अपने डेटा के बारे में एक सवाल से शुरू करें",
+      finalCtaBody: "एक सोर्स कनेक्ट करें और अपने AI एजेंट से पहला चार्ट मांगें।",
+      finalCtaButton: "अपना डेटा एक्सप्लोर करें",
       s001: "Analytics टेम्पलेट स्क्रीनशॉट",
       s002: "डेटा कनेक्टर्स",
       s003: "चार्ट प्रकार",
@@ -806,19 +848,63 @@ const hiIN = {
     },
     calendar: {
       faq: {
-        question1: "क्या AI मेरी meetings schedule कर सकता है?",
+        question1: "Agent-Native Calendar क्या है?",
         answer1:
-          "हाँ। Agent से कोई खाली समय खोजने, event बनाने, उपलब्धता जाँचने या meeting का समय बदलने को कहें — वह आपके असली calendar में काम करता है और मौजूदा events का ध्यान रखता है।",
-        question2: "क्या Calendar, Calendly जैसे booking links देता है?",
+          "Agent-Native Calendar एक फ्री और ओपन-सोर्स AI शेड्यूलिंग असिस्टेंट है जो Google Calendar से कनेक्ट होता है। इवेंट्स मैनेज करने और मीटिंग के लिए समय ढूंढने के लिए AI एजेंट का इस्तेमाल करें, या बुकिंग लिंक शेयर करें ताकि लोग आपके साथ शेड्यूल कर सकें।",
+        question2: "मैं कौन-से कैलेंडर कनेक्ट कर सकता हूँ?",
         answer2:
-          "हाँ — हर booking type के लिए अलग उपलब्धता, visitor की जानकारी लेने, confirmations और custom domains वाली अनुकूलन योग्य booking pages।",
-        question3: "क्या यह Google Calendar के साथ sync होता है?",
+          "कई Google अकाउंट्स कनेक्ट करें ताकि उनके इवेंट्स साथ में देख सकें। नए और अपडेट किए गए इवेंट्स चुने गए अकाउंट के प्राइमरी कैलेंडर में लिखे जाते हैं। आप रीड-ओनली ICS या webcal फ़ीड भी दिखा सकते हैं; ये Outlook या Apple Calendar के साथ टू-वे इंटीग्रेशन नहीं हैं। शेयर किए गए Google कैलेंडर सिर्फ़ देखने के लिए होते हैं और बुकिंग की उपलब्धता को ब्लॉक नहीं करते।",
+        question3: "मेरे कैलेंडर के साथ AI एजेंट क्या कर सकता है?",
         answer3:
-          "हाँ — कई accounts के support और automatic token refresh के साथ OAuth sync। Google पर सीधे events बनाएँ, update करें और delete करें।",
-        question4: "क्या Calendar मुफ़्त है?",
-        answer4: "हाँ। यह booking pages सहित मुफ़्त और open source है।",
+          "आपका AI एजेंट आपका शेड्यूल चेक कर सकता है, उपलब्ध मीटिंग समय ढूंढ सकता है, और इवेंट्स बना या रीशेड्यूल कर सकता है। जब आप उससे कोई समय ढूंढने को कहते हैं, तो वह आपके उपलब्धता के नियमों और मौजूदा इवेंट्स के साथ-साथ, जहां एक्सेस मिलता है वहां नामित अटेंडीज़ की फ्री/बिज़ी जानकारी भी जांचता है। मीटिंग बुक करने से पहले आप एक सुझाया गया समय चुनते हैं।",
+        question4: "क्या मेरे साथ मीटिंग बुक करने के लिए लोगों को अकाउंट चाहिए?",
+        answer4:
+          "नहीं। आपके पब्लिक बुकिंग लिंक वाला कोई भी व्यक्ति बिना साइन इन किए कोई उपलब्ध समय चुन सकता है और आपके बुकिंग सवालों के जवाब दे सकता है। बुकिंग के बाद, उसे मीटिंग रीशेड्यूल या कैंसल करने के लिए एक प्राइवेट लिंक मिलता है।",
+        question5: "क्या कोई बुकिंग लिंक कई होस्ट के लिए उपलब्धता चेक कर सकता है?",
+        answer5:
+          "हाँ। ज़रूरी को-होस्ट जोड़ें, और समय ऑफर करने से पहले Calendar उनकी फ्री/बिज़ी जानकारी चेक करता है। हर को-होस्ट के तय किए गए वर्किंग आवर्स का भी ध्यान रखने के लिए, आपको और उस को-होस्ट को एक-दूसरे के कैलेंडर ओवरले के तौर पर जोड़ने होंगे। इस आपसी शेयरिंग के बिना, Calendar सिर्फ़ उनकी फ्री/बिज़ी जानकारी ही चेक करता है।",
       },
       s001: "Calendar टेम्पलेट स्क्रीनशॉट",
+      heroEyebrow: "Calendar",
+      heroTitle: "अपने AI एजेंट से अपना शेड्यूल मैनेज करें",
+      heroDescription:
+        "Calendar एक फ्री और ओपन-सोर्स AI शेड्यूलिंग असिस्टेंट है, जो Google Calendar के इवेंट्स मैनेज करता है, मीटिंग के लिए समय ढूंढता है, और लोगों को आपके साथ बुक करने देता है।",
+      heroCta: "शेड्यूलिंग शुरू करें",
+      useCasesHeading: "Calendar से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "किसी क्लाइंट कॉल को बुक करें, अपनी टीम को साथ लाएं, या प्लान बदलने पर अपना दिन एडजस्ट करें।",
+      useCase1Title: "क्लाइंट कॉल्स और डेमो बुक करें",
+      useCase1Body:
+        "प्रॉस्पेक्ट्स और कस्टमर्स को एक बुकिंग लिंक दें ताकि वे समय चुन सकें। कॉल से पहले जो जानकारी चाहिए वह इकट्ठा करें।",
+      useCase2Title: "टीम मीटिंग्स के लिए समय ढूंढें",
+      useCase2Body:
+        "अपने AI एजेंट से वह समय पूछें जब आपके टीममेट्स उपलब्ध हों। मीटिंग बुक करने के लिए किसी सुझाए गए स्लॉट को चुनें।",
+      useCase3Title: "प्लान बदलने पर अपना दिन एडजस्ट करें",
+      useCase3Body:
+        "अपने AI एजेंट से मीटिंग को शिफ्ट करने या कोई और समय ढूंढने को कहें, आपके मौजूदा इवेंट्स और वर्किंग आवर्स को ध्यान में रखते हुए।",
+      keyFeaturesEyebrow: "मुख्य फीचर्स",
+      keyFeaturesHeading: "शेड्यूल करने, बुक करने और रीशेड्यूल करने के लिए जो भी चाहिए",
+      feature1Title: "AI शेड्यूलिंग",
+      feature1Body:
+        "अपने AI एजेंट से अपना शेड्यूल चेक करने, उपलब्ध समय ढूंढने, और अपने कनेक्टेड Google Calendar पर इवेंट्स बनाने या रीशेड्यूल करने को कहें।",
+      feature2Title: "कई कैलेंडर अकाउंट्स",
+      feature2Body:
+        "काम और पर्सनल Google अकाउंट्स को डे, वीक या मंथ व्यू में साथ देखें। अपने इवेंट्स के साथ रीड-ओनली कैलेंडर फ़ीड भी जोड़ें।",
+      feature3Title: "कस्टमाइज़ करने योग्य बुकिंग लिंक",
+      feature3Body:
+        "अलग-अलग मीटिंग टाइप्स के लिए बुकिंग पेज बनाएं। ड्यूरेशन सेट करें और बुक करते समय लोगों से पूछने के लिए सवाल जोड़ें।",
+      feature4Title: "उपलब्धता नियंत्रण",
+      feature4Body:
+        "अपने वर्किंग आवर्स, टाइम ज़ोन और मीटिंग्स के बीच बफ़र सेट करें। तय करें कि आपको कितनी पहले से सूचना चाहिए और लोग कितनी दूर आगे तक बुक कर सकते हैं।",
+      feature5Title: "को-होस्ट शेड्यूलिंग",
+      feature5Body:
+        "किसी बुकिंग लिंक में ज़रूरी को-होस्ट जोड़ें। जब सभी फ्री हों तब मीटिंग के समय ऑफर करें, फिर कोई बुक करे तो उन्हें इनवाइट करें।",
+      feature6Title: "वीडियो मीटिंग लिंक",
+      feature6Body:
+        "Google Meet जोड़ें, Zoom कनेक्ट करें, या कोई कस्टम मीटिंग लिंक इस्तेमाल करें ताकि बुक करने पर गेस्ट्स को पता हो कि कहां जॉइन करना है।",
+      finalCtaHeading: "अपनी अगली मीटिंग को कैलेंडर पर डालें",
+      finalCtaBody: "अपने AI एजेंट से कोई समय ढूंढें, या कोई बुकिंग लिंक भेजें।",
+      finalCtaButton: "शेड्यूलिंग शुरू करें",
       s002: "Calendar दृश्य",
       s003: "एजेंट की हरकतें",
       s004: "बुकिंग लिंक प्रकार",
@@ -880,32 +966,128 @@ const hiIN = {
     },
     assets: {
       faq: {
-        question1: "क्या AI मेरे brand के अनुरूप images बना सकता है?",
+        question1: "Agent-Native Assets क्या है?",
         answer1:
-          "हाँ — generation आपके upload किए गए brand libraries और references पर आधारित होती है, किसी सामान्य model की पसंद पर नहीं। Agent ने जो नियम सच में पढ़े हैं, उन्हीं से brand के अनुरूप images और videos बनते हैं।",
-        question2: "Assets किसी DAM से कैसे अलग है?",
+          "Agent-Native Assets एक फ्री और ओपन-सोर्स ब्रांड एसेट लाइब्रेरी है, जिसमें AI इमेज और वीडियो जनरेशन शामिल है। मौजूदा मीडिया को व्यवस्थित करें, ब्रांड रेफरेंस दें, और प्रोजेक्ट्स में एसेट्स जनरेट करने, एडिट करने और दोबारा इस्तेमाल करने के लिए किसी AI एजेंट के साथ काम करें।",
+        question2: "Assets मेरी ब्रांड गाइडलाइंस का इस्तेमाल कैसे करता है?",
         answer2:
-          "DAM approved files को store करता है ताकि लोग उन्हें खोज सकें। Assets यह भी करता है और brand को machine-readable बनाता है — इसलिए agents default रूप से brand के अनुरूप media बनाते और चुनते हैं।",
-        question3: "क्या मेरी दूसरी apps इसे इस्तेमाल कर सकती हैं?",
+          "अपना लोगो, रेफरेंस इमेजेस, कलर्स और स्टाइल नोट्स किसी ब्रांड किट में जोड़ें। दोबारा इस्तेमाल हो सकने वाले टेम्पलेट्स खास तरह के कंटेंट के लिए निर्देश देते हैं। आपका AI एजेंट जनरेशन को गाइड करने के लिए उस कॉन्टेक्स्ट का इस्तेमाल करता है, और सेव करने से पहले आप नतीजों की समीक्षा करके उन्हें बेहतर बना सकते हैं।",
+        question3: "क्या मैं मौजूदा इमेजेस और वीडियोज़ अपलोड और व्यवस्थित कर सकता हूँ?",
         answer3:
-          "हाँ — कोई भी Agent-Native app A2A के जरिए Assets को invoke कर सकती है या उसे picker की तरह embed कर सकती है, ताकि Slides और Design जैसी apps एक ही approved library का उपयोग करें।",
-        question4: "क्या Assets मुफ़्त है?",
+          "हाँ। मौजूदा मीडिया अपलोड करें या किसी URL से कोई एसेट इम्पोर्ट करें, फिर उसे जनरेट किए गए काम के साथ लाइब्रेरीज़ और फ़ोल्डर्स में व्यवस्थित करें। आप लाइब्रेरी ब्राउज़ और सर्च कर सकते हैं, एसेट्स को रेफरेंस की तरह दोबारा इस्तेमाल कर सकते हैं, या उन्हें किसी दूसरे प्रोजेक्ट के लिए एक्सपोर्ट कर सकते हैं।",
+        question4: "क्या मेरा AI एजेंट किसी दूसरी app से Assets इस्तेमाल कर सकता है?",
         answer4:
-          "हाँ — मुफ़्त और open source। `npx @agent-native/core@latest create my-assets-app --template assets` चलाएँ और app आपकी है।",
+          "हाँ। Assets के MCP इंटीग्रेशन के जरिए किसी सपोर्टेड एजेंट को कनेक्ट करें, ताकि वह चैट से मीडिया सर्च, जनरेट और सिलेक्ट कर सके। Agent-Native apps भी एसेट्स रिक्वेस्ट कर सकती हैं या पिकर एम्बेड कर सकती हैं। उपलब्ध एक्सपीरियंस होस्ट app और उसके Assets से कनेक्शन पर निर्भर करता है।",
+        question5:
+          "क्या Assets जनरेट की गई इमेजेस में मेरा असली लोगो इस्तेमाल कर सकता है?",
+        answer5:
+          "हाँ। अपनी ब्रांड किट में एक मुख्य लोगो सेट करें और जनरेशन के लिए लोगो कंपोज़िटिंग ऑन करें। Assets जनरेशन के बाद ओरिजिनल लोगो को इमेज पर रखता है, ताकि इमेज मॉडल उसे दोबारा न बनाए। इस्तेमाल से पहले उसकी पोज़िशन और आसपास की इमेज की जांच करें।",
       },
+      s001: "Assets टेम्पलेट स्क्रीनशॉट",
+      // V3 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Assets",
+      heroTitle: "अपने AI एजेंट से ब्रांड एसेट्स बनाएं और मैनेज करें",
+      heroDescription:
+        "Assets एक फ्री और ओपन-सोर्स ब्रांड एसेट लाइब्रेरी है, जो आपकी इमेजेस, वीडियोज़ और ब्रांड रेफरेंस को व्यवस्थित करने के लिए है, और इसमें एक AI एजेंट है जो आपकी ब्रांड किट का इस्तेमाल करके मीडिया जनरेट और एडिट करता है।",
+      heroCta: "एक इमेज जनरेट करें",
+      useCasesHeading: "Assets से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "कैंपेन इमेजेस बनाएं, नए प्रोजेक्ट्स के लिए विज़ुअल्स को ढालें, या अपनी टीम और AI एजेंट्स को एक शेयर्ड ब्रांड लाइब्रेरी दें।",
+      useCase1Title: "कैंपेन विज़ुअल्स बनाएं",
+      useCase1Body:
+        "अपने AI एजेंट से अपने ब्रांड रेफरेंस इस्तेमाल करके ब्लॉग इमेजेस, सोशल ग्राफिक्स या लॉन्च विज़ुअल्स मांगें। ऑप्शन्स कंपेयर करें और जो चुनें, उसे बेहतर बनाएं।",
+      useCase2Title: "नए प्रोजेक्ट्स के लिए इमेजेस ढालें",
+      useCase2Body:
+        "अपने AI एजेंट को कोई मौजूदा इमेज दें और वे बदलाव बताएं जो आपको चाहिए, जैसे अलग बैकग्राउंड या हेडलाइन के लिए जगह।",
+      useCase3Title: "अपने काम में ब्रांड एसेट्स शेयर करें",
+      useCase3Body:
+        "लोगो, प्रोडक्ट इमेजेस और ब्रांड रेफरेंस को एक साथ रखें, ताकि टीममेट्स और कनेक्टेड AI एजेंट्स प्रेजेंटेशन्स, वेबसाइट्स और दूसरे प्रोजेक्ट्स के लिए मीडिया ढूंढ सकें।",
+      keyFeaturesEyebrow: "मुख्य फीचर्स",
+      keyFeaturesHeading:
+        "जनरेट करने, बेहतर बनाने और दोबारा इस्तेमाल करने के लिए जो भी चाहिए",
+      feature1Title: "ब्रांड एसेट लाइब्रेरीज़",
+      feature1Body:
+        "अपलोड की गई और जनरेट की गई मीडिया को लाइब्रेरीज़ और फ़ोल्डर्स में व्यवस्थित करें। अपने AI एजेंट के इस्तेमाल के लिए लोगो, रेफरेंस इमेजेस और स्टाइल नोट्स जोड़ें।",
+      feature2Title: "AI इमेज और वीडियो जनरेशन",
+      feature2Body:
+        "जिस मीडिया की जरूरत हो उसका वर्णन करें और अपने ब्रांड रेफरेंस चुनें। इमेज ऑप्शन्स या छोटे वीडियोज़ जनरेट करें, फिर सेव करने से पहले नतीजों की समीक्षा करें।",
+      feature3Title: "इमेज एडिटिंग",
+      feature3Body:
+        "अपने AI एजेंट से किसी इमेज को एडिट करने या उसकी स्टाइल बदलने को कहें। मौजूदा एसेट को रेफरेंस की तरह इस्तेमाल करें और फीडबैक के जरिए उसे बेहतर बनाएं।",
+      feature4Title: "दोबारा इस्तेमाल हो सकने वाले टेम्पलेट्स",
+      feature4Body:
+        "बार-बार होने वाले काम के लिए जनरेशन इंस्ट्रक्शन सेव करें, जैसे ब्लॉग कवर या सोशल ग्राफिक्स। टेम्पलेट्स को किसी ब्रांड किट से जोड़ें ताकि उसके रेफरेंस दोबारा इस्तेमाल हो सकें।",
+      feature5Title: "ओरिजिनल लोगो प्लेसमेंट",
+      feature5Body:
+        "अपनी ब्रांड किट का लोगो सेट करें और उसे जनरेट की गई इमेजेस में जोड़ें। लोगो कंपोज़िटिंग नई वर्जन जनरेट करने के बजाय ओरिजिनल फ़ाइल को ही रखता है।",
+      feature6Title: "एजेंट एक्सेस",
+      feature6Body:
+        "लाइब्रेरी सर्च करने, मीडिया जनरेट करने और चैट से एसेट्स चुनने के लिए अपना AI एजेंट कनेक्ट करें। सपोर्टेड apps एसेट पिकर भी एम्बेड कर सकती हैं।",
+      finalCtaHeading: "अपना अगला ब्रांड एसेट बनाएं",
+      finalCtaBody: "अपने रेफरेंस चुनें और अपने AI एजेंट को बताएं कि आपको क्या चाहिए।",
+      finalCtaButton: "एक इमेज जनरेट करें",
     },
     chat: {
       faq: {
-        question1: "Chat template क्या है?",
+        question1: "Agent-Native Chat क्या है?",
         answer1:
-          "आपके अपने agent के लिए एक छोटा ChatGPT-जैसा scaffold: durable threads, auth, actions, live sync, standard sidebar — और screens जोड़ने या अपना backend connect करने का साफ़ रास्ता।",
-        question2: "यह ChatGPT से कैसे अलग है?",
+          "Agent-Native Chat डेवलपर्स के लिए एक मुफ़्त और ओपन-सोर्स AI chat app है। इसमें saved threads, एक agent chat interface, authentication, shared actions और live sync शामिल हैं। आप अपने application के लिए domain-specific data और behavior खुद जोड़ते हैं।",
+        question2: "क्या Chat एक पूरी तरह तैयार AI असिस्टेंट है?",
         answer2:
-          "ChatGPT, OpenAI के models के लिए OpenAI की app है। यह आपकी है: आपका agent backend, आपका data और आपकी screens — ऐसा शुरुआती आधार जिसे आप आगे बढ़ाते हैं, कोई किराए का product नहीं।",
-        question3: "क्या यह production के लिए तैयार है?",
+          "Chat एक काम करने वाला conversation interface और उसके पीछे का framework देता है। इसमें एक उदाहरण action शामिल है, लेकिन business workflows और provider integrations आपको खुद implement और configure करने होंगे।",
+        question3: "क्या मैं chat interface के अलावा screens जोड़ सकता हूँ?",
         answer3:
-          "यह जानबूझकर छोटा रखा गया scaffold है — chat app के लिए ईमानदार शुरुआती आधार, कोई पूरी तरह तैयार app नहीं। अगर आपको तैयार app चाहिए, तो दूसरी apps में से किसी एक से शुरू करें।",
+          "हाँ। अपने workflow की ज़रूरत के हिसाब से lists, queues, editors या दूसरे views के लिए routes और components जोड़ें। इन्हें उन्हीं actions और application data से जोड़ें जिन्हें agent इस्तेमाल करता है।",
+        question4: "क्या Chat में मेरे business tools से connections शामिल हैं?",
+        answer4:
+          "यह minimal template domain-specific provider integrations शामिल नहीं करता। अपनी app के लिए ज़रूरी connections और access rules खुद जोड़ें। अगर कोई मौजूदा Agent-Native app पहले से आपके workflow से मेल खाती है, तो उसका template बेहतर शुरुआती बिंदु हो सकता है।",
+        question5: "क्या मैं अपना खुद का version customize करके deploy कर सकता हूँ?",
+        answer5:
+          "हाँ। CLI से एक कॉपी बनाएँ, अपने actions, data और interface जोड़ें, फिर अपनी application deploy करें। अपने environment के लिए authentication और provider access configure करें, और users के साथ शेयर करने से पहले जोड़े गए workflows को टेस्ट करें।",
       },
+      s001: "Chat app का स्क्रीनशॉट",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "अपना खुद का AI chat app बनाएँ",
+      heroDescription:
+        "Chat एक मुफ़्त और ओपन-सोर्स AI chat app है, जिसमें saved conversations, authentication और एक ऐसा agent शामिल है जिसे आप अपने खुद के actions, data और screens से आगे बढ़ा सकते हैं।",
+      heroCta: "अपना चैट बनाएं",
+      heroSecondaryCta: "Chat खोलें",
+      useCasesHeading: "आप Chat से क्या बना सकते हैं?",
+      useCasesBody:
+        "chat app से शुरू करें, फिर अपने use case के लिए data और actions जोड़ें। ये workflows आपके हैं — इसी आधार पर आगे बनाएँ।",
+      useCase1Title: "एक internal assistant बनाएँ",
+      useCase1Body:
+        "ऐसे actions जोड़ें जो जानकारी खोजें या आपकी team के requests संभालें। शामिल sign-in और conversation history को शुरुआती बिंदु की तरह इस्तेमाल करें।",
+      useCase2Title: "एक agent workflow का prototype बनाएँ",
+      useCase2Body:
+        "एक उपयोगी action implement करें और उसे chat के ज़रिए आज़माएँ। और tools या screens जोड़ने से पहले agent के instructions और behavior को बेहतर बनाएँ।",
+      useCase3Title: "agent के काम के लिए एक interface जोड़ें",
+      useCase3Body:
+        "जब users को काम को visually review करना हो, तो एक queue, list या editor बनाएँ। इसे अपने agent जैसे ही actions और data से जोड़ें।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएँ",
+      keyFeaturesHeading: "आपके agent और उसके interface के लिए एक शुरुआती आधार",
+      feature1Title: "सेव की गई बातचीत",
+      feature1Body:
+        "users को ऐसे threads दें जिन पर वे वापस आ सकें। शामिल sidebar से conversations बनाएँ, फिर से खोलें, नाम बदलें, pin करें और archive करें।",
+      feature2Title: "बिल्ट-इन एजेंट चैट",
+      feature2Body:
+        "एक full-page conversation और framework के agent runtime से शुरुआत करें। अपने application को जिन tasks को संभालना है, उनके लिए instructions और tools जोड़ें।",
+      feature3Title: "Authentication और sessions",
+      feature3Body:
+        "पहले से जुड़े login, signup, sessions और organization support से शुरुआत करें। अपने application के data और workflows के लिए ज़रूरी access rules जोड़ें।",
+      feature4Title: "शेयर की गई एक्शन्स",
+      feature4Body:
+        "एक operation को अपने agent और interface, दोनों के लिए एक बार परिभाषित करें। अपनी क्षमताएँ जोड़ते समय शामिल उदाहरण action को फॉलो करें।",
+      feature5Title: "लाइव डेटा सिंक",
+      feature5Body:
+        "जब agent application data बदले, तो अपने interface को अपडेट रखें। framework के shared state और database sync के आस-पास screens बनाएँ।",
+      feature6Title: "Database और run inspection",
+      feature6Body:
+        "अपनी application बनाते और debug करते समय stored data और agent runs को जांचने के लिए शामिल database administration और observability screens का इस्तेमाल करें।",
+      finalCtaHeading: "अपना पहला agent workflow बनाएँ",
+      finalCtaBody: "अपनी कॉपी बनाएँ और अपने users को चाहिए वह पहला action जोड़ें।",
+      finalCtaButton: "अपना चैट बनाएं",
     },
     clips: {
       s001: "Clips टेम्पलेट स्क्रीनशॉट",
@@ -956,7 +1138,7 @@ const hiIN = {
       finalCtaHeading: "अपनी अगली क्लिप को काम पर लगाएं",
       finalCtaBody:
         "कोई एक्सप्लेनेशन रेकॉर्ड करें या कोई शेयर की गई क्लिप अपने AI एजेंट तक पहुंचाएं।",
-      finalCtaButton: "Clips खोलें",
+      finalCtaButton: "क्लिप रेकॉर्ड करें",
       s002: "स्क्रीन रिकॉर्ड",
       s003: "ब्राउज़र डीबग लॉग",
       s004: "हुक्म चलाना",
@@ -1056,23 +1238,68 @@ const hiIN = {
     },
     content: {
       faq: {
-        question1: "क्या AI agent बिना export या API के मेरे docs edit कर सकता है?",
+        question1: "Agent-Native Content क्या है?",
         answer1:
-          "हाँ। Content स्थानीय Markdown/MDX files पर काम करता है — वही files जो आपके repo में हैं। आपके agent के पास वे पहले से disk पर हैं: किसी API, sync या export step की जरूरत नहीं।",
-        question2: "Content, Notion या Obsidian से कैसे अलग है?",
+          "Agent-Native Content डॉक्यूमेंट्स, टास्क्स और डेटाबेस के लिए एक फ्री और ओपन-सोर्स वर्कस्पेस है। यह एक AI डॉक्यूमेंट एडिटर को स्ट्रक्चर्ड टेबल्स और शेयर्ड पेजेज़ के साथ जोड़ता है, जिन्हें लोग और कनेक्टेड AI एजेंट्स मिलकर पढ़ और अपडेट कर सकते हैं।",
+        question2: "क्या मैं Content के साथ अपना खुद का AI एजेंट इस्तेमाल कर सकता हूँ?",
         answer2:
-          "Notion आपके docs को अपने database में, अपनी API के पीछे रखता है। Content, Obsidian की तरह स्थानीय files इस्तेमाल करता है — साथ में rich editor और ऐसा agent भी देता है जो आपकी शैली में draft, rewrite और publish करता है।",
-        question3: "क्या AI मेरी शैली में लिख सकता है?",
+          "हाँ। Content, Claude Code, Codex और Cursor जैसे सपोर्टेड टूल्स के लिए MCP कनेक्शन देता है। कनेक्ट करने और एक्सेस अधिकृत करने के बाद, आपका एजेंट उन डॉक्यूमेंट्स और डेटाबेस के साथ काम कर सकता है जो उसे उपलब्ध हैं। आप Content के बिल्ट-इन एजेंट का भी इस्तेमाल कर सकते हैं।",
+        question3: "क्या मैं AI से बिना दोबारा लिखे अपनी राइटिंग रिव्यू करवा सकता हूँ?",
         answer3:
-          "हाँ। Agent आपकी आवाज़, style guide और tone सीखता है, इसलिए drafts आपके जैसे लगते हैं — और किसी भी selection को rewrite, expand, summarize या उसका tone बदल सकता है।",
-        question4: "क्या मैं अपने CMS पर publish कर सकता हूँ?",
+          "हाँ। अपने AI एजेंट से किसी डॉक्यूमेंट या पैसेज पर कमेंट्स छोड़ने को कहें। आप फीडबैक पढ़कर खुद बदलाव कर सकते हैं, या एजेंट से टेक्स्ट एडिट करने को कह सकते हैं। कमेंट्स मांगने के लिए राइटिंग सौंपने की ज़रूरत नहीं होती।",
+        question4:
+          "क्या Content टास्क्स ट्रैक कर सकता है और टीम रिक्वेस्ट्स कलेक्ट कर सकता है?",
         answer4:
-          "हाँ — scripts के जरिए किसी भी headless CMS को connect करें। WordPress, Contentful और Builder supported हैं, Notion दोनों दिशाओं में sync होता है, और agent publishing scripts को अपने-आप चलाता है।",
-        question5: "क्या Content मुफ़्त है?",
+          "हाँ। ओनर, स्टेटस, डिलीवरी डेट और नेक्स्ट स्टेप जैसे फ़ील्ड्स के साथ एक डेटाबेस बनाएं। हर फ़ील्ड में क्या होना चाहिए, यह बताते हुए डिस्क्रिप्शन जोड़ें। ये डिस्क्रिप्शन एंट्रीज़ बनाते या अपडेट करते समय आपके AI एजेंट को गाइड करते हैं, जिसमें मिसिंग जानकारी मांगना भी शामिल है।",
+        question5:
+          "क्या मैं यह कंट्रोल कर सकता हूँ कि मेरा काम कौन एडिट करे, और पुराना वर्शन रीस्टोर कर सकता हूँ?",
         answer5:
-          "हाँ। मुफ़्त और open source — और आपके docs साधारण स्थानीय files हैं, इसलिए कभी Content छोड़ने पर export करने के लिए कुछ नहीं होगा।",
+          "हाँ। नए डॉक्यूमेंट्स डिफ़ॉल्ट रूप से प्राइवेट होते हैं। इन्हें व्यूअर, एडिटर या एडमिन एक्सेस के साथ शेयर करें, और पुराना स्नैपशॉट रीस्टोर करने के लिए पेज वर्शन हिस्ट्री का इस्तेमाल करें। स्नैपशॉट रीस्टोर करने से पेज का मौजूदा कॉन्टेंट बदल जाता है।",
       },
       s001: "Content टेम्पलेट स्क्रीनशॉट",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "अपने AI एजेंट के साथ अपना काम बनाएं और व्यवस्थित करें",
+      heroDescription:
+        "Content डॉक्यूमेंट्स, टास्क लिस्ट्स और डेटाबेस के लिए एक फ्री और ओपन-सोर्स वर्कस्पेस है, जिसे आप और आपके AI एजेंट्स मिलकर पढ़ और अपडेट कर सकते हैं।",
+      heroCta: "अपना काम व्यवस्थित करें",
+      useCasesHeading: "आप Content के साथ क्या कर सकते हैं?",
+      useCasesBody:
+        "किसी ड्राफ़्ट पर काम करें, यह ट्रैक करें कि क्या करना बाकी है, या किसी नई रिक्वेस्ट के लिए डिटेल्स इकट्ठा करें।",
+      useCase1Title: "कॉन्टेंट लिखें और रिव्यू करें",
+      useCase1Body:
+        "अपने AI एजेंट से कोई पेज ड्राफ़्ट करने, किसी पैसेज को रिवाइज़ करने, या आपकी राइटिंग पर कमेंट्स छोड़ने को कहें। चुनें कि आप उससे किस तरह मदद चाहते हैं।",
+      useCase2Title: "अपने एजेंट्स के साथ काम ट्रैक करें",
+      useCase2Body:
+        "टास्क्स, स्टेटस और अगले स्टेप्स को एक शेयर्ड टेबल में रखें। किसी प्रोजेक्ट पर काम करते समय अपने कनेक्टेड AI एजेंट्स से उसे अपडेट करने को कहें।",
+      useCase3Title: "प्रोजेक्ट रिक्वेस्ट्स कलेक्ट करें",
+      useCase3Body:
+        "डिज़ाइन रिक्वेस्ट्स या टीम के दूसरे काम के लिए एक टेबल सेट करें। हर फ़ील्ड में इंस्ट्रक्शंस दें ताकि आपका AI एजेंट मिसिंग डिटेल्स मांग सके।",
+      keyFeaturesEyebrow: "मुख्य फ़ीचर्स",
+      keyFeaturesHeading:
+        "लिखने, व्यवस्थित करने और मिलकर काम करने के लिए ज़रूरी हर चीज़",
+      feature1Title: "AI राइटिंग और रिव्यू",
+      feature1Body:
+        "पहला ड्राफ़्ट पाएं, सेलेक्ट किए गए टेक्स्ट में बदलाव मांगें, या कमेंट्स के लिए कहें। आपका AI एजेंट सीधे डॉक्यूमेंट में काम करता है।",
+      feature2Title: "डॉक्यूमेंट्स और नेस्टेड पेजेज़",
+      feature2Body:
+        "हेडिंग्स, टेबल्स, इमेजेज़ और कोड ब्लॉक्स के साथ पेजेज़ लिखें। सपोर्टिंग डॉक्यूमेंट्स को किसी प्रोजेक्ट के तहत ग्रुप करें, और उन्हें ढूंढने के लिए टाइटल्स और कॉन्टेंट सर्च करें।",
+      feature3Title: "डेटाबेस और व्यूज़",
+      feature3Body:
+        "काम को टेबल्स, बोर्ड्स या कैलेंडर्स में व्यवस्थित करें। ओनर्स, डेट्स और स्टेटस के लिए फ़ील्ड्स जोड़ें, हर रो के पीछे एक पूरा डॉक्यूमेंट रहता है।",
+      feature4Title: "पेज और फ़ील्ड इंस्ट्रक्शंस",
+      feature4Body:
+        "बताएं कि किसी पेज या डेटाबेस फ़ील्ड में क्या होना चाहिए। अपने AI एजेंट्स को जानकारी और फ़ॉर्मैट को लेकर वह गाइडेंस दें, जो आप उनसे उम्मीद करते हैं।",
+      feature5Title: "कनेक्टेड AI एजेंट्स",
+      feature5Body:
+        "Claude Code, Codex या Cursor जैसे टूल्स के एजेंट्स को कनेक्ट करें ताकि वे बिल्ट-इन एजेंट के साथ मिलकर आपके डॉक्यूमेंट्स और डेटाबेस पढ़ और अपडेट कर सकें।",
+      feature6Title: "टीम कोलैबोरेशन",
+      feature6Body:
+        "साथ मिलकर पेजेज़ एडिट करें, पैसेजेज़ पर कमेंट करें, और थ्रेड्स में रिप्लाई करें। खास लोगों या अपने ऑर्गनाइज़ेशन के साथ शेयर करें और उनका एक्सेस लेवल चुनें।",
+      finalCtaHeading: "अपने अगले प्रोजेक्ट को Content में लाएं",
+      finalCtaBody:
+        "किसी डॉक्यूमेंट, टास्क लिस्ट, या ऐसे टेबल से शुरुआत करें जिसे आपकी टीम पहले से इस्तेमाल करती है।",
+      finalCtaButton: "अपना काम व्यवस्थित करें",
       s002: "सभी टेम्पलेट",
       s003: "MDX के लिए ओपन-सोर्स Obsidian",
       s004: "Obsidian जैसी स्थानीय Markdown/MDX फ़ाइलों को संपादित करें, समृद्ध इंटरैक्टिव कस्टम ब्लॉक बनाएं, और एक AI एजेंट के साथ लिखें जो आपके दस्तावेज़ जानता हो।",
@@ -1137,23 +1364,65 @@ const hiIN = {
     },
     design: {
       faq: {
-        question1: "क्या AI ऐसा design बना सकता है जो mockup नहीं, असली code हो?",
+        question1: "Agent-Native Design क्या है?",
         answer1:
-          "हाँ। Design, Tailwind styling और Alpine interactions के साथ पूरा, self-contained HTML देता है। Prototype ही implementation है — handoff करके दोबारा बनाने के लिए कुछ नहीं।",
-        question2: "Design, Figma से कैसे अलग है?",
+          "Agent-Native Design एक फ्री और ओपन-सोर्स AI design और prototyping tool है। AI एजेंट के साथ इंटरैक्टिव HTML prototypes बनाएं, अपना ब्रांड अप्लाई करें, और visual controls या chat से designs को refine करें। फीडबैक के लिए result शेयर करें या development के लिए export करें।",
+        question2: "AI के जनरेट करने के बाद क्या मैं design एडिट कर सकता हूँ?",
         answer2:
-          "Figma pixel level पर काम करने वाली design teams के लिए बना है, और उसका output एक तस्वीर होता है जिसे कोई फिर से implement करता है। Design prompt से शुरू होकर काम करने वाले HTML/CSS/JS पर खत्म होता है, जिसे आप ship या आगे iterate कर सकते हैं।",
-        question3: "क्या यह मेरे design system का पालन कर सकता है?",
+          "हाँ। visual controls से टेक्स्ट, स्पेसिंग और स्टाइलिंग adjust करें, या AI एजेंट से design बदलने को कहें। आप अलग-अलग directions compare कर सकते हैं और जो चुनें उसे आगे refine करते रह सकते हैं।",
+        question3: "क्या मैं अपना खुद का design system इस्तेमाल कर सकता हूँ?",
         answer3:
-          "हाँ। दोबारा इस्तेमाल होने वाली design-system preferences save करें, फिर सामान्य variables को visually adjust करें जबकि agent structure और copy के बदलाव संभाले — “थोड़ा गर्म palette”, “ज़्यादा bold headline”, और काम पूरा।",
-        question4: "Export करने पर मुझे क्या मिलता है?",
+          "हाँ। कलर्स, टाइपोग्राफी, स्टाइलिंग और ब्रांड इंस्ट्रक्शंस गाइड करने के लिए एक design system लिंक करें। आप इसे कई designs में दोबारा इस्तेमाल कर सकते हैं और AI एजेंट के revisions के लिए context के तौर पर यूज़ कर सकते हैं।",
+        question4: "क्या मैं Figma के designs के साथ काम कर सकता हूँ?",
         answer4:
-          "असल परिणाम: file, ZIP या PDF के रूप में पूरा HTML/CSS/JS। Self-contained, बिना किसी proprietary format के और कहीं भी ship करने के लिए आपका।",
-        question5: "क्या Design मुफ़्त है?",
+          "हाँ। Design, Figma import workflows और एक खास Figma-ready SVG export सपोर्ट करता है। design ट्रांसफर करने के बाद fonts, layouts और editable elements चेक करें, क्योंकि compatibility सोर्स और export format पर निर्भर करती है।",
+        question5: "मैं क्या export कर सकता हूँ, और क्या यह एक पूरा तैयार app है?",
         answer5:
-          "हाँ — मुफ़्त और open source, जबकि अन्य design tools हर user के लिए मासिक शुल्क लेते हैं या credits से उपयोग मापते हैं।",
+          "design files का HTML या ZIP export करें, या किसी coding एजेंट के लिए handoff तैयार करें। Prototype development के लिए एक शुरुआती पॉइंट देता है; application logic, integrations, testing और deployment के लिए अभी भी implementation और review की ज़रूरत है। HTML exports बाहरी runtime resources इस्तेमाल कर सकते हैं।",
       },
       s001: "Design टेम्पलेट स्क्रीनशॉट",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "अपने AI एजेंट से इंटरैक्टिव prototypes design करें",
+      heroDescription:
+        "Design एक फ्री और ओपन-सोर्स AI design और prototyping tool है, जो आपके ब्रांड के अनुरूप pages और product interfaces बनाता है, जिन्हें आप खुद एडिट कर सकते हैं।",
+      heroCta: "फ़्री में डिज़ाइन करें",
+      useCasesHeading: "Design से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "बनाने से पहले किसी नए page, product flow या interface को explore करें। अपने AI एजेंट को brief और ज़रूरी डिटेल्स बताएं।",
+      useCase1Title: "Landing-page आइडियाज़ explore करें",
+      useCase1Body:
+        "किसी campaign या product brief को landing-page prototype में बदलें। मैसेज, लेआउट और calls to action को अपनी टीम के साथ रिव्यू करें।",
+      useCase2Title: "Product flows पर काम करें",
+      useCase2Body:
+        "किसी onboarding, signup, या checkout flow का prototype बनाएं। implementation पर commit करने से पहले steps को देखें और experience को refine करें।",
+      useCase3Title: "Dashboards और internal tools design करें",
+      useCase3Body:
+        "Workflow requirements को dashboard या admin interface में बदलें। explore करें कि लोग जानकारी कैसे ढूंढेंगे और अपने रोज़ के काम कैसे पूरे करेंगे।",
+      keyFeaturesEyebrow: "मुख्य फीचर्स",
+      keyFeaturesHeading:
+        "Design करने, prototype बनाने और शेयर करने के लिए जो भी चाहिए",
+      feature1Title: "इंटरैक्टिव प्रोटोटाइप्स",
+      feature1Body:
+        "जो page या flow चाहिए उसे describe करें। आपका AI एजेंट ऐसा HTML prototype बनाता है जिसके interactions आप preview में try कर सकते हैं।",
+      feature2Title: "AI और विज़ुअल एडिटिंग",
+      feature2Body:
+        "visual controls से टेक्स्ट, स्पेसिंग और स्टाइलिंग adjust करें, या अपने AI एजेंट से layout और interactions बदलने को कहें।",
+      feature3Title: "साथ-साथ design variants",
+      feature3Body:
+        "अपने AI एजेंट से अलग-अलग design directions मांगें। उन्हें canvas पर compare करें, कोई approach चुनें, और उसे refine करते रहें।",
+      feature4Title: "फिर से इस्तेमाल हो सकने वाली brand styles",
+      feature4Body:
+        "अपने कलर्स, टाइपोग्राफी और स्टाइलिंग के साथ एक design system लिंक करें। इसे अपने पूरे प्रोजेक्ट में नए designs और revisions को गाइड करने के लिए इस्तेमाल करें।",
+      feature5Title: "डिज़ाइन रिव्यू कमेंट्स",
+      feature5Body:
+        "किसी खास element पर feedback पिन करें ताकि context साफ़ रहे। बदलाव पर काम करने के लिए अपने AI एजेंट को कमेंट भेजें।",
+      feature6Title: "HTML export और code handoff",
+      feature6Body:
+        "अपनी design files का HTML या ZIP export करें। implementation जारी रखने के लिए किसी developer या coding एजेंट को prototype और context दें।",
+      finalCtaHeading: "अपना अगला design शुरू करें",
+      finalCtaBody: "एक brief लाएं। संभावनाएं explore करें। डिटेल्स को refine करें।",
+      finalCtaButton: "फ़्री में डिज़ाइन करें",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",
@@ -1217,26 +1486,66 @@ const hiIN = {
     },
     dispatch: {
       faq: {
-        question1: "हर AI agent पर नज़र रखे बिना मैं कई agents कैसे चला सकता हूँ?",
+        question1: "Agent-Native Dispatch क्या है?",
         answer1:
-          "Dispatch आपका home base है: Slack या Telegram से उसे message करें और वह A2A के जरिए काम को आपके दूसरे agents — Mail, Slides, Design — तक भेजता है, साथ ही approvals और schedules एक जगह रखता है।",
-        question2: "क्या मैं Slack से अपने agent से बात कर सकता हूँ?",
+          "Agent-Native Dispatch एक Agent-Native workspace के लिए मुफ़्त और open source AI agent orchestration app है। यह connected apps में requests को coordinate करता है, supported channels से messages पाता है, recurring tasks schedule करता है, और shared integrations manage करता है।",
+        question2: "Dispatch किन apps के साथ काम कर सकता है?",
         answer2:
-          "हाँ — Slack या Telegram में thread context और inline approvals के साथ दो-तरफ़ा messaging। Agent के परिणाम उसी conversation में वापस आते हैं।",
-        question3: "क्या agent schedule के अनुसार काम कर सकता है?",
+          "Dispatch आपके workspace में connected और उपलब्ध apps को काम सौंपता है, जैसे Analytics या Mail। हर app अपने खुद के tasks और data को संभालता है। Dispatch से इन्हें इस्तेमाल करवाने से पहले संबंधित connections और grants configure करें।",
+        question3: "क्या मैं Dispatch को Slack या Telegram से इस्तेमाल कर सकता हूँ?",
         answer3:
-          "हाँ — cron-based jobs: रोज़ाना stand-ups, साप्ताहिक summaries और हर घंटे checks। परिणाम आपके messenger में पहुँचते हैं, ऐसे dashboard में नहीं जिसे खोलना आपको याद रखना पड़े।",
-        question4: "क्या यह पिछली conversations याद रखता है?",
+          "हाँ। ज़रूरत के अनुसार messaging channel configure करें और अपनी पहचान को अपने workspace account से link करें। Dispatch उस channel के ज़रिए requests पा सकता है और results वापस भेज सकता है। किसी channel को connect करने से हर sender को हर app का access अपने-आप नहीं मिल जाता।",
+        question4: "क्या agents किसी schedule पर tasks चला सकते हैं?",
         answer4:
-          "हाँ — हर conversation से सीख अपने-आप capture होती है और उसका scope हर user, हर organization या global रखा जा सकता है। Memory को देखा और edit किया जा सकता है; यह black box नहीं है।",
-        question5: "अगर मैं नहीं चाहता कि यह अकेले कार्रवाई करे तो क्या होगा?",
+          "हाँ। एक recurring task सेट करें और ज़रूरत पड़ने पर उसके results के लिए एक delivery destination भी। Dispatch उस task का last run, next run, और error status दिखाता है ताकि आप देख सकें कि वह सफलतापूर्वक चला या नहीं।",
+        question5: "क्या Dispatch की approvals एक agent के हर काम को कवर करती हैं?",
         answer5:
-          "Approval workflows built in हैं: संवेदनशील actions — email भेजना, update post करना, automation चलाना — Slack में एक-tap approval का इंतज़ार करती हैं। किन actions के लिए sign-off चाहिए, यह आप तय करते हैं।",
-        question6: "क्या Dispatch मुफ़्त है?",
-        answer6:
-          "हाँ। मुफ़्त और open source, जबकि हर user के लिए मासिक शुल्क लेने वाले agent platforms इसके विकल्प हैं।",
+          "नहीं। एक team workspace में, Dispatch shared resources और settings में अपने खुद के बदलावों की review ज़रूरी बना सकता है। Connected apps के अंदर की actions, जैसे email भेजना, उन apps के अपने controls को follow करती हैं। Dispatch की approval queue हर agent action के लिए एक universal gate नहीं है।",
       },
       s001: "Dispatch टेम्पलेट स्क्रीनशॉट",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "अपने AI agents को एक जगह से coordinate करें",
+      heroDescription:
+        "Dispatch एक मुफ़्त और open source AI agent orchestration app है, जो connected Agent-Native apps को काम सौंपने, recurring tasks schedule करने, और shared connections manage करने के लिए बना है।",
+      heroCta: "एक टास्क डेलिगेट करें",
+      useCasesHeading: "आप Dispatch से क्या कर सकते हैं?",
+      useCasesBody:
+        "किसी connected app से मदद माँगें, कोई नियमित update सेट करें, या किसी ऐसे agent run की जांच करें जिस पर ध्यान देने की ज़रूरत है।",
+      useCase1Title: "एक ही बातचीत से काम सौंपें",
+      useCase1Body:
+        "metrics का summary या reply का draft माँगें। Dispatch उस request को connected Analytics या Mail agent तक भेजता है और result वापस लाता है।",
+      useCase2Title: "बार-बार होने वाले team updates सेट करें",
+      useCase2Body:
+        "अपने connected apps से रोज़ाना का metrics summary या साप्ताहिक digest schedule करें। वह configured channel या inbox चुनें जहाँ result पहुँचना चाहिए।",
+      useCase3Title: "agent की activity की जांच करें",
+      useCase3Body:
+        "किसी task का last run और कोई भी errors देखें। जब किसी workflow पर ध्यान देने की ज़रूरत हो, तो यह जांचने के लिए उपलब्ध thread और monitoring details का इस्तेमाल करें कि क्या हुआ।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएं",
+      keyFeaturesHeading:
+        "काम सौंपने, schedule करने और monitor करने के लिए ज़रूरी सब कुछ",
+      feature1Title: "क्रॉस-ऐप डेलिगेशन",
+      feature1Body:
+        "उस काम को संभालने वाले connected app को requests भेजें। हर app जवाब देने के लिए अपने खुद के agent, actions, और data का इस्तेमाल करता है।",
+      feature2Title: "मैसेजिंग कनेक्शंस",
+      feature2Body:
+        "requests भेजने और replies पाने के लिए Slack या Telegram जैसे channels connect करें। identities link करें ताकि Dispatch को पता चले कि कौन सा workspace user पूछ रहा है।",
+      feature3Title: "शेड्यूल्ड टास्क्स",
+      feature3Body:
+        "बार-बार होने वाले काम के लिए schedule तय करें। देखें कि task enabled है या नहीं, वह पिछली बार कब चला, अगली बार कब चलेगा, और कोई recorded error है या नहीं।",
+      feature4Title: "सेव की गई डिलीवरी डेस्टिनेशंस",
+      feature4Body:
+        "किसी Slack channel, Telegram chat, या email address को delivery target के रूप में save करें। इसे scheduled results के लिए दोबारा इस्तेमाल करें और delivery status जांचें।",
+      feature5Title: "शेयर की गई इंटीग्रेशंस",
+      feature5Body:
+        "एक बार provider connection configure करें और उसकी ज़रूरत वाले apps को access दें। Dispatch से shared connections और app access manage करें।",
+      feature6Title: "वर्कस्पेस चेंज अप्रूवल्स",
+      feature6Body:
+        "किसी दूसरे admin को shared resources और settings में Dispatch के अपने बदलावों की review करना ज़रूरी बनाएं। team workspace में pending requests review करें और उन्हें approve या reject करें।",
+      finalCtaHeading: "एक connected task से शुरुआत करें",
+      finalCtaBody:
+        "अपनी ज़रूरत के apps चुनें और Dispatch से काम coordinate करने को कहें।",
+      finalCtaButton: "एक टास्क डेलिगेट करें",
       s002: "+ Telegram support",
       s003: "अंतर-एजेंट",
       s004: "स्मृति",
@@ -1293,23 +1602,64 @@ const hiIN = {
     },
     forms: {
       faq: {
-        question1: "क्या AI मेरे लिए form बना सकता है?",
+        question1: "Agent-Native Forms क्या है?",
         answer1:
-          "हाँ। उसका वर्णन करें और पूरा form बन जाएगा। फिर बातचीत में उसे बेहतर करें — “अनुभव के स्तर का required dropdown जोड़ें” — या live preview और undo के साथ visual editor में fields को खींचकर व्यवस्थित करें।",
-        question2: "कोई form submit करता है तो क्या होता है?",
+          "Agent-Native Forms एक मुफ़्त और open source AI form builder है। AI एजेंट के साथ forms और सर्वे बनाएं, fields को visually edit करें, एक public link publish करें, और उसी app में responses देखें या analyze करें।",
+        question2: "क्या AI द्वारा बनाए गए form को बाद में edit किया जा सकता है?",
         answer2:
-          "Submission आपके अपने SQL database में जाती है और आते ही structured रूप में Slack, Discord, Google Sheets या webhook तक भेज दी जाती है। Submissions वहाँ पहुँचती हैं जहाँ आपका agent कार्रवाई कर सके, ऐसे export में नहीं जिसे कोई खोलता नहीं।",
-        question3: "Forms, Typeform से कैसे अलग है?",
+          "हाँ। Visual editor में questions, labels, options, required fields और field order बदलें, या अपने AI एजेंट से बदलाव करने को कहें। दोनों तरीके एक ही form को update करते हैं। आप पहले के जवाबों के आधार पर conditional questions भी जोड़ सकते हैं।",
+        question3: "क्या मेरा form भरने के लिए लोगों को account चाहिए?",
         answer3:
-          "Typeform form भरने के अनुभव को बेहतर बनाता है। Forms उसके बाद होने वाले काम पर केंद्रित है: responses आपके अपने database में, आपके tools तक routed, बिना प्रति-response कीमत के — और form खुद prompt से आगे बढ़ता है।",
-        question4: "क्या Forms मुफ़्त है? क्या responses की कोई सीमा है?",
+          "नहीं। published form का public link रखने वाला कोई भी व्यक्ति बिना account के response भेज सकता है। Draft forms public नहीं होते, और बंद किए गए forms नए responses लेना बंद कर देते हैं।",
+        question4: "क्या मैं anonymous feedback जमा कर सकता हूँ?",
         answer4:
-          "यह मुफ़्त और open source है, और हर response पर न कोई शुल्क है, न कोई सीमा। Data आपके database में है; सीमा आपके database की क्षमता है।",
-        question5: "क्या मैं form को अपनी website पर लगा सकता हूँ?",
+          "हाँ। Anonymous mode चालू करने पर भेजने वाले की पहचान और source metadata छोड़ दिए जाते हैं। यदि आप चाहते हैं कि responses पूरी तरह anonymous रहें, तो नाम, email address या पहचान बताने वाले अन्य सवाल भी न पूछें।",
+        question5: "क्या मैं responses को Google Sheets या Slack पर भेज सकता हूँ?",
         answer5:
-          "हाँ — किसी भी website पर embed करें या custom domain पर host करें। हर form को अपनी SEO-friendly public URL भी मिलती है।",
+          "हाँ, form के लिए destination सेट करने के बाद। Slack और Discord webhook URLs का उपयोग करते हैं। Google Sheets के लिए एक deploy किया गया Google Apps Script endpoint चाहिए जो submissions प्राप्त करे; अकेला spreadsheet link काम नहीं करेगा। आप webhook का उपयोग कर सकते हैं या responses को CSV के रूप में export कर सकते हैं। सभी responses को CSV या JSON में एजेंट से export कराने के लिए connected file storage ज़रूरी है।",
       },
       s001: "Forms टेम्पलेट स्क्रीनशॉट",
+      heroEyebrow: "Forms",
+      heroTitle: "अपने AI एजेंट से forms बनाएं",
+      heroDescription:
+        "Forms एक मुफ़्त और open source AI form builder है, जिससे आप सर्वे, sign-up forms और request forms बना सकते हैं — questions खुद edit करें और responses को analyze करने में आपका AI एजेंट मदद कर सकता है।",
+      heroCta: "एक form बनाएं",
+      useCasesHeading: "Forms से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "ग्राहकों से feedback लें, किसी event के लिए लोगों को register करें, या किसी request को पूरा करने के लिए अपनी team को चाहिए वो जानकारी जमा करें।",
+      useCase1Title: "ग्राहकों से feedback लें",
+      useCase1Body:
+        "Ratings, multiple-choice questions और लिखे हुए जवाबों से ग्राहकों का अनुभव पूछें। मिले feedback को summarize करने के लिए अपने AI एजेंट की मदद लें।",
+      useCase2Title: "sign-up और registrations जुटाएं",
+      useCase2Body:
+        "किसी webinar, event या product waitlist के लिए form बनाएं। Contact details और preferences जमा करें, फिर submissions को देखें या export करें।",
+      useCase3Title: "project requests जुटाएं",
+      useCase3Body:
+        "लोगों को design requests, project briefs या internal support के लिए form दें। Deadlines, requirements और अपनी team को चाहिए अन्य detail पूछें।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएं",
+      keyFeaturesHeading:
+        "बनाने, share करने और review करने के लिए आपको चाहिए सब कुछ",
+      feature1Title: "AI फ़ॉर्म जनरेशन",
+      feature1Body:
+        "आप क्या जमा करना चाहते हैं यह बताएं, और आपका AI एजेंट form बना देगा। उससे questions जोड़ने या मौजूदा fields में बदलाव करने को कहें।",
+      feature2Title: "विज़ुअल फ़ील्ड एडिटिंग",
+      feature2Body:
+        "Labels, options, required fields और questions का क्रम खुद edit करें। text, email, multiple choice, dates, ratings और scales जैसे field types चुनें।",
+      feature3Title: "कंडीशनल क्वेश्चंस",
+      feature3Body:
+        "जब पहले का कोई जवाब किसी rule से मेल खाए तो एक follow-up question दिखाएं। जैसे, कोई “Other” चुने तो और detail मांगें।",
+      feature4Title: "पब्लिक फ़ॉर्म लिंक्स",
+      feature4Body:
+        "एक form publish करें और उसका link share करें। completion message या redirect सेट करें, और responses लेना बंद करने पर form को बंद कर दें।",
+      feature5Title: "Response insights और exports",
+      feature5Body:
+        "Submissions को table में देखें या summaries और trends के लिए अपने AI एजेंट से पूछें। Response table को CSV के रूप में download करें।",
+      feature6Title: "सबमिशन इंटीग्रेशंस",
+      feature6Body:
+        "Slack, Discord, Google Sheets या webhook पर delivery सेट करें। नए responses उस destination पर जाएंगे जो आपने उस form के लिए सेट किया है।",
+      finalCtaHeading: "अपना अगला form बनाएं",
+      finalCtaBody: "अपने AI एजेंट को बताएं कि आप क्या जमा करना चाहते हैं।",
+      finalCtaButton: "एक form बनाएं",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "मार्ग",
@@ -1372,22 +1722,65 @@ const hiIN = {
     },
     mail: {
       faq: {
-        question1: "क्या AI मेरे inbox को व्यवस्थित कर सकता है?",
+        question1: "Agent-Native Mail क्या है?",
         answer1:
-          "हाँ। Agent आपका inbox पढ़ता है, प्राथमिक messages सामने लाता है, labels लगाकर sort करता है, replies draft करता है, auto-archive rules सेट करता है और unread mail का सार action items के साथ देता है।",
-        question2: "Mail, Superhuman से कैसे अलग है?",
+          "Agent-Native Mail, Gmail के लिए एक फ्री और ओपन-सोर्स email client है जिसमें एक AI email assistant है। messages पढ़ें और search करें, conversations summarize करें, replies draft करें, और अपने inbox या अपने AI एजेंट के ज़रिए email को व्यवस्थित करें।",
+        question2: "क्या Mail मेरे मौजूदा Gmail account के साथ काम करता है?",
         answer2:
-          "Keyboard-first गति इसका आधार है — compose, archive और reply, सब shortcuts से। अंतर यह है कि agent सच में inbox का काम करता है, कोई subscription नहीं है और code आपका है।",
-        question3: "क्या Mail, Gmail के साथ काम करता है?",
-        answer3: "हाँ — Gmail और कई accounts के support के साथ।",
-        question4: "क्या मेरा email निजी रहता है?",
+          "हाँ। Mail के ज़रिए email पढ़ने और भेजने के लिए अपना मौजूदा Gmail account कनेक्ट करें। आप कई Gmail accounts कनेक्ट कर सकते हैं और उन सभी में search कर सकते हैं। Mail कोई नया email address उपलब्ध नहीं कराता, और यह फ़िलहाल Outlook या दूसरे email providers की बजाय Gmail को सपोर्ट करता है।",
+        question3: "क्या AI एजेंट मेरी मंज़ूरी के बिना emails भेज देगा?",
+        answer3:
+          "जब आप chat में AI एजेंट से कोई email भेजने को कहते हैं, तो उसे आपकी मंज़ूरी चाहिए होती है। Automation से शुरू होने वाले sends के लिए भी मंज़ूरी ज़रूरी है, जब तक कि आप Mail की settings में automatic sending को साफ़ तौर पर enable न करें। भेजने से पहले आप drafts को review और edit कर सकते हैं।",
+        question4: "क्या AI मेरे inbox को अपने आप व्यवस्थित कर सकता है?",
         answer4:
-          "Mail open source है और स्थानीय रूप से चलता है — आपका mail आपकी infrastructure पर रहता है, और उसे छूने वाली code की हर line आप पढ़ सकते हैं।",
-        question5: "क्या Mail मुफ़्त है?",
+          "हाँ। आने वाले messages को label, archive, star करने या read के रूप में mark करने के लिए plain language में rules बनाएं। Mail, sender या subject जैसी conditions के लिए native Gmail filters को भी सपोर्ट करता है। Gmail filters, Gmail में चलते हैं और Mail बंद होने पर भी काम करते रहते हैं।",
+        question5: "क्या कोई teammate मेरे review के लिए email तैयार कर सकता है?",
         answer5:
-          "हाँ। मुफ़्त और open source — कोई subscription या vendor lock-in नहीं।",
+          "हाँ। कोई teammate एक draft का अनुरोध कर सकता है जो आपकी review queue में दिखाई देता है। उसे खोलें, message edit करें, और तैयार होने पर उसे भेज दें। अनुरोध करने वाला व्यक्ति आपकी ओर से उसे नहीं भेज सकता; draft का owner या कोई organization admin ही sending को नियंत्रित करता है।",
       },
       s001: "Mail टेम्पलेट स्क्रीनशॉट",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "अपने AI एजेंट से अपना inbox मैनेज करें",
+      heroDescription:
+        "Mail, Gmail के लिए एक फ्री और ओपन-सोर्स email client है, जिसमें एक AI एजेंट messages ढूंढता है, conversations को summarize करता है, replies draft करता है, और आपके inbox को व्यवस्थित करता है।",
+      heroCta: "अपना इनबॉक्स मैनेज करें",
+      useCasesHeading: "Mail से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "conversations में जो हुआ उसे जानें, customers और colleagues को reply करें, या email के backlog को व्यवस्थित करें।",
+      useCase1Title: "conversations में जो हुआ उसे जानें",
+      useCase1Body:
+        "अपने AI एजेंट से पूछें कि किसी लंबी thread में क्या हुआ, क्या तय हुआ, और किन सवालों के जवाब अभी बाकी हैं।",
+      useCase2Title: "customers और colleagues को reply करें",
+      useCase2Body:
+        "अपने AI एजेंट को वे points बताएं जिन्हें आप cover करना चाहते हैं। भेजने से पहले compose panel में उसके reply को review और edit करें।",
+      useCase3Title: "अपने inbox को व्यवस्थित करें",
+      useCase3Body:
+        "अपने AI एजेंट से invoices को label करने, newsletters को archive करने, या किसी client के messages को star करने को कहें। आने वाले similar emails को संभालने के लिए rules लागू करें।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएं",
+      keyFeaturesHeading: "email पढ़ने, लिखने और व्यवस्थित करने के लिए जो कुछ भी चाहिए",
+      feature1Title: "AI थ्रेड समरी",
+      feature1Body:
+        "अपनी खुली हुई conversation के बारे में पूछें। आपका AI एजेंट discussion को summarize करने और बाकी बचे सवालों की पहचान करने के लिए thread को पढ़ता है।",
+      feature2Title: "AI ईमेल ड्राफ्टिंग",
+      feature2Body:
+        "अपने AI एजेंट के साथ कोई reply draft करें या चुने हुए text को सुधारें। writing preferences सेट करें, अपना signature जोड़ें, और drafts खुद edit करें।",
+      feature3Title: "मल्टी-अकाउंट सर्च",
+      feature3Body:
+        "अपने work और personal Gmail accounts कनेक्ट करें। search bar से या अपने AI एजेंट से पूछकर, एक ही inbox से उन सभी में search करें।",
+      feature4Title: "इनबॉक्स ऑटोमेशन",
+      feature4Body:
+        "आने वाले messages को label, archive, star करने या read के रूप में mark करने के लिए rules बताएं। AI rules इस्तेमाल करें या native Gmail filters सेट करें।",
+      feature5Title: "कीबोर्ड शॉर्टकट्स",
+      feature5Body:
+        "keyboard से messages के बीच navigate करें, replies compose करें, conversations archive करें, और अपने inbox में search करें। और actions खोजने के लिए command palette खोलें।",
+      feature6Title: "Scheduled sends और snooze",
+      feature6Body:
+        "चुनें कि कोई email कब भेजनी है या किसी message को दोबारा कब सामने लाना है। योजना बदलने पर scheduled items को review करें और cancel करें।",
+      finalCtaHeading: "अपनी अगली email से शुरुआत करें",
+      finalCtaBody:
+        "कोई conversation खोलें और अपने AI एजेंट से summary या reply का draft मांगें।",
+      finalCtaButton: "अपना इनबॉक्स मैनेज करें",
       s002: "कीबोर्ड-प्रथम",
       s003: "इनबॉक्स ट्राइएज",
       s004: "दृश्य",
@@ -1451,101 +1844,66 @@ const hiIN = {
     },
     plan: {
       faq: {
-        question1:
-          "क्या मैं AI coding agent के code लिखने से पहले उसके plan की समीक्षा कर सकता हूँ?",
+        question1: "Agent-Native Plans क्या है?",
         answer1:
-          "हाँ। Plans agent के intent को wireframes, diagrams और annotated code में बदलता है और shareable URL देता है। आपकी team comments करती है, agent plan संशोधित करता है और फिर code लिखता है — समीक्षा code बनने से पहले होती है, बाद में नहीं।",
-        question2: "क्या Plans, Claude Code, Codex और Cursor के साथ काम करता है?",
+          "Agent-Native Plans एक फ्री और ओपन-सोर्स विज़ुअल प्लानिंग टूल है, जो AI कोडिंग एजेंट्स के लिए है। डायग्राम्स, वायरफ्रेम्स, एनोटेटेड कोड और कमेंट्स के साथ इम्प्लीमेंटेशन प्लान रिव्यू करें, या पूरे हो चुके बदलावों का विज़ुअल रीकैप जनरेट करें।",
+        question2: "मैं अपने कोडिंग एजेंट के साथ Plans कैसे इस्तेमाल करूं?",
         answer2:
-          "हाँ — साथ ही GitHub Copilot, OpenCode और अन्य coding agents के साथ भी। एक command इसे skill के रूप में जोड़ती है: `npx @agent-native/core@latest skills add visual-plan`। Deploy करने के लिए कोई अलग app नहीं है।",
-        question3: "क्या केवल मैं नहीं, मेरी पूरी team plan की समीक्षा कर सकती है?",
+          "`npx @agent-native/core@latest skills add visual-plan` से प्लानिंग स्किल्स और कनेक्टर इंस्टॉल करें, फिर अपने क्लाइंट के लिए ऑथेंटिकेशन स्टेप पूरा करें। इंस्टॉलेशन गाइड में Claude Code और Codex जैसे क्लाइंट्स शामिल हैं। अपने एजेंट से विज़ुअल इम्प्लीमेंटेशन प्लान मांगने के लिए `/visual-plan` इस्तेमाल करें।",
+        question3: "क्या मेरा एजेंट मेरे कमेंट्स के आधार पर प्लान रिवाइज़ कर सकता है?",
         answer3:
-          "हर plan को built-in comments वाली public URL मिलती है। Team के सदस्य wireframes और annotated diffs की async समीक्षा करते हैं — terminal की जरूरत नहीं — और agent feedback पढ़कर plan संशोधित करता है।",
-        question4: "यह Claude Code के plan mode से कैसे अलग है?",
+          "हाँ। टेक्स्ट पर कमेंट छोड़ें या उन्हें किसी विज़ुअल पर पिन करें, फिर एजेंट से फीडबैक पढ़कर उस पर काम करने को कहें। यह प्लान अपडेट कर सकता है और रिव्यू थ्रेड्स का जवाब दे सकता है। यह आपकी रिव्यू प्रक्रिया में मदद करता है; यह एजेंट को कोड बदलने से अपने आप नहीं रोकता।",
+        question4:
+          "क्या मैं पहले से लिखे गए कोड को रिव्यू करने के लिए Plans इस्तेमाल कर सकता हूं?",
         answer4:
-          "Plan mode आपके terminal में text होता है, एक व्यक्ति को दिखता है और approve करते ही गायब हो जाता है। Plans visual हैं — wireframes, diagrams और annotated diffs — साथ ही shareable और persistent भी: agents feature के पूरे lifecycle में इन्हें बनाते, पढ़ते और update करते हैं।",
-        question5: "क्या मैं plans को अपने code के साथ देख सकता हूँ?",
+          "हाँ। किसी pull request, commit, branch या diff के साथ `/visual-recap` इस्तेमाल करें, ताकि बदलाव की विज़ुअल व्याख्या मिल सके। असली कोड और टेस्ट्स की रिव्यू में मदद के लिए इस रीकैप का इस्तेमाल करें।",
+        question5: "प्लान कहां सेव होते हैं, और क्या मैं उन्हें शेयर कर सकता हूं?",
         answer5:
-          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent-Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
-        question6: "क्या Plans मुफ़्त है?",
-        answer6:
-          "हाँ। मुफ़्त, open source और MIT licensed। Plans में hosted share links मिलते हैं, और आप सब कुछ स्थानीय files में mirror कर सकते हैं।",
+          "डिफ़ॉल्ट इंस्टॉलेशन आपके एजेंट को होस्टेड Plans ऐप से कनेक्ट करती है। नए होस्टेड प्लान तब तक प्राइवेट रहते हैं जब तक आप उन्हें शेयर नहीं करते। टीममेट्स ब्राउज़र में शेयर किए गए प्लान रिव्यू कर सकते हैं; कमेंट करने के लिए अकाउंट ज़रूरी है। सेटअप गाइड के ज़रिए लोकल वर्कफ़्लो भी उपलब्ध हैं।",
       },
-      s001: "योजना टेम्पलेट स्क्रीनशॉट",
-      s002: "ब्लॉक प्रकार",
-      s003: "एजेंट एकीकरण",
-      s004: "साझा करने योग्य लिंक",
-      s005: "प्रोटोटाइप धावक",
-      s006: "कौशल जोड़ें",
-      s007: "एक कमांड योजना कौशल को Claude Code, Codex, Pi, Cursor, OpenCode, GitHub कोपायलट / VS Code और इसी तरह के एजेंट प्रोजेक्ट्स में स्थापित करता है। तैनात करने के लिए कोई अलग ऐप नहीं.",
-      s008: "एजेंट एक योजना खोलता है",
-      s009: "अपने एजेंट से एक सुविधा की योजना बनाने के लिए कहें। यह /विज़ुअल-प्लान को कॉल करता है और प्लान आपके ब्राउज़र या VS Code में खुलता है - संरचित ब्लॉक, मार्कडाउन की दीवार नहीं।",
-      s010: "समीक्षा करें और टिप्पणी करें",
-      s011: "Pin किसी भी ब्लॉक पर टिप्पणियाँ। प्रश्न पूछें, चिंताओं को चिह्नित करें, या अनुभागों को स्वीकृत करें - एजेंट सभी फीडबैक देख सकता है।",
-      s012: "एजेंट पुनरावृत्त करता है",
-      s013: "एजेंट आपकी टिप्पणियाँ पढ़ता है और योजना को उसी स्थान पर अपडेट करता है। कठिनाइयाँ वास्तव में दिखाती हैं कि क्या बदला और क्यों।",
-      s014: "सभी टेम्पलेट",
-      s015Primary: "Codex,",
-      s015Secondary: "Claude Code और कोडिंग एजेंटों के लिए विज़ुअल योजनाएँ",
-      s016: "एक कमांड में इंस्टॉल करें. आपका एजेंट टर्मिनल में मार्कडाउन की दीवारों को डंप करने के बजाय वायरफ्रेम, आरेख, एनोटेटेड कोड और साझा करने योग्य समीक्षा लिंक के साथ संरचित योजनाएं खोलता है।",
-      s017: "आज़माएँ",
-      s018: "एजेंट क्या कर सकते हैं",
-      s019: "प्रत्येक ब्लॉक प्रकार एक प्रथम श्रेणी का नागरिक है - संरचित डेटा, कच्चा HTML नहीं, इसलिए एजेंट कार्य विकसित होने पर योजनाओं को पढ़ और अपडेट कर सकता है।",
-      s020: "वायरफ्रेम",
-      s021: "स्केची UI मॉकअप आपके वास्तविक उत्पाद पर आधारित हैं - सामान्य डेस्कटॉप प्लेसहोल्डर नहीं।",
-      s022: "आरेख",
-      s023: "आर्किटेक्चर फ़्लोचार्ट, डेटा मॉडल और अनुक्रम आरेख इनलाइन प्रस्तुत किए गए।",
-      s024: "एनोटेटेड कोड",
-      s025: "प्रति-पंक्ति नोट्स, अंतर और परिवर्तन तर्क के साथ वास्तविक स्रोत फ़ाइलें - कच्चे कोड डंप नहीं।",
-      s026: "साझा करने योग्य लिंक",
-      s027: "हर योजना को एक सार्वजनिक यूआरएल मिलता है। एसिंक समीक्षा, टिप्पणियों और अनुमोदनों के लिए टीम के साथियों के साथ साझा करें।",
-      s028: "डेस्कटॉप फ़ाइल सिंक",
-      s029: "मिरर ने ऐप को क्लोन किए बिना या CLI चलाए बिना एजेंट नेटिव डेस्कटॉप से स्थानीय MDX फ़ाइलों की योजना होस्ट की।",
-      s030: ", इसलिए समीक्षा कोड के पास ही रहती है।",
-      s031: "यह कैसे काम करता है",
-      s032: "योजना एक साझा ऐप में रहती है - आप और एजेंट दोनों किसी सुविधा के पूरे जीवनचक्र के दौरान इसे पढ़ और अपडेट कर सकते हैं।",
-      s033: "रिच ब्लॉक लाइब्रेरी",
-      s034: "योजनाएँ संरचित ब्लॉकों से बनी होती हैं - मुक्त रूप HTML से नहीं। एजेंट प्रत्येक ब्लॉक के लिए स्कीमा जानता है और उनके बारे में सटीक रूप से बना, अपडेट और तर्क कर सकता है।",
-      s035: "एनोटेटेड-कोड",
-      s036: "सम्मिलित करने से पहले स्वामी को मान्य करें",
-      s037: "स्वचालन के लिए ईवेंट उत्सर्जित करें",
-      s038: "जोड़ें",
-      s039: "इसकी तुलना कैसे की जाती है",
-      s040: "टर्मिनल में Markdown",
-      s041: "दृश्य प्रतिपादन",
-      s042: "No",
-      s043: "बुनियादी",
-      s044: "रिच ब्लॉक, वायरफ्रेम, आरेख",
-      s045: "एजेंट पढ़ और अपडेट कर सकता है",
-      s046: "हाँ, कच्चा पाठ",
-      s047: "सीमित",
-      s048: "हाँ, संरचित स्कीमा",
-      s049: "साझा करने योग्य लिंक",
-      s050: "हां",
-      s051: "हाँ, टिप्पणियों के साथ",
-      s052: "लाइव Alpine.js सैंडबॉक्स",
-      s053: "Codex / Claude Code / Pi के साथ काम करता है",
-      s054: "हाँ, एक-कमांड इंस्टॉल",
-      s055: "खुला स्रोत",
-      s056: "हाँ, MIT लाइसेंस प्राप्त है",
-      s057: "कुछ ही सेकंड में आरंभ करें",
-      s058: "एक कमांड Claude Code, Codex, Pi, Cursor, OpenCode, GitHub कोपायलट / VS Code और इसी तरह के एजेंट प्रोजेक्ट्स में विज़ुअल प्लानिंग जोड़ता है। अलग से तैनाती की जरूरत नहीं.",
-      s059: "दस्तावेज़ पढ़ें",
-      s060: "सभी टेम्पलेट देखें",
-      s061: "VS Code हैंडऑफ",
-      s062: "इससे VS Code साइड पैनल में प्लान लिंक खोलें:",
-      s063: "Agent-Native Plans एक्सटेंशन",
-      s064: "वायरफ्रेम — कंपोनेंट स्लॉट वाला स्केची UI मॉकअप",
-      s065: "एनोटेटेड कोड — प्रति-लाइन नोट्स वाली स्रोत फ़ाइल",
-      s066: "डायग्राम — फ़्लोचार्ट, सीक्वेंस या आर्किटेक्चर",
-      s067: "प्रोटोटाइप — iframe में लाइव Alpine.js सैंडबॉक्स",
-      s068: "निर्णय — कारणों सहित तय किए गए विकल्प",
-      s069: "API endpoint — method, path और request/response types",
-      s070: "डेटा मॉडल — फ़ील्ड एनोटेशन वाला स्कीमा",
-      s071: "फ़ाइल ट्री — हर पथ के नोट्स के साथ प्रोजेक्ट संरचना",
-      s072: "// उदाहरण प्लान ब्लॉक",
-      s073: "ChatGPT Canvas और Notion",
-      s074: "लागू नहीं",
+      s001: "Plans ऐप स्क्रीनशॉट",
+      heroEyebrow: "Plans",
+      heroTitle: "देखें कि आपका AI कोडिंग एजेंट क्या बनाने की योजना बना रहा है",
+      heroDescription:
+        "Plans एक फ्री और ओपन-सोर्स विज़ुअल प्लानिंग टूल है, जिससे आप अपने कोडिंग एजेंट के अप्रोच को रिव्यू कर सकते हैं, फीडबैक दे सकते हैं, और डायग्राम्स, वायरफ्रेम्स व एनोटेटेड कोड के ज़रिए कोड में हुए बदलावों को समझ सकते हैं।",
+      heroCta: "विज़ुअली प्लान करें",
+      heroSecondaryCta: "Plans खोलें",
+      useCasesHeading: "Plans से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "अपने AI कोडिंग एजेंट के साथ किसी इम्प्लीमेंटेशन अप्रोच को रिव्यू करें, किसी इंटरफ़ेस पर काम करें, या किसी पूरे हो चुके बदलाव को समझें।",
+      useCase1Title: "इम्प्लीमेंटेशन से पहले आर्किटेक्चर रिव्यू करें",
+      useCase1Body:
+        "अपने कोडिंग एजेंट से किसी प्रस्तावित फीचर या रीफैक्टर का डायग्राम बनाने को कहें। कोड बदलना शुरू करने से पहले डेटा फ़्लो, डिपेंडेंसीज़ और फेल्योर पाथ्स जांच लें।",
+      useCase2Title: "इंटरफ़ेस में बदलावों पर काम करें",
+      useCase2Body:
+        "अपने कोडिंग एजेंट के साथ प्रस्तावित स्क्रीन्स और यूज़र फ़्लो रिव्यू करें। मिसिंग स्टेट्स या इंटरैक्शन्स की ओर इशारा करें और उससे प्लान रिवाइज़ करने को कहें।",
+      useCase3Title: "पूरे हो चुके कोड बदलावों को समझें",
+      useCase3Body:
+        "अपने कोडिंग एजेंट से किसी pull request, commit या branch का विज़ुअल रीकैप मांगें। बिहेवियर में हुए बदलाव और प्रभावित फ़ाइलें रिव्यू करें।",
+      keyFeaturesEyebrow: "मुख्य फीचर्स",
+      keyFeaturesHeading:
+        "विज़ुअलाइज़ करने, रिव्यू करने और डिस्कस करने के लिए जो भी चाहिए",
+      feature1Title: "आर्किटेक्चर डायग्राम्स",
+      feature1Body:
+        "प्लान के अंदर रिक्वेस्ट फ़्लो, सिस्टम रिलेशनशिप और डेटा मॉडल दिखाएं। अप्रोच बदलने पर अपने AI कोडिंग एजेंट से डायग्राम्स अपडेट करने को कहें।",
+      feature2Title: "वायरफ्रेम्स और प्रोटोटाइप्स",
+      feature2Body:
+        "इम्प्लीमेंटेशन प्लान के साथ-साथ स्क्रीन लेआउट्स और इंटरैक्टिव प्रोटोटाइप विकल्प रिव्यू करें। अपने एजेंट से इसे बनवाने से पहले प्रस्तावित इंटरफ़ेस पर फीडबैक दें।",
+      feature3Title: "एनोटेटेड कोड वॉकथ्रू",
+      feature3Body:
+        "लाइन-लेवल नोट्स और बदलाव की व्याख्या के साथ सोर्स फ़ाइलें पढ़ें। प्रस्तावित काम कोडबेस में कहां फ़िट होता है, यह देखने के लिए फ़ाइल ट्री का इस्तेमाल करें।",
+      feature4Title: "कमेंट्स और एनोटेशन्स",
+      feature4Body:
+        "टेक्स्ट पर कमेंट करें या किसी विज़ुअल के खास हिस्से पर फीडबैक पिन करें। सवाल सीधे अपने एजेंट या किसी टीममेट को भेजें।",
+      feature5Title: "विज़ुअल कोड रीकैप",
+      feature5Body:
+        "किसी मौजूदा pull request, commit, branch या diff को डायग्राम्स और बदलावों की व्याख्या वाले वॉकथ्रू में बदलने के लिए `/visual-recap` इस्तेमाल करें।",
+      feature6Title: "शेयरिंग और एक्सपोर्ट्स",
+      feature6Body:
+        "टीममेट्स के ब्राउज़र में रिव्यू करने के लिए कोई प्लान शेयर करें। अलग कॉपी चाहिए होने पर इसे HTML, Markdown, JSON या MDX के रूप में एक्सपोर्ट करें।",
+      finalCtaHeading: "अपने अगले कोडिंग टास्क को विज़ुअली रिव्यू करें",
+      finalCtaBody: "अपने एजेंट से एक प्लान मांगें, फिर मिलकर डिटेल्स पर काम करें।",
+      finalCtaButton: "विज़ुअली प्लान करें",
     },
     slides: {
       faq: {
@@ -1607,7 +1965,7 @@ const hiIN = {
         "स्पीकर नोट्स के साथ फुल-स्क्रीन प्रेजेंट करें, व्यूइंग लिंक शेयर करें, या अपने डेक को PowerPoint फ़ाइल के रूप में एक्सपोर्ट करें।",
       finalCtaHeading: "अपना अगला प्रेजेंटेशन शुरू करें",
       finalCtaBody: "कोई आइडिया, कोई ब्रीफ, या कोई मौजूदा डेक लाएं।",
-      finalCtaButton: "Slides खोलें",
+      finalCtaButton: "डेक बनाएं",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",

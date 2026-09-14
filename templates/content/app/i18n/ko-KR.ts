@@ -145,6 +145,8 @@ const database = {
     "컬렉션 행과 로컬 속성은 유지되었습니다.",
   failedToAttachSource: "소스를 연결하지 못했습니다",
   failedToCreateRow: "행을 생성하지 못했습니다",
+  pageCreatedCollectionRefreshFailed:
+    "페이지가 생성되었지만 이 컬렉션을 새로 고치지 못했습니다. 다시 로드하여 확인하세요.",
   failedToDeleteRow: "행을 삭제하지 못했습니다",
   failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
   failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",

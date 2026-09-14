@@ -63,6 +63,7 @@ pnpm action create-document --title "Meeting Notes" --content "# Meeting Notes\n
 pnpm action create-document --title "Sub Page" --parentId parent123
 pnpm action create-document --title "My Page" --icon "📝"
 pnpm action create-document --title "Research" --description "Evidence and source notes that support the current project"
+pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
 
 When a user asks for a Page in an interactive Content conversation, creation is
@@ -74,6 +75,14 @@ times. Say the Page is open only after the IDs match. If they never match, say
 the Page was created but navigation could not be verified, and provide the
 stable Page link from the create result. Do not navigate for background, batch,
 or API creation unless the caller explicitly asked to open the result.
+
+When the user names a workspace ("in my Foobar workspace"), pass `spaceName`
+(or a `spaceId` from `list-content-spaces`). A named workspace that does not
+resolve is an error, never a silent fall back. With no `parentId`, `spaceId`,
+or `spaceName` the page is created in the caller's Personal workspace, so read
+the returned `spaceId` before telling the user where the page landed. The
+Workspaces catalog is not a create target: its rows only list workspaces, and
+`add-database-item` against it is rejected.
 
 ### edit-document
 

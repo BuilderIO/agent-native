@@ -1,61 +1,48 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowLeft,
-  IconArrowRight,
-  IconBrandVisualStudio,
-  IconBraces,
-  IconCheck,
-  IconFolders,
-  IconHierarchy,
-  IconLayoutKanban,
-  IconLink,
-} from "@tabler/icons-react";
-import { forwardRef, useImperativeHandle, useRef } from "react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import { Link } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
+import { CustomizeTemplatePopover } from "../components/CustomizeTemplatePopover";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { Button } from "../components/website-redesign/ds/button";
+import { CodeBlock } from "../components/website-redesign/ds/code-block";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title:
-          "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
+        title: "Free Visual Planning for AI Coding | Agent-Native Plans",
       },
       {
         name: "description",
         content:
-          "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, prototypes, and shareable review links — installed in seconds as a skill for Codex, Claude Code, and any coding agent.",
+          "Review your coding agent's approach with diagrams, wireframes, and comments. Plans is free and open source, with visual recaps for completed code changes.",
       },
       {
         property: "og:title",
-        content:
-          "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
+        content: "Free Visual Planning for AI Coding | Agent-Native Plans",
       },
       {
         property: "og:description",
         content:
-          "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, and shareable review links.",
+          "Review your coding agent's approach with diagrams, wireframes, and comments. Plans is free and open source, with visual recaps for completed code changes.",
       },
       {
         name: "keywords",
         content:
-          "AI coding agent plans, visual planning, Codex visual plan, Claude Code plans, coding agent wireframe, agent plan skill, visual plan mode, AI diagram generator, agent-native plans, annotated code review, shareable agent plans",
+          "AI coding agent plans, visual planning, Claude Code plans, Codex visual plan, architecture diagrams, wireframes, annotated code review, visual recap, agent-native plans",
       },
     ],
     "Plans",
@@ -63,539 +50,268 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "plan")!;
 
-const PLAN_VIDEO_PREVIEWS = [
+// The docs page walking through installing the skill/connector — the
+// primary hero and final-CTA action, per the copy. Same-origin route, so it
+// stays a plain path rather than an absolute agent-native.com URL.
+const PLAN_PLUGIN_DOCS_PATH = "/docs/plan-plugin";
+
+const USE_CASES = [
   {
-    title: "Triggering code to diagram itself",
-    href: firstPartyAppUrl(
-      "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
-    ),
-    thumbnail: "https://clips.agent-native.com/api/thumbnail/F5l6RppFaQDF",
-  },
-  {
-    title: "Better, more visual plans for Claude Code",
-    href: firstPartyAppUrl(
-      "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
-    ),
-    thumbnail: "https://clips.agent-native.com/api/thumbnail/F6SlN9TdlK30",
+    id: "review-architecture",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
   },
   {
-    title: "Visual MDX Plans for APIs, UIs, and Flows",
-    href: firstPartyAppUrl(
-      "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
-    ),
-    thumbnail: "https://clips.agent-native.com/api/thumbnail/YuM1nM1pcX3e",
+    id: "work-through-interface",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
   },
-];
-
-type PlanVideoCarouselHandle = {
-  scroll: (direction: -1 | 1) => void;
-};
-
-const PlanVideoCarousel = forwardRef<PlanVideoCarouselHandle>(
-  function PlanVideoCarousel(_props, ref) {
-    const sliderRef = useRef<HTMLDivElement>(null);
-
-    function scroll(direction: -1 | 1) {
-      const slider = sliderRef.current;
-      if (!slider) return;
-      const isRtl = getComputedStyle(slider).direction === "rtl";
-      slider.scrollBy({
-        left: direction * slider.clientWidth * 0.8 * (isRtl ? -1 : 1),
-        behavior: "smooth",
-      });
-    }
-
-    useImperativeHandle(ref, () => ({ scroll }), []);
-
-    return (
-      <div
-        ref={sliderRef}
-        aria-label="Visual plan videos"
-        className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] bg-[var(--bg)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {PLAN_VIDEO_PREVIEWS.map((video, index) => (
-          <a
-            key={video.href}
-            href={video.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[var(--bg)] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-1/3 ${
-              index > 0 ? "border-s border-[var(--docs-border)]" : ""
-            }`}
-            onClick={() =>
-              trackEvent("view plan video preview", {
-                clip: video.href,
-                location: "landing_page_video_carousel",
-              })
-            }
-          >
-            <BuilderImage
-              src={video.thumbnail}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="aspect-video w-full border-b border-[var(--docs-border)] object-cover"
-            />
-            <div className="flex flex-1 items-center justify-between gap-4 p-6 sm:p-8">
-              <h3 className="m-0 text-xl font-medium leading-[1.15] text-[var(--fg)]">
-                {video.title}
-              </h3>
-              <IconArrowRight
-                aria-hidden="true"
-                className="size-[18px] shrink-0 transition-transform group-hover:translate-x-1"
-              />
-            </div>
-          </a>
-        ))}
-      </div>
-    );
+  {
+    id: "understand-completed-changes",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
   },
-);
+] as const;
+
+const KEY_FEATURES = [
+  {
+    id: "architecture-diagrams",
+    titleKey: "feature1Title",
+    bodyKey: "feature1Body",
+  },
+  {
+    id: "wireframes-and-prototypes",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  {
+    id: "annotated-code-walkthroughs",
+    titleKey: "feature3Title",
+    bodyKey: "feature3Body",
+  },
+  {
+    id: "comments-and-annotations",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  {
+    id: "visual-code-recaps",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
+  },
+  {
+    id: "sharing-and-exports",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+// The publishable copy has five Q&A pairs, not six — implemented as given
+// rather than padded to match the older six-item FAQ this replaces.
+const FAQ_ITEMS = [
+  { id: "what-is-plans", question: "question1", answer: "answer1" },
+  { id: "use-with-coding-agent", question: "question2", answer: "answer2" },
+  { id: "revise-from-comments", question: "question3", answer: "answer3" },
+  { id: "review-existing-code", question: "question4", answer: "answer4" },
+  { id: "where-plans-are-saved", question: "question5", answer: "answer5" },
+] as const;
+
+// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
+// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
+// below draws its grid lines flush to that same max-w-site edge, so this
+// wrapper must match exactly (no px-* here) or the hero's border-x box ends
+// up narrower than the rest of the page.
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function PlanTemplate() {
   const t = useT();
-  const videoCarouselRef = useRef<PlanVideoCarouselHandle>(null);
-  const capabilities = [
-    {
-      icon: IconLayoutKanban,
-      title: t("templateLanding.plan.s020"),
-      body: t("templateLanding.plan.s021"),
-    },
-    {
-      icon: IconHierarchy,
-      title: t("templateLanding.plan.s022"),
-      body: t("templateLanding.plan.s023"),
-    },
-    {
-      icon: IconBraces,
-      title: t("templateLanding.plan.s024"),
-      body: t("templateLanding.plan.s025"),
-    },
-    {
-      icon: IconLink,
-      title: t("templateLanding.plan.s026"),
-      body: t("templateLanding.plan.s027"),
-    },
-    {
-      icon: IconFolders,
-      title: t("templateLanding.plan.s028"),
-      body: t("templateLanding.plan.s029"),
-    },
-  ];
-  const workflowSteps = [
-    {
-      step: "1",
-      title: t("templateLanding.plan.s006"),
-      body: t("templateLanding.plan.s007"),
-    },
-    {
-      step: "2",
-      title: t("templateLanding.plan.s008"),
-      body: t("templateLanding.plan.s009"),
-    },
-    {
-      step: "3",
-      title: t("templateLanding.plan.s010"),
-      body: t("templateLanding.plan.s011"),
-    },
-    {
-      step: "4",
-      title: t("templateLanding.plan.s012"),
-      body: t("templateLanding.plan.s013"),
-    },
-  ];
-  const faqItems = Array.from({ length: 6 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `plan-question-${itemNumber}`,
-      question: t(`templateLanding.plan.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.plan.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={
-          <span className="text-[var(--fg-secondary)]">
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={
-          <>
-            <span className="text-[var(--fg)] lg:whitespace-nowrap">
-              {t("templateLanding.plan.s015Primary")}{" "}
+    <div className="builder-brand-tokens">
+      {/* Hero — rebuilt to match Slides/Clips. Plans' primary workflow is
+          installing the skill rather than opening the hosted app, so the
+          hero action is a three-part stack instead of a single link: the
+          docs link, the copyable install command, then the hosted app as a
+          secondary link. Existing hero screenshot kept since there's no
+          newer Plans asset yet. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={
+            <span className="block max-w-[560px]">
+              {t("templateLanding.plan.heroTitle")}
             </span>
-            <span className="text-[var(--fg-secondary)] lg:block">
-              {t("templateLanding.plan.s015Secondary")}
+          }
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-2xl font-bold tracking-tight">
+                {t("templateLanding.plan.heroEyebrow")}
+              </span>
             </span>
-          </>
-        }
-        customizeTemplate={template}
-        description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
-        headingAction={
-          <a
-            href={firstPartyAppUrl(template.demoUrl)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="primary-button"
-            onClick={(event) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("try live demo", {
-                template: template.slug,
-                location: "landing_page_hero",
-              });
-            }}
-          >
-            {t("common.getStarted")}
-          </a>
-        }
-        media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffbe161e4e98a4d5780baeb156a3eddff"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.plan.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[536px] w-full object-cover object-top"
-          />
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
-          {[
-            { number: "10+", label: t("templateLanding.plan.s002") },
-            { number: "3", label: t("templateLanding.plan.s003") },
-            { number: "Live", label: t("templateLanding.plan.s004") },
-            { number: "AI", label: t("templateLanding.plan.s005") },
-          ].map((stat) => (
-            <TemplateStatOrStepsGridItem key={stat.label}>
-              <div className="text-3xl font-medium tracking-tight sm:text-4xl text-[var(--fg-secondary)]">
-                {stat.number}
+          }
+          headingAction={
+            <div className="flex flex-col items-start gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  to={PLAN_PLUGIN_DOCS_PATH}
+                  className="primary-button"
+                  style={{ gap: "4px" }}
+                  onClick={() =>
+                    trackEvent("click add to agent", {
+                      template: template.slug,
+                      location: "landing_page_hero",
+                    })
+                  }
+                >
+                  {t("templateLanding.plan.heroCta")}
+                  <IconArrowUpRight size={16} />
+                </Link>
+                <a
+                  href={firstPartyAppUrl(template.demoUrl)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="secondary-button whitespace-nowrap"
+                  onClick={(event) => {
+                    applyFirstTouchAttributionToLink(event.currentTarget);
+                    trackEvent("try live demo", {
+                      template: template.slug,
+                      location: "landing_page_hero",
+                    });
+                  }}
+                >
+                  {t("templateLanding.plan.heroSecondaryCta")}
+                </a>
+                {/* Rendered inline with the button row instead of via
+                    TemplateHero's `customizeTemplate` prop -- that prop places
+                    the popover as a flex-wrap sibling of the whole
+                    `headingAction` block, which here is a two-row stack
+                    (buttons + code block), so it would force onto its own row
+                    below instead of sitting next to the buttons. */}
+                <CustomizeTemplatePopover template={template} />
               </div>
-              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
-                {stat.label}
+              <div className="w-full max-w-[420px]">
+                <CodeBlock code={template.cliCommand} language="bash" />
               </div>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.plan.s018")}
-            </h2>
-            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s019")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map(({ icon: Icon, title, body }) => (
-          <div
-            key={title}
-            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(5)]:border-b-0 sm:[&:nth-child(6)]:border-b-0"
-          >
-            <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
-              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
             </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
-                {title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {body}
-              </p>
-            </div>
-          </div>
-        ))}
-        <div className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(5)]:border-b-0 sm:[&:nth-child(6)]:border-b-0">
-          <div className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
-            <IconBrandVisualStudio
-              aria-hidden="true"
-              className="size-[18px]"
-              stroke={1.75}
+          }
+          description={<p>{t("templateLanding.plan.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <BuilderImage
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffbe161e4e98a4d5780baeb156a3eddff"
+              crossOrigin="anonymous"
+              alt={t("templateLanding.plan.s001")}
+              loading="lazy"
+              decoding="async"
+              className="h-auto max-h-[640px] w-full object-cover object-top"
             />
-          </div>
-          <div className="flex flex-col gap-2">
-            <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.plan.s061")}
-            </h3>
-            <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s062")}{" "}
-              <a
-                href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--fg)] underline underline-offset-2"
-              >
-                {t("templateLanding.plan.s063")}
-              </a>
-              {t("templateLanding.plan.s030")}
-            </p>
-          </div>
-        </div>
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-20">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl">
-            {t("templateLanding.plan.s031")}
-          </h2>
-          <p className="m-0 mt-4 max-w-2xl text-lg leading-[1.4] text-[var(--fg-secondary)]">
-            {t("templateLanding.plan.s032")}
-          </p>
-        </div>
-        <TemplateStatOrStepsGrid className="sm:!grid-cols-2 lg:!grid-cols-4">
-          {workflowSteps.map((item, index) => (
-            <TemplateStatOrStepsGridItem
-              key={item.step}
-              className={`${index > 1 ? "sm:!border-t" : "sm:!border-t-0"} ${
-                index % 2 === 0 ? "sm:!border-s-0" : "sm:!border-s"
-              } ${
-                index > 0 ? "lg:!border-s" : "lg:!border-s-0"
-              } lg:!border-t-0`}
-            >
-              <div className="font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
-                {item.step}
-              </div>
-              <h3 className="m-0 text-xl font-medium leading-[1.15] text-[var(--fg)]">
-                {item.title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {item.body}
-              </p>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.plan.s033")}
-            </h2>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s034")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {[
-                "s064",
-                "s065",
-                "s066",
-                "s067",
-                "s068",
-                "s069",
-                "s070",
-                "s071",
-              ].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0 text-[var(--fg-secondary)]"
-                    stroke={2}
-                  />
-                  {t(`templateLanding.plan.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
-            <div className="w-full overflow-x-auto border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
-              <div className="mb-4 text-[var(--fg-secondary)]">
-                {t("templateLanding.plan.s072")}
-              </div>
-              <div className="grid min-w-[24rem] gap-3 text-[var(--fg)]">
-                <div>
-                  <span className="text-[var(--fg-secondary)]">type:</span>{" "}
-                  {t("templateLanding.plan.s035")}
-                </div>
-                <div>
-                  <span className="text-[var(--fg-secondary)]">file:</span>{" "}
-                  src/actions/create-post.ts
-                </div>
-                <div>
-                  <span className="text-[var(--fg-secondary)]">
-                    annotations:
-                  </span>
-                </div>
-                <div className="ps-4">
-                  <span className="text-[var(--fg-secondary)]">line 12:</span>{" "}
-                  {t("templateLanding.plan.s036")}
-                </div>
-                <div className="ps-4">
-                  <span className="text-[var(--fg-secondary)]">line 24:</span>{" "}
-                  {t("templateLanding.plan.s037")}
-                </div>
-                <div>
-                  <span className="text-[var(--fg-secondary)]">change:</span>{" "}
-                  {t("templateLanding.plan.s038")}
-                </div>
-              </div>
-            </div>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
-            {t("templateLanding.plan.s039")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.plan.s039")}
-          featureHeader={t("templateLanding.plan.s039")}
-          columns={[
-            {
-              id: "markdown",
-              header: t("templateLanding.plan.s040"),
-            },
-            {
-              id: "canvas",
-              header: t("templateLanding.plan.s073"),
-            },
-            {
-              id: "agent-native",
-              emphasized: true,
-              agentNative: { name: template.name },
-            },
-          ]}
-          rows={[
-            {
-              id: "visual-rendering",
-              label: t("templateLanding.plan.s041"),
-              cells: {
-                markdown: t("templateLanding.plan.s042"),
-                canvas: t("templateLanding.plan.s043"),
-                "agent-native": t("templateLanding.plan.s044"),
-              },
-            },
-            {
-              id: "agent-update",
-              label: t("templateLanding.plan.s045"),
-              cells: {
-                markdown: t("templateLanding.plan.s046"),
-                canvas: t("templateLanding.plan.s047"),
-                "agent-native": t("templateLanding.plan.s048"),
-              },
-            },
-            {
-              id: "shareable-link",
-              label: t("templateLanding.plan.s049"),
-              cells: {
-                markdown: t("templateLanding.plan.s042"),
-                canvas: t("templateLanding.plan.s050"),
-                "agent-native": t("templateLanding.plan.s051"),
-              },
-            },
-            {
-              id: "prototype-runner",
-              label: t("templateLanding.plan.s005"),
-              cells: {
-                markdown: t("templateLanding.plan.s042"),
-                canvas: t("templateLanding.plan.s042"),
-                "agent-native": t("templateLanding.plan.s052"),
-              },
-            },
-            {
-              id: "agent-integrations",
-              label: t("templateLanding.plan.s053"),
-              cells: {
-                markdown: t("templateLanding.plan.s050"),
-                canvas: t("templateLanding.plan.s042"),
-                "agent-native": t("templateLanding.plan.s054"),
-              },
-            },
-            {
-              id: "open-source",
-              label: t("templateLanding.plan.s055"),
-              cells: {
-                markdown: t("templateLanding.plan.s074"),
-                canvas: t("templateLanding.plan.s042"),
-                "agent-native": t("templateLanding.plan.s056"),
-              },
-            },
-          ]}
+          }
         />
-      </section>
+      </div>
 
-      <section
-        id="watch-plans"
-        className="border-t border-[var(--docs-border)]"
-      >
-        <div className="flex flex-col gap-6 border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
-            Watch visual plans take shape
+      {/* What can you do with Plans? — three use-case cards */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.plan.useCasesHeading")}
           </h2>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              aria-label="Previous video"
-              onClick={() => videoCarouselRef.current?.scroll(-1)}
-              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
-            >
-              <IconArrowLeft aria-hidden="true" className="size-[18px]" />
-            </button>
-            <button
-              type="button"
-              aria-label="Next video"
-              onClick={() => videoCarouselRef.current?.scroll(1)}
-              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
-            >
-              <IconArrowRight aria-hidden="true" className="size-[18px]" />
-            </button>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.plan.useCasesBody")}
+          </p>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
+            {USE_CASES.map((useCase) => (
+              <ContentCard
+                key={useCase.id}
+                title={t(`templateLanding.plan.${useCase.titleKey}`)}
+                body={t(`templateLanding.plan.${useCase.bodyKey}`)}
+              />
+            ))}
           </div>
-        </div>
-        <div className="border-x border-[var(--docs-border)] pb-16">
-          <PlanVideoCarousel ref={videoCarouselRef} />
-        </div>
-      </section>
+        </GridInner>
+      </PageSection>
 
-      <TemplateFinalCta
-        eyebrow={
-          <span className="font-mono text-sm font-semibold tracking-[0.14em] text-[var(--fg-secondary)]">
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={t("templateLanding.plan.s057")}
-        template={template}
-      >
-        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
-          {t("templateLanding.plan.s058")}
-        </p>
-      </TemplateFinalCta>
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Clips/Slides key-features grids, so every app reads as one
+          system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.plan.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.plan.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
 
-      <TemplateLandingFaq
-        idPrefix="plan-faq"
-        eyebrow={
-          <span className="text-[var(--fg-secondary)]">
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.plan.${feature.titleKey}`)}
+                body={t(`templateLanding.plan.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs — same pt-20 rhythm Slides added here since neither app has a
+          "see it in action" section between the feature grid and the FAQ. */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+          <FaqAccordion
+            idPrefix="plan-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.plan.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.plan.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA — repeats only the primary docs link, not the install
+          command, per the copy. */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.plan.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.plan.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
+            href={PLAN_PLUGIN_DOCS_PATH}
+            // The shared cta variant renders at 14px in sentence case, but the
+            // hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule) only applies inside the hero
+            // wrapper. Match it explicitly here so both CTAs on the page read
+            // as the same button style.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={() =>
+              trackEvent("click add to agent", {
+                template: template.slug,
+                location: "landing_page_final_cta",
+              })
+            }
+          >
+            {t("templateLanding.plan.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

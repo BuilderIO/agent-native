@@ -44,8 +44,10 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  * declare a matching `width`/`height` (`@font-face`, `@keyframes`, …, which
  * are simply ignored, not masked), or ANY same-property rule for a matching
  * selector inside `@media`/`@supports`/`@container`/`@layer`/`@scope` —
- * matching or not, since the condition isn't evaluated — all mask the
- * result and leave the element fluid rather than resolve a winner by
+ * matching or not, since the condition isn't evaluated — or nested inside
+ * the matching rule itself (CSS nesting: a `&` rule, or a bare declaration
+ * block `.card { @media (…) { width: 200px } }`) — all mask the result and
+ * leave the element fluid rather than resolve a winner by
  * specificity/cascade order.
  */
 function hydratedEditorChromeBridgeScript(): string {
@@ -74,6 +76,66 @@ async function portableStyleSnapshotStylesFor(
     await page.setContent(html);
     await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as any).__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        (window as any).__messages.push(event.data);
+      });
+    });
+    await page.evaluate((sel) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: [sel] },
+        "*",
+      );
+    }, selector);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.type === "element-select",
+      ),
+    );
+    const messages: Array<Record<string, unknown>> = await page.evaluate(
+      () => (window as any).__messages,
+    );
+    const select = messages.find(
+      (message) => message.type === "element-select",
+    ) as {
+      payload?: {
+        portableStyleSnapshot?: {
+          nodes?: Array<{ styles: Record<string, string> }>;
+        };
+      };
+    };
+    return select?.payload?.portableStyleSnapshot?.nodes?.[0]?.styles;
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * Same drive-a-real-browser flow, but with the named grouping-rule
+ * constructors (`CSSLayerBlockRule`, `CSSContainerRule`, `CSSScopeRule`, …)
+ * deleted from `window` right after the bridge script loads — simulates an
+ * engine build that never exposed them (older Safari/Firefox) so a fix that
+ * still relies on `instanceof` against a specific global would go blind.
+ */
+async function portableStyleSnapshotStylesForWithoutGroupingConstructors(
+  html: string,
+  selector: string,
+  constructorNames: string[],
+): Promise<Record<string, string> | undefined> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate((names: string[]) => {
+      names.forEach((name) => {
+        delete (window as any)[name];
+      });
+    }, constructorNames);
     await page.evaluate(() => {
       (window as any).__messages = [];
       window.addEventListener("message", (event: MessageEvent) => {
@@ -556,6 +618,236 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       // cross-screen-element-drop.spec.ts) rather than silently dropping the
       // appearance carry-over.
       expect(snapshot).toBeNull();
+    },
+  );
+
+  it(
+    "still masks a grouping-rule match when the engine never exposed its constructor",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@layer base {.card{width:200px}} .card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles =
+        await portableStyleSnapshotStylesForWithoutGroupingConstructors(
+          html,
+          '[data-agent-native-node-id="card"]',
+          ["CSSLayerBlockRule", "CSSContainerRule", "CSSScopeRule"],
+        );
+      // Classifying a grouping rule by `instanceof CSSLayerBlockRule` goes
+      // blind the moment that global is missing (older engine) or the rule
+      // came from another realm — the competing `@layer` declaration would
+      // silently stop masking the top-level match. Duck-typing by shape
+      // (has `cssRules`, no `selectorText`) doesn't depend on the global.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "walks CSS nesting: a style rule's own nested rules still mask its match",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;@media (max-width:100px){.row & {width:200px}}}</style></head><body style="margin:0">
+        <div class="row"><div class="card" data-agent-native-node-id="card"></div></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // A CSSStyleRule can carry its own nested `cssRules` (CSS nesting) —
+      // never recursed before this fix, so a nested `.row & { … }`
+      // competing declaration went invisible. The @media is inactive at
+      // this viewport, so the computed width still equals the outer 320px
+      // and the computed-vs-declared check cannot save this case: only the
+      // nested walk masking the outer match leaves it fluid.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "still carries the plain rule when a nested `&` rule does not match the element",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;.narrow & {width:200px}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The element is not inside `.narrow`, so the nested rule is a
+      // non-match, not a competitor — the outer rule stays the sole match.
+      expect(styles?.width).toBe("320px");
+    },
+  );
+
+  it(
+    "masks a bare declaration block nested in a style rule (CSSNestedDeclarations)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;@media (max-width:100px){width:200px}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // Bare declarations trailing a nested at-rule are exposed as a
+      // CSSNestedDeclarations rule: `style` only, no `selectorText`, no
+      // `cssRules`. Classified by shape alone it matched none of the
+      // grouping/style/@import cases and fell into the "harmless" bucket
+      // beside @font-face — silently dropping a real competing width for
+      // the enclosing `.card`. This is the shape Tailwind v4 emits for every
+      // responsive utility.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "masks a nested `&` rule inside an inactive grouping construct",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;@media (max-width:100px){& {width:200px}}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The explicit-`&` spelling of the case above: `&` resolves to the
+      // enclosing `.card`, so the nested rule matches and masks.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "resolves a leading `&` against the enclosing selector instead of `:scope`",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.child{width:320px}.card{@media (max-width:100px){& .child{width:200px}}}</style></head><body style="margin:0">
+        <div class="card"><div class="child" data-agent-native-node-id="child"></div></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="child"]',
+      );
+      // `el.matches("& .child")` reads `&` as `:scope` — the element itself
+      // — and asks whether `.child` is its own descendant: never. The
+      // nested rule really targets `.card .child`, i.e. this element, so
+      // it must mask the top-level `.child` match.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "masks a nested `&` rule whose enclosing rule is a selector list",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.child{width:320px}.card,.panel{@media (max-width:100px){& .child{width:200px}}}</style></head><body style="margin:0">
+        <div class="card"><div class="child" data-agent-native-node-id="child"></div></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="child"]',
+      );
+      // Splicing `.card, .panel` into `& .child` builds `.card, .panel .child`
+      // — a list the candidate allowlist rejects — and a rejected competitor
+      // used to be skipped rather than masked, so the base 320px was carried
+      // and the destination pinned a responsive element.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "masks a selector-list competitor inside a grouping construct",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px}@media (max-width:100px){.card,.panel{width:200px}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "ignores a named @page rule as element provenance",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@page wide{width:500px}body{margin:0;width:500px}wide{display:block}</style></head><body>
+        <wide data-agent-native-node-id="card"></wide>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // `@page wide` exposes `selectorText: "wide"` and a `style` block,
+      // the same shape as a style rule — but a page selector names a page,
+      // not the `<wide>` element, so it is neither a candidate nor a
+      // competitor. The element has no authored width at all here.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "treats an escaped `:` as ident text, not a pseudo-class (Tailwind variant classes)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px}.md\\:card{@media (max-width:100px){width:200px}}</style></head><body style="margin:0">
+        <div class="card md:card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // `.md\:card` is one plain class whose name contains a literal colon
+      // (every Tailwind variant is spelled this way). Reading the escaped
+      // `:` as a pseudo-class rejected the selector from the allowlist —
+      // and a rejected selector is skipped, not masked — so its nested
+      // responsive width never masked the top-level match.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "masks a match inside a grouping construct this walk has no named case for (@starting-style)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@starting-style {.card{width:200px}} .card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // @starting-style is a real, engine-supported grouping construct this
+      // walk names no explicit case for. An `instanceof`-based classifier
+      // only recognizes constructors it was written against, so a construct
+      // added after the fact falls through as "harmless" and hides a
+      // competing declaration. Duck-typing by shape (cssRules, no
+      // selectorText) covers it without a matching update.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "ignores @font-face as harmless, still carrying the plain rule it sits beside",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@font-face{font-family:"x";src:url(data:font/woff2;base64,)}.card{width:320px}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // @font-face cannot declare a `width` matching an arbitrary element via
+      // a selector — it has no `cssRules` and no `selectorText`/`style`, so
+      // it must be ignored outright rather than masking the plain match.
+      expect(styles?.width).toBe("320px");
     },
   );
 });

@@ -21,7 +21,7 @@ import {
 } from "../server/lib/documents.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
+import { resolveContentSpaceTarget } from "./_content-space-target.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -67,7 +67,7 @@ const reuseLabelSchema = z
 
 export default defineAction({
   description:
-    "Create and persist a new Markdown document in Content. Use parentId to nest it or spaceId for a top-level page; returns the stable document ID for subsequent get-document or edit-document calls.",
+    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and the resolved spaceId for subsequent get-document or edit-document calls.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -80,7 +80,13 @@ export default defineAction({
     spaceId: z
       .string()
       .optional()
-      .describe("Content space ID for a new top-level document."),
+      .describe("Content workspace ID for a new top-level document."),
+    spaceName: z
+      .string()
+      .optional()
+      .describe(
+        "Content workspace name for a new top-level document, when the user named a workspace instead of giving its ID. Fails when the name matches no authorized workspace; it never falls back to Personal.",
+      ),
     title: z.string().describe("Title for the new document."),
     content: z
       .string()
@@ -226,10 +232,20 @@ export default defineAction({
       if (args.spaceId && args.spaceId !== parent.spaceId) {
         throw new Error("Nested documents must use their parent Content space");
       }
+      if (args.spaceName) {
+        throw new Error(
+          "Nested documents inherit their parent Content space; omit spaceName",
+        );
+      }
       spaceId = parent.spaceId;
     } else {
-      const provisioned = await provisionContentSpaces(db, currentUserEmail);
-      spaceId = args.spaceId ?? provisioned.personalSpaceId;
+      const target = await resolveContentSpaceTarget({
+        db,
+        userEmail: currentUserEmail,
+        spaceId: args.spaceId,
+        spaceName: args.spaceName,
+      });
+      spaceId = target.spaceId;
       const spaceAccess = await resolveContentSpaceAccess(
         spaceId,
         "contributor",
@@ -338,6 +354,7 @@ export default defineAction({
 
     return {
       id: doc.id,
+      spaceId,
       urlPath: `/page/${doc.id}`,
       deepLink: buildDeepLink({
         app: "content",
