@@ -281,10 +281,11 @@ export default function SlidesTemplate() {
       {/* FAQs — Clips gets this section's breathing room for free from its
           "See Clips in action" section in between; Slides has no such
           section, so add the same pt-20 rhythm directly here instead of
-          landing the FAQ flush against the feature grid above it. No border-t:
-          the grid above already ends in one. */}
-      <PageSection>
-        <GridInner className="pt-[var(--spacing-20)]">
+          landing the FAQ flush against the feature grid above it. The padding
+          sits on the section so the border-t stays where Clips has it: right
+          above the first FAQ row, which is that row's top border. */}
+      <PageSection className="pt-[var(--spacing-20)]">
+        <GridInner className="border-t border-solid border-[var(--b-border-default)]">
           <FaqAccordion
             idPrefix="slides-faq"
             eyebrow={t("templateLanding.faq.eyebrow")}
