@@ -397,6 +397,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "غير مفيد",
   "feedback.placeholder": "أخبرنا بما حدث من خطأ...",
   "feedback.submit": "إرسال",
+  "feedback.submitted": "تم إرسال الملاحظات",
   "feedback.thumbsDown": "عدم إعجاب",
   "feedback.thumbsUp": "إعجاب",
   "feedback.tooSlow": "بطيء جدًا",

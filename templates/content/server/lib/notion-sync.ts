@@ -16,6 +16,7 @@ import {
   createNotionPageWithMarkdown,
   fetchNotionPage,
   getNotionConnectionForOwner,
+  requireNotionConnectionForOwner,
   normalizeNotionPageId,
   NotionApiError,
   notionFetch,
@@ -825,8 +826,10 @@ export async function linkDocumentToNotionPage(
   documentId: string,
   pageIdOrUrl: string,
 ): Promise<DocumentSyncStatus> {
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before linking a page.");
+  const connection = await requireNotionConnectionForOwner(
+    owner,
+    "linking a page",
+  );
   await getDocument(documentId, owner);
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
@@ -896,8 +899,7 @@ async function pullDocumentFromNotionInner(
 ): Promise<DocumentSyncStatus> {
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before pulling.");
+  const connection = await requireNotionConnectionForOwner(owner, "pulling");
 
   const pageContent = await readNotionPageAsDocument(
     connection.accessToken,
@@ -1136,8 +1138,7 @@ async function pushDocumentToNotionInner(
   const document = await getDocument(documentId, owner);
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before pushing.");
+  const connection = await requireNotionConnectionForOwner(owner, "pushing");
 
   const page = await fetchNotionPage(connection.accessToken, link.remotePageId);
   const remoteUpdatedAt = page.last_edited_time || null;
@@ -1553,8 +1554,10 @@ export async function createAndLinkNotionPage(
   documentId: string,
   parentPageIdOrUrl?: string,
 ): Promise<DocumentSyncStatus> {
-  const connection = await getNotionConnectionForOwner(owner);
-  if (!connection) throw new Error("Connect Notion before creating a page.");
+  const connection = await requireNotionConnectionForOwner(
+    owner,
+    "creating a page",
+  );
   const document = await getDocument(documentId, owner);
 
   // Idempotency: if the document is already linked, do NOT create another

@@ -389,6 +389,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "도움이 되지 않음",
   "feedback.placeholder": "무엇이 문제였는지 알려주세요…",
   "feedback.submit": "제출",
+  "feedback.submitted": "피드백이 제출되었습니다",
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",

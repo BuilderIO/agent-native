@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import { nfmToDoc } from "@shared/nfm";
 import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
 import { Editor } from "@tiptap/core";
@@ -7,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { suggestionPresentation } from "./DocumentEditor";
 import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
+import { markdownSuggestionOperationsForEditorRevision } from "./suggestions/markdown-operation";
 import {
   createVisualEditorExtensions,
   suggestionHighlightSpec,
@@ -18,6 +20,61 @@ const canonical =
   "This reads more clearly than the original.\u00a0Indeed.\nEditors publish carefully.\nAlso:\u00a0Final sentence.\u00a0Added words\u00a0revised\u00a0finally.";
 
 describe("saved unchanged paragraph presentation", () => {
+  it("reconstructs persisted raw paragraph and list highlights after reload", () => {
+    const raw =
+      "Alpha bravo charlie delta.\n\n- Echo foxtrot golf\n- Hotel india juliet\n- Kilo lima mike";
+    const editorMarkdown = raw
+      .replace(".\n\n-", ".\n-")
+      .replace("bravo", "BRAVISSIMO")
+      .replace("foxtrot", "FOX");
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: raw,
+      after: editorMarkdown,
+      replacements: [],
+    });
+    expect(operations).toHaveLength(2);
+    expect(operations.every((item) => item.before.markdown === raw)).toBe(true);
+
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(raw),
+    });
+    try {
+      operations.forEach((operation, index) => {
+        const persisted: ResourceSuggestion = {
+          id: `persisted-${index}`,
+          resourceType: "document",
+          resourceId: "document-one",
+          adapterKind: "content.document-markdown",
+          adapterVersion: 1,
+          threadId: `thread-${index}`,
+          authorEmail: "reviewer@example.test",
+          actorKind: "human",
+          baseRevision: "body:1:example",
+          revision: 1,
+          status: "pending",
+          summary: "Suggested edits",
+          ownerEmail: null,
+          orgId: null,
+          visibility: "private",
+          createdAt: "2026-09-13T00:00:00.000Z",
+          updatedAt: "2026-09-13T00:00:00.000Z",
+          metadata: null,
+          operations: [{ ...operation }],
+        };
+        for (let reload = 0; reload < 2; reload += 1) {
+          const presentation = suggestionPresentation(persisted, raw);
+          expect(presentation).not.toBeNull();
+          expect(
+            suggestionHighlightSpec(editor.state.doc, presentation!),
+          ).not.toBeNull();
+        }
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it.each([false, true])(
     "keeps the remaining native marker through sequential decisions, reverse=%s",
     (reverse) => {

@@ -401,6 +401,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "役に立たない",
   "feedback.placeholder": "問題点を教えてください…",
   "feedback.submit": "送信",
+  "feedback.submitted": "フィードバックを送信しました",
   "feedback.thumbsDown": "低評価",
   "feedback.thumbsUp": "高評価",
   "feedback.tooSlow": "遅すぎる",

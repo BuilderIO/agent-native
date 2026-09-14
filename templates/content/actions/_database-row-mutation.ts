@@ -245,6 +245,19 @@ function acceptedShape(type: DocumentPropertyType): string {
   }
 }
 
+export function systemDatabaseMutationMessage(systemRole: string) {
+  switch (systemRole) {
+    case "workspaces":
+      return "This is the Workspaces catalog, which only lists workspaces. A workspace row here is not the workspace's collection: to add pages inside a workspace, call create-document with that workspace's spaceId or spaceName (see list-content-spaces), and to add rows to a collection inside it, target that collection's databaseId.";
+    case "files":
+      return "This is a workspace's Files collection. Create pages in it with create-document using the workspace spaceId rather than a row mutation.";
+    case "favorites":
+      return "This is the Favorites collection, whose rows follow the favorite flag on each page. Change a page's favorite state instead of creating rows here.";
+    default:
+      return "Reliable row mutations are supported only for ordinary Content collections.";
+  }
+}
+
 export async function loadContext(
   target: DatabaseMutationTargetInput,
   role: "viewer" | "editor",
@@ -310,7 +323,7 @@ export async function loadContext(
   }
   if (database.systemRole) {
     throw new ActionContractError(
-      "Reliable row mutations are supported only for ordinary Content databases.",
+      systemDatabaseMutationMessage(database.systemRole),
       { errorCode: "SYSTEM_DATABASE_UNSUPPORTED", statusCode: 400 },
     );
   }

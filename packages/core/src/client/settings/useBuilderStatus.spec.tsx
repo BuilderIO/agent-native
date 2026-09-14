@@ -782,6 +782,65 @@ describe("useBuilderConnectFlow", () => {
     ).toBeNull();
   });
 
+  it("honors a connect click made while the first status read is still in flight", async () => {
+    // The cold-start shape: the status route is reachable but slow, so the
+    // trigger renders as a normal enabled button for seconds. A click there
+    // used to be discarded, which is what "Connect Builder.io doesn't work"
+    // looked like to a brand-new signup landing on a cold instance.
+    const pending: Array<() => void> = [];
+    vi.mocked(fetch).mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          pending.push(() =>
+            resolve(
+              jsonResponse({
+                configured: false,
+                agentNativeProvisioningEnabled: true,
+                agentNativeProvisioningToken: provisioningToken,
+                envManaged: false,
+                builderEnabled: true,
+                orgName: null,
+                connectUrl: signedConnectUrl,
+              }),
+            ),
+          );
+        }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectPopoverProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("button")?.getAttribute("aria-busy")).toBe(
+      "true",
+    );
+    expect(
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+    ).toBeNull();
+
+    await act(async () => {
+      for (const release of pending) release();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Provisioning is available, so the queued click surfaces the consent
+    // choice rather than silently starting a connect.
+    expect(
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("button")?.getAttribute("aria-busy"),
+    ).toBeNull();
+  });
+
   it("keeps surface callbacks on the legacy connection path", async () => {
     const flow = {
       connecting: false,

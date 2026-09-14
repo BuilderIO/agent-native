@@ -14,8 +14,11 @@ import {
 import {
   type BabysitPingDecision,
   type BabysitProposal,
-  countBabysitComments,
+  botReviewBodyKeys,
+  countFactoryBabysitComments,
   decideBabysitPing,
+  detectBuilderActive,
+  hasNewBotReviewWork,
   hasNewDefiniteMergeConflict,
   hasNewHumanReviewWork,
   type HumanReviewObservation,
@@ -33,8 +36,14 @@ export interface BabysitEvidenceDetails {
   reviewsTruncated: boolean;
   checks: readonly PullRequestCheckObservation[];
   checksCoverage: TriageCoverage;
-  babysitCommentCount: number;
+  factoryBabysitCommentCount: number;
   babysitCommentScanTruncated: boolean;
+  issueComments: readonly {
+    body: string;
+    author: string;
+    createdAt: string;
+    htmlUrl: string;
+  }[];
 }
 
 /**
@@ -96,8 +105,12 @@ export async function readBabysitEvidence(
       reviewsTruncated: evidence.reviewsTruncated,
       checks: evidence.checks,
       checksCoverage: evidence.checksCoverage,
-      babysitCommentCount: countBabysitComments(issueComments.comments),
+      factoryBabysitCommentCount: countFactoryBabysitComments(
+        issueComments.comments,
+        undefined,
+      ),
       babysitCommentScanTruncated: issueComments.truncated,
+      issueComments: issueComments.comments,
     },
   };
 }
@@ -123,6 +136,9 @@ export interface BabysitStoredState {
   changesRequested: boolean;
   /** Poll set this when reopening on new human work; write clears it after acting. */
   pendingReopen: boolean;
+  factoryAuthor: string | undefined;
+  lastPingHeadSha: string | undefined;
+  botReviewBodyKeys: readonly string[];
 }
 
 export function readBabysitStoredState(
@@ -155,7 +171,19 @@ export function readBabysitStoredState(
     changesRequested:
       metadataBoolean(metadata, "prBabysitChangesRequested") === true,
     pendingReopen: metadataBoolean(metadata, "prBabysitPendingReopen") === true,
+    factoryAuthor: metadataString(metadata, "prBabysitFactoryAuthor"),
+    lastPingHeadSha: metadataString(metadata, "prBabysitLastPingHeadSha"),
+    botReviewBodyKeys: parseStringArray(metadata, "prBabysitBotReviewBodyKeys"),
   };
+}
+
+function parseStringArray(
+  metadata: TriageMetadata,
+  key: string,
+): readonly string[] {
+  const value = metadata[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
 }
 
 export interface BabysitMechanicalVerdict {
@@ -163,7 +191,11 @@ export interface BabysitMechanicalVerdict {
   isClean: boolean;
   mergeability: { mergeConflict: boolean; mergeabilityComputed: boolean };
   newHumanWork: boolean;
+  newBotWork: boolean;
   newDefiniteMergeConflict: boolean;
+  builderActive: boolean;
+  builderActiveUntil: string | null;
+  headShaChangedSinceLastPing: boolean;
   ping: BabysitPingDecision;
 }
 
@@ -174,7 +206,11 @@ export interface BabysitMechanicalVerdict {
  */
 export function babysitMechanicalVerdict(input: {
   stored: BabysitStoredState;
-  summary: { mergeable: boolean | null; mergeableState: string | null };
+  summary: {
+    mergeable: boolean | null;
+    mergeableState: string | null;
+    headSha: string;
+  };
   details: BabysitEvidenceDetails;
   proposal: BabysitProposal;
   nextHumanReviewCommentCount: number;
@@ -182,6 +218,7 @@ export function babysitMechanicalVerdict(input: {
   nextChangesRequested: boolean;
   nowMs: number;
 }): BabysitMechanicalVerdict {
+  const nextBotReviewBodyKeys = botReviewBodyKeys(input.details.comments);
   const newHumanWork =
     input.stored.pendingReopen ||
     hasNewHumanReviewWork({
@@ -194,6 +231,14 @@ export function babysitMechanicalVerdict(input: {
       nextHumanReviewBodyCount: input.nextHumanReviewBodyCount,
       storedReviewsTruncated: input.stored.reviewsTruncated,
       nextReviewsTruncated: input.details.reviewsTruncated,
+      storedBotReviewBodyKeys: input.stored.botReviewBodyKeys,
+      nextBotReviewBodyKeys,
+    });
+  const newBotWork =
+    input.stored.pendingReopen ||
+    hasNewBotReviewWork({
+      storedBotReviewBodyKeys: input.stored.botReviewBodyKeys,
+      nextBotReviewBodyKeys,
     });
   const newDefiniteMergeConflict = hasNewDefiniteMergeConflict({
     storedMergeConflict: input.stored.mergeConflict,
@@ -208,6 +253,17 @@ export function babysitMechanicalVerdict(input: {
     },
     input.summary,
   );
+  const factoryBabysitCommentCount = countFactoryBabysitComments(
+    input.details.issueComments,
+    input.stored.factoryAuthor,
+  );
+  const headShaChangedSinceLastPing =
+    Boolean(input.stored.lastPingHeadSha) &&
+    input.stored.lastPingHeadSha !== input.summary.headSha;
+  const builder = detectBuilderActive({
+    checks: input.details.checks,
+    nowMs: input.nowMs,
+  });
   return {
     // The sticky conflict, not the live one: letting an uncomputed read park a
     // conflicted branch as clean ends the episode and buys it a fresh ping.
@@ -218,17 +274,26 @@ export function babysitMechanicalVerdict(input: {
     isClean: input.proposal.isClean,
     mergeability,
     newHumanWork,
+    newBotWork,
     newDefiniteMergeConflict,
+    builderActive: builder.active,
+    builderActiveUntil: builder.untilMs
+      ? new Date(builder.untilMs).toISOString()
+      : null,
+    headShaChangedSinceLastPing,
     ping: decideBabysitPing({
       previousState: input.stored.babysitState,
       lastCommentAtMs: input.stored.lastCommentAtMs,
       nowMs: input.nowMs,
       minCommentIntervalMs: MIN_BABYSIT_COMMENT_INTERVAL_MS,
-      existingBabysitCommentCount: input.details.babysitCommentCount,
+      existingFactoryBabysitCommentCount: factoryBabysitCommentCount,
       commentScanTruncated: input.details.babysitCommentScanTruncated,
       newHumanWork,
+      newBotWork,
       newDefiniteMergeConflict,
       mergeabilityComputed: mergeability.mergeabilityComputed,
+      builderActive: builder.active,
+      headShaChangedSinceLastPing,
     }),
   };
 }
