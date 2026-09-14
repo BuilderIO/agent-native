@@ -290,7 +290,9 @@ export async function isWorkspaceAppAccessAllowed(
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
+    const memberRole = member.role;
     if (canClaimCallerOrg) {
+      if (memberRole !== "owner" && memberRole !== "admin") return false;
       // Fresh workspaces register apps before their first organization exists.
       // Claim once so a missing org never becomes cross-organization access.
       const claim = await db.execute({
@@ -302,7 +304,6 @@ export async function isWorkspaceAppAccessAllowed(
       });
       if (claim.rows.length === 0) return false;
     }
-    const memberRole = member.role;
     if (memberRole === "owner" || memberRole === "admin") return true;
 
     if (app.visibility === "org") return true;

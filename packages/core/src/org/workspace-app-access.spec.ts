@@ -172,7 +172,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       .mockResolvedValueOnce({
         rows: [{ owner_email: "", org_id: null, visibility: "org" }],
       })
-      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
       .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
 
     await expect(
@@ -187,12 +187,27 @@ describe("isWorkspaceAppAccessAllowed", () => {
     });
   });
 
+  it("does not let a regular member claim an ownerless app", async () => {
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [{ owner_email: "", org_id: null, visibility: "org" }],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("fresh-app", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("denies an ownerless app when another organization wins the claim", async () => {
     mocks.execute
       .mockResolvedValueOnce({
         rows: [{ owner_email: "", org_id: null, visibility: "org" }],
       })
-      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await expect(
