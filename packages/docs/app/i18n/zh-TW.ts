@@ -1260,6 +1260,46 @@ const messages = {
     },
     forms: {
       s001: "Forms 範本螢幕截圖",
+      heroEyebrow: "Forms",
+      heroTitle: "用你的 AI 代理建立表單",
+      heroDescription:
+        "Forms 是一款免費開放原始碼的 AI 表單建立工具，可用來建立問卷、報名表和申請表，問題可以自己編輯，回覆也能請 AI 代理幫忙分析。",
+      heroCta: "建立表單",
+      useCasesHeading: "用 Forms 能做什麼？",
+      useCasesBody:
+        "收集顧客意見、為活動登記參加者，或收集團隊處理請求所需的資訊。",
+      useCase1Title: "收集顧客意見",
+      useCase1Body:
+        "用評分、單選/複選題和文字回答了解顧客體驗，讓 AI 代理幫你彙整收到的意見。",
+      useCase2Title: "收集報名與註冊資訊",
+      useCase2Body:
+        "為網路研討會、活動或產品候補名單建立表單，收集聯絡方式和偏好，之後檢視或匯出提交內容。",
+      useCase3Title: "收集專案需求",
+      useCase3Body:
+        "為設計需求、專案簡述或內部支援提供表單，詢問截止日期、需求等團隊所需的細節。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "建立、分享與審閱所需的一切",
+      feature1Title: "AI 表單產生",
+      feature1Body:
+        "描述你想收集的內容，AI 代理就會建立表單。也可以請它新增問題或修改現有欄位。",
+      feature2Title: "視覺化欄位編輯",
+      feature2Body:
+        "自行編輯標籤、選項、必填欄位和問題順序，選擇文字、電子郵件、複選、日期、評分、量表等欄位類型。",
+      feature3Title: "條件式問題",
+      feature3Body:
+        "當先前的回答符合某條規則時顯示後續問題，例如有人選擇「其他」時詢問更多細節。",
+      feature4Title: "公開表單連結",
+      feature4Body:
+        "發布表單並分享連結。設定完成訊息或跳轉網址，在停止接受回覆時關閉表單。",
+      feature5Title: "回覆洞察與匯出",
+      feature5Body:
+        "在表格中檢視提交內容，或讓 AI 代理彙整趨勢。也可以將回覆表格下載為 CSV。",
+      feature6Title: "提交整合",
+      feature6Body:
+        "設定將結果傳送到 Slack、Discord、Google Sheets 或 Webhook。新回覆會送到你為該表單設定的目的地。",
+      finalCtaHeading: "建立你的下一份表單",
+      finalCtaBody: "告訴你的 AI 代理你想收集什麼。",
+      finalCtaButton: "建立表單",
       s002: "描述",
       s003: "生成",
       s004: "路由",
@@ -1320,21 +1360,21 @@ const messages = {
       s058: "閱讀檔案",
       s059: "檢視所有範本",
       faq: {
-        question1: "AI 能幫我建立表單嗎？",
+        question1: "什麼是 Agent-Native Forms？",
         answer1:
-          "可以。描述需求後，完整表單就會出現；你可以用對話繼續調整，例如「新增必填的經驗層級下拉選單」，也可以在具備即時預覽和復原功能的視覺化編輯器中拖曳欄位。",
-        question2: "有人提交表單後會發生什麼？",
+          "Agent-Native Forms 是一款免費開放原始碼的 AI 表單建立工具。用 AI 代理建立表單和問卷，以視覺化方式編輯欄位，發布公開連結，並在同一個應用程式中檢視或分析回覆。",
+        question2: "AI 建立表單後我還能編輯嗎？",
         answer2:
-          "提交內容會以結構化形式進入你自己的 SQL 資料庫，並在到達時路由到 Slack、Discord、Google Sheets 或 Webhook。提交會進入代理可以採取行動的地方，而不是無人查看的匯出檔案。",
-        question3: "Forms 與 Typeform 有什麼不同？",
+          "可以。你可以在視覺化編輯器中修改問題、標籤、選項、必填欄位和欄位順序，也可以請 AI 代理幫你修改。兩種方式更新的都是同一份表單。你還可以根據先前的回答新增條件問題。",
+        question3: "填寫我的表單需要帳號嗎？",
         answer3:
-          "Typeform 專注於美化填寫體驗。Forms 更關注提交之後：回覆保存在你自己的資料庫中並路由到你的工具，不按回覆計費，表單本身也能透過提示持續迭代。",
-        question4: "Forms 免費嗎？有回覆數量限制嗎？",
+          "不需要。任何擁有已發布表單公開連結的人都可以在沒有帳號的情況下送出回覆。草稿狀態的表單不會公開，已關閉的表單不再接受新回覆。",
+        question4: "我可以收集匿名意見嗎？",
         answer4:
-          "免費且開放原始碼，不按回覆收費，也沒有數量上限。資料在你的資料庫中，因此限制取決於你的資料庫。",
-        question5: "我可以把表單放在自己的網站上嗎？",
+          "可以。開啟匿名模式後會省略提交者身分和來源中繼資料。如果希望回覆完全匿名，也可以不設定詢問姓名、電子郵件等可識別身分資訊的問題。",
+        question5: "我可以把回覆傳送到 Google Sheets 或 Slack 嗎？",
         answer5:
-          "可以。可嵌入任何網站，也可託管在自訂網域上。每個表單還會取得自己的 SEO 友善公開 URL。",
+          "可以，為表單設定好目的地後即可。Slack 和 Discord 使用 Webhook URL。Google Sheets 需要一個已部署、能接收提交內容的 Google Apps Script 端點；只有試算表連結是無法運作的。你也可以使用 Webhook，或將回覆匯出為 CSV。代理匯出所有回覆為 CSV 或 JSON 需要已連接的檔案儲存空間。",
       },
     },
     mail: {

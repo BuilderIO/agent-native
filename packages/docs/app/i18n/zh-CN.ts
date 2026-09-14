@@ -1259,6 +1259,46 @@ const zhCN = {
     },
     forms: {
       s001: "Forms 模板屏幕截图",
+      heroEyebrow: "Forms",
+      heroTitle: "用你的 AI 智能体创建表单",
+      heroDescription:
+        "Forms 是一款免费开源的 AI 表单构建工具，可用于创建问卷、报名表和申请表，问题可以自己编辑，回复也可以让 AI 智能体帮你分析。",
+      heroCta: "创建表单",
+      useCasesHeading: "用 Forms 能做什么？",
+      useCasesBody:
+        "收集客户反馈、为活动登记参与者，或收集团队处理请求所需的信息。",
+      useCase1Title: "收集客户反馈",
+      useCase1Body:
+        "用评分、单选/多选题和文字回答了解客户体验，让 AI 智能体帮你总结收到的反馈。",
+      useCase2Title: "收集报名和注册信息",
+      useCase2Body:
+        "为网络研讨会、活动或产品候补名单创建表单，收集联系方式和偏好，之后查看或导出提交内容。",
+      useCase3Title: "收集项目需求",
+      useCase3Body:
+        "为设计需求、项目简述或内部支持提供表单，询问截止日期、要求等团队所需的细节。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "创建、分享和审阅所需的一切",
+      feature1Title: "AI 表单生成",
+      feature1Body:
+        "描述你想收集的内容，AI 智能体就会构建表单。也可以让它添加问题或修改已有字段。",
+      feature2Title: "可视化字段编辑",
+      feature2Body:
+        "自行编辑标签、选项、必填字段和问题顺序，选择文本、邮箱、多选、日期、评分、量表等字段类型。",
+      feature3Title: "条件问题",
+      feature3Body:
+        "当之前的回答符合某条规则时显示后续问题，例如有人选择“其他”时询问更多细节。",
+      feature4Title: "公开表单链接",
+      feature4Body:
+        "发布表单并分享链接。设置完成提示或跳转地址，在停止接受回复时关闭表单。",
+      feature5Title: "回复洞察与导出",
+      feature5Body:
+        "在表格中查看提交内容，或让 AI 智能体总结趋势。也可以将回复表格下载为 CSV。",
+      feature6Title: "提交集成",
+      feature6Body:
+        "配置将结果发送到 Slack、Discord、Google Sheets 或 Webhook。新回复会发送到你为该表单设置的目的地。",
+      finalCtaHeading: "创建你的下一个表单",
+      finalCtaBody: "告诉你的 AI 智能体你想收集什么。",
+      finalCtaButton: "创建表单",
       s002: "描述",
       s003: "生成",
       s004: "路线",
@@ -1319,21 +1359,21 @@ const zhCN = {
       s058: "阅读文档",
       s059: "查看所有模板",
       faq: {
-        question1: "AI 能帮我创建表单吗？",
+        question1: "什么是 Agent-Native Forms？",
         answer1:
-          "可以。描述需求后，完整表单就会出现；你可以用对话继续调整，例如“添加必填的经验级别下拉框”，也可以在带实时预览和撤销功能的可视化编辑器中拖动字段。",
-        question2: "有人提交表单后会发生什么？",
+          "Agent-Native Forms 是一款免费开源的 AI 表单构建工具。用 AI 智能体创建表单和问卷，以可视化方式编辑字段，发布公开链接，并在同一个应用中查看或分析回复。",
+        question2: "AI 生成表单后我还能编辑吗？",
         answer2:
-          "提交内容会以结构化形式进入你自己的 SQL 数据库，并在到达时路由到 Slack、Discord、Google Sheets 或 Webhook。提交会进入代理可以采取行动的地方，而不是无人查看的导出文件。",
-        question3: "Forms 与 Typeform 有什么不同？",
+          "可以。你可以在可视化编辑器中修改问题、标签、选项、必填字段和字段顺序，也可以让 AI 智能体帮你修改。两种方式更新的都是同一个表单。你还可以根据之前的回答添加条件问题。",
+        question3: "填写我的表单需要账号吗？",
         answer3:
-          "Typeform 专注于美化填写体验。Forms 更关注提交之后：回复保存在你自己的数据库中并路由到你的工具，不按回复计费，表单本身也能通过提示持续迭代。",
-        question4: "Forms 免费吗？有回复数量限制吗？",
+          "不需要。任何拥有已发布表单公开链接的人都可以在没有账号的情况下提交回复。草稿状态的表单不会公开，已关闭的表单不再接受新回复。",
+        question4: "我可以收集匿名反馈吗？",
         answer4:
-          "免费且开源，不按回复收费，也没有数量上限。数据在你的数据库中，因此限制取决于你的数据库。",
-        question5: "我可以把表单放在自己的网站上吗？",
+          "可以。开启匿名模式后会省略提交者身份和来源元数据。如果希望回复完全匿名，也可以不设置询问姓名、邮箱等可识别身份信息的问题。",
+        question5: "我可以把回复发送到 Google Sheets 或 Slack 吗？",
         answer5:
-          "可以。可嵌入任何网站，也可托管在自定义域名上。每个表单还会获得自己的 SEO 友好公开 URL。",
+          "可以，为表单配置好目标后即可。Slack 和 Discord 使用 Webhook URL。Google Sheets 需要一个已部署、能接收提交内容的 Google Apps Script 端点；仅有表格链接是无法工作的。你也可以使用 Webhook，或将回复导出为 CSV。智能体导出全部回复为 CSV 或 JSON 需要连接文件存储。",
       },
     },
     mail: {

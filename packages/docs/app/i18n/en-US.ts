@@ -1299,23 +1299,64 @@ const enUS = {
     },
     forms: {
       faq: {
-        question1: "Can AI build a form for me?",
+        question1: "What is Agent-Native Forms?",
         answer1:
-          'Yes. Describe it and a full form appears; refine conversationally — "add a required experience-level dropdown" — or drag fields around in the visual editor with live preview and undo.',
-        question2: "What happens when someone submits?",
+          "Agent-Native Forms is a free and open-source AI form builder. Create forms and surveys with an AI agent, edit fields visually, publish a public link, and review or analyze the responses in the same app.",
+        question2: "Can I edit a form after AI creates it?",
         answer2:
-          "It lands in your own SQL database and routes — structured — to Slack, Discord, Google Sheets, or a webhook the moment it arrives. Submissions land where your agent can act, not in an export nobody opens.",
-        question3: "How is Forms different from Typeform?",
+          "Yes. Change questions, labels, options, required fields, and field order in the visual editor, or ask your AI agent to make the changes. Both approaches update the same form. You can also add conditional questions based on earlier answers.",
+        question3: "Do people need an account to fill out my form?",
         answer3:
-          "Typeform polishes the filling-out experience. Forms is about what happens after: responses in your own database, routed to your tools, no per-response pricing — and the form itself iterates by prompt.",
-        question4: "Is Forms free? Are there response limits?",
+          "No. Anyone with a published form's public link can submit a response without an account. Draft forms are not public, and closed forms stop accepting new responses.",
+        question4: "Can I collect anonymous feedback?",
         answer4:
-          "Free, open source, and there's no per-response fee or cap. The data is in your database; your database is the limit.",
-        question5: "Can I put a form on my own site?",
+          "Yes. Enable anonymous mode to omit submitter identity and source metadata. Also leave out questions asking for names, email addresses, or other identifying details if you want the answers to remain anonymous.",
+        question5: "Can I send responses to Google Sheets or Slack?",
         answer5:
-          "Yes — embed on any website or host on a custom domain. Every form also gets its own SEO-friendly public URL.",
+          "Yes, after configuring a destination for the form. Slack and Discord use webhook URLs. Google Sheets requires a deployed Google Apps Script endpoint that receives submissions; a spreadsheet link alone will not work. You can also use a webhook or export responses as CSV. Agent exports of all responses as CSV or JSON require connected file storage.",
       },
       s001: "Forms app screenshot",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Forms",
+      heroTitle: "Create forms with your AI agent",
+      heroDescription:
+        "Forms is a free and open-source AI form builder for creating surveys, signup forms, and request forms, with questions you can edit yourself and responses your AI agent can help analyze.",
+      heroCta: "Create a form",
+      useCasesHeading: "What can you do with Forms?",
+      useCasesBody:
+        "Collect customer feedback, register people for an event, or gather the details your team needs to handle a request.",
+      useCase1Title: "Collect customer feedback",
+      useCase1Body:
+        "Ask customers about their experience with ratings, multiple-choice questions, and written answers. Have your AI agent summarize the feedback you receive.",
+      useCase2Title: "Gather signups and registrations",
+      useCase2Body:
+        "Create a form for a webinar, event, or product waitlist. Collect contact details and preferences, then review or export the submissions.",
+      useCase3Title: "Collect project requests",
+      useCase3Body:
+        "Give people a form for design requests, project briefs, or internal support. Ask for deadlines, requirements, and other details your team needs.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading: "Everything you need to build, share, and review",
+      feature1Title: "AI form generation",
+      feature1Body:
+        "Describe what you want to collect and your AI agent builds the form. Ask it to add questions or revise existing fields.",
+      feature2Title: "Visual field editing",
+      feature2Body:
+        "Edit labels, options, required fields, and question order yourself. Choose field types such as text, email, multiple choice, dates, ratings, and scales.",
+      feature3Title: "Conditional questions",
+      feature3Body:
+        'Show a follow-up question when an earlier answer matches a rule. Ask for more detail when someone selects "Other," for example.',
+      feature4Title: "Public form links",
+      feature4Body:
+        "Publish a form and share its link. Set a completion message or redirect, and close the form when you stop accepting responses.",
+      feature5Title: "Response insights and exports",
+      feature5Body:
+        "Review submissions in a table or ask your AI agent for summaries and submission trends. Download the response table as a CSV.",
+      feature6Title: "Submission integrations",
+      feature6Body:
+        "Configure delivery to Slack, Discord, Google Sheets, or a webhook. New responses go to the destination you set up for that form.",
+      finalCtaHeading: "Build your next form",
+      finalCtaBody: "Tell your AI agent what you want to collect.",
+      finalCtaButton: "Create a form",
       s002: "Describe",
       s003: "Generate",
       s004: "Route",

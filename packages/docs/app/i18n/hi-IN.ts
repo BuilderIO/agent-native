@@ -1293,23 +1293,63 @@ const hiIN = {
     },
     forms: {
       faq: {
-        question1: "क्या AI मेरे लिए form बना सकता है?",
+        question1: "Agent-Native Forms क्या है?",
         answer1:
-          "हाँ। उसका वर्णन करें और पूरा form बन जाएगा। फिर बातचीत में उसे बेहतर करें — “अनुभव के स्तर का required dropdown जोड़ें” — या live preview और undo के साथ visual editor में fields को खींचकर व्यवस्थित करें।",
-        question2: "कोई form submit करता है तो क्या होता है?",
+          "Agent-Native Forms एक मुफ़्त और open source AI form builder है। AI एजेंट के साथ forms और सर्वे बनाएं, fields को visually edit करें, एक public link publish करें, और उसी app में responses देखें या analyze करें।",
+        question2: "क्या AI द्वारा बनाए गए form को बाद में edit किया जा सकता है?",
         answer2:
-          "Submission आपके अपने SQL database में जाती है और आते ही structured रूप में Slack, Discord, Google Sheets या webhook तक भेज दी जाती है। Submissions वहाँ पहुँचती हैं जहाँ आपका agent कार्रवाई कर सके, ऐसे export में नहीं जिसे कोई खोलता नहीं।",
-        question3: "Forms, Typeform से कैसे अलग है?",
+          "हाँ। Visual editor में questions, labels, options, required fields और field order बदलें, या अपने AI एजेंट से बदलाव करने को कहें। दोनों तरीके एक ही form को update करते हैं। आप पहले के जवाबों के आधार पर conditional questions भी जोड़ सकते हैं।",
+        question3: "क्या मेरा form भरने के लिए लोगों को account चाहिए?",
         answer3:
-          "Typeform form भरने के अनुभव को बेहतर बनाता है। Forms उसके बाद होने वाले काम पर केंद्रित है: responses आपके अपने database में, आपके tools तक routed, बिना प्रति-response कीमत के — और form खुद prompt से आगे बढ़ता है।",
-        question4: "क्या Forms मुफ़्त है? क्या responses की कोई सीमा है?",
+          "नहीं। published form का public link रखने वाला कोई भी व्यक्ति बिना account के response भेज सकता है। Draft forms public नहीं होते, और बंद किए गए forms नए responses लेना बंद कर देते हैं।",
+        question4: "क्या मैं anonymous feedback जमा कर सकता हूँ?",
         answer4:
-          "यह मुफ़्त और open source है, और हर response पर न कोई शुल्क है, न कोई सीमा। Data आपके database में है; सीमा आपके database की क्षमता है।",
-        question5: "क्या मैं form को अपनी website पर लगा सकता हूँ?",
+          "हाँ। Anonymous mode चालू करने पर भेजने वाले की पहचान और source metadata छोड़ दिए जाते हैं। यदि आप चाहते हैं कि responses पूरी तरह anonymous रहें, तो नाम, email address या पहचान बताने वाले अन्य सवाल भी न पूछें।",
+        question5: "क्या मैं responses को Google Sheets या Slack पर भेज सकता हूँ?",
         answer5:
-          "हाँ — किसी भी website पर embed करें या custom domain पर host करें। हर form को अपनी SEO-friendly public URL भी मिलती है।",
+          "हाँ, form के लिए destination सेट करने के बाद। Slack और Discord webhook URLs का उपयोग करते हैं। Google Sheets के लिए एक deploy किया गया Google Apps Script endpoint चाहिए जो submissions प्राप्त करे; अकेला spreadsheet link काम नहीं करेगा। आप webhook का उपयोग कर सकते हैं या responses को CSV के रूप में export कर सकते हैं। सभी responses को CSV या JSON में एजेंट से export कराने के लिए connected file storage ज़रूरी है।",
       },
       s001: "Forms टेम्पलेट स्क्रीनशॉट",
+      heroEyebrow: "Forms",
+      heroTitle: "अपने AI एजेंट से forms बनाएं",
+      heroDescription:
+        "Forms एक मुफ़्त और open source AI form builder है, जिससे आप सर्वे, sign-up forms और request forms बना सकते हैं — questions खुद edit करें और responses को analyze करने में आपका AI एजेंट मदद कर सकता है।",
+      heroCta: "एक form बनाएं",
+      useCasesHeading: "Forms से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "ग्राहकों से feedback लें, किसी event के लिए लोगों को register करें, या किसी request को पूरा करने के लिए अपनी team को चाहिए वो जानकारी जमा करें।",
+      useCase1Title: "ग्राहकों से feedback लें",
+      useCase1Body:
+        "Ratings, multiple-choice questions और लिखे हुए जवाबों से ग्राहकों का अनुभव पूछें। मिले feedback को summarize करने के लिए अपने AI एजेंट की मदद लें।",
+      useCase2Title: "sign-up और registrations जुटाएं",
+      useCase2Body:
+        "किसी webinar, event या product waitlist के लिए form बनाएं। Contact details और preferences जमा करें, फिर submissions को देखें या export करें।",
+      useCase3Title: "project requests जुटाएं",
+      useCase3Body:
+        "लोगों को design requests, project briefs या internal support के लिए form दें। Deadlines, requirements और अपनी team को चाहिए अन्य detail पूछें।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएं",
+      keyFeaturesHeading: "बनाने, share करने और review करने के लिए आपको चाहिए सब कुछ",
+      feature1Title: "AI form generation",
+      feature1Body:
+        "आप क्या जमा करना चाहते हैं यह बताएं, और आपका AI एजेंट form बना देगा। उससे questions जोड़ने या मौजूदा fields में बदलाव करने को कहें।",
+      feature2Title: "Visual field editing",
+      feature2Body:
+        "Labels, options, required fields और questions का क्रम खुद edit करें। text, email, multiple choice, dates, ratings और scales जैसे field types चुनें।",
+      feature3Title: "Conditional questions",
+      feature3Body:
+        "जब पहले का कोई जवाब किसी rule से मेल खाए तो एक follow-up question दिखाएं। जैसे, कोई “Other” चुने तो और detail मांगें।",
+      feature4Title: "Public form links",
+      feature4Body:
+        "एक form publish करें और उसका link share करें। completion message या redirect सेट करें, और responses लेना बंद करने पर form को बंद कर दें।",
+      feature5Title: "Response insights और exports",
+      feature5Body:
+        "Submissions को table में देखें या summaries और trends के लिए अपने AI एजेंट से पूछें। Response table को CSV के रूप में download करें।",
+      feature6Title: "Submission integrations",
+      feature6Body:
+        "Slack, Discord, Google Sheets या webhook पर delivery सेट करें। नए responses उस destination पर जाएंगे जो आपने उस form के लिए सेट किया है।",
+      finalCtaHeading: "अपना अगला form बनाएं",
+      finalCtaBody: "अपने AI एजेंट को बताएं कि आप क्या जमा करना चाहते हैं।",
+      finalCtaButton: "एक form बनाएं",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "मार्ग",

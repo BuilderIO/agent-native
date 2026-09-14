@@ -1313,24 +1313,63 @@ const deDE = {
     },
     forms: {
       faq: {
-        question1: "Kann KI ein Formular für mich erstellen?",
+        question1: "Was ist Agent-Native Forms?",
         answer1:
-          "Ja. Beschreiben Sie es, und ein vollständiges Formular erscheint. Verfeinern Sie es im Dialog — „ein Pflicht-Drop-down für die Erfahrungsstufe hinzufügen“ — oder verschieben Sie Felder im visuellen Editor mit Live-Vorschau und Rückgängig-Funktion.",
-        question2: "Was passiert, wenn jemand ein Formular absendet?",
+          "Agent-Native Forms ist ein kostenloser Open-Source-KI-Formular-Builder. Erstelle Formulare und Umfragen mit einem KI-Agenten, bearbeite Felder visuell, veröffentliche einen öffentlichen Link und sieh dir die Antworten in derselben App an oder lass sie analysieren.",
+        question2: "Kann ich ein Formular bearbeiten, nachdem die KI es erstellt hat?",
         answer2:
-          "Die Übermittlung landet in Ihrer eigenen SQL-Datenbank und wird sofort strukturiert an Slack, Discord, Google Sheets oder einen Webhook weitergeleitet. Übermittlungen landen dort, wo Ihr Agent handeln kann, nicht in einem Export, den niemand öffnet.",
-        question3: "Wie unterscheidet sich Forms von Typeform?",
+          "Ja. Ändere Fragen, Beschriftungen, Optionen, Pflichtfelder und die Feldreihenfolge im visuellen Editor, oder bitte deinen KI-Agenten, die Änderungen vorzunehmen. Beide Wege aktualisieren dasselbe Formular. Du kannst auch bedingte Fragen basierend auf vorherigen Antworten hinzufügen.",
+        question3: "Brauchen Personen ein Konto, um mein Formular auszufüllen?",
         answer3:
-          "Typeform optimiert das Ausfüllen. Bei Forms geht es darum, was danach passiert: Antworten in Ihrer eigenen Datenbank, Weiterleitung an Ihre Tools, keine Preise pro Antwort — und das Formular selbst lässt sich per Prompt weiterentwickeln.",
-        question4: "Ist Forms kostenlos? Gibt es Antwortlimits?",
+          "Nein. Jeder mit dem öffentlichen Link eines veröffentlichten Formulars kann eine Antwort ohne Konto senden. Formulare im Entwurfsstatus sind nicht öffentlich, und geschlossene Formulare nehmen keine neuen Antworten mehr an.",
+        question4: "Kann ich anonymes Feedback sammeln?",
         answer4:
-          "Forms ist kostenlos und Open Source; es gibt weder Gebühren noch Obergrenzen pro Antwort. Die Daten liegen in Ihrer Datenbank; deren Kapazität ist die Grenze.",
-        question5:
-          "Kann ich ein Formular auf meiner eigenen Website einbinden?",
+          "Ja. Aktiviere den anonymen Modus, um die Identität der einreichenden Person und Quell-Metadaten wegzulassen. Lass außerdem Fragen nach Namen, E-Mail-Adressen oder anderen identifizierenden Angaben weg, wenn die Antworten anonym bleiben sollen.",
+        question5: "Kann ich Antworten an Google Sheets oder Slack senden?",
         answer5:
-          "Ja — betten Sie es in jede Website ein oder hosten Sie es auf einer eigenen Domain. Jedes Formular erhält außerdem eine eigene SEO-freundliche öffentliche URL.",
+          "Ja, nachdem du ein Ziel für das Formular konfiguriert hast. Slack und Discord verwenden Webhook-URLs. Google Sheets benötigt einen bereitgestellten Google-Apps-Script-Endpunkt, der Einreichungen empfängt; ein reiner Tabellenlink funktioniert nicht. Du kannst auch einen Webhook verwenden oder Antworten als CSV exportieren. Agenten-Exporte aller Antworten als CSV oder JSON erfordern verbundenen Dateispeicher.",
       },
       s001: "Screenshot der Vorlage Forms",
+      heroEyebrow: "Forms",
+      heroTitle: "Erstelle Formulare mit deinem KI-Agenten",
+      heroDescription:
+        "Forms ist ein kostenloser Open-Source-KI-Formular-Builder zum Erstellen von Umfragen, Anmeldeformularen und Anfrageformularen, mit Fragen, die du selbst bearbeiten kannst, und Antworten, bei deren Analyse dein KI-Agent hilft.",
+      heroCta: "Formular erstellen",
+      useCasesHeading: "Was kannst du mit Forms machen?",
+      useCasesBody:
+        "Sammle Kundenfeedback, melde Personen für eine Veranstaltung an oder erfasse die Details, die dein Team für eine Anfrage braucht.",
+      useCase1Title: "Kundenfeedback sammeln",
+      useCase1Body:
+        "Frage Kunden nach ihrer Erfahrung mit Bewertungen, Multiple-Choice-Fragen und Freitextantworten. Lass deinen KI-Agenten das erhaltene Feedback zusammenfassen.",
+      useCase2Title: "Anmeldungen und Registrierungen erfassen",
+      useCase2Body:
+        "Erstelle ein Formular für ein Webinar, eine Veranstaltung oder eine Produkt-Warteliste. Erfasse Kontaktdaten und Präferenzen und sieh dir die Einreichungen an oder exportiere sie.",
+      useCase3Title: "Projektanfragen sammeln",
+      useCase3Body:
+        "Gib Leuten ein Formular für Designanfragen, Projekt-Briefings oder internen Support. Frage nach Fristen, Anforderungen und anderen Details, die dein Team braucht.",
+      keyFeaturesEyebrow: "Hauptfunktionen",
+      keyFeaturesHeading: "Alles, was du zum Erstellen, Teilen und Auswerten brauchst",
+      feature1Title: "KI-Formular-Generierung",
+      feature1Body:
+        "Beschreibe, was du erfassen willst, und dein KI-Agent baut das Formular. Bitte ihn, Fragen hinzuzufügen oder bestehende Felder zu überarbeiten.",
+      feature2Title: "Visuelle Feldbearbeitung",
+      feature2Body:
+        "Bearbeite Beschriftungen, Optionen, Pflichtfelder und die Fragenreihenfolge selbst. Wähle Feldtypen wie Text, E-Mail, Multiple-Choice, Datum, Bewertung und Skala.",
+      feature3Title: "Bedingte Fragen",
+      feature3Body:
+        "Zeige eine Folgefrage, wenn eine frühere Antwort einer Regel entspricht. Frage zum Beispiel nach mehr Details, wenn jemand „Sonstiges“ auswählt.",
+      feature4Title: "Öffentliche Formular-Links",
+      feature4Body:
+        "Veröffentliche ein Formular und teile seinen Link. Lege eine Abschlussnachricht oder Weiterleitung fest und schließe das Formular, wenn du keine Antworten mehr annimmst.",
+      feature5Title: "Antwortauswertung und Exporte",
+      feature5Body:
+        "Sieh dir Einreichungen in einer Tabelle an oder lass dir von deinem KI-Agenten Zusammenfassungen und Trends erstellen. Lade die Antworttabelle als CSV herunter.",
+      feature6Title: "Einreichungsintegrationen",
+      feature6Body:
+        "Richte die Zustellung an Slack, Discord, Google Sheets oder einen Webhook ein. Neue Antworten gehen an das Ziel, das du für dieses Formular eingerichtet hast.",
+      finalCtaHeading: "Erstelle dein nächstes Formular",
+      finalCtaBody: "Sag deinem KI-Agenten, was du erfassen möchtest.",
+      finalCtaButton: "Formular erstellen",
       s002: "Beschreiben",
       s003: "Generieren",
       s004: "Weiterleiten",
