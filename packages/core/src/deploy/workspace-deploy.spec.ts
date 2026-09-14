@@ -448,13 +448,7 @@ describe("workspace deploy", () => {
       "utf-8",
     );
     expect(starterServer).toContain(
-      'path: ["/starter","/starter.data","/starter/*"]',
-    );
-    expect(starterServer).toContain(
-      '"/.well-known/oauth-authorization-server/starter"',
-    );
-    expect(starterServer).toContain(
-      '"/.well-known/oauth-protected-resource/starter/*"',
+      'path: ["/starter","/starter.data","/starter/*","/.well-known/oauth-authorization-server/starter","/.well-known/openid-configuration/starter","/.well-known/oauth-protected-resource/starter","/.well-known/oauth-protected-resource/starter/*"]',
     );
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
