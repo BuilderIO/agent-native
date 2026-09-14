@@ -101,7 +101,17 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Superhuman behavior remain unverified. The active search combobox, query-clear
   button, and hidden keyboard-focus target lacked accessible names in the local
   accessibility tree; they now use existing localized labels with regression
-  coverage.
+  coverage. On 2026-09-14, the live local browser also confirmed `/` from page
+  focus focuses `#mail-search` without changing `/all`; when the recipient
+  input owns focus, `/` stays in that input and global Search does not launch.
+  The synthetic keystroke was removed before continuing, and no message was
+  opened or sent. A live synthetic no-result
+  query showed zero suggestions; clicking outside Search moved focus to the
+  page without changing the query or URL, and `/` restored Search focus while
+  preserving both. Escape cleared the query back to `/all`, and the existing
+  compose panel remained open. In this maximized-draft state, the compose
+  surface covers the toolbar Search button, so mouse-opening Search could not
+  be tested without disturbing the user-owned draft.
 - SEARCH-002 — Type one character, two characters, three characters, spaces,
   quoted text, unicode, punctuation, and a long query. Confirm debounce,
   local-match timing, remote-search timing, and no request for short queries.
@@ -759,7 +769,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   displayed shortcut is the one that actually runs. Compare US QWERTY with the
   documented Belgian/French/German alternatives for Search, Trash, Tab, snippet,
   and calendar; test Colemak's listed reply/navigation/snippet overrides. Do not
-  infer native support for an unlisted international layout.
+  infer native support for an unlisted international layout. The official
+  [International keyboard shortcuts](https://help.superhuman.com/hc/en-us/articles/46005584339597-Shortcuts-for-International-Keyboards)
+  article documents Shift+7 for Search on Belgian/French/German layouts. Mail
+  now accepts `/` with either Shift state for Search only; focused hook
+  regressions cover shifted and unshifted `/`, reject Alt, and preserve strict
+  Shift matching for other shortcuts. The local live browser verified the
+  canonical US `/` path; the generated international key event and paired
+  Superhuman behavior remain unverified on physical international hardware.
 - SETTINGS-003 — Settings navigation/search/back/refresh. Test signature,
   drafting style, snippets, aliases, tracking, accounts, split/combine inbox,
   filters, automations, AI filter, Auto Labels/Archive/Drafts/Reminders,
@@ -809,13 +826,15 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   listener, reads the latest sequence list through a ref, and clears pending
   keys when disabled or unmounted. Regression coverage checks successful
   one-shot dispatch, input exclusion, timeout across rerender, and disable
-  cleanup; 51 focused hook/layout/palette tests and all 847 Mail tests pass.
-  Local browser replay is still pending because `localhost:8080` did not
-  respond from this runner, and the Superhuman tab remains on its public
-  landing page. A separate disconnected browser pass searched the Mail
-  command palette for `shortcut`; only the Ask AI fallback appeared, with no
-  shortcut-reference entry. This is a candidate gap against the recorded
-  Superhuman Command → Shortcuts baseline. Mail now has a four-scope local
+  cleanup; the full Mail suite now passes 914 tests across 110 files.
+  An earlier disconnected browser pass searched the Mail command palette for
+  `shortcut` and found no shortcut-reference entry. A local browser replay on
+  2026-09-14 now opens Command with Cmd+K, finds `Shortcuts`, and displays the
+  Global, Message list, Conversation, and Compose scopes. Escape clears the
+  palette query while keeping the reference open; a second Escape closes
+  Command, returns to `/all`, restores page focus, and leaves the existing
+  compose panel open. This is Mail-only behavior evidence; paired Superhuman
+  comparison remains unverified. Mail now has a four-scope local
   Command → Shortcuts reference (Global, Message list, Conversation, Compose)
   cross-checked against the actual shortcut handlers. Regression coverage
   checks scope-specific mappings including list versus conversation J/K,

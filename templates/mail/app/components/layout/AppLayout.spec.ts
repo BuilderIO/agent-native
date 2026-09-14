@@ -105,6 +105,12 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("onFocus={() => setSearchFocused(true)}");
   });
 
+  it("accepts Shift when an international layout types the Search slash", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain('key: "/",\n      shift: "either",');
+  });
+
   it("labels the hidden keyboard-shortcut target for Search", () => {
     const source = appLayoutSource();
 

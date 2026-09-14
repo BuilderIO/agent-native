@@ -65,7 +65,7 @@ interface Shortcut {
   key: string;
   meta?: boolean;
   ctrl?: boolean;
-  shift?: boolean;
+  shift?: boolean | "either";
   alt?: boolean;
   handler: ShortcutHandler;
   shouldHandle?: (e: KeyboardEvent) => boolean;
@@ -88,14 +88,11 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
         }
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
+        const shiftMatch =
+          shortcut.shift === "either" || e.shiftKey === Boolean(shortcut.shift);
         const modMatch = shortcut.meta
-          ? (e.metaKey || e.ctrlKey) &&
-            !e.altKey &&
-            (shortcut.shift ? e.shiftKey : !e.shiftKey)
-          : !e.metaKey &&
-            !e.ctrlKey &&
-            !e.altKey &&
-            (shortcut.shift ? e.shiftKey : !e.shiftKey);
+          ? (e.metaKey || e.ctrlKey) && !e.altKey && shiftMatch
+          : !e.metaKey && !e.ctrlKey && !e.altKey && shiftMatch;
 
         if (keyMatch && modMatch) {
           if (shortcut.shouldHandle && !shortcut.shouldHandle(e)) continue;

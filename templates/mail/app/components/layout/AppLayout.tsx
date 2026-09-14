@@ -1105,6 +1105,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     },
     {
       key: "/",
+      shift: "either",
       handler: () => {
         document.getElementById("mail-search")?.focus();
       },

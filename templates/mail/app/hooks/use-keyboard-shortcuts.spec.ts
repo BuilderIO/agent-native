@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isKeyboardShortcutTarget,
   shouldCycleMailTab,
+  useKeyboardShortcuts,
   useSequenceShortcuts,
 } from "./use-keyboard-shortcuts";
 
@@ -91,6 +92,60 @@ describe("shouldCycleMailTab", () => {
     expect(shouldCycleMailTab(workspace)).toBe(true);
     expect(shouldCycleMailTab(tab)).toBe(true);
     expect(shouldCycleMailTab(dialogButton)).toBe(false);
+  });
+});
+
+describe("useKeyboardShortcuts", () => {
+  it("matches a layout-dependent slash with or without Shift", () => {
+    const handler = vi.fn();
+    const { unmount } = renderHook(() =>
+      useKeyboardShortcuts([{ key: "/", shift: "either", handler }]),
+    );
+    const unshiftedSlash = new KeyboardEvent("keydown", {
+      key: "/",
+      cancelable: true,
+    });
+    const shiftedSlash = new KeyboardEvent("keydown", {
+      key: "/",
+      shiftKey: true,
+      cancelable: true,
+    });
+    const modifiedSlash = new KeyboardEvent("keydown", {
+      key: "/",
+      shiftKey: true,
+      altKey: true,
+      cancelable: true,
+    });
+
+    act(() => {
+      window.dispatchEvent(unshiftedSlash);
+      window.dispatchEvent(shiftedSlash);
+      window.dispatchEvent(modifiedSlash);
+    });
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(unshiftedSlash.defaultPrevented).toBe(true);
+    expect(shiftedSlash.defaultPrevented).toBe(true);
+    expect(modifiedSlash.defaultPrevented).toBe(false);
+    unmount();
+  });
+
+  it("keeps Shift strict for shortcuts without a layout-dependent alias", () => {
+    const handler = vi.fn();
+    const { unmount } = renderHook(() =>
+      useKeyboardShortcuts([{ key: "c", handler }]),
+    );
+    const shiftedC = new KeyboardEvent("keydown", {
+      key: "c",
+      shiftKey: true,
+      cancelable: true,
+    });
+
+    act(() => window.dispatchEvent(shiftedC));
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(shiftedC.defaultPrevented).toBe(false);
+    unmount();
   });
 });
 
