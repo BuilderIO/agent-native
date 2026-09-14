@@ -381,8 +381,20 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   To focused and Send disabled. The blank test draft was discarded, and the
   pre-existing draft was left untouched and minimized again. Mail's expanded
   composer still overlays the main pane, so its layout is not yet verified as
-  equivalent to Superhuman's main-workspace compose. The focus-dependent no-op,
-  other focus targets, and paired button/command-palette behavior remain open.
+  equivalent to Superhuman's main-workspace compose. The focus-dependent no-op
+  and other focus targets remain open. A further live `⌘K` → Compose check on
+  2026-09-14 (1280×720; Superhuman 1041.0.54; Mail branch `e8d8ab3c39`)
+  selected `Compose C` in Superhuman and `Compose new email C` in Mail. Both
+  opened a blank composer with To focused. Mail marked Send disabled;
+  Superhuman's accessibility tree did not mark Send disabled. No recipient or
+  body was entered, and Send was not clicked. Starting states differed:
+  Superhuman was at Important inbox without a minimized draft, while Mail had
+  a pre-existing minimized draft. This verifies each command path in the
+  observed states, but is not a strict same-state parity comparison; no
+  screenshot/layout or latency comparison was performed. In Mail, Escape
+  returned to the pre-existing draft, which I left untouched and minimized
+  again. No email was sent. Repeat with aligned starting states before
+  assigning parity.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
@@ -394,7 +406,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   closed that blank test draft and restored the pre-existing draft expanded;
   it was minimized again without editing it. This Escape replay did not match
   Superhuman's starting state (no existing minimized draft), so there is no
-  parity conclusion yet. The other blank test drafts were also discarded.
+  parity conclusion yet. A second replay through `⌘K` → Compose likewise
+  returned to the pre-existing draft on Escape; it was minimized again without
+  changing its contents. The command-palette replay also lacked a matching
+  Superhuman minimized-draft starting state. The other blank test drafts were
+  also discarded.
   Close/close-all recovery, outside click, browser navigation, and other
   platform/focus variants remain unverified.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
