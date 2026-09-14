@@ -1872,6 +1872,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     >
   >(new Map());
   const serverSnapshotGenerationRef = useRef(0);
+  const deckScopeGenerationRef = useRef(0);
   const deckBaselineRequestIdRef = useRef(0);
   const deckListRequestIdRef = useRef(0);
   const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
@@ -2095,14 +2096,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const deleteDeckAfterPendingCreate = useCallback(
     (deckId: string, onFailure?: () => void) => {
+      const scopeGeneration = deckScopeGenerationRef.current;
+      const deleteInCurrentScope = () => {
+        if (scopeGeneration !== deckScopeGenerationRef.current) {
+          return Promise.resolve();
+        }
+        return deleteDeckFromAPI(deckId);
+      };
       const pendingCreate = pendingCreatePromisesRef.current.get(deckId);
       const deletion = pendingCreate
-        ? pendingCreate.then(
-            () => deleteDeckFromAPI(deckId),
-            () => deleteDeckFromAPI(deckId),
-          )
-        : deleteDeckFromAPI(deckId);
+        ? pendingCreate.then(deleteInCurrentScope, deleteInCurrentScope)
+        : deleteInCurrentScope();
       void deletion.catch((err) => {
+        if (scopeGeneration !== deckScopeGenerationRef.current) return;
         console.error(`Failed to delete deck ${deckId}:`, err);
         onFailure?.();
       });
@@ -2623,6 +2629,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, [reloadDecksWithStatus]);
 
   const resetDeckScope = useCallback((nextOrgId: string | null) => {
+    deckScopeGenerationRef.current += 1;
     const scopedDeckIds = new Set([
       ...decksRef.current.map((deck) => deck.id),
       ...pendingCreateIdsRef.current,
@@ -3095,6 +3102,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       title?: string,
       onFailure?: () => void,
     ): Promise<Deck | null> => {
+      const scopeGeneration = deckScopeGenerationRef.current;
       if (pendingDuplicateSourceIdsRef.current.has(sourceDeckId)) return null;
       pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
       let source = decks.find((d) => d.id === sourceDeckId);
@@ -3110,6 +3118,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
         source = hydrated;
       }
+      if (scopeGeneration !== deckScopeGenerationRef.current) return null;
 
       const now = new Date().toISOString();
       const newTitle = title || `Copy of ${source.title}`;
@@ -3180,11 +3189,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
       duplicatePromise
         .catch(async (err) => {
+          if (scopeGeneration !== deckScopeGenerationRef.current) return;
           // A rejected request is not proof the row is missing: a timeout or
           // dropped response can land after the server committed the insert.
           // Discarding the copy then would delete work that actually exists
           // and tell the user it failed, so confirm against the server first.
           const probe = await probeDeckPersisted(newId);
+          if (scopeGeneration !== deckScopeGenerationRef.current) return;
           if (probe.persisted) {
             console.warn(
               `Duplicate request for ${newId} failed but the deck persisted:`,
@@ -3201,6 +3212,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           onFailure?.();
         })
         .finally(() => {
+          if (scopeGeneration !== deckScopeGenerationRef.current) return;
           pendingCreateIdsRef.current.delete(newId);
           if (
             pendingCreatePromisesRef.current.get(newId) === duplicatePromise
@@ -3230,11 +3242,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const deleteDeck = useCallback(
     (id: string) => {
+      const scopeGeneration = deckScopeGenerationRef.current;
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
       const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
       discardPendingDeckOps(id);
       deleteDeckAfterPendingCreate(id, () => {
-        if (!beforeDeck) return;
+        if (scopeGeneration !== deckScopeGenerationRef.current || !beforeDeck) {
+          return;
+        }
         setDecks((prev) => {
           if (prev.some((deck) => deck.id === id)) return prev;
           const next = [...prev];
