@@ -146,7 +146,9 @@ export function pinnedHeightScreenIds(
  */
 export function withMeasuredFrameHeights(
   frames: FrameEntry[],
-  measuredHeightById: Record<string, number>,
+  // i18n-ignore: two adjacent generics, which guard:i18n-catalogs' raw-literal
+  // scan reads as JSX text between `>` and `<`.
+  measuredHeightById: Record<string, number>, // i18n-ignore
   pinnedHeightIds?: ReadonlySet<string>,
 ): FrameEntry[] {
   if (Object.keys(measuredHeightById).length === 0) return frames;

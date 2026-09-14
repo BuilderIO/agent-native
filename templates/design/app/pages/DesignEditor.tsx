@@ -867,6 +867,7 @@ import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
+  resolveSpaceForwardTransition,
   resolveToolAfterSelection,
   shouldAskOnNewDesignArrival,
   shouldAutoEnableDrawOverlay,
@@ -9026,10 +9027,15 @@ function DesignEditor() {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (!canEditDesignRef.current) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
-      if (activeEditorDragRef.current) {
+      const armKeydown = resolveSpaceForwardTransition(
+        "keydown",
+        spaceForwardArmedRef.current,
+        Boolean(activeEditorDragRef.current),
+      );
+      if (armKeydown.broadcast !== null) {
         event.preventDefault();
-        spaceForwardArmedRef.current = true;
-        broadcastSpaceHeldToIframes(true);
+        spaceForwardArmedRef.current = armKeydown.armed;
+        broadcastSpaceHeldToIframes(armKeydown.broadcast);
         return;
       }
       if (spacePanStashedToolRef.current !== null) return;
@@ -9041,10 +9047,15 @@ function DesignEditor() {
 
     const handleWindowKeyUp = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
-      if (spaceForwardArmedRef.current) {
-        spaceForwardArmedRef.current = false;
+      const releaseKeyup = resolveSpaceForwardTransition(
+        "keyup",
+        spaceForwardArmedRef.current,
+        Boolean(activeEditorDragRef.current),
+      );
+      if (releaseKeyup.broadcast !== null) {
+        spaceForwardArmedRef.current = releaseKeyup.armed;
         event.preventDefault();
-        broadcastSpaceHeldToIframes(false);
+        broadcastSpaceHeldToIframes(releaseKeyup.broadcast);
         return;
       }
       const stashedTool = spacePanStashedToolRef.current;
@@ -9063,9 +9074,14 @@ function DesignEditor() {
     // window loses focus mid-hold (e.g. Cmd+Tab away) so neither gets stuck
     // armed with no matching keyup.
     const handleWindowBlur = () => {
-      if (spaceForwardArmedRef.current) {
-        spaceForwardArmedRef.current = false;
-        broadcastSpaceHeldToIframes(false);
+      const releaseBlur = resolveSpaceForwardTransition(
+        "blur",
+        spaceForwardArmedRef.current,
+        Boolean(activeEditorDragRef.current),
+      );
+      if (releaseBlur.broadcast !== null) {
+        spaceForwardArmedRef.current = releaseBlur.armed;
+        broadcastSpaceHeldToIframes(releaseBlur.broadcast);
       }
       const stashedTool = spacePanStashedToolRef.current;
       if (stashedTool === null) return;
