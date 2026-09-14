@@ -225,6 +225,49 @@ describe("SearchBar suggestion selection", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["one-character", " a "],
+    ["two-character", " ab "],
+  ])("does not auto-navigate for a trimmed %s query", (_label, query) => {
+    vi.useFakeTimers();
+    render(<SearchBar onClose={vi.fn()} />);
+    const input = screen.getByRole("combobox");
+
+    fireEvent.change(input, { target: { value: query } });
+    act(() => vi.advanceTimersByTime(1_000));
+
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("auto-navigates a trimmed three-character query at 400ms", () => {
+    vi.useFakeTimers();
+    render(<SearchBar onClose={vi.fn()} />);
+    const input = screen.getByRole("combobox");
+
+    fireEvent.change(input, { target: { value: " a b " } });
+    act(() => vi.advanceTimersByTime(399));
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
+    expect(mocks.navigate).toHaveBeenCalledWith("/all?q=a%20b");
+  });
+
+  it("submits a qualifying query immediately on Enter without a second timed navigation", () => {
+    vi.useFakeTimers();
+    render(<SearchBar onClose={vi.fn()} />);
+    const input = screen.getByRole("combobox");
+
+    fireEvent.change(input, { target: { value: " a b " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
+    expect(mocks.navigate).toHaveBeenCalledWith("/all?q=a%20b");
+
+    act(() => vi.advanceTimersByTime(400));
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
+  });
+
   it("returns focus to Search when the command palette outlives its search input", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {

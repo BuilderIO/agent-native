@@ -9,40 +9,143 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
-    key === "commandPalette.search" ? "Search emails" : key,
+    ({
+      "commandPalette.search": "Search emails",
+      "commandPalette.shortcuts": "Shortcuts",
+      "commandPalette.shortcutsGlobal": "Global",
+      "commandPalette.shortcutsList": "Message list",
+      "commandPalette.shortcutsThread": "Conversation",
+      "commandPalette.shortcutsCompose": "Compose",
+      "commandPalette.backToCommands": "Back to commands",
+      "commandPalette.backToMessageList": "Return to message list",
+      "commandPalette.cycleTabs": "Cycle tabs",
+      "commandPalette.extendSelection": "Extend selection",
+      "commandPalette.moveSelection": "Move selection",
+      "commandPalette.openMessage": "Open message",
+      "commandPalette.nextPreviousConversation": "Next / previous conversation",
+      "commandPalette.nextPreviousMessage": "Next / previous message",
+      "commandPalette.selectAllConversations": "Select all conversations",
+      "commandPalette.sendAndMarkDone": "Send and mark Done",
+      "commandPalette.toggleMessageExpansion": "Expand / collapse message",
+      "commandPalette.toggleReadState": "Toggle read state",
+      "commandPalette.reportSpam": "Report spam",
+      "commandPalette.compose": "Compose new email",
+      "commandPalette.reply": "Reply to thread",
+      "commandPalette.snooze": "Snooze email",
+      "commandPalette.goToInbox": "Go to Inbox",
+      "commandPalette.goToStarred": "Go to Starred",
+      "commandPalette.goToSent": "Go to Sent",
+      "commandPalette.goToDrafts": "Go to Drafts",
+      "commandPalette.goToTrash": "Go to Trash",
+      "commandPalette.goToAllMail": "Go to All Mail",
+      "commandPalette.goToArchive": "Go to Archive",
+      "mail.actions.undo": "Undo",
+      "mail.actions.archive": "Archive",
+      "mail.actions.moveToTrash": "Move to Trash",
+      "mail.actions.markRead": "Mark read",
+      "mail.actions.markUnread": "Mark unread",
+      "mail.selection.read": "Read",
+      "mail.mobileActions.star": "Star",
+      "mail.mobileActions.replyAll": "Reply All",
+      "mail.mobileActions.reply": "Reply",
+      "mail.compose.forward": "Forward",
+      "mail.compose.send": "Send",
+      "mail.draftQueue.bcc": "Bcc",
+      "mail.compose.cancel": "Cancel",
+      "mail.mobileActions.close": "Close",
+      "mail.thread.searchConversation": "Search in conversation...",
+    })[key] ?? key,
 }));
 
 vi.mock("@agent-native/core/client/navigation", async () => {
   const React = await import("react");
-  const Group = ({ children }: { children: React.ReactNode }) =>
-    React.createElement("div", null, children);
+  const Group = ({
+    children,
+    heading,
+  }: {
+    children: React.ReactNode;
+    heading?: string;
+  }) =>
+    React.createElement(
+      "div",
+      null,
+      heading && React.createElement("h3", null, heading),
+      children,
+    );
+  const MenuContext = React.createContext<{
+    onOpenChange: (open: boolean) => void;
+  } | null>(null);
   const Item = ({
     children,
     onSelect,
+    deferSelect = true,
   }: {
     children: React.ReactNode;
     onSelect: () => void;
-  }) => React.createElement("button", { onClick: onSelect }, children);
+    deferSelect?: boolean;
+  }) => {
+    const menu = React.useContext(MenuContext);
+    return React.createElement(
+      "button",
+      {
+        onClick: () => {
+          onSelect();
+          if (!deferSelect) menu?.onOpenChange(false);
+        },
+      },
+      children,
+    );
+  };
   const Shortcut = ({ children }: { children: React.ReactNode }) =>
     React.createElement("span", null, children);
   const Separator = () => React.createElement("hr");
   const CommandMenu = Object.assign(
     ({
       children,
+      open,
       clearSearchOnEscape,
       onCloseAutoFocus,
+      onOpenChange,
     }: {
       children: React.ReactNode;
+      open: boolean;
       clearSearchOnEscape?: boolean;
       onCloseAutoFocus?: (event: Event) => void;
+      onOpenChange: (open: boolean) => void;
     }) =>
       React.createElement(
         "div",
         {
+          onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+            const items = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),
+            );
+            const current = items.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            if (event.key === "ArrowDown" && items.length) {
+              event.preventDefault();
+              items[(current + 1) % items.length].focus();
+            } else if (event.key === "ArrowUp" && items.length) {
+              event.preventDefault();
+              items[(current - 1 + items.length) % items.length].focus();
+            } else if (event.key === "Enter" && current >= 0) {
+              event.preventDefault();
+              items[current].click();
+            } else if (event.key === "Escape") {
+              onOpenChange(false);
+            }
+          },
           "data-clear-search-on-escape": String(Boolean(clearSearchOnEscape)),
           "data-has-close-auto-focus": String(Boolean(onCloseAutoFocus)),
         },
-        children,
+        open
+          ? React.createElement(
+              MenuContext.Provider,
+              { value: { onOpenChange } },
+              children,
+            )
+          : null,
       ),
     { Group, Item, Shortcut, Separator },
   );
@@ -63,7 +166,7 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("@/hooks/use-emails", () => ({
-  useSettings: () => ({ data: {} }),
+  useSettings: () => ({ data: undefined }),
   useUpdateSettings: () => ({ mutate: vi.fn() }),
 }));
 
@@ -103,16 +206,8 @@ describe("CommandPalette Search action", () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "commandPalette.goToAllMail G A",
-      }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "commandPalette.goToArchive G E",
-      }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Go to All Mail G A" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to Archive G E" }));
 
     expect(mocks.navigate).toHaveBeenNthCalledWith(1, "/all");
     expect(mocks.navigate).toHaveBeenNthCalledWith(2, "/archive");
@@ -136,5 +231,104 @@ describe("CommandPalette Search action", () => {
     expect(
       container.querySelector('[data-has-close-auto-focus="true"]'),
     ).toBeTruthy();
+  });
+
+  it("opens a scoped shortcut reference with source-backed mappings", () => {
+    render(
+      <CommandPalette
+        open
+        onOpenChange={vi.fn()}
+        onCompose={vi.fn()}
+        onSearch={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Shortcuts" }));
+
+    expect(screen.getByRole("heading", { name: "Global" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Message list" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Conversation" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Compose" })).toBeTruthy();
+    expect(screen.getByText("C")).toBeTruthy();
+    expect(screen.getByText("G #")).toBeTruthy();
+    expect(screen.getByText("J / ↓ · K / ↑")).toBeTruthy();
+    expect(screen.getByText("N / P")).toBeTruthy();
+    expect(screen.getByText("⌘ Enter / Ctrl Enter")).toBeTruthy();
+
+    const expectShortcut = (label: string, shortcut: string) => {
+      const matchingLabels = screen.getAllByText(label);
+      expect(matchingLabels.length).toBeGreaterThan(0);
+      for (const matchingLabel of matchingLabels) {
+        expect(matchingLabel.parentElement?.textContent).toContain(shortcut);
+      }
+    };
+    expectShortcut("Next / previous conversation", "J / K");
+    expectShortcut("Next / previous message", "N / P");
+    expectShortcut("Expand / collapse message", "Enter / O");
+    expectShortcut("Return to message list", "Esc");
+    expectShortcut("Search in conversation...", "⌘ F / Ctrl F");
+    expectShortcut("Toggle read state", "U");
+    expectShortcut("Extend selection", "Shift+J/K · Shift+↑/↓");
+    expectShortcut("Select all conversations", "⌘ A / Ctrl A");
+    expectShortcut("Reply All", "A");
+    expectShortcut("Cycle tabs", "Tab / Shift+Tab");
+    expectShortcut("Send and mark Done", "⌘ Shift Enter / Ctrl Shift Enter");
+  });
+
+  it("supports keyboard navigation and resets to commands after closing", () => {
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <CommandPalette
+        open
+        onOpenChange={onOpenChange}
+        onCompose={vi.fn()}
+        onSearch={vi.fn()}
+      />,
+    );
+
+    const composeCommand = screen.getByRole("button", {
+      name: "Compose new email C",
+    });
+    composeCommand.focus();
+    fireEvent.keyDown(composeCommand, { key: "ArrowDown" });
+    const searchCommand = screen.getByRole("button", {
+      name: "Search emails /",
+    });
+    expect(document.activeElement).toBe(searchCommand);
+    fireEvent.keyDown(searchCommand, { key: "ArrowDown" });
+    const shortcutCommand = screen.getByRole("button", { name: "Shortcuts" });
+    expect(document.activeElement).toBe(shortcutCommand);
+    fireEvent.keyDown(shortcutCommand, { key: "Enter" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Back to commands" }),
+    ).toBeTruthy();
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: "Back to commands" }),
+      {
+        key: "Escape",
+      },
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    rerender(
+      <CommandPalette
+        open={false}
+        onOpenChange={onOpenChange}
+        onCompose={vi.fn()}
+        onSearch={vi.fn()}
+      />,
+    );
+    rerender(
+      <CommandPalette
+        open
+        onOpenChange={onOpenChange}
+        onCompose={vi.fn()}
+        onSearch={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Shortcuts" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Back to commands" }),
+    ).toBeNull();
   });
 });

@@ -128,7 +128,11 @@ vi.mock("@/hooks/use-scheduled-jobs", () => ({
   useSendScheduledJobNow: () => ({ mutate: vi.fn() }),
 }));
 
-vi.mock("@/hooks/use-undo", () => ({ setUndoAction: vi.fn() }));
+vi.mock("@/hooks/use-undo", () => ({
+  setUndoAction: vi.fn(() => vi.fn()),
+  setUndoToastId: vi.fn(),
+  UNDO_DURATION: 10_000,
+}));
 
 vi.mock("@/lib/thread-cache", () => ({
   ensureThread: vi.fn(() => Promise.resolve([])),
@@ -154,7 +158,13 @@ const messages = ["first", "middle", "last"].map((id, index) => ({
   accountEmail: "synthetic@example.test",
 }));
 
-function Harness({ emails = messages }: { emails?: typeof messages }) {
+function Harness({
+  emails = messages,
+  onCompose,
+}: {
+  emails?: typeof messages;
+  onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
+}) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
   return (
@@ -168,6 +178,7 @@ function Harness({ emails = messages }: { emails?: typeof messages }) {
         setFocusedId={setFocusedId}
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
+        onCompose={onCompose}
       />
     </>
   );
@@ -403,5 +414,16 @@ describe("EmailList keyboard navigation interactions", () => {
       null,
     ]);
     expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+  });
+
+  it("maps r and a to reply and Reply All for the focused conversation", () => {
+    const onCompose = vi.fn();
+    render(<Harness onCompose={onCompose} />);
+
+    press("r");
+    press("a");
+
+    expect(onCompose).toHaveBeenNthCalledWith(1, messages[0], "reply");
+    expect(onCompose).toHaveBeenNthCalledWith(2, messages[0], "replyAll");
   });
 });

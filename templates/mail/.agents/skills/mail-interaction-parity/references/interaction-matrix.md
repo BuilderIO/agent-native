@@ -111,7 +111,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   discrepancy. In the isolated browser pass, a two-character query remained on
   the current route after about 700 ms; a three-character query navigated to
   `/mail/all?q=abc` after about 700 ms. The disconnected runtime had no mailbox
-  results, and no paired Superhuman replay has been captured.
+  results. Fake-timer regressions in `SearchBar.interaction.test.tsx` also prove
+  that trimmed one- and two-character queries do not auto-navigate, a
+  three-character query navigates at 400 ms (not 399 ms), and Enter submits
+  exactly once without waiting for the timer. These tests characterize Mail
+  only; no paired Superhuman replay has been captured.
 - SEARCH-003 — Navigate contact suggestions with ArrowDown/ArrowUp, Home/End
   if supported, Enter, mouse hover, mouse click, and Tab. Confirm the selected
   result is the one opened and focus/URL are correct.
@@ -185,7 +189,9 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Confirm only the intended action runs and a nested button never opens the row.
 - LIST-003 — Focus a row and use j/k, ArrowUp/ArrowDown, Enter, o, Space,
   Shift+j/k, Shift+ArrowUp/Down, and Escape. Test first, middle, last, one-row,
-  empty, virtualized, and newly fetched rows.
+  empty, virtualized, and newly fetched rows. Local synthetic keyboard coverage
+  on 2026-09-14 confirms `r` starts Reply and `a` starts Reply All for the
+  focused conversation; paired Superhuman list behavior remains unverified.
 - LIST-004 — Use Cmd/Ctrl+A in the list, with a selected subset, on an input,
   in a thread, and in compose. Confirm scope and native text selection behavior.
 - LIST-005 — For each product, record the actual key shown by its command
@@ -209,6 +215,17 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   official [Undo](https://help.superhuman.com/hc/en-us/articles/46005666743309-Undo)
   reference. If the responsive Mail surface has no on-screen Undo, record the
   exact parity gap instead of treating the keyboard shortcut as equivalent.
+  Official reference: Superhuman's [Undo](https://help.superhuman.com/hc/en-us/articles/46005666743309-Undo)
+  guide documents `Z` to undo the last action within 10 seconds. Local
+  regression evidence on 2026-09-14: `pnpm --filter mail exec vitest run
+  app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.test.tsx`
+  passed (2 files, 15 tests). The hook tests cover before/at/after expiry,
+  latest-action replacement, stale toast callbacks, keyboard/toast
+  consume-once behavior, active-toast-only dismissal, clearing, and
+  `useHasUndo`; list/thread archive and trash toast wiring uses the same
+  10,000 ms duration and consume-once callback. These are local deterministic
+  tests, not a paired UI replay. Live Superhuman toast placement, appearance,
+  and tap behavior remain unverified; do not claim those match.
   Keep manual/reference observation distinct from toast/action unit-test proof.
 - LIST-009 — Drag/reorder tabs, labels, and saved filters. Test left/right drop,
   same-item drop, cross-group drop, cancelled drag, keyboard alternative, and
@@ -223,8 +240,16 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   and the resulting visible bar. Verify the documented Android availability
   boundary rather than assuming iOS customization exists there. Use
   [Customizing Swipes and Triage Bar](https://help.superhuman.com/hc/en-us/articles/46005742942861-Customizing-Swipes-and-Triage-Bar)
-  as the platform reference. Planned comparison only until observed in both
-  products.
+  as the platform reference. Mail source maps left to archive and right to
+  snooze, with an 80px commit threshold, a 56px minimum fling distance at
+  0.11px/ms, and a 180ms archive handoff; those implementation values do not
+  establish equivalence with Superhuman's Done/Reminder actions. A synthetic
+  touch suite now covers both directions, threshold/fling boundaries,
+  vertical/diagonal locks, cancellation, missing handlers, and trailing clicks
+  (`EmailListItem.touch.interaction.test.tsx`; focused run: 2 files, 12 tests).
+  It found and fixed cancellation leaving the click-suppression flag set, which
+  swallowed the next independent row click. These are Mail-only tests; paired
+  mapping, thresholds, animation, and settings behavior remain unverified.
 - LIST-011 — Open an inbox tab with zero rows, loading rows, exhausted pages,
   fetch-more error, account error, rate limit, needs-reauth, and sync-in-progress.
   Confirm skeleton, retry, partial coverage, and Inbox Zero are distinct.
@@ -243,6 +268,14 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - THREAD-004 — Use thread e/archive, d/trash, s star, u read/unread, Shift+I/U,
   r reply, a reply-all, f forward, h snooze, spam, unsubscribe, block, mute,
   label/move, and undo. Confirm action scope and post-action destination.
+  Local deterministic evidence on 2026-09-14: six synthetic draft-builder cases
+  cover Reply, Reply All, and Forward recipients, subject/body, source
+  message/thread/account metadata, and forwarded attachment metadata. The tests
+  exposed that thread-view Forward omitted original attachments; Mail now
+  carries the existing Gmail attachment references into both inline and
+  list-modal forward drafts. This is Mail-only builder evidence, not a UI replay
+  or sent-message test; paired Superhuman recipient/focus behavior remains
+  unverified.
 - THREAD-005 — Test HTML/plain text/markdown bodies, long lines, tables, code,
   inline images, blocked remote images, unsafe links, new-tab links, sanitized
   markup, iframe load/error, dark mode, and responsive height.
@@ -776,7 +809,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   landing page. A separate disconnected browser pass searched the Mail
   command palette for `shortcut`; only the Ask AI fallback appeared, with no
   shortcut-reference entry. This is a candidate gap against the recorded
-  Superhuman Command → Shortcuts baseline; a live paired replay remains
+  Superhuman Command → Shortcuts baseline. Mail now has a four-scope local
+  Command → Shortcuts reference (Global, Message list, Conversation, Compose)
+  cross-checked against the actual shortcut handlers. Regression coverage
+  checks scope-specific mappings including list versus conversation J/K,
+  conversation N/P and Escape, read-state toggling, conversation select-all, and
+  compose send-and-mark-done. This is a partial Mail inventory, not the full
+  Superhuman shortcut baseline; a live paired replay and behavior parity remain
   unverified.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.

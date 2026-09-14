@@ -85,7 +85,7 @@ type SnoozeTarget = {
 };
 import { toast } from "sonner";
 
-import { setUndoAction } from "@/hooks/use-undo";
+import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
 interface EmailListProps {
@@ -107,7 +107,10 @@ interface EmailListProps {
   setFocusedId: (id: string | null) => void;
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-  onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
+  onCompose?: (
+    email: EmailMessage,
+    mode: "reply" | "replyAll" | "forward",
+  ) => void;
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
   onNavigateThread?: (threadId: string) => void;
@@ -749,13 +752,17 @@ export function EmailList({
         );
         for (const ref of emailRefs) unarchiveEmail.mutate(ref);
       };
-      setUndoAction(undo);
-      toast(
+      const consumeUndo = setUndoAction(undo);
+      const toastId = toast(
         threadKeys.length > 1
           ? t("mail.toasts.archivedMany", { count: threadKeys.length })
           : t("mail.toasts.archived"),
-        { action: { label: t("mail.actions.undo"), onClick: undo } },
+        {
+          action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+          duration: UNDO_DURATION,
+        },
       );
+      setUndoToastId(toastId);
       if (targets.length > 1) {
         // Bulk selection: one action call (server batches into one Gmail
         // call per account) + one optimistic cache update instead of N.
@@ -860,13 +867,17 @@ export function EmailList({
         );
         for (const ref of emailRefs) untrashEmail.mutate(ref);
       };
-      setUndoAction(undo);
-      toast(
+      const consumeUndo = setUndoAction(undo);
+      const toastId = toast(
         threadKeys.length > 1
           ? t("mail.toasts.trashedMany", { count: threadKeys.length })
           : t("mail.toasts.trashed"),
-        { action: { label: t("mail.actions.undo"), onClick: undo } },
+        {
+          action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+          duration: UNDO_DURATION,
+        },
       );
+      setUndoToastId(toastId);
       if (targets.length > 1) {
         // Bulk selection: one action call, bounded-concurrency on the server
         // (Gmail has no batch trash endpoint) instead of N parallel mutate()
@@ -1159,6 +1170,13 @@ export function EmailList({
     if (thread) onCompose(thread.latestMessage, "reply");
   }, [threads, onCompose]);
 
+  const replyAllFocused = useCallback(() => {
+    const id = focusedIdRef.current;
+    if (!id || !onCompose) return;
+    const thread = threads.find((t) => t.latestMessage.id === id);
+    if (thread) onCompose(thread.latestMessage, "replyAll");
+  }, [threads, onCompose]);
+
   const forwardFocused = useCallback(() => {
     const id = focusedIdRef.current;
     if (!id || !onCompose) return;
@@ -1192,7 +1210,7 @@ export function EmailList({
     { key: "s", handler: starFocused },
     { key: "r", handler: replyFocused },
     { key: "f", handler: forwardFocused },
-    { key: "a", handler: replyFocused }, // reply-all (same as reply for single messages)
+    { key: "a", handler: replyAllFocused },
     { key: "Escape", handler: clearSelection },
   ]);
 
@@ -1514,10 +1532,12 @@ export function EmailList({
         );
         unarchiveEmail.mutate({ id, accountEmail });
       };
-      setUndoAction(undo);
-      toast(t("mail.toasts.archived"), {
-        action: { label: t("mail.actions.undo"), onClick: undo },
+      const consumeUndo = setUndoAction(undo);
+      const toastId = toast(t("mail.toasts.archived"), {
+        action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+        duration: UNDO_DURATION,
       });
+      setUndoToastId(toastId);
       archiveEmail.mutate({
         id,
         accountEmail: thread.latestMessage.accountEmail,
