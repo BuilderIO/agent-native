@@ -2,13 +2,13 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   contacts: [
-    { name: "Ada Example", email: "ada@example.test" },
-    { name: "Adam Example", email: "adam@example.test" },
-    { name: "Bea Example", email: "bea@example.test" },
+    { name: "Ada Example", email: "ada@example.test", count: 12 },
+    { name: "Adam Example", email: "adam@example.test", count: 6 },
+    { name: "Bea Example", email: "bea@example.test", count: 1 },
   ],
   navigate: vi.fn(),
 }));
@@ -66,6 +66,16 @@ function RecipientHarness({ initialValue = "" }: { initialValue?: string }) {
 }
 
 describe("RecipientInput autocomplete interaction", () => {
+  beforeEach(() => {
+    mocks.contacts.splice(
+      0,
+      mocks.contacts.length,
+      { name: "Ada Example", email: "ada@example.test", count: 12 },
+      { name: "Adam Example", email: "adam@example.test", count: 6 },
+      { name: "Bea Example", email: "bea@example.test", count: 1 },
+    );
+  });
+
   afterEach(() => {
     cleanup();
   });
@@ -156,6 +166,47 @@ describe("RecipientInput autocomplete interaction", () => {
     expect(screen.getAllByText("ADA@example.test")).toHaveLength(1);
     expect(input.value).toBe("");
     expect(input.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("preserves ranked same-name contacts and matches an exact address case-insensitively", () => {
+    mocks.contacts.splice(
+      0,
+      mocks.contacts.length,
+      {
+        name: "Jordan Example",
+        email: "frequent@example.test",
+        count: 12,
+      },
+      { name: "Avery Example", email: "jordan@example.test", count: 6 },
+      {
+        name: "Jordan Example",
+        email: "less-frequent@example.test",
+        count: 1,
+      },
+    );
+    render(<RecipientHarness />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    // The contacts hook supplies frequency order; same-name results retain it.
+    fireEvent.change(input, { target: { value: "Jordan Example" } });
+    const sameNameOptions = screen.getAllByRole("option");
+    expect(sameNameOptions).toHaveLength(2);
+    expect(sameNameOptions[0].textContent).toContain("frequent@example.test");
+    expect(sameNameOptions[1].textContent).toContain(
+      "less-frequent@example.test",
+    );
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("frequent@example.test")).toBeTruthy();
+
+    // Address lookup is case-insensitive and narrows to the exact contact.
+    fireEvent.change(input, { target: { value: "JORDAN@EXAMPLE.TEST" } });
+    const exactAddressOptions = screen.getAllByRole("option");
+    expect(exactAddressOptions).toHaveLength(1);
+    expect(exactAddressOptions[0].textContent).toContain("Avery Example");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("jordan@example.test")).toBeTruthy();
   });
 
   it("locks a single pasted address into a chip on blur", () => {

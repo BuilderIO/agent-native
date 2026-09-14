@@ -312,7 +312,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   typed a unique no-match query into To: no suggestions appeared, Escape kept
   the query, and Tab committed it as a removable recipient chip with a “Save as
   alias” action. The chip was removed without sending; contact-backed ranking
-  and Superhuman's matching behavior remain unknown.
+  and Superhuman's matching behavior remain unknown. A supplemental synthetic
+  component case on 2026-09-14 seeded same-name contacts in descending
+  frequency order: a name query preserved that order, Enter committed the first
+  result, and a mixed-case exact-address query narrowed to one contact. This
+  confirms Mail's current UI behavior only; Superhuman's matching and ranking
+  remain unknown pending paired observation.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,
