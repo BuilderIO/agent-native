@@ -181,6 +181,8 @@ function source(
       titleField: "data.title",
       naturalKeyField: "/blog/[slug]",
       pushMode: "autosave",
+      builderSpacePublicKey: "selected-space-key",
+      connectionId: "builder-oauth-connection-1",
       ...args.metadata,
     },
     fields: [],
@@ -499,6 +501,9 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
     expect(deps.executeWrite).toHaveBeenCalledWith({
       request: plan.payload.request,
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
     expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -546,6 +551,8 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
     });
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
     const readCallOrder = vi.mocked(deps.readLiveEntry).mock
@@ -679,6 +686,9 @@ describe("execute Builder source execution", () => {
       request: expect.objectContaining({
         body: expect.objectContaining({ published: "published" }),
       }),
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
   });
 
@@ -727,6 +737,9 @@ describe("execute Builder source execution", () => {
           published: "published",
         }),
       }),
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
   });
 
@@ -815,6 +828,9 @@ describe("execute Builder source execution", () => {
       request: expect.objectContaining({
         body: expect.objectContaining({ published: "draft" }),
       }),
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
+      requireSourceBinding: true,
     });
   });
 
@@ -841,6 +857,8 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
     });
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
   });
@@ -1497,6 +1515,8 @@ describe("execute Builder source execution", () => {
     expect(deps.lookupSafeModelIntent).toHaveBeenCalledWith({
       exactTitle: "New title",
       intendedFields: { title: "New title" },
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "builder-oauth-connection-1",
     });
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });

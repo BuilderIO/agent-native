@@ -1,4 +1,4 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import { resolveBuilderRequestAuthorization } from "@agent-native/core/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -8,16 +8,29 @@ import {
 } from "./_builder-cms-write-client";
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveBuilderCredential: vi.fn(),
+  BUILDER_CONTENT_WRITE_SCOPE: "builder:content:write",
+  BUILDER_OAUTH_RESOURCE: "https://api.builder.io",
+  resolveBuilderRequestAuthorization: vi.fn(),
 }));
 
-const resolveBuilderCredentialMock = vi.mocked(resolveBuilderCredential);
+const resolveBuilderRequestAuthorizationMock = vi.mocked(
+  resolveBuilderRequestAuthorization,
+);
+
+function useLegacyWriteAuthorization(token = "example-private-key") {
+  resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+    token,
+    authorization: `Bearer ${token}`,
+    source: "legacy",
+  });
+}
 
 describe("Builder CMS write client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.BUILDER_CONTENT_API_HOST;
     delete process.env.BUILDER_CMS_API_HOST;
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -25,7 +38,6 @@ describe("Builder CMS write client", () => {
   });
 
   it("does not call Builder when private credentials are not configured", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi.fn();
 
     await expect(
@@ -42,22 +54,23 @@ describe("Builder CMS write client", () => {
       ok: false,
       status: 0,
       responseBody: null,
-      error: "Builder private key is not configured.",
+      error: "Builder write access is not connected.",
     });
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(resolveBuilderCredentialMock).toHaveBeenCalledWith(
-      "BUILDER_PRIVATE_KEY",
-    );
-    expect(resolveBuilderCredentialMock).toHaveBeenCalledWith(
-      "BUILDER_CMS_PRIVATE_KEY",
-    );
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      oauthResource: "general",
+      requiredScope: "builder:content:write",
+      legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+    });
   });
 
   it("sends PATCH writes to the configured Builder host with bearer auth", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://builder-write.test/";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "example-private-key" : null,
-    );
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "example-private-key",
+      authorization: "Bearer example-private-key",
+      source: "legacy",
+    });
     const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
       expect(input.href).toBe(
         "https://builder-write.test/api/v1/write/agent-native-blog-article-test/entry-1?autoSaveOnly=true&triggerWebhooks=false",
@@ -101,11 +114,145 @@ describe("Builder CMS write client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the general OAuth grant for the existing Write API without a key fallback", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space",
+      oauthConnectionId: "connection-1",
+    });
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      expect(input.href).toBe(
+        "https://api.builder.io/api/v1/write/blog-article/entry-1?autoSaveOnly=true",
+      );
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer oauth-access-token",
+      });
+      return new Response(JSON.stringify({ id: "entry-1" }), { status: 200 });
+    });
+
+    await expect(
+      executeBuilderCmsWrite({
+        expectedSourceSpace: "selected-space",
+        expectedSourceConnectionId: "connection-1",
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/blog-article/entry-1",
+          query: { autoSaveOnly: "true" },
+          body: { data: { title: "Reviewed title" } },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ ok: true, entryId: "entry-1" });
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a non-Source OAuth write caller without inventing a Source binding", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space",
+      oauthConnectionId: "connection-1",
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "entry-1" }), { status: 200 }),
+    );
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/blog-article/entry-1",
+          body: { data: { title: "Reviewed title" } },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ ok: true, entryId: "entry-1" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not dispatch an OAuth write for a different or unbound source space", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "connected-space",
+      oauthConnectionId: "connection-1",
+    });
+    const fetchImpl = vi.fn();
+    const request = {
+      method: "PATCH" as const,
+      path: "/api/v1/write/blog-article/entry-1",
+      body: { data: { title: "Reviewed title" } },
+    };
+
+    await expect(
+      executeBuilderCmsWrite({
+        request,
+        expectedSourceSpace: "source-space",
+        expectedSourceConnectionId: "connection-1",
+        requireSourceBinding: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/does not match this Content source/);
+    await expect(
+      executeBuilderCmsWrite({
+        request,
+        expectedSourceConnectionId: "connection-1",
+        requireSourceBinding: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/not bound to its connected space/);
+    await expect(
+      executeBuilderCmsWrite({
+        request,
+        expectedSourceSpace: "connected-space",
+        expectedSourceConnectionId: "different-connection",
+        requireSourceBinding: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/credential does not match/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not downgrade an OAuth-bound Source write to a legacy key", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "legacy-private-key",
+      authorization: "Bearer legacy-private-key",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/blog-article/entry-1",
+          body: { data: { title: "Reviewed title" } },
+        },
+        expectedSourceSpace: "selected-space",
+        expectedSourceConnectionId: "oauth-connection-1",
+        requireSourceBinding: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/OAuth connection is unavailable/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("falls back to BUILDER_CMS_PRIVATE_KEY and sends POST writes", async () => {
     process.env.BUILDER_CMS_API_HOST = "https://cms-write.test";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_CMS_PRIVATE_KEY" ? "example-cms-private-key" : null,
-    );
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "example-cms-private-key",
+      authorization: "Bearer example-cms-private-key",
+      source: "legacy",
+    });
     const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
       expect(input.href).toBe(
         "https://cms-write.test/api/v1/write/agent-native-blog-article-test?triggerWebhooks=false",
@@ -153,7 +300,7 @@ describe("Builder CMS write client", () => {
   });
 
   it("returns safe validation detail without leaking the key", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    useLegacyWriteAuthorization();
     const fetchImpl = vi.fn(async () => {
       return new Response(
         JSON.stringify({ message: "Blurb must be at least 110 characters" }),
@@ -180,7 +327,7 @@ describe("Builder CMS write client", () => {
   });
 
   it("does not expose arbitrary upstream error text", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    useLegacyWriteAuthorization();
     const fetchImpl = vi.fn(async () => {
       return new Response(
         JSON.stringify({ message: "Database failed for user@example.com" }),
@@ -203,7 +350,7 @@ describe("Builder CMS write client", () => {
   });
 
   it("treats provider server errors as ambiguous without exposing their body", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    useLegacyWriteAuthorization();
     const fetchImpl = vi.fn(async () => {
       return new Response(
         JSON.stringify({
@@ -236,7 +383,7 @@ describe("Builder CMS write client", () => {
   });
 
   it("does not dispatch a second PATCH after an ambiguous fetch failure", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    useLegacyWriteAuthorization();
     const fetchImpl = vi.fn(async () => {
       throw new Error("fetch failed");
     });
@@ -263,7 +410,7 @@ describe("Builder CMS write client", () => {
   });
 
   it("does not retry create POST writes after a transport error", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    useLegacyWriteAuthorization();
     const fetchImpl = vi.fn(async () => {
       throw new Error("socket closed after request body was sent");
     });
@@ -289,7 +436,7 @@ describe("Builder CMS write client", () => {
   });
 
   it("bounds provider calls and reports timeout ambiguity", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    useLegacyWriteAuthorization();
     const fetchImpl = vi.fn(
       async (_input: URL, init?: RequestInit) =>
         await new Promise<Response>((_resolve, reject) => {
@@ -318,7 +465,7 @@ describe("Builder CMS write client", () => {
 
   it("allows slow hosted Builder writes up to the 30-second provider window", async () => {
     vi.useFakeTimers();
-    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    useLegacyWriteAuthorization();
     const fetchImpl = vi.fn(
       async (_input: URL, init?: RequestInit) =>
         await new Promise<Response>((_resolve, reject) => {

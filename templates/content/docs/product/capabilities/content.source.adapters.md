@@ -134,6 +134,16 @@ adapters that are valuable substrate. Existing provider-specific behavior does
 not yet certify the common declaration model, every operation, or cross-source
 authorization and fidelity behavior. This Capability remains `in_progress`.
 
+The bounded Builder OAuth consumer now requests general content read/write
+scopes, uses the existing models, query-data, and Write API routes, and binds
+subsequent mutation calls to the Builder space observed during source refresh.
+Focused client tests cover general OAuth precedence, legacy and Publish grant
+separation, raw draft-inclusive enumeration, exact-entry reads, cross-space
+rejection, and ambiguous writes without replay. This is adapter substrate, not
+certification: Builder model discovery remains developer/admin-only, indexed
+reads do not expose the editable autosave head, and the existing Write API can
+overwrite a stale committed value or omit pending-only autosave fields.
+
 ## Proof plan
 
 1. Validate adapter declarations and Action routing for a read-only provider,

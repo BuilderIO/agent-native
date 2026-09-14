@@ -184,6 +184,7 @@ type SourceMetadataRecord = {
   readMode?: string | null;
   connectionId?: string | null;
   connectionLabel?: string | null;
+  builderSpacePublicKey?: string | null;
   truthPolicy?: ContentDatabaseSource["metadata"]["truthPolicy"];
   syncPolicy?: "manual" | "keep_in_sync";
   liveBridgeEnabled?: boolean;
@@ -1416,6 +1417,7 @@ type BuilderLiveBodyReadResult =
       entry: null;
       providerStatus:
         | "http_404"
+        | "http_200_not_found"
         | "http_200_unexpected_entry"
         | "mcp_not_found";
     };
@@ -1427,6 +1429,8 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   >;
   sourceTable: string;
   fallbackTitle: string;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
 }): Promise<BuilderLiveBodyReadResult> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
@@ -1436,6 +1440,8 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
     model: args.sourceTable,
     entryId: args.row.sourceRowId,
     strictEntryIdentity: true,
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
   });
   if (liveRead.state === "not_found") return liveRead;
   const liveEntry = liveRead.entry;
@@ -1985,6 +1991,8 @@ async function processBuilderBodyHydrationJob(
     documentContent?: string | null;
     bodyHydrationVersion?: string | null;
     bodyEntry?: BuilderCmsSourceEntry | null;
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   },
 ) {
   const db = getDb();
@@ -2055,6 +2063,8 @@ async function processBuilderBodyHydrationJob(
       row: sourceRow,
       sourceTable: row.sourceTable,
       fallbackTitle: entry.title,
+      expectedSourceSpace: preloaded?.expectedSourceSpace,
+      expectedSourceConnectionId: preloaded?.expectedSourceConnectionId,
     });
     if (liveRead.state === "not_found") {
       throw new BuilderBodyHydrationError(
@@ -2162,6 +2172,8 @@ async function processBuilderBodyHydrationJob(
         row: sourceRow,
         sourceTable: row.sourceTable,
         fallbackTitle: entry.title,
+        expectedSourceSpace: preloaded?.expectedSourceSpace,
+        expectedSourceConnectionId: preloaded?.expectedSourceConnectionId,
       });
       if (liveRead.state === "body") {
         const liveEntry = liveRead.entry;
@@ -2901,6 +2913,13 @@ export async function processBuilderBodyHydrationQueue(args: {
   retryFailed?: boolean;
 }) {
   const db = getDb();
+  const [hydrationSource] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+  const hydrationSourceMetadata = hydrationSource
+    ? (parseObject<SourceMetadataRecord>(hydrationSource.metadataJson) ?? {})
+    : {};
   const limit = normalizeHydrationLimit(args.limit);
   const now = new Date().toISOString();
   if (args.retryFailed) {
@@ -3144,6 +3163,8 @@ export async function processBuilderBodyHydrationQueue(args: {
           model,
           includeBodies: true,
           limit: 10_000,
+          expectedSourceSpace: hydrationSourceMetadata.builderSpacePublicKey,
+          expectedSourceConnectionId: hydrationSourceMetadata.connectionId,
         }),
       ),
     );
@@ -3196,6 +3217,8 @@ export async function processBuilderBodyHydrationQueue(args: {
           bodyHydrationVersion:
             bodyHydrationVersionByItemId.get(job.databaseItemId) ?? null,
           bodyEntry: bodyEntryById.get(job.sourceRowId) ?? null,
+          expectedSourceSpace: hydrationSourceMetadata.builderSpacePublicKey,
+          expectedSourceConnectionId: hydrationSourceMetadata.connectionId,
           documentContent: documentContentById.has(job.documentId)
             ? (documentContentById.get(job.documentId) ?? null)
             : undefined,
@@ -4999,6 +5022,7 @@ async function loadSourceSnapshot(
       readMode: metadata.readMode ?? null,
       connectionId: metadata.connectionId ?? null,
       connectionLabel: metadata.connectionLabel ?? null,
+      builderSpacePublicKey: metadata.builderSpacePublicKey ?? null,
       truthPolicy:
         metadata.truthPolicy === "database_primary" ||
         metadata.truthPolicy === "source_primary" ||
@@ -5246,6 +5270,11 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     ...existingMetadata,
     builderModelFields:
       args.builderModelFields ?? existingMetadata?.builderModelFields,
+    builderSpacePublicKey:
+      args.progress?.sourceSpacePublicKey ??
+      existingMetadata?.builderSpacePublicKey,
+    connectionId:
+      args.progress?.sourceConnectionId ?? existingMetadata?.connectionId,
     readMode: args.readState === "live" ? "builder-api" : "fixture",
     liveReadConfigured: args.readState === "live",
     lastReadEntryCount: args.entryCount,
@@ -5277,6 +5306,29 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     delete metadata.builderContinuationClaimedAt;
   }
   return JSON.stringify(metadata);
+}
+
+export function assertBuilderCmsContinuationIdentity(args: {
+  continueOffset: number;
+  activeReadSourceRowIds: string[];
+  entries?: Array<{ id: string }>;
+}) {
+  if (args.continueOffset <= 0) return;
+  if (
+    new Set(args.activeReadSourceRowIds).size !==
+      args.activeReadSourceRowIds.length ||
+    args.activeReadSourceRowIds.length !== args.continueOffset
+  ) {
+    throw new Error(
+      "Builder source continuation identity does not match its saved offset. Start a full refresh before mutating the snapshot.",
+    );
+  }
+  const activeIds = new Set(args.activeReadSourceRowIds);
+  if (args.entries?.some((entry) => activeIds.has(entry.id))) {
+    throw new Error(
+      "Builder source continuation repeated an entry from an earlier page. Start a full refresh before mutating the snapshot.",
+    );
+  }
 }
 
 export function serializeSourceCapabilitiesRecord(
@@ -6989,6 +7041,8 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     try {
       builderModelFields = await readBuilderCmsModelFields({
         model: args.source.sourceTable,
+        expectedSourceSpace: sourceMetadata.builderSpacePublicKey,
+        expectedSourceConnectionId: sourceMetadata.connectionId,
       });
       builderModelFields = mergeBuilderCmsModelFieldsPreservingReferenceModels({
         existing: sourceMetadata.builderModelFields,
@@ -7012,6 +7066,8 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
+    expectedSourceSpace: sourceMetadata.builderSpacePublicKey,
+    expectedSourceConnectionId: sourceMetadata.connectionId,
     fieldPaths: [
       ...existingFields.map((field) => field.sourceFieldKey),
       ...projectionModelFields.map((field) => `data.${field.name}`),
@@ -7034,6 +7090,11 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       (builderRead.progress?.startOffset ?? 0) > 0);
   const builderEntries =
     builderRead.state === "live" ? builderRead.entries : [];
+  assertBuilderCmsContinuationIdentity({
+    continueOffset,
+    activeReadSourceRowIds,
+    entries: builderEntries,
+  });
   if (
     args.refreshClaimId &&
     !(await renewBuilderCmsSourceRefreshClaim({

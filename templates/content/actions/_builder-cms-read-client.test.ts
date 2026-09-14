@@ -18,6 +18,8 @@ import {
 } from "./_builder-cms-read-client";
 
 vi.mock("@agent-native/core/server", () => ({
+  BUILDER_CONTENT_READ_SCOPE: "builder:content:read",
+  BUILDER_OAUTH_RESOURCE: "https://api.builder.io",
   resolveBuilderCredential: vi.fn(),
   resolveBuilderRequestAuthorization: vi.fn(),
   BUILDER_PUBLISH_MCP_RESOURCE: "https://mcp.builder.io/mcp/publish",
@@ -253,6 +255,298 @@ describe("Builder CMS read client", () => {
         authorization: "Bearer oauth-access-token",
       }),
     });
+  });
+
+  it("lists models through the scoped general API grant", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      expect(input.href).toBe(
+        "https://api.builder.io/api/v1/models?apiKey=selected-space-key",
+      );
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer general-oauth-token",
+      });
+      return new Response(
+        JSON.stringify({
+          models: [
+            {
+              id: "model-1",
+              name: "blog_article",
+              displayName: "Blog article",
+              fields: [],
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ state: "live", models: [{ id: "model-1" }] });
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      oauthResource: "general",
+      requiredScope: "builder:content:read",
+      legacyCredentialKeys: [],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("enumerates raw draft-inclusive entries through query-data", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                id: "model-uuid",
+                name: "blog_article",
+                displayName: "Blog article",
+                fields: [],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      expect(input.pathname).toBe("/api/v1/query-data");
+      expect(Object.fromEntries(input.searchParams)).toEqual({
+        apiKey: "selected-space-key",
+        "query.modelId": "model-uuid",
+        "sort.id": "1",
+        offset: fetchImpl.mock.calls.length === 2 ? "0" : "2",
+        limit: fetchImpl.mock.calls.length === 2 ? "3" : "1",
+        fetchTotalCount: "true",
+      });
+      expect(input.searchParams.has("published")).toBe(false);
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer general-oauth-token",
+      });
+      const firstPage = fetchImpl.mock.calls.length === 2;
+      return new Response(
+        JSON.stringify(
+          firstPage
+            ? {
+                results: [
+                  {
+                    id: "draft-1",
+                    modelId: "model-uuid",
+                    published: "draft",
+                    data: { title: "Draft", unknown: { preserved: true } },
+                  },
+                  {
+                    id: "published-1",
+                    modelId: "model-uuid",
+                    published: "published",
+                    data: { title: "Published" },
+                  },
+                ],
+                totalCount: 3,
+              }
+            : {
+                results: [
+                  {
+                    id: "draft-2",
+                    modelId: "model-uuid",
+                    published: "draft",
+                    data: { title: "Second draft" },
+                  },
+                ],
+                totalCount: 3,
+              },
+        ),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        rawData: true,
+        limit: 3,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "live",
+      entries: [
+        { id: "draft-1", rawEntry: { data: { unknown: { preserved: true } } } },
+        { id: "published-1" },
+        { id: "draft-2" },
+      ],
+      progress: { hasMore: false, partial: false, readMode: "builder-api" },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects a duplicate general query-data page instead of claiming completion", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "duplicate-entry",
+              modelId: "model-uuid",
+              data: { title: "Duplicate" },
+            },
+          ],
+          totalCount: 2,
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        limit: 2,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      message: expect.stringContaining("duplicate entries"),
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([null, false, ""])(
+    "rejects a coerced general query-data totalCount (%j)",
+    async (totalCount) => {
+      resolveBuilderCredentialMock.mockResolvedValue(null);
+      resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+        token: "general-oauth-token",
+        authorization: "Bearer general-oauth-token",
+        source: "oauth",
+        oauthResource: "general",
+        oauthSelectedPublicKey: "selected-space-key",
+      });
+      const fetchImpl = vi.fn(async (input: URL) =>
+        input.pathname === "/api/v1/models"
+          ? new Response(
+              JSON.stringify({
+                models: [
+                  { id: "model-uuid", name: "blog_article", fields: [] },
+                ],
+              }),
+              { status: 200 },
+            )
+          : new Response(JSON.stringify({ results: [], totalCount }), {
+              status: 200,
+            }),
+      );
+
+      await expect(
+        readBuilderCmsContentEntries({
+          model: "blog_article",
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).resolves.toMatchObject({
+        state: "error",
+        message: expect.stringContaining("valid totalCount"),
+      });
+    },
+  );
+
+  it("fails closed before a general API read when the token has no selected space", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "opaque-general-token",
+      authorization: "Bearer opaque-general-token",
+      source: "oauth",
+      oauthResource: "general",
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      message: expect.stringContaining("did not identify its selected space"),
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not read a Source through a different OAuth credential lane", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+      oauthConnectionId: "current-connection",
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        expectedSourceSpace: "selected-space-key",
+        expectedSourceConnectionId: "original-connection",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      message: expect.stringContaining("credential does not match"),
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not downgrade an OAuth-bound Source read to Publish or legacy access", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-public-key");
+    resolveBuilderRequestAuthorizationMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        token: "legacy-private-key",
+        authorization: "Bearer legacy-private-key",
+        source: "legacy",
+      });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        expectedSourceSpace: "selected-space-key",
+        expectedSourceConnectionId: "oauth-connection-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/OAuth connection is unavailable/);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("keeps the endpoint override for intentional legacy credentials", async () => {
@@ -1677,6 +1971,166 @@ describe("Builder CMS read client", () => {
           limit: 100,
         },
       },
+    });
+  });
+
+  it("hydrates an exact entry through the general query-data contract", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      expect(Object.fromEntries(input.searchParams)).toEqual({
+        apiKey: "selected-space-key",
+        "query.modelId": "model-uuid",
+        "query.id": "builder-entry-1",
+        "sort.id": "1",
+        offset: "0",
+        limit: "1",
+        fetchTotalCount: "true",
+      });
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer general-oauth-token",
+      });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-entry-1",
+              modelId: "blog_article",
+              data: { title: "OAuth hydration", blocks: [] },
+            },
+          ],
+          totalCount: 1,
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "found",
+      providerStatus: "http_200",
+      entry: { id: "builder-entry-1" },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports an empty general exact query as a 200 not-found result", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "missing-entry",
+        fetchImpl: vi.fn(async (input: URL) =>
+          input.pathname === "/api/v1/models"
+            ? new Response(
+                JSON.stringify({
+                  models: [
+                    { id: "model-uuid", name: "blog_article", fields: [] },
+                  ],
+                }),
+                { status: 200 },
+              )
+            : new Response(JSON.stringify({ results: [], totalCount: 0 }), {
+                status: 200,
+              }),
+        ) as unknown as typeof fetch,
+      }),
+    ).resolves.toEqual({
+      state: "not_found",
+      entry: null,
+      providerStatus: "http_200_not_found",
+    });
+  });
+
+  it("rejects a wrong-ID result during the general OAuth live preflight", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) =>
+      input.pathname === "/api/v1/models"
+        ? new Response(
+            JSON.stringify({
+              models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+            }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({
+              results: [{ id: "wrong-entry", modelId: "model-uuid" }],
+              totalCount: 1,
+            }),
+            { status: 200 },
+          ),
+    );
+
+    await expect(
+      readBuilderCmsEntryLiveState({
+        model: "blog_article",
+        entryId: "expected-entry",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/unexpected entry payload/);
+  });
+
+  it("treats missing general query-data results as malformed, not not-found", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) =>
+      input.pathname === "/api/v1/models"
+        ? new Response(
+            JSON.stringify({
+              models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+            }),
+            { status: 200 },
+          )
+        : new Response(JSON.stringify({ totalCount: 0 }), { status: 200 }),
+    );
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "missing-entry",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
+      reason: "malformed_body",
+      retryable: false,
     });
   });
 

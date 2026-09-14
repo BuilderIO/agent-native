@@ -123,10 +123,15 @@ export interface ExecuteBuilderSourceExecutionDeps {
   }) => Promise<void>;
   executeWrite: (args: {
     request: BuilderCmsExecutionPayload["request"];
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
+    requireSourceBinding?: boolean;
   }) => ReturnType<typeof executeBuilderCmsWrite>;
   readLiveEntry: (args: {
     model: string;
     entryId: string;
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   }) => Promise<BuilderCmsEntryLiveState>;
   reconcileWrite: (args: {
     database: DatabaseRecord;
@@ -141,6 +146,8 @@ export interface ExecuteBuilderSourceExecutionDeps {
     marker?: string;
     exactTitle?: string;
     intendedFields?: Record<string, unknown>;
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   }) => Promise<{
     count: number;
     matchingIntentCount?: number;
@@ -1049,10 +1056,14 @@ export async function executeBuilderSourceExecutionWithDeps(
           ? {
               exactTitle: storedIntent?.exactTitle,
               intendedFields: storedIntent?.intendedFields,
+              expectedSourceSpace: source.metadata.builderSpacePublicKey,
+              expectedSourceConnectionId: source.metadata.connectionId,
             }
           : {
               marker: planIntent.marker,
               intendedFields: planIntent.intendedFields,
+              expectedSourceSpace: source.metadata.builderSpacePublicKey,
+              expectedSourceConnectionId: source.metadata.connectionId,
             },
       );
       const matchingIntentCount = lookup.matchingIntentCount ?? lookup.count;
@@ -1153,6 +1164,8 @@ export async function executeBuilderSourceExecutionWithDeps(
       const liveState = await deps.readLiveEntry({
         model: plan.payload.target.model,
         entryId,
+        expectedSourceSpace: source.metadata.builderSpacePublicKey,
+        expectedSourceConnectionId: source.metadata.connectionId,
       });
       const targetRow = sourceRowForChangeSet(source, changeSet);
       console.info("builder_source_live_preflight", {
@@ -1209,7 +1222,12 @@ export async function executeBuilderSourceExecutionWithDeps(
     timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
 
     const writeResult = await timing.measure("write_dispatch", () =>
-      deps.executeWrite({ request: plan.payload.request }),
+      deps.executeWrite({
+        request: plan.payload.request,
+        expectedSourceSpace: source.metadata.builderSpacePublicKey,
+        expectedSourceConnectionId: source.metadata.connectionId,
+        requireSourceBinding: true,
+      }),
     );
     const payloadWithResponse = executionResponsePayload({
       payload: validatedPayload,

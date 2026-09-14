@@ -53,6 +53,10 @@ vi.mock("./request-context.js", () => ({
 const ASSETS_WRITE = "builder:assets:write";
 const PUBLISH_ISSUER = "https://mcp.builder.io";
 
+function accessToken(claims: Record<string, unknown>) {
+  return `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+}
+
 function publishCredentials(issuer = PUBLISH_ISSUER) {
   return {
     serverUrl: "https://mcp.builder.io/mcp/publish",
@@ -252,6 +256,7 @@ describe("resolveBuilderRequestAuthorization", () => {
       authorization: "Bearer publish-oauth-token",
       source: "oauth",
       oauthScope: "org",
+      oauthResource: "publish",
     });
     expect(hasBuilderOAuthSessionMock).not.toHaveBeenCalled();
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
@@ -379,12 +384,14 @@ describe("resolveBuilderRequestAuthorization", () => {
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
-  it("returns OAuth provenance for Settings and authenticated provider reads", async () => {
+  it("returns general OAuth provenance and its token-selected space", async () => {
+    const token = accessToken({ org: "space-public-key" });
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
     getBuilderOAuthSessionMock.mockResolvedValue({
-      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      accessToken: token,
       scopes: ["builder:ai:invoke"],
       scope: "user",
+      connectionId: "builder-general-resource-v1:u:opaque",
     });
 
     await expect(
@@ -396,12 +403,30 @@ describe("resolveBuilderRequestAuthorization", () => {
         ],
       }),
     ).resolves.toEqual({
-      token: "<OAUTH_TOKEN_EXAMPLE>",
-      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      token,
+      authorization: `Bearer ${token}`,
       source: "oauth",
       oauthScope: "user",
+      oauthResource: "general",
+      oauthConnectionId: "builder-general-resource-v1:u:opaque",
+      oauthSelectedPublicKey: "space-public-key",
     });
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("does not invent a selected space for an opaque general access token", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "opaque-access-token",
+      scopes: ["builder:ai:invoke"],
+      scope: "user",
+    });
+
+    await expect(resolveBuilderRequestAuthorization()).resolves.toMatchObject({
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: undefined,
+    });
   });
 
   it("returns the legacy public key and user ID", async () => {
