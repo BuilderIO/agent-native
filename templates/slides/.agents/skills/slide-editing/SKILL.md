@@ -147,14 +147,24 @@ repeats across all of them before any rejection comes back.
    take the background declaration off its `.fmd-slide` wrapper — not off a
    child. `deckStyle` summarizes the whole deck, including interior gradients,
    so it is not a substitute for the wrapper's own value.
-2. Read the target slides for their exact current declarations.
+2. Read the target slides for their exact current declarations, as late as
+   possible before the write.
 3. Send one `patch-deck` call carrying every affected slide, then verify with
    `get-deck` using `compact=true`.
 
-Reserve `styleOnly` `update-slide` for one slide, or a handful of named slides,
-where its CSS-only invariant is worth the per-slide round trip. `patch-deck`
-patches `fields.content` wholesale and gets no style-only protection, so keep
-the rest of each slide's HTML byte-identical yourself.
+Reserve `styleOnly` `update-slide` for one slide, or a handful of named slides.
+Two protections only exist on that path, so know what the deck-wide route gives
+up:
+
+- `patch-deck` patches `fields.content` wholesale and gets no style-only
+  invariant, so keep the rest of each slide's HTML byte-identical yourself.
+- `patch-deck` takes no per-slide `baseContentHash`. It serializes on the deck
+  lock and rejects a write when the deck row moved under it, but it cannot tell
+  that a human edited slide 4 between your read and your patch. Read
+  immediately before patching, and verify after.
+
+When a person is actively editing the deck, prefer per-slide `styleOnly`
+`update-slide` with `baseContentHash` and accept the extra round trips.
 
 Either way, change only the `.fmd-slide` wrapper's background. Interior card
 fills, image backgrounds, and gradients are separate visual elements; leave them

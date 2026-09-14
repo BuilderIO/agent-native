@@ -564,6 +564,28 @@ describe("update-slide", () => {
     expect(rejection!.message.length).toBeLessThan(1000);
   });
 
+  it("does not suggest an unusable edits entry for an empty legacy find", async () => {
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        find: "",
+        replace: "background:#f4f0e8",
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    // An empty find cannot become a valid edits entry — applySlideContentEdits
+    // rejects it outright — so the generic read-first hint is the only honest
+    // answer here.
+    expect(rejection?.message).not.toContain('"find":""');
+    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
   it("teaches styleOnly and the edits requirement in the agent-facing schema", () => {
     const styleOnly = (
       action.schema as unknown as {
@@ -572,14 +594,16 @@ describe("update-slide", () => {
     ).shape.styleOnly;
 
     expect(styleOnly.description).toContain("edits");
-    expect(styleOnly.description).toContain("expectedMatches");
+    expect(styleOnly.description).toContain('"occurrence":1');
+    expect(styleOnly.description).not.toContain('"expectedMatches":1');
 
     // The advertised tool description is the only styleOnly guidance a model
     // gets before its first call, and a style request gets exactly one batch
     // before the across-arguments breaker ends the turn.
     const advertised = action.tool.description ?? "";
     expect(advertised).toContain("styleOnly=true");
-    expect(advertised).toContain("expectedMatches");
+    expect(advertised).toContain('"occurrence":1');
+    expect(advertised).not.toContain('"expectedMatches":1');
     expect(advertised).toContain("match slide 1");
     expect(advertised).toContain(".fmd-slide");
   });
