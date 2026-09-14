@@ -24,6 +24,7 @@ import {
 import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
 import {
   factoryIdSchema,
+  readAutomationDisplayName,
   readAutomationEnabled,
   readAutomationModel,
   readAutomationSchedule,
@@ -70,6 +71,7 @@ export default defineAction({
     timezone: z.string().trim().max(80).optional(),
     inboxLimit: z.number().int().min(1).max(FACTORY_INBOX_LIMIT_MAX).optional(),
     workLimit: z.number().int().min(1).max(FACTORY_WORK_LIMIT_MAX).optional(),
+    clearIdentityFields: z.boolean().optional(),
   }),
   http: { method: "POST" },
   run: async (input, context) => {
@@ -92,7 +94,18 @@ export default defineAction({
       definition.resource.path,
     );
     if (!resource) throw new Error("Factory automation not found.");
+    const storedDisplayName = readAutomationDisplayName(resource.content);
     const current = readFactoryAutomationConfig(resource.content, input.name);
+    if (
+      input.displayName !== undefined &&
+      !input.displayName.trim() &&
+      storedDisplayName &&
+      !input.clearIdentityFields
+    ) {
+      throw new Error(
+        "Refusing to clear display name without clearIdentityFields: true.",
+      );
+    }
     const authorMode = input.authorMode ?? current.authorMode;
     const authorIds = assertAuthorFilter(
       current.source,
@@ -152,6 +165,17 @@ export default defineAction({
           error instanceof Error ? error.message : "Connector is not ready.",
         );
       }
+    }
+    if (
+      !input.enabled &&
+      input.slackChannelId !== undefined &&
+      !input.slackChannelId.trim() &&
+      current.slackChannelId?.trim() &&
+      !input.clearIdentityFields
+    ) {
+      throw new Error(
+        "Refusing to clear Slack channel without clearIdentityFields: true.",
+      );
     }
     const config = {
       ...current,

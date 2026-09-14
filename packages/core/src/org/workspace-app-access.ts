@@ -10,6 +10,8 @@ import { getOrgA2ASecret, getOrgDomain } from "./context.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
+const WORKSPACE_APP_CLAIM_ACTION_PATH =
+  "/_agent-native/actions/claim-workspace-app-organization";
 const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 2_500;
 
 export interface WorkspaceAppAccessContext {
@@ -125,12 +127,13 @@ async function hostedWorkspaceAppAccess(
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
       url.toString(),
     );
+    const headers = {
+      accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      ...protectionHeaders,
+    };
     const response = await fetch(url, {
-      headers: {
-        accept: "application/json",
-        Authorization: `Bearer ${token}`,
-        ...protectionHeaders,
-      },
+      headers,
       ...(protectionHeaders["x-vercel-protection-bypass"]
         ? { redirect: "manual" as const }
         : {}),
@@ -141,7 +144,46 @@ async function hostedWorkspaceAppAccess(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await response.json().catch(() => null),
     );
-    return apps.some((app) => app.id === appId);
+    if (apps.some((app) => app.id === appId)) return true;
+
+    const claimUrl = new URL(url);
+    claimUrl.pathname = claimUrl.pathname.replace(
+      WORKSPACE_APPS_ACTION_PATH,
+      WORKSPACE_APP_CLAIM_ACTION_PATH,
+    );
+    claimUrl.search = "";
+    const claimResponse = await fetch(claimUrl, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "content-type": "application/json",
+      },
+      ...(protectionHeaders["x-vercel-protection-bypass"]
+        ? { redirect: "manual" as const }
+        : {}),
+      body: JSON.stringify({ appId }),
+      signal: controller.signal,
+    });
+    if (!claimResponse.ok) return false;
+    // coercion-ok: malformed registry JSON is an authorization failure.
+    const claim = (await claimResponse.json().catch(() => null)) as {
+      allowed?: unknown;
+    } | null;
+    if (claim?.allowed !== true) return false;
+
+    const refreshedResponse = await fetch(url, {
+      headers,
+      ...(protectionHeaders["x-vercel-protection-bypass"]
+        ? { redirect: "manual" as const }
+        : {}),
+      signal: controller.signal,
+    });
+    if (!refreshedResponse.ok) return false;
+    const refreshedApps = workspaceAppsFromResponse(
+      // coercion-ok: malformed registry JSON is an authorization failure.
+      await refreshedResponse.json().catch(() => null),
+    );
+    return refreshedApps.some((app) => app.id === appId);
   } catch (error) {
     console.error("[workspace-app-access] registry access check failed", error);
     return false;
@@ -205,6 +247,53 @@ async function isActiveWorkspaceOrgMember(
       email,
     });
   return membership.active;
+}
+
+async function claimWorkspaceAppOrganization(
+  db: DbExec,
+  appId: string,
+  orgId: string,
+  member: WorkspaceOrgMember,
+): Promise<boolean> {
+  if (member.role !== "owner" && member.role !== "admin") {
+    return false;
+  }
+  const claim = await db.execute({
+    sql: `UPDATE workspace_apps SET org_id = ?
+          WHERE id = ? AND org_id IS NULL
+            AND TRIM(owner_email) = '' AND visibility = 'org'
+          RETURNING org_id`,
+    args: [orgId, appId],
+  });
+  if (claim.rows.length > 0) return true;
+
+  const current = await db.execute({
+    sql: `SELECT org_id FROM workspace_apps WHERE id = ? LIMIT 1`,
+    args: [appId],
+  });
+  return current.rows[0]?.org_id === orgId;
+}
+
+export async function claimWorkspaceAppForOrganization(
+  appId: string,
+  context: WorkspaceAppAccessContext,
+): Promise<boolean> {
+  const normalizedAppId = appId.trim();
+  const email = normalizedEmail(context.email);
+  const orgId = context.orgId?.trim() || null;
+  if (!normalizedAppId || !email || !orgId) return false;
+
+  try {
+    const db = getDbExec();
+    const member = await loadWorkspaceOrgMember(db, orgId, email);
+    if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
+      return false;
+    }
+    return claimWorkspaceAppOrganization(db, normalizedAppId, orgId, member);
+  } catch (error) {
+    console.error("[workspace-app-access] organization claim failed", error);
+    return false;
+  }
 }
 
 async function isDispatchWorkspaceAppAccessAllowed(
@@ -280,15 +369,31 @@ export async function isWorkspaceAppAccessAllowed(
       (typeof app.org_id === "string" ? app.org_id : "").trim() || null;
     const orgId = context.orgId?.trim() || null;
     const sameOrg = !!resourceOrgId && resourceOrgId === orgId;
+    const canClaimCallerOrg =
+      !resourceOrgId && !ownerEmail && app.visibility === "org" && !!orgId;
 
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
-    if (!sameOrg || !orgId) return false;
+    if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
 
     const member = await loadWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
     const memberRole = member.role;
+    if (canClaimCallerOrg) {
+      // Fresh workspaces register apps before their first organization exists.
+      // Claim once so a missing org never becomes cross-organization access.
+      if (
+        !(await claimWorkspaceAppOrganization(
+          db,
+          normalizedAppId,
+          orgId,
+          member,
+        ))
+      ) {
+        return false;
+      }
+    }
     if (memberRole === "owner" || memberRole === "admin") return true;
 
     if (app.visibility === "org") return true;

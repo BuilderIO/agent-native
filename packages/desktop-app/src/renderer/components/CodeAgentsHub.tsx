@@ -276,6 +276,31 @@ export function isChatFirstSurfaceTabActive(input: {
   return input.surfaceActive && input.tabId === input.activeTabId;
 }
 
+/**
+ * The nav surface the desktop rail reports as active. Scheduled tasks and the
+ * chats view are surfaces without an `appId`, so they must still name a tab -
+ * otherwise the rail cannot tell them from "nothing resolved" and leaves every
+ * app icon reading as active.
+ */
+export function resolveDesktopChatFirstPrimaryTab(input: {
+  scheduledTasksOpen: boolean;
+  appSelected: boolean;
+  activeTab?: { kind: string; appId?: string; path?: string } | null;
+}): ChatFirstPrimaryTab | undefined {
+  if (input.scheduledTasksOpen) return "scheduled";
+  const tab = input.activeTab;
+  if (!input.appSelected || tab?.kind !== "app" || tab.appId !== "dispatch") {
+    return input.appSelected ? undefined : "new-chat";
+  }
+  if (tab.path === "/admin/integrations" || tab.path === "/integrations") {
+    return "integrations";
+  }
+  if (tab.path === "/admin/automations" || tab.path === "/automations") {
+    return "scheduled";
+  }
+  return undefined;
+}
+
 export function chatFirstPreviewPartitionKey(
   appId: string | undefined,
 ): string {
@@ -876,31 +901,15 @@ export default function CodeAgentsHub({
     chatFirstAppSelected &&
     shouldUseDesktopAppChatShell(activeChatFirstSurfaceTab?.path);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const activeChatFirstPrimaryTab = useMemo<
-    ChatFirstPrimaryTab | undefined
-  >(() => {
-    if (scheduledTasksOpen) return "scheduled";
-    if (
-      !chatFirstAppSelected ||
-      activeChatFirstSurfaceTab?.kind !== "app" ||
-      activeChatFirstSurfaceTab.appId !== "dispatch"
-    ) {
-      return chatFirstAppSelected ? undefined : "new-chat";
-    }
-    if (
-      activeChatFirstSurfaceTab.path === "/admin/integrations" ||
-      activeChatFirstSurfaceTab.path === "/integrations"
-    ) {
-      return "integrations";
-    }
-    if (
-      activeChatFirstSurfaceTab.path === "/admin/automations" ||
-      activeChatFirstSurfaceTab.path === "/automations"
-    ) {
-      return "scheduled";
-    }
-    return undefined;
-  }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
+  const activeChatFirstPrimaryTab = useMemo(
+    () =>
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen,
+        appSelected: chatFirstAppSelected,
+        activeTab: activeChatFirstSurfaceTab,
+      }),
+    [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen],
+  );
   const [, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -1313,6 +1322,7 @@ export default function CodeAgentsHub({
               ? activeChatFirstSurfaceTab.appId
               : undefined
           }
+          activeTab={activeChatFirstPrimaryTab}
           collapsed={chatFirstRailCollapsed}
           layout={chatFirstAppLayout}
           createAppTrigger={
@@ -1334,6 +1344,7 @@ export default function CodeAgentsHub({
       </>
     );
   }, [
+    activeChatFirstPrimaryTab,
     activeChatFirstSurfaceTab?.appId,
     activeChatFirstSurfaceTab?.kind,
     chatFirstAppItems,

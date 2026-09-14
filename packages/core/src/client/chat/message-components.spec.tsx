@@ -1074,6 +1074,15 @@ describe("shouldShowInlineRunError", () => {
       shouldShowInlineRunError({ runError: null, bannerRunErrorKey: null }),
     ).toBe(false);
   });
+
+  it("does not show an error icon for a credit limit", () => {
+    expect(
+      shouldShowInlineRunError({
+        runError: { ...runError, errorCode: "credits-limit-daily" },
+        bannerRunErrorKey: null,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("InlineRunErrorNotice", () => {
