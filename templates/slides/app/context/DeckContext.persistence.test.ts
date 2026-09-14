@@ -1678,7 +1678,6 @@ describe("DeckContext deck creation persistence", () => {
       orgQueryState.data = { orgId: "org-b" };
       rerender();
     });
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
     let duplicate: Deck | null = source;
     await act(async () => {
@@ -1686,6 +1685,7 @@ describe("DeckContext deck creation persistence", () => {
       duplicate = await duplicatePromise;
     });
 
+    await waitFor(() => expect(result.current.loading).toBe(false));
     expect(duplicate).toBeNull();
     expect(
       fetchMock.mock.calls.some(([url]) =>
@@ -1717,13 +1717,13 @@ describe("DeckContext deck creation persistence", () => {
       orgQueryState.data = { orgId: "org-b" };
       rerender();
     });
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
       rejectDeferredDelete();
       await Promise.resolve();
     });
 
+    await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.decks).toEqual([]);
     expect(result.current.getDeck(oldDeck.id)).toBeUndefined();
   });
@@ -1748,13 +1748,13 @@ describe("DeckContext deck creation persistence", () => {
       orgQueryState.data = { orgId: "org-b" };
       rerender();
     });
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
       resolveCreate(new Response("", { status: 200 }));
       await Promise.resolve();
     });
 
+    await waitFor(() => expect(result.current.loading).toBe(false));
     expect(deletedDeck(fetchMock, deckId)).toBe(false);
   });
 

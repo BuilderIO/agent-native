@@ -22,6 +22,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   useSyncExternalStore,
@@ -2712,7 +2713,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // scope before loading the next one so optimistic state and stale responses
   // cannot keep prior-organization decks visible.
   const lastOrgIdRef = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (orgLoading) return;
     const orgId = org?.orgId ?? null;
     if (lastOrgIdRef.current === undefined) {
