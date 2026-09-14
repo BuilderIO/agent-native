@@ -12,7 +12,18 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - NAV-002 — Open each primary view from the visible nav: Inbox, Unread,
   Starred, Snoozed, Sent, Drafts, Archive/Done, Trash, All Mail, Scheduled,
   and labels. Confirm URL, active tab, count source, rows, empty state, and
-  back/forward history.
+  back/forward history. An isolated, disconnected browser pass on 2026-09-14
+  used sidebar clicks to verify `/mail/unread`, `/mail/starred`,
+  `/mail/snoozed`, `/mail/sent`, `/mail/draft-queue`, `/mail/scheduled`,
+  `/mail/drafts`, `/mail/archive`, and `/mail/trash`; All Mail was selected
+  from Command and landed on `/mail/all`. Important and Other landed on
+  `/mail/inbox?tab=important` and `/mail/inbox?tab=other`; Back from Other
+  returned to `/mail/all` and Forward restored Other. Draft queue showed 0
+  drafts awaiting approval, while Drafts had no rows. The message views showed
+  the connect-account state instead of mailbox rows; counts, message/label
+  behavior, and connected-account empty states remain unverified. Only the
+  built-in Important and Other links appeared under Labels. No paired
+  Superhuman replay has been captured.
 - NAV-003 — Open hidden navigation with the keyboard and close it with Escape;
   repeat with mouse, touch, outside click, and browser Back.
 - NAV-004 — Cycle tabs with Tab and Shift+Tab from the workspace and tab bar.
@@ -60,7 +71,18 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   closes, Search mounts and receives focus, the caret/placeholder are correct,
   and the underlying route/query is not replaced by an empty search. Type a
   query, submit, dismiss, and reopen by each entry path; record focus, route,
-  close behavior, and whether the query is retained.
+  close behavior, and whether the query is retained. An isolated, disconnected
+  browser pass on 2026-09-14 confirmed click and `/` from page focus open and
+  focus Search; Cmd+K opens Command from page focus, the To field, the compose
+  body, and Search. Selecting `Search emails /` closes Command and focuses
+  Search; when compose is open it stays open. A synthetic no-match query showed
+  no suggestions, and Escape closed Search and restored the original route;
+  reopening showed a blank field. With the compose body focused, `/` inserted
+  a slash and opened the editor's block picker instead of global Search. With
+  the Toggle menu button focused, `/` did not open Search. The latter two
+  focus-context behaviors need paired Superhuman replay before treating either
+  as a parity gap. No mailbox contacts/results were available, and mobile plus
+  Superhuman behavior remain unverified.
 - SEARCH-002 — Type one character, two characters, three characters, spaces,
   quoted text, unicode, punctuation, and a long query. Confirm debounce,
   local-match timing, remote-search timing, and no request for short queries.
