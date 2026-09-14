@@ -20,6 +20,7 @@ let ensureContentSpacesAction: typeof import("./ensure-content-spaces.js").defau
 let createContentSpaceAction: typeof import("./create-content-space.js").default;
 let createDocumentAction: typeof import("./create-document.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
+let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 
 const USER = "space-target@example.com";
 
@@ -35,6 +36,8 @@ beforeAll(async () => {
     .default;
   createDocumentAction = (await import("./create-document.js")).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
+  getContentDatabaseAction = (await import("./get-content-database.js"))
+    .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -113,6 +116,31 @@ describe("named workspace create targets", () => {
     expect(
       personalRows.filter((row: any) => createdIds.has(row.id)),
     ).toHaveLength(0);
+
+    // The user sees the workspace through its Files collection, so the pages
+    // must land there and not merely carry the right spaceId.
+    const [files] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.systemRole, "files"),
+          eq(schema.contentDatabases.spaceId, spaceId),
+        ),
+      );
+    const filesTable = await runWithRequestContext({ userEmail: USER }, () =>
+      getContentDatabaseAction.run({ databaseId: files.id } as any),
+    );
+    const titles = filesTable.items.map(
+      (item: any) => item.document.title as string,
+    );
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Placeholder 1",
+        "Placeholder 2",
+        "Placeholder 3",
+      ]),
+    );
   });
 
   it("rejects an unknown workspace name instead of falling back to Personal", async () => {
