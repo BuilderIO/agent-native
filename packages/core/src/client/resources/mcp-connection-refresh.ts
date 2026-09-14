@@ -15,12 +15,14 @@
  * to memory-only, which is never worse than not having the marker at all.
  */
 
+import { MCP_OAUTH_FLOW_TTL_MS } from "../../shared/mcp-oauth-flow-ttl.js";
+
 const PENDING_STORAGE_KEY = "agent-native:mcp-connection-pending";
-/** The same five minutes `useBuilderConnectFlow` gives a connect popup before
- *  it declares the flow dead (`POLL_TIMEOUT_MS`). A provider consent screen can
- *  take minutes with login and 2FA, so the window has to outlast that; past it
- *  the flow is abandoned and a focus refetch would buy nothing. */
-const PENDING_TTL_MS = 5 * 60 * 1_000;
+/** Exactly as long as the server will still accept the authorization. Anything
+ *  shorter leaves a stretch where a consent succeeds but this window has
+ *  stopped revalidating; anything longer only refetches for a flow the server
+ *  has already rejected. */
+const PENDING_TTL_MS = MCP_OAUTH_FLOW_TTL_MS;
 
 let memoryPendingStartedAt: number | null = null;
 

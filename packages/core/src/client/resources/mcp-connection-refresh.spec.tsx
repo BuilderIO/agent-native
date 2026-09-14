@@ -5,6 +5,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MCP_OAUTH_FLOW_TTL_MS } from "../../shared/mcp-oauth-flow-ttl.js";
 import {
   clearMcpConnectionPending,
   hasPendingMcpConnection,
@@ -44,7 +45,14 @@ describe("MCP connection pending window", () => {
     markMcpConnectionPending(startedAt);
 
     expect(hasPendingMcpConnection(startedAt + 60_000)).toBe(true);
-    expect(hasPendingMcpConnection(startedAt + 6 * 60 * 1_000)).toBe(false);
+    // Still pending right up to the last moment the server would accept the
+    // authorization, so a slow consent is never stranded.
+    expect(
+      hasPendingMcpConnection(startedAt + MCP_OAUTH_FLOW_TTL_MS - 1_000),
+    ).toBe(true);
+    expect(
+      hasPendingMcpConnection(startedAt + MCP_OAUTH_FLOW_TTL_MS + 1_000),
+    ).toBe(false);
     // The expired read clears the marker so the tab stops refetching on focus.
     expect(hasPendingMcpConnection(startedAt + 60_000)).toBe(false);
   });
