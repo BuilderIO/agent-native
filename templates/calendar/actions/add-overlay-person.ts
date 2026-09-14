@@ -23,13 +23,16 @@ export default defineAction({
     // (separate tabs, or the search dialog and the request-email landing
     // page) starting from the same stale list would otherwise let the
     // later PUT silently overwrite the earlier one's addition.
+    const normalizedEmail = args.email.trim().toLowerCase();
     const result = await mutateUserSetting(
       email,
       "calendar-overlay-people",
       (current) => {
         const people =
           (current as { people?: OverlayPerson[] } | null)?.people ?? [];
-        if (people.some((p) => p.email === args.email)) {
+        if (
+          people.some((p) => p.email.trim().toLowerCase() === normalizedEmail)
+        ) {
           return { people };
         }
         const color = getNextOverlayColor(people);

@@ -18,6 +18,7 @@ export default defineAction({
     if (!email) throw new Error("no authenticated user");
 
     // Same atomicity reasoning as add-overlay-person.
+    const normalizedEmail = args.email.trim().toLowerCase();
     const result = await mutateUserSetting(
       email,
       "calendar-overlay-people",
@@ -26,7 +27,9 @@ export default defineAction({
           (current as { people?: OverlayPerson[] } | null)?.people ?? [];
         return {
           people: people.map((p) =>
-            p.email === args.email ? { ...p, color: args.color } : p,
+            p.email.trim().toLowerCase() === normalizedEmail
+              ? { ...p, color: args.color }
+              : p,
           ),
         };
       },

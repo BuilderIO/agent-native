@@ -20,13 +20,18 @@ export default defineAction({
     // mutateUserSetting's own read, not against a snapshot the client
     // fetched earlier, or a concurrent add/remove from another tab could be
     // silently overwritten by whichever full-list PUT lands last.
+    const normalizedEmail = args.email.trim().toLowerCase();
     const result = await mutateUserSetting(
       email,
       "calendar-overlay-people",
       (current) => {
         const people =
           (current as { people?: OverlayPerson[] } | null)?.people ?? [];
-        return { people: people.filter((p) => p.email !== args.email) };
+        return {
+          people: people.filter(
+            (p) => p.email.trim().toLowerCase() !== normalizedEmail,
+          ),
+        };
       },
     );
     return (result as { people: OverlayPerson[] }).people;

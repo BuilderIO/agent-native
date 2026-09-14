@@ -140,17 +140,6 @@ export default defineAction({
       OVERLAY_REQUESTS_SETTING_KEY,
       (current) => {
         const state = normalizeOverlayRequestState(current);
-        const trimmed: Record<string, string> = {};
-        // Entries older than a day can no longer affect the cooldown, so drop
-        // them instead of growing this setting forever. A pending reservation
-        // older than PENDING_STALE_MS is abandoned (crashed send) and is
-        // dropped too, rather than blocking the peer permanently.
-        for (const [email, value] of Object.entries(state.perPeer)) {
-          const { sentAt, pending } = parseOverlayRequestEntry(value);
-          if (sentAt === null || now - sentAt >= DAY_MS) continue;
-          if (pending && now - sentAt > PENDING_STALE_MS) continue;
-          trimmed[email] = value;
-        }
 
         // The cap is a fixed-window count of sends per UTC day, keyed
         // separately from the per-peer map: unlike the per-peer map, a resend
@@ -162,6 +151,28 @@ export default defineAction({
           if (key === dayKey || key === overlayRequestDayKey(now - DAY_MS)) {
             dailyCounts[key] = count;
           }
+        }
+
+        const trimmed: Record<string, string> = {};
+        // Entries older than a day can no longer affect the cooldown, so drop
+        // them instead of growing this setting forever. A pending reservation
+        // older than PENDING_STALE_MS is abandoned (crashed send) and is
+        // dropped too, rather than blocking the peer permanently. Its daily
+        // count is released along with it: the reservation incremented the
+        // cap optimistically before delivery, and if it never completed, a
+        // crashed/timed-out send must not permanently burn one of the
+        // owner's 20 daily slots.
+        for (const [email, value] of Object.entries(state.perPeer)) {
+          const { sentAt, pending } = parseOverlayRequestEntry(value);
+          if (sentAt === null || now - sentAt >= DAY_MS) continue;
+          if (pending && now - sentAt > PENDING_STALE_MS) {
+            const staleDayKey = overlayRequestDayKey(sentAt);
+            if (dailyCounts[staleDayKey]) {
+              dailyCounts[staleDayKey] -= 1;
+            }
+            continue;
+          }
+          trimmed[email] = value;
         }
 
         const existing = trimmed[peerEmail];
