@@ -6400,6 +6400,7 @@ const AssistantChatInner = forwardRef<
                       <AgentTextStreamingProvider
                         identity={activeTextStreamingIdentity}
                         streaming={textStreaming}
+                        runActive={showRunningInUI}
                       >
                         <div
                           data-agent-empty-state={
