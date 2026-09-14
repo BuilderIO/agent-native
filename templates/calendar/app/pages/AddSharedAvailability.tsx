@@ -38,7 +38,11 @@ export default function AddSharedAvailability() {
   const rawEmail = searchParams.get("email") ?? "";
   const email = EMAIL_REGEX.test(rawEmail) ? rawEmail.toLowerCase() : null;
 
-  const { data: overlayPeople, isLoading } = useOverlayPeople();
+  const {
+    data: overlayPeople,
+    isLoading,
+    isError: overlayPeopleFailed,
+  } = useOverlayPeople();
   const addPerson = useAddOverlayPerson();
   const [justAdded, setJustAdded] = useState(false);
 
@@ -95,7 +99,9 @@ export default function AddSharedAvailability() {
                       },
                     )
                   }
-                  disabled={addPerson.isPending || isLoading}
+                  disabled={
+                    addPerson.isPending || isLoading || overlayPeopleFailed
+                  }
                 >
                   {t("bookingLinks.addHostToMyCalendar")}
                 </Button>

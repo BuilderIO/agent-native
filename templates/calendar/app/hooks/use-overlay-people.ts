@@ -1,6 +1,10 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, OverlayPerson } from "@shared/api";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 import { OVERLAY_EVENTS_BATCH_KEY } from "@/hooks/use-events";
 import { getNextOverlayColor } from "@/lib/overlay-colors";
@@ -11,13 +15,32 @@ export function useOverlayPeople() {
   return useActionQuery<OverlayPerson[]>("get-overlay-people");
 }
 
+/**
+ * `update-overlay-people` is a full replacement, not a merge, so every
+ * mutation below must start from the real current list. A plain
+ * `getQueryData() ?? []` cannot tell "genuinely empty" apart from "never
+ * fetched" or "failed to fetch" — either of the latter would silently wipe
+ * every existing overlay person on the next save. `ensureQueryData` returns
+ * the cached list when it is fresh, otherwise fetches it, and rejects the
+ * mutation instead of guessing when that fetch fails.
+ */
+function getCurrentOverlayPeople(
+  queryClient: QueryClient,
+): Promise<OverlayPerson[]> {
+  return queryClient.ensureQueryData<OverlayPerson[]>({
+    queryKey: OVERLAY_PEOPLE_KEY,
+    queryFn: () =>
+      callAction<OverlayPerson[]>("get-overlay-people", undefined, {
+        method: "GET",
+      }),
+  });
+}
+
 export function useAddOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (person: { email: string; name?: string }) => {
-      const current: OverlayPerson[] =
-        queryClient.getQueryData(["action", "get-overlay-people", undefined]) ??
-        [];
+      const current = await getCurrentOverlayPeople(queryClient);
       if (current.some((p) => p.email === person.email)) return current;
       const color = getNextOverlayColor(current);
       const updated = [...current, { ...person, color }];
@@ -59,9 +82,7 @@ export function useUpdateOverlayPersonColor() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ email, color }: { email: string; color: string }) => {
-      const current: OverlayPerson[] =
-        queryClient.getQueryData(["action", "get-overlay-people", undefined]) ??
-        [];
+      const current = await getCurrentOverlayPeople(queryClient);
       const updated = current.map((p) =>
         p.email === email ? { ...p, color } : p,
       );
@@ -104,8 +125,7 @@ export function useRemoveOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (email: string) => {
-      const current: OverlayPerson[] =
-        queryClient.getQueryData(OVERLAY_PEOPLE_KEY) ?? [];
+      const current = await getCurrentOverlayPeople(queryClient);
       const updated = current.filter((p) => p.email !== email);
       try {
         await callAction<OverlayPerson[]>(
