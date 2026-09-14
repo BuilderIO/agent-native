@@ -11,7 +11,7 @@ import type { Task, Message, TaskState, Artifact } from "./types.js";
 let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
-const A2A_STUCK_SWEEP_INDEX = "idx_a2a_tasks_status_state_updated_at";
+const A2A_STUCK_SWEEP_INDEX = "idx_a2a_tasks_status_state_created_at";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
 
 export async function ensureTable(): Promise<void> {
@@ -39,9 +39,13 @@ export async function ensureTable(): Promise<void> {
         `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
       // The stuck-task sweep scans by state then age on every recurring tick.
       // Without this it is a full scan of every task the app has ever run.
+      // `created_at` is the second column rather than `updated_at`: it is the
+      // only bound on the queued branch, it is the sort key, and the
+      // processing branch's `updated_at OR created_at` defeats a second
+      // column either way.
       const createStuckSweepIndexSql =
         `CREATE INDEX IF NOT EXISTS ${A2A_STUCK_SWEEP_INDEX} ` +
-        `ON a2a_tasks(status_state, updated_at)`;
+        `ON a2a_tasks(status_state, created_at)`;
       const createApprovalsSql = `
         CREATE TABLE IF NOT EXISTS a2a_approvals (
           id TEXT PRIMARY KEY,

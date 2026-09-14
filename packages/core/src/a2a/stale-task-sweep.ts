@@ -4,6 +4,7 @@ import {
   a2aProcessingLifetimeMaxMs,
   a2aQueuedLifetimeMaxMs,
   classifyStuckA2ATask,
+  isA2ABackgroundRecoverable,
 } from "./task-lifetime.js";
 import {
   ensureTable,
@@ -53,7 +54,8 @@ const NOTHING_STUCK: StaleA2ATaskSweepResult = {
  * healthy majority, and mirrors the cutoffs the classifier will recompute.
  */
 const STUCK_CANDIDATE_SQL = `
-  (
+  metadata IS NOT NULL
+  AND (
     (status_state IN ('submitted', 'working') AND created_at <= ?)
     OR
     (status_state = 'processing' AND (updated_at <= ? OR created_at <= ?))
@@ -68,14 +70,21 @@ function stuckCandidateArgs(now: number): number[] {
   ];
 }
 
-function readRow(
-  row: unknown,
-): {
+interface SweepCandidate {
   id: string;
   statusState: string;
   createdAt: number;
   updatedAt: number;
-} | null {
+  metadata: Record<string, unknown> | undefined;
+}
+
+/**
+ * Returns `null` for a row this pass could not evaluate, which the caller
+ * counts rather than skipping quietly — an unreadable row is not a healthy
+ * row. A row that parses but is simply not processor-dispatched is a different
+ * outcome, handled by the eligibility gate below.
+ */
+function readRow(row: unknown): SweepCandidate | null {
   if (!row || typeof row !== "object") return null;
   const record = row as Record<string, unknown>;
   const id = record.id;
@@ -84,7 +93,21 @@ function readRow(
   const updatedAt = Number(record.updated_at);
   if (typeof id !== "string" || typeof statusState !== "string") return null;
   if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) return null;
-  return { id, statusState, createdAt, updatedAt };
+  const raw = record.metadata;
+  if (typeof raw !== "string") return null;
+  let metadata: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    metadata =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : undefined;
+  } catch {
+    // coercion-ok: `null` is the typed "could not evaluate" value the caller
+    // counts in `failed` — it is never treated as a healthy or absent row.
+    return null;
+  }
+  return { id, statusState, createdAt, updatedAt, metadata };
 }
 
 /**
@@ -103,7 +126,7 @@ export async function reapAllStaleA2ATasks(): Promise<StaleA2ATaskSweepResult> {
   // One row over the cap is how a truncated pass is detected without a second
   // COUNT against the same predicate.
   const scanned = await client.execute({
-    sql: `SELECT id, status_state, created_at, updated_at
+    sql: `SELECT id, status_state, created_at, updated_at, metadata
           FROM a2a_tasks
           WHERE ${STUCK_CANDIDATE_SQL}
           ORDER BY created_at ASC
@@ -126,6 +149,10 @@ export async function reapAllStaleA2ATasks(): Promise<StaleA2ATaskSweepResult> {
       failed += 1;
       continue;
     }
+    // A synchronous A2A request sits in `working` for the whole inline handler
+    // call and carries no processor metadata. Failing one would terminalize
+    // live work, so the sweep only ever touches rows the pull path would.
+    if (!isA2ABackgroundRecoverable(row.metadata)) continue;
     const verdict = classifyStuckA2ATask(row, now);
     try {
       if (verdict.kind === "fail-queued") {

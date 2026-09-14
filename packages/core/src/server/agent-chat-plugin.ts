@@ -7266,6 +7266,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // Start after a 10-second delay to let the server fully initialize
           lifecycle.startTimeout(() => {
             lifecycle.startInterval(() => {
+              // This interval is the long-lived host's counterpart to the
+              // signed sweep route above, and it calls `processRecurringJobs`
+              // directly rather than going through it — so the reaps the route
+              // runs first have to be repeated here or they simply never run
+              // off serverless. The nearby 20s fast sweep already owns
+              // `reapAllStaleRuns`; this one owns the A2A task half, whose
+              // tightest window is three minutes.
+              void (async () => {
+                const { reapAllStaleA2ATasks } =
+                  await import("../a2a/stale-task-sweep.js");
+                await reapAllStaleA2ATasks();
+              })().catch((error: unknown) => {
+                console.error(
+                  "[agent-chat] in-process stale A2A task sweep failed:",
+                  error,
+                );
+              });
               processRecurringJobs(schedulerDeps).catch((err) => {
                 console.error(
                   "[recurring-jobs] Scheduler error:",

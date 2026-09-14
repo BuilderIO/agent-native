@@ -44,6 +44,8 @@ async function insertTask(input: {
   state: string;
   ageMs: number;
   sinceTouchMs: number;
+  /** Omit to model a synchronous request, which stores no processor metadata. */
+  metadata?: Record<string, unknown> | null;
 }) {
   const now = Date.now();
   await pglite.query(
@@ -56,7 +58,13 @@ async function insertTask(input: {
       `ctx-${input.id}`,
       input.state,
       new Date(now - input.ageMs).toISOString(),
-      JSON.stringify({ __a2a_processor: { verifiedEmail: "a@example.com" } }),
+      input.metadata === undefined
+        ? JSON.stringify({
+            __a2a_processor: { verifiedEmail: "a@example.com" },
+          })
+        : input.metadata === null
+          ? null
+          : JSON.stringify(input.metadata),
       "a@example.com",
       now - input.ageMs,
       now - input.sinceTouchMs,
@@ -92,7 +100,7 @@ describe("reapAllStaleA2ATasks", () => {
       `SELECT indexname FROM pg_indexes WHERE tablename = 'a2a_tasks'`,
     );
     expect(rows.map((row: any) => row.indexname)).toContain(
-      "idx_a2a_tasks_status_state_updated_at",
+      "idx_a2a_tasks_status_state_created_at",
     );
   });
 
@@ -182,6 +190,57 @@ describe("reapAllStaleA2ATasks", () => {
     expect(await stateOf("already-done")).toBe("completed");
   });
 
+  it("never fails a synchronous task whose handler is still running inline", async () => {
+    // A sync A2A request stores no `__a2a_processor` metadata and sits in
+    // `working` for the whole inline handler call. The pull path skips these;
+    // the sweep must too, or a long sync call gets terminalized mid-flight.
+    await insertTask({
+      id: "sync-inline",
+      state: "working",
+      ageMs: 20 * MINUTE,
+      sinceTouchMs: 20 * MINUTE,
+      metadata: null,
+    });
+    await insertTask({
+      id: "sync-with-caller-metadata",
+      state: "processing",
+      ageMs: 45 * MINUTE,
+      sinceTouchMs: 20 * MINUTE,
+      metadata: { callerMetadata: { userEmail: "a@example.com" } },
+    });
+
+    expect(await reapAllStaleA2ATasks()).toEqual({
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    });
+    expect(await stateOf("sync-inline")).toBe("working");
+    expect(await stateOf("sync-with-caller-metadata")).toBe("processing");
+  });
+
+  it("counts a row whose metadata cannot be parsed rather than passing clean", async () => {
+    const now = Date.now();
+    await pglite.query(
+      `INSERT INTO a2a_tasks
+         (id, context_id, status_state, status_timestamp, history, artifacts,
+          metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at)
+       VALUES ('corrupt', NULL, 'processing', ?, '[]', '[]', '{not json',
+               'a@example.com', '', NULL, ?, ?)`,
+      [new Date(now).toISOString(), now - 20 * MINUTE, now - 10 * MINUTE],
+    );
+
+    const result = await reapAllStaleA2ATasks();
+
+    expect(result.reaped).toBe(0);
+    expect(result.failed).toBe(1);
+    // Read the column directly: `getTask` parses metadata and would throw on
+    // this row too.
+    const { rows } = await pglite.query(
+      `SELECT status_state FROM a2a_tasks WHERE id = 'corrupt'`,
+    );
+    expect((rows[0] as any).status_state).toBe("processing");
+  });
+
   it("counts a row that threw instead of reporting a clean pass", async () => {
     await insertTask({
       id: "write-explodes",
@@ -205,8 +264,8 @@ describe("reapAllStaleA2ATasks", () => {
       `INSERT INTO a2a_tasks
          (id, context_id, status_state, status_timestamp, history, artifacts,
           metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at)
-       SELECT 'stuck-' || i, NULL, 'processing', ?, '[]', '[]', NULL,
-              'a@example.com', '', NULL, ?, ?
+       SELECT 'stuck-' || i, NULL, 'processing', ?, '[]', '[]',
+              '{"__a2a_processor":{}}', 'a@example.com', '', NULL, ?, ?
        FROM generate_series(1, 201) AS i`,
       [new Date(now).toISOString(), now - 20 * MINUTE, now - 10 * MINUTE],
     );

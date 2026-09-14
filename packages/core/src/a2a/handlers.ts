@@ -26,6 +26,7 @@ import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import {
   A2A_PROCESSING_HEARTBEAT_MS,
   classifyStuckA2ATask,
+  isA2ABackgroundRecoverable,
 } from "./task-lifetime.js";
 import {
   createTask,
@@ -1164,7 +1165,7 @@ async function refireStuckAsyncTaskIfNeeded(
 ): Promise<boolean> {
   const state = await getA2ATaskDispatchState(taskId);
   if (!state) return false;
-  if (!state.metadata?.__a2a_processor) return false;
+  if (!isA2ABackgroundRecoverable(state.metadata)) return false;
 
   const verdict = classifyStuckA2ATask(state, Date.now());
 

@@ -30,6 +30,20 @@ export function a2aProcessingLifetimeMaxMs(): number {
   return getAppConfig().a2a.processingLifetimeMaxMs;
 }
 
+/**
+ * Only a task handed to the async processor is recoverable without its caller.
+ * A synchronous A2A request runs its handler inline inside the caller's own
+ * request (the non-async branch of `handleSend`), stores no processor
+ * metadata, and legitimately sits in `working` for as long as that call takes
+ * — failing one would terminalize live work and race the handler's own settle.
+ * Both recovery drivers gate on this before classifying.
+ */
+export function isA2ABackgroundRecoverable(
+  metadata: Record<string, unknown> | undefined | null,
+): boolean {
+  return !!metadata?.__a2a_processor;
+}
+
 export interface A2ATaskLivenessRow {
   statusState: string;
   createdAt: number;
