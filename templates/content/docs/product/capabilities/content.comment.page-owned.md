@@ -43,6 +43,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
 - Comments submitted through MCP or the in-app agent's Action tools retain the authenticated account as their author and separately persist their submission source. The UI and notifications identify them as posted via AI on that person's behalf; this describes submission, not a claim that AI wrote every word. Replies record their own source, edits preserve the original submission attribution, and historical comments without provenance remain unclassified.
 - Each explicit Ask AI request keeps its source Comment, intent, operation, agent thread, model, and reasoning attempts distinct. Unrelated Page edits trigger a bounded contextual refresh or exact-target reanchor; changed feedback, ambiguous targets, and partial saves remain typed, recoverable states on the original thread.
+- Ask AI runs stay out of the active chat until a person explicitly opens them. Progress and the resulting response appear on the source Comment, Reply to AI continues that exact agent thread inline, and Open AI conversation reveals it with a Comment-specific prefill.
 - References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
 
 ## Boundaries and non-goals
@@ -83,8 +84,13 @@ attempt-specific Page and discussion bases. Database-backed concurrency coverage
 proves distinct operations across Comments, one active operation per source
 Comment across simultaneous starts, bounded reply refresh, disjoint apply commits,
 typed overlapping-target and discussion conflicts, idempotent receipts, lifecycle
-status reconciliation, and agent model attribution. The inline Comment UI and a
-live model-run acceptance pass remain separate integration proof.
+status reconciliation, and agent model attribution. The editor now starts these
+sessions without changing the active chat, keeps per-Comment progress and recovery
+state, renders attributed replies on the source thread, and allows an explicit
+same-thread continuation or handoff. Live local acceptance proved distinct hidden
+threads, concurrent loading, unchanged navigation, fresh retry identity, and
+recoverable failure UI; a successful model/tool completion and inline continuation
+remain required integration proof.
 
 ## Proof plan
 

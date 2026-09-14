@@ -138,6 +138,7 @@ import {
   newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import { useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   CommentDraftProvider,
@@ -3803,6 +3804,9 @@ function PageEditorSessionBody({
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
   );
+  const commentAi = useCommentAiRequests(documentId, {
+    enabled: !isLocalFileDocument && canComment,
+  });
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -4461,6 +4465,8 @@ function PageEditorSessionBody({
       currentUserEmail={session?.email}
       canComment={canComment}
       canResolve={canEdit}
+      canSuggest={canSuggest}
+      commentAi={commentAi}
       alignToAnchors={alignToAnchors}
       forceVisible
       suggestions={sidebarSuggestions}

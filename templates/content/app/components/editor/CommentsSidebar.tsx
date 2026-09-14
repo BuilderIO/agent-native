@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -80,6 +79,14 @@ import {
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
 import { CommentEntry, CommentAttributionBadge } from "./CommentEntry";
 export { getAiCommentSource } from "./CommentEntry";
+import {
+  CommentAiConversation,
+  CommentAiReplyTarget,
+  CommentAiRequestStatus,
+  CommentAiThreadActions,
+  latestCommentAiRequest,
+  type CommentAiController,
+} from "./comment-ai";
 import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
@@ -642,6 +649,8 @@ interface CommentsSidebarOptions {
   currentUserEmail?: string;
   canComment?: boolean;
   canResolve?: boolean;
+  canSuggest?: boolean;
+  commentAi?: CommentAiController;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
   suggestions?: ResourceSuggestion[];
@@ -698,6 +707,8 @@ export function CommentsSidebar({
   currentUserEmail,
   canComment = true,
   canResolve = false,
+  canSuggest = false,
+  commentAi,
   alignToAnchors = true,
   forceVisible = false,
   suggestions = [],
@@ -732,6 +743,7 @@ export function CommentsSidebar({
     ? null
     : (replyDrafts.openReply?.threadId ?? null);
   const expandedSuggestionId = replyDrafts.openReply?.suggestionId ?? null;
+  const [aiReplyTarget, setAiReplyTarget] = useState<string | null>(null);
   const setReplyingThreadId = replyDrafts.setOpenReply;
   const setExpandedSuggestionId = (id: string | null) => {
     const suggestion = suggestions.find((entry) => entry.id === id);
@@ -1046,6 +1058,29 @@ export function CommentsSidebar({
       return;
     const thread = threads?.find((t) => t.threadId === threadId);
     if (!thread || thread.resolved) return;
+    const aiRequest = aiReplyTarget
+      ? commentAi?.requests.find(
+          (request) =>
+            request.operationId === aiReplyTarget &&
+            request.threadId === threadId,
+        )
+      : undefined;
+    if (aiRequest && commentAi) {
+      const submitted = replyDrafts.get(threadId);
+      try {
+        await commentAi.continue(aiRequest, replyText.trim());
+        draftStore.clearIfUnchanged(
+          `reply:${documentId}:${threadId}`,
+          submitted,
+        );
+        setAiReplyTarget(null);
+      } catch (error) {
+        toast.error(t("empty.genericError"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      }
+      return;
+    }
     const clientOperationId = crypto.randomUUID();
     const submitted = replyDrafts.get(threadId);
     draftStore.submittedDrafts.set(clientOperationId, submitted);
@@ -1064,19 +1099,6 @@ export function CommentsSidebar({
         description: error instanceof Error ? error.message : undefined,
       });
     }
-  };
-
-  const handleSendToAI = (thread: CommentThread) => {
-    const commentTexts = thread.comments
-      .map((c) => `${c.author_name ?? c.author_email}: ${c.content}`)
-      .join("\n");
-    const context = thread.quotedText
-      ? `${t("comments.agentRegardingText", { text: thread.quotedText })}\n\n`
-      : "";
-    sendToAgentChat({
-      message: t("comments.agentHelp"),
-      context: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}`,
-    });
   };
 
   const [threadPositions, setThreadPositions] = useState<
@@ -1268,68 +1290,149 @@ export function CommentsSidebar({
     thread: CommentThread,
     marginTop = 0,
     isActive = false,
-  ) => (
-    <ThreadView
-      key={thread.threadId}
-      replyDrafts={replyDrafts}
-      documentId={documentId}
-      thread={thread}
-      marginTop={marginTop}
-      isActive={isActive}
-      canExpand={canComment}
-      isExpanded={replyingThreadId === thread.threadId}
-      isSubmitting={
-        isResolving(thread.threadId) ||
-        ambiguousCreate(thread.threadId) ||
-        thread.comments.some(
-          (comment) => comment.mutation?.status === "pending",
-        )
+  ) => {
+    const aiRequest = commentAi
+      ? latestCommentAiRequest(commentAi.requests, thread.threadId)
+      : undefined;
+    const continuation = aiRequest
+      ? commentAi?.continuations.get(aiRequest.operationId)
+      : undefined;
+    const startAi = async (intent: "suggest" | "reply" | "apply-resolve") => {
+      if (!commentAi || !thread.comments[0]) return;
+      try {
+        await commentAi.start({
+          threadId: thread.threadId,
+          rootCommentId: thread.comments[0].id,
+          intent,
+        });
+      } catch (error) {
+        toast.error(t("empty.genericError"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
       }
-      replyText={replyDrafts.get(thread.threadId).text}
-      onHoverChange={(hovered) =>
-        onHoveredThreadChange?.(hovered ? thread.threadId : null)
+    };
+    const stopAi = async () => {
+      if (!commentAi || !aiRequest) return;
+      try {
+        await commentAi.stop(aiRequest);
+      } catch (error) {
+        toast.error(t("empty.genericError"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
       }
-      onExpand={() => {
-        if (createComment.isPending || replyingThreadId === thread.threadId)
-          return;
-        onActivateThread?.(thread.threadId);
-        scrollToCommentAnchor(
-          scrollContainerRef?.current ?? null,
-          threadPositions.get(thread.threadId)?.documentTop,
-        );
-        if (canComment) setReplyingThreadId(thread.threadId);
-      }}
-      onCollapse={() => {
-        if (createComment.isPending) return;
-        setReplyingThreadId(null);
-        onSelectedThreadChange?.(null);
-      }}
-      onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
-      onReplyMentionAdd={(mention) =>
-        replyDrafts.addMention(thread.threadId, mention)
-      }
-      onHeightChange={handleThreadCardHeightChange}
-      members={members}
-      canComment={canComment && !thread.resolved}
-      canResolve={canResolve}
-      onSubmitReply={() => handleReply(thread.threadId)}
-      onResolve={() =>
-        thread.resolved ? handleReopen(thread) : handleResolve(thread)
-      }
-      resolved={Boolean(thread.resolved)}
-      renderEntry={(id) => (
-        <CommentEntry
-          comment={thread.comments.find((comment) => comment.id === id)!}
-          documentId={documentId}
-          currentUserEmail={currentUserEmail}
-          canComment={canComment}
-          members={members}
-        />
-      )}
-      onSendToAI={() => handleSendToAI(thread)}
-      t={t}
-    />
-  );
+    };
+    return (
+      <ThreadView
+        key={thread.threadId}
+        replyDrafts={replyDrafts}
+        documentId={documentId}
+        thread={thread}
+        marginTop={marginTop}
+        isActive={isActive}
+        canExpand={canComment}
+        isExpanded={replyingThreadId === thread.threadId}
+        isSubmitting={
+          isResolving(thread.threadId) ||
+          ambiguousCreate(thread.threadId) ||
+          thread.comments.some(
+            (comment) => comment.mutation?.status === "pending",
+          )
+        }
+        replyText={replyDrafts.get(thread.threadId).text}
+        onHoverChange={(hovered) =>
+          onHoveredThreadChange?.(hovered ? thread.threadId : null)
+        }
+        onExpand={() => {
+          if (createComment.isPending || replyingThreadId === thread.threadId)
+            return;
+          onActivateThread?.(thread.threadId);
+          scrollToCommentAnchor(
+            scrollContainerRef?.current ?? null,
+            threadPositions.get(thread.threadId)?.documentTop,
+          );
+          if (canComment) setReplyingThreadId(thread.threadId);
+        }}
+        onCollapse={() => {
+          if (createComment.isPending) return;
+          setReplyingThreadId(null);
+          setAiReplyTarget(null);
+          onSelectedThreadChange?.(null);
+        }}
+        onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
+        onReplyMentionAdd={(mention) =>
+          replyDrafts.addMention(thread.threadId, mention)
+        }
+        onHeightChange={handleThreadCardHeightChange}
+        members={members}
+        canComment={canComment && !thread.resolved}
+        canResolve={canResolve}
+        onSubmitReply={() => handleReply(thread.threadId)}
+        onResolve={() =>
+          thread.resolved ? handleReopen(thread) : handleResolve(thread)
+        }
+        resolved={Boolean(thread.resolved)}
+        renderEntry={(id) => (
+          <CommentEntry
+            comment={thread.comments.find((comment) => comment.id === id)!}
+            documentId={documentId}
+            currentUserEmail={currentUserEmail}
+            canComment={canComment}
+            members={members}
+          />
+        )}
+        threadActions={
+          commentAi ? (
+            <CommentAiThreadActions
+              aria-label={t("comments.askAi")}
+              request={aiRequest}
+              starting={commentAi.startingThreadIds.has(thread.threadId)}
+              canSuggest={canSuggest}
+              canReply={canComment && !thread.resolved}
+              canApply={canSuggest && canResolve && !thread.resolved}
+              onStart={startAi}
+            />
+          ) : undefined
+        }
+        feedback={
+          aiRequest && commentAi ? (
+            <>
+              {continuation ||
+              aiRequest.status === "replied" ||
+              aiRequest.status === "suggested" ||
+              aiRequest.status === "resolved" ? (
+                <CommentAiConversation
+                  request={aiRequest}
+                  revision={commentAi.transcriptRevision}
+                  continuation={continuation}
+                />
+              ) : null}
+              <CommentAiRequestStatus
+                request={aiRequest}
+                continuation={continuation}
+                stopping={commentAi.stoppingRequestIds.has(
+                  aiRequest.operationId,
+                )}
+                onRetry={() => startAi(aiRequest.intent)}
+                onReply={() => {
+                  setAiReplyTarget(aiRequest.operationId);
+                  onActivateThread?.(thread.threadId);
+                  setReplyingThreadId(thread.threadId);
+                }}
+                onStop={stopAi}
+                onOpen={() => commentAi.open(aiRequest)}
+              />
+            </>
+          ) : undefined
+        }
+        replyTarget={
+          aiRequest && aiReplyTarget === aiRequest.operationId ? (
+            <CommentAiReplyTarget onCancel={() => setAiReplyTarget(null)} />
+          ) : undefined
+        }
+        t={t}
+      />
+    );
+  };
 
   const renderSuggestionCard = (
     suggestion: ResourceSuggestion,
@@ -2260,6 +2363,7 @@ function ThreadView({
   firstEntryBody,
   threadActions,
   feedback,
+  replyTarget,
   headerStatus,
   renderCommentActions,
   renderCommentFooter,
@@ -2304,6 +2408,7 @@ function ThreadView({
   firstEntryBody?: ReactNode;
   threadActions?: ReactNode;
   feedback?: ReactNode;
+  replyTarget?: ReactNode;
   headerStatus?: ReactNode;
   renderCommentActions?: (commentId: string) => ReactNode;
   renderCommentFooter?: (commentId: string) => ReactNode;
@@ -2530,49 +2635,52 @@ function ThreadView({
       {feedback}
       {/* Expanded: Notion-style reply input */}
       {isExpanded && canComment && !resolved && (
-        <div
-          data-comment-reply-composer
-          className="flex items-center gap-2 px-3 pb-3 pt-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <CommentAvatar
-            email={thread.comments[0]?.author_email}
-            name={
-              thread.comments[0]?.author_name ??
-              thread.comments[0]?.author_email
-            }
-            className="h-6 w-6 shrink-0 opacity-40"
-          />
-          <div className="flex-1 relative">
-            <CommentComposer
-              ref={replyInputRef}
-              value={replyText}
-              onChange={onReplyChange}
-              onMentionAdd={onReplyMentionAdd}
-              onSubmit={onSubmitReply}
-              onEscape={() => {
-                onCollapse();
-                requestAnimationFrame(() => cardRef.current?.focus());
-              }}
-              members={members}
-              placeholder={t("comments.reply")}
-              disabled={isSubmitting}
-              rows={1}
-              className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
+        <>
+          {replyTarget}
+          <div
+            data-comment-reply-composer
+            className="flex items-center gap-2 px-3 pb-3 pt-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CommentAvatar
+              email={thread.comments[0]?.author_email}
+              name={
+                thread.comments[0]?.author_name ??
+                thread.comments[0]?.author_email
+              }
+              className="h-6 w-6 shrink-0 opacity-40"
             />
-            <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
-              <button
-                type="button"
-                aria-label={t("comments.submit")}
-                onClick={onSubmitReply}
-                disabled={!replyText.trim() || isSubmitting}
-                className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
-              >
-                <IconArrowUp size={16} />
-              </button>
+            <div className="flex-1 relative">
+              <CommentComposer
+                ref={replyInputRef}
+                value={replyText}
+                onChange={onReplyChange}
+                onMentionAdd={onReplyMentionAdd}
+                onSubmit={onSubmitReply}
+                onEscape={() => {
+                  onCollapse();
+                  requestAnimationFrame(() => cardRef.current?.focus());
+                }}
+                members={members}
+                placeholder={t("comments.reply")}
+                disabled={isSubmitting}
+                rows={1}
+                className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
+              />
+              <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
+                <button
+                  type="button"
+                  aria-label={t("comments.submit")}
+                  onClick={onSubmitReply}
+                  disabled={!replyText.trim() || isSubmitting}
+                  className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
+                >
+                  <IconArrowUp size={16} />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

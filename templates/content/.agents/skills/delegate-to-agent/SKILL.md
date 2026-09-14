@@ -99,6 +99,13 @@ Use this silent form only for explicitly background or system-initiated work.
 It is not the default for a user clicking an AI-labeled button; visible work
 should open the sidebar so the user can follow and redirect the run.
 
+An explicitly designed inline conversation may also use the shared background
+session helper when the originating object is the approved conversation surface.
+Keep every invocation in its own agent thread, render its progress and response
+on that object, preserve model and actor attribution, and leave navigation,
+sidebar state, and open tabs alone. An inline Reply continues that exact thread;
+an explicit Open action reveals the exact thread with a targeted prefill.
+
 **From scripts (Node):**
 
 ```ts
