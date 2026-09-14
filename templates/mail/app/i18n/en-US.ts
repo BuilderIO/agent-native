@@ -667,6 +667,7 @@ const messages = {
     goToStarred: "Go to Starred",
     goToSent: "Go to Sent",
     goToDrafts: "Go to Drafts",
+    goToAllMail: "Go to All Mail",
     goToArchive: "Go to Archive",
     goToTrash: "Go to Trash",
     enableAutocomplete: "Enable Autocomplete",

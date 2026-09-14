@@ -672,6 +672,7 @@ const messages = {
     goToStarred: "スター付きへ移動",
     goToSent: "送信済みへ移動",
     goToDrafts: "下書きへ移動",
+    goToAllMail: "すべてのメールへ移動",
     goToArchive: "アーカイブへ移動",
     goToTrash: "ゴミ箱へ移動",
     enableAutocomplete: "自動補完を有効にする",

@@ -93,6 +93,31 @@ describe("CommandPalette Search action", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
+  it("routes All Mail and Archive commands to their distinct destinations", () => {
+    render(
+      <CommandPalette
+        open
+        onOpenChange={vi.fn()}
+        onCompose={vi.fn()}
+        onSearch={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "commandPalette.goToAllMail G A",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "commandPalette.goToArchive G E",
+      }),
+    );
+
+    expect(mocks.navigate).toHaveBeenNthCalledWith(1, "/all");
+    expect(mocks.navigate).toHaveBeenNthCalledWith(2, "/archive");
+  });
+
   it("opts into command-query clearing and focus restoration on Escape", () => {
     const onCloseAutoFocus = vi.fn();
     const { container } = render(

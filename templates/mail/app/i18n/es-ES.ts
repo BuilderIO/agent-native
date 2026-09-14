@@ -680,6 +680,7 @@ const messages = {
     goToStarred: "Ir a destacados",
     goToSent: "Ir a enviados",
     goToDrafts: "Ir a borradores",
+    goToAllMail: "Ir a todo el correo",
     goToArchive: "Ir al archivo",
     goToTrash: "Ir a papelera",
     enableAutocomplete: "Activar autocompletado",

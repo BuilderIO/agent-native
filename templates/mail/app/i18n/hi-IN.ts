@@ -668,6 +668,7 @@ const messages = {
     goToStarred: "Starred पर जाएं",
     goToSent: "Sent पर जाएं",
     goToDrafts: "Drafts पर जाएं",
+    goToAllMail: "सभी मेल पर जाएं",
     goToArchive: "Archive पर जाएं",
     goToTrash: "Trash पर जाएं",
     enableAutocomplete: "ऑटोकंप्लीट चालू करें",

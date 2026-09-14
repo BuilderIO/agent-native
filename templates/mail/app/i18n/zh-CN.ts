@@ -649,6 +649,7 @@ const messages = {
     goToStarred: "前往星标",
     goToSent: "前往已发送",
     goToDrafts: "前往草稿",
+    goToAllMail: "前往所有邮件",
     goToArchive: "前往归档",
     goToTrash: "前往垃圾箱",
     enableAutocomplete: "启用自动补全",

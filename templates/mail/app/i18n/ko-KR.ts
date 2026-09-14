@@ -671,6 +671,7 @@ const messages = {
     goToStarred: "별표로 이동",
     goToSent: "보낸편지함으로 이동",
     goToDrafts: "임시보관함으로 이동",
+    goToAllMail: "전체 메일로 이동",
     goToArchive: "보관함으로 이동",
     goToTrash: "휴지통으로 이동",
     enableAutocomplete: "자동 완성 사용",

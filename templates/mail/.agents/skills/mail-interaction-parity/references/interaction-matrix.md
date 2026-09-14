@@ -604,9 +604,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   only to Inbox despite the reference sheet's ambiguous Inbox/Important label;
   and Cmd+O has a Mail-specific GitHub-link handler when a PR link is detected;
   compare ordinary attachment/link handling with Superhuman separately. G+A
-  was corrected to `/all` based on the captured shortcut inventory and has a
-  route-mapping regression check; its live side-by-side replay is still pending.
-  The other source findings remain gaps to validate, not runtime parity evidence.
+  routes to `/all`; an isolated, memory-backed browser replay on 2026-09-13
+  verified the palette labels and G+A → `/all` / G+E → `/archive` routes.
+  Superhuman paired replay is still pending. The other source findings remain
+  gaps to validate, not runtime parity evidence.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

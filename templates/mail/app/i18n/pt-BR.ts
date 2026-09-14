@@ -681,6 +681,7 @@ const messages = {
     goToStarred: "Ir para favoritos",
     goToSent: "Ir para enviados",
     goToDrafts: "Ir para rascunhos",
+    goToAllMail: "Ir para Todos os e-mails",
     goToArchive: "Ir para arquivo",
     goToTrash: "Ir para lixeira",
     enableAutocomplete: "Ativar autocompletar",

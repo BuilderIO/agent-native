@@ -3,6 +3,7 @@ import { CommandMenu } from "@agent-native/core/client/navigation";
 import {
   IconHierarchy2,
   IconInbox,
+  IconMail,
   IconStar,
   IconSend,
   IconFileText,
@@ -73,10 +74,16 @@ const navCommands = [
     shortcut: "G D",
   },
   {
+    labelKey: "commandPalette.goToAllMail",
+    icon: IconMail,
+    route: "/all",
+    shortcut: "G A",
+  },
+  {
     labelKey: "commandPalette.goToArchive",
     icon: IconArchive,
     route: "/archive",
-    shortcut: "G A",
+    shortcut: "G E",
   },
   { labelKey: "commandPalette.goToTrash", icon: IconTrash, route: "/trash" },
   {

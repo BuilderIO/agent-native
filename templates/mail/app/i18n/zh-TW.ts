@@ -646,6 +646,7 @@ const messages = {
     goToStarred: "前往星標",
     goToSent: "前往已傳送",
     goToDrafts: "前往草稿",
+    goToAllMail: "前往所有郵件",
     goToArchive: "前往封存",
     goToTrash: "前往垃圾桶",
     enableAutocomplete: "啟用自動完成",

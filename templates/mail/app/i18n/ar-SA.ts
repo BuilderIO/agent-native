@@ -667,6 +667,7 @@ const messages = {
     goToStarred: "الانتقال إلى المميزة",
     goToSent: "الانتقال إلى المرسلة",
     goToDrafts: "الانتقال إلى المسودات",
+    goToAllMail: "الانتقال إلى كل البريد",
     goToArchive: "الانتقال إلى الأرشيف",
     goToTrash: "الانتقال إلى المهملات",
     enableAutocomplete: "تفعيل الإكمال التلقائي",

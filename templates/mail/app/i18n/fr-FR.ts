@@ -685,6 +685,7 @@ const messages = {
     goToStarred: "Aller aux favoris",
     goToSent: "Aller aux envoyes",
     goToDrafts: "Aller aux brouillons",
+    goToAllMail: "Aller à tous les messages",
     goToArchive: "Aller aux archives",
     goToTrash: "Aller a la corbeille",
     enableAutocomplete: "Activer la saisie automatique",
