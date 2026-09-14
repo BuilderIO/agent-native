@@ -70,7 +70,9 @@ describe("DesktopIdentityGate", () => {
 
     expect(container.textContent).toContain("Sign in with Google");
     expect(container.textContent).toContain("Welcome");
-    expect(container.textContent).toContain("Create an account or sign in");
+    expect(container.textContent).toContain(
+      "Continue to sign in or create your account",
+    );
     expect(
       container.querySelector(".desktop-identity-gate__app-name"),
     ).toBeNull();
@@ -83,7 +85,9 @@ describe("DesktopIdentityGate", () => {
     expect(container.textContent).toContain(
       "By signing up, you accept our Terms and Privacy Policy.",
     );
-    expect(container.textContent).not.toContain("Continue");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit"),
+    ).toBeNull();
     expect(
       container.querySelector('input[placeholder="you@example.com"]'),
     ).not.toBeNull();
@@ -100,7 +104,9 @@ describe("DesktopIdentityGate", () => {
       setter?.call(email, "owner@example.com");
       email.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(container.textContent).toContain("Continue");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit")?.textContent,
+    ).toBe("Continue with email");
 
     await act(async () => {
       container
@@ -130,7 +136,9 @@ describe("DesktopIdentityGate", () => {
       setter?.call(email, "owner@example.com");
       email.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(container.textContent).toContain("Continue");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit")?.textContent,
+    ).toBe("Continue with email");
 
     await act(async () => {
       container

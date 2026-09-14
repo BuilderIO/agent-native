@@ -28,6 +28,7 @@ import {
   updateWebContentsIdByTab,
   updateDesktopIdentityStatusByTab,
   orderDesktopApps,
+  resolveDesktopChatFirstPrimaryTab,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
 import {
@@ -971,5 +972,64 @@ describe("CodeAgentsHub app auth state", () => {
     expect(
       updateAppAuthStateByTab(unauthenticated, "dispatch-tab", "unknown"),
     ).toBe(unauthenticated);
+  });
+});
+
+describe("resolveDesktopChatFirstPrimaryTab", () => {
+  it("names the scheduled surface so the rail can deactivate app icons", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: true,
+        appSelected: false,
+        activeTab: null,
+      }),
+    ).toBe("scheduled");
+  });
+
+  it("keeps naming scheduled even if an app tab is still open underneath", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: true,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "mail" },
+      }),
+    ).toBe("scheduled");
+  });
+
+  it("names the chats surface when nothing else owns the rail", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: false,
+        activeTab: null,
+      }),
+    ).toBe("new-chat");
+  });
+
+  it("names no tab when a workspace app owns the rail", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "mail", path: "/inbox" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("maps the dispatch-hosted integrations and automations paths", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "dispatch", path: "/integrations" },
+      }),
+    ).toBe("integrations");
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "dispatch", path: "/automations" },
+      }),
+    ).toBe("scheduled");
   });
 });

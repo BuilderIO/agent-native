@@ -127,6 +127,7 @@ import {
 
 import {
   canApproveWithRole,
+  MAX_ASSET_UPLOAD_BATCH_BYTES,
   type AssetVariantState,
   type ImageRole,
 } from "../../shared/api";
@@ -824,6 +825,15 @@ export function BrandKitDetailRoute({
   async function upload(files: FileList | null, category = "style-only") {
     if (!files?.length || uploading) return;
     const selectedFiles = Array.from(files);
+    const oversizedFile = selectedFiles.find(
+      (file) => file.size > MAX_ASSET_UPLOAD_BATCH_BYTES,
+    );
+    if (oversizedFile) {
+      toast.error(
+        `${t("library.uploadFailed")}: ${oversizedFile.name} (${(oversizedFile.size / 1024 / 1024).toFixed(1)} MB > ${MAX_ASSET_UPLOAD_BATCH_BYTES / 1024 / 1024} MB)`,
+      );
+      return;
+    }
     const uploadChunks = chunkAssetUploads(selectedFiles);
     const selectedFolderId =
       activeFolderId && activeFolderId !== "all" ? activeFolderId : null;

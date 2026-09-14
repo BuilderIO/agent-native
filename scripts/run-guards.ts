@@ -32,6 +32,7 @@ const guards = [
   "guard:template-standard",
   "guard:public-packages",
   "guard:shared-ui-singletons",
+  "guard:modal-layer-integrity",
   "guard:no-core-client-barrel-imports",
   "guard:toolkit-must-not-import-core",
   "guard:template-ui-imports",

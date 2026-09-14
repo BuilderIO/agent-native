@@ -14,6 +14,7 @@ import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   applyDocSurgically,
   createSharedEditorExtensions,
+  TaskListPasteNormalization,
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
@@ -882,6 +883,57 @@ function suggestionAnchorRange(
       ? { from: pmFrom, to: pmTo }
       : null;
   };
+  const collapsedDeletionTextblock = () => {
+    const draftSource = suggestion.afterPresentation?.source;
+    const emptyBlock = "<empty-block/>";
+    const retainsEmptyBlock =
+      draftSource?.slice(sourceFrom, sourceFrom + emptyBlock.length) ===
+      emptyBlock;
+    if (
+      suggestion.presentation !== "draft" ||
+      suggestion.kind !== "delete_text" ||
+      (suggestion.afterText && suggestion.afterText !== emptyBlock) ||
+      !suggestion.beforeText ||
+      /^\n+$/.test(suggestionAnchorText(suggestion.beforeText)) ||
+      draftSource === undefined ||
+      suggestion.afterPresentation?.from !== sourceFrom ||
+      suggestion.afterPresentation.to !==
+        sourceFrom + (retainsEmptyBlock ? emptyBlock.length : 0) ||
+      suggestion.beforePresentation?.source !==
+        draftSource.slice(0, sourceFrom) +
+          suggestion.beforeText +
+          draftSource.slice(
+            sourceFrom + (retainsEmptyBlock ? emptyBlock.length : 0),
+          ) ||
+      suggestion.beforePresentation.from !== sourceFrom ||
+      suggestion.beforePresentation.to !==
+        sourceFrom + suggestion.beforeText.length
+    ) {
+      return null;
+    }
+    if (!retainsEmptyBlock && doc.childCount !== 1) return null;
+
+    const matches: number[] = [];
+    let childPos = 0;
+    let sourceOffset = 0;
+    doc.forEach((node) => {
+      const singleBlock = doc.type.create(doc.attrs, node, doc.marks);
+      const blockSource = docToNfm(singleBlock.toJSON());
+      if (
+        sourceOffset === sourceFrom &&
+        (!retainsEmptyBlock || blockSource === emptyBlock) &&
+        node.isTextblock &&
+        node.content.size === 0
+      ) {
+        matches.push(childPos + 1);
+      }
+      childPos += node.nodeSize;
+      sourceOffset += blockSource.length + 1;
+    });
+    return matches.length === 1 ? { from: matches[0]!, to: matches[0]! } : null;
+  };
+  const collapsedRange = collapsedDeletionTextblock();
+  if (collapsedRange) return collapsedRange;
   if (sourceMatches) {
     const exactRange = sourceRangeToPm(sourceFrom, sourceTo);
     if (exactRange) return exactRange;
@@ -910,16 +962,6 @@ function suggestionAnchorRange(
       ? suggestion.afterText
       : suggestion.beforeText,
   );
-  if (
-    suggestion.presentation === "draft" &&
-    suggestion.beforeText &&
-    doc.childCount === 1 &&
-    doc.firstChild?.isTextblock &&
-    doc.firstChild.content.size === 0
-  ) {
-    return { from: 1, to: 1 };
-  }
-
   const prefix =
     startOffset === undefined
       ? suggestionAnchorText(suggestion.anchor.prefix)
@@ -949,18 +991,23 @@ export function suggestionHighlightSpec(
   doc: ProseMirrorNode,
   suggestion: VisualEditorSuggestion,
 ): SuggestionHighlightSpec | null {
+  const retainedEmptyBlockDeletion =
+    suggestion.kind === "delete_text" &&
+    suggestion.afterText === "<empty-block/>";
   const beforePresentation = suggestion.beforePresentation
     ? suggestionTextPresentationForSource(
         suggestion.beforeText,
         suggestion.beforePresentation,
       )
     : undefined;
-  const afterPresentation = suggestion.afterPresentation
-    ? suggestionTextPresentationForSource(
-        suggestion.afterText,
-        suggestion.afterPresentation,
-      )
-    : undefined;
+  const afterPresentation = retainedEmptyBlockDeletion
+    ? []
+    : suggestion.afterPresentation
+      ? suggestionTextPresentationForSource(
+          suggestion.afterText,
+          suggestion.afterPresentation,
+        )
+      : undefined;
   if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
@@ -980,7 +1027,7 @@ export function suggestionHighlightSpec(
         insertedPresentation: suggestion.afterPresentation,
       };
     }
-    if (!suggestion.afterText) {
+    if (!suggestion.afterText || retainedEmptyBlockDeletion) {
       return {
         suggestionId: suggestion.id,
         kind: "delete",
@@ -2159,6 +2206,10 @@ export function createVisualEditorExtensions({
       TaskItem.configure({
         nested: true,
       }),
+      // Content disables the shared factory's `tasks` feature and ships its own
+      // TaskList/TaskItem, so it has to register the shared paste normalization
+      // that pairs with them.
+      TaskListPasteNormalization,
       ImageNode.configure({
         HTMLAttributes: { class: "notion-image" },
         documentId,
