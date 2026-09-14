@@ -48,7 +48,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function renderPanel(findings: A11yFinding[]) {
+async function renderPanel(
+  findings: A11yFinding[],
+  onFindingClick?: (finding: A11yFinding) => void,
+) {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -61,6 +64,7 @@ async function renderPanel(findings: A11yFinding[]) {
       root!.render(
         <ReviewPanel
           findings={nextFindings}
+          onFindingClick={onFindingClick}
           fixSource={{ designId: "design-1", fileId: "file-1" }}
         />,
       );
@@ -130,8 +134,25 @@ describe("ReviewPanel FindingRow fix status", () => {
 });
 
 describe("ReviewPanel FindingRow keyboard activation", () => {
+  it("opens finding details when the row is clicked", async () => {
+    const selected = finding({ detail: "The text contrast is too low." });
+    const onFindingClick = vi.fn();
+    await renderPanel([selected], onFindingClick);
+
+    const row = container!.querySelector('[role="button"]');
+    if (!row) throw new Error("Finding row did not render");
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container!.textContent).toContain("The text contrast is too low.");
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(onFindingClick).toHaveBeenCalledWith(selected);
+  });
+
   it("prevents the default Space scroll when activating a finding row via keyboard", async () => {
     const onFindingClick = vi.fn();
+    const selected = finding({ detail: "The text contrast is too low." });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -141,7 +162,7 @@ describe("ReviewPanel FindingRow keyboard activation", () => {
     };
     await act(async () => {
       root!.render(
-        <ReviewPanel findings={[finding()]} onFindingClick={onFindingClick} />,
+        <ReviewPanel findings={[selected]} onFindingClick={onFindingClick} />,
       );
     });
 
@@ -157,6 +178,8 @@ describe("ReviewPanel FindingRow keyboard activation", () => {
     });
 
     expect(event.defaultPrevented).toBe(true);
-    expect(onFindingClick).toHaveBeenCalledWith(finding());
+    expect(onFindingClick).toHaveBeenCalledWith(selected);
+    expect(container.textContent).toContain("The text contrast is too low.");
+    expect(row.getAttribute("aria-expanded")).toBe("true");
   });
 });

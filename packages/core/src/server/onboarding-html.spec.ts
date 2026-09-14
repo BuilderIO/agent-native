@@ -5,6 +5,7 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import type { AuthPageProps } from "../client/auth/AuthPage.js";
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -50,8 +51,14 @@ describe("getOnboardingHtml", () => {
     );
 
     expect(html).toContain('id="environment-badge"');
-    expect(html).toContain("You're on Agent-Native Alpha");
-    expect(html).toContain("Switch to production");
+    expect(html).toContain(
+      `var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};`,
+    );
+    expect(html).toContain('data-agent-native-environment-switcher-script="1"');
+    expect(html).toContain("button.textContent = messages.betaLabel");
+    expect(html).toContain(
+      "productionLink.textContent = messages.switchToProduction",
+    );
     expect(html).toContain('id="environment-hide-badge"');
     expect(readAuthPageData(html).environmentBetaHosts).toHaveProperty(
       "analytics.agent-native.com",

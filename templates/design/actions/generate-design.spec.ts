@@ -149,6 +149,7 @@ const mocks = vi.hoisted(() => {
     mutateDesignData: vi.fn(),
     assertAccess: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...conditions) => ({ conditions })),
+    inArray: vi.fn((column, values) => ({ column, values })),
     eq: vi.fn((left, right) => ({ left, right })),
     isNull: vi.fn((value) => ({ isNull: value })),
     readAppState: vi.fn().mockResolvedValue(null),
@@ -191,6 +192,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  inArray: mocks.inArray,
   isNull: mocks.isNull,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -229,6 +231,7 @@ vi.mock("../server/db/index.js", () => {
     },
     designs: {
       id: "designs.id",
+      title: "designs.title",
       data: "designs.data",
     },
   };
@@ -426,7 +429,9 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
-    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.setDesignRows([
+      { id: "design-1", title: "Untitled Design", data: null },
+    ]);
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
@@ -770,7 +775,7 @@ describe("generate-design: generation-session lock guards concurrent fan-out", (
   });
 });
 
-describe("generate-design: new-file creation path (unchanged)", () => {
+describe("generate-design: new-file creation path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
@@ -813,6 +818,33 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       concurrentSibling: { keep: true },
       lastPrompt: "New landing page",
       fileCount: 1,
+    });
+  });
+
+  it("replaces a placeholder title from the generation prompt", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "A warm editorial journal for book lovers\nUse cream and rust",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Reading list</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.designUpdateChain.set).toHaveBeenCalledWith({
+      title: "A warm editorial journal for book lovers",
+    });
+    expect(mocks.designUpdateChain.where).toHaveBeenCalledWith({
+      conditions: [
+        { left: "designs.id", right: "design-1" },
+        {
+          column: "designs.title",
+          values: ["Untitled", "Untitled Design"],
+        },
+      ],
     });
   });
 

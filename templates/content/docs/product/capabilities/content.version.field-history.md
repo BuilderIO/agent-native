@@ -63,7 +63,7 @@ A Page contains a primary article body and a separate research-notes Blocks fiel
 
 - Field history does not create a named Version for every edit.
 - Snapshot timing does not decide Revision boundaries; causality and editing intent do.
-- A Blocks field is not a full Page and does not acquire independent top-level Properties, sharing, or Database membership.
+- A Blocks field is not a full Page and does not acquire independent top-level Properties, sharing, or Collection membership.
 - This Capability does not define the Page-level branching graph, selective cross-Version merge, or canonical promotion owned by `content.version.branching`.
 - Queryable History may project these Revisions across objects, but it is not the source of truth for the field's identity.
 

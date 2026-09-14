@@ -102,6 +102,7 @@ const messages = {
     status: "狀態",
     coverage: "涵蓋範圍",
     reason: "原因",
+    summary: "摘要",
     evidence: "證據",
     actionsTaken: "紀錄",
     threadTruncated: "此 Slack 討論串不完整。",

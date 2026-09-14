@@ -724,6 +724,49 @@ describe("Builder design-system helpers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("returns a safe conflict when Builder rejects a duplicate design-system name", async () => {
+    delete process.env.GITHUB_TOKEN;
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.github.com/")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.endsWith("/index?apiKey=builder-public")) {
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            message:
+              "Design system name already exists in this scope, please use a different name",
+            severity: "medium",
+            id: "fixture-builder-error-id",
+          }),
+          { status: 409 },
+        );
+      }
+      throw new Error(`Unexpected mocked request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      startBuilderDesignSystemIndex({
+        githubRepos: [{ repoUrl: "https://github.com/ant-design/ant-design" }],
+      }),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "design_system_name_conflict",
+      statusCode: 409,
+      message:
+        "A design system with this name already exists. Choose a different name and try again.",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps an unscoped public repository as a native Builder source", async () => {
     delete process.env.GITHUB_TOKEN;
     process.env.BUILDER_PRIVATE_KEY = "builder-private";

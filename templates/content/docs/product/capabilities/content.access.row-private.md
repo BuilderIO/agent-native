@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.access.row-private"
 name: "Row-level privacy"
-user_promise: "A Page or Database row can be shared more narrowly than its collection's ordinary visibility."
+user_promise: "A Page or Collection row can be shared more narrowly than its collection's ordinary visibility."
 primary_user_job: "Keep a sensitive item in an otherwise shared workflow without copying it into a secret parallel system."
 kind: "primitive"
 state: "approved_shape"
@@ -12,7 +12,7 @@ availability: "universal"
 dependencies: ["content.access.page-database"]
 related_features: ["content.feature.explore-alternatives-safely"]
 roadmap_boundary: "feature"
-acceptance_summary: "Default Database visibility can be narrowed by row/Page principals, and every read, query, source operation, and mutation applies the resulting access before returning data."
+acceptance_summary: "Default Collection visibility can be narrowed by row/Page principals, and every read, query, source operation, and mutation applies the resulting access before returning data."
 proof_requirements:
   [
     "Default inheritance and explicit row/Page principal behavior",
@@ -33,14 +33,14 @@ A shared tracker sometimes contains a draft, personnel matter, or private altern
 
 ## Example workflow
 
-A team keeps a hiring Database visible to managers. One candidate row is restricted to a smaller panel. The panel can work with the row; other managers see neither its fields nor its contribution to counts.
+A team keeps a hiring Collection visible to managers. One candidate row is restricted to a smaller panel. The panel can work with the row; other managers see neither its fields nor its contribution to counts.
 
 ## Product contract
 
-- A Database supplies ordinary default access; a Page/row may narrow that visibility through explicit principals.
+- A Collection supplies ordinary default access; a Page/row may narrow that visibility through explicit principals.
 - Narrower row access applies before list, View, Query, relation traversal, search, aggregate, export, agent context, and source operations.
 - An authorized direct link opens the Page; an unauthorized known direct link returns an honest generic denial.
-- Row privacy does not make a Page's identity dependent on a Database or grant access through another membership.
+- Row privacy does not make a Page's identity dependent on a Collection or grant access through another membership.
 - All mutations use the shared Action decision and record attributable history.
 
 ## Boundaries and non-goals
@@ -53,7 +53,7 @@ A team keeps a hiring Database visible to managers. One candidate row is restric
 
 ### Hide a restricted row from collection work
 
-Given one private row in a shared Database, when an unauthorized member opens a View, searches, groups, or exports it, then the row and its values do not appear or affect derived output.
+Given one private row in a shared Collection, when an unauthorized member opens a View, searches, groups, or exports it, then the row and its values do not appear or affect derived output.
 
 ### Keep direct access honest
 

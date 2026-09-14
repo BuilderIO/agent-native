@@ -174,6 +174,7 @@ const messages: AgentChatTranslation = {
     "Anthropic、OpenAI、または別のプロバイダーを設定",
   "composer.connectAbove": "続行するには上で AI に接続してください...",
   "composer.connectBuilder": "Builder.io に接続",
+  "composer.connectKeys": "キーを接続",
   "composer.connectingBuilder": "Builder.io に接続中…",
   "composer.costHigher": "高コスト",
   "composer.costLower": "低コスト",
@@ -303,7 +304,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "このブラウザーはリアルタイム音声会話に対応していません。",
   "voiceMode.hideChat": "チャットを非表示",
-  "voiceMode.keepDictating": "音声入力",
+  "voiceMode.keepDictating": "メッセージを音声入力",
   "voiceMode.promptDescription":
     "音声モードでは、エージェントが画面を移動して操作している間も音声を聞き続けます。",
   "voiceMode.promptTitle": "音声を使用",
@@ -345,7 +346,7 @@ const messages: AgentChatTranslation = {
     "Builder.io に接続して無料クレジット付きの管理音声を使用するか、独自のキーを追加します。",
   "voiceMode.setupTitle": "音声モードを設定",
   "voiceMode.showChat": "チャットを表示",
-  "voiceMode.start": "リアルタイム音声",
+  "voiceMode.start": "音声チャットを開始",
   "voiceMode.startWithOpenAiKey": "OpenAI キーで開始",
   "voiceMode.status.connecting": "接続中",
   "voiceMode.status.ending": "音声モードを終了中",

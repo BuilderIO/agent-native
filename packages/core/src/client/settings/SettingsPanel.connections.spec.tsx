@@ -139,7 +139,9 @@ describe("ConnectionsSettingsContent", () => {
         ) === true,
     );
 
-    expect(builderStatusRequests).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(builderStatusRequests).toHaveLength(1);
+    });
     expect(container.textContent).toContain(
       "Builder callback could not save credentials",
     );
@@ -230,10 +232,12 @@ describe("ConnectionsSettingsContent", () => {
       () => container.textContent?.includes("Ready to connect") === true,
     );
 
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Ready to connect");
+    });
     const connectButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Connect Builder"),
     );
-    expect(container.textContent).toContain("Ready to connect");
     expect(connectButton?.disabled).toBe(false);
 
     act(() => root.unmount());
@@ -308,11 +312,13 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
     });
 
-    expect(
-      Array.from(container.querySelectorAll("button")).filter((button) =>
-        button.textContent?.includes("Connect Builder"),
-      ),
-    ).toHaveLength(5);
+    await vi.waitFor(() => {
+      expect(
+        Array.from(container.querySelectorAll("button")).filter((button) =>
+          button.textContent?.includes("Connect Builder"),
+        ),
+      ).toHaveLength(5);
+    });
 
     act(() => root.unmount());
   });
