@@ -998,16 +998,66 @@ const frFR = {
     },
     chat: {
       faq: {
-        question1: "Qu'est-ce que le modèle Chat ?",
+        question1: "Qu'est-ce qu'Agent-Native Chat ?",
         answer1:
-          "Une base minimale de style ChatGPT pour votre propre agent : fils de discussion durables, authentification, actions, synchronisation en direct, barre latérale standard et moyen simple d'ajouter des écrans ou de connecter votre backend.",
-        question2: "En quoi diffère-t-il de ChatGPT ?",
+          "Agent-Native Chat est une app de chat IA gratuite et open source pour les développeurs. Elle inclut des fils de discussion enregistrés, une interface de chat avec un agent, l'authentification, des actions partagées et la synchronisation en direct. Vous ajoutez les données et le comportement propres à votre application.",
+        question2: "Chat est-il un assistant IA fini ?",
         answer2:
-          "ChatGPT est l'app d'OpenAI conçue autour des modèles d'OpenAI. Celle-ci vous appartient : votre backend d'agent, vos données et vos écrans. C'est un point de départ que vous enrichissez, pas un produit que vous louez.",
-        question3: "Est-il prêt pour la production ?",
+          "Chat fournit une interface de conversation fonctionnelle et le framework qui la fait tourner. Elle inclut une action d'exemple, mais les workflows métier et les intégrations avec des fournisseurs sont à vous d'implémenter et de configurer.",
+        question3: "Puis-je ajouter des écrans au-delà de l'interface de chat ?",
         answer3:
-          "C'est une base volontairement minimale : le point de départ honnête d'une app de chat, pas une app finalisée. Si vous voulez une solution aboutie, commencez par l'une des autres apps.",
+          "Oui. Ajoutez des routes et des composants pour des listes, des files d'attente, des éditeurs ou toute autre vue dont votre workflow a besoin. Connectez-les aux mêmes actions et données d'application que l'agent utilise.",
+        question4: "Chat inclut-il des connexions à mes outils métier ?",
+        answer4:
+          "Le modèle minimal n'inclut pas d'intégrations fournisseurs propres à un domaine. Ajoutez les connexions et règles d'accès dont votre app a besoin. Si une app Agent-Native existante correspond déjà à votre workflow, son modèle est peut-être un meilleur point de départ.",
+        question5: "Puis-je personnaliser et déployer ma propre version ?",
+        answer5:
+          "Oui. Créez une copie avec la CLI, ajoutez vos actions, données et interface, puis déployez votre application. Configurez l'authentification et l'accès aux fournisseurs pour votre environnement, et testez les workflows que vous ajoutez avant de les partager avec vos utilisateurs.",
       },
+      s001: "Capture d'écran de l'app Chat",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "Créez votre propre app de chat IA",
+      heroDescription:
+        "Chat est une app de chat IA gratuite et open source, avec conversations enregistrées, authentification et un agent que vous pouvez enrichir avec vos propres actions, données et écrans.",
+      heroCta: "Créer votre app",
+      heroSecondaryCta: "Ouvrir Chat",
+      useCasesHeading: "Que pouvez-vous construire avec Chat ?",
+      useCasesBody:
+        "Commencez avec l'app de chat, puis ajoutez les données et actions propres à votre cas d'usage. Ces workflows vous appartiennent : construisez-les à partir de cette base.",
+      useCase1Title: "Créer un assistant interne",
+      useCase1Body:
+        "Ajoutez des actions qui recherchent des informations ou traitent des demandes pour votre équipe. Utilisez la connexion et l'historique de conversation inclus comme point de départ.",
+      useCase2Title: "Prototyper un workflow d'agent",
+      useCase2Body:
+        "Implémentez une action utile et testez-la via le chat. Affinez les instructions et le comportement de l'agent avant d'ajouter d'autres outils ou écrans.",
+      useCase3Title: "Ajouter une interface pour le travail de l'agent",
+      useCase3Body:
+        "Créez une file d'attente, une liste ou un éditeur lorsque les utilisateurs doivent revoir le travail visuellement. Connectez-le aux mêmes actions et données que votre agent.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading: "Une base pour votre agent et son interface",
+      feature1Title: "Conversations enregistrées",
+      feature1Body:
+        "Offrez aux utilisateurs des fils de discussion auxquels revenir. Créez, rouvrez, renommez, épinglez et archivez des conversations depuis la barre latérale incluse.",
+      feature2Title: "Chat avec agent intégré",
+      feature2Body:
+        "Démarrez avec une conversation plein écran et le runtime d'agent du framework. Ajoutez des instructions et des outils pour les tâches que votre application doit gérer.",
+      feature3Title: "Authentification et sessions",
+      feature3Body:
+        "Démarrez avec la connexion, l'inscription, les sessions et la prise en charge des organisations déjà intégrées. Ajoutez les règles d'accès requises par les données et workflows de votre application.",
+      feature4Title: "Actions partagées",
+      feature4Body:
+        "Définissez une opération une seule fois pour que votre agent et votre interface l'utilisent. Suivez l'exemple d'action inclus lorsque vous ajoutez vos propres capacités.",
+      feature5Title: "Synchronisation des données en direct",
+      feature5Body:
+        "Gardez votre interface à jour lorsque l'agent modifie les données de l'application. Construisez des écrans autour de l'état partagé et de la synchronisation de base de données du framework.",
+      feature6Title: "Inspection de la base de données et des exécutions",
+      feature6Body:
+        "Utilisez les écrans d'administration de base de données et d'observabilité inclus pour inspecter les données stockées et les exécutions de l'agent pendant que vous construisez et déboguez votre application.",
+      finalCtaHeading: "Construisez votre premier workflow d'agent",
+      finalCtaBody:
+        "Créez votre copie et ajoutez la première action dont vos utilisateurs ont besoin.",
+      finalCtaButton: "Créer votre app",
     },
     clips: {
       s001: "Capture d'écran du modèle Clips",

@@ -985,16 +985,65 @@ const hiIN = {
     },
     chat: {
       faq: {
-        question1: "Chat template क्या है?",
+        question1: "Agent-Native Chat क्या है?",
         answer1:
-          "आपके अपने agent के लिए एक छोटा ChatGPT-जैसा scaffold: durable threads, auth, actions, live sync, standard sidebar — और screens जोड़ने या अपना backend connect करने का साफ़ रास्ता।",
-        question2: "यह ChatGPT से कैसे अलग है?",
+          "Agent-Native Chat डेवलपर्स के लिए एक मुफ़्त और ओपन-सोर्स AI chat app है। इसमें saved threads, एक agent chat interface, authentication, shared actions और live sync शामिल हैं। आप अपने application के लिए domain-specific data और behavior खुद जोड़ते हैं।",
+        question2: "क्या Chat एक पूरी तरह तैयार AI असिस्टेंट है?",
         answer2:
-          "ChatGPT, OpenAI के models के लिए OpenAI की app है। यह आपकी है: आपका agent backend, आपका data और आपकी screens — ऐसा शुरुआती आधार जिसे आप आगे बढ़ाते हैं, कोई किराए का product नहीं।",
-        question3: "क्या यह production के लिए तैयार है?",
+          "Chat एक काम करने वाला conversation interface और उसके पीछे का framework देता है। इसमें एक उदाहरण action शामिल है, लेकिन business workflows और provider integrations आपको खुद implement और configure करने होंगे।",
+        question3: "क्या मैं chat interface के अलावा screens जोड़ सकता हूँ?",
         answer3:
-          "यह जानबूझकर छोटा रखा गया scaffold है — chat app के लिए ईमानदार शुरुआती आधार, कोई पूरी तरह तैयार app नहीं। अगर आपको तैयार app चाहिए, तो दूसरी apps में से किसी एक से शुरू करें।",
+          "हाँ। अपने workflow की ज़रूरत के हिसाब से lists, queues, editors या दूसरे views के लिए routes और components जोड़ें। इन्हें उन्हीं actions और application data से जोड़ें जिन्हें agent इस्तेमाल करता है।",
+        question4: "क्या Chat में मेरे business tools से connections शामिल हैं?",
+        answer4:
+          "यह minimal template domain-specific provider integrations शामिल नहीं करता। अपनी app के लिए ज़रूरी connections और access rules खुद जोड़ें। अगर कोई मौजूदा Agent-Native app पहले से आपके workflow से मेल खाती है, तो उसका template बेहतर शुरुआती बिंदु हो सकता है।",
+        question5: "क्या मैं अपना खुद का version customize करके deploy कर सकता हूँ?",
+        answer5:
+          "हाँ। CLI से एक कॉपी बनाएँ, अपने actions, data और interface जोड़ें, फिर अपनी application deploy करें। अपने environment के लिए authentication और provider access configure करें, और users के साथ शेयर करने से पहले जोड़े गए workflows को टेस्ट करें।",
       },
+      s001: "Chat app का स्क्रीनशॉट",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "अपना खुद का AI chat app बनाएँ",
+      heroDescription:
+        "Chat एक मुफ़्त और ओपन-सोर्स AI chat app है, जिसमें saved conversations, authentication और एक ऐसा agent शामिल है जिसे आप अपने खुद के actions, data और screens से आगे बढ़ा सकते हैं।",
+      heroCta: "अपनी app बनाएँ",
+      heroSecondaryCta: "Chat खोलें",
+      useCasesHeading: "आप Chat से क्या बना सकते हैं?",
+      useCasesBody:
+        "chat app से शुरू करें, फिर अपने use case के लिए data और actions जोड़ें। ये workflows आपके हैं — इसी आधार पर आगे बनाएँ।",
+      useCase1Title: "एक internal assistant बनाएँ",
+      useCase1Body:
+        "ऐसे actions जोड़ें जो जानकारी खोजें या आपकी team के requests संभालें। शामिल sign-in और conversation history को शुरुआती बिंदु की तरह इस्तेमाल करें।",
+      useCase2Title: "एक agent workflow का prototype बनाएँ",
+      useCase2Body:
+        "एक उपयोगी action implement करें और उसे chat के ज़रिए आज़माएँ। और tools या screens जोड़ने से पहले agent के instructions और behavior को बेहतर बनाएँ।",
+      useCase3Title: "agent के काम के लिए एक interface जोड़ें",
+      useCase3Body:
+        "जब users को काम को visually review करना हो, तो एक queue, list या editor बनाएँ। इसे अपने agent जैसे ही actions और data से जोड़ें।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएँ",
+      keyFeaturesHeading: "आपके agent और उसके interface के लिए एक शुरुआती आधार",
+      feature1Title: "Saved conversations",
+      feature1Body:
+        "users को ऐसे threads दें जिन पर वे वापस आ सकें। शामिल sidebar से conversations बनाएँ, फिर से खोलें, नाम बदलें, pin करें और archive करें।",
+      feature2Title: "Built-in agent chat",
+      feature2Body:
+        "एक full-page conversation और framework के agent runtime से शुरुआत करें। अपने application को जिन tasks को संभालना है, उनके लिए instructions और tools जोड़ें।",
+      feature3Title: "Authentication और sessions",
+      feature3Body:
+        "पहले से जुड़े login, signup, sessions और organization support से शुरुआत करें। अपने application के data और workflows के लिए ज़रूरी access rules जोड़ें।",
+      feature4Title: "Shared actions",
+      feature4Body:
+        "एक operation को अपने agent और interface, दोनों के लिए एक बार परिभाषित करें। अपनी क्षमताएँ जोड़ते समय शामिल उदाहरण action को फॉलो करें।",
+      feature5Title: "Live data sync",
+      feature5Body:
+        "जब agent application data बदले, तो अपने interface को अपडेट रखें। framework के shared state और database sync के आस-पास screens बनाएँ।",
+      feature6Title: "Database और run inspection",
+      feature6Body:
+        "अपनी application बनाते और debug करते समय stored data और agent runs को जांचने के लिए शामिल database administration और observability screens का इस्तेमाल करें।",
+      finalCtaHeading: "अपना पहला agent workflow बनाएँ",
+      finalCtaBody: "अपनी कॉपी बनाएँ और अपने users को चाहिए वह पहला action जोड़ें।",
+      finalCtaButton: "अपनी app बनाएँ",
     },
     clips: {
       s001: "Clips टेम्पलेट स्क्रीनशॉट",
