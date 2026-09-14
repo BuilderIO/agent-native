@@ -734,24 +734,65 @@ const deDE = {
     },
     analytics: {
       faq: {
-        question1:
-          "Kann ich meine Analytics-Fragen in einfacher Sprache stellen?",
+        question1: "Was ist Agent-Native Analytics?",
         answer1:
-          "Ja. Stellen Sie Ihre Frage; der Agent schreibt das SQL, führt es in BigQuery aus und erstellt das Diagramm. Abfragen behalten ihren Verlauf, die Zeilenanzahl und teilbare URLs.",
-        question2:
-          "Wie unterscheidet sich Analytics von Amplitude oder Mixpanel?",
+          "Agent-Native Analytics ist ein kostenloses Open-Source-KI-Analysetool. Stelle einem KI-Agenten Fragen zu verbundenen Daten, untersuche Abfragen und erstelle wiederverwendbare Dashboards. Es umfasst außerdem Sitzungswiedergabe, Fehlerverfolgung und Uptime-Monitoring.",
+        question2: "Muss ich SQL können, um Analytics zu nutzen?",
         answer2:
-          "Dort zahlen Sie pro Nutzer und Ereignis, und die Benutzeroberfläche gehört dem Anbieter. Analytics ist kostenlos und Open Source, und der Agent erweitert die App selbst — neue Diagramme und Konnektoren auf Anfrage.",
+          "Du kannst Fragen in einfacher Sprache stellen und deinen KI-Agenten die Abfragen schreiben lassen. Für BigQuery kannst du im Explorer auch Diagramme erstellen, indem du Tabellen, Kennzahlen und Filter auswählst. SQL bleibt zur Prüfung verfügbar, und jemand, der sich mit deinen Daten auskennt, muss möglicherweise beim Verbinden von Quellen und Definieren von Kennzahlen helfen.",
         question3: "Welche Datenquellen kann ich verbinden?",
         answer3:
-          "Mehr als zehn integrierte Konnektoren: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud und weitere. Wenn Ihre Quelle fehlt, kann der Agent den Konnektor erstellen.",
-        question4: "Muss ich SQL beherrschen?",
+          "Unterstützte Quellen umfassen BigQuery, Google Analytics 4, Amplitude, Mixpanel, PostHog, HubSpot und Stripe. Jede Quelle benötigt die passenden Zugangsdaten oder eine gemeinsame Workspace-Verbindung, die für Analytics freigegeben wurde. Die verfügbaren Antworten hängen von den Daten und Berechtigungen ab, die du verbindest.",
+        question4: "Kann ich unsere eigenen Kennzahlendefinitionen verwenden?",
         answer4:
-          "Nein — einfache Sprache ist die Benutzeroberfläche. Der SQL-Explorer ist aber direkt verfügbar, wenn Sie ihn brauchen: direkter BigQuery-Zugriff und ein vollständiger Abfrageverlauf.",
-        question5: "Ist Analytics kostenlos?",
+          "Ja. Nutze das Datenwörterbuch, um Definitionen, Tabellen- und Spaltennamen, Abfragebeispiele und Ausnahmen wie den Ausschluss interner Konten zu dokumentieren. Dein KI-Agent kann diese Definitionen beim Schreiben von Abfragen verwenden. Prüfe SQL und Ergebnisse, wenn du eine Geschäftskennzahl kontrollierst.",
+        question5: "Kann ich Dashboards teilen und Berichte planen?",
         answer5:
-          "Ja — kostenlos und Open Source, ohne Abrechnung pro Ereignis. Ihre Daten bleiben in Ihrem eigenen Data Warehouse.",
+          "Ja. Teile Dashboards mit Teammitgliedern oder deiner Organisation mit Betrachter-, Bearbeiter- oder Admin-Zugriff. Du kannst außerdem E-Mail-Berichte mit aktuellen Dashboard-Ergebnissen planen oder Alarme für Bedingungen konfigurieren, die du im Blick behalten willst.",
       },
+      // V3-Landingpage-Texte (2026-09-14) — Hero bis finaler CTA unten.
+      heroEyebrow: "Analytics",
+      heroTitle: "Analysiere deine Daten mit deinem KI-Agenten",
+      heroDescription:
+        "Analytics ist ein kostenloses Open-Source-KI-Analysetool, um deine verbundenen Daten abzufragen, Dashboards zu erstellen und Nutzersitzungen zu untersuchen.",
+      heroCta: "Analytics öffnen",
+      useCasesHeading: "Was kannst du mit Analytics machen?",
+      useCasesBody:
+        "Verfolge das Produktwachstum, berichte über die Geschäftsentwicklung oder untersuche ein Problem, auf das jemand in deiner App gestoßen ist.",
+      useCase1Title: "Produktwachstum verfolgen",
+      useCase1Body:
+        "Frage, wie sich Anmeldungen, aktive Nutzer oder Conversions verändert haben. Vergleiche Zeiträume und schlüssele Ergebnisse nach Kanal, Plan oder Kundensegment auf.",
+      useCase2Title: "Über die Geschäftsentwicklung berichten",
+      useCase2Body:
+        "Bringe Umsatz-, Pipeline- oder Nutzungskennzahlen in ein Dashboard für dein Team. Lege Datumsfilter fest und schau vor deinem nächsten Review wieder vorbei.",
+      useCase3Title: "Nutzerprobleme untersuchen",
+      useCase3Body:
+        "Finde eine aufgezeichnete Sitzung und spiele ab, was passiert ist. Untersuche Konsolenfehler und Netzwerkanfragen und teile die Diagnosedaten dann mit deinem KI-Agenten.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Abfragen, Visualisieren und Erkunden brauchst",
+      feature1Title: "Abfragen in natürlicher Sprache",
+      feature1Body:
+        "Stelle deinem KI-Agenten eine Frage zu deinen Daten. Erhalte ein Diagramm, eine Tabelle oder eine Kennzahl und frage dann mit einer anderen Aufschlüsselung nach.",
+      feature2Title: "Wiederverwendbare Dashboards",
+      feature2Body:
+        "Erstelle Dashboards mit deinem KI-Agenten oder bearbeite sie selbst. Ordne Panels an, füge Filter hinzu, speichere Ansichten und teile den Zugriff mit deinem Team.",
+      feature3Title: "SQL-Abfrage-Explorer",
+      feature3Body:
+        "Führe BigQuery-Abfragen aus und sieh dir ihre Ergebnisse und ihren Verlauf an. Untersuche das SQL hinter Dashboard-Panels, um Berechnungen und Filter zu prüfen.",
+      feature4Title: "Datenquellenverbindungen",
+      feature4Body:
+        "Verbinde Quellen wie BigQuery, GA4, HubSpot und Stripe. Frage Warehouse-Daten, Produktereignisse, Kundendatensätze und Umsätze aus derselben App ab.",
+      feature5Title: "Datenwörterbuch",
+      feature5Body:
+        "Dokumentiere Kennzahlendefinitionen, Tabellen und Abfragebeispiele. Dein KI-Agent nutzt diesen Kontext beim Schreiben von Abfragen und bei der Arbeit mit deinen Daten.",
+      feature6Title: "Sitzungswiedergabe",
+      feature6Body:
+        "Spiele aufgezeichnete Sitzungen zusammen mit Konsolen- und Netzwerkaktivität ab. Springe zu Fehlern und kopiere einen temporären Diagnoselink für deinen KI-Agenten.",
+      finalCtaHeading: "Starte mit einer Frage zu deinen Daten",
+      finalCtaBody:
+        "Verbinde eine Quelle und bitte deinen KI-Agenten um das erste Diagramm.",
+      finalCtaButton: "Analytics öffnen",
       s001: "Screenshot der Vorlage Analytics",
       s002: "Datenanschlüsse",
       s003: "Diagrammtypen",

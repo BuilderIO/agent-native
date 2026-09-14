@@ -769,22 +769,62 @@ const messages = {
       s062: "從範本開始，連線資料，開始建置儀表板。",
       s063: "閱讀檔案",
       s064: "檢視所有範本",
+      // V3 到達頁文案（2026-09-14）—— 以下為 hero 到最終 CTA。
+      heroEyebrow: "Analytics",
+      heroTitle: "用你的 AI 代理分析資料",
+      heroDescription:
+        "Analytics 是一款免費開源的 AI 分析工具，可用來查詢你連線的資料、建立儀表板，並調查使用者工作階段。",
+      heroCta: "開啟 Analytics",
+      useCasesHeading: "用 Analytics 能做什麼？",
+      useCasesBody: "追蹤產品成長、回報業務表現，或調查有人在你的應用程式中遇到的問題。",
+      useCase1Title: "追蹤產品成長",
+      useCase1Body:
+        "詢問註冊數、活躍使用者或轉換率有何變化。比較不同期間，並依管道、方案或客戶區隔拆解結果。",
+      useCase2Title: "回報業務表現",
+      useCase2Body:
+        "把營收、業務管道或使用量指標整理進一個儀表板，供你的團隊使用。設定日期篩選器，並在下次檢視前再次查看。",
+      useCase3Title: "調查使用者問題",
+      useCase3Body:
+        "找到一段錄製的工作階段，重播發生的事。檢查主控台錯誤和網路請求，然後把診斷資訊分享給你的 AI 代理。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "查詢、視覺化與探索所需的一切",
+      feature1Title: "自然語言查詢",
+      feature1Body:
+        "向你的 AI 代理提出關於資料的問題。取得圖表、表格或指標，再以不同的拆解方式繼續追問。",
+      feature2Title: "可重複使用的儀表板",
+      feature2Body:
+        "與你的 AI 代理一起建立儀表板，或自行編輯。排列面板、新增篩選器、儲存檢視畫面，並與團隊共用存取權限。",
+      feature3Title: "SQL 查詢瀏覽器",
+      feature3Body:
+        "執行 BigQuery 查詢並檢視其結果與歷史紀錄。檢查儀表板面板背後的 SQL，核對計算方式與篩選條件。",
+      feature4Title: "資料來源連線",
+      feature4Body:
+        "連線 BigQuery、GA4、HubSpot 和 Stripe 等來源。在同一個應用程式中查詢倉儲資料、產品事件、客戶紀錄和營收。",
+      feature5Title: "資料字典",
+      feature5Body:
+        "記錄指標定義、資料表和查詢範例。你的 AI 代理在撰寫查詢和處理資料時會運用這些內容。",
+      feature6Title: "工作階段重播",
+      feature6Body:
+        "重播錄製的工作階段，同時檢視主控台與網路活動。直接跳到錯誤發生處，並複製一個臨時診斷連結給你的 AI 代理。",
+      finalCtaHeading: "從一個關於資料的問題開始",
+      finalCtaBody: "連線一個資料來源，請你的 AI 代理產生第一張圖表。",
+      finalCtaButton: "開啟 Analytics",
       faq: {
-        question1: "我可以用自然語言詢問分析問題嗎？",
+        question1: "什麼是 Agent-Native Analytics？",
         answer1:
-          "可以。提出問題後，代理會撰寫 SQL，在 BigQuery 中執行查詢並建立圖表。查詢會保留歷史紀錄、資料列數和可分享的 URL。",
-        question2: "Analytics 與 Amplitude 或 Mixpanel 有什麼不同？",
+          "Agent-Native Analytics 是一款免費開源的 AI 分析工具。向 AI 代理詢問已連線資料的相關問題、檢查查詢，並建立可重複使用的儀表板。它還包含工作階段重播、錯誤追蹤和正常運行時間監控。",
+        question2: "使用 Analytics 需要懂 SQL 嗎？",
         answer2:
-          "Amplitude 和 Mixpanel 按席次和事件計費，而且介面由它們決定。Analytics 免費且開放原始碼，代理還能依需求擴充應用本身，例如新增圖表和連接器。",
-        question3: "可以連接哪些資料來源？",
+          "你可以用一般語言提問，讓你的 AI 代理撰寫查詢。對於 BigQuery，你也可以在 Explorer 中選取資料表、指標和篩選條件來建立圖表。SQL 一律可供檢視，熟悉你資料的人可能需要協助連接來源和定義指標。",
+        question3: "我可以連線哪些資料來源？",
         answer3:
-          "內建十多種連接器，包括 HubSpot、Stripe、GitHub、Jira、Sentry、Slack、Gong、Notion、Google Cloud 等。如果缺少你需要的連接器，代理可以建立它。",
-        question4: "我需要懂 SQL 嗎？",
+          "支援的來源包括 BigQuery、Google Analytics 4、Amplitude、Mixpanel、PostHog、HubSpot 和 Stripe。每個來源都需要適當的憑證，或授予 Analytics 的共用工作區連線。可取得的答案取決於你連線的資料和權限。",
+        question4: "我可以使用自己的指標定義嗎？",
         answer4:
-          "不需要，自然語言就是操作介面。不過，當你需要時，SQL 探索器就在旁邊，可直接存取 BigQuery 並查看完整查詢歷史。",
-        question5: "Analytics 免費嗎？",
+          "可以。使用資料字典記錄定義、資料表與欄位名稱、查詢範例，以及例外狀況，例如排除內部帳戶。你的 AI 代理在撰寫查詢時可以運用這些定義。核對商業指標時，請檢視 SQL 與結果。",
+        question5: "我可以共用儀表板並排程報告嗎？",
         answer5:
-          "免費且開放原始碼，不按事件計費。你的資料會留在自己的資料倉儲中。",
+          "可以。以檢視者、編輯者或管理員權限與團隊成員或組織共用儀表板。你也可以排程包含目前儀表板結果的電子郵件報告，或為想追蹤的條件設定提醒。",
       },
     },
     calendar: {
