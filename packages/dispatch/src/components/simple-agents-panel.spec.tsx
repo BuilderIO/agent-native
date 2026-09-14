@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   handleAgentPackMutationSuccess,
   isPendingWorkspaceResourceApproval,
+  readAgentPack,
   SimpleAgentsPanel,
 } from "./simple-agents-panel";
 
@@ -105,6 +106,41 @@ describe("agent pack resource mutations", () => {
     );
 
     expect(notifications).toEqual(["Pack file added", "refreshed"]);
+  });
+});
+
+describe("readAgentPack", () => {
+  const profile = { id: "a", name: "bot", path: "agents/bot.md", content: "" };
+
+  it("reports a not-yet-loaded pack without claiming it is empty", () => {
+    expect(readAgentPack(undefined)).toEqual({ ok: false, loaded: false });
+  });
+
+  it("distinguishes an unreadable response from an empty pack", () => {
+    // A response missing `files` used to throw during render and take the
+    // whole page down with the router error boundary.
+    expect(readAgentPack({ profile, root: "agents/bot" } as never)).toEqual({
+      ok: false,
+      loaded: true,
+    });
+
+    const empty = readAgentPack({ profile, root: "agents/bot", files: [] });
+    expect(empty.ok).toBe(true);
+    expect(empty.ok && empty.files).toHaveLength(1);
+  });
+
+  it("puts the profile ahead of the pack files", () => {
+    const result = readAgentPack({
+      profile,
+      root: "agents/bot",
+      files: [{ id: "f1", name: "notes.md", path: "x", content: "" }] as never,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.files.map((file) => file.id)).toEqual([
+      "a",
+      "f1",
+    ]);
+    expect(result.ok && result.files[0]?.kind).toBe("agent");
   });
 });
 

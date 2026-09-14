@@ -109,6 +109,28 @@ interface AgentPackFileInput {
   content: string;
 }
 
+type AgentPackRead =
+  | { ok: true; files: (WorkspaceAgentResource & { kind: string })[] }
+  | { ok: false; loaded: boolean };
+
+/**
+ * A pack response that is missing its `files` array is unreadable, not empty.
+ * Spreading it threw during render and took the whole page down with the
+ * router error boundary, so the dialog could never say what went wrong.
+ */
+export function readAgentPack(
+  data: AgentPackResponse | undefined,
+): AgentPackRead {
+  if (!data) return { ok: false, loaded: false };
+  if (!data.profile || !Array.isArray(data.files)) {
+    return { ok: false, loaded: true };
+  }
+  return {
+    ok: true,
+    files: [{ ...data.profile, kind: "agent" as const }, ...data.files],
+  };
+}
+
 const AGENT_ICON_KEYS = [
   "brain",
   "users",
@@ -456,9 +478,8 @@ function AgentPackDialog({
     onError: (error) => toast.error(error.message),
   });
 
-  const files = query.data
-    ? [{ ...query.data.profile, kind: "agent" as const }, ...query.data.files]
-    : [];
+  const pack = readAgentPack(query.data);
+  const files = pack.ok ? pack.files : [];
   const selected = files.find((file) => file.id === selectedId) ?? files[0];
 
   useEffect(() => {
@@ -523,6 +544,12 @@ function AgentPackDialog({
             to this agent.
           </DialogDescription>
         </DialogHeader>
+        {!pack.ok && pack.loaded ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            This agent pack could not be read. Retry, and if it keeps failing
+            the pack contents may need repair.
+          </div>
+        ) : null}
         <div className="grid min-h-0 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
