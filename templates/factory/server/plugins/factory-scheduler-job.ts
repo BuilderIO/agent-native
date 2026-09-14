@@ -19,7 +19,6 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
-import { renameFactoryActionMentions } from "../lib/factory-action-names.js";
 import {
   applyAutomationConfigFrontmatter,
   buildGuardrailsText,
@@ -57,12 +56,8 @@ import {
   BABYSIT_FIXED_PATH,
   BABYSIT_SCOPE_INSTRUCTION,
   BABYSIT_WORK_RETRIGGER,
-  repairPrBabysitPrompt,
 } from "../lib/pr-babysit-prompt.js";
-import {
-  repairSlackFeedbackPrompt,
-  SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS,
-} from "../lib/slack-feedback-prompt.js";
+import { SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS } from "../lib/slack-feedback-prompt.js";
 import { recordFactoryGovernanceAudit } from "../triage/audit.js";
 import {
   syncManagedReviewSkillAlignment,
@@ -425,25 +420,6 @@ function frontmatterField(content: string, key: string): string | undefined {
   return value.replace(/^("|')|(("|')$)/g, "");
 }
 
-function automationFactoryScopeInstruction(factoryId: string): string {
-  return `This automation runs for factory \`${factoryId}\`. Pass \`factoryId: "${factoryId}"\` on every Factory triage, poll, and config action in this run.`;
-}
-
-function repairAutomationFactoryScopeInstruction(
-  content: string,
-  factoryId: string,
-): string {
-  if (content.includes(`Pass \`factoryId: "${factoryId}"\``)) {
-    return content;
-  }
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) {
-    return `${automationFactoryScopeInstruction(factoryId)}\n\n${content.trim()}\n`;
-  }
-  const insertAt = end + 4;
-  return `${content.slice(0, insertAt)}\n\n${automationFactoryScopeInstruction(factoryId)}\n${content.slice(insertAt)}`;
-}
-
 function automationContent(
   ownerEmail: string,
   orgId: string,
@@ -601,6 +577,7 @@ export async function ensureFactoryAutomations(
         { userEmail: ownerEmail, orgId },
         {
           action: "repair-factory-automation-metadata",
+          kind: "governance",
           status: "success",
           factoryId,
           summary: `Repaired metadata for ${leafName}.`,

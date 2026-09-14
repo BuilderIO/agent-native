@@ -195,6 +195,7 @@ Classify Slack feedback.
       { userEmail: "owner@example.com", orgId: "org-1" },
       expect.objectContaining({
         action: "repair-factory-automation-metadata",
+        kind: "governance",
         factoryId: "product-an-feedback",
       }),
     );

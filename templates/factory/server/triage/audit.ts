@@ -48,11 +48,6 @@ function boundedDetails(value: Record<string, unknown> | undefined): string {
     : serialized;
 }
 
-/**
- * Persist a bounded, source-linked explanation of an automation action. The
- * agent run id is the join key to core's automation history; no raw provider
- * payload is copied into this table.
- */
 /** Persist a governance event outside an automation run (startup repair, etc.). */
 export async function recordFactoryGovernanceAudit(
   identity: { userEmail: string; orgId: string },
@@ -82,6 +77,11 @@ export async function recordFactoryGovernanceAudit(
     });
 }
 
+/**
+ * Persist a bounded, source-linked explanation of an automation action. The
+ * agent run id is the join key to core's automation history; no raw provider
+ * payload is copied into this table.
+ */
 export async function recordFactoryAudit(
   context: ActionRunContext | undefined,
   identity: { userEmail: string; orgId: string },
