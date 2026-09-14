@@ -91,6 +91,7 @@ vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   isJtiRevoked: vi.fn(async () => false),
   touchTokenUsed: vi.fn(async () => {}),
+  lookupConnectTokenOrg: vi.fn(async () => ({ status: "missing" })),
 }));
 
 vi.mock("../server/embed-session.js", () => ({

@@ -13,7 +13,20 @@ export default defineConfig({
 });
 ```
 
+Generated Chat scaffold में import अब भी `agentNative` है। Config type assertion के साथ इसे local
+`agentNativePlugins` alias में assign करता है, फिर Vite package types align रखने के लिए लौटाए गए
+plugin array को spread करता है। यह ऊपर दिए `agentNative` example जैसे ही options स्वीकार करता है।
+Netlify पर deploy करने के लिए उसी मौजूदा `agentNativePlugins({ ... })` call के options में
+`nitro: { preset: "netlify" }` जोड़ें। Chat-specific बाकी plugins, options, और aliases वैसे ही रखें।
+
 …या build time पर `NITRO_PRESET=netlify` सेट करें।
+
+Standalone app के लिए Netlify output build करके static assets और functions deploy करें:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
 
 एक कार्यस्थान के लिए, यह चलाकर एक ही Netlify site से हर ऐप तैनात करें:
 

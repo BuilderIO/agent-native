@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { captureClientException } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { redactBrowserDiagnosticString } from "@shared/browser-diagnostics";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chooseFallbackAudioInput,
@@ -140,6 +141,8 @@ export interface RecorderEngineOptions {
   uploadUrl?: string;
   /** Abort URL. Default `/api/uploads/:id/abort`. */
   abortUrl?: string;
+  /** Reset-chunks URL. Defaults to the authenticated recording route. */
+  resetUrl?: string;
   /**
    * Upload strategy returned by create-recording.
    * `"streaming"` — server has a resumable session; engine flushes aligned
@@ -505,7 +508,10 @@ function fetchAbortError(signal: AbortSignal, err: unknown): Error {
 
 export class RecorderEngine {
   readonly opts: Required<
-    Pick<RecorderEngineOptions, "chunkIntervalMs" | "uploadUrl" | "abortUrl">
+    Pick<
+      RecorderEngineOptions,
+      "chunkIntervalMs" | "uploadUrl" | "abortUrl" | "resetUrl"
+    >
   > &
     RecorderEngineOptions;
 
@@ -617,6 +623,11 @@ export class RecorderEngine {
       abortUrl:
         options.abortUrl ??
         `${appBasePath()}/api/uploads/${options.recordingId}/abort`,
+      resetUrl:
+        options.resetUrl ??
+        (options.uploadUrl
+          ? options.uploadUrl.replace(/\/chunk(?:\?.*)?$/, "/reset-chunks")
+          : `${appBasePath()}/api/uploads/${options.recordingId}/reset-chunks`),
       ...options,
     };
   }
@@ -1149,11 +1160,17 @@ export class RecorderEngine {
     recordingId: string;
     uploadUrl: string;
     abortUrl: string;
+    resetUrl?: string;
     uploadMode?: UploadMode;
   }): void {
     this.opts.recordingId = target.recordingId;
     this.opts.uploadUrl = target.uploadUrl;
     this.opts.abortUrl = target.abortUrl;
+    this.opts.resetUrl =
+      target.resetUrl ??
+      (target.uploadUrl.endsWith("/chunk")
+        ? target.uploadUrl.slice(0, -"/chunk".length) + "/reset-chunks"
+        : `${appBasePath()}/api/uploads/${target.recordingId}/reset-chunks`);
     this.opts.uploadMode = target.uploadMode ?? "buffered";
     this.uploadGenerationId = null;
   }
@@ -1614,9 +1631,7 @@ export class RecorderEngine {
     compression: CompressionUploadMeta | null,
     signal?: AbortSignal,
   ): Promise<UploadMode> {
-    const resetUrl = `${appBasePath()}/api/uploads/${
-      this.opts.recordingId
-    }/reset-chunks`;
+    const resetUrl = this.opts.resetUrl;
     const uploadMimeType = compression?.outputMimeType || this.mimeType;
     let resetRes: Response;
     try {
@@ -2404,7 +2419,9 @@ export class RecorderEngine {
             httpStatus: String(res.status),
           },
           extra: {
-            url,
+            url: redactBrowserDiagnosticString(url, {
+              redactQueryValues: true,
+            }),
             status: res.status,
             statusText: res.statusText,
             responseBodyTail: text?.slice(0, 2000) ?? "",

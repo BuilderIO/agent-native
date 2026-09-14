@@ -1,5 +1,7 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
+import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+
 export default createAuthPlugin({
   workspaceAppAudience: "internal",
   // Visual-edit, public design editor links, and presentation links can load
@@ -31,6 +33,9 @@ export default createAuthPlugin({
   // review comment mutations remain protected by action auth and resource ACLs.
   publicPaths: [
     "/api/design-handoff",
+    // Agent-readable context link: fetched with no session cookie, so the
+    // gate must not 401 before the handler verifies its scoped token.
+    DESIGN_AGENT_CONTEXT_ENDPOINT,
     "/__manifest",
     "/_agent-native/actions/get-design",
     "/_agent-native/actions/list-design-native-assets",

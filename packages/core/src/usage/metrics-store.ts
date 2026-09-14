@@ -1,6 +1,7 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { ForbiddenError } from "../sharing/access.js";
+import { isSelfScopedUsageRead, usageOrgScope } from "./org-scope.js";
 import {
   builderCreditsFromCostCents,
   usageBillingForEngine,
@@ -150,13 +151,23 @@ export function normalizeUsageAppKey(value: string): string {
 function appKeys(value: string): string[] {
   const raw = value.trim().toLowerCase();
   const normalized = normalizeUsageAppKey(value);
-  return [...new Set([raw, normalized, `agent-native-${normalized}`])].filter(
-    Boolean,
-  );
+  return [...new Set([raw, normalized, `agent-native-${normalized}`])];
 }
 
 export function usageAppScope(app: string): QueryScope {
-  const keys = appKeys(app);
+  const configured = getAppConfig().app;
+  const configuredKeys = [configured.id, configured.legacyId, configured.name]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.trim());
+  const requested = app.trim().toLowerCase();
+  const matchesConfiguredIdentity = configuredKeys.some(
+    (value) => value.toLowerCase() === requested,
+  );
+  const keys = [
+    ...new Set(
+      (matchesConfiguredIdentity ? configuredKeys : [app]).flatMap(appKeys),
+    ),
+  ];
   return {
     where: `LOWER(COALESCE(app, '')) IN (${keys.map(() => "?").join(", ")})`,
     args: keys,
@@ -246,9 +257,10 @@ async function resolveScope(
   }
 
   const placeholders = selectedEmails.map(() => "?").join(", ");
-  const orgScope = orgId
-    ? { where: "org_id = ?", args: [orgId] }
-    : { where: "", args: [] };
+  const orgScope = usageOrgScope({
+    orgId,
+    selfScoped: isSelfScopedUsageRead(selectedEmails, viewerEmail),
+  });
   return {
     ownerScope: {
       where: [orgScope.where, `LOWER(owner_email) IN (${placeholders})`]
@@ -455,9 +467,10 @@ export async function listAppUsageMetrics(
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const now = Date.now();
   const sinceMs = now - sinceDays * DAY_MS;
-  const app = accessInput.app.trim() || "this app";
-  const appKey = normalizeUsageAppKey(app);
-  const appScope = usageAppScope(app);
+  const appId = accessInput.app.trim();
+  const app = appId || "this app";
+  const appKey = normalizeUsageAppKey(appId);
+  const appScope = usageAppScope(appId);
   const resolved = await resolveScope(accessInput, scope, input.userEmail);
 
   const baseArgs = [...appScope.args, ...resolved.ownerScope.args, sinceMs];

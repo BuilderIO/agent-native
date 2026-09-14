@@ -18,7 +18,33 @@ interface StoredTokens {
   expiry_date?: number;
 }
 
-async function getAccessToken(accountEmail: string): Promise<string | null> {
+function hasGmailScope(
+  tokens: Record<string, unknown>,
+  requiresMessageRead = false,
+): boolean {
+  const scope = tokens.scope;
+  if (typeof scope !== "string" || !scope.trim()) return true;
+  const scopes = scope.split(/[\s,]+/);
+  const canWrite = scopes.some(
+    (value) =>
+      value === "https://mail.google.com/" ||
+      value === "https://www.googleapis.com/auth/gmail.compose" ||
+      value === "https://www.googleapis.com/auth/gmail.modify",
+  );
+  if (!canWrite || !requiresMessageRead) return canWrite;
+  return scopes.some(
+    (value) =>
+      value === "https://mail.google.com/" ||
+      value === "https://www.googleapis.com/auth/gmail.metadata" ||
+      value === "https://www.googleapis.com/auth/gmail.modify" ||
+      value === "https://www.googleapis.com/auth/gmail.readonly",
+  );
+}
+
+async function getAccessToken(
+  accountEmail: string,
+  ownerEmail: string,
+): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
     | StoredTokens
     | undefined;
@@ -28,7 +54,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     tokens.expiry_date &&
     tokens.expiry_date < Date.now() + 5 * 60 * 1000
   ) {
-    const { clientId, clientSecret } = await getOAuth2Credentials(accountEmail);
+    const { clientId, clientSecret } = await getOAuth2Credentials(ownerEmail);
     const oauth = createOAuth2Client(clientId, clientSecret, "");
     const refreshed = await oauth.refreshToken(tokens.refresh_token);
     const updated = {
@@ -49,13 +75,73 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 async function resolveAccountEmail(
   requested: string | undefined,
   ownerEmail: string,
-): Promise<string> {
-  if (!requested || requested === ownerEmail) return ownerEmail;
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  if (!accounts.some((account) => account.accountId === requested)) {
+  requiresMessageRead = false,
+): Promise<string | null> {
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasGmailScope(account.tokens, requiresMessageRead));
+  if (requested) {
+    if (!accounts.some((account) => account.accountId === requested)) {
+      throw new Error("Account not owned by current user");
+    }
+    return requested;
+  }
+  return (
+    accounts.find((account) => account.accountId === ownerEmail)?.accountId ??
+    accounts[0]?.accountId ??
+    null
+  );
+}
+
+export async function findGmailDraftAccount(args: {
+  ownerEmail: string;
+  accountEmail?: string;
+  draftId: string;
+}): Promise<string | null> {
+  const accounts = (
+    await listOAuthAccountsByOwner("google", args.ownerEmail)
+  ).filter((account) => hasGmailScope(account.tokens));
+  const candidates = args.accountEmail
+    ? accounts.filter((account) => account.accountId === args.accountEmail)
+    : [
+        ...accounts.filter((account) => account.accountId === args.ownerEmail),
+        ...accounts.filter((account) => account.accountId !== args.ownerEmail),
+      ];
+
+  if (args.accountEmail && candidates.length === 0) {
     throw new Error("Account not owned by current user");
   }
-  return requested;
+
+  let unavailableAccount: string | undefined;
+  for (const account of candidates) {
+    const accessToken = await getAccessToken(
+      account.accountId,
+      args.ownerEmail,
+    );
+    if (!accessToken) {
+      unavailableAccount = account.accountId;
+      continue;
+    }
+
+    try {
+      await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(args.draftId)}`,
+        accessToken,
+      );
+      return account.accountId;
+    } catch (error) {
+      if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+
+  if (unavailableAccount) {
+    throw new Error(
+      `Could not verify saved Gmail draft ownership for ${unavailableAccount}.`,
+    );
+  }
+  return null;
 }
 
 export async function saveGmailDraft(args: {
@@ -78,8 +164,10 @@ export async function saveGmailDraft(args: {
   const accountEmail = await resolveAccountEmail(
     args.accountEmail,
     args.ownerEmail,
+    Boolean(args.replyToId),
   );
-  const accessToken = await getAccessToken(accountEmail);
+  if (!accountEmail) return null;
+  const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
   if (!accessToken) return null;
 
   let threadId = args.replyToThreadId;
@@ -165,7 +253,12 @@ export async function deleteGmailDraft(args: {
     args.accountEmail,
     args.ownerEmail,
   );
-  const accessToken = await getAccessToken(accountEmail);
+  if (!accountEmail) {
+    throw new Error(
+      "Gmail draft could not be deleted because the account is not connected.",
+    );
+  }
+  const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
   if (!accessToken) {
     throw new Error(
       "Gmail draft could not be deleted because the account is not connected.",

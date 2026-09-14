@@ -28,6 +28,10 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
 }));
 
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: vi.fn(async () => ({ resource: { id: "rec-1" } })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
@@ -71,6 +75,21 @@ describe("save-browser-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.rows = [];
+  });
+
+  it("asserts editor access on the recording before mutating", async () => {
+    const { assertAccess } = await import("@agent-native/core/sharing");
+    const values = vi.fn();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Testing access",
+      source: "web-speech",
+    });
+
+    expect(assertAccess).toHaveBeenCalledWith("recording", "rec-1", "editor");
   });
 
   it("does not overwrite a pending cloud transcription with an empty native result", async () => {

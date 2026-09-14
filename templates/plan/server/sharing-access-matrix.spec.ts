@@ -309,7 +309,8 @@ beforeAll(async () => {
       message TEXT NOT NULL,
       payload TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE plan_versions (
       id TEXT PRIMARY KEY,
@@ -336,7 +337,8 @@ beforeAll(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE plan_assets (
       id TEXT PRIMARY KEY,

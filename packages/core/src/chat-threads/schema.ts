@@ -30,7 +30,8 @@ export const CHAT_THREAD_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS chat_th
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT now()
+  created_at TEXT NOT NULL DEFAULT now(),
+  notified_at TEXT
 )`;
 
 export const CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS chat_thread_shares_resource_idx ON chat_thread_shares (resource_id)`;

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import type { Browser, BrowserContext } from "@playwright/test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { type BetaSite, originFor } from "./fleet";
 import {
   BETA_E2E_TEST_TRAFFIC_HEADERS,
@@ -111,6 +112,11 @@ export function expectedEmail(): string {
   if (!email) {
     throw new Error(
       "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
+    );
+  }
+  if (!isAutozQaEmail(email)) {
+    throw new Error(
+      "BETA_E2E_EMAIL must be a dedicated QA account whose email contains +autoz.",
     );
   }
   return email;

@@ -19,6 +19,7 @@ export interface SuggestionOperation {
 }
 export interface ResourceSuggestion {
   id: string;
+  revision: number;
   resourceType: string;
   resourceId: string;
   adapterKind: string;

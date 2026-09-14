@@ -4,14 +4,56 @@ import { describe, expect, it } from "vitest";
 
 import {
   findSmartBlock,
+  getSlideCanvasTraversalElements,
   isRichTextBlock,
+  isSlideCanvasShortcutTarget,
   isSlideTextEditingTarget,
   isTextLeaf,
   resolveRichTextEditingBlock,
   shouldStampBuilderId,
+  shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
+  it("traverses flow-layout roots and groups without selecting renderer shells or members", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide" data-builder-id="frame">
+        <div data-fmd-autofit-content data-builder-id="autofit">
+          <h1 data-builder-id="title">Flow title</h1>
+          <div class="fmd-slide-group" data-builder-id="group" data-slide-object-id="group-id">
+            <div data-builder-id="member" data-slide-object-id="member-id">Shape</div>
+          </div>
+          <div class="fmd-layout-spacer" data-builder-id="spacer"></div>
+        </div>
+      </div>
+    `;
+
+    expect(
+      getSlideCanvasTraversalElements(root).map((element) =>
+        element.getAttribute("data-builder-id"),
+      ),
+    ).toEqual(["title", "group"]);
+    expect(
+      shouldStampBuilderId(
+        root.querySelector<HTMLElement>(".fmd-slide-group")!,
+      ),
+    ).toBe(true);
+  });
+
+  it("routes canvas shortcuts only while focus is inside the slide canvas", () => {
+    const canvas = document.createElement("div");
+    const selectedObject = document.createElement("div");
+    const toolbarButton = document.createElement("button");
+    const activeElement = document.createElement("div");
+    canvas.append(selectedObject);
+
+    expect(isSlideCanvasShortcutTarget(selectedObject, canvas)).toBe(true);
+    expect(isSlideCanvasShortcutTarget(toolbarButton, canvas)).toBe(false);
+    expect(isSlideCanvasShortcutTarget(activeElement, null)).toBe(false);
+    expect(isSlideCanvasShortcutTarget(null, canvas)).toBe(false);
+  });
+
   it("keeps inline style runs inside their containing text block", () => {
     const root = document.createElement("div");
     root.className = "slide-content";
@@ -89,6 +131,59 @@ describe("slide text targets", () => {
     expect(shouldStampBuilderId(layer)).toBe(true);
     expect(shouldStampBuilderId(paragraph)).toBe(false);
     expect(findSmartBlock(paragraph, root)).toBe(layer);
+  });
+
+  it("edits text leaves inside imported smart groups without replacing their layout", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="stage-card" style="display:flex;flex-direction:column;gap:16px;background:#101820">
+          <div class="stage-label" style="background:#ffb38a;color:#101820">STAGE 1</div>
+          <div class="stage-title" style="font-size:32px;color:#ffffff">Curiosity</div>
+          <div class="stage-copy" style="font-size:18px;color:rgba(255,255,255,.7)">An occasional cup.</div>
+        </div>
+      </div>
+    `;
+
+    const group = root.querySelector(".stage-card") as HTMLElement;
+    const text = root.querySelector(".stage-title") as HTMLElement;
+
+    expect(shouldStampBuilderId(group)).toBe(true);
+    expect(shouldStampBuilderId(text)).toBe(true);
+    expect(findSmartBlock(text, root)).toBe(text);
+    expect(findSmartBlock(group, root)).toBe(group);
+    expect(group.style.display).toBe("flex");
+    expect(group.querySelector(".stage-label")?.getAttribute("style")).toBe(
+      "background:#ffb38a;color:#101820",
+    );
+  });
+
+  it("keeps nested smart-group leaves in the Layers tree", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="layout-wrapper">
+          <div class="stage-card">
+            <div class="stage-label">STAGE 1</div>
+            <div class="stage-title">Curiosity</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const wrapper = root.querySelector(".layout-wrapper") as HTMLElement;
+    const group = root.querySelector(".stage-card") as HTMLElement;
+    const text = root.querySelector(".stage-title") as HTMLElement;
+
+    expect(isRichTextBlock(group)).toBe(true);
+    expect(isRichTextBlock(wrapper)).toBe(false);
+    expect(shouldTraverseSlideLayerChildren(wrapper)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(group)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(text)).toBe(false);
+    expect(shouldStampBuilderId(wrapper)).toBe(true);
+    expect(shouldStampBuilderId(group)).toBe(true);
+    expect(shouldStampBuilderId(text)).toBe(true);
+    expect(findSmartBlock(text, root)).toBe(text);
   });
 
   it("keeps table cells selectable instead of owning them as one text layer", () => {

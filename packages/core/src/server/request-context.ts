@@ -16,7 +16,6 @@
  * continue to work.
  */
 
-import type { AgentActionScope } from "../agent/types.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -121,8 +120,6 @@ export interface RequestRunContext {
   model?: string;
   /** Request-authorized action names exposed to this agent run. */
   allowedActionNames?: readonly string[];
-  /** Server-resolved app data used by the request-authorized actions. */
-  actionScope?: Readonly<AgentActionScope>;
   /** Hosted tools-only harness selected for this agent run. */
   hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**
@@ -156,6 +153,8 @@ export interface RequestContext {
   userEmail?: string;
   userName?: string;
   orgId?: string;
+  /** An authenticated caller explicitly selected Personal instead of an organization. */
+  orgScope?: "personal";
   /**
    * Narrow authorization capability verified from an embed session. This is
    * deliberately separate from user identity: capability-only sessions must
@@ -256,6 +255,22 @@ export interface RequestContext {
   run?: RequestRunContext;
 }
 
+const EXPLICIT_PERSONAL_ORG_SCOPE_KEY = "__anExplicitPersonalOrgScope";
+
+export function markExplicitPersonalOrgScope(event: {
+  context?: Record<string, unknown>;
+}): void {
+  if (event.context) {
+    event.context[EXPLICIT_PERSONAL_ORG_SCOPE_KEY] = true;
+  }
+}
+
+export function hasExplicitPersonalOrgScope(event: {
+  context?: Record<string, unknown>;
+}): boolean {
+  return event.context?.[EXPLICIT_PERSONAL_ORG_SCOPE_KEY] === true;
+}
+
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
 const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
 const BOUNDARY_KEY = "__agentNativeRequestBoundaryInstalled" as const;
@@ -336,10 +351,7 @@ export function runWithRequestContext<T>(
     inheritedSyntheticTraffic !== undefined
       ? { ...ctx, isSyntheticTraffic: inheritedSyntheticTraffic }
       : ctx;
-  if (
-    context.run?.allowedActionNames !== undefined ||
-    context.run?.actionScope !== undefined
-  ) {
+  if (context.run?.allowedActionNames !== undefined) {
     assertRequestActionSurfaceIsolation();
   }
   return als.run(context, () => {

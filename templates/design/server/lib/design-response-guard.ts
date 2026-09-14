@@ -38,11 +38,21 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 ]);
 
 const DESIGN_MUTATION_VERBS =
-  /\b(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|polish|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i;
+  /\b(?:add|adding|adjust|adjusting|align|aligning|apply|applying|build|building|change|changing|clean|cleaning|create|creating|decrease|decreasing|delete|deleting|design|designing|duplicate|duplicating|edit|editing|enhance|enhancing|fix|fixing|generate|generating|improve|improving|import|importing|increase|increasing|insert|inserting|make|making|modify|modifying|move|moving|polish|polishing|place|placing|reduce|reducing|refine|refining|remove|removing|replace|replacing|resize|resizing|restyle|restyling|rework|reworking|tune|tuning|update|updating)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|width|wireframe)\b/i;
+  /\b(?:(?:animation|asset|background|behavior|border|button|canvas|card|color|component|design|file|footer|font|gap|header|height|hero|image|interaction|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|style|text|theme|transition|typography|variant|version|visual|width|wireframe)s?|it|this)\b/i;
 const DESIGN_ADVISORY_WORDS =
-  /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|thoughts?)\b/i;
+  /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
+const DESIGN_TEST_REQUEST =
+  /\bvisual(?:[\s-]+(?:regression|snapshot))?(?:[\s-]+(?:and|or|plus|&)[\s-]+(?:visual[\s-]+)?(?:regression|snapshot))?(?:[\s-]+(?:test|tests|testing|suite|suites)|[\s-]+snapshots?)\b/i;
+const DESIGN_TEST_TARGET_PREPOSITIONS =
+  /^(?:\s*(?:[,.!?;:]|[-–—])*\s*)(?:for|of|on|in|against|with|using)\b/i;
+const DESIGN_TEST_CLAUSE_BOUNDARY =
+  /[.!?,;]|(?<!\w)[-–—](?!\w)|\b(?:and|also|but|then|after(?:\s+that)?|afterwards?|subsequently|before|while|followed\s+by)\b/gi;
+const DESIGN_TEST_TARGET_DESCRIPTOR = new RegExp(
+  `^\\s*(?:(?:a|an|the|another|new)\\s+)?(?:[\\w-]+\\s+)*${DESIGN_MUTATION_OBJECTS.source}\\s*$`,
+  "i",
+);
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -76,6 +86,62 @@ const DESIGN_SKILL_DOMAIN_PREPOSITIONS = new Set([
   "with",
 ]);
 const DESIGN_SKILL_CLAUSE_BOUNDARIES = new Set(["also", "and", "but", "then"]);
+const DESIGN_AMBIGUOUS_VERB = /^(?:design|designing)$/i;
+const DESIGN_REQUEST_LEAD_IN =
+  /\b(?:please|kindly|also|and|then|now|to|let'?s)$|\b(?:can|could|would|will)\s+you(?:\s+please)?$|\bi(?:'d|\s+would)?\s+(?:like|want|need)\s+(?:you\s+)?to$/i;
+const DESIGN_FINITE_VERB_FOLLOWS =
+  /^\s*(?:is|are|was|were|be|been|being|has|have|had|will|would|can|could|should|may|might|must|does|do|did)\b/i;
+
+function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    spans.push([start, start + match[0].length]);
+  }
+  return spans;
+}
+
+/**
+ * `design` is the only token in both the verb and the object pattern, and in
+ * this app it is far more often the noun. Let it supply the verb only where a
+ * verb can stand: opening the message or a clause, or after a request lead-in,
+ * and never in front of a finite verb of its own ("design is ..." is a
+ * statement about designs). Every other mutation verb is unambiguous.
+ */
+function suppliesMutationVerb(
+  text: string,
+  [start, end]: [number, number],
+): boolean {
+  if (!DESIGN_AMBIGUOUS_VERB.test(text.slice(start, end))) return true;
+  if (DESIGN_FINITE_VERB_FOLLOWS.test(text.slice(end))) return false;
+  const prefix = text.slice(0, start).replace(/\s+$/, "");
+  if (prefix === "" || /[.!?,;:]$/.test(prefix)) return true;
+  return DESIGN_REQUEST_LEAD_IN.test(prefix);
+}
+
+/**
+ * Testing the verb and object patterns independently let a single `design`
+ * token satisfy both halves of the conjunction, so every message that merely
+ * mentioned a design read as a request that had to persist one — including
+ * this guard's own save-failure notice, which is why pasting it back produced
+ * the same notice again.
+ */
+function hasDistinctVerbAndObject(text: string): boolean {
+  const verbs = matchSpans(
+    new RegExp(DESIGN_MUTATION_VERBS.source, "gi"),
+    text,
+  ).filter((span) => suppliesMutationVerb(text, span));
+  if (verbs.length === 0) return false;
+  return matchSpans(
+    new RegExp(DESIGN_MUTATION_OBJECTS.source, "gi"),
+    text,
+  ).some(([objectStart, objectEnd]) =>
+    verbs.some(
+      ([verbStart, verbEnd]) =>
+        verbEnd <= objectStart || objectEnd <= verbStart,
+    ),
+  );
+}
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -321,6 +387,108 @@ function removeAdvisorySkillsClauses(text: string): string {
   return parts.join("");
 }
 
+function removeDesignTestRequests(text: string): string {
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but|or)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source}|(?<!\\w)[-–—](?!\\w)|[.!?]|[,;](?=\\s+(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?(?:[\\w-]+\\s+)?${DESIGN_MUTATION_VERBS.source})|$`;
+  const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
+  const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
+  const targetSuffix = new RegExp(
+    `${DESIGN_TEST_TARGET_PREPOSITIONS.source}[^.!?]*?(?=${mutationClauseBoundary})`,
+    "i",
+  );
+  const sharedObjectPattern = new RegExp(
+    `(?:^|\\s)(?:and|plus|&)\\s+(?:[\\w-]+\\s+)*?(${DESIGN_MUTATION_OBJECTS.source})(?=\\s|$|[,.!?;])`,
+    "gi",
+  );
+  const removals: Array<[number, number]> = [];
+
+  for (const match of text.matchAll(testRequests)) {
+    const testStart = match.index ?? 0;
+    const testEnd = testStart + match[0].length;
+    const prefix = text.slice(0, testStart);
+    const boundaries = [...prefix.matchAll(DESIGN_TEST_CLAUSE_BOUNDARY)].filter(
+      (boundary) => {
+        const boundaryStart = boundary.index ?? 0;
+        const boundaryEnd = boundaryStart + boundary[0].length;
+        return (
+          !/\band\b/i.test(boundary[0]) ||
+          !DESIGN_TEST_TARGET_DESCRIPTOR.test(prefix.slice(boundaryEnd))
+        );
+      },
+    );
+    const lastBoundary = boundaries[boundaries.length - 1];
+    const clauseStart = lastBoundary
+      ? (lastBoundary.index ?? 0) + lastBoundary[0].length
+      : 0;
+    const precedingVerbs = [
+      ...prefix.slice(clauseStart).matchAll(mutationVerbs),
+    ];
+    const precedingVerb = precedingVerbs[precedingVerbs.length - 1];
+    const precedingVerbStart = precedingVerb
+      ? clauseStart + (precedingVerb.index ?? 0)
+      : testStart;
+    const precedingVerbEnd =
+      precedingVerbStart + (precedingVerb?.[0].length ?? 0);
+    const precedingText = text.slice(precedingVerbEnd, testStart);
+    const hasDesignObjectBeforeTest = precedingVerb
+      ? DESIGN_MUTATION_OBJECTS.test(precedingText) &&
+        !DESIGN_TEST_TARGET_DESCRIPTOR.test(precedingText)
+      : false;
+    const afterTest = text.slice(testEnd);
+    const sharedObject = [...afterTest.matchAll(sharedObjectPattern)].find(
+      (match) => {
+        const matchStart = match.index ?? 0;
+        const object = match[1] ?? "";
+        const hasMutationDeterminer =
+          /\b(?:a|an|another|new|some|any|one|two|three)\b/i.test(match[0]);
+        return (
+          !/[,;]/.test(afterTest.slice(0, matchStart)) &&
+          !DESIGN_TEST_REQUEST.test(afterTest.slice(matchStart)) &&
+          (hasMutationDeterminer ||
+            !/\b(?:for|of|on|in|against|with|using)\b/i.test(
+              afterTest.slice(0, matchStart),
+            )) &&
+          !/^(?:it|this)$/i.test(object) &&
+          DESIGN_MUTATION_OBJECTS.test(object)
+        );
+      },
+    );
+    const hasSharedDesignObject = sharedObject !== undefined;
+    let removalEnd = testEnd;
+    if (!hasSharedDesignObject) {
+      const target = targetSuffix.exec(afterTest);
+      if (target) removalEnd += target[0].length;
+    }
+    removals.push([
+      precedingVerb && !hasDesignObjectBeforeTest && !hasSharedDesignObject
+        ? precedingVerbStart
+        : testStart,
+      removalEnd,
+    ]);
+  }
+
+  if (removals.length === 0) return text;
+
+  removals.sort((left, right) => left[0] - right[0]);
+  const mergedRemovals: Array<[number, number]> = [];
+  for (const [start, end] of removals) {
+    const previous = mergedRemovals[mergedRemovals.length - 1];
+    if (previous && start <= previous[1]) {
+      previous[1] = Math.max(previous[1], end);
+    } else {
+      mergedRemovals.push([start, end]);
+    }
+  }
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const [start, end] of mergedRemovals) {
+    parts.push(text.slice(cursor, start), " ");
+    cursor = end;
+  }
+  parts.push(text.slice(cursor));
+  return parts.join("");
+}
+
 export function looksLikeDesignMutationRequest(text: string): boolean {
   const normalized = text.trim();
   if (!normalized) return false;
@@ -333,6 +501,10 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   if (/\bhow\s+to\b/i.test(normalized)) return false;
 
   const mutationText = removeAdvisorySkillsClauses(normalized);
+  if (DESIGN_TEST_REQUEST.test(mutationText)) {
+    const remainingMutationText = removeDesignTestRequests(mutationText);
+    if (!hasDistinctVerbAndObject(remainingMutationText)) return false;
+  }
 
   const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(mutationText);
   if (advisoryMatch) {
@@ -349,10 +521,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
     }
   }
 
-  return (
-    DESIGN_MUTATION_VERBS.test(mutationText) &&
-    DESIGN_MUTATION_OBJECTS.test(mutationText)
-  );
+  return hasDistinctVerbAndObject(mutationText);
 }
 
 /**
@@ -394,6 +563,13 @@ export function designFinalResponseGuard(
       "If an image or asset is involved, finish with `insert-asset` when placement is needed. " +
       "Do not claim the design is created, updated, or ready until the action result proves " +
       "that content was persisted.",
+    // Intent is read from the user's prose, so it will always misfire on some
+    // turn. Discarding the draft made every miss a dead end that told the user
+    // nothing and left them nothing to act on; labelling it keeps the
+    // correction honest without throwing away a real answer. The fallback
+    // below is still what a genuinely empty turn gets.
+    exhaustedDraftPrefix:
+      "Unverified — no Design action saved content in this turn, so nothing below is confirmed to exist in your design.",
     fallbackMessage:
       "I couldn't confirm that a Design artifact was saved, so I haven't marked this request complete. Please retry.",
     maxRetries: 1,

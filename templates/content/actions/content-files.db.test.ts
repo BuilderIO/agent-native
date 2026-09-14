@@ -46,13 +46,18 @@ beforeAll(async () => {
   getDocumentAction = (await import("./get-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  // The db plugin schedules post-boot maintenance fire-and-forget; joining the
+  // memoized run here keeps this file's unseeded-Files fixtures deterministic.
+  const { scheduleStartupMaintenance } =
+    await import("../server/lib/startup-maintenance.js");
+  await scheduleStartupMaintenance();
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL,
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
     identity_authority TEXT, identity_id TEXT
   )`);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL,
-    federation_removal_pending_at INTEGER
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
   )`);
   await getDbExec().execute({
     sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",

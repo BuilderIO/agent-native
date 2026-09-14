@@ -773,6 +773,20 @@ async function waitForTextPrimitive(
   return primitive;
 }
 
+async function liveTextPrimitiveTexts(page: Page): Promise<string[]> {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluateAll((iframes) =>
+      iframes.flatMap((iframe) =>
+        Array.from(
+          (iframe as HTMLIFrameElement).contentDocument?.querySelectorAll(
+            '[data-an-primitive="text"]',
+          ) ?? [],
+        ).map((element) => element.textContent ?? ""),
+      ),
+    );
+}
+
 async function waitForTextEditing(page: Page): Promise<void> {
   await expect
     .poll(
@@ -1717,6 +1731,40 @@ test("click text creates auto-width text and survives reload", async ({
     .toContain(text);
 });
 
+test("typing into a new text layer and clicking out renders it once, in order", async ({
+  page,
+}) => {
+  const card = await homeScreenCard(page);
+  const box = await card.boundingBox();
+  if (!box) throw new Error("no home screen card box");
+
+  await toolButton(page, "Text").click();
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.mouse.click(box.x + box.width * 0.3, box.y + 120);
+  // No wait and no select-all: typing straight into the new layer races
+  // text-edit activation, which is when the host flushes its buffered keys.
+  await page.keyboard.type("my page", { delay: 40 });
+  await page.waitForTimeout(400);
+  // Clicking out commits through blur, which Escape does not exercise.
+  await page.mouse.click(box.x + box.width * 0.75, box.y + box.height - 60);
+
+  await expect
+    .poll(async () => liveTextPrimitiveTexts(page), { timeout: 15_000 })
+    .toEqual(["my page"]);
+  await expect
+    .poll(
+      async () =>
+        countOccurrences(await fileContent(page, "index.html"), "my page"),
+      {
+        timeout: 20_000,
+      },
+    )
+    .toBe(1);
+});
+
 test("new empty text is one atomic undo step and cancel leaves the frame intact", async ({
   page,
 }) => {
@@ -1923,6 +1971,12 @@ test("rectangle insertion keeps the new primitive selected", async ({
       y: cardBox.y + cardBox.height * 0.78,
     },
   });
+  await expect(
+    screenShell(page)
+      .frameLocator("iframe[data-screen-iframe-id]")
+      .locator('[data-an-primitive="rectangle"]')
+      .last(),
+  ).toHaveCSS("border-radius", "0px");
   await restoreHome(page);
 });
 
@@ -3451,6 +3505,14 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
   const aboutShell = screenShell(page, "About");
   const aboutBoxBeforeMove = await aboutShell.boundingBox();
   if (!aboutBoxBeforeMove) throw new Error("no about shell before move");
+  // A frame is dragged by the drag surface inside its selection box, and that
+  // box only exists once the frame is selected — so an unselected frame's
+  // first press only selects it, and a single press-and-move goes nowhere.
+  await page.mouse.click(
+    aboutBoxBeforeMove.x + aboutBoxBeforeMove.width * 0.34,
+    aboutBoxBeforeMove.y + 12,
+  );
+  await expect(page.locator("[data-frame-drag-surface]")).toHaveCount(1);
   await dragBetween(
     page,
     {

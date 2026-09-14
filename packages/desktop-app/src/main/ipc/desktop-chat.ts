@@ -29,6 +29,7 @@ import {
 
 import * as AppStore from "../app-store";
 import { readCookieHeaderForUrl } from "../cookie-header";
+import type { CaptureActiveDesktopBrowserScreenshot } from "../desktop-browser-screenshot";
 import {
   DesktopSurfaceMcpBridge,
   type DesktopSurfaceMcpRegistration,
@@ -75,6 +76,9 @@ let relayPromise: Promise<RelayState> | null = null;
 let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
   null;
 let ipcRegistered = false;
+let captureActiveBrowserScreenshot:
+  | CaptureActiveDesktopBrowserScreenshot
+  | undefined;
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
@@ -826,6 +830,7 @@ function contextFromTerminalQuery(
 async function createDesktopTerminalSession(
   command: string,
   rawContext: DesktopTerminalContext | null,
+  captureScreenshot?: CaptureActiveDesktopBrowserScreenshot,
 ) {
   const context = normalizeDesktopTerminalContext(rawContext);
   const appConfig = context
@@ -857,6 +862,7 @@ async function createDesktopTerminalSession(
       win.webContents.send(IPC.DESKTOP_CHAT_OPEN_APP, request);
     },
     getActiveAppContext: () => appContext,
+    captureActiveBrowserScreenshot: captureScreenshot,
   });
   let appMcpRelay: DesktopTerminalMcpRelay | undefined;
   let claudeConfigPath: string | undefined;
@@ -972,7 +978,9 @@ async function createDesktopTerminalSession(
   }
 }
 
-async function createDesktopTerminal() {
+async function createDesktopTerminal(
+  captureScreenshot?: CaptureActiveDesktopBrowserScreenshot,
+) {
   const token = randomUUID().replaceAll("-", "");
   const terminal = await createPtyWebSocketServer({
     appDir: resolveDesktopTerminalCwd(),
@@ -991,7 +999,7 @@ async function createDesktopTerminal() {
     getSessionSetup: (
       command: string,
       context: DesktopTerminalContext | null,
-    ) => createDesktopTerminalSession(command, context),
+    ) => createDesktopTerminalSession(command, context, captureScreenshot),
     logPrefix: "[desktop-terminal]",
   } as Parameters<typeof createPtyWebSocketServer>[0]);
   app.once("before-quit", () => terminal.close());
@@ -999,7 +1007,9 @@ async function createDesktopTerminal() {
 }
 
 function ensureDesktopTerminal() {
-  desktopTerminalPromise ??= createDesktopTerminal().catch((error) => {
+  desktopTerminalPromise ??= createDesktopTerminal(
+    captureActiveBrowserScreenshot,
+  ).catch((error) => {
     desktopTerminalPromise = null;
     throw error;
   });
@@ -1337,8 +1347,13 @@ function ensureRelay(): Promise<RelayState> {
   return relayPromise;
 }
 
-export function registerDesktopChatIpc(): void {
+export function registerDesktopChatIpc(
+  options: {
+    captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot;
+  } = {},
+): void {
   if (ipcRegistered) return;
+  captureActiveBrowserScreenshot = options.captureActiveBrowserScreenshot;
   ipcRegistered = true;
   ipcMain.handle(
     IPC.DESKTOP_CHAT_GET_API_URL,

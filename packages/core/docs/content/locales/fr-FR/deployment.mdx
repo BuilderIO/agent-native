@@ -26,9 +26,11 @@ Exécutez plusieurs applications sous une même origine avec une session partag�
 
 ## Avant le déploiement : choisissez une base persistante {#persistent-database}
 
-Chaque application déployée a besoin d'une base PostgreSQL persistante. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production.
+Chaque application déployée a besoin d'une base PostgreSQL persistante. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production. Les fournisseurs PostgreSQL hébergés incluent [Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) et [Azure Database for PostgreSQL](/docs/azure-postgresql). Consultez le guide [Plain Postgres](/docs/postgres) pour les autres services gérés et les serveurs PostgreSQL auto-hébergés.
 
 Une application autonome a besoin d'un `BETTER_AUTH_SECRET` stable. Un workspace avec des requêtes signées entre applications a besoin de `A2A_SECRET`.
+
+Définissez ces valeurs dans les paramètres d’environnement de l’hébergeur, pas seulement dans le `.env` local. Générez le secret d’authentification avec `openssl rand -hex 32`. Agent-Native ne fournit pas de compte de livraison d’e-mails ; connectez Resend ou SendGrid séparément.
 
 ## L'envoi d'e-mails est facultatif, mais recommandé {#email-provider}
 

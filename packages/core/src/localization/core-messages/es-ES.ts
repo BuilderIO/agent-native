@@ -76,6 +76,35 @@ const messages: AgentChatTranslation = {
     "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
+  "onboarding.capability.llm.keySummary":
+    "Conecta un proveedor de IA o un modelo local",
+  "onboarding.capability.fileStorage.keySummary":
+    "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.capability.voiceInput.label": "Entrada de voz",
+  "onboarding.capability.voiceInput.keySummary":
+    "Reconocimiento de voz del navegador o conversión de voz a texto",
+  "onboarding.capability.voiceInput.why":
+    "La entrada de voz convierte tus solicitudes habladas en texto; escribir siempre funciona.",
+  "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Créditos de Builder o una clave de proveedor de imágenes",
+  "onboarding.capability.assetsImageGeneration.why":
+    "La generación de imágenes es el flujo principal para crear recursos de marca.",
+  "onboarding.capability.assetsVideoGeneration.label": "Generación de vídeo",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Clave de API de Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "La generación de vídeo es opcional; el flujo principal de Assets es la generación de imágenes.",
+  "onboarding.capability.clipsObjectStorage.label": "Almacenamiento de objetos",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Los vídeos grabados necesitan almacenamiento de objetos duradero antes de poder reproducirse o compartirse.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Clave de proveedor de voz a texto",
+  "onboarding.capability.about": "Acerca de {{label}}",
+  "onboarding.capability.why": "Por qué se necesita {{label}}",
+  "onboarding.openAiKeySettings": "Abrir la configuración de claves de IA",
   "aboutAgentNative.title": "Acerca de Agent-Native",
   "aboutAgentNative.version": "Versión",
   "aboutAgentNative.environment": "Entorno",
@@ -121,6 +150,7 @@ const messages: AgentChatTranslation = {
     "Abre la aplicación de escritorio para usar este chat.",
   "composer.removeAttachment": "Quitar {{name}}",
   "composer.scrollToBottom": "Desplazarse hasta el final",
+  "composer.suggestedPrompts": "Indicaciones sugeridas",
   "composer.stopResponse": "Detener respuesta",
   "composer.subAgentReadOnly":
     "Envía mensajes al chat del orquestador; este subagente se ejecuta automáticamente",
@@ -140,6 +170,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "Buscando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ayer",
+  "integrations.availableSection": "Integraciones disponibles",
+  "integrations.connectedSection": "Conectado",
+  "integrations.goToApiKeys": "Ir a claves de API",
+  "integrations.goToIntegrations": "Ir a integraciones",
+  "integrations.lookingForApiKeys": "¿Buscas una clave de API en su lugar?",
+  "integrations.lookingForProviders": "¿Buscas proveedores de OAuth o MCP?",
+  "integrations.manage": "Administrar",
+  "integrations.recommended": "Recomendado",
+  "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
   "limit.account": "tu cuenta",
   "limit.descriptionAll":
     "El agente ha utilizado todos los pasos disponibles. Continúa en una interacción nueva o aumenta primero el límite de {{scope}}.",
@@ -187,6 +226,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
   "queue.sendNowHint": "Enviar ahora (detiene la respuesta actual)",
+  "queue.steer": "Dirigir",
+  "queue.steerHint": "Enviar este mensaje a continuación",
+  "queue.moreActions": "Más acciones",
+  "queue.moveToTop": "Mover arriba",
   "recovery.connectingBuilder": "Conectando con Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
@@ -209,6 +252,33 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "El flujo anterior del agente terminó durante la recuperación. Continúa o reintenta para volver a conectar con la ejecución.",
   "recovery.reconnectBuilder": "Volver a conectar Builder.io",
+  "secrets.addCustomKeyNamed": 'Agregar "{{name}}" como clave personalizada',
+  "secrets.chooseKey": "Elige una clave",
+  "secrets.customKey": "Clave personalizada",
+  "secrets.customKeyHint": "Agrega cualquier clave por nombre",
+  "secrets.emptyHint": "Agrega una clave para usar tus propias cuentas.",
+  "secrets.emptyMore":
+    "y {{count}} más en Nuevo, o agrega cualquier clave personalizada",
+  "secrets.emptyTitle": "Aún no hay claves.",
+  "secrets.fromEnvironment": "Proporcionado por el entorno de implementación.",
+  "secrets.managedInVault":
+    "Se administra en el Vault del espacio de trabajo. Todas las apps de este espacio de trabajo usan este valor.",
+  "secrets.openVault": "Abrir Vault",
+  "secrets.newKey": "Nuevo",
+  "secrets.noKeysFound": "No se encontraron claves.",
+  "secrets.overridesVault":
+    "Esta clave personal reemplaza el valor del Vault del espacio de trabajo. Elimínala para usar la clave del Vault.",
+  "secrets.overridesWorkspace":
+    "Esta clave personal reemplaza el valor del espacio de trabajo. Elimínala para usar la clave compartida.",
+  "secrets.setForWorkspace":
+    "Configurado para todos en este espacio de trabajo.",
+  "secrets.sourceEnvironment": "Entorno",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Espacio de trabajo",
+  "secrets.statusUnavailable": "No disponible",
+  "secrets.required": "Obligatorio",
+  "secrets.searchKeys": "Buscar claves...",
+  "secrets.usePersonalKey": "Usar una clave personal en su lugar",
   "selection.attached":
     "{{formattedCount}} caracteres de la selección adjuntados",
   "selection.clear": "Borrar el contexto de la selección",
@@ -311,6 +381,7 @@ const messages: AgentChatTranslation = {
   "composer.connectAbove":
     "Conecta arriba un proveedor de IA para continuar...",
   "composer.connectBuilder": "Conectar Builder.io",
+  "composer.connectKeys": "Conectar claves",
   "composer.connectingBuilder": "Conectando Builder.io…",
   "composer.costHigher": "Mayor costo",
   "composer.costLower": "Menor costo",
@@ -448,7 +519,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Este navegador no admite conversaciones de voz en tiempo real.",
   "voiceMode.hideChat": "Ocultar chat",
-  "voiceMode.keepDictating": "Dictar",
+  "voiceMode.keepDictating": "Dictar un mensaje",
   "voiceMode.promptDescription":
     "El modo de voz sigue escuchando mientras el agente navega y realiza acciones.",
   "voiceMode.promptTitle": "Usa tu voz",
@@ -490,7 +561,7 @@ const messages: AgentChatTranslation = {
     "Conecta Builder.io para usar el servicio de voz administrado con créditos gratuitos o añade tus propias claves.",
   "voiceMode.setupTitle": "Configurar el modo de voz",
   "voiceMode.showChat": "Mostrar chat",
-  "voiceMode.start": "Voz en tiempo real",
+  "voiceMode.start": "Iniciar chat de voz",
   "voiceMode.startWithOpenAiKey": "Iniciar con una clave de OpenAI",
   "voiceMode.status.connecting": "Conectando",
   "voiceMode.status.ending": "Finalizar el modo de voz",
@@ -552,6 +623,8 @@ const messages: AgentChatTranslation = {
     "No se pudo contactar con el proveedor del modelo. Comprueba tu conexión y vuelve a intentarlo.",
   "errorMessages.providerRateLimit":
     "El proveedor del modelo está limitando temporalmente este chat. Espera un momento y vuelve a intentarlo.",
+  "errorMessages.providerTransientRejection":
+    "El proveedor de IA rechazó temporalmente esta solicitud. Esto suele resolverse en menos de un minuto: vuelve a intentarlo.",
   "errorMessages.startNewChat": "Iniciar un chat nuevo",
   "errorMessages.upgradeAtBuilder": "Mejorar el plan en Builder.io",
   "feedback.inaccurate": "Impreciso",

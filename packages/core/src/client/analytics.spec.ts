@@ -196,6 +196,73 @@ describe("browser analytics pageviews", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps the pageview enrichment window open until the deferred boot refresh starts", async () => {
+    installBrowser();
+    const analyticsCalls: Array<[unknown, RequestInit]> = [];
+    const pendingEngine: Array<(response: Response) => void> = [];
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        if (String(url).includes("/_agent-native/agent-engine/status")) {
+          return new Promise<Response>((resolve) => {
+            pendingEngine.push(resolve);
+          });
+        }
+        if (String(url).includes("/_agent-native/auth/session")) {
+          return new Response(JSON.stringify({ error: "not authenticated" }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        analyticsCalls.push([url, init ?? {}]);
+        return new Response("{}");
+      }),
+    );
+    // Simulate a hidden tab: requestAnimationFrame never fires, so the
+    // deferred boot refresh starts via the 250ms fallback timer — after the
+    // fixed budget the old race used, which emitted a contextless pageview.
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+    // The enrichment budget starts when the deferred refresh actually
+    // begins, not when the pageview is scheduled.
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(analyticsCalls).toHaveLength(0);
+
+    for (const resolve of pendingEngine.splice(0)) {
+      resolve(
+        new Response(
+          JSON.stringify({
+            configured: true,
+            engine: "builder",
+            model: "claude-sonnet-4-6",
+            source: "app_secrets",
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    expect(analyticsCalls.length).toBeGreaterThan(0);
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
+    expect(body).toMatchObject({
+      publicKey: "anpk_test",
+      event: "pageview",
+      properties: {
+        llm_connection: "builder",
+        llm_connection_configured: true,
+      },
+    });
+  });
+
   it("emits a default pageview with useful browser context", async () => {
     const { getCookie } = installBrowser();
     const { analyticsCalls } = installFetch();
@@ -213,6 +280,10 @@ describe("browser analytics pageviews", () => {
       }),
     });
     await tick();
+    // The boot LLM connection read is deferred past first paint; the pageview
+    // waits for the self-bounded boot refresh, so settle past
+    // the deferral before asserting the enriched properties.
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
     expect(analyticsCalls).toHaveLength(2);
     const [url, init] = analyticsCalls[0];
@@ -253,6 +324,38 @@ describe("browser analytics pageviews", () => {
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
+  });
+
+  it("emits return usage after a seven-day gap between app entries", async () => {
+    const { localStorage } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    const now = Date.parse("2026-09-10T12:00:00.000Z");
+    vi.setSystemTime(now);
+    localStorage.setItem(
+      "agent-native.app_last_entry:mail",
+      String(now - 8 * 86_400_000),
+    );
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-mail",
+      }),
+    });
+    await tick();
+
+    const returnUsage = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "return_usage");
+    expect(returnUsage).toMatchObject({
+      properties: {
+        app_name: "mail",
+        template_name: "mail",
+        days_since_last: 8,
+      },
+    });
   });
 
   it("deduplicates app entry per app and session across app switches", async () => {
@@ -624,7 +727,7 @@ describe("browser analytics pageviews", () => {
     setTrackingIdentity(
       {
         id: "auth-user-qa",
-        email: "signup+qa-test-bot-run-1@example.com",
+        email: "signup+autoz-run-1@example.com",
       },
       "org_qa",
     );
@@ -873,6 +976,10 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
+    // The boot LLM connection read is deferred past first paint; the pageview
+    // waits for the self-bounded boot refresh, so settle past
+    // the deferral before asserting the normalized engine labels.
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
     const body = JSON.parse(String(analyticsCalls[0][1].body));
     expect(body.properties).toMatchObject({
@@ -912,6 +1019,7 @@ describe("browser analytics pageviews", () => {
       expect.objectContaining({
         dsn: "https://public@example/4511270423822336",
         environment: "beta",
+        release: "agent-native-client@development",
       }),
     );
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");

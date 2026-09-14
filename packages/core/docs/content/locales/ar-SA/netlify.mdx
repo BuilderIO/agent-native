@@ -13,7 +13,20 @@ export default defineConfig({
 });
 ```
 
+في قالب Chat المُنشأ، يبقى اسم الاستيراد `agentNative`. يُسند الإعداد هذه الدالة إلى اسم محلي
+مستعار هو `agentNativePlugins` مع تحويل نوع، ثم ينشر مصفوفة الإضافات المُعادة لمواءمة أنواع حزم Vite.
+يقبل الاسم المستعار الخيارات نفسها الواردة في مثال `agentNative` أعلاه. لنشر هذا القالب على
+Netlify، أضف `nitro: { preset: "netlify" }` إلى خيارات استدعاء `agentNativePlugins({ ... })`
+الحالي. اترك إضافات Chat الأخرى وخياراتها والأسماء المستعارة كما هي.
+
 ...أو تضبط `NITRO_PRESET=netlify` عند وقت البناء.
+
+للتطبيق المستقل، ابنِ مخرجات Netlify وانشر الأصول والدوال:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
 
 بالنسبة لمساحة عمل، انشر كل تطبيق من موقع Netlify واحد عن طريق تشغيل:
 

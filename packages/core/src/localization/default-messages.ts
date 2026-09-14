@@ -4,8 +4,10 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 
 const messages = {
+  environmentBadge: ENVIRONMENT_BADGE_MESSAGES["en-US"],
   workspaceFile: {
     download: "Download",
   },
@@ -143,6 +145,31 @@ const messages = {
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
       "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
+    sourceVault: "Vault",
+    sourceWorkspace: "Workspace",
+    sourceEnvironment: "Environment",
+    statusUnavailable: "Unavailable",
+    managedInVault:
+      "Managed in the workspace Vault. Every app in this workspace uses this value.",
+    openVault: "Open Vault",
+    setForWorkspace: "Set for everyone in this workspace.",
+    fromEnvironment: "Provided by the deployment environment.",
+    usePersonalKey: "Use a personal key instead",
+    overridesVault:
+      "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
+    overridesWorkspace:
+      "This personal key overrides the workspace value. Remove it to use the shared key.",
+    newKey: "New",
+    searchKeys: "Search keys...",
+    noKeysFound: "No keys found.",
+    chooseKey: "Choose a key",
+    required: "Required",
+    customKey: "Custom key",
+    customKeyHint: "Add any key by name",
+    addCustomKeyNamed: "Add “{{name}}” as a custom key",
+    emptyTitle: "No keys yet.",
+    emptyHint: "Add a key to use your own accounts.",
+    emptyMore: "and {{count}} more under New, or add any custom key",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
@@ -332,8 +359,17 @@ const messages = {
       sendLogProvider: "Provider",
       sendLogResponseStatus: "Response status",
       sendLogError: "Error",
-      sendLogToFilter: "To contains…",
-      sendLogFromFilter: "From contains…",
+      sendLogTo: "To",
+      sendLogFrom: "From",
+      sendLogContainsOperator: "contains",
+      sendLogExcludeOperator: "exclude",
+      sendLogContainsPlaceholder: "e.g. name@example.com",
+      sendLogExcludePlaceholder: "e.g. @builder.io",
+      sendLogAddressFilterLabel: "{{dimension}} {{operator}}",
+      sendLogRemoveAddressFilter: "Remove {{filter}}",
+      sendLogAllTemplates: "All templates",
+      sendLogSearchTemplates: "Search templates…",
+      sendLogNoTemplatesFound: "No templates found.",
       sendLogAllStatuses: "All statuses",
       sendLogSent: "Sent",
       sendLogFailed: "Failed",
@@ -343,6 +379,9 @@ const messages = {
       sendLogTimestamp: "Timestamp",
       sendLogPrevious: "Previous",
       sendLogNext: "Next",
+      sendLogBodyHtml: "HTML",
+      sendLogBodyText: "Text",
+      sendLogBodyFrameTitle: "Sent email body",
     },
     pages: {
       appsDescription:
@@ -631,8 +670,8 @@ const messages = {
       connectBuilder: "Connect Builder.io",
       useOpenAiKey: "Custom keys",
       startWithOpenAiKey: "Start with OpenAI key",
-      start: "Real-time voice",
-      keepDictating: "Dictate",
+      start: "Start voice chat",
+      keepDictating: "Dictate a message",
       rememberPreference: "Remember my preference",
       showChat: "Show chat",
       hideChat: "Hide chat",
@@ -1176,6 +1215,11 @@ const messages = {
     deleteOrgPending: "Deleting…",
   },
   integrations: {
+    subtitle: "Connect the tools your agent can use.",
+    recommended: "Recommended",
+    manage: "Manage",
+    connectedSection: "Connected",
+    availableSection: "Available integrations",
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
     webhookUrlLocalOnly:
@@ -1208,6 +1252,10 @@ const messages = {
       "For a central Slack or Telegram entrypoint that can route work across multiple apps, use the",
     sharedMessaging:
       "Need one shared messaging surface for your workspace? Connect Slack or Telegram to a dispatch app and let it delegate to other agents over A2A.",
+    lookingForApiKeys: "Looking for an API key instead?",
+    goToApiKeys: "Go to API keys",
+    lookingForProviders: "Looking for OAuth or MCP providers?",
+    goToIntegrations: "Go to Integrations",
   },
   mcpIntegrations: {
     menuLabel: "Integrations",
@@ -1258,8 +1306,11 @@ const messages = {
     connectForMe: "Connect for me",
     setUpForWorkspace: "Set up for workspace",
     workspaceAdminRequired: "Workspace owner or admin required.",
+    workspaceJoinRequired: "Join a workspace first.",
     personalOnlyDescription:
       "Only personal connections are supported for this integration.",
+    workspaceOnlyDescription:
+      "This integration connects once for the whole workspace, so it cannot be connected to just your account. A workspace owner or admin can set it up.",
     loadingScopeMetadata: "Loading connection scope…",
     retry: "Retry",
     retrying: "Retrying…",

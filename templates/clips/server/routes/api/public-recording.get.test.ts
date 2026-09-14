@@ -703,14 +703,14 @@ describe("/api/public-recording route", () => {
     });
   });
 
-  it("refuses an expired recording before exposing counts or dashboard eligibility", async () => {
+  it("refuses an expired recording to non-owners before exposing counts", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetSession.mockResolvedValue({
-      email: "owner@example.com",
+      email: "viewer@example.com",
       orgId: "org-1",
     });
     mockResolveAccess.mockResolvedValue({
-      role: "owner",
+      role: "viewer",
       resource: makeRecording(),
     });
     mockGetDb.mockReturnValue(
@@ -729,5 +729,34 @@ describe("/api/public-recording route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 410);
     expect(result).not.toHaveProperty("viewer");
     expect(mockCountRecordingViews).not.toHaveBeenCalled();
+  });
+
+  it("keeps an expired recording available to its owner", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "OWNER@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: makeRecording({ expiresAt: "2020-01-01T00:00:00.000Z" }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ expiresAt: "2020-01-01T00:00:00.000Z" })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { id: "rec-1" },
+      viewer: { role: "owner", canOpenDashboard: true },
+    });
+    expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
   });
 });

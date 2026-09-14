@@ -50,6 +50,15 @@ export const emailLog = table("email_log", {
   responseStatus: bigint("response_status", { mode: "number" }),
   /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody: text("response_body"),
+  /**
+   * Rendered HTML body of the message that was sent, truncated like other
+   * logged text. Magic links, reset links, and OTP codes are redacted before
+   * this is written (see `redactSensitiveEmailBodyContent`) because this
+   * table is org-admin readable.
+   */
+  htmlBody: text("html_body"),
+  /** Rendered plain-text body, when the send included one. Same redaction as `htmlBody`. */
+  textBody: text("text_body"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
@@ -67,6 +76,8 @@ export const EMAIL_LOG_CREATE_SQL = `CREATE TABLE IF NOT EXISTS email_log (
   request_payload TEXT,
   response_status INTEGER,
   response_body TEXT,
+  html_body TEXT,
+  text_body TEXT,
   created_at INTEGER NOT NULL
 )`;
 

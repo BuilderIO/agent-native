@@ -75,8 +75,8 @@ describe("slide-content text colors", () => {
     });
   }
 
-  it("still applies the dark-deck default to markdown-rendered slides", () => {
-    expect(colorOf(MARKDOWN_SLIDE("<h1>Title</h1>"), "h1")).toBe("#ffffff");
+  it("applies the light-deck default to markdown-rendered slides", () => {
+    expect(colorOf(MARKDOWN_SLIDE("<h1>Title</h1>"), "h1")).toBe("#1f2933");
   });
 
   it("covers raw slide HTML whose root has no fmd-slide class", () => {

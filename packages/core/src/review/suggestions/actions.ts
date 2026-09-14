@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
-import { getDbExec } from "../../db/client.js";
+import { defineAction, fail } from "../../action.js";
+import { getDbExec, type DbExec } from "../../db/client.js";
 import { notifyReviewComment } from "../notifications.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
@@ -9,6 +9,10 @@ import {
   insertReviewCommentWithClient,
   resolveReviewThreadWithClient,
 } from "../store.js";
+import {
+  suggestionActorKind,
+  suggestionActorKindMatchesReceipt,
+} from "./actor-kind.js";
 import { getSuggestionAdapter } from "./registry.js";
 import {
   getSuggestion,
@@ -21,9 +25,12 @@ import {
   recordSuggestionCreation,
   replaceSuggestionStatus,
   updateSuggestionStatus,
+  getSuggestionAmendment,
+  amendSuggestion,
+  deleteUnclaimedSuggestion,
+  type SuggestionCreationReceipt,
 } from "./store.js";
 import type { ResourceSuggestion } from "./types.js";
-import type { SuggestionOperation } from "./types.js";
 
 const base = { resourceType: z.string().min(1), resourceId: z.string().min(1) };
 const operation = z.object({
@@ -37,92 +44,69 @@ const operation = z.object({
   schemaVersion: z.number().int().positive(),
 });
 
-function stableJson(value: unknown): string {
+function stableJson(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) {
-    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+    return `[${value.map((item) => stableJson(item) ?? "null").join(",")}]`;
   }
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`)
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .flatMap(([key, item]) => {
+      const encoded = stableJson(item);
+      return encoded === undefined ? [] : [`${JSON.stringify(key)}:${encoded}`];
+    })
     .join(",")}}`;
 }
 
-function canonicalJson(value: unknown): string {
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    throw new TypeError("Suggestion payload must contain only JSON values");
-  }
-  return stableJson(JSON.parse(encoded));
-}
-
-function normalizeOperations(
-  operations: readonly SuggestionOperation[],
-): SuggestionOperation[] {
-  return operations.map((item) => ({
-    ordinal: item.ordinal,
-    kind: item.kind,
-    targetId: item.targetId ?? null,
-    before: item.before ?? null,
-    after: item.after ?? null,
-    anchor: item.anchor ?? null,
-    dependencies: item.dependencies ?? null,
-    schemaVersion: item.schemaVersion,
-  }));
-}
-
-function isMatchingCreationReplay(
-  prior: ResourceSuggestion,
-  input: {
-    resourceType: string;
-    resourceId: string;
-    adapterKind: string;
-    baseRevision: string;
-    summary: string;
-    metadata?: Record<string, unknown>;
-    operations: SuggestionOperation[];
-  },
-  authorEmail: string | null,
-  actorKind: ResourceSuggestion["actorKind"],
-): boolean {
-  return (
-    prior.resourceType === input.resourceType &&
-    prior.resourceId === input.resourceId &&
-    prior.adapterKind === input.adapterKind &&
-    prior.baseRevision === input.baseRevision &&
-    prior.summary === input.summary &&
-    prior.authorEmail === authorEmail &&
-    prior.actorKind === actorKind &&
-    canonicalJson(prior.metadata) === canonicalJson(input.metadata ?? null) &&
-    canonicalJson(normalizeOperations(prior.operations)) ===
-      canonicalJson(normalizeOperations(input.operations))
-  );
-}
-
-async function creationRequestFingerprint(
-  input: Parameters<typeof isMatchingCreationReplay>[1],
-  authorEmail: string | null,
-  actorKind: ResourceSuggestion["actorKind"],
-): Promise<string> {
-  const requestJson = canonicalJson({
-    resourceType: input.resourceType,
-    resourceId: input.resourceId,
-    adapterKind: input.adapterKind,
-    baseRevision: input.baseRevision,
-    summary: input.summary,
-    metadata: input.metadata ?? null,
-    authorEmail,
-    actorKind,
-    operations: normalizeOperations(input.operations),
-  });
+async function creationRequestHash(args: {
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  baseRevision: string;
+  summary: string;
+  operations: unknown[];
+  metadata?: Record<string, unknown>;
+}): Promise<string> {
+  const request = stableJson({
+    resourceType: args.resourceType,
+    resourceId: args.resourceId,
+    adapterKind: args.adapterKind,
+    baseRevision: args.baseRevision,
+    summary: args.summary,
+    operations: args.operations,
+    metadata: args.metadata ?? null,
+  })!;
   const digest = await globalThis.crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(requestJson),
+    new TextEncoder().encode(request),
   );
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+function assertCreationReplay(
+  receipt: SuggestionCreationReceipt,
+  requestHash: string,
+  authorEmail: string | null,
+  actorKind: ResourceSuggestion["actorKind"],
+): ResourceSuggestion {
+  const actorKindMatches = suggestionActorKindMatchesReceipt(
+    receipt.actorKind,
+    actorKind,
+    receipt.receiptVersion,
+  );
+  if (
+    receipt.requestHash !== requestHash ||
+    receipt.authorEmail !== authorEmail ||
+    !actorKindMatches
+  ) {
+    throw new Error(
+      "Idempotency key was already used for a different suggestion",
+    );
+  }
+  return receipt.suggestion;
 }
 
 export const createResourceSuggestion = defineAction({
@@ -146,24 +130,19 @@ export const createResourceSuggestion = defineAction({
     return url ? { url, label: "Open suggestion" } : null;
   },
   run: async (args, ctx) => {
-    await assertReviewableResourceAccess(
+    const access = await assertReviewableResourceAccess(
       args.resourceType,
       args.resourceId,
       ctx as any,
       "commenter",
     );
-    const actorKind =
-      (ctx as any)?.caller === "agent" || (ctx as any)?.caller === "tool"
-        ? "agent"
-        : (ctx as any)?.userEmail
-          ? "human"
-          : "system";
+    const adapter = getSuggestionAdapter(args.adapterKind);
+    if (!adapter) throw new Error("Suggestion adapter not registered");
+    // Connected external agents arrive as mcp/webmcp/a2a callers; classifying
+    // them as human would lose agent provenance on persisted suggestions.
+    const actorKind = suggestionActorKind(ctx);
     const authorEmail = (ctx as any)?.userEmail ?? null;
-    const requestFingerprint = await creationRequestFingerprint(
-      args,
-      authorEmail,
-      actorKind,
-    );
+    const requestHash = await creationRequestHash(args);
     const db = getDbExec();
     await ensureSuggestionTables();
     await ensureReviewTables();
@@ -172,43 +151,27 @@ export const createResourceSuggestion = defineAction({
         "Suggestion creation requires an atomic database transaction",
       );
     const result = await db.transaction(async (tx) => {
-      const creation = await getSuggestionByCreationKey(
-        tx,
-        args.idempotencyKey,
-      );
-      if (creation) {
-        if (
-          creation.requestFingerprint !== null
-            ? creation.requestFingerprint !== requestFingerprint
-            : !isMatchingCreationReplay(
-                creation.suggestion,
-                args,
-                authorEmail,
-                actorKind,
-              )
-        ) {
-          throw new Error(
-            "Idempotency key was already used for a different suggestion",
-          );
-        }
-        return { suggestion: creation.suggestion, threadComment: null };
+      const prior = await getSuggestionByCreationKey(tx, args.idempotencyKey);
+      if (prior) {
+        return {
+          suggestion: assertCreationReplay(
+            prior,
+            requestHash,
+            authorEmail,
+            actorKind,
+          ),
+          threadComment: null,
+        };
       }
-      const adapter = getSuggestionAdapter(args.adapterKind);
-      if (!adapter) throw new Error("Suggestion adapter not registered");
-      const creationAccess = await assertReviewableResourceAccess(
-        args.resourceType,
-        args.resourceId,
-        { ...(ctx as any), transaction: tx },
-        "commenter",
-      );
-      const adapterContext = {
-        ...(ctx as any),
-        suggestionAccess: creationAccess,
-        transaction: tx,
-      };
       const operations =
-        (await adapter.validateProposal({ ...args, ctx: adapterContext })) ??
-        args.operations;
+        (await adapter.validateProposal({
+          ...args,
+          ctx: {
+            ...(ctx as any),
+            suggestionAccess: access,
+            transaction: tx,
+          },
+        })) ?? args.operations;
       const created = await insertSuggestion(
         {
           resourceType: args.resourceType,
@@ -221,20 +184,34 @@ export const createResourceSuggestion = defineAction({
           baseRevision: args.baseRevision,
           status: "pending",
           summary: args.summary,
-          ownerEmail: creationAccess.ownerEmail ?? null,
-          orgId: creationAccess.orgId ?? null,
-          visibility: creationAccess.visibility ?? "private",
+          ownerEmail: access.ownerEmail ?? null,
+          orgId: access.orgId ?? null,
+          visibility: access.visibility ?? "private",
           metadata: args.metadata ?? null,
           operations,
         },
         tx,
       );
-      await recordSuggestionCreation(
+      const receipt = await recordSuggestionCreation(
         tx,
         args.idempotencyKey,
-        created.id,
-        requestFingerprint,
+        created,
+        authorEmail,
+        actorKind,
+        requestHash,
       );
+      if (receipt.suggestion.id !== created.id) {
+        await deleteUnclaimedSuggestion(tx, created.id);
+        return {
+          suggestion: assertCreationReplay(
+            receipt,
+            requestHash,
+            authorEmail,
+            actorKind,
+          ),
+          threadComment: null,
+        };
+      }
       const threadComment = await insertReviewCommentWithClient(
         {
           resourceType: created.resourceType,
@@ -269,6 +246,147 @@ export const createResourceSuggestion = defineAction({
       return {
         type: args.resourceType,
         id: args.resourceId,
+        ownerEmail: suggestion.ownerEmail,
+        orgId: suggestion.orgId,
+        visibility: suggestion.visibility,
+      };
+    },
+  },
+});
+
+export const updateResourceSuggestion = defineAction({
+  description:
+    "Amend your pending suggestion while preserving its discussion and history; returns the updated suggestion and revision.",
+  schema: z.object({
+    id: z.string().min(1).describe("The existing pending suggestion to amend."),
+    observedRevision: z
+      .number()
+      .int()
+      .positive()
+      .describe(
+        "The suggestion revision you read; refresh after a conflict before editing again.",
+      ),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe(
+        "Reuse this key only for an exact retry of this amendment; use a new key for new edits.",
+      ),
+    operations: z
+      .array(operation)
+      .min(1)
+      .describe(
+        "Replacement proposal operations against the suggestion's existing canonical basis.",
+      ),
+    summary: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe(
+        "Optional replacement summary; omission preserves the existing summary.",
+      ),
+  }),
+  run: async (args, ctx) => {
+    const initial = await getSuggestion(args.id);
+    if (!initial)
+      fail("Suggestion not found", { statusCode: 404, errorCode: "not_found" });
+    await assertReviewableResourceAccess(
+      initial.resourceType,
+      initial.resourceId,
+      ctx as any,
+      "commenter",
+    );
+    const author = (ctx as any)?.userEmail;
+    if (!author || author !== initial.authorEmail) {
+      fail("Only the author can amend this suggestion", {
+        statusCode: 403,
+        errorCode: "forbidden",
+      });
+    }
+    const db = getDbExec();
+    if (!db.transaction)
+      throw new Error(
+        "Suggestion amendments require an atomic database transaction",
+      );
+    const request = JSON.stringify({
+      id: args.id,
+      observedRevision: args.observedRevision,
+      operations: args.operations,
+      summary: args.summary ?? null,
+    });
+    return db.transaction(async (tx) => {
+      const current = await getSuggestion(args.id, tx);
+      if (!current)
+        fail("Suggestion not found", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      const access = await assertReviewableResourceAccess(
+        current.resourceType,
+        current.resourceId,
+        { ...(ctx as any), transaction: tx },
+        "commenter",
+      );
+      if (current.authorEmail !== author)
+        fail("Only the author can amend this suggestion", {
+          statusCode: 403,
+          errorCode: "forbidden",
+        });
+      const prior = await getSuggestionAmendment(tx, args.idempotencyKey);
+      if (prior) {
+        if (prior.suggestionId !== current.id || prior.request !== request) {
+          fail("Idempotency key was already used for a different amendment", {
+            statusCode: 409,
+            errorCode: "idempotency_conflict",
+          });
+        }
+        return prior.suggestion;
+      }
+      if (
+        current.status !== "pending" ||
+        current.revision !== args.observedRevision
+      ) {
+        fail("The suggestion changed; refresh before editing", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      const adapter = getSuggestionAdapter(current.adapterKind);
+      if (!adapter || adapter.version !== current.adapterVersion)
+        throw new Error("Suggestion adapter version is unavailable");
+      const operations =
+        (await adapter.validateProposal({
+          resourceType: current.resourceType,
+          resourceId: current.resourceId,
+          baseRevision: current.baseRevision,
+          operations: args.operations,
+          ctx: { ...(ctx as any), transaction: tx, suggestionAccess: access },
+        })) ?? args.operations;
+      const updated = await amendSuggestion(
+        tx,
+        current,
+        operations,
+        args.summary ?? current.summary,
+        args.idempotencyKey,
+        request,
+      );
+      if (!updated)
+        fail("The suggestion changed; refresh before editing", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      return updated;
+    });
+  },
+  audit: {
+    target: (_args, result) => {
+      const suggestion = result as ResourceSuggestion;
+      return {
+        type: suggestion.resourceType,
+        id: suggestion.resourceId,
         ownerEmail: suggestion.ownerEmail,
         orgId: suggestion.orgId,
         visibility: suggestion.visibility,
@@ -337,6 +455,7 @@ export const decideResourceSuggestion = defineAction({
     decision: z.enum(["accepted", "rejected"]),
     idempotencyKey: z.string().min(1),
     observedBase: z.string().min(1),
+    observedRevision: z.number().int().positive().optional(),
   }),
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
@@ -355,6 +474,27 @@ export const decideResourceSuggestion = defineAction({
     const adapter = getSuggestionAdapter(suggestion.adapterKind);
     if (!adapter || adapter.version !== suggestion.adapterVersion)
       throw new Error("Suggestion adapter version is unavailable");
+    const reviewer = (ctx as any)?.userEmail ?? null;
+    const observedRevision = args.observedRevision ?? 1;
+    const replayDecision = async (tx: DbExec) => {
+      const decision = await getDecision(tx, args.idempotencyKey);
+      const latest = await getSuggestion(args.id, tx);
+      if (
+        !decision ||
+        !latest ||
+        decision.suggestionId !== args.id ||
+        decision.reviewer !== reviewer ||
+        decision.decision !== args.decision ||
+        decision.observedBase !== args.observedBase ||
+        latest.revision !== observedRevision
+      ) {
+        fail("The suggestion changed; refresh before deciding", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      return { suggestion: latest, decision };
+    };
     const decide = (coordination?: unknown) =>
       db.transaction!(async (tx) => {
         const current = await getSuggestion(args.id, tx);
@@ -366,28 +506,31 @@ export const decideResourceSuggestion = defineAction({
           "editor",
         );
         if (current.status !== "pending") {
-          const decision = await getDecision(tx, args.idempotencyKey);
-          if (
-            !decision ||
-            decision.suggestionId !== current.id ||
-            decision.decision !== args.decision
-          ) {
-            throw new Error(`Suggestion is already ${current.status}`);
-          }
-          return { suggestion: current, decision };
+          return replayDecision(tx);
         }
         const currentAdapter = getSuggestionAdapter(current.adapterKind);
+        if (observedRevision !== current.revision) {
+          fail("The suggestion changed; refresh before deciding", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        }
         if (
           !currentAdapter ||
           currentAdapter.version !== current.adapterVersion
         )
           throw new Error("Suggestion adapter version is unavailable");
         if (current.baseRevision !== args.observedBase) {
-          if (!(await updateSuggestionStatus(tx, current.id, "stale")))
-            return {
-              suggestion: current,
-              decision: await getDecision(tx, args.idempotencyKey),
-            };
+          if (
+            !(await updateSuggestionStatus(
+              tx,
+              current.id,
+              "stale",
+              current.revision,
+            ))
+          ) {
+            return replayDecision(tx);
+          }
           const decision = await recordDecision(tx, {
             suggestionId: current.id,
             idempotencyKey: args.idempotencyKey,
@@ -406,11 +549,9 @@ export const decideResourceSuggestion = defineAction({
           tx,
           current.id,
           args.decision,
+          current.revision,
         );
-        if (!claimed)
-          throw new Error(
-            "Suggestion was decided concurrently; retry to inspect it",
-          );
+        if (!claimed) return replayDecision(tx);
         const prior = await recordDecision(tx, {
           suggestionId: current.id,
           idempotencyKey: args.idempotencyKey,

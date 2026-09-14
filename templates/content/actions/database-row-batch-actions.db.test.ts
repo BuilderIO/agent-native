@@ -24,8 +24,11 @@ let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
 let replaceMockSourceRows: typeof import("./_database-source-utils.js").replaceMockSourceRows;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
+let getDocumentAction: typeof import("./get-document.js").default;
+let listDocumentPropertiesAction: typeof import("./list-document-properties.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let updateDatabaseItemsAction: typeof import("./update-database-items.js").default;
+let updateDatabaseItemAction: typeof import("./update-database-item.js").default;
 let nextAppendPosition: typeof import("./_position-utils.js").nextAppendPosition;
 let createAppendPositionAllocator: typeof import("./_position-utils.js").createAppendPositionAllocator;
 let spaceId: string;
@@ -55,9 +58,14 @@ beforeAll(async () => {
     await import("./_position-utils.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
     .default;
+  getDocumentAction = (await import("./get-document.js")).default;
+  listDocumentPropertiesAction = (await import("./list-document-properties.js"))
+    .default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
   updateDatabaseItemsAction = (await import("./update-database-items.js"))
+    .default;
+  updateDatabaseItemAction = (await import("./update-database-item.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -1013,6 +1021,352 @@ describe("database row batch actions", () => {
       ),
     ).rejects.toThrow("Source-backed rows cannot be removed");
     expect(await orderedRows(databaseId)).toHaveLength(1);
+  });
+
+  it("rejects document property writes for a mapped secondary field without a row overlay", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const propertyId = nextId("source_managed_property");
+    const primarySourceId = nextId("primary_source");
+    const secondarySourceId = nextId("secondary_source");
+    const normalizationFormula = "lower(trim({slug}))";
+    const federation = (role: "primary" | "secondary") => ({
+      role,
+      keyField: "slug",
+      normalizationFormula,
+      join: {
+        kind: "identity",
+        collection: null,
+        localExpr: "{slug}",
+        remoteKeyField: "slug",
+        normalizationFormula,
+      },
+    });
+
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Source owner",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.documentPropertyValues)
+      .values({
+        id: nextId("property_value"),
+        ownerEmail: OWNER,
+        documentId: rows[0].documentId,
+        propertyId,
+        valueJson: JSON.stringify("Original local value"),
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values([
+        {
+          id: primarySourceId,
+          ownerEmail: OWNER,
+          databaseId,
+          sourceType: "mock-local",
+          sourceName: "Primary",
+          sourceTable: databaseId,
+          metadataJson: JSON.stringify({
+            primaryKey: "id",
+            titleField: "title",
+            federation: federation("primary"),
+          }),
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: secondarySourceId,
+          ownerEmail: OWNER,
+          databaseId,
+          sourceType: "local-table",
+          sourceName: "Secondary",
+          sourceTable: nextId("upstream_database"),
+          metadataJson: JSON.stringify({
+            primaryKey: "id",
+            titleField: "title",
+            federation: federation("secondary"),
+          }),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabaseSourceRows)
+      .values({
+        id: nextId("primary_source_row"),
+        ownerEmail: OWNER,
+        sourceId: primarySourceId,
+        databaseItemId: rows[0].itemId,
+        documentId: rows[0].documentId,
+        sourceRowId: `mock-local-${rows[0].documentId}`,
+        sourceQualifiedId: `mock-local://${databaseId}/${rows[0].documentId}`,
+        sourceDisplayKey: "Row 0",
+        sourceValuesJson: "{}",
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values({
+        id: nextId("secondary_source_field"),
+        ownerEmail: OWNER,
+        sourceId: secondarySourceId,
+        propertyId,
+        localFieldKey: propertyId,
+        sourceFieldKey: "owner",
+        sourceFieldLabel: "Owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const response = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({ databaseId }),
+    );
+    if (!("items" in response)) throw new Error("Expected database rows");
+    const item = response.items.find(
+      (candidate) => candidate.document.id === rows[0].documentId,
+    );
+    expect(item?.sourceOverlays).toBeUndefined();
+    expect(
+      item?.properties.find(
+        (property) => property.definition.id === propertyId,
+      ),
+    ).toMatchObject({ value: null, editable: false });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setDocumentPropertyAction.run({
+          documentId: rows[0].documentId,
+          databaseId,
+          propertyId,
+          value: "Rejected write",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
+    expect(
+      await getDb()
+        .select({ valueJson: schema.documentPropertyValues.valueJson })
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, rows[0].documentId),
+            eq(schema.documentPropertyValues.propertyId, propertyId),
+          ),
+        ),
+    ).toEqual([{ valueJson: JSON.stringify("Original local value") }]);
+  });
+
+  it("allows only locally owned writable mapped properties to save locally", async () => {
+    const { databaseId, databaseDocumentId, rows } =
+      await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const sourceId = nextId("source");
+    const mappings = [
+      { key: "local", writeOwner: "local", readOnly: 0 },
+      { key: "source", writeOwner: "source", readOnly: 0 },
+      { key: "derived", writeOwner: "derived", readOnly: 0 },
+      { key: "read_only", writeOwner: "local", readOnly: 1 },
+    ] as const;
+    const propertyIds = Object.fromEntries(
+      mappings.map(({ key }) => [key, nextId(`${key}_property`)]),
+    );
+
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values(
+        mappings.map(({ key }, position) => ({
+          id: propertyIds[key],
+          ownerEmail: OWNER,
+          databaseId,
+          name: key,
+          type: "text",
+          visibility: "always_show",
+          optionsJson: "{}",
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "mock-local",
+      sourceName: "Ownership fixture",
+      sourceTable: databaseId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values([
+        ...mappings.map(({ key, writeOwner, readOnly }) => ({
+          id: nextId(`${key}_source_field`),
+          ownerEmail: OWNER,
+          sourceId,
+          propertyId: propertyIds[key],
+          localFieldKey: key,
+          sourceFieldKey: key,
+          sourceFieldLabel: key,
+          sourceFieldType: "text",
+          mappingType: "property",
+          writeOwner,
+          readOnly,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        {
+          id: nextId("additional_local_source_field"),
+          ownerEmail: OWNER,
+          sourceId,
+          propertyId: propertyIds.source,
+          localFieldKey: "source-local-copy",
+          sourceFieldKey: "source-local-copy",
+          sourceFieldLabel: "Additional local mapping",
+          sourceFieldType: "text",
+          mappingType: "property",
+          writeOwner: "local",
+          readOnly: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+    const discovered = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({ databaseId }),
+    );
+    if (!("items" in discovered) || !discovered.mutationContract) {
+      throw new Error("Expected a database mutation contract");
+    }
+    expect(
+      discovered.mutationContract.properties.find(
+        (property) => property.id === propertyIds.local,
+      ),
+    ).toMatchObject({ writable: true, sourceManaged: false });
+    expect(
+      discovered.items[0].properties.find(
+        (property) => property.definition.id === propertyIds.local,
+      ),
+    ).toMatchObject({ editable: true });
+    for (const key of ["source", "derived", "read_only"] as const) {
+      expect(
+        discovered.mutationContract.properties.find(
+          (property) => property.id === propertyIds[key],
+        ),
+      ).toMatchObject({ writable: false, sourceManaged: true });
+      expect(
+        discovered.items[0].properties.find(
+          (property) => property.definition.id === propertyIds[key],
+        ),
+      ).toMatchObject({ editable: false });
+    }
+
+    const documentDetail = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        getDocumentAction.run({
+          id: rows[0].documentId,
+          databaseId,
+          databaseDocumentId,
+        }),
+    );
+    const propertyPanel = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        listDocumentPropertiesAction.run({
+          documentId: rows[0].documentId,
+          databaseId,
+        }),
+    );
+    for (const response of [documentDetail, propertyPanel]) {
+      expect(
+        response.properties.find(
+          (property) => property.definition.id === propertyIds.local,
+        ),
+      ).toMatchObject({ editable: true });
+      for (const key of ["source", "derived", "read_only"] as const) {
+        expect(
+          response.properties.find(
+            (property) => property.definition.id === propertyIds[key],
+          ),
+        ).toMatchObject({ editable: false });
+      }
+    }
+
+    const guardedResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        updateDatabaseItemAction.run({
+          target: discovered.mutationContract!.target,
+          expectedSchemaRevision: discovered.mutationContract!.schemaRevision,
+          idempotencyKey: nextId("local_field_update"),
+          itemId: discovered.items[0].id,
+          documentId: discovered.items[0].document.id,
+          expectedRowRevision: discovered.items[0].rowRevision!,
+          propertyValues: { [propertyIds.local]: "Saved by guarded update" },
+        }),
+    );
+    expect(guardedResult.receipt.readback.propertyValues).toMatchObject({
+      [propertyIds.local]: "Saved by guarded update",
+    });
+
+    const localResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rows[0].documentId,
+        databaseId,
+        propertyId: propertyIds.local,
+        value: "Saved locally",
+      }),
+    );
+    expect(
+      localResult.properties.find(
+        (property) => property.definition.id === propertyIds.local,
+      ),
+    ).toMatchObject({ value: "Saved locally", editable: true });
+
+    for (const key of ["source", "derived", "read_only"] as const) {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          setDocumentPropertyAction.run({
+            documentId: rows[0].documentId,
+            databaseId,
+            propertyId: propertyIds[key],
+            value: "Rejected write",
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
+    }
+
+    expect(
+      await getDb()
+        .select({
+          propertyId: schema.documentPropertyValues.propertyId,
+          valueJson: schema.documentPropertyValues.valueJson,
+        })
+        .from(schema.documentPropertyValues)
+        .where(
+          eq(schema.documentPropertyValues.documentId, rows[0].documentId),
+        ),
+    ).toEqual([
+      {
+        propertyId: propertyIds.local,
+        valueJson: JSON.stringify("Saved locally"),
+      },
+    ]);
   });
 
   it("serializes a racing source association before membership removal", async () => {

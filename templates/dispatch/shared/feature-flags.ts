@@ -13,7 +13,7 @@ export const BROWSER_IDENTITY_SSO_FLAG = defineFeatureFlag({
   key: "browser.identity-sso",
   displayName: "Browser identity sign-in",
   description:
-    "Silently reuse an existing Agent-Native session when a canonical app sign-in page opens.",
+    "Silently reuse or bootstrap an Agent-Native session when a canonical app signs in.",
 });
 
 export const DESKTOP_WORKSPACE_SSO_FLAG = defineFeatureFlag({

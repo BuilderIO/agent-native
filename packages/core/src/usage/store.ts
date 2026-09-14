@@ -7,6 +7,7 @@
  *
  * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
  */
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -15,6 +16,13 @@ import {
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
+
+export {
+  isSelfScopedUsageRead,
+  usageOrgScope,
+  type UsageOrgScope,
+  type UsageOrgScopeOptions,
+} from "./org-scope.js";
 
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
@@ -196,7 +204,7 @@ export interface UsageRecord {
   model: string;
   /** Category for this call — e.g. "chat", "automation", "job", "custom-agent". */
   label?: string;
-  /** Optional template/app name (e.g. "mail"). Falls back to AGENT_APP / APP_NAME env. */
+  /** Optional template/app name (e.g. "mail"). Falls back to app config identity. */
   app?: string;
   /**
    * Stable id of the thing this usage belongs to (e.g. a recap plan id). When
@@ -223,6 +231,12 @@ export interface UsageRecord {
 }
 
 export type UsageCostSource = "reported" | "estimated" | "unavailable";
+
+export function resolveUsageAppKey(app?: string | null): string {
+  if (app !== null && app !== undefined) return app.trim();
+  const config = getAppConfig();
+  return (config.app.id ?? config.app.name ?? "").trim();
+}
 
 let _initPromise: Promise<void> | undefined;
 
@@ -426,8 +440,7 @@ export async function recordUsage(
 
   await ensureUsageTable();
   const client = getDbExec();
-  const resolvedApp =
-    app ?? process.env.AGENT_APP ?? process.env.APP_NAME ?? "";
+  const resolvedApp = resolveUsageAppKey(app);
   const resolvedLabel = label ?? "chat";
   const resolvedRef = refId ?? "";
   const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;

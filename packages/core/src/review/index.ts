@@ -3,6 +3,9 @@ export type {
   ReviewComment,
   ReviewCommentKind,
   ReviewCommentStatus,
+  ReviewCommentReaction,
+  ReviewThreadPreference,
+  ReviewDiscussionState,
   ReviewMention,
   ReviewResolutionTarget,
   ReviewResourceAccess,
@@ -55,9 +58,14 @@ export {
   ensureSuggestionTables,
   getDecision,
   getSuggestion,
+  getSuggestionByCreationKey,
   listSuggestions,
   __resetSuggestionTablesForTests,
 } from "./suggestions/store.js";
+export {
+  suggestionActorKind,
+  suggestionActorKindMatchesReceipt,
+} from "./suggestions/actor-kind.js";
 export type {
   GetReviewThreadSummaryInput,
   ReviewThreadSummary,

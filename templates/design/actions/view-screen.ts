@@ -31,6 +31,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { readDesignTemplateSource } from "../server/lib/design-template-data.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
 import {
@@ -306,6 +307,7 @@ export default defineAction({
           })
           .from(schema.designFiles)
           .where(eq(schema.designFiles.designId, designId));
+        const overviewScreens = files.filter(isOverviewScreenFile);
         let data: Record<string, unknown> = {};
         const rawData = (access.resource as { data?: unknown }).data;
         if (typeof rawData === "string") {
@@ -323,7 +325,7 @@ export default defineAction({
           }
         }
         const activeScreen = resolveActiveScreen(
-          files,
+          overviewScreens,
           navigation,
           designSelection,
         );
@@ -346,7 +348,7 @@ export default defineAction({
               ? (access.resource as { designSystemId: string }).designSystemId
               : null,
           designSystem: linkedDesignSystem,
-          screens: files,
+          screens: overviewScreens,
           activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),

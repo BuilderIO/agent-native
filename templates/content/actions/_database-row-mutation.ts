@@ -22,6 +22,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -43,34 +44,34 @@ const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
 export const databaseMutationTargetSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema,
   spaceId: z.string().min(1).describe("Exact Content space ID"),
-  databaseId: z.string().min(1).describe("Exact Content database ID"),
+  databaseId: z.string().min(1).describe("Exact Content collection ID"),
   databaseDocumentId: z
     .string()
     .min(1)
-    .describe("Exact page ID backing the Content database"),
+    .describe("Exact page ID backing the Content collection"),
 });
 
 export const databaseMutationTargetInputSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema
     .optional()
     .describe(
-      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected database.",
+      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected collection.",
     ),
   spaceId: z
     .string()
     .min(1)
-    .describe("Exact Content space ID returned by database discovery"),
+    .describe("Exact Content space ID returned by collection discovery"),
   databaseId: z
     .string()
     .min(1)
     .describe(
-      "Exact Content database ID returned by database discovery; never derive it from a title or number in the request",
+      "Exact Content collection ID returned by collection discovery; never derive it from a title or number in the request",
     ),
   databaseDocumentId: z
     .string()
     .min(1)
     .describe(
-      "Exact page ID backing the database, returned by database discovery",
+      "Exact page ID backing the collection, returned by collection discovery",
     ),
 });
 
@@ -249,6 +250,7 @@ export async function loadContext(
   role: "viewer" | "editor",
   db: Db = getDb(),
   accessAlreadyResolved = false,
+  includeDeleted = false,
 ): Promise<MutationContext> {
   const [database] = await db
     .select()
@@ -256,7 +258,7 @@ export async function loadContext(
     .where(
       and(
         eq(schema.contentDatabases.id, target.databaseId),
-        isNull(schema.contentDatabases.deletedAt),
+        includeDeleted ? undefined : isNull(schema.contentDatabases.deletedAt),
       ),
     );
   if (!database) {
@@ -273,7 +275,7 @@ export async function loadContext(
           .where(
             and(
               eq(schema.documents.id, database.documentId),
-              isNull(schema.documents.trashedAt),
+              includeDeleted ? undefined : isNull(schema.documents.trashedAt),
             ),
           )
       )[0]
@@ -317,7 +319,11 @@ export async function loadContext(
     .from(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
   const sourceFields = await db
-    .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
       schema.contentDatabaseSources,
@@ -327,11 +333,8 @@ export async function loadContext(
       ),
     )
     .where(eq(schema.contentDatabaseSources.databaseId, database.id));
-  const sourceManagedPropertyIds = new Set(
-    sourceFields.flatMap((field) =>
-      field.propertyId ? [field.propertyId] : [],
-    ),
-  );
+  const sourceManagedPropertyIds =
+    contentDatabaseSourceManagedPropertyIds(sourceFields);
   return {
     database,
     databaseDocument,
@@ -833,7 +836,7 @@ function resultForReceipt(
     row: {
       itemId: snapshot.item.id,
       documentId: snapshot.document.id,
-      urlPath: `/page/${snapshot.document.id}`,
+      urlPath: `/page/${encodeURIComponent(snapshot.document.id)}?${new URLSearchParams({ databaseId: context.database.id, databaseDocumentId: context.database.documentId }).toString()}`,
       rowRevision: snapshot.revision,
     },
     affected: {

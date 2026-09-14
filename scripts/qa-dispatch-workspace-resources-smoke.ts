@@ -34,7 +34,7 @@ const tmpRoot = fs.mkdtempSync(
 );
 const port = Number(process.env.DISPATCH_WORKSPACE_SMOKE_PORT || 9325);
 const runId = Date.now().toString(36);
-const qaEmail = "qa-dispatch-workspace-smoke@example.test";
+const qaEmail = "qa-dispatch-workspace-smoke+autoz@example.test";
 const qaPassword = "local-dev-account";
 const resourceName = `Browser Smoke Brand ${runId}`;
 const resourcePath = `context/browser-smoke-${runId}.md`;

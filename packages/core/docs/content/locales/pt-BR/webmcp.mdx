@@ -10,8 +10,9 @@ ferramentas para que um agente autorizado as descubra e execute. Consulte o
 [guia de WebMCP em inglês](/docs/webmcp) sobre registro, consumo, sessões do
 navegador e limites de segurança.
 Páginas autenticadas registram automaticamente as ações de backend qualificadas
-a partir do registro de ações existente. Ações que exigem aprovação são excluídas,
-e a lista ativa de ferramentas é validada novamente antes da chamada.
+a partir do registro de ações existente. Ações que exigem aprovação não são
+excluídas; uma chamada que ativa essa condição é recusada, orientando quem
+chamou a pedir a confirmação do usuário no chat.
 Superfícies autenticadas com `sessionBypass`, como rotas de incorporação MCP, também
 registram ferramentas de ações de backend. Páginas públicas e sem sessão não as registram.
 

@@ -80,20 +80,6 @@ for (const site of sites) {
       // resources. A rendered body is not the same as a settled application.
       await page.waitForTimeout(5_000);
 
-      // The environment switcher is built from a static host map. A beta host
-      // missing from that map renders no switcher, stranding users on beta
-      // with no in-app way back to the stable lane. Matched on the visible
-      // label, because the trigger currently renders with no accessible name.
-      await expect
-        .soft(
-          page
-            .locator("button")
-            .filter({ hasText: /^\s*beta\s*$/i })
-            .first(),
-          `${site.host} renders no environment switcher, so a user on beta has no in-app way back to ${productionHostFor(site)}`,
-        )
-        .toBeVisible({ timeout: 30_000 });
-
       if (thirdParty.length > 0) {
         test.info().annotations.push({
           type: "third-party-noise",
@@ -132,6 +118,22 @@ for (const site of sites) {
       // One page load answers both questions below. Read separately they cost
       // two visits per host, which is the sweep's dominant expense in CI.
       const affordances = await readSignInAffordances(page, origin);
+
+      const environmentBadge = page.locator("#environment-badge");
+      await expect(
+        environmentBadge,
+        `${site.host} sign-in beta badge`,
+      ).toBeVisible();
+      await expect(environmentBadge).toHaveText("beta");
+      await environmentBadge.click();
+      const popoverTitle = page.locator("#environment-popover-title");
+      await expect(popoverTitle).toBeVisible();
+      await expect(popoverTitle).toHaveText("You're on Agent-Native Beta");
+      const productionLink = page.locator("#environment-production-link");
+      await expect(productionLink).toBeVisible();
+      const productionHref = await productionLink.getAttribute("href");
+      expect(productionHref).not.toBeNull();
+      expect(new URL(productionHref!).hostname).toBe(productionHostFor(site));
 
       // A 200 that renders no way to sign in is the same outage to a user.
       expect(

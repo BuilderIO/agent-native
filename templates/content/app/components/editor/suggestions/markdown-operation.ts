@@ -1,3 +1,9 @@
+import {
+  suggestionFormattingChanges,
+  suggestionMarkedSourceRanges,
+  SuggestionFormattingMappingError,
+} from "@shared/suggestion-formatting";
+
 export type MarkdownSuggestionOperation = {
   ordinal: number;
   kind:
@@ -13,16 +19,15 @@ export type MarkdownSuggestionOperation = {
   schemaVersion: 1;
 };
 
-const MARKDOWN_MARK = /(?:\*\*|__|~~|`|\[|\]\([^)]*\))/g;
 const MAX_DOCUMENT_LENGTH = 64_000;
 const MAX_EDIT_DISTANCE = 1_024;
 
 type DiffPart = { type: "equal" | "insert" | "delete"; text: string };
 
 function kindForChange(removed: string, inserted: string) {
-  const sameUnmarkedText =
-    removed.replace(MARKDOWN_MARK, "") === inserted.replace(MARKDOWN_MARK, "");
-  return sameUnmarkedText && removed !== inserted
+  const formatting =
+    removed && inserted ? suggestionFormattingChanges(removed, inserted) : null;
+  return formatting && formatting.length > 0
     ? "set_inline_mark"
     : !removed
       ? inserted.includes("\n")
@@ -71,13 +76,97 @@ function coalesce(parts: DiffPart[]): DiffPart[] {
   return result;
 }
 
+function changeBoundaryRank(text: string, position: number): number {
+  if (
+    position === 0 ||
+    position === text.length ||
+    text[position - 1] === "\n" ||
+    text[position] === "\n"
+  ) {
+    return 2;
+  }
+  return /\s/.test(text[position - 1]!) !== /\s/.test(text[position]!) ? 1 : 0;
+}
+
+function contiguousChange(
+  before: string,
+  after: string,
+  bounds = { from: 0, to: before.length },
+): { from: number; to: number; inserted: string } | null {
+  if (before.length === after.length) return null;
+  const shorter = before.length < after.length ? before : after;
+  const longer = before.length < after.length ? after : before;
+  const changeLength = longer.length - shorter.length;
+  let prefixLength = 0;
+  while (
+    prefixLength < shorter.length &&
+    shorter[prefixLength] === longer[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+  let suffixLength = 0;
+  while (
+    suffixLength < shorter.length &&
+    shorter[shorter.length - suffixLength - 1] ===
+      longer[longer.length - suffixLength - 1]
+  ) {
+    suffixLength += 1;
+  }
+
+  const firstCandidate = Math.max(shorter.length - suffixLength, bounds.from);
+  const lastCandidate = Math.min(
+    prefixLength,
+    bounds.to - (before.length > after.length ? changeLength : 0),
+  );
+  if (firstCandidate > lastCandidate) return null;
+
+  // Repeated text can make several positions reconstruct the same edit. Prefer
+  // paragraph, then word boundaries; otherwise retain the conventional latest
+  // common-prefix position.
+  let position = lastCandidate;
+  let rank = changeBoundaryRank(shorter, position);
+  for (
+    let candidate = firstCandidate;
+    candidate < lastCandidate;
+    candidate += 1
+  ) {
+    const candidateRank = changeBoundaryRank(shorter, candidate);
+    if (candidateRank > rank) {
+      position = candidate;
+      rank = candidateRank;
+    }
+  }
+
+  if (after.length > before.length) {
+    return {
+      from: position,
+      to: position,
+      inserted: after.slice(position, position + changeLength),
+    };
+  }
+  return {
+    from: position,
+    to: position + changeLength,
+    inserted: "",
+  };
+}
+
 /**
  * Returns a bounded Myers diff. The edit-distance cap keeps pathological
  * documents from consuming unbounded memory; callers retain one whole-document
  * replacement when the granular representation cannot be produced safely.
  */
-function diffParts(before: string, after: string): DiffPart[] | null {
-  if (before.length + after.length > MAX_DOCUMENT_LENGTH) return null;
+function diffParts(
+  beforeSource: string,
+  afterSource: string,
+): DiffPart[] | null {
+  if (beforeSource.length + afterSource.length > MAX_DOCUMENT_LENGTH)
+    return null;
+
+  // A hard-break token is one structural edit. Matching its letters against
+  // nearby prose can otherwise create independently invalid `<b` / `r>` hunks.
+  const before = beforeSource.match(/<br\/?>|[\s\S]/g) ?? [];
+  const after = afterSource.match(/<br\/?>|[\s\S]/g) ?? [];
 
   const maxDistance = Math.min(before.length + after.length, MAX_EDIT_DISTANCE);
   const offset = maxDistance + 1;
@@ -112,8 +201,8 @@ function diffParts(before: string, after: string): DiffPart[] | null {
 
 function backtrack(
   trace: Int32Array[],
-  before: string,
-  after: string,
+  before: readonly string[],
+  after: readonly string[],
   distance: number,
   offset: number,
 ): DiffPart[] {
@@ -167,6 +256,109 @@ function backtrack(
   return coalesce(reverseParts.reverse());
 }
 
+function markedDiffOperations(
+  before: string,
+  after: string,
+  parts: DiffPart[],
+): MarkdownSuggestionOperation[] | null {
+  const previous = suggestionMarkedSourceRanges(before);
+  const next = suggestionMarkedSourceRanges(after);
+  if (!previous || !next || (!previous.length && !next.length)) return null;
+  const steps: Array<{
+    before: number;
+    after: number;
+    type: DiffPart["type"];
+  }> = [];
+  const beforeSteps: number[] = [];
+  const afterSteps: number[] = [];
+  let beforeOffset = 0;
+  let afterOffset = 0;
+  for (const part of parts) {
+    for (let index = 0; index < part.text.length; index += 1) {
+      if (part.type !== "insert") beforeSteps[beforeOffset] = steps.length;
+      if (part.type !== "delete") afterSteps[afterOffset] = steps.length;
+      steps.push({ before: beforeOffset, after: afterOffset, type: part.type });
+      if (part.type !== "insert") beforeOffset += 1;
+      if (part.type !== "delete") afterOffset += 1;
+    }
+  }
+  const envelopes = [
+    ...previous.map((range) => ({
+      ...range,
+      side: "before" as const,
+      excluded: "insert",
+    })),
+    ...next.map((range) => ({
+      ...range,
+      side: "after" as const,
+      excluded: "delete",
+    })),
+  ].map((range) => {
+    const positions = range.side === "before" ? beforeSteps : afterSteps;
+    const from = positions[range.from];
+    const last = positions[range.to - 1];
+    if (from === undefined || last === undefined || last < from)
+      throw new Error("Marked source envelope is outside the edit path");
+    return { from, to: last + 1 };
+  });
+  const changes: Array<{ from: number; to: number }> = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    if (steps[index]!.type === "equal") continue;
+    const previousChange = changes[changes.length - 1];
+    if (previousChange?.to === index) previousChange.to += 1;
+    else changes.push({ from: index, to: index + 1 });
+  }
+  // A marked run owns its delimiters, so no independently accepted hunk may split it.
+  let expanded: boolean;
+  do {
+    expanded = false;
+    for (const change of changes) {
+      for (const envelope of envelopes) {
+        if (envelope.from >= change.to || envelope.to <= change.from) continue;
+        if (envelope.from < change.from || envelope.to > change.to)
+          expanded = true;
+        change.from = Math.min(change.from, envelope.from);
+        change.to = Math.max(change.to, envelope.to);
+      }
+    }
+    changes.sort((left, right) => left.from - right.from);
+    for (let index = changes.length - 1; index > 0; index -= 1) {
+      const previousChange = changes[index - 1]!;
+      const change = changes[index]!;
+      if (previousChange.to >= change.from) {
+        previousChange.to = Math.max(previousChange.to, change.to);
+        changes.splice(index, 1);
+        expanded = true;
+      }
+    }
+  } while (expanded);
+  const operations = changes.map((change, index) => {
+    const start = steps[change.from]!;
+    const finish = steps[change.to] ?? {
+      before: before.length,
+      after: after.length,
+    };
+    return operationForChange(
+      before,
+      start.before,
+      finish.before,
+      after.slice(start.after, finish.after),
+      index,
+    );
+  });
+  let reconstructed = before;
+  for (const operation of [...operations].reverse())
+    reconstructed =
+      reconstructed.slice(0, operation.anchor.from) +
+      operation.after.changedText +
+      reconstructed.slice(operation.anchor.to);
+  if (reconstructed !== after)
+    throw new Error(
+      "Marked edit ranges do not reconstruct the proposed source",
+    );
+  return operations;
+}
+
 /**
  * Produces independent, contextual-rebase-compatible operations for each
  * disjoint markdown hunk. Every operation starts from the same canonical
@@ -177,10 +369,43 @@ export function markdownSuggestionOperations(
   after: string,
 ): MarkdownSuggestionOperation[] {
   if (before === after) return [];
-  if (before.replace(MARKDOWN_MARK, "") === after.replace(MARKDOWN_MARK, "")) {
-    return [operationForChange(before, 0, before.length, after, 0)];
+  const beforeMarked = suggestionMarkedSourceRanges(before);
+  const afterMarked = suggestionMarkedSourceRanges(after);
+  const formatting = suggestionFormattingChanges(before, after);
+  if (formatting) {
+    return formatting.map((range, index) => ({
+      ...operationForChange(
+        before,
+        range.before.from,
+        range.before.to,
+        after.slice(range.after.from, range.after.to),
+        index,
+      ),
+      kind: "set_inline_mark",
+    }));
   }
-  const parts = diffParts(before, after);
+  const markedParts = diffParts(before, after);
+  if (!markedParts && (beforeMarked?.length || afterMarked?.length))
+    throw new SuggestionFormattingMappingError();
+  if (markedParts) {
+    const marked = markedDiffOperations(before, after, markedParts);
+    if (marked) return marked;
+  }
+  if (before.length + after.length <= MAX_DOCUMENT_LENGTH) {
+    const contiguous = contiguousChange(before, after);
+    if (contiguous) {
+      return [
+        operationForChange(
+          before,
+          contiguous.from,
+          contiguous.to,
+          contiguous.inserted,
+          0,
+        ),
+      ];
+    }
+  }
+  const parts = markedParts;
   if (!parts) return [markdownSuggestionOperation(before, after)!];
 
   const operations: MarkdownSuggestionOperation[] = [];
@@ -208,7 +433,23 @@ export function markdownSuggestionOperations(
     );
     beforeOffset = to;
   }
-  return operations;
+  return operations.map((operation, index) => {
+    if (operation.before.changedText && operation.after.changedText)
+      return operation;
+    const normalized = contiguousChange(before, operation.after.markdown, {
+      from: operations[index - 1]?.anchor.to ?? 0,
+      to: operations[index + 1]?.anchor.from ?? before.length,
+    });
+    return normalized
+      ? operationForChange(
+          before,
+          normalized.from,
+          normalized.to,
+          normalized.inserted,
+          index,
+        )
+      : operation;
+  });
 }
 
 export function markdownSuggestionOperation(
@@ -236,4 +477,95 @@ export function markdownSuggestionOperation(
     after.slice(from, afterEnd),
     0,
   );
+}
+
+export function markdownSuggestionOperationsForReplacements(input: {
+  before: string;
+  after: string;
+  replacements: ReadonlyArray<{ from: number; to: number }>;
+}): MarkdownSuggestionOperation[] {
+  const { before, after, replacements } = input;
+  for (const { from, to } of replacements) {
+    if (
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      to <= from ||
+      to > before.length
+    ) {
+      throw new Error("Invalid suggestion replacement range");
+    }
+  }
+  const operations = markdownSuggestionOperations(before, after);
+  if (operations.length === 0 || replacements.length === 0) return operations;
+  if (replacements.length === 1) {
+    const [{ from, to }] = replacements;
+    const prefix = before.slice(0, from);
+    const suffix = before.slice(to);
+    if (
+      after.startsWith(prefix) &&
+      after.endsWith(suffix) &&
+      after.length >= prefix.length + suffix.length
+    ) {
+      const inserted = after.slice(from, after.length - suffix.length);
+      const exact = operationForChange(before, from, to, inserted, 0);
+      if (exact.after.markdown === after) return [exact];
+    }
+  }
+  const ranges = [
+    ...replacements,
+    ...operations.map((operation) => operation.anchor),
+  ].sort((left, right) => left.from - right.from || left.to - right.to);
+  const groups: Array<{ from: number; to: number }> = [];
+  for (const range of ranges) {
+    const previous = groups[groups.length - 1];
+    if (previous && range.from <= previous.to) {
+      previous.to = Math.max(previous.to, range.to);
+    } else {
+      groups.push({ from: range.from, to: range.to });
+    }
+  }
+  const result: MarkdownSuggestionOperation[] = [];
+  let operationIndex = 0;
+  for (const group of groups) {
+    let offset = group.from;
+    let inserted = "";
+    let changed = false;
+    while (
+      operationIndex < operations.length &&
+      operations[operationIndex]!.anchor.from <= group.to
+    ) {
+      const operation = operations[operationIndex++]!;
+      inserted +=
+        before.slice(offset, operation.anchor.from) +
+        operation.after.changedText;
+      offset = operation.anchor.to;
+      changed = true;
+    }
+    if (!changed) continue;
+    inserted += before.slice(offset, group.to);
+    result.push(
+      operationForChange(before, group.from, group.to, inserted, result.length),
+    );
+  }
+  return result;
+}
+
+export function draftSuggestionAnchors(
+  operations: readonly MarkdownSuggestionOperation[],
+  draft: string,
+): MarkdownSuggestionOperation["anchor"][] {
+  let delta = 0;
+  return operations.map((operation) => {
+    const from = operation.anchor.from + delta;
+    const to = from + operation.after.changedText.length;
+    delta +=
+      operation.after.changedText.length - operation.before.changedText.length;
+    return {
+      from,
+      to,
+      prefix: draft.slice(Math.max(0, from - 32), from),
+      suffix: draft.slice(to, to + 32),
+    };
+  });
 }

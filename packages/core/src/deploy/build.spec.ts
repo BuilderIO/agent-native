@@ -84,6 +84,8 @@ import {
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
+  shouldRemoveNetlifyStaticRootShell,
+  shouldPreserveNetlifyStaticRootShell,
 } from "./build.js";
 import {
   pruneBrowserRuntimeFromNonAgentClone,
@@ -782,6 +784,91 @@ describe("Netlify static cache headers", () => {
 });
 
 describe("Netlify static root shell", () => {
+  it("keeps a public prerendered root shell available to the CDN", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(false);
+  });
+
+  it("removes the root shell for internal apps", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(path.join(projectCwd, "package.json"), "{}");
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(true);
+  });
+
+  it("keeps the internal-app default when a public app protects root", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": {
+          workspaceApp: { audience: "public", protectedPaths: ["/"] },
+        },
+      }),
+    );
+
+    expect(shouldRemoveNetlifyStaticRootShell(projectCwd)).toBe(true);
+  });
+
+  it("honors restrictive effective environment overrides", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "internal",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+        AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: '["/"]',
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat environment-only public audience as sufficient", () => {
+    const projectCwd = makeTempDir();
+    fs.writeFileSync(path.join(projectCwd, "package.json"), "{}");
+
+    expect(
+      shouldRemoveNetlifyStaticRootShell(projectCwd, {
+        AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: "public",
+      }),
+    ).toBe(true);
+  });
+
+  it("requires the prerendered root artifact before preserving it", () => {
+    const projectCwd = makeTempDir();
+    const publishDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(projectCwd, "package.json"),
+      JSON.stringify({
+        "agent-native": { workspaceApp: { audience: "public" } },
+      }),
+    );
+
+    expect(shouldPreserveNetlifyStaticRootShell(projectCwd, publishDir)).toBe(
+      false,
+    );
+    fs.writeFileSync(path.join(publishDir, "index.html"), "<html></html>");
+    expect(shouldPreserveNetlifyStaticRootShell(projectCwd, publishDir)).toBe(
+      true,
+    );
+  });
+
   it("leaves the root request to the SSR auth handler", () => {
     const publishDir = makeTempDir();
     fs.writeFileSync(path.join(publishDir, "index.html"), "<html></html>");
@@ -2270,9 +2357,16 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     fs.writeFileSync(path.join(tarFsDir, "index.js"), "export {};");
     fs.writeFileSync(
       path.join(playwrightCoreDir, "package.json"),
-      JSON.stringify({ name: "playwright-core", main: "index.js" }),
+      JSON.stringify({
+        name: "playwright-core",
+        type: "module",
+        main: "index.js",
+      }),
     );
-    fs.writeFileSync(path.join(playwrightCoreDir, "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(playwrightCoreDir, "index.js"),
+      "export const chromium = { connectOverCDP: async () => ({}) };",
+    );
     fs.writeFileSync(
       path.join(root, "package.json"),
       JSON.stringify({ name: "test-app", dependencies: appDependencies }),
@@ -2334,6 +2428,44 @@ describe("copyInstalledBrowserRuntimePackages", () => {
 
     expect(findServerlessBrowserRuntimeConsumer(root)).toBe("playwright-core");
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+  });
+
+  it("ships the lightweight runtime when an app declares Playwright directly", async () => {
+    const { root, nodeModules, serverDir } = setupBrowserRuntimeStore({
+      playwright: "1.63.0",
+    });
+    const playwrightDir = path.join(nodeModules, "playwright");
+    fs.mkdirSync(playwrightDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(playwrightDir, "package.json"),
+      JSON.stringify({ name: "playwright", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(playwrightDir, "index.js"), "full runtime");
+
+    expect(findServerlessBrowserRuntimeConsumer(root)).toBe("playwright");
+    expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "@sparticuz", "chromium-min"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(serverDir, "node_modules", "tar-fs"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright-core")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright")),
+    ).toBe(false);
+
+    const entrypoint = path.join(serverDir, "main.mjs");
+    fs.writeFileSync(
+      entrypoint,
+      'export const { chromium } = await import("playwright-core");',
+    );
+    const runtime = await import(pathToFileURL(entrypoint).href);
+    expect(typeof runtime.chromium.connectOverCDP).toBe("function");
   });
 });
 
@@ -2752,6 +2884,34 @@ describe("runNitroBuildPipeline", () => {
     ).toBeUndefined();
   });
 
+  it("skips exact immutable rules when the target limits header rule count", async () => {
+    const { cwd, clientDir, publicOutputDir } = setupFixture();
+    const nitro: any = {
+      options: {
+        output: { publicDir: publicOutputDir },
+        routeRules: { "/assets/**": { headers: { "x-test": "kept" } } },
+      },
+    };
+
+    await runNitroBuildPipeline({
+      nitro,
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "",
+      cwd,
+      includeImmutableAssetRouteRules: false,
+    });
+
+    expect(nitro.options.routeRules).toEqual({
+      "/assets/**": { headers: { "x-test": "kept" } },
+    });
+  });
+
   it("merges immutable headers into existing route rules", () => {
     const routeRules: Record<string, { headers?: Record<string, string> }> = {
       "/assets/entry.client-aB12_cdE.js": {
@@ -3023,6 +3183,30 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain('import { createHmac } from "node:crypto"');
     expect(entry).toContain('includedFiles: ["**"]');
   });
+
+  it.each([true, false])(
+    "emits recovery with jobs disabled only when durable chat is enabled (%s)",
+    (durableChat) => {
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = String(durableChat);
+      const cwd = setupNetlifyOutput();
+      if (durableChat) emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+      emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
+
+      expect(
+        fs.existsSync(
+          path.join(
+            cwd,
+            ".netlify",
+            "functions-internal",
+            NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
+            `${NETLIFY_RECURRING_JOBS_FUNCTION_NAME}.mjs`,
+          ),
+        ),
+      ).toBe(durableChat);
+    },
+  );
 
   describe("keep-warm opt-in and cadence", () => {
     const KEEP_WARM_ENV_KEYS = [

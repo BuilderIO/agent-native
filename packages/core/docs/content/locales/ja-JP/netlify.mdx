@@ -13,7 +13,21 @@ export default defineConfig({
 });
 ```
 
+生成された Chat スキャフォールドでも、インポート名は `agentNative` のままです。設定では
+型アサーションを使ってローカルの `agentNativePlugins` エイリアスに割り当て、返された
+プラグイン配列を展開して Vite パッケージの型を揃えます。このエイリアスは上記の
+`agentNative` の例と同じオプションを受け取ります。Netlify にデプロイする場合は、既存の
+`agentNativePlugins({ ... })` 呼び出しのオプションに `nitro: { preset: "netlify" }` を
+追加してください。Chat 固有の他のプラグイン、オプション、エイリアスはそのまま残します。
+
 …もしくはビルド時に `NITRO_PRESET=netlify` を設定します。
+
+スタンドアロンアプリでは、Netlify出力をビルドして静的アセットとfunctionsをデプロイします。
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
 
 ワークスペースの場合、次を実行して 1 つの Netlify サイトからすべてのアプリをデプロイします。
 

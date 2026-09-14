@@ -1,13 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconVideoPlus } from "@tabler/icons-react";
-import { NavLink } from "react-router";
 
-import { ImportMenu } from "@/components/import-menu";
 import { LibraryGrid } from "@/components/library/library-grid";
-import {
-  PageHeaderActionGroup,
-  PageHeaderPrimaryAction,
-} from "@/components/library/page-header";
+import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
@@ -33,29 +27,7 @@ export default function LibraryIndexRoute() {
       view="library"
       folderId={null}
       title={t("navigation.library")}
-      extraActions={
-        <PageHeaderActionGroup>
-          <PageHeaderPrimaryAction asChild>
-            <NavLink to="/record" aria-label={t("navigation.newRecording")}>
-              <IconVideoPlus />
-              <span className="hidden sm:inline">
-                {t("navigation.newRecording")}
-              </span>
-            </NavLink>
-          </PageHeaderPrimaryAction>
-          <ImportMenu
-            uploadHref="/record?autoUpload=1"
-            importLoomHref="/import"
-            iconOnly
-            triggerIcon="chevron"
-            size="sm"
-            variant="default"
-            className="w-8 self-stretch border-s border-primary-foreground/20 px-0 shadow-none"
-            menuSide="bottom"
-            menuAlign="end"
-          />
-        </PageHeaderActionGroup>
-      }
+      extraActions={<LibraryPrimaryActions />}
     />
   );
 }

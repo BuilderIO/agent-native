@@ -114,10 +114,21 @@ export interface OnboardingCapability {
   keySummary: string;
   /** Hover/focus explanation for why the capability exists. */
   why: string;
+  /** Optional localized display keys for the client onboarding catalog. */
+  labelKey?: string;
+  keySummaryKey?: string;
+  whyKey?: string;
 }
 
 export interface OnboardingAppProfile {
   appId: string;
   appName: string;
   capabilities: OnboardingCapability[];
+}
+
+/** Composed shape returned by `GET /_agent-native/onboarding/summary`. */
+export interface OnboardingSummary {
+  steps: OnboardingStepStatus[];
+  dismissed: boolean;
+  profile: OnboardingAppProfile;
 }

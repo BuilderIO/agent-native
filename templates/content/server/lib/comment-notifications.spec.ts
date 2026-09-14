@@ -12,31 +12,32 @@ vi.mock("drizzle-orm", () => ({
   eq: (left: unknown, right: unknown) => ({ type: "eq", left, right }),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  emailStrong: (value: string) => value,
-  getAppProductionUrl: () => "https://docs.test",
-  notifyActivity: (...args: unknown[]) => mocks.notifyActivity(...args),
-  renderEmail: (args: { heading: string; paragraphs: string[] }) => ({
-    html: `<h1>${args.heading}</h1>`,
-    text: [args.heading, ...args.paragraphs].join("\n"),
-  }),
-  sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
-  runActivityNotification: async (
-    _logLabel: string,
-    resolve: () => Promise<unknown>,
-  ) => {
-    try {
-      return await resolve();
-    } catch (error) {
-      return {
-        status: "notification-error",
-        error: error instanceof Error ? error.message : String(error),
-        sent: [],
-        failed: [],
-      };
-    }
-  },
-}));
+vi.mock("@agent-native/core/server", async () => {
+  const { emailStrong, renderEmail } =
+    await import("../../../../packages/core/src/server/email-template.js");
+  return {
+    emailStrong,
+    getAppProductionUrl: () => "https://docs.test",
+    notifyActivity: (...args: unknown[]) => mocks.notifyActivity(...args),
+    renderEmail,
+    sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
+    runActivityNotification: async (
+      _logLabel: string,
+      resolve: () => Promise<unknown>,
+    ) => {
+      try {
+        return await resolve();
+      } catch (error) {
+        return {
+          status: "notification-error",
+          error: error instanceof Error ? error.message : String(error),
+          sent: [],
+          failed: [],
+        };
+      }
+    },
+  };
+});
 
 vi.mock("@agent-native/core/sharing", () => ({
   filterRecipientsByResourceAccess: (...args: unknown[]) =>
@@ -146,6 +147,52 @@ describe("content comment notifications", () => {
     expect(mention.text).toContain("You were mentioned");
     expect(owner.subject).toBe('Writer commented on "Launch plan"');
   });
+
+  it.each(["mcp", "agent"])(
+    "identifies %s comments without changing the account",
+    async (submissionSource) => {
+      await notifyDocumentComment({ ...BASE, submissionSource });
+      const args = notifyArgs();
+      expect(args.actorEmail).toBe("writer@example.com");
+      await args.send("owner@example.com");
+      const email = mocks.sendEmail.mock.calls[0][0];
+      expect(email.subject).toBe('Writer commented on "Launch plan" · AI');
+      expect(email.text).toContain("Posted via AI on behalf of Writer");
+    },
+  );
+
+  it.each([undefined, null, "frontend", "cli", "automation"])(
+    "does not label %s submissions as AI",
+    async (submissionSource) => {
+      await notifyDocumentComment({ ...BASE, submissionSource });
+      await notifyArgs().send("owner@example.com");
+      expect(mocks.sendEmail.mock.calls[0][0].subject).toBe(
+        'Writer commented on "Launch plan"',
+      );
+    },
+  );
+
+  it.each(["mcp", "agent", undefined])(
+    "escapes user markup in %s notification HTML",
+    async (submissionSource) => {
+      await notifyDocumentComment({
+        ...BASE,
+        submissionSource,
+        authorName: '<img src=x onerror="alert(1)"> & Writer',
+        content: "<script>alert(2)</script> & comment",
+      });
+      await notifyArgs().send("owner@example.com");
+      const email = mocks.sendEmail.mock.calls[0][0];
+      expect(email.html).not.toContain("<img src=x");
+      expect(email.html).not.toContain("<script>alert(2)</script>");
+      expect(email.html).toContain("&lt;img src=x");
+      expect(email.html).toContain(
+        "&lt;script&gt;alert(2)&lt;/script&gt; &amp; comment",
+      );
+      if (submissionSource)
+        expect(email.html).toContain("Posted via AI on behalf of &lt;img");
+    },
+  );
 
   it("drops a mentioned address with no access to the document", async () => {
     mocks.filterRecipients.mockResolvedValue(["owner@example.com"]);

@@ -12,7 +12,9 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   builderCreditsFromCostCents,
   getUsageSummary,
+  isSelfScopedUsageRead,
   usageBillingForEngine,
+  usageOrgScope,
   type UsageBillingMode,
 } from "@agent-native/core/usage";
 
@@ -86,6 +88,8 @@ export interface DailyUsageMetric {
   calls: number;
   chatCalls: number;
   activeUsers: number;
+  dailyActiveUsers: number;
+  weeklyActiveUsers: number | null;
 }
 
 export interface MonthlyUserUsageMetric {
@@ -170,6 +174,7 @@ export interface DispatchUsageMetrics {
   byLabel: UsageMetricBucket[];
   byModel: UsageMetricBucket[];
   daily: DailyUsageMetric[];
+  dailyAvailable: boolean;
   monthlyByUser: MonthlyUserUsageMetric[];
   workspaceAppCreationsByUserMonth: WorkspaceAppCreationMetric[];
   appAccess: AppAccessMetric[];
@@ -482,12 +487,15 @@ function usageScope(
 function withOrgUsageScope(
   scope: { where: string; args: unknown[] },
   orgId: string | null,
+  selfScoped: boolean,
 ): { where: string; args: unknown[] } {
-  const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
-  const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
+  // A no-org viewer keeps the narrow `IS NULL` scope: `usageScope` degrades to
+  // an unfiltered owner scope when it has no member emails, so dropping the
+  // org predicate there would widen the read to the whole table.
+  const org = usageOrgScope({ orgId, selfScoped });
   return {
-    where: `${scope.where} AND ${orgClause}`,
-    args: [...scope.args, ...orgArgs],
+    where: `${scope.where} AND ${org.where || "org_id IS NULL"}`,
+    args: [...scope.args, ...org.args],
   };
 }
 
@@ -536,8 +544,13 @@ function appUsageScope(
   memberEmails: string[],
   appId: string,
   orgId: string | null,
+  viewerEmail: string,
 ): { where: string; args: unknown[] } {
-  const scope = withOrgUsageScope(usageScope(sinceMs, memberEmails), orgId);
+  const scope = withOrgUsageScope(
+    usageScope(sinceMs, memberEmails),
+    orgId,
+    isSelfScopedUsageRead(memberEmails, viewerEmail),
+  );
   return {
     where: `${scope.where} AND LOWER(app) = ?`,
     args: [...scope.args, appUsageKey(appId)],
@@ -729,25 +742,38 @@ async function loadDailyAndMonthlyUsage(usage: {
   args: unknown[];
 }): Promise<{
   daily: DailyUsageMetric[];
+  dailyAvailable: boolean;
   monthlyByUser: Omit<MonthlyUserUsageMetric, "credits">[];
+  usersByDay: Map<string, Set<string>>;
 }> {
   const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
-  const rows = await queryRows<Record<string, unknown>>(
-    `SELECT ${dayBucketExpression} AS day_bucket,
-        owner_email,
-        COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
-        COUNT(*) AS calls,
-        SUM(CASE WHEN label = 'chat' THEN 1 ELSE 0 END) AS chat_calls,
-        COALESCE(SUM(input_tokens), 0) AS input_tokens,
-        COALESCE(SUM(output_tokens), 0) AS output_tokens,
-        COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
-        COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens
-      FROM token_usage
-      WHERE ${usage.where}
-      GROUP BY ${dayBucketExpression}, owner_email
-      ORDER BY ${dayBucketExpression} ASC`,
-    usage.args,
-  );
+  let result;
+  try {
+    result = await getDbExec().execute({
+      sql: `SELECT ${dayBucketExpression} AS day_bucket,
+          owner_email,
+          COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+          COUNT(*) AS calls,
+          SUM(CASE WHEN label = 'chat' THEN 1 ELSE 0 END) AS chat_calls,
+          COALESCE(SUM(input_tokens), 0) AS input_tokens,
+          COALESCE(SUM(output_tokens), 0) AS output_tokens,
+          COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+          COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens
+        FROM token_usage
+        WHERE ${usage.where}
+        GROUP BY ${dayBucketExpression}, owner_email
+        ORDER BY ${dayBucketExpression} ASC`,
+      args: usage.args,
+    });
+  } catch {
+    return {
+      daily: [],
+      dailyAvailable: false,
+      monthlyByUser: [],
+      usersByDay: new Map(),
+    };
+  }
+  const rows = result.rows as Record<string, unknown>[];
   const dailyMap = new Map<
     string,
     { costX100: number; calls: number; chatCalls: number; users: Set<string> }
@@ -756,6 +782,7 @@ async function loadDailyAndMonthlyUsage(usage: {
     string,
     Omit<MonthlyUserUsageMetric, "credits">
   >();
+  const usersByDay = new Map<string, Set<string>>();
 
   for (const row of rows) {
     const date = new Date(
@@ -774,6 +801,9 @@ async function loadDailyAndMonthlyUsage(usage: {
     daily.chatCalls += numberField(row, "chat_calls");
     daily.users.add(ownerEmail.toLowerCase());
     dailyMap.set(day, daily);
+    const users = usersByDay.get(day) ?? new Set<string>();
+    users.add(ownerEmail.toLowerCase());
+    usersByDay.set(day, users);
 
     const month = day.slice(0, 7);
     const monthlyKey = `${ownerEmail}\u0000${month}`;
@@ -806,14 +836,76 @@ async function loadDailyAndMonthlyUsage(usage: {
         calls: value.calls,
         chatCalls: value.chatCalls,
         activeUsers: value.users.size,
+        dailyActiveUsers: value.users.size,
+        weeklyActiveUsers: null,
       }))
       .sort((a, b) => a.date.localeCompare(b.date)),
+    dailyAvailable: true,
     monthlyByUser: [...monthlyByUserMap.values()].sort(
       (a, b) =>
         a.month.localeCompare(b.month) ||
         a.ownerEmail.localeCompare(b.ownerEmail),
     ),
+    usersByDay,
   };
+}
+
+async function loadWeeklyActiveUsers(
+  usage: { where: string; args: unknown[] },
+  visibleUsersByDay: Map<string, Set<string>>,
+  startDate: string,
+  endDate: string,
+): Promise<Map<string, number> | null> {
+  const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
+  let result;
+  try {
+    result = await getDbExec().execute({
+      sql: `SELECT ${dayBucketExpression} AS day_bucket, owner_email
+          FROM token_usage
+          WHERE ${usage.where}
+          GROUP BY ${dayBucketExpression}, owner_email
+          ORDER BY ${dayBucketExpression} ASC`,
+      args: usage.args,
+    });
+    // coercion-ok: null distinguishes an unavailable optional trend from empty activity.
+  } catch {
+    return null;
+  }
+  const rows = result.rows as Record<string, unknown>[];
+  const usersByDay = new Map(
+    [...visibleUsersByDay.entries()].map(([day, users]) => [
+      day,
+      new Set(users),
+    ]),
+  );
+  for (const row of rows) {
+    const day = new Date(numberField(row, "day_bucket") * DAY_MS)
+      .toISOString()
+      .slice(0, 10);
+    const users = usersByDay.get(day) ?? new Set<string>();
+    users.add(stringField(row, "owner_email").toLowerCase());
+    usersByDay.set(day, users);
+  }
+
+  const activityByDay = new Map<string, number>();
+  const firstDay = Date.parse(`${startDate}T00:00:00Z`);
+  const lastDay = Date.parse(`${endDate}T00:00:00Z`);
+  for (let dayStart = firstDay; dayStart <= lastDay; dayStart += DAY_MS) {
+    const day = new Date(dayStart).toISOString().slice(0, 10);
+    const weeklyUsers = new Set<string>();
+    for (
+      let previousDayStart = dayStart;
+      previousDayStart >= dayStart - 6 * DAY_MS;
+      previousDayStart -= DAY_MS
+    ) {
+      const previousDay = new Date(previousDayStart).toISOString().slice(0, 10);
+      for (const user of usersByDay.get(previousDay) ?? []) {
+        weeklyUsers.add(user);
+      }
+    }
+    activityByDay.set(day, weeklyUsers.size);
+  }
+  return activityByDay;
 }
 
 async function loadChatStats(
@@ -941,28 +1033,50 @@ export async function listDispatchUsageMetrics(input: {
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
     : members.map((member) => member.email);
+  // Unattributed (`org_id IS NULL`) usage may only be admitted when the read is
+  // narrowed to the viewer's own spend. An admin-selected member or a
+  // workspace-wide roll-up must not claim rows whose organization is unknown.
+  // Classified from the effective owner list, so a one-member organization's
+  // default workspace view still counts the viewer's own unattributed spend.
+  const selfScopedUsage = isSelfScopedUsageRead(memberEmails, viewerEmail);
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
   );
   const usage =
     viewScope === "app" && selectedApp
-      ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId)
+      ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId, viewerEmail)
       : withOrgUsageScope(
           selectedUserEmail
             ? ownerScope(sinceMs, selectedUserEmail)
             : usageScope(sinceMs, memberEmails),
           orgId,
+          selfScopedUsage,
         );
-  const adoptionSinceMs = Math.min(sinceMs, generatedAt - 7 * DAY_MS);
+  const visibleSinceMs = Math.floor(sinceMs / DAY_MS) * DAY_MS;
+  const adoptionSinceMs = Math.min(
+    visibleSinceMs - 6 * DAY_MS,
+    generatedAt - 7 * DAY_MS,
+  );
   const adoptionUsage =
     viewScope === "app" && selectedApp
-      ? appUsageScope(adoptionSinceMs, memberEmails, selectedApp.id, orgId)
+      ? appUsageScope(
+          adoptionSinceMs,
+          memberEmails,
+          selectedApp.id,
+          orgId,
+          viewerEmail,
+        )
       : withOrgUsageScope(
           selectedUserEmail
             ? ownerScope(adoptionSinceMs, selectedUserEmail)
             : usageScope(adoptionSinceMs, memberEmails),
           orgId,
+          selfScopedUsage,
         );
+  const weeklyLookbackUsage = {
+    where: `${adoptionUsage.where} AND created_at < ?`,
+    args: [...adoptionUsage.args, sinceMs],
+  };
   const threads = selectedUserEmail
     ? ownerThreadScope(sinceMs, selectedUserEmail)
     : threadScope(sinceMs, memberEmails);
@@ -1097,11 +1211,43 @@ export async function listDispatchUsageMetrics(input: {
     });
   }
 
-  const [{ daily, monthlyByUser: monthlyUsage }, appAdoptionMap] =
-    await Promise.all([
-      loadDailyAndMonthlyUsage(usage),
-      loadAppAdoption(usage, adoptionUsage, generatedAt),
-    ]);
+  const [
+    {
+      daily: usageDaily,
+      dailyAvailable,
+      monthlyByUser: monthlyUsage,
+      usersByDay,
+    },
+    appAdoptionMap,
+  ] = await Promise.all([
+    loadDailyAndMonthlyUsage(usage),
+    loadAppAdoption(usage, adoptionUsage, generatedAt),
+  ]);
+  const usageByDate = new Map(usageDaily.map((row) => [row.date, row]));
+  const weeklyActiveUsers = dailyAvailable
+    ? await loadWeeklyActiveUsers(
+        weeklyLookbackUsage,
+        usersByDay,
+        new Date(visibleSinceMs).toISOString().slice(0, 10),
+        new Date(generatedAt).toISOString().slice(0, 10),
+      )
+    : null;
+  const daily = !dailyAvailable
+    ? []
+    : weeklyActiveUsers
+      ? [...weeklyActiveUsers.entries()].map(([date, weeklyUsers]) => ({
+          ...(usageByDate.get(date) ?? {
+            date,
+            costCents: 0,
+            calls: 0,
+            chatCalls: 0,
+            activeUsers: 0,
+            dailyActiveUsers: 0,
+            weeklyActiveUsers: 0,
+          }),
+          weeklyActiveUsers: weeklyUsers,
+        }))
+      : usageDaily.map((row) => ({ ...row, weeklyActiveUsers: null }));
 
   const monthlyByUser =
     viewScope === "app"
@@ -1277,6 +1423,7 @@ export async function listDispatchUsageMetrics(input: {
     byLabel,
     byModel,
     daily,
+    dailyAvailable,
     monthlyByUser,
     workspaceAppCreationsByUserMonth,
     appAccess,

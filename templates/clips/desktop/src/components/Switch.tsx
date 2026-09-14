@@ -1,6 +1,5 @@
 import * as React from "react";
 
-import { cn } from "../lib/utils";
 import { Switch as UiSwitch } from "./ui/switch";
 
 interface SwitchProps extends Omit<
@@ -31,10 +30,8 @@ export const Switch = React.forwardRef<
       aria-label={label}
       disabled={disabled}
       data-tw-surface
-      className={cn(
-        "data-[state=checked]:border-success data-[state=checked]:bg-success data-[state=unchecked]:border-border",
-        className,
-      )}
+      tone="success"
+      className={className}
     />
   );
 });

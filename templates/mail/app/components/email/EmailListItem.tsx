@@ -316,10 +316,17 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (!thread) return;
-      if (e.key === "Enter") onSelect(thread);
+      // Action buttons live inside the row. Their Enter/Space events must not
+      // also open the conversation or toggle selection.
+      if (!thread || e.target !== e.currentTarget) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(thread);
+      }
       if (e.key === " ") {
         e.preventDefault();
+        e.stopPropagation();
         onToggleMultiSelect(e, thread);
       }
     },
@@ -476,6 +483,11 @@ export const EmailListItem = memo(function EmailListItem({
       <div
         role="row"
         tabIndex={0}
+        data-mail-email-row
+        data-email-id={email.id}
+        data-thread-key={email.threadId || email.id}
+        aria-selected={isMultiSelected}
+        aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
         // `mouseenter` can fire when layout moves under a stationary cursor.
         // `mousemove` only follows the pointer after the user actually moves it,

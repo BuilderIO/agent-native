@@ -22,3 +22,4 @@ export * from "./local-files.js";
 export * from "./visual-plan-skill.js";
 export * from "./visual-recap-skill.js";
 export * from "./visualize-repo-skill.js";
+export * from "./turn-into-app-skill.js";

@@ -1,10 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
@@ -1915,12 +1916,20 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
-  run: async ({ deckId, includeNotes }) => {
+  run: async ({ deckId, includeNotes }, ctx) => {
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
 
     const access = await resolveAccess("deck", deckId);
-    if (!access) throw new Error(`Deck not found: ${deckId}`);
+    if (!access)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
 
     const row = access.resource;
     const deckData = JSON.parse(row.data);
@@ -2189,6 +2198,19 @@ export default defineAction({
       filePath = path.join(exportDir, filename);
       fs.writeFileSync(filePath, buffer);
     }
+
+    track(
+      "deck_exported",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: deckId,
+        output_type: "deck",
+        export_format: "pptx",
+        slide_count: slides.length,
+      },
+      ctx,
+    );
 
     return {
       buffer,

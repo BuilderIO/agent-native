@@ -72,6 +72,34 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.capability.llm.keySummary":
+    "AIプロバイダーまたはローカルモデルに接続",
+  "onboarding.capability.fileStorage.keySummary":
+    "BuilderストレージまたはS3互換バケット",
+  "onboarding.capability.voiceInput.label": "音声入力",
+  "onboarding.capability.voiceInput.keySummary":
+    "ブラウザーの音声認識または音声文字変換",
+  "onboarding.capability.voiceInput.why":
+    "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.assetsImageGeneration.label": "画像生成",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builderクレジットまたは画像プロバイダーのキー",
+  "onboarding.capability.assetsImageGeneration.why":
+    "画像生成はブランドに合ったアセットを作る中心的なワークフローです。",
+  "onboarding.capability.assetsVideoGeneration.label": "動画生成",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini APIキー",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "動画生成は任意です。Assetsの中心的なワークフローは画像生成です。",
+  "onboarding.capability.clipsObjectStorage.label": "オブジェクトストレージ",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "BuilderストレージまたはS3互換バケット",
+  "onboarding.capability.clipsObjectStorage.why":
+    "録画した動画は、再生または共有する前に永続的なオブジェクトストレージを必要とします。",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "音声文字変換プロバイダーのキー",
+  "onboarding.capability.about": "{{label}}について",
+  "onboarding.capability.why": "{{label}}が必要な理由",
+  "onboarding.openAiKeySettings": "AIキー設定を開く",
   "aboutAgentNative.title": "Agent-Native について",
   "aboutAgentNative.version": "バージョン",
   "aboutAgentNative.environment": "環境",
@@ -117,6 +145,7 @@ const messages: AgentChatTranslation = {
     "このチャットを使用するにはデスクトップ版を開いてください。",
   "composer.removeAttachment": "{{name}} を削除",
   "composer.scrollToBottom": "一番下までスクロール",
+  "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
   "composer.subAgentReadOnly":
     "オーケストレーターチャットにメッセージを送信してください。このサブエージェントは自動的に実行されます",
@@ -145,6 +174,7 @@ const messages: AgentChatTranslation = {
     "Anthropic、OpenAI、または別のプロバイダーを設定",
   "composer.connectAbove": "続行するには上で AI に接続してください...",
   "composer.connectBuilder": "Builder.io に接続",
+  "composer.connectKeys": "キーを接続",
   "composer.connectingBuilder": "Builder.io に接続中…",
   "composer.costHigher": "高コスト",
   "composer.costLower": "低コスト",
@@ -274,7 +304,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "このブラウザーはリアルタイム音声会話に対応していません。",
   "voiceMode.hideChat": "チャットを非表示",
-  "voiceMode.keepDictating": "音声入力",
+  "voiceMode.keepDictating": "メッセージを音声入力",
   "voiceMode.promptDescription":
     "音声モードでは、エージェントが画面を移動して操作している間も音声を聞き続けます。",
   "voiceMode.promptTitle": "音声を使用",
@@ -316,7 +346,7 @@ const messages: AgentChatTranslation = {
     "Builder.io に接続して無料クレジット付きの管理音声を使用するか、独自のキーを追加します。",
   "voiceMode.setupTitle": "音声モードを設定",
   "voiceMode.showChat": "チャットを表示",
-  "voiceMode.start": "リアルタイム音声",
+  "voiceMode.start": "音声チャットを開始",
   "voiceMode.startWithOpenAiKey": "OpenAI キーで開始",
   "voiceMode.status.connecting": "接続中",
   "voiceMode.status.ending": "音声モードを終了中",
@@ -362,6 +392,8 @@ const messages: AgentChatTranslation = {
     "モデルプロバイダーに接続できませんでした。接続を確認して再試行してください。",
   "errorMessages.providerRateLimit":
     "現在、モデルプロバイダーがこのチャットのリクエスト数を制限しています。少し待ってから再試行してください。",
+  "errorMessages.providerTransientRejection":
+    "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
   "errorMessages.startNewChat": "新しいチャットを開始",
   "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
   "feedback.inaccurate": "不正確",
@@ -385,6 +417,16 @@ const messages: AgentChatTranslation = {
   "history.searching": "検索中...",
   "history.untitledChat": "チャット",
   "history.yesterday": "昨日",
+  "integrations.availableSection": "利用可能な連携",
+  "integrations.connectedSection": "接続済み",
+  "integrations.goToApiKeys": "API キーへ移動",
+  "integrations.goToIntegrations": "連携へ移動",
+  "integrations.lookingForApiKeys": "代わりに API キーをお探しですか？",
+  "integrations.lookingForProviders":
+    "OAuth または MCP プロバイダーをお探しですか？",
+  "integrations.manage": "管理",
+  "integrations.recommended": "おすすめ",
+  "integrations.subtitle": "エージェントが使用できるツールを接続します。",
   "limit.account": "アカウント",
   "limit.descriptionAll":
     "エージェントは使用可能なすべてのステップを使い切りました。新しいターンで続行するか、先に{{scope}}の上限を引き上げてください。",
@@ -490,6 +532,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "キューから削除",
   "queue.sendNow": "今すぐ送信",
   "queue.sendNowHint": "今すぐ送信（現在の応答を停止します）",
+  "queue.steer": "ステア",
+  "queue.steerHint": "このメッセージを次に送信",
+  "queue.moreActions": "その他のアクション",
+  "queue.moveToTop": "先頭に移動",
   "recovery.connectingBuilder": "Builder.io に接続中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
@@ -511,6 +557,32 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "前回のエージェントストリームは実行の復元中に終了しました。続行するか再試行して、実行に再接続してください。",
   "recovery.reconnectBuilder": "Builder.io に再接続",
+  "secrets.addCustomKeyNamed": "「{{name}}」をカスタムキーとして追加",
+  "secrets.chooseKey": "キーを選択",
+  "secrets.customKey": "カスタムキー",
+  "secrets.customKeyHint": "名前を指定して任意のキーを追加",
+  "secrets.emptyHint": "自分のアカウントを使用するにはキーを追加してください。",
+  "secrets.emptyMore":
+    "他{{count}}件は「新規」の下にあるか、任意のカスタムキーを追加できます",
+  "secrets.emptyTitle": "キーはまだありません。",
+  "secrets.fromEnvironment": "デプロイ環境から提供されています。",
+  "secrets.managedInVault":
+    "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
+  "secrets.openVault": "Vault を開く",
+  "secrets.newKey": "新規",
+  "secrets.noKeysFound": "キーが見つかりません。",
+  "secrets.overridesVault":
+    "この個人用キーは、ワークスペースの Vault の値を上書きします。Vault のキーを使用するには削除してください。",
+  "secrets.overridesWorkspace":
+    "この個人用キーは、ワークスペースの値を上書きします。共有キーを使用するには削除してください。",
+  "secrets.setForWorkspace": "このワークスペースの全員に設定されています。",
+  "secrets.sourceEnvironment": "環境",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "ワークスペース",
+  "secrets.statusUnavailable": "利用できません",
+  "secrets.required": "必須",
+  "secrets.searchKeys": "キーを検索...",
+  "secrets.usePersonalKey": "代わりに個人用キーを使用",
   "selection.attached": "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",

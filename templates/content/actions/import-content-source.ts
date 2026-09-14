@@ -5,11 +5,12 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { ROLE_RANK, resolveAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   isBuilderMdxSourcePath,
   isContentSourcePath,
@@ -32,7 +33,6 @@ import {
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DOCUMENT_BODY_BYTES = 512 * 1024;
-const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 
 function nanoid(size = 12): string {
   const chars =
@@ -75,15 +75,21 @@ function normalizedFileEntries(files: Record<string, string>) {
     .sort(([a], [b]) => a.localeCompare(b));
 }
 
-async function maybeSnapshotExistingDocument(input: {
-  documentId: string;
-  ownerEmail: string;
-  title: string;
-  content: string;
-}) {
-  const db = getDb();
+async function maybeSnapshotExistingDocument(
+  db: ReturnType<typeof getDb>,
+  input: {
+    documentId: string;
+    ownerEmail: string;
+    title: string;
+    content: string;
+    createdAt: string;
+  },
+) {
   const [latestVersion] = await db
-    .select({ createdAt: schema.documentVersions.createdAt })
+    .select({
+      title: schema.documentVersions.title,
+      content: schema.documentVersions.content,
+    })
     .from(schema.documentVersions)
     .where(
       and(
@@ -94,19 +100,27 @@ async function maybeSnapshotExistingDocument(input: {
     .orderBy(desc(schema.documentVersions.createdAt))
     .limit(1);
 
-  const shouldSnapshot =
-    !latestVersion ||
-    Date.now() - new Date(latestVersion.createdAt).getTime() >
-      SNAPSHOT_INTERVAL_MS;
-  if (!shouldSnapshot) return;
+  if (
+    latestVersion?.title === input.title &&
+    latestVersion.content === input.content
+  )
+    return;
 
+  const versionId = nanoid();
   await db.insert(schema.documentVersions).values({
-    id: nanoid(),
+    id: versionId,
     ownerEmail: input.ownerEmail,
     documentId: input.documentId,
     title: input.title,
     content: input.content,
-    createdAt: new Date().toISOString(),
+    groupId: versionId,
+    groupKind: "operation",
+    actorKind: "source",
+    origin: "content-source-import",
+    operation: "import-content-source",
+    checkpointKind: "before",
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
   });
 }
 
@@ -390,47 +404,143 @@ export default defineAction({
           continue;
         }
 
-        if (!dryRun) {
-          if (titleChanged || contentChanged) {
-            await maybeSnapshotExistingDocument({
+        if (dryRun) {
+          updated.push({ id, path: file.path, title: file.title });
+          continue;
+        }
+
+        const mutation = await db.transaction(async (tx) => {
+          await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, existing.ownerEmail as string),
+              ),
+            )
+            .for("update");
+          const [locked] = await tx
+            .select()
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, existing.ownerEmail as string),
+              ),
+            )
+            .limit(1);
+          if (!locked) {
+            throw new Error(`Document "${id}" no longer exists.`);
+          }
+
+          const lockedTitleChanged = file.title !== locked.title;
+          const lockedContentChanged = file.content !== locked.content;
+          const lockedDescriptionChanged =
+            file.description !== undefined &&
+            file.description !== locked.description;
+          const lockedIconChanged =
+            file.icon !== undefined && file.icon !== locked.icon;
+          const lockedFavoriteIds =
+            file.isFavorite === undefined
+              ? null
+              : await favoriteDocumentIds(tx, currentUserEmail, [id]);
+          const lockedFavoriteChanged =
+            file.isFavorite !== undefined &&
+            file.isFavorite !== lockedFavoriteIds?.has(id);
+          const lockedDiscoverabilityChanged =
+            file.hideFromSearch !== undefined &&
+            boolToInt(file.hideFromSearch) !== (locked.hideFromSearch ?? 0);
+          const lockedVisibilityChanged =
+            file.visibility !== undefined &&
+            file.visibility !== locked.visibility;
+          if (
+            lockedVisibilityChanged &&
+            (!existingRole || !canAdminRole(existingRole))
+          ) {
+            return { changed: false, visibilityForbidden: true };
+          }
+          const lockedSourceChanged =
+            locked.sourceMode !== sourceUpdates.sourceMode ||
+            locked.sourceKind !== sourceUpdates.sourceKind ||
+            locked.sourcePath !== sourceUpdates.sourcePath ||
+            locked.sourceRootPath !== sourceUpdates.sourceRootPath;
+          const lockedSpaceChanged = !locked.spaceId;
+          const lockedAnyChange =
+            lockedTitleChanged ||
+            lockedContentChanged ||
+            lockedDescriptionChanged ||
+            lockedIconChanged ||
+            lockedFavoriteChanged ||
+            lockedDiscoverabilityChanged ||
+            lockedVisibilityChanged ||
+            lockedSourceChanged ||
+            lockedSpaceChanged;
+          if (!lockedAnyChange) {
+            return { changed: false, visibilityForbidden: false };
+          }
+
+          const updatedAt = nextDocumentUpdatedAt(locked.updatedAt);
+          if (lockedTitleChanged || lockedContentChanged) {
+            await maybeSnapshotExistingDocument(tx, {
               documentId: id,
-              ownerEmail: existing.ownerEmail as string,
-              title: existing.title,
-              content: existing.content,
+              ownerEmail: locked.ownerEmail,
+              title: locked.title,
+              content: locked.content,
+              createdAt: updatedAt,
             });
           }
 
-          const updates: Record<string, unknown> = { updatedAt: now };
-          if (!existing.spaceId) updates.spaceId = existingSpaceId;
-          if (titleChanged) updates.title = file.title;
-          if (contentChanged) {
+          const updates: Record<string, unknown> = { updatedAt };
+          if (lockedSpaceChanged) updates.spaceId = existingSpaceId;
+          if (lockedTitleChanged) updates.title = file.title;
+          if (lockedContentChanged) {
             updates.content = file.content;
             updates.bodyRevision = bodyRevisionForContent(file.content);
           }
-          if (descriptionChanged) updates.description = file.description;
-          if (iconChanged) updates.icon = file.icon ?? null;
-          if (favoriteChanged) updates.isFavorite = boolToInt(file.isFavorite);
-          if (discoverabilityChanged) {
+          if (lockedDescriptionChanged) updates.description = file.description;
+          if (lockedIconChanged) updates.icon = file.icon ?? null;
+          if (lockedFavoriteChanged) {
+            updates.isFavorite = boolToInt(file.isFavorite);
+          }
+          if (lockedDiscoverabilityChanged) {
             updates.hideFromSearch = boolToInt(file.hideFromSearch);
           }
-          if (visibilityChanged) updates.visibility = file.visibility;
-          Object.assign(updates, sourceUpdates);
+          if (lockedVisibilityChanged) updates.visibility = file.visibility;
+          Object.assign(updates, localSourceFields(file.path, updatedAt));
 
-          await db
+          await tx
             .update(schema.documents)
             .set(updates)
-            .where(eq(schema.documents.id, id));
-          if (favoriteChanged) {
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, locked.ownerEmail),
+              ),
+            );
+          if (lockedFavoriteChanged) {
             await setFavoriteMembership({
-              db,
+              db: tx,
               userEmail: currentUserEmail,
               documentId: id,
               favorite: file.isFavorite === true,
-              now,
+              now: updatedAt,
             });
           }
-        }
+          return { changed: true, visibilityForbidden: false };
+        });
 
+        if (mutation.visibilityForbidden) {
+          skipped.push({
+            path: file.path,
+            reason: `Requires admin access to change visibility on document "${id}".`,
+          });
+          continue;
+        }
+        if (!mutation.changed) {
+          unchanged.push({ id, path: file.path, title: file.title });
+          continue;
+        }
         updated.push({ id, path: file.path, title: file.title });
         continue;
       }
@@ -550,9 +660,20 @@ export default defineAction({
           .set({
             parentId: safeParentId,
             position: nextPosition,
-            updatedAt: now,
+            updatedAt: sql<string>`TO_CHAR(
+              GREATEST(
+                ${schema.documents.updatedAt}::timestamptz + INTERVAL '1 millisecond',
+                CURRENT_TIMESTAMP
+              ) AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+            )`,
           })
-          .where(eq(schema.documents.id, id));
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, ownerEmail),
+            ),
+          );
       }
 
       await ensureDocumentsFilesMembership(

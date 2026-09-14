@@ -486,7 +486,7 @@ describe("creative context access and revocation", () => {
             resourceType: "creative-context-source",
             resourceId: "source-1",
           },
-          "editor",
+          "record",
         ),
     );
     await runWithRequestContext(
@@ -517,7 +517,7 @@ describe("creative context access and revocation", () => {
             resourceType: "creative-context-source",
             resourceId: "source-1",
           },
-          "viewer",
+          "read",
         ),
       ),
     ).rejects.toThrow(/no access/i);
@@ -530,7 +530,8 @@ describe("creative context access and revocation", () => {
               artifact.artifactType,
               artifact.artifactId,
             ]),
-            minRole: "viewer",
+            operation: "read",
+            verifiedRole: "viewer",
           } as never,
         }),
       ),
@@ -583,7 +584,7 @@ describe("creative context access and revocation", () => {
           resourceType: "creative-context-source",
           resourceId: "source-1",
         },
-        "viewer",
+        "read",
       ),
     );
     await expect(

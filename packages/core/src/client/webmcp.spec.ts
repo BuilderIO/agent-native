@@ -72,6 +72,156 @@ describe("WebMCP client", () => {
     );
   });
 
+  it("follows a page model context replaced by a browser reconnect", async () => {
+    const firstTool = {
+      name: "get-order",
+      title: "First order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = { ...firstTool, title: "Second order" };
+    const firstExecute = vi.fn(async () => "first");
+    const secondExecute = vi.fn(async () => "second");
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [firstTool]),
+      executeTool: firstExecute,
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: secondExecute,
+    };
+    const doc = documentWithModelContext(firstContext);
+    const client = createAgentNativeWebMcpClient({ document: doc });
+    const [listedTool] = await client.listTools();
+
+    await expect(client.executeListedTool(listedTool)).resolves.toBe("first");
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+
+    await expect(client.executeListedTool(listedTool)).resolves.toBe("second");
+    expect(firstExecute).toHaveBeenCalledOnce();
+    expect(secondExecute).toHaveBeenCalledOnce();
+  });
+
+  it("retries a listing when its model context is replaced while awaiting", async () => {
+    const firstTool = {
+      name: "get-order",
+      title: "First order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = { ...firstTool, title: "Second order" };
+    let resolveFirstList!: (tools: unknown[]) => void;
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(
+        () =>
+          new Promise<unknown[]>((resolve) => {
+            resolveFirstList = resolve;
+          }),
+      ),
+      executeTool: vi.fn(async () => "first"),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: vi.fn(async () => "second"),
+    };
+    const doc = documentWithModelContext(firstContext);
+    const client = createAgentNativeWebMcpClient({ document: doc });
+    const listing = client.listTools();
+
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+    resolveFirstList([firstTool]);
+
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ title: "Second order" }),
+    ]);
+    expect(firstContext.getTools).toHaveBeenCalledOnce();
+    expect(secondContext.getTools).toHaveBeenCalledOnce();
+  });
+
+  it("retries a listing when the replaced context rejects", async () => {
+    const firstTool = {
+      name: "get-order",
+      title: "First order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = { ...firstTool, title: "Second order" };
+    let rejectFirstList!: (reason?: unknown) => void;
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(
+        () =>
+          new Promise<unknown[]>((_, reject) => {
+            rejectFirstList = reject;
+          }),
+      ),
+      executeTool: vi.fn(async () => "first"),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: vi.fn(async () => "second"),
+    };
+    const doc = documentWithModelContext(firstContext);
+    const client = createAgentNativeWebMcpClient({ document: doc });
+    const listing = client.listTools();
+
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+    rejectFirstList(new Error("old context disconnected"));
+
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ title: "Second order" }),
+    ]);
+    expect(firstContext.getTools).toHaveBeenCalledOnce();
+    expect(secondContext.getTools).toHaveBeenCalledOnce();
+  });
+
+  it("preserves origin filters when relisting after a context replacement", async () => {
+    const origin = "https://shop.example";
+    const firstTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin,
+    };
+    const secondTool = { ...firstTool, title: "Reconnected order" };
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async (options?: { fromOrigins?: string[] }) => {
+        expect(options).toEqual({ fromOrigins: [origin] });
+        return [firstTool];
+      }),
+      executeTool: vi.fn(async () => "first"),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async (options?: { fromOrigins?: string[] }) => {
+        expect(options).toEqual({ fromOrigins: [origin] });
+        return [secondTool];
+      }),
+      executeTool: vi.fn(async (tool: { title?: string }) => tool.title),
+    };
+    const doc = documentWithModelContext(firstContext);
+    const client = createAgentNativeWebMcpClient({ document: doc });
+    const [listedTool] = await client.listTools({ fromOrigins: [origin] });
+
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+
+    await expect(client.executeListedTool(listedTool)).resolves.toBe(
+      "Reconnected order",
+    );
+    expect(secondContext.getTools).toHaveBeenCalledWith({
+      fromOrigins: [origin],
+    });
+  });
+
   it("discovers serializable tools and executes the registered tool", async () => {
     const registeredTool = {
       name: "get-order",
@@ -1241,6 +1391,186 @@ describe("WebMCP page helper", () => {
 
     await helper.tools();
     expect(getTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a stale listing clear a newer in-flight request", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    let resolveFirstList!: (tools: unknown[]) => void;
+    let resolveSecondList!: (tools: unknown[]) => void;
+    let toolchangeListener: EventListener | undefined;
+    const getTools = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstList = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecondList = resolve;
+          }),
+      );
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool: vi.fn(async () => ""),
+        addEventListener: (type: string, listener: EventListener) => {
+          if (type === "toolchange") toolchangeListener = listener;
+        },
+        removeEventListener: vi.fn(),
+      }),
+    });
+
+    const stale = helper.tools();
+    toolchangeListener?.(new Event("toolchange"));
+    const fresh = helper.tools();
+    await vi.waitFor(() => expect(getTools).toHaveBeenCalledTimes(2));
+
+    resolveFirstList([registeredTool]);
+    await stale;
+    expect(getTools).toHaveBeenCalledTimes(2);
+
+    resolveSecondList([registeredTool]);
+    await expect(fresh).resolves.toHaveLength(1);
+  });
+
+  it("refreshes a cached listing when a browser reconnect replaces the page context", async () => {
+    readyStatus(1);
+    const firstTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const secondTool = { ...firstTool, title: "Reconnected order" };
+    const firstExecute = vi.fn(async () => "first");
+    const secondExecute = vi.fn(async () => "second");
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [firstTool]),
+      executeTool: firstExecute,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: secondExecute,
+    };
+    const doc = documentWithModelContext(firstContext);
+    const helper = createAgentNativeWebMcpPageHelper({ document: doc });
+
+    await expect(helper.call("get-order")).resolves.toMatchObject({
+      ok: true,
+      result: "first",
+    });
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+
+    await expect(helper.call("get-order")).resolves.toMatchObject({
+      ok: true,
+      result: "second",
+    });
+    expect(firstExecute).toHaveBeenCalledOnce();
+    expect(secondExecute).toHaveBeenCalledOnce();
+    expect(firstContext.getTools).toHaveBeenCalledOnce();
+    expect(secondContext.getTools).toHaveBeenCalledOnce();
+  });
+
+  it("reattaches toolchange listeners after a browser reconnect", async () => {
+    readyStatus(1);
+    const firstTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    let firstListener: EventListener | undefined;
+    let secondListener: EventListener | undefined;
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [firstTool]),
+      executeTool: vi.fn(async () => "first"),
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === "toolchange") firstListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [firstTool]),
+      executeTool: vi.fn(async () => "second"),
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === "toolchange") secondListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    const doc = documentWithModelContext(firstContext);
+    const helper = createAgentNativeWebMcpPageHelper({ document: doc });
+
+    await helper.tools();
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+    await helper.tools();
+
+    expect(firstContext.removeEventListener).toHaveBeenCalledWith(
+      "toolchange",
+      firstListener,
+    );
+    expect(secondContext.addEventListener).toHaveBeenCalledWith(
+      "toolchange",
+      secondListener,
+    );
+
+    secondListener?.(new Event("toolchange"));
+    await helper.tools();
+    expect(firstContext.getTools).toHaveBeenCalledOnce();
+    expect(secondContext.getTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a replacement context without toolchange events", async () => {
+    readyStatus(1);
+    const firstTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    let secondTool = { ...firstTool, title: "First replacement" };
+    const firstContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [firstTool]),
+      executeTool: vi.fn(async () => "first"),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const secondContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => [secondTool]),
+      executeTool: vi.fn(async () => "second"),
+    };
+    const doc = documentWithModelContext(firstContext);
+    const helper = createAgentNativeWebMcpPageHelper({ document: doc });
+
+    await helper.tools();
+    (doc as Document & { modelContext?: unknown }).modelContext = secondContext;
+    await expect(helper.tools()).resolves.toEqual([
+      expect.objectContaining({ title: "First replacement" }),
+    ]);
+
+    secondTool = { ...secondTool, title: "Second replacement" };
+    await expect(helper.tools()).resolves.toEqual([
+      expect.objectContaining({ title: "Second replacement" }),
+    ]);
+    expect(firstContext.getTools).toHaveBeenCalledOnce();
+    expect(secondContext.getTools).toHaveBeenCalledTimes(2);
   });
 
   it("matches every tool for a global RegExp filter instead of alternating misses via shared lastIndex", async () => {

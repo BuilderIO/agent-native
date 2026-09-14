@@ -58,6 +58,7 @@ export {
 } from "../AgentNativeFrame.js";
 export {
   AgentNativeRouteWarmup,
+  isClientRouteUrl,
   type AgentNativeRouteWarmupProps,
 } from "../route-warmup.js";
 export {

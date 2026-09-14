@@ -60,6 +60,7 @@ import {
   createBuilderConnectState,
   createBuilderProject,
   createBuilderRelayRequest,
+  ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
@@ -789,12 +790,21 @@ describe("Builder callback CSRF state", () => {
       const state = createBuilderConnectState();
       const otherState = createBuilderConnectState();
 
-      expect(resolveBuilderConnectCallbackState(null, state)).toBe(state);
-      expect(resolveBuilderConnectCallbackState(state, state)).toBe(state);
-      expect(resolveBuilderConnectCallbackState("returned-state", null)).toBe(
-        "returned-state",
-      );
-      expect(resolveBuilderConnectCallbackState(null, null)).toBeNull();
+      expect(resolveBuilderConnectCallbackState(null, state)).toEqual({
+        state,
+        resetStateCookie: false,
+      });
+      expect(resolveBuilderConnectCallbackState(state, state)).toEqual({
+        state,
+        resetStateCookie: false,
+      });
+      expect(
+        resolveBuilderConnectCallbackState("returned-state", null),
+      ).toEqual({ state: "returned-state", resetStateCookie: false });
+      expect(resolveBuilderConnectCallbackState(null, null)).toEqual({
+        state: null,
+        resetStateCookie: false,
+      });
       expect(BUILDER_CONNECT_STATE_COOKIE).toBe("an_builder_connect_state");
 
       const concurrentCookie = appendBuilderConnectStateCookie(
@@ -802,20 +812,96 @@ describe("Builder callback CSRF state", () => {
         otherState,
       );
       expect(
-        resolveBuilderConnectCallbackState(null, concurrentCookie),
-      ).toBeNull();
-      expect(resolveBuilderConnectCallbackState(state, concurrentCookie)).toBe(
-        state,
+        resolveBuilderConnectCallbackState(state, concurrentCookie),
+      ).toEqual({ state, resetStateCookie: false });
+      expect(removeBuilderConnectStateCookie(concurrentCookie, state)).toBe(
+        otherState,
       );
+    });
+
+    it("resets the cookie when ambiguity is why the callback cannot resolve", () => {
+      const state = createBuilderConnectState();
+      const otherState = createBuilderConnectState();
+      const concurrentCookie = appendBuilderConnectStateCookie(
+        appendBuilderConnectStateCookie(null, state),
+        otherState,
+      );
+
+      // Ambiguous: Builder dropped the query state and two states are live.
+      expect(
+        resolveBuilderConnectCallbackState(null, concurrentCookie),
+      ).toEqual({ state: null, resetStateCookie: true });
+
+      // A callback naming a state this browser never started belongs to
+      // another flow; the live states must survive it.
       expect(
         resolveBuilderConnectCallbackState(
           "unexpected-state",
           concurrentCookie,
         ),
-      ).toBeNull();
-      expect(removeBuilderConnectStateCookie(concurrentCookie, state)).toBe(
-        otherState,
+      ).toEqual({ state: null, resetStateCookie: false });
+    });
+
+    it("lets the next restart succeed after a failed attempt instead of poisoning it", () => {
+      // The reported trap: every "Restart the connection from Settings"
+      // appended another state, so a callback without query state stayed
+      // ambiguous forever and the suggested remedy re-armed the failure.
+      const first = createBuilderConnectState();
+      let cookie = appendBuilderConnectStateCookie(null, first);
+
+      // First attempt fails for its own reason; the route drops its state.
+      cookie = removeBuilderConnectStateCookie(cookie, first);
+      expect(cookie).toBe("");
+
+      const second = createBuilderConnectState();
+      cookie = appendBuilderConnectStateCookie(cookie, second);
+      expect(resolveBuilderConnectCallbackState(null, cookie)).toEqual({
+        state: second,
+        resetStateCookie: false,
+      });
+    });
+
+    it("recovers on the restart after an ambiguous callback clears the cookie", () => {
+      const first = createBuilderConnectState();
+      const second = createBuilderConnectState();
+      let cookie = appendBuilderConnectStateCookie(
+        appendBuilderConnectStateCookie(null, first),
+        second,
       );
+
+      const ambiguous = resolveBuilderConnectCallbackState(null, cookie);
+      expect(ambiguous.state).toBeNull();
+      expect(ambiguous.resetStateCookie).toBe(true);
+      if (ambiguous.resetStateCookie) cookie = "";
+
+      const third = createBuilderConnectState();
+      cookie = appendBuilderConnectStateCookie(cookie, third);
+      expect(cookie).toBe(third);
+      expect(resolveBuilderConnectCallbackState(null, cookie)).toEqual({
+        state: third,
+        resetStateCookie: false,
+      });
+    });
+
+    it("still fails closed for poisoned and oversized state cookies", () => {
+      const state = createBuilderConnectState();
+      const poisoned = `${state},not-a-signed-state`;
+      expect(resolveBuilderConnectCallbackState(null, poisoned)).toEqual({
+        state: null,
+        resetStateCookie: true,
+      });
+      expect(resolveBuilderConnectCallbackState(state, poisoned)).toEqual({
+        state: null,
+        resetStateCookie: true,
+      });
+
+      const oversized = Array.from({ length: 5 }, () =>
+        createBuilderConnectState(),
+      ).join(",");
+      expect(resolveBuilderConnectCallbackState(null, oversized)).toEqual({
+        state: null,
+        resetStateCookie: true,
+      });
     });
 
     it("rejects building a callback URL when the request origin is HTTP in production", () => {
@@ -1680,7 +1766,7 @@ describe("Builder callback CSRF state", () => {
       process.env.BUILDER_APP_HOST = "https://builder.io";
     });
 
-    it("creates a project from a connected repository", async () => {
+    it("creates a project from the default template", async () => {
       const fetchSpy = vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
@@ -1699,7 +1785,6 @@ describe("Builder callback CSRF state", () => {
 
       const result = await createBuilderProject({
         name: "Agent-Native Workspace",
-        repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
       });
 
       expect(result).toEqual({
@@ -1714,25 +1799,18 @@ describe("Builder callback CSRF state", () => {
       );
       expect(JSON.parse(fetchSpy.mock.calls[0]?.[1].body)).toEqual({
         source: {
-          kind: "repo",
-          repoUrl:
-            "https://github.com/BuilderIO/builder-agent-native-workspace",
+          kind: "template",
+          templateId: "agent-native-starter",
         },
         name: "Agent-Native Workspace",
       });
     });
 
-    it("reuses a project already connected to the workspace repository", async () => {
+    it("finds a project connected to a repository through the deprecated API", async () => {
       const fetchSpy = vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            status: "success",
             projects: [
-              {
-                id: "project-other",
-                name: "Other",
-                repoUrl: "https://github.com/BuilderIO/other",
-              },
               {
                 id: "project-123",
                 name: "Agent-Native Workspace",
@@ -1760,22 +1838,45 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
-    it("bounds a stalled project lookup instead of leaving provisioning hanging", async () => {
+    it("creates a repository-backed project through the deprecated ensure API", async () => {
       const fetchSpy = vi
         .fn()
-        .mockRejectedValue(new DOMException("request timed out", "AbortError"));
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ projects: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              project: {
+                id: "project-created",
+                name: "Agent-Native Workspace",
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       vi.stubGlobal("fetch", fetchSpy);
 
-      await expect(
-        findBuilderProjectForRepo({
-          repoUrl:
-            "https://github.com/BuilderIO/builder-agent-native-workspace",
-        }),
-      ).rejects.toThrow("Builder project lookup timed out after 30000ms");
-      expect(fetchSpy).toHaveBeenCalledWith(
-        expect.any(URL),
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      );
+      const result = await ensureBuilderProject({
+        name: "Agent-Native Workspace",
+        repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+      });
+
+      expect(result).toMatchObject({
+        projectId: "project-created",
+        repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+        created: true,
+      });
+      expect(JSON.parse(fetchSpy.mock.calls[1]?.[1].body)).toEqual({
+        source: {
+          kind: "repo",
+          repoUrl: "https://github.com/BuilderIO/legacy-workspace",
+        },
+        name: "Agent-Native Workspace",
+      });
     });
   });
 });

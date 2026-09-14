@@ -238,6 +238,40 @@ export async function isJtiRevoked(jti: string): Promise<boolean> {
   }
 }
 
+export type ConnectTokenOrgLookup =
+  | { status: "found"; orgId: string | null }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
+/**
+ * Look up the org bound to a verified connect token. Older tokens recorded
+ * `org_id` in SQL but did not carry it in their JWT, so this restores their
+ * org scope without trusting any request-provided identity.
+ */
+export async function lookupConnectTokenOrg(
+  jti: string,
+): Promise<ConnectTokenOrgLookup> {
+  try {
+    await ensureTable();
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT org_id FROM mcp_connect_tokens WHERE jti = ?`,
+      args: [jti],
+    });
+    if (rows.length === 0) return { status: "missing" };
+    const rawOrgId = rows[0].org_id ?? rows[0].orgId;
+    return {
+      status: "found",
+      orgId:
+        typeof rawOrgId === "string" && rawOrgId.trim()
+          ? rawOrgId.trim()
+          : null,
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
 function mapTokenRow(r: any): MintedTokenRow {
   return {
     id: r.id as string,

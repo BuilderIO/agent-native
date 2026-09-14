@@ -434,9 +434,8 @@ export function reactSourceAnchorForPendingEdit(args: {
       args.info?.sourceId?.trim() ||
       args.info?.selector?.trim() ||
       undefined,
-    // Keep the raw Fiber value only in local state. Prompt serialization goes
-    // through redactReactSourceAnchor, which omits absolute paths until the
-    // connection root has resolved them to a safe project-relative relPath.
+    // Keep the raw Fiber value here so prompt serialization can retain an
+    // absolute path when the connection root cannot resolve a relPath.
     sourceFile,
     ...(relPath ? { relPath } : {}),
     line: provenance.line,
@@ -921,6 +920,13 @@ export function formatPendingVisualStylePrompt(args: {
       anchor.scope === "repeated-render" ||
       anchor.scope === "shared-component-definition",
   );
+  const hasOutsideConnectedRootPaths = reactSourceAnchors.some((anchor) => {
+    const redacted = redactReactSourceAnchor(anchor);
+    return (
+      redacted?.sourcePathStatus === "outside-connected-root" ||
+      redacted?.ownerSourcePathStatus === "outside-connected-root"
+    );
+  });
   const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
     if (edit.kind === "text") {
       return {
@@ -1157,6 +1163,9 @@ export function formatPendingVisualStylePrompt(args: {
     codingAgent
       ? "These were made against the running app in a visual canvas, so the selectors and node ids below are runtime-only — they do not appear in source. Locate the component that renders each element using its tag, class names and current text, then make the change in that source file. Preserve layout, behavior, and unrelated styling."
       : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    hasOutsideConnectedRootPaths
+      ? "Some source anchors include an absolute or served path outside the connected root. Keep that sourceFile path and the `outside-connected-root` status in the diagnosis; inspect it read-only or ask for the correct connection, and never silently omit the file."
+      : "",
     hasReactSourceAnchors && !codingAgent
       ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. For a single-instance leaf text, literal className/class, or flat literal style-object edit, call apply-visual-edit with source.kind=local-file plus designId, connectionId, the verified project-relative path, and target.sourceAnchor. First omit persist and inspect proposedDiff; then retry with persist=true only when the diff matches the preview. That write still requires human localhost consent and exact version-hash concurrency. Verify every file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, breakpoint, dynamic expression, repeated render, or shared component transform through this path. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
       : "",
@@ -1193,6 +1202,15 @@ export function formatPendingVisualStylePrompt(args: {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+export function formatVisualEditClipboardPrompt(
+  prompt: string,
+  host: "chatgpt" | "claude" | "webmcp" | null | undefined,
+): string {
+  return host === "chatgpt" || host === "claude" || host === "webmcp"
+    ? "Call the get-visual-edit-prompt WebMCP tool and apply the returned instructions."
+    : prompt;
 }
 
 export function resolveOverviewScreenSourceType(

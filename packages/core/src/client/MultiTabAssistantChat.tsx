@@ -13,7 +13,7 @@ import React, {
 } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
-import type { AgentActionScope, AgentChatAttachment } from "../agent/types.js";
+import type { AgentChatAttachment } from "../agent/types.js";
 import {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
@@ -108,7 +108,6 @@ interface PendingSend {
   submitMessageId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
-  actionScope?: AgentActionScope;
 }
 
 /**
@@ -135,8 +134,7 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     send.requestMode ||
     send.submitMessageId ||
     send.attachments ||
-    send.usageLabel ||
-    send.actionScope
+    send.usageLabel
   ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
@@ -146,7 +144,6 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
         ? { submitMessageId: send.submitMessageId }
         : {}),
       ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
-      ...(send.actionScope ? { actionScope: send.actionScope } : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -1940,7 +1937,6 @@ export function MultiTabAssistantChat({
         attachments,
         submitMessageId,
         usageLabel,
-        actionScope,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1975,7 +1971,6 @@ export function MultiTabAssistantChat({
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),
         ...(usageLabel ? { usageLabel } : {}),
-        ...(actionScope ? { actionScope } : {}),
       };
 
       // Resolved once, up front, and carried with the send until a thread

@@ -54,11 +54,13 @@ export type ShareAttribution = {
 export function buildShareContinuationQuery(
   attribution: ShareAttribution,
   startAt?: string | null,
+  panel?: string | null,
 ): string {
   const params = new URLSearchParams();
   if (attribution.ref) params.set(REF_PARAM, attribution.ref);
   if (attribution.via) params.set(VIA_PARAM, attribution.via);
   if (startAt) params.set("at", startAt);
+  if (panel) params.set("panel", panel);
   return params.toString();
 }
 

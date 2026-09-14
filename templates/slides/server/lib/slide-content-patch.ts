@@ -10,7 +10,8 @@ import {
 export type SlideContentEdit =
   | {
       op?: "replace";
-      find: string;
+      find?: string;
+      objectId?: string;
       replace: string;
       all?: boolean;
       occurrence?: number;
@@ -46,6 +47,16 @@ export type SlideContentEdit =
 
 export class SlideContentEditError extends Error {
   readonly code = "slide_content_edit_failed";
+  // Every failure here names the caller's mistake — an unmatched `find`, a bad
+  // occurrence, an expectedMatches miss. The action route flattens any error it
+  // cannot recognise to "Internal server error", so without these three fields
+  // the agent is told the server broke and retries the identical arguments
+  // instead of re-reading the slide. Duck-typed to match `isActionContractError`
+  // rather than importing `fail()`, which would pull the action layer into a lib
+  // the editor also imports.
+  readonly actionContractError = true;
+  readonly errorCode = "slide_content_edit_failed";
+  readonly statusCode = 400;
 
   constructor(message: string) {
     super(message);
@@ -69,28 +80,26 @@ export async function applySlideContentEdits(
   edits: readonly SlideContentEdit[],
   format = false,
 ): Promise<SlideContentPatchResult> {
+  let content = currentContent;
+  const applied: string[] = [];
   try {
-    let content = currentContent;
-    const applied: string[] = [];
-
     for (const edit of edits) {
       const result = applyEdit(content, edit);
       content = result.content;
       applied.push(result.summary);
     }
-
-    const changed = content !== currentContent;
-
-    if (format) {
-      content = await formatSlideHtml(content);
-    }
-
-    return { content, applied, formatted: format, changed };
   } catch (error) {
     if (error instanceof SlideContentEditError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new SlideContentEditError(message);
   }
+
+  const changed = content !== currentContent;
+  if (format) {
+    content = await formatSlideHtml(content);
+  }
+
+  return { content, applied, formatted: format, changed };
 }
 
 export async function formatSlideHtml(content: string): Promise<string> {
@@ -119,11 +128,11 @@ export async function formatSlideHtml(content: string): Promise<string> {
       message.includes("Cannot find module 'prettier'") ||
       message.includes('Cannot find module "prettier"')
     ) {
-      throw new SlideContentEditError(
+      throw new Error(
         "HTML formatting is unavailable because Prettier is not installed",
       );
     }
-    throw new SlideContentEditError(`Unable to format slide HTML: ${message}`);
+    throw new Error(`Unable to format slide HTML: ${message}`);
   }
 }
 
@@ -167,6 +176,25 @@ function applyLiteralReplace(
   content: string,
   edit: Extract<SlideContentEdit, { op?: "replace" }>,
 ): { content: string; summary: string } {
+  if (edit.objectId !== undefined) {
+    if (edit.find !== undefined) {
+      throw new SlideContentEditError(
+        "A replace edit must use either find or objectId, not both",
+      );
+    }
+    if (edit.all !== undefined || edit.occurrence !== undefined) {
+      throw new SlideContentEditError(
+        "objectId replacement does not support all or occurrence",
+      );
+    }
+    if (edit.expectedMatches !== undefined && edit.expectedMatches !== 1) {
+      throw new SlideContentEditError(
+        `objectId replacement expected 1 match(es), found ${edit.expectedMatches}`,
+      );
+    }
+    return applyObjectReplace(content, edit.objectId, edit.replace);
+  }
+
   if (!edit.find) {
     throw new SlideContentEditError("Patch find/marker text cannot be empty");
   }
@@ -199,6 +227,270 @@ function applyLiteralReplace(
         ? `replace:all:${result.matchCount}`
         : "replace:first";
   return { content: result.content, summary };
+}
+
+const RAW_TEXT_TAG_NAMES = new Set(["script", "style", "textarea", "title"]);
+const VOID_TAG_NAMES = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+function applyObjectReplace(
+  content: string,
+  objectId: string,
+  replacement: string,
+): { content: string; summary: string } {
+  const targets = findObjectTargets(content, objectId);
+  if (targets.length === 0) {
+    throw new SlideContentEditError(
+      `objectId "${objectId}" found no matching slide object`,
+    );
+  }
+  if (targets.length > 1) {
+    throw new SlideContentEditError(
+      `objectId "${objectId}" matched ${targets.length} slide objects; object IDs must be unique`,
+    );
+  }
+
+  const target = targets[0]!;
+  if (target.isVoid) {
+    throw new SlideContentEditError(
+      `objectId "${objectId}" targets <${target.tagName}>, which has no editable text content`,
+    );
+  }
+  return {
+    content:
+      content.slice(0, target.innerStart) +
+      replacement +
+      content.slice(target.innerEnd),
+    summary: "replace:object",
+  };
+}
+
+function findObjectTargets(
+  html: string,
+  objectId: string,
+): Array<{
+  innerStart: number;
+  innerEnd: number;
+  tagName: string;
+  isVoid: boolean;
+}> {
+  const targets: Array<{
+    innerStart: number;
+    innerEnd: number;
+    tagName: string;
+    isVoid: boolean;
+  }> = [];
+  let cursor = 0;
+
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+    if (html.startsWith("<!--", tagStart)) {
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      cursor = commentEnd === -1 ? html.length : commentEnd + 3;
+      continue;
+    }
+
+    const nameStart = tagStart + 1;
+    const tagName = tagNameAt(html, nameStart);
+    if (!tagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + tagName.length);
+    if (tagEnd === -1) {
+      throw new SlideContentEditError(
+        `objectId "${objectId}" cannot be resolved because the slide HTML has an unclosed tag`,
+      );
+    }
+    const openingTag = html.slice(tagStart, tagEnd + 1);
+    if (hasObjectId(openingTag, objectId)) {
+      const isVoid = isVoidTag(tagName);
+      if (isVoid) {
+        targets.push({
+          innerStart: tagEnd + 1,
+          innerEnd: tagEnd + 1,
+          tagName,
+          isVoid,
+        });
+      } else {
+        const closing = findMatchingCloseTag(html, tagName, tagEnd + 1);
+        if (!closing) {
+          throw new SlideContentEditError(
+            `objectId "${objectId}" targets <${tagName}> without a closing tag`,
+          );
+        }
+        targets.push({
+          innerStart: tagEnd + 1,
+          innerEnd: closing.start,
+          tagName,
+          isVoid,
+        });
+      }
+    }
+
+    if (RAW_TEXT_TAG_NAMES.has(tagName) && !isVoidTag(tagName)) {
+      const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
+      cursor = rawClose === -1 ? html.length : rawClose + tagName.length + 3;
+    } else {
+      cursor = tagEnd + 1;
+    }
+  }
+
+  return targets;
+}
+
+function hasObjectId(tag: string, objectId: string): boolean {
+  const tagName = /^<[A-Za-z][\w:-]*/.exec(tag)?.[0];
+  if (!tagName) return false;
+
+  let cursor = tagName.length;
+  while (cursor < tag.length) {
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    if (tag[cursor] === "/" || tag[cursor] === ">") break;
+
+    const attributeStart = cursor;
+    while (cursor < tag.length && !/[\s=>/]/.test(tag[cursor] ?? "")) {
+      cursor += 1;
+    }
+    const attributeName = tag.slice(attributeStart, cursor).toLowerCase();
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    if (tag[cursor] !== "=") {
+      while (cursor < tag.length && !/[\s>]/.test(tag[cursor] ?? "")) {
+        cursor += 1;
+      }
+      continue;
+    }
+
+    cursor += 1;
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    const quote =
+      tag[cursor] === '"' || tag[cursor] === "'" ? tag[cursor] : null;
+    if (quote) cursor += 1;
+    const valueStart = cursor;
+    if (quote) {
+      while (cursor < tag.length && tag[cursor] !== quote) cursor += 1;
+    } else {
+      while (cursor < tag.length && !/[\s>]/.test(tag[cursor] ?? "")) {
+        cursor += 1;
+      }
+    }
+    const value = tag.slice(valueStart, cursor);
+    if (quote && tag[cursor] === quote) cursor += 1;
+    if (attributeName === "data-slide-object-id" && value === objectId) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function findMatchingCloseTag(
+  html: string,
+  tagName: string,
+  start: number,
+): { start: number; end: number } | null {
+  if (RAW_TEXT_TAG_NAMES.has(tagName)) {
+    const rawClose = rawTextCloseIndex(html, tagName, start);
+    return rawClose === -1
+      ? null
+      : { start: rawClose, end: rawClose + tagName.length + 3 };
+  }
+
+  let depth = 1;
+  let cursor = start;
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+    if (html.startsWith("<!--", tagStart)) {
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      cursor = commentEnd === -1 ? html.length : commentEnd + 3;
+      continue;
+    }
+
+    const closing = html[tagStart + 1] === "/";
+    const nameStart = tagStart + (closing ? 2 : 1);
+    const nestedTagName = tagNameAt(html, nameStart);
+    if (!nestedTagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + nestedTagName.length);
+    if (tagEnd === -1) return null;
+
+    if (closing && nestedTagName === tagName) {
+      depth -= 1;
+      if (depth === 0) {
+        return { start: tagStart, end: tagEnd + 1 };
+      }
+    } else if (
+      !closing &&
+      nestedTagName === tagName &&
+      !isVoidTag(nestedTagName)
+    ) {
+      depth += 1;
+    }
+
+    if (!closing && RAW_TEXT_TAG_NAMES.has(nestedTagName)) {
+      const rawClose = rawTextCloseIndex(html, nestedTagName, tagEnd + 1);
+      cursor =
+        rawClose === -1 ? html.length : rawClose + nestedTagName.length + 3;
+    } else {
+      cursor = tagEnd + 1;
+    }
+  }
+
+  return null;
+}
+
+function isVoidTag(tagName: string): boolean {
+  return VOID_TAG_NAMES.has(tagName);
+}
+
+function tagEndIndex(html: string, start: number): number {
+  let quote: '"' | "'" | null = null;
+  for (let index = start; index < html.length; index += 1) {
+    const character = html[index];
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") return index;
+  }
+  return -1;
+}
+
+function tagNameAt(html: string, start: number): string | null {
+  const match = /^[A-Za-z][\w:-]*/.exec(html.slice(start));
+  return match?.[0]?.toLowerCase() ?? null;
+}
+
+function rawTextCloseIndex(
+  html: string,
+  tagName: string,
+  start: number,
+): number {
+  const pattern = new RegExp(`<\\/${tagName}\\s*>`, "gi");
+  pattern.lastIndex = start;
+  return pattern.exec(html)?.index ?? -1;
 }
 
 function applyInsert(

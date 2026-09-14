@@ -4,23 +4,30 @@ import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-sc
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
+import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
+import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
 import deleteContentDatabase from "./delete-content-database.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
+import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
+import listContentSpaces from "./list-content-spaces.js";
 import listDocuments from "./list-documents.js";
+import listTrashedContentDatabases from "./list-trashed-content-databases.js";
 import manageContentDatabaseMigration from "./manage-content-database-migration.js";
 import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import refreshList from "./refresh-list.js";
+import restoreContentDatabase from "./restore-content-database.js";
 import searchDocuments from "./search-documents.js";
 import updateComment from "./update-comment.js";
+import updateContentDatabaseView from "./update-content-database-view.js";
 import updateDatabaseItem from "./update-database-item.js";
 import updateDatabaseItems from "./update-database-items.js";
 import updateDocument from "./update-document.js";
@@ -29,6 +36,14 @@ import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
   const directMcpActions = {
+    "create-content-database": createContentDatabase,
+    "configure-document-property": configureDocumentProperty,
+    "update-content-database-view": updateContentDatabaseView,
+    "list-content-spaces": listContentSpaces,
+    "get-content-database-source": getContentDatabaseSource,
+    "delete-content-database": deleteContentDatabase,
+    "restore-content-database": restoreContentDatabase,
+    "list-trashed-content-databases": listTrashedContentDatabases,
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
@@ -50,7 +65,6 @@ describe("Content action-owned agent catalogs", () => {
   const deferredDatabaseActions = {
     "add-content-database-source-field-property":
       addContentDatabaseSourceFieldProperty,
-    "delete-content-database": deleteContentDatabase,
     "manage-content-database-migration": manageContentDatabaseMigration,
   };
 
@@ -163,7 +177,7 @@ describe("Content action-owned agent catalogs", () => {
     expect(updateDatabaseItems.schema.safeParse([]).success).toBe(false);
   });
 
-  it("keeps schema, destructive, and migration actions out of compact MCP discovery", () => {
+  it("keeps source composition and destructive migration actions out of compact MCP discovery", () => {
     for (const action of Object.values(deferredDatabaseActions)) {
       expect(action.mcpTool).not.toBe(true);
     }

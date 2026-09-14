@@ -18,6 +18,7 @@ import React, {
   useState,
 } from "react";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
@@ -42,6 +43,7 @@ import {
   getDefaultMcpIntegrations,
   isMcpIntegrationUrl,
   navigateToMcpOAuthStart,
+  requiresMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
@@ -199,8 +201,10 @@ export function FirstRunOnboarding({
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
         completionAttemptRef.current = null;
+        return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+        return false;
       }
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
@@ -257,6 +261,7 @@ export function FirstRunOnboarding({
   });
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
+  const builderCtaRef = useRef<HTMLButtonElement>(null);
   const dismissOnboarding = useCallback(() => {
     void finishOnboarding(null);
   }, [finishOnboarding]);
@@ -332,13 +337,16 @@ export function FirstRunOnboarding({
     });
   };
 
-  const handleOpenSettings = () => {
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:open-settings", {
-        detail: { section: "integrations" },
-      }),
+  const handleOpenSettings = async () => {
+    const completed = await finishOnboarding("manual");
+    if (!completed) return;
+    if (typeof window === "undefined") return;
+    window.history.pushState(
+      null,
+      "",
+      `${appPath(buildSettingsRoute("agent:llm"))}${window.location.search}`,
     );
-    void finishOnboarding("manual");
+    window.dispatchEvent(new Event("popstate"));
   };
 
   const handleFinish = (completeStep = true) => {
@@ -431,9 +439,12 @@ export function FirstRunOnboarding({
     if (
       integration.authMode === "oauth" &&
       integration.connectionMode === "oauth" &&
-      integration.availability === "ready"
+      integration.availability === "ready" &&
+      // An org-only integration has no personal connection to start, and with
+      // no workspace yet the dialog is the surface that explains why.
+      !requiresMcpIntegrationOrganizationScope(integration)
     ) {
-      navigateToMcpOAuthStart(
+      const opened = navigateToMcpOAuthStart(
         appPath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -444,6 +455,9 @@ export function FirstRunOnboarding({
           }),
         ),
       );
+      if (!opened) {
+        setConnectError(t("mcpIntegrations.connectionError"));
+      }
       return;
     }
 
@@ -554,33 +568,47 @@ export function FirstRunOnboarding({
           </h1>
           <div className="grid gap-3 sm:grid-cols-2">
             <section className="rounded-xl bg-primary/[0.06] p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold">
-                    {canActivateBuilderFreeCredits
-                      ? t("agentChat.onboarding.builderActivateCredits")
-                      : t("agentChat.onboarding.builderConnectCredits")}
-                  </h2>
-                  <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
-                    {canActivateBuilderFreeCredits ? (
-                      t("agentChat.onboarding.builderActivateDescription")
-                    ) : (
-                      <>
-                        One click connects{" "}
-                        <a
-                          href="https://www.builder.io/"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          Builder.io free credits
-                        </a>{" "}
-                        with the services this app needs.
-                      </>
-                    )}
-                  </p>
-                </div>
-                <IconArrowRight className="mt-0.5 text-primary" size={17} />
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {/* BuilderConnectPopover accepts a single trigger, so this
+                      header delegates to the canonical CTA below instead of
+                      opening a second consent popover on its own anchor. */}
+                  <button
+                    type="button"
+                    data-testid="first-run-builder-header-activate"
+                    className="group flex w-full items-start justify-between gap-3 rounded-md text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => builderCtaRef.current?.click()}
+                  >
+                    <span>
+                      {canActivateBuilderFreeCredits
+                        ? t("agentChat.onboarding.builderActivateCredits")
+                        : t("agentChat.onboarding.builderConnectCredits")}
+                    </span>
+                    <IconArrowRight
+                      aria-hidden="true"
+                      className="mt-0.5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5"
+                      size={17}
+                    />
+                  </button>
+                </h2>
+                <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
+                  {canActivateBuilderFreeCredits ? (
+                    t("agentChat.onboarding.builderActivateDescription")
+                  ) : (
+                    <>
+                      One click connects{" "}
+                      <a
+                        href="https://www.builder.io/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        Builder.io free credits
+                      </a>{" "}
+                      with the services this app needs.
+                    </>
+                  )}
+                </p>
               </div>
               <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
@@ -589,27 +617,36 @@ export function FirstRunOnboarding({
                     : t("agentChat.onboarding.builderCredits")}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
-                  {builderCapabilities.map((capability, index) => (
-                    <React.Fragment key={capability.id}>
-                      {index > 0 && (
-                        <span
-                          aria-hidden="true"
-                          className="text-muted-foreground"
-                        >
-                          ·
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-0.5">
-                        <span>{capability.label}</span>
-                        {capability.id === "design-system-intelligence" && (
-                          <CapabilityInfoButton
-                            capability={capability}
-                            ariaLabel={`About ${capability.label}`}
-                          />
+                  {builderCapabilities.map((capability, index) => {
+                    const copy = getCapabilityCopy(t, capability);
+                    return (
+                      <React.Fragment key={capability.id}>
+                        {index > 0 && (
+                          <span
+                            aria-hidden="true"
+                            className="text-muted-foreground"
+                          >
+                            ·
+                          </span>
                         )}
-                      </span>
-                    </React.Fragment>
-                  ))}
+                        <span className="inline-flex items-center gap-0.5">
+                          <span>{copy.label}</span>
+                          {capability.id === "design-system-intelligence" && (
+                            <CapabilityInfoButton
+                              why={copy.why}
+                              ariaLabel={t(
+                                "agentChat.onboarding.capability.about",
+                                {
+                                  defaultValue: "About {{label}}",
+                                  label: copy.label,
+                                },
+                              )}
+                            />
+                          )}
+                        </span>
+                      </React.Fragment>
+                    );
+                  })}
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
@@ -636,9 +673,11 @@ export function FirstRunOnboarding({
                       >
                         Also included with Builder.io free credits
                       </p>
-                      <p className="mt-1 leading-5">
-                        {BUILDER_MORE_SERVICES.join(" · ")}
-                      </p>
+                      <ul className="mt-2 list-disc space-y-1 ps-4 leading-5">
+                        {BUILDER_MORE_SERVICES.map((service) => (
+                          <li key={service}>{service}</li>
+                        ))}
+                      </ul>
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -648,11 +687,13 @@ export function FirstRunOnboarding({
                 onConnect={(provisionAccount) =>
                   handleBuilder(provisionAccount)
                 }
+                defaultProvisionAccount
                 contentTestId="first-run-builder-consent"
                 primaryTestId="first-run-builder-create-and-activate"
                 secondaryTestId="first-run-builder-existing-account"
               >
                 <button
+                  ref={builderCtaRef}
                   type="button"
                   data-testid="first-run-connect-builder"
                   className={cn(primaryButtonClass, "mt-5 w-full")}
@@ -758,7 +799,7 @@ export function FirstRunOnboarding({
           </div>
           <div className="rounded-xl bg-muted/35 p-4">
             <CapabilityList capabilities={profile.capabilities} />
-            <div className="mt-5 flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 pt-4">
               <button
                 type="button"
                 className={secondaryButtonClass}
@@ -766,24 +807,30 @@ export function FirstRunOnboarding({
               >
                 Back
               </button>
-              <button
-                type="button"
-                className={primaryButtonClass}
-                onClick={handleOpenSettings}
-              >
-                Open key settings
-                <IconArrowRight size={15} />
-              </button>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => {
-                  trackFirstRunStepCompleted("manual");
-                  setScreen(skipIntegrations ? "role" : "tools");
-                }}
-              >
-                {skipIntegrations ? "Continue" : "Continue to tools"}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  data-testid="first-run-skip-keys"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    trackFirstRunStepCompleted("manual");
+                    showTools();
+                  }}
+                >
+                  {t("agentChat.onboarding.skipForNow")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="first-run-open-key-settings"
+                  className={primaryButtonClass}
+                  onClick={() => void handleOpenSettings()}
+                >
+                  {t("agentChat.onboarding.openAiKeySettings", {
+                    defaultValue: "Open AI key settings",
+                  })}
+                  <IconArrowRight size={15} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1255,6 +1302,36 @@ function OnboardingSkeleton() {
   );
 }
 
+type CapabilityTranslator = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
+
+type CapabilityCopy = Pick<OnboardingCapability, "required" | "suggested"> & {
+  label: string;
+  keySummary: string;
+  why: string;
+};
+
+function getCapabilityCopy(
+  t: CapabilityTranslator,
+  capability: OnboardingCapability,
+): CapabilityCopy {
+  return {
+    required: capability.required,
+    suggested: capability.suggested,
+    label: capability.labelKey
+      ? t(capability.labelKey, { defaultValue: capability.label })
+      : capability.label,
+    keySummary: capability.keySummaryKey
+      ? t(capability.keySummaryKey, { defaultValue: capability.keySummary })
+      : capability.keySummary,
+    why: capability.whyKey
+      ? t(capability.whyKey, { defaultValue: capability.why })
+      : capability.why,
+  };
+}
+
 function CapabilityList({
   capabilities,
   compact = false,
@@ -1264,14 +1341,17 @@ function CapabilityList({
   compact?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const visibleCapabilities = useMemo(() => {
-    if (!compact) return capabilities;
-    const suggested = capabilities.filter((capability) => capability.suggested);
-    const leading = capabilities.filter((capability) => !capability.suggested);
-    return [
-      ...leading.slice(0, Math.max(0, 4 - suggested.length)),
-      ...suggested,
-    ].slice(0, 4);
+    const required = capabilities.filter((capability) => capability.required);
+    const suggested = capabilities.filter(
+      (capability) => !capability.required && capability.suggested,
+    );
+    const optional = capabilities.filter(
+      (capability) => !capability.required && !capability.suggested,
+    );
+    const ordered = [...required, ...suggested, ...optional];
+    return compact ? ordered.slice(0, 4) : ordered;
   }, [capabilities, compact]);
 
   return (
@@ -1285,7 +1365,7 @@ function CapabilityList({
         {visibleCapabilities.map((capability) => (
           <CapabilityRow
             key={capability.id}
-            capability={capability}
+            copy={getCapabilityCopy(t, capability)}
             compact={compact}
           />
         ))}
@@ -1295,12 +1375,14 @@ function CapabilityList({
 }
 
 function CapabilityRow({
-  capability,
+  copy,
   compact,
 }: {
-  capability: OnboardingCapability;
+  copy: CapabilityCopy;
   compact: boolean;
 }) {
+  const t = useT();
+
   return (
     <div
       className={cn(
@@ -1313,40 +1395,39 @@ function CapabilityRow({
           <span
             className={cn("font-medium", compact ? "text-[11px]" : "text-sm")}
           >
-            {capability.label}
+            {copy.label}
           </span>
           <CapabilityInfoButton
-            capability={capability}
-            ariaLabel={`Why ${capability.label} is needed`}
+            why={copy.why}
+            ariaLabel={t("agentChat.onboarding.capability.why", {
+              defaultValue: "Why {{label}} is needed",
+              label: copy.label,
+            })}
           />
         </div>
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-          {capability.keySummary}
+        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+          {copy.keySummary}
         </p>
       </div>
       <span
         className={cn(
           "shrink-0 text-[10px] uppercase tracking-[0.08em]",
-          capability.required || capability.suggested
+          copy.required || copy.suggested
             ? "text-primary"
             : "text-muted-foreground",
         )}
       >
-        {capability.required
-          ? "Required"
-          : capability.suggested
-            ? "Suggested"
-            : "Optional"}
+        {copy.required ? "Required" : copy.suggested ? "Suggested" : "Optional"}
       </span>
     </div>
   );
 }
 
 function CapabilityInfoButton({
-  capability,
+  why,
   ariaLabel,
 }: {
-  capability: OnboardingCapability;
+  why: string;
   ariaLabel: string;
 }) {
   return (
@@ -1363,7 +1444,7 @@ function CapabilityInfoButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
-        {capability.why}
+        {why}
       </TooltipContent>
     </Tooltip>
   );

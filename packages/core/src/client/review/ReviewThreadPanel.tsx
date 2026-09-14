@@ -83,7 +83,6 @@ export interface ReviewThreadPanelProps {
   moreActionsLabel?: string;
   resolvedLabel?: string;
   reviewerLabel?: string;
-  agentLabel?: string;
   onSelectThread?: (thread: ReviewThread) => void;
   onCommentCreated?: (comment: ReviewComment) => void;
   /** Allow signed-in commenters to reply. Omitted capabilities fail closed. */
@@ -125,7 +124,6 @@ export function ReviewThreadPanel({
   moreActionsLabel = "More actions",
   resolvedLabel = "Resolved",
   reviewerLabel = "Reviewer",
-  agentLabel,
   onSelectThread,
   onCommentCreated,
   canReply = false,
@@ -269,7 +267,6 @@ export function ReviewThreadPanel({
                   comment={thread.root}
                   resolvedLabel={resolvedLabel}
                   reviewerLabel={reviewerLabel}
-                  agentLabel={agentLabel}
                   formatDate={formatDate}
                 />
                 {thread.replies.length ? (
@@ -281,7 +278,6 @@ export function ReviewThreadPanel({
                         compact
                         resolvedLabel={resolvedLabel}
                         reviewerLabel={reviewerLabel}
-                        agentLabel={agentLabel}
                         formatDate={formatDate}
                       />
                     ))}
@@ -481,21 +477,15 @@ function CommentBubble({
   compact = false,
   resolvedLabel,
   reviewerLabel,
-  agentLabel,
   formatDate,
 }: {
   comment: ReviewComment;
   compact?: boolean;
   resolvedLabel: string;
   reviewerLabel: string;
-  agentLabel?: string;
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
 }) {
-  const author =
-    (comment.createdBy === "agent" ? agentLabel : undefined) ??
-    comment.authorName ??
-    comment.authorEmail ??
-    reviewerLabel;
+  const author = comment.authorName ?? comment.authorEmail ?? reviewerLabel;
   const avatarUrl = useAvatarUrl(comment.authorEmail);
   const resolutionNote =
     comment.status === "resolved" ? getReviewResolutionNote(comment) : null;

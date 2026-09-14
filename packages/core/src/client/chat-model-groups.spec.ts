@@ -294,6 +294,28 @@ describe("buildChatModelGroups", () => {
     ]);
   });
 
+  it("keeps custom current models visible alongside curated OpenRouter models", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "ai-sdk:openrouter",
+      currentModel: "deepseek/custom-model",
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["openai/gpt-6-astra"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+          configured: true,
+        },
+      ],
+    });
+
+    expect(groups[0]?.models).toEqual([
+      "deepseek/custom-model",
+      "openai/gpt-6-astra",
+    ]);
+  });
+
   it("trusts the server's readiness over the env-key list", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "builder",

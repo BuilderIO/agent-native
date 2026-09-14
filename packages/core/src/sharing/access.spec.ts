@@ -10,7 +10,6 @@ import {
   assertAccess,
   ForbiddenError,
   resolveAccess,
-  resolveRegisteredAccessContext,
 } from "./access.js";
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
@@ -47,29 +46,6 @@ type Db = ReturnType<typeof drizzle>;
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: Db;
-
-it("preserves a transaction through resource-specific context normalization", () => {
-  const transaction = {
-    execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
-  };
-  const resolved = resolveRegisteredAccessContext(
-    {
-      type: "normalized-transaction-test",
-      resourceTable: docs,
-      sharesTable: docShares,
-      displayName: "QA Doc",
-      getDb: () => db,
-      resolveAccessContext: (ctx) => ({ userEmail: ctx.userEmail }),
-    },
-    {
-      userEmail: viewerEmail,
-      orgId,
-      transaction,
-    },
-  );
-
-  expect(resolved).toEqual({ userEmail: viewerEmail, transaction });
-});
 
 async function insertDoc(values: {
   id: string;
@@ -127,7 +103,8 @@ beforeEach(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY,
@@ -180,6 +157,7 @@ describe("shareable resource access helpers", () => {
   });
 
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
+    expect(isSyntheticQaEmail("steve+autoz-run-123@example.com")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);
@@ -251,6 +229,39 @@ describe("shareable resource access helpers", () => {
         displayName: "Builder.io",
       }),
     ]);
+  });
+
+  it("lists shares while an additive share-column migration is pending", async () => {
+    await insertDoc({ id: "doc-pending-migration" });
+    await db.insert(docShares).values({
+      id: "share-pending-migration",
+      resourceId: "doc-pending-migration",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: "2026-09-09T00:00:00.000Z",
+    });
+    await pglite.exec("ALTER TABLE qa_doc_shares DROP COLUMN notified_at");
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-pending-migration",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      shares: [
+        {
+          id: "share-pending-migration",
+          principalType: "user",
+          principalId: viewerEmail,
+          role: "viewer",
+          createdAt: "2026-09-09T00:00:00.000Z",
+        },
+      ],
+    });
   });
 
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
@@ -601,7 +612,8 @@ describe("shareable resource access helpers", () => {
         principal_id TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer',
         created_by TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        notified_at TEXT
       );
     `);
     registerShareableResource({

@@ -1,29 +1,21 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
-import type { DbExec } from "../../db/client.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
-
-async function execute(input: string | { sql: string; args?: unknown[] }) {
-  if (typeof input === "string") {
-    await pglite.exec(input);
-    return { rows: [], rowsAffected: 0 };
-  }
-  const result = await pglite.query(input.sql, input.args ?? []);
-  return {
-    rows: Array.from(result.rows ?? []),
-    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
-  };
-}
-
-type TransactionalTestClient = DbExec & {
-  transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
-};
-
-const rawClient: TransactionalTestClient = {
-  execute: vi.fn(execute),
-  transaction: async <T>(fn: (tx: DbExec) => Promise<T>) => {
+const rawClient = {
+  execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
+    if (typeof input === "string") {
+      await pglite.exec(input);
+      return { rows: [], rowsAffected: 0 };
+    }
+    const result = await pglite.query(input.sql, input.args ?? []);
+    return {
+      rows: Array.from(result.rows ?? []),
+      rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+    };
+  }),
+  transaction: async <T>(fn: (tx: typeof rawClient) => Promise<T>) => {
     await pglite.exec("BEGIN");
     try {
       const result = await fn(rawClient);
@@ -43,21 +35,21 @@ const {
   ensureSuggestionTables,
   insertSuggestion,
   getSuggestion,
+  listSuggestions,
   getSuggestionByCreationKey,
   recordSuggestionCreation,
+  amendSuggestion,
   recordDecision,
   __resetSuggestionTablesForTests,
 } = await import("./store.js");
 
 beforeEach(async () => {
   pglite = await createTestPglite();
-  rawClient.execute.mockClear();
   __resetSuggestionTablesForTests();
   await ensureSuggestionTables();
 });
 afterEach(async () => {
   await pglite.close();
-  vi.clearAllMocks();
 });
 
 const input = {
@@ -141,24 +133,131 @@ describe("suggestion store", () => {
     ).rejects.toThrow("different decision");
   });
 
-  it("retains the pre-validation request for keyed creation replay", async () => {
-    const suggestion = await insertSuggestion(input);
+  it("keeps the original creation result and converges a competing receipt", async () => {
+    const original = await insertSuggestion(input);
+    const request = '{"request":"original"}';
     await recordSuggestionCreation(
       rawClient,
-      "creation-key-1",
-      suggestion.id,
-      '{"operations":[{"kind":"replace_text"}]}',
+      "create-key",
+      original,
+      original.authorEmail,
+      original.actorKind,
+      request,
     );
-    const creation = await getSuggestionByCreationKey(
+    const competing = await insertSuggestion({
+      ...input,
+      threadId: "thread-2",
+    });
+    const winner = await recordSuggestionCreation(
       rawClient,
-      "creation-key-1",
+      "create-key",
+      competing,
+      competing.authorEmail,
+      competing.actorKind,
+      request,
     );
-    expect(creation?.suggestion.id).toBe(suggestion.id);
-    expect(creation?.suggestion.operations[0]).toMatchObject(
-      suggestion.operations[0],
+    expect(winner.suggestion.id).toBe(original.id);
+
+    await rawClient.transaction((tx) =>
+      amendSuggestion(
+        tx,
+        original,
+        [{ ...input.operations[0], after: "amended" }],
+        "Amended",
+        "amend-key",
+        '{"request":"amend"}',
+      ),
     );
-    expect(creation?.requestFingerprint).toBe(
-      '{"operations":[{"kind":"replace_text"}]}',
+    expect(
+      (await getSuggestionByCreationKey(rawClient, "create-key"))?.suggestion,
+    ).toEqual(original);
+  });
+
+  it("uses the immutable amendment receipt after an interleaved creation replay read", async () => {
+    const original = await insertSuggestion(input);
+    const interleavedClient = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              suggestion_id: original.id,
+              author_email: original.authorEmail,
+              actor_kind: original.actorKind,
+              request_hash: "request-hash",
+            },
+          ],
+          rowsAffected: 0,
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: original.id,
+              revision: 1,
+              resource_type: original.resourceType,
+              resource_id: original.resourceId,
+              adapter_kind: original.adapterKind,
+              adapter_version: original.adapterVersion,
+              thread_id: original.threadId,
+              author_email: original.authorEmail,
+              actor_kind: original.actorKind,
+              base_revision: original.baseRevision,
+              status: original.status,
+              summary: original.summary,
+              owner_email: original.ownerEmail,
+              org_id: original.orgId,
+              visibility: original.visibility,
+              created_at: original.createdAt,
+              updated_at: original.updatedAt,
+              metadata_json: null,
+            },
+          ],
+          rowsAffected: 0,
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              ...original.operations[0],
+              suggestion_id: original.id,
+              operation_kind: original.operations[0]?.kind,
+              after_json: '"interleaved amendment"',
+            },
+          ],
+          rowsAffected: 0,
+        })
+        .mockResolvedValueOnce({
+          rows: [{ before_json: JSON.stringify(original) }],
+          rowsAffected: 0,
+        }),
+    };
+
+    expect(
+      (await getSuggestionByCreationKey(interleavedClient, "creation-replay"))
+        ?.suggestion,
+    ).toEqual(original);
+    expect(interleavedClient.execute).toHaveBeenCalledTimes(4);
+  });
+
+  it("loads complete suggestion operations in one resource-scoped query", async () => {
+    await insertSuggestion(input);
+    await insertSuggestion({
+      ...input,
+      threadId: "thread-2",
+      summary: "Second suggestion",
+      operations: [{ ...input.operations[0], ordinal: 1, after: "newer" }],
+    });
+    rawClient.execute.mockClear();
+
+    const suggestions = await listSuggestions(
+      input.resourceType,
+      input.resourceId,
+      ["pending"],
     );
+
+    expect(suggestions).toHaveLength(2);
+    expect(
+      suggestions.map((suggestion) => suggestion.operations[0]?.after),
+    ).toEqual(["new", "newer"]);
+    expect(rawClient.execute).toHaveBeenCalledOnce();
   });
 });

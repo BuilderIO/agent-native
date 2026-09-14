@@ -22,8 +22,8 @@ export default createAuthPlugin({
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
-      "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
-      "Push-to-talk voice dictation (Wisprflow-style) — hold Fn anywhere, get clean text back",
+      "Calendar-synced meeting notes with live transcripts and AI action items",
+      "Push-to-talk voice dictation - hold Fn anywhere, get clean text back",
       "One searchable library across recordings, meetings, and dictations",
     ],
   },
@@ -38,6 +38,14 @@ export default createAuthPlugin({
     // for signed-in viewers and redirects anonymous viewers to /share/:id.
     "/r",
     "/bug-report",
+    // The recorder is public only so a signed intake URL can reach the
+    // browser capture UI. Recording creation and upload remain token-scoped.
+    "/record",
+    // Anonymous intake is a signed, write-only capability. The recording
+    // action and transport handlers perform their own token and recording-
+    // scope checks. Agent-link exchange stays behind normal auth.
+    "/_agent-native/actions/create-intake-recording",
+    "/api/clip-intake",
     // React Router's lazy route-discovery endpoint. If this is gated by
     // auth it returns an HTML login page; the client tries to parse it
     // as JSON, fails, and can't resolve any public route the user lands

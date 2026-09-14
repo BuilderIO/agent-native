@@ -5,6 +5,7 @@ build
 .netlify
 .react-router
 .generated
+**/data/
 data/pglite/
 .env
 .env.local

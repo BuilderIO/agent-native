@@ -49,7 +49,7 @@ import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -280,7 +280,10 @@ export default defineEventHandler(async (event) => {
   );
 
   // Expiry check
-  const recordingExpired = isRecordingExpired(rec.expiresAt);
+  const recordingExpired = isRecordingExpiredForViewer({
+    expiresAt: rec.expiresAt,
+    viewerIsOwner,
+  });
   if (recordingExpired) {
     setResponseStatus(event, 410);
     return { error: "Recording has expired", expired: true };
@@ -453,10 +456,10 @@ export default defineEventHandler(async (event) => {
   // Mirrors the gate in `get-recording-player-data` exactly: the share page
   // auto-redirects on this flag, so a false positive bounces the viewer
   // between /share/:id and /r/:id forever. Only a resolved access role can
-  // open the direct page — the org-member fallback above is a display role,
+  // open the direct page - the org-member fallback above is a display role,
   // not access the player action would grant.
   const canOpenDashboard =
-    Boolean(session?.email) && viewerAccess && !recordingExpired
+    Boolean(session?.email) && viewerAccess
       ? canOpenDirectRecordingPage({
           role: viewerAccess.role as RecordingPageAccessRole,
           visibility: rec.visibility as RecordingVisibility,

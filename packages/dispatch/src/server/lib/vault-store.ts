@@ -7,6 +7,7 @@ import {
   deleteAppSecret,
   last4,
   listAppSecretsForScope,
+  VAULT_SYNC_DESCRIPTION_PREFIX,
   writeAppSecret,
   type SecretScope,
 } from "@agent-native/core/secrets";
@@ -26,7 +27,6 @@ import {
 } from "./dispatch-store.js";
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
-const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export type VaultAccessMode = "all-apps" | "manual";
 
@@ -1405,6 +1405,8 @@ export interface IntegrationEntry {
   configured: boolean;
   vaultGranted: boolean;
   vaultSecretId?: string;
+  /** False for non-credential settings (flags, addresses) — see env-status's `secret`. Default true. */
+  secret: boolean;
 }
 
 export interface AppIntegrations {
@@ -1454,6 +1456,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
         label: string;
         required: boolean;
         configured: boolean;
+        secret?: boolean;
       }> = await res.json();
 
       const appGrants = grants.filter(
@@ -1473,6 +1476,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
             (access.mode === "all-apps" ||
               grantedSecretIds.has(matchingSecret.id)),
           vaultSecretId: matchingSecret?.id,
+          secret: env.secret ?? true,
         };
       });
 

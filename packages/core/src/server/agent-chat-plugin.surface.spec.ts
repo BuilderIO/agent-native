@@ -272,7 +272,7 @@ describe("request-scoped action surface", () => {
       /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
     );
     expect(source).toMatch(
-      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?if \(normalizedSurface\.actionScope\)[\s\S]*?allowedActionNames: normalizedSurface\.allowedActionNames,[\s\S]*?actionScope: normalizedSurface\.actionScope,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
     );
     expect(devSource).toMatch(
       /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,
@@ -540,6 +540,16 @@ describe("background automation action surface — wiring guards", () => {
 describe("framework tool gating — wiring guards", () => {
   const source = readFileSync("src/server/agent-chat-plugin.ts", {
     encoding: "utf-8",
+  });
+
+  it("merges core actions before filtering an explicit agent registry", () => {
+    const merge = source.indexOf(
+      "await mergeCoreSharingActions(templateScriptsAll);",
+    );
+    expect(merge).toBeGreaterThan(source.indexOf("const rawActions ="));
+    expect(merge).toBeLessThan(
+      source.indexOf("filterAgentTools(templateScriptsAll)"),
+    );
   });
 
   it("resolves the framework tool surface once and gates both agent registries", () => {

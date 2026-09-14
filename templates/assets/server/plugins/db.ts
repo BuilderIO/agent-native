@@ -418,6 +418,14 @@ export const runAssetsMigrations = runMigrations(
         });
       },
     },
+    {
+      version: 40,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS asset_template_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS image_library_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
   ],
   // Preserve the legacy migration table name so existing Images deployments do
   // not rerun historical additive migrations after the app slug becomes Assets.

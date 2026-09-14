@@ -122,6 +122,7 @@ export type SourceLocationMethod =
   | "data-attribute" // pre-existing data-source-file/data-loc (build-time transform)
   | "debug-source" // React <=18 structured _debugSource field
   | "debug-stack" // React 19 _debugStack owner-stack (this file's parser)
+  | "debug-stack-remapped" // React 19 stack position remapped through a source map
   | "vue-inspector" // Vue dev compiler's __v_inspector vnode prop
   | "svelte-meta"; // Svelte dev compiler's __svelte_meta.loc
 

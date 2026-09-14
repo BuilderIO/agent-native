@@ -37,6 +37,8 @@ Why: version numbers alone are not a safe identity. Two branches that each indep
 
 Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
 
+Every migration must also be backward compatible, not just additive. Beta and production now migrate independently against the same shared database, so one lane's migration can run before the other lane's matching code deploy. A new `ADD COLUMN ... NOT NULL` with no `DEFAULT` breaks on the first existing row, and breaks any already-deployed `INSERT` that doesn't know the column exists yet — make the column nullable, give it a `DEFAULT`, or use a self-filling type (`SERIAL`, `GENERATED ... AS IDENTITY`), and backfill separately if it needs a real value. `guard:additive-migrations` enforces this.
+
 ### Core SQL Stores (auto-created, available in all templates)
 
 | Store               | Purpose                                              | Access                                     |

@@ -8,12 +8,52 @@ import {
   cronForDaily,
   cronForInterval,
   defaultAutomationConfig,
+  inferAutomationSource,
   parseAuthorIdsField,
   parseScheduleFromCron,
+  readFactoryAutomationConfig,
   replaceUserPrompt,
+  restoreFactoryAutomationIdentityFields,
+  templateIdForSeedName,
 } from "./factory-automation-config.js";
 
 describe("factory-automation-config", () => {
+  it("infers GitHub for PR babysit copies even when YAML source is missing or Slack", () => {
+    const withoutSource = `---
+template: pr-babysit
+repository: acme/widgets
+---
+Babysit pull requests.
+`;
+    expect(inferAutomationSource("factory-pr-babysit-2", withoutSource)).toBe(
+      "github",
+    );
+    expect(
+      readFactoryAutomationConfig(
+        withoutSource,
+        "factories/factorytester/factory-pr-babysit-2",
+      ).source,
+    ).toBe("github");
+    expect(
+      inferAutomationSource(
+        "factory-pr-babysit-2",
+        `---
+source: slack
+template: pr-babysit
+---
+Babysit pull requests.
+`,
+      ),
+    ).toBe("github");
+    expect(templateIdForSeedName("factory-pr-babysit-2")).toBe("pr-babysit");
+  });
+
+  it("infers custom jobs from factory-<source>- leaf prefixes", () => {
+    expect(inferAutomationSource("factory-github-my-repo")).toBe("github");
+    expect(inferAutomationSource("factory-slack-my-alerts")).toBe("slack");
+    expect(inferAutomationSource("factory-sentry-prod")).toBe("sentry");
+  });
+
   it("rejects include mode with no author ids", () => {
     expect(() => assertAuthorFilter("slack", "include", [])).toThrow(
       /at least one author id/,
@@ -62,6 +102,7 @@ describe("factory-automation-config", () => {
     const guardrails = buildGuardrailsText("support-triage", config);
     expect(guardrails).toContain("dispatch-factory-item");
     expect(guardrails).toContain("reaction");
+    expect(guardrails).toContain("omit it on skips");
     expect(guardrails).not.toContain("limit 20");
     expect(guardrails).not.toContain("👀");
 
@@ -102,6 +143,37 @@ Observe Slack.
     );
     expect(next).toContain("slackChannelId: C0BUK2293SA");
     expect(next).toContain("slackChannelName: feedback");
+  });
+
+  it("restores editor-owned identity fields dropped during metadata repair", () => {
+    const original = `---
+source: slack
+template: slack-feedback
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+slackChannelName: product-feedback
+authorMode: exclude
+authorIds: U096KN3EL2Y
+---
+
+Observe Slack.
+`;
+    const repaired = `---
+source: slack
+template: slack-feedback
+authorMode: exclude
+---
+
+Observe Slack.
+`;
+    const next = restoreFactoryAutomationIdentityFields(
+      original,
+      repaired,
+      "factory-slack-feedback",
+    );
+    expect(next).toContain("displayName: Product feedback");
+    expect(next).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(next).toContain("authorIds: U096KN3EL2Y");
   });
 
   it("deletes a stored Slack channel when the config clears it", () => {

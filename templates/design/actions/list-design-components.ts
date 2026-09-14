@@ -81,7 +81,15 @@ export default defineAction({
       )
       .where(
         and(
-          accessFilter(schema.designs, schema.designShares),
+          accessFilter(
+            schema.designs,
+            schema.designShares,
+            undefined,
+            "viewer",
+            {
+              includePublic: true,
+            },
+          ),
           eq(schema.designFiles.designId, designId),
           eq(schema.designFiles.fileType, "html"),
         ),

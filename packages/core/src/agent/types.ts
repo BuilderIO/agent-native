@@ -1,3 +1,5 @@
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
@@ -44,117 +46,9 @@ export interface AgentMessage {
   content: string;
 }
 
-export type AgentActionScopeJsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | AgentActionScopeJsonValue[]
-  | { [key: string]: AgentActionScopeJsonValue };
-
-/** Opaque, request-specific data interpreted by an app's scoped actions. */
-export type AgentActionScope = Record<string, AgentActionScopeJsonValue>;
-
-export const AGENT_ACTION_SCOPE_MAX_BYTES = 8 * 1024;
-const AGENT_ACTION_SCOPE_MAX_DEPTH = 8;
-const AGENT_ACTION_SCOPE_MAX_NODES = 256;
-
-function cloneAgentActionScopeValue(
-  value: unknown,
-  depth: number,
-  state: { nodes: number },
-): AgentActionScopeJsonValue {
-  state.nodes += 1;
-  if (
-    depth > AGENT_ACTION_SCOPE_MAX_DEPTH ||
-    state.nodes > AGENT_ACTION_SCOPE_MAX_NODES
-  ) {
-    throw new TypeError("actionScope exceeds its structural limits");
-  }
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "string"
-  ) {
-    return value;
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new TypeError("actionScope must contain only JSON values");
-    }
-    return value;
-  }
-  if (Array.isArray(value)) {
-    const keys = Reflect.ownKeys(value);
-    if (
-      keys.some(
-        (key) =>
-          typeof key !== "string" ||
-          (key !== "length" &&
-            (String(Number(key)) !== key || Number(key) >= value.length)),
-      ) ||
-      Object.keys(value).length !== value.length
-    ) {
-      throw new TypeError("actionScope must contain only JSON arrays");
-    }
-    return Array.from(value, (item) =>
-      cloneAgentActionScopeValue(item, depth + 1, state),
-    );
-  }
-  if (typeof value !== "object") {
-    throw new TypeError("actionScope must contain only JSON values");
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new TypeError("actionScope must contain only JSON objects");
-  }
-  const object = value as Record<string, unknown>;
-  const keys = Reflect.ownKeys(object);
-  if (
-    keys.some((key) => {
-      if (typeof key !== "string") return true;
-      const descriptor = Object.getOwnPropertyDescriptor(object, key);
-      return !descriptor?.enumerable || !("value" in descriptor);
-    })
-  ) {
-    throw new TypeError("actionScope must contain only JSON values");
-  }
-  return Object.fromEntries(
-    Object.entries(object).map(([key, item]) => [
-      key,
-      cloneAgentActionScopeValue(item, depth + 1, state),
-    ]),
-  );
-}
-
-/** Validate and clone an untrusted action scope into bounded JSON data. */
-export function normalizeAgentActionScope(value: unknown): AgentActionScope {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new TypeError("actionScope must be a JSON object");
-  }
-  const cloned = cloneAgentActionScopeValue(value, 0, {
-    nodes: 0,
-  }) as AgentActionScope;
-  if (
-    new TextEncoder().encode(JSON.stringify(cloned)).byteLength >
-    AGENT_ACTION_SCOPE_MAX_BYTES
-  ) {
-    throw new TypeError(
-      `actionScope must be at most ${AGENT_ACTION_SCOPE_MAX_BYTES} bytes`,
-    );
-  }
-  return cloned;
-}
-
-export function tryNormalizeAgentActionScope(
-  value: unknown,
-): AgentActionScope | undefined {
-  try {
-    return normalizeAgentActionScope(value);
-  } catch (error) {
-    if (error instanceof TypeError) return undefined;
-    throw error;
-  }
+export interface AgentFileMutationProof {
+  path: string;
+  contentSha256: string;
 }
 
 export type AgentChatStructuredContentPart =
@@ -291,8 +185,6 @@ export interface AgentChatHarnessRequest {
 
 export interface AgentChatRequest {
   message: string;
-  /** Requested app-defined action scope. Authorization is resolved server-side. */
-  actionScope?: AgentActionScope;
   /** Stable identity of a durable queued message, used to reject replayed delivery. */
   queuedMessageId?: string;
   /**
@@ -333,7 +225,8 @@ export interface AgentChatRequest {
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
-      | "network_interrupted";
+      | "network_interrupted"
+      | "rate_limited";
     actionPreparationTool?: string;
     /**
      * Number of server-driven background→background continuations already
@@ -376,7 +269,6 @@ export interface AgentChatRequest {
     | {
         orgId: string | null;
         allowedActionNames: string[];
-        actionScope?: AgentActionScope;
       }
     | {
         orgId: string | null;
@@ -424,9 +316,36 @@ export interface AgentChatRequest {
 
 export type AgentToolInput = Record<string, unknown>;
 
+export interface AgentChatRichEventReference {
+  /** Reference class, for example action, audit, trace, context, or artifact. */
+  kind: string;
+  /** Stable identifier in the owning system. Never place credentials here. */
+  id: string;
+  label?: string;
+  uri?: string;
+}
+
+/**
+ * Provider-neutral extension envelope for rich events not yet promoted into
+ * the shared event union. Producers must keep `data` bounded and sanitized;
+ * durable or sensitive values belong behind references, not in the stream.
+ */
+export interface AgentChatRichEventEnvelope {
+  /** Reverse-DNS or package-style owner namespace. */
+  namespace: string;
+  /** Event name within the owner namespace. */
+  name: string;
+  version?: number;
+  data?: unknown;
+  references?: AgentChatRichEventReference[];
+  metadata?: Record<string, unknown>;
+}
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
+  | { type: "suggestions"; suggestions: AgentSuggestion[] }
+  | { type: "rich_event"; event: AgentChatRichEventEnvelope }
   | {
       type: "activity";
       label: string;
@@ -485,6 +404,7 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
@@ -514,6 +434,16 @@ export type AgentChatEvent =
        * permanently hide Approve/Deny with no way to retry.
        */
       askId?: string;
+    }
+  | {
+      /** Host-resolved provider setup required before this run can continue. */
+      type: "connection_required";
+      requestId: string;
+      provider: string;
+      reason: "connect" | "grant" | "reauthorize" | "admin_required";
+      appId?: string;
+      detail?: string;
+      source?: { id: string; kind?: string; label?: string };
     }
   | {
       type: "agent_call";
@@ -648,6 +578,7 @@ export const CONTINUATION_REASONS = [
   "stream_ended",
   "gateway_timeout",
   "network_interrupted",
+  "rate_limited",
 ] as const;
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];

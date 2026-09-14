@@ -1218,6 +1218,33 @@ export const migrations = runMigrations(
         ALTER TABLE clips_backfill_leases ALTER COLUMN expires_at TYPE BIGINT
       `,
     },
+    {
+      version: 71,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS recording_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_meeting_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_dictation_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_vocabulary_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS calendar_account_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
+    {
+      version: 72,
+      name: "clips-intake-sessions",
+      sql: `CREATE TABLE IF NOT EXISTS clips_intake_sessions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        organization_id TEXT NOT NULL,
+        recording_id TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE INDEX IF NOT EXISTS clips_intake_sessions_expires_idx
+        ON clips_intake_sessions (status, expires_at)`,
+    },
   ],
   { table: "clips_migrations" },
 );

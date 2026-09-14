@@ -82,7 +82,8 @@ beforeEach(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,

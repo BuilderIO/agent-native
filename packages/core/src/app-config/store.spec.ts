@@ -166,6 +166,7 @@ describe("app identity", () => {
     for (const key of [
       "AGENT_NATIVE_APP_ID",
       "APP_ID",
+      "AGENT_APP",
       "AGENT_NATIVE_WORKSPACE_APP_ID",
       "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
       "APP_NAME",
@@ -181,11 +182,13 @@ describe("app identity", () => {
 
   it("keeps id, workspaceId, and name as separate values", () => {
     process.env.AGENT_NATIVE_APP_ID = "generic";
+    process.env.AGENT_APP = "legacy";
     process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "workspace";
     process.env.APP_NAME = "Display Name";
 
     const app = getAppConfig().app;
     expect(app.id).toBe("generic");
+    expect(app.legacyId).toBe("legacy");
     expect(app.workspaceId).toBe("workspace");
     expect(app.name).toBe("Display Name");
   });
@@ -198,6 +201,7 @@ describe("app identity", () => {
   it("leaves every field absent when nothing is configured", () => {
     const app = getAppConfig().app;
     expect(app.id).toBeUndefined();
+    expect(app.legacyId).toBeUndefined();
     expect(app.workspaceId).toBeUndefined();
     expect(app.name).toBeUndefined();
   });
@@ -401,6 +405,10 @@ describe("env layer", () => {
     expect(
       readEnvConfigLayer(appConfigSchema, { APP_ID: "fallback" }).app,
     ).toEqual({ id: "fallback" });
+
+    expect(
+      readEnvConfigLayer(appConfigSchema, { AGENT_APP: "legacy" }).app,
+    ).toEqual({ id: "legacy", legacyId: "legacy" });
   });
 
   it("treats a blank alias as absent and falls through to the next", () => {

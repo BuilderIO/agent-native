@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 import { chromium, type FullConfig } from "@playwright/test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import {
   planE2eAuthDir,
   planE2eAuthEmailPath,
@@ -27,7 +28,10 @@ import {
 // guest. A per-run email always registers cleanly and logs in within the run.
 const EMAIL =
   process.env.PLAN_E2E_EMAIL ||
-  `e2e-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@plan.test`;
+  `e2e+autoz-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@plan.test`;
+if (!isAutozQaEmail(EMAIL)) {
+  throw new Error("PLAN_E2E_EMAIL must contain +autoz.");
+}
 const PASS =
   process.env.PLAN_E2E_PASS || ["example", "plan", "e2e", "pw"].join("-");
 

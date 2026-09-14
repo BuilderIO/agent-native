@@ -1,3 +1,4 @@
+import type { ActionRunContext } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type CommentRow = {
@@ -5,14 +6,15 @@ type CommentRow = {
   documentId: string;
   threadId: string;
   parentId: string | null;
+  resolved?: number;
   [key: string]: unknown;
 };
 
 const state = vi.hoisted(() => ({
   rows: [] as CommentRow[],
   inserted: [] as Record<string, unknown>[],
-  agent: true,
-  lock: undefined as (() => Promise<void>) | undefined,
+  locked: [] as string[],
+  afterRootLock: undefined as (() => void) | undefined,
 }));
 const mockAssertAccess = vi.hoisted(() =>
   vi.fn(async () => ({
@@ -24,8 +26,7 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
-  getRequestRunContext: () =>
-    state.agent ? { runId: "agent-run-1" } : { browserTabId: "human-tab-1" },
+  getRequestRunContext: () => ({ runId: "run-1" }),
   getRequestUserEmail: () => "author@example.com",
   getRequestUserName: () => "Authenticated Profile Name",
 }));
@@ -48,25 +49,29 @@ function matches(row: CommentRow, condition: any): boolean {
 vi.mock("../server/db/index.js", () => {
   const column = (name: string) => `documentComments.${name}`;
   const schema = {
-    documents: { id: "documents.id", ownerEmail: "documents.ownerEmail" },
     documentComments: {
       id: column("id"),
       documentId: column("documentId"),
       threadId: column("threadId"),
+      authorEmail: column("authorEmail"),
     },
   };
   const db = {
+    transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback(db),
     select: () => ({
       from: () => ({
         where: (condition: unknown) => ({
-          for: async () => {
-            await state.lock?.();
-            return [{ id: "doc-1" }];
+          limit: () => {
+            const result = state.rows.filter((row) => matches(row, condition));
+            return Object.assign(Promise.resolve(result), {
+              for: async () => {
+                state.locked.push(...result.map((row) => row.id));
+                state.afterRootLock?.();
+                return result;
+              },
+            });
           },
-          limit: async () =>
-            state.rows
-              .filter((row) => matches(row, condition))
-              .map((row) => ({ ...row })),
         }),
       }),
     }),
@@ -83,21 +88,20 @@ vi.mock("../server/db/index.js", () => {
       }),
     }),
   };
-  return {
-    getDb: () => ({ ...db, transaction: (run: any) => run(db) }),
-    schema,
-  };
+  return { getDb: () => db, schema };
 });
 
-import action, { addCommentWithGuard } from "./add-comment";
+import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
+import action from "./add-comment";
 
-const run = (args: Record<string, unknown>) => (action as any).run(args);
+const run = (args: Record<string, unknown>, ctx?: ActionRunContext) =>
+  (action as any).run(args, ctx);
 
 beforeEach(() => {
   vi.clearAllMocks();
   state.inserted = [];
-  state.agent = true;
-  state.lock = undefined;
+  state.locked = [];
+  state.afterRootLock = undefined;
   state.rows = [
     { id: "root-1", documentId: "doc-1", threadId: "root-1", parentId: null },
     { id: "root-2", documentId: "doc-2", threadId: "root-2", parentId: null },
@@ -122,31 +126,6 @@ describe("add-comment reply boundary", () => {
     });
   });
 
-  it("does not insert a reply while final resolution holds the document lock", async () => {
-    let release!: () => void;
-    let entered!: () => void;
-    const waiting = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    state.lock = () => {
-      entered();
-      return new Promise<void>((resolve) => {
-        release = resolve;
-      });
-    };
-    const pending = run({
-      documentId: "doc-1",
-      content: "Concurrent reply",
-      threadId: "root-1",
-      parentId: "root-1",
-    });
-    await waiting;
-    expect(state.inserted).toHaveLength(0);
-    release();
-    await pending;
-    expect(state.inserted).toHaveLength(1);
-  });
-
   it("derives authorship from the authenticated caller", async () => {
     await run({
       documentId: "doc-1",
@@ -156,78 +135,62 @@ describe("add-comment reply boundary", () => {
 
     expect(state.inserted[0]).toMatchObject({
       authorEmail: "author@example.com",
-      authorName: "AI Agent",
-      actorKind: "agent",
+      authorName: "Author",
     });
-  });
-
-  it("preserves human identity when request context contains only a browser tab", async () => {
-    state.agent = false;
-    await run({
-      documentId: "doc-1",
-      content: "Human comment",
-      actorKind: "agent",
-    });
-    expect(state.inserted[0]).toMatchObject({
-      authorName: "Authenticated Profile Name",
-      actorKind: "human",
-    });
-  });
-
-  it("reconciles an identical retry and rejects changed content for its key", async () => {
-    const args = {
-      documentId: "doc-1",
-      threadId: "root-1",
-      parentId: "root-1",
-      content: "One answer",
-      idempotencyKey: "request-1",
-    };
-    const first = await run(args);
-    const retry = await run(args);
-    expect(retry.id).toBe(first.id);
-    expect(state.inserted).toHaveLength(1);
-    await expect(run({ ...args, content: "Different answer" })).rejects.toThrow(
-      "different comment",
-    );
-    expect(state.inserted).toHaveLength(1);
   });
 
   it.each([
-    { quotedText: "Different quote" },
-    { anchorPrefix: "Different prefix" },
-    { anchorSuffix: "Different suffix" },
-    { anchorStartOffset: 20 },
-    { mentions: [{ email: "other@example.test", name: "Other" }] },
-  ])("rejects a retry with changed comment context: %o", async (changed) => {
-    const args = {
+    ["mcp", "mcp"],
+    ["webmcp", "mcp"],
+    ["tool", "agent"],
+    ["frontend", "frontend"],
+    ["http", "http"],
+    ["cli", "cli"],
+    ["automation", "automation"],
+  ] as const)(
+    "records %s submission separately from the account",
+    async (caller, source) => {
+      await run(
+        {
+          documentId: "doc-1",
+          content: "Comment",
+          submissionSource: "frontend",
+        },
+        { caller, runId: caller === "tool" ? "run-1" : undefined },
+      );
+      expect(state.inserted[0]).toMatchObject({
+        authorEmail: "author@example.com",
+        authorName: "Author",
+        submissionSource: source,
+        submissionRunId: caller === "tool" ? "run-1" : null,
+      });
+    },
+  );
+
+  it("does not infer an agent from absent caller metadata", async () => {
+    await run({
       documentId: "doc-1",
-      content: "Same text",
-      idempotencyKey: "context-request",
-    };
-    await run(args);
-    await expect(run({ ...args, ...changed })).rejects.toThrow(
-      "different comment",
-    );
-    expect(state.inserted).toHaveLength(1);
+      content: "Comment",
+      submissionSource: "mcp",
+    });
+    expect(state.inserted[0]).toMatchObject({ submissionSource: null });
   });
 
-  it("recovers an already saved reply before checking a now-stale source", async () => {
-    const args = {
-      documentId: "doc-1",
-      threadId: "root-1",
+  it("attributes a reply to its own submission source", async () => {
+    await run(
+      {
+        documentId: "doc-1",
+        content: "Reply",
+        threadId: "root-1",
+        parentId: "root-1",
+      },
+      { caller: "tool", runId: "run-reply" },
+    );
+    expect(state.inserted[0]).toMatchObject({
       parentId: "root-1",
-      content: "Saved answer",
-      idempotencyKey: "saved-request",
-    };
-    await run(args);
-    const guard = vi.fn(async () => {
-      throw new Error("Page changed later");
+      submissionSource: "agent",
+      submissionRunId: "run-reply",
     });
-    await expect(
-      addCommentWithGuard(args, undefined, guard),
-    ).resolves.toMatchObject({ duplicate: true });
-    expect(guard).not.toHaveBeenCalled();
-    expect(state.inserted).toHaveLength(1);
   });
 
   it.each([
@@ -244,4 +207,105 @@ describe("add-comment reply boundary", () => {
       expect(state.inserted).toHaveLength(0);
     },
   );
+});
+
+describe("comment submission receipts", () => {
+  const clientOperationId = "11111111-1111-4111-8111-111111111111";
+  const input = { documentId: "doc-1", content: "Comment", clientOperationId };
+  it("uses the client UUID as the receipt and inserts a retried submission once", async () => {
+    expect(await run(input)).toMatchObject({
+      id: clientOperationId,
+      threadId: clientOperationId,
+    });
+    expect(await run(input)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+      notified: null,
+    });
+    expect(state.inserted).toHaveLength(1);
+    expect(notifyDocumentComment).toHaveBeenCalledTimes(1);
+    expect(mockAssertAccess).toHaveBeenCalledTimes(2);
+  });
+  it("preserves original submission provenance when a retry comes from a new run", async () => {
+    await run(input, { caller: "tool", runId: "original-run" });
+    expect(
+      await run(input, { caller: "mcp", runId: "retry-run" }),
+    ).toMatchObject({ replayed: true });
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0]).toMatchObject({
+      submissionSource: "agent",
+      submissionRunId: "original-run",
+    });
+  });
+  it("recovers the same receipt after notification fails after insertion", async () => {
+    vi.mocked(notifyDocumentComment).mockRejectedValueOnce(
+      new Error("Notification failed"),
+    );
+    await expect(run(input)).rejects.toThrow("Notification failed");
+    expect(await run(input)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+    expect(notifyDocumentComment).toHaveBeenCalledTimes(1);
+  });
+  it.each(["documentId", "authorEmail", "content"])(
+    "rejects receipt reuse with another %s",
+    async (field) => {
+      await run(input);
+      state.rows.find((row) => row.id === clientOperationId)![field] =
+        "different";
+      await expect(run(input)).rejects.toThrow(
+        "conflicts with another submission",
+      );
+      expect(state.inserted).toHaveLength(1);
+    },
+  );
+  it("inserts identical content with different operation receipts separately", async () => {
+    await run(input);
+    await run({
+      ...input,
+      clientOperationId: "22222222-2222-4222-8222-222222222222",
+    });
+    expect(state.inserted).toHaveLength(2);
+  });
+  it("rejects a reply to a resolved root even if its parent reply is stale", async () => {
+    state.rows[0].resolved = 1;
+    state.rows.push({
+      id: "reply-1",
+      documentId: "doc-1",
+      threadId: "root-1",
+      parentId: "root-1",
+      resolved: 0,
+    });
+    await expect(
+      run({ ...input, threadId: "root-1", parentId: "reply-1" }),
+    ).rejects.toThrow("Reopen the thread");
+    expect(state.inserted).toHaveLength(0);
+    expect(state.locked).toEqual(["root-1"]);
+  });
+  it("rechecks a receipt committed while waiting for a subsequently resolved root", async () => {
+    const reply = { ...input, threadId: "root-1", parentId: "root-1" };
+    await run(reply);
+    const saved = state.rows.pop()!;
+    state.afterRootLock = () => {
+      state.rows.push(saved);
+      state.rows[0].resolved = 1;
+    };
+    expect(await run(reply)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+  });
+  it("reconciles an already-saved reply after its thread is resolved", async () => {
+    const reply = { ...input, threadId: "root-1", parentId: "root-1" };
+    await run(reply);
+    state.rows[0].resolved = 1;
+    expect(await run(reply)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+  });
 });

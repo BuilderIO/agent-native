@@ -148,6 +148,52 @@ describe("buildExtensionHtml", () => {
       "new URLSearchParams(location.search).get('slot') || window.parent !== window",
     );
     expect(html).toContain("agent-native-extension-resize");
+    expect(html).not.toContain("min-height: 100vh");
+    expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
+    expect(html).toContain("bodyRect.height - paddingBottom");
+    expect(html).toContain("body.querySelectorAll('*')");
+    expect(html).toContain("style.overflowY");
+    expect(html).toContain("auto|scroll|overlay|hidden|clip");
+    expect(html).toContain("style.position === 'fixed'");
+    expect(html).toContain("style.position === 'absolute'");
+    expect(html).toContain("requestAnimationFrame");
+    expect(html).toContain("_positionObservationScheduled");
+    expect(html).toContain("_schedulePositionObservation");
+    expect(html).toContain("_positionMonitorActive");
+    expect(html).toContain("_activeCssMotionCount");
+    expect(html).toContain("_animationProbeTimer");
+    expect(html).toContain("document.getAnimations()");
+    expect(html).toContain("_positionedElements.forEach");
+    expect(html).toContain("_motionElements.forEach");
+    expect(html).toContain("_watchAnimationCompletion");
+    expect(html).toContain("Element.prototype.animate");
+    expect(html).toContain("document.addEventListener('animationend'");
+    expect(html).toContain("document.addEventListener('transitionend'");
+    expect(html).not.toContain(
+      "document.addEventListener('animationiteration'",
+    );
+    expect(html).toContain("_positionMonitorFramesRemaining");
+    expect(html).toContain("document.addEventListener('transitionstart'");
+    expect(html).toContain("new MutationObserver");
+    expect(html).not.toContain("document.createTreeWalker(body, 4");
+    expect(html).not.toContain("range.getClientRects()");
+    const reportStart = html.indexOf("var _reportHeight = function()");
+    const reportEnd = html.indexOf(
+      "window.addEventListener('scroll', _scheduleResizeWork",
+      reportStart,
+    );
+    expect(reportStart).toBeGreaterThanOrEqual(0);
+    expect(reportEnd).toBeGreaterThan(reportStart);
+    expect(html.slice(reportStart, reportEnd)).toContain(
+      "_measurePositionedContent",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "querySelectorAll('*')",
+    );
+    expect(html.slice(reportStart, reportEnd)).not.toContain(
+      "document.createTreeWalker(body, 4)",
+    );
+    expect(html).not.toContain("body.scrollHeight");
   });
 
   it("serializes authenticated extension binding metadata", () => {

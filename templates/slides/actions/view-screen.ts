@@ -96,7 +96,7 @@ function getCurrentSlideFitMeasurement(
 export default defineAction({
   title: "Inspect current Slides screen",
   description:
-    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1; do not load the full deck for that path.",
+    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1. When a selected element has an objectId but no exact selectedText, use that objectId with one update-slide replace edit to change only its inner content; do not load the full deck for either focused path.",
   schema: z.object({}),
   http: false,
   run: async (_args) => {
@@ -304,14 +304,26 @@ export default defineAction({
               ? `   (matches currentSlideId)`
               : `   (differs from currentSlideId ${currentSlide?.id ?? "(none)"} — use selectionSlideId, the slide this selection was made on)`),
         );
+        if (selectionSlide.id !== currentSlide?.id) {
+          lines.push(
+            `selectionSlideContentHash: ${hashSlideContent(String(selectionSlide.content ?? ""))}   ← use as baseContentHash with selectionSlideId`,
+          );
+        }
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {
           for (const [index, item] of selection.items.entries()) {
+            const isImageSelection =
+              item.kind === "image" || item.tagName?.toLowerCase() === "img";
             lines.push(
               `selected ${index + 1}: ${item.kind ?? "element"} ${item.tagName ?? ""} selector=${item.selector ?? "(none)"}`,
             );
-            if (item.objectId) lines.push(`objectId: ${item.objectId}`);
+            if (item.objectId && !isImageSelection) {
+              lines.push(`objectId: ${item.objectId}`);
+              lines.push(
+                "objectIdStatus: stable selected-element target; use it with one update-slide replace edit when selectedText is unavailable",
+              );
+            }
             if (item.runtimeSelector) {
               lines.push(`runtimeSelector: ${item.runtimeSelector}`);
             }
@@ -321,15 +333,21 @@ export default defineAction({
                 "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
               );
             }
-            if (item.text) {
+            if (isImageSelection) {
+              lines.push(
+                "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
+              );
+            } else if (item.text) {
               lines.push(`text: ${item.text}`);
               if (!item.selectedText) {
                 lines.push(
-                  item.textTruncated === true
-                    ? `textStatus: element preview may be truncated; use get-deck with slideId=${selectionSlide.id} before editing`
-                    : item.textTruncated === false
-                      ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${selectionSlide.id} before editing`
-                      : `textStatus: element preview status unknown; use get-deck with slideId=${selectionSlide.id} before editing`,
+                  item.objectId
+                    ? "textStatus: element preview is not an exact browser-range selection; use objectId with update-slide for an element-only replacement"
+                    : item.textTruncated === true
+                      ? `textStatus: element preview may be truncated; use get-deck with slideId=${selectionSlide.id} before editing`
+                      : item.textTruncated === false
+                        ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${selectionSlide.id} before editing`
+                        : `textStatus: element preview status unknown; use get-deck with slideId=${selectionSlide.id} before editing`,
                 );
               } else {
                 lines.push(

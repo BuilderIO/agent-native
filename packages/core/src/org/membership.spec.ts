@@ -97,4 +97,12 @@ describe("isMissingOrganizationTableError", () => {
 
     expect(isMissingOrganizationTableError(error)).toBe(true);
   });
+
+  it("recognizes a missing org-members relation", () => {
+    expect(
+      isMissingOrganizationTableError(
+        new Error('relation "org_members" does not exist'),
+      ),
+    ).toBe(true);
+  });
 });

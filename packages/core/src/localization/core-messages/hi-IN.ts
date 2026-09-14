@@ -68,6 +68,32 @@ const messages: AgentChatTranslation = {
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
+  "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
+  "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
+  "onboarding.capability.voiceInput.keySummary":
+    "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
+  "onboarding.capability.voiceInput.why":
+    "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
+  "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
+  "onboarding.capability.assetsImageGeneration.why":
+    "इमेज जनरेशन ब्रांडेड एसेट बनाने का मुख्य वर्कफ़्लो है।",
+  "onboarding.capability.assetsVideoGeneration.label": "वीडियो जनरेशन",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "Gemini API कुंजी",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "वीडियो जनरेशन वैकल्पिक है; Assets का मुख्य वर्कफ़्लो इमेज जनरेशन है।",
+  "onboarding.capability.clipsObjectStorage.label": "ऑब्जेक्ट स्टोरेज",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.clipsObjectStorage.why":
+    "रिकॉर्ड किए गए वीडियो को चलाने या साझा करने से पहले टिकाऊ ऑब्जेक्ट स्टोरेज की आवश्यकता होती है।",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "स्पीच-टू-टेक्स्ट प्रदाता की कुंजी",
+  "onboarding.capability.about": "{{label}} के बारे में",
+  "onboarding.capability.why": "{{label}} क्यों आवश्यक है",
+  "onboarding.openAiKeySettings": "AI कुंजी सेटिंग खोलें",
   "aboutAgentNative.title": "Agent-Native के बारे में",
   "aboutAgentNative.version": "संस्करण",
   "aboutAgentNative.environment": "पर्यावरण",
@@ -112,6 +138,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "इस चैट का उपयोग करने के लिए Desktop खोलें।",
   "composer.removeAttachment": "{{name}} हटाएँ",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
+  "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",
   "composer.subAgentReadOnly":
     "ऑर्केस्ट्रेटर चैट को संदेश भेजें — यह सब-एजेंट अपने-आप चलता है",
@@ -140,6 +167,7 @@ const messages: AgentChatTranslation = {
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
   "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
   "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
@@ -264,7 +292,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "यह ब्राउज़र रीयल-टाइम वॉइस बातचीत का समर्थन नहीं करता।",
   "voiceMode.hideChat": "चैट छिपाएँ",
-  "voiceMode.keepDictating": "बोलकर लिखें",
+  "voiceMode.keepDictating": "संदेश बोलकर लिखें",
   "voiceMode.promptDescription":
     "जब एजेंट नेविगेट करता है और कार्रवाई करता है, तब वॉइस मोड सुनता रहता है।",
   "voiceMode.promptTitle": "अपनी आवाज़ का उपयोग करें",
@@ -306,7 +334,7 @@ const messages: AgentChatTranslation = {
     "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
-  "voiceMode.start": "रीयल-टाइम वॉइस",
+  "voiceMode.start": "वॉइस चैट शुरू करें",
   "voiceMode.startWithOpenAiKey": "OpenAI कुंजी से शुरू करें",
   "voiceMode.status.connecting": "कनेक्ट किया जा रहा है",
   "voiceMode.status.ending": "वॉइस मोड समाप्त हो रहा है",
@@ -351,6 +379,8 @@ const messages: AgentChatTranslation = {
     "मॉडल प्रदाता तक पहुँचा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
   "errorMessages.providerRateLimit":
     "मॉडल प्रदाता अभी इस चैट की अनुरोध दर सीमित कर रहा है। कुछ देर रुकें, फिर से प्रयास करें।",
+  "errorMessages.providerTransientRejection":
+    "AI प्रदाता ने इस अनुरोध को अस्थायी रूप से अस्वीकार कर दिया। यह आमतौर पर एक मिनट के भीतर ठीक हो जाता है — फिर से प्रयास करें।",
   "errorMessages.startNewChat": "नई चैट शुरू करें",
   "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
   "feedback.inaccurate": "गलत जानकारी",
@@ -374,6 +404,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "integrations.availableSection": "उपलब्ध इंटीग्रेशन",
+  "integrations.connectedSection": "कनेक्ट किए गए",
+  "integrations.goToApiKeys": "API कुंजियों पर जाएं",
+  "integrations.goToIntegrations": "इंटीग्रेशन पर जाएं",
+  "integrations.lookingForApiKeys": "इसके बजाय API कुंजी ढूंढ रहे हैं?",
+  "integrations.lookingForProviders": "OAuth या MCP प्रदाता ढूंढ रहे हैं?",
+  "integrations.manage": "प्रबंधित करें",
+  "integrations.recommended": "अनुशंसित",
+  "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -481,6 +520,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "कतार से हटाएँ",
   "queue.sendNow": "अभी भेजें",
   "queue.sendNowHint": "अभी भेजें (मौजूदा जवाब रुक जाएगा)",
+  "queue.steer": "दिशा दें",
+  "queue.steerHint": "यह संदेश अगला भेजें",
+  "queue.moreActions": "अन्य कार्रवाइयाँ",
+  "queue.moveToTop": "सबसे ऊपर ले जाएँ",
   "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
@@ -501,6 +544,32 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "पिछला एजेंट स्ट्रीम रन की रिकवरी के दौरान समाप्त हो गया। रन से दोबारा जुड़ने के लिए जारी रखें या फिर प्रयास करें।",
   "recovery.reconnectBuilder": "Builder.io को दोबारा कनेक्ट करें",
+  "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
+  "secrets.chooseKey": "कुंजी चुनें",
+  "secrets.customKey": "कस्टम कुंजी",
+  "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
+  "secrets.emptyHint": "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
+  "secrets.emptyMore":
+    "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
+  "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
+  "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
+  "secrets.managedInVault":
+    "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",
+  "secrets.openVault": "Vault खोलें",
+  "secrets.newKey": "नया",
+  "secrets.noKeysFound": "कोई कुंजी नहीं मिली।",
+  "secrets.overridesVault":
+    "यह पर्सनल कुंजी वर्कस्पेस के Vault वैल्यू को ओवरराइड करती है। Vault कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.overridesWorkspace":
+    "यह पर्सनल कुंजी वर्कस्पेस वैल्यू को ओवरराइड करती है। शेयर की गई कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.setForWorkspace": "इस वर्कस्पेस में सभी के लिए सेट है।",
+  "secrets.sourceEnvironment": "एनवायरनमेंट",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "वर्कस्पेस",
+  "secrets.statusUnavailable": "अनुपलब्ध",
+  "secrets.required": "आवश्यक",
+  "secrets.searchKeys": "कुंजियां खोजें...",
+  "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",

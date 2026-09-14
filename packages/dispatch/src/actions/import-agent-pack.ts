@@ -13,6 +13,7 @@ import {
 } from "../lib/agent-pack.js";
 import { validateImportedAgentTools } from "../lib/simple-agent-profile.js";
 import { applyAgentPackCreate } from "../server/lib/agent-pack-store.js";
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import {
   createApprovalRequest,
   getApprovalPolicy,
@@ -60,6 +61,7 @@ function availableToolNames(dispatchToolNames: string[]): Set<string> {
 export default defineAction({
   description:
     "Import a folder-backed agent pack from Claude, Cowork, or another agent tool. The pack can include a Markdown/JSON profile, context, references, and skills. Credentials, hooks, shell commands, and local environment settings are never imported.",
+  authorize: authorizeDispatchAdmin,
   schema,
   run: async ({ files, scope }) => {
     const normalized = normalizeAgentPack(files as AgentPackFileInput[]);

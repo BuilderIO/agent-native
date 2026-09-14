@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import { getReviewCommentById, setReviewCommentReaction } from "../store.js";
 
@@ -20,18 +20,30 @@ export default defineAction({
       ctx as any,
       "commenter",
     );
-    const comment = await getReviewCommentById(args.commentId, {
-      userEmail: (ctx as any)?.userEmail,
-      orgId: (ctx as any)?.orgId,
-    });
+    const comment = await getReviewCommentById(
+      args.commentId,
+      {
+        userEmail: (ctx as any)?.userEmail,
+        orgId: (ctx as any)?.orgId,
+      },
+      { bypassScope: true },
+    );
     if (
       !comment ||
+      comment.status === "deleted" ||
       comment.resourceType !== args.resourceType ||
       comment.resourceId !== args.resourceId
     )
-      throw new Error("Review comment not found");
+      fail("Review comment not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
     const actorEmail = (ctx as any)?.userEmail;
-    if (!actorEmail) throw new Error("A signed-in actor is required");
+    if (!actorEmail)
+      fail("A signed-in actor is required", {
+        statusCode: 401,
+        errorCode: "unauthenticated",
+      });
     return setReviewCommentReaction({
       commentId: comment.id,
       actorEmail,

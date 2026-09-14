@@ -13,7 +13,20 @@ export default defineConfig({
 });
 ```
 
+產生的 Chat scaffold 仍然匯入 `agentNative`。設定會透過型別斷言將它指派給本機別名
+`agentNativePlugins`，再展開傳回的外掛陣列，以配合 Vite 套件型別。此別名接受與上方
+`agentNative` 範例相同的選項。若要將此 scaffold 部署至 Netlify，請在現有
+`agentNativePlugins({ ... })` 呼叫的選項中加入 `nitro: { preset: "netlify" }`。保留其他
+Chat 專用外掛、選項與別名。
+
 ……或者在建置時設定 `NITRO_PRESET=netlify`。
+
+對於獨立應用程式，請建置 Netlify 輸出並部署靜態資源與函式：
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
 
 對於工作區，執行以下指令，從一個 Netlify 網站部署每個應用程式：
 

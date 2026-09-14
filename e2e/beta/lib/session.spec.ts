@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import {
   hasSessionCredentials,
   sessionFailureReason,
   sessionTokenFor,
   shouldRetrySessionExchange,
 } from "./session";
+
+test("requires the +autoz marker for automated QA identities", () => {
+  assert.equal(isAutozQaEmail("qa+autoz-run@example.com"), true);
+  assert.equal(isAutozQaEmail("qa+qa-test-bot-run@example.com"), false);
+  assert.equal(isAutozQaEmail("qa@example.com"), false);
+});
 
 test("retries transient server failures but not final or client responses", () => {
   assert.equal(shouldRetrySessionExchange(502, 1), true);

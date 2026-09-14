@@ -183,6 +183,14 @@ describe("view-screen", () => {
           selectedText: "Text",
           textTruncated: false,
         },
+        {
+          selector: '[data-slide-object-id="object-2"]',
+          objectId: "object-2",
+          kind: "element",
+          tagName: "div",
+          text: "Other text",
+          textTruncated: false,
+        },
       ],
     };
 
@@ -199,6 +207,12 @@ describe("view-screen", () => {
     );
     expect(result).toContain(
       "textStatus: element preview; use selectedText for a literal replacement",
+    );
+    expect(result).toContain(
+      "objectIdStatus: stable selected-element target; use it with one update-slide replace edit when selectedText is unavailable",
+    );
+    expect(result).toContain(
+      "textStatus: element preview is not an exact browser-range selection; use objectId with update-slide for an element-only replacement",
     );
   });
 
@@ -295,7 +309,48 @@ describe("view-screen", () => {
     expect(result).toContain("### Current visual selection");
     expect(result).toContain("selectionSlideId: slide-b");
     expect(result).toContain("differs from currentSlideId slide-a");
+    expect(result).toContain(
+      `selectionSlideContentHash: ${hashSlideContent("<h1>The 4-Step Journey</h1>")}`,
+    );
     expect(result).toContain("selectedText: 4-Step");
+  });
+
+  it("routes image selections away from text replacement", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Image deck",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-a",
+              content: '<img data-slide-object-id="image-1" />',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-a",
+      mode: "box-selected",
+      items: [
+        {
+          selector: '[data-slide-object-id="image-1"]',
+          objectId: "image-1",
+          kind: "image",
+          tagName: "img",
+        },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("objectId: image-1");
+    expect(result).toContain(
+      "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
+    );
   });
 
   it("does not surface a selection left over from a different deck", async () => {

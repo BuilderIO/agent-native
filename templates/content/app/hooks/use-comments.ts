@@ -30,11 +30,12 @@ export interface Comment {
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
-  actorKind?: "human" | "agent" | null;
   resolved: number;
   created_at: string;
   updated_at: string;
   notion_comment_id: string | null;
+  submission_source?: string | null;
+  submission_run_id?: string | null;
   mutation?: CommentMutationState;
 }
 
@@ -70,6 +71,7 @@ interface UpdateMutationContext extends MutationContext {
 }
 
 export interface CreateCommentVariables {
+  clientOperationId?: string;
   documentId: string;
   content: string;
   threadId?: string;
@@ -108,7 +110,6 @@ type ActiveCommentOperation =
       error?: Error;
       ambiguous?: boolean;
       comment: Comment;
-      existingIds: Set<string>;
     }
   | {
       operationId: string;
@@ -198,21 +199,9 @@ function matchesCreatedComment(
   comment: Comment,
   operation: Extract<ActiveCommentOperation, { kind: "create" }>,
 ): boolean {
-  const optimistic = operation.comment;
   return (
-    comment.id !== optimistic.id &&
-    !operation.existingIds.has(comment.id) &&
-    comment.document_id === optimistic.document_id &&
-    comment.thread_id ===
-      (optimistic.parent_id ? optimistic.thread_id : comment.id) &&
-    comment.parent_id === optimistic.parent_id &&
-    comment.author_email === optimistic.author_email &&
-    comment.content === optimistic.content &&
-    comment.quoted_text === optimistic.quoted_text &&
-    comment.anchor_prefix === optimistic.anchor_prefix &&
-    comment.anchor_suffix === optimistic.anchor_suffix &&
-    comment.anchor_start_offset === optimistic.anchor_start_offset &&
-    JSON.stringify(comment.mentions) === JSON.stringify(optimistic.mentions)
+    comment.id === operation.operationId &&
+    comment.document_id === operation.comment.document_id
   );
 }
 
@@ -280,10 +269,7 @@ function commentQueryKey(documentId: string): CommentQueryKey {
 }
 
 function mutationId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `comment-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
+  return globalThis.crypto.randomUUID();
 }
 
 function commentsFrom(response: CommentListResponse | undefined): Comment[] {
@@ -347,10 +333,10 @@ function isAmbiguousCreateError(error: Error): boolean {
   const timedOut = (error as Error & { timedOut?: unknown }).timedOut;
   return (
     timedOut === true ||
-    typeof status !== "number" ||
-    status === 502 ||
-    status === 503 ||
-    status === 504
+    (typeof status === "number"
+      ? status < 400 || status === 408 || status >= 500
+      : error.message.startsWith("Action add-comment failed:") ||
+        error.name === "AbortError")
   );
 }
 
@@ -370,15 +356,7 @@ function groupCommentThreads(data: unknown): CommentThread[] {
     data && typeof data === "object" && "comments" in data
       ? (data as { comments?: unknown }).comments
       : data;
-  const comments: Comment[] = Array.isArray(raw)
-    ? raw.map((value) => {
-        const comment = value as Comment & { actor_kind?: unknown };
-        const actorKind = comment.actorKind ?? comment.actor_kind;
-        return actorKind === "human" || actorKind === "agent"
-          ? { ...comment, actorKind }
-          : comment;
-      })
-    : [];
+  const comments: Comment[] = Array.isArray(raw) ? raw : [];
   const threadMap = new Map<string, CommentThread>();
   for (const comment of comments) {
     if (!threadMap.has(comment.thread_id)) {
@@ -433,9 +411,8 @@ export function useCreateComment(author: CommentAuthor = {}) {
     onMutate: async (variables) => {
       const queryKey = commentQueryKey(variables.documentId);
       await queryClient.cancelQueries({ queryKey, exact: true });
-      const operationId = mutationId();
+      const operationId = (variables.clientOperationId ??= mutationId());
       const temporaryId = `optimistic-${operationId}`;
-      const current = queryClient.getQueryData<CommentListResponse>(queryKey);
       const now = new Date().toISOString();
       const optimistic: Comment = {
         id: temporaryId,
@@ -453,11 +430,12 @@ export function useCreateComment(author: CommentAuthor = {}) {
             : parsedMentions(variables.mentions),
         author_email: author.email?.trim() ?? "",
         author_name: authorName(author),
-        actorKind: "human",
         resolved: 0,
         created_at: now,
         updated_at: now,
         notion_comment_id: null,
+        submission_source: "frontend",
+        submission_run_id: null,
         mutation: { operationId, kind: "create", status: "pending" },
       };
       documentOperations(queryClient, variables.documentId).set(operationId, {
@@ -466,7 +444,6 @@ export function useCreateComment(author: CommentAuthor = {}) {
         kind: "create",
         status: "pending",
         comment: optimistic,
-        existingIds: new Set(commentsFrom(current).map(({ id }) => id)),
       });
       queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
         updateComments(response, (comments) => [...comments, optimistic]),
@@ -650,7 +627,7 @@ function useOptimisticCommentUpdate<
               : operation.targetIds.some((targetId) =>
                   affectedIds.includes(targetId),
                 );
-          if (overlaps) operations.delete(id);
+          if (overlaps && operation.kind === kind) operations.delete(id);
         }
         if (kind === "edit") {
           const editVariables = variables as EditCommentVariables;
@@ -716,6 +693,16 @@ function useOptimisticCommentUpdate<
                     ? comment.id === operation.targetId
                     : operation.targetIds.includes(comment.id);
                 if (!targeted) return comment;
+                const newerOperation = [...operations.values()].some(
+                  (candidate) =>
+                    candidate.kind === operation.kind &&
+                    candidate.sequence > operation.sequence &&
+                    operationTargetIds(candidate).includes(comment.id),
+                );
+                const otherSameKindMarker =
+                  comment.mutation?.kind === operation.kind &&
+                  comment.mutation.operationId !== operation.operationId;
+                if (newerOperation || otherSameKindMarker) return comment;
                 const updated =
                   operation.kind === "edit"
                     ? {
@@ -753,21 +740,43 @@ function useOptimisticCommentUpdate<
           (response) =>
             updateComments(response, (comments) =>
               comments.map((comment) => {
-                if (comment.mutation?.operationId !== context.operationId) {
+                const prior = context.before.get(comment.id);
+                if (!prior || !operation || operation.kind === "create") {
                   return comment;
                 }
-                const prior = context.before.get(comment.id);
-                return prior
-                  ? {
-                      ...prior,
-                      mutation: {
-                        operationId: context.operationId,
-                        kind,
-                        status: "error",
-                        error,
-                      },
-                    }
-                  : comment;
+                const marker = comment.mutation;
+                const newerSameKind =
+                  marker &&
+                  marker.operationId !== context.operationId &&
+                  marker.kind === kind;
+                const stillOwnsFields =
+                  operation.kind === "edit"
+                    ? comment.content === operation.content &&
+                      (operation.mentions === undefined ||
+                        JSON.stringify(comment.mentions) ===
+                          JSON.stringify(operation.mentions))
+                    : comment.resolved === operation.resolved;
+                if (newerSameKind || !stillOwnsFields) return comment;
+                const restored =
+                  operation.kind === "edit"
+                    ? {
+                        ...comment,
+                        content: prior.content,
+                        mentions: prior.mentions,
+                      }
+                    : { ...comment, resolved: prior.resolved };
+                return {
+                  ...restored,
+                  mutation:
+                    marker && marker.operationId !== context.operationId
+                      ? marker
+                      : {
+                          operationId: context.operationId,
+                          kind,
+                          status: "error",
+                          error,
+                        },
+                };
               }),
             ),
         );

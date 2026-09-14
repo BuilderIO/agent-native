@@ -12,6 +12,7 @@ import {
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,
   browserDocsLocale,
+  docsLocaleFromSegment,
   docsLocaleOptionLabel,
   sitePathForLocale,
   type DocsLocale,
@@ -81,7 +82,9 @@ export function LanguagePicker(props: LanguagePickerProps) {
 
   function localeForPreference(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
-    return nextPreference === "system" ? systemLocale : nextPreference;
+    return nextPreference === "system"
+      ? systemLocale
+      : (docsLocaleFromSegment(nextPreference) ?? systemLocale);
   }
 
   function hrefForPreference(value: string) {

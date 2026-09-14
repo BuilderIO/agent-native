@@ -1,11 +1,15 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { applyDreamProposal } from "../server/lib/dreams-store.js";
+import {
+  applyDreamProposal,
+  authorizeDreamProposalMutation,
+} from "../server/lib/dreams-store.js";
 
 export default defineAction({
   description:
     "Apply one pending Dispatch dream proposal. Personal memory applies directly; shared LEARNINGS.md and workspace resource proposals queue an approval request when approval policy is enabled.",
+  authorize: authorizeDreamProposalMutation,
   schema: z.object({
     id: z.string().min(1).describe("Dream proposal id."),
   }),

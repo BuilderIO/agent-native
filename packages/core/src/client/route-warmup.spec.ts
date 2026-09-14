@@ -8,8 +8,10 @@ const {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
+  isClientRouteUrl,
   parseBuildTimeRouteWarmupConfig,
   dataRouteUrlForHref,
+  dataRouteUrlsForHref,
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
@@ -44,6 +46,68 @@ describe("route warmup runtime helpers", () => {
     window.__reactRouterContext = { basename: "/dispatch" };
     expect(new URL(dataRouteUrlForHref("/dispatch")!).pathname).toBe(
       "/dispatch/_.data",
+    );
+  });
+
+  it("matches React Router's per-loader data URLs, including index routes", () => {
+    window.__reactRouterManifest = {
+      routes: {
+        root: {
+          id: "root",
+          path: "",
+          hasLoader: true,
+        },
+        docs: {
+          id: "docs",
+          parentId: "root",
+          path: "docs",
+        },
+        "routes/docs._index": {
+          id: "routes/docs._index",
+          parentId: "docs",
+          index: true,
+          hasLoader: true,
+          clientLoaderModule: "/assets/docs._index.js",
+        },
+        "routes/docs.$slug": {
+          id: "routes/docs.$slug",
+          parentId: "docs",
+          path: ":slug",
+          hasLoader: true,
+          clientLoaderModule: "/assets/docs.$slug.js",
+        },
+      },
+    };
+
+    expect(
+      dataRouteUrlsForHref("/docs/?tab=cloud").map((href) => {
+        const url = new URL(href);
+        return `${url.pathname}?${url.searchParams.toString()}`;
+      }),
+    ).toEqual([
+      "/docs/_.data?tab=cloud&_routes=root",
+      "/docs/_.data?tab=cloud&_routes=routes%2Fdocs._index",
+    ]);
+
+    expect(
+      dataRouteUrlsForHref("/docs/getting-started?tab=cloud").map((href) => {
+        const url = new URL(href);
+        return `${url.pathname}?${url.searchParams.toString()}`;
+      }),
+    ).toEqual([
+      "/docs/getting-started.data?tab=cloud&_routes=root",
+      "/docs/getting-started.data?tab=cloud&_routes=routes%2Fdocs.%24slug",
+    ]);
+
+    expect(
+      new URL(dataRouteUrlsForHref("/docs/?index")[0]!).searchParams.has(
+        "index",
+      ),
+    ).toBe(false);
+
+    window.__reactRouterContext = { basename: "/dispatch" };
+    expect(new URL(dataRouteUrlsForHref("/dispatch/docs/")[0]!).pathname).toBe(
+      "/dispatch/docs/_.data",
     );
   });
 
@@ -114,6 +178,17 @@ describe("route warmup runtime helpers", () => {
       "/assets/docs._index-DNb8kxCk.js",
       "/assets/MarkdownRenderer-ri6QZniN.js",
     ]);
+    expect(isClientRouteUrl(new URL("/docs", window.location.origin))).toBe(
+      true,
+    );
+    expect(
+      isClientRouteUrl(new URL("/not-a-route", window.location.origin)),
+    ).toBe(false);
+    expect(
+      isClientRouteUrl(
+        new URL("/cdn-cgi/l/email-protection", window.location.origin),
+      ),
+    ).toBe(false);
   });
 
   it("does not warm dev source module ids from the route manifest", () => {

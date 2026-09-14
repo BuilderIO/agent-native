@@ -86,6 +86,7 @@ import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
+  parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
@@ -215,7 +216,8 @@ export interface MCPConfig {
  */
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
-  orgId?: string | undefined;
+  /** Omitted means no recorded scope; null means explicit Personal scope. */
+  orgId?: string | null;
   orgDomain: string | undefined;
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthScopes?: string[];
@@ -1939,6 +1941,9 @@ export async function createMCPServerForRequest(
       {
         userEmail: effectiveIdentity?.userEmail,
         orgId,
+        ...(effectiveIdentity?.orgId === null
+          ? { orgScope: "personal" as const }
+          : {}),
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
         ...(mcpRequestId ? { mcpRequestId } : {}),
       },
@@ -2383,8 +2388,9 @@ export async function createMCPServerForRequest(
             Array.isArray(toolVisibility) &&
             toolVisibility.length > 0 &&
             toolVisibility.every((v) => v === "app");
-          const readOnlyStructuredResult =
-            entry.readOnly === true &&
+          const structuredResult =
+            (entry.readOnly === true ||
+              entry.mcpApp?.structuredContent === true) &&
             rawResultForClient &&
             typeof rawResultForClient === "object"
               ? Array.isArray(rawResultForClient)
@@ -2398,11 +2404,8 @@ export async function createMCPServerForRequest(
                 typeof rawResult === "object" &&
                 !Array.isArray(rawResult)
               ? (rawResult as Record<string, unknown>)
-              : readOnlyStructuredResult
-                ? mcpAppStructuredContent(
-                    readOnlyStructuredResult,
-                    responseMeta,
-                  )
+              : structuredResult
+                ? mcpAppStructuredContent(structuredResult, responseMeta)
                 : undefined;
           const text = mcpAppResource
             ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
@@ -2782,17 +2785,47 @@ async function isConnectTokenAllowed(
   return true;
 }
 
+type ConnectTokenOrgResolution =
+  | { status: "claimed"; orgId: string | null }
+  | { status: "found"; orgId: string | null }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
+async function resolveConnectTokenOrgId(
+  jti: string | undefined,
+  claimedOrgId: string | null | undefined,
+): Promise<ConnectTokenOrgResolution> {
+  if (claimedOrgId !== undefined) {
+    return { status: "claimed", orgId: claimedOrgId };
+  }
+  if (!jti) return { status: "missing" };
+  const { lookupConnectTokenOrg } = await import("./connect-store.js");
+  return lookupConnectTokenOrg(jti);
+}
+
+function orgIdFromConnectTokenResolution(
+  resolution: ConnectTokenOrgResolution,
+): string | null | undefined {
+  if (resolution.status === "claimed") return resolution.orgId;
+  if (resolution.status === "found") {
+    return resolution.orgId;
+  }
+  return undefined;
+}
+
 /**
  * Verify the inbound auth header. Returns:
  *   - { authed: true, identity } when verified — `identity` is derived from
- *     the JWT (`sub` / `org_domain`) for JWT auth, or from the
+ *     the JWT (`sub` / `org_domain`) for JWT auth, with stored org scope for
+ *     legacy connect tokens; or from the
  *     `AGENT_NATIVE_OWNER_EMAIL` env / `X-Agent-Native-Owner-Email` header
  *     for static-token auth (the `agent-native mcp install` flow). `identity`
  *     is undefined only for true dev-open with no owner hint.
  *   - { authed: false } on rejection.
  *
  * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
- * `org_domain` claims so the MCP endpoint can wrap tool runs in
+ * `org_domain` claims, with a stored-org fallback for legacy connect tokens,
+ * so the MCP endpoint can wrap tool runs in
  * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
  * MCP endpoint loses tenant identity and downstream `accessFilter` /
  * `resolveCredential` calls fall back to platform-wide defaults.
@@ -2844,11 +2877,21 @@ export async function verifyAuth(
       ) {
         return { authed: false };
       }
+      const orgResolution = await resolveConnectTokenOrgId(
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+          ? oauthIdentity.jti
+          : undefined,
+        oauthIdentity.orgId,
+      );
+      if (orgResolution.status === "unavailable") {
+        return { authed: false };
+      }
+      const orgId = orgIdFromConnectTokenResolution(orgResolution);
       return {
         authed: true,
         identity: {
           userEmail: oauthIdentity.userEmail,
-          ...(oauthIdentity.orgId ? { orgId: oauthIdentity.orgId } : {}),
+          ...(orgId !== undefined ? { orgId } : {}),
           orgDomain: oauthIdentity.orgDomain,
           oauthScopes: oauthIdentity.scopes,
           oauthClientId: oauthIdentity.clientId,
@@ -2899,6 +2942,19 @@ export async function verifyAuth(
       }
     }
 
+    const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
+    if (!orgIdClaim) return { authed: false };
+    const orgResolution = await resolveConnectTokenOrgId(
+      tokenScope === MCP_CONNECT_SCOPE
+        ? (payload.jti as string | undefined)
+        : undefined,
+      orgIdClaim.orgId,
+    );
+    if (orgResolution.status === "unavailable") {
+      return { authed: false };
+    }
+    const orgId = orgIdFromConnectTokenResolution(orgResolution);
+
     return {
       authed: true,
       identity: {
@@ -2906,10 +2962,9 @@ export async function verifyAuth(
         // Org SERVICE tokens (connect-minted, synthetic `svc-*@service.<org>`
         // subject) carry the org id directly as an `org_id` claim so the
         // resolved identity is org-scoped even when the org has no domain
-        // mapping. Personal/delegation JWTs don't set the claim — unchanged.
-        ...(typeof payload.org_id === "string" && payload.org_id
-          ? { orgId: payload.org_id as string }
-          : {}),
+        // mapping. Legacy connect JWTs use their stored org scope when that
+        // claim is absent; ordinary personal/delegation JWTs are unchanged.
+        ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
@@ -2983,7 +3038,7 @@ export async function resolveOrgIdFromDomain(
 export async function resolveMcpIdentityOrgId(
   identity: MCPCallerIdentity | undefined,
 ): Promise<string | undefined> {
-  if (identity?.orgId) return identity.orgId;
+  if (identity?.orgId !== undefined) return identity.orgId ?? undefined;
 
   const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
   if (orgIdFromDomain) return orgIdFromDomain;

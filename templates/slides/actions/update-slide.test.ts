@@ -150,6 +150,15 @@ beforeEach(() => {
 });
 
 describe("update-slide", () => {
+  it("uses a full-content repair for verified layout overflow", () => {
+    expect(action.tool.description).toContain(
+      "verified layout overflow: call get-deck with slideId",
+    );
+    expect(action.tool.description).toContain(
+      "one fullContent repair with baseContentHash",
+    );
+  });
+
   it("always advances a millisecond deck revision", () => {
     const revision = "2026-01-01T00:00:00.000Z";
     expect(nextDeckRevision(revision, new Date(revision))).toBe(
@@ -240,6 +249,61 @@ describe("update-slide", () => {
     expect(mockGetGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("replaces a selected object through the compact WebMCP input", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1 data-slide-object-id="title" style="color:red">Old</h1></div>',
+        },
+      ],
+    });
+
+    const result = await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        objectId: "title",
+        replace: "New",
+      },
+      { caller: "webmcp" },
+    );
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide" style="padding: 64px 80px;"><h1 data-slide-object-id="title" style="color:red">New</h1></div>',
+    );
+  });
+
+  it("rejects a compact object edit without an explicit replacement", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        objectId: "title",
+      }),
+    ).rejects.toThrow("Legacy --objectId requires --replace");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects a legacy find edit without an explicit replacement", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "Old",
+      }),
+    ).rejects.toThrow("Legacy --find requires --replace");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
   it("preserves dismissed overflow warnings for human content edits", async () => {

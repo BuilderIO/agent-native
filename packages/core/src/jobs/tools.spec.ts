@@ -460,6 +460,24 @@ describe("manage-jobs tool", () => {
       expect(putContent).toContain("displayName: Inbox digest");
     });
 
+    it("rejects an invalid execution host id without rewriting the job", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
+      const out = JSON.parse(
+        await run({
+          action: "update",
+          name: "j",
+          executionHostId: "not a host",
+        }),
+      );
+      expect(out.error).toMatch(/Execution host IDs/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
     it("rejects event-triggered resources without rewriting them", async () => {
       resourceGetByPathMock.mockResolvedValueOnce({
         id: "r1",

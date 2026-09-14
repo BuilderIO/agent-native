@@ -630,7 +630,11 @@ export function PeopleAccessSection({
             ? first
             : t("shareUi.othersCount", { count: rest.length, email: first })
       }
-      meta={open && first ? firstRole : t("shareUi.canAccess")}
+      meta={
+        first && (open || rest.length === 0)
+          ? firstRole
+          : t("shareUi.canAccess")
+      }
       disabled={sharesQuery.isLoading}
       open={open}
       onOpenChange={setOpen}

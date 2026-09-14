@@ -126,6 +126,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => mockGetUserEmail(),
   getRequestOrgId: () => mockGetOrgId(),
   getRequestRunContext: () => mockGetRequestRunContext(),

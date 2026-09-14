@@ -5,6 +5,7 @@ export {
   resolveSlidesCanvasDragTarget,
   resolveSlidesCanvasNudge,
   resolveSlidesCanvasPointerIntent,
+  resolveSlidesCanvasRotation,
   slidesCanvasInteractionCore,
   SLIDES_CANVAS_EDGE_MOVE_BAND,
   type SlidesCanvasHtmlMutationAdapter,

@@ -21,14 +21,18 @@ contract is evidence-first and reply-producing:
   state.
 - Check the existing Slack reaction marker and owner before any write.
   Preserve an existing marker; if reactions cannot be read, do not guess or
-  add one. Do not react to or dispatch Design UX/interaction work (Sid) or
-  any Content work (Alice); record the owner instead.
-- For an actionable repo-owned Slack item with no existing marker, pass
-  \`reaction: robot_face\` 🤖 on \`dispatch-factory-item\`. Every parent this run
-  marks must later receive a verified @agent-native Fixed, In progress, or
-  Clarification needed reply; a reaction, forward, generic acknowledgement,
-  or another person's reply is not a disposition. Group only genuinely
-  repeated symptoms and dispatch one Builder thread for the cluster.
+  add one. If the parent already has eyes 👀, call \`dispatch-factory-item\`
+  with \`alreadyClaimed: true\` (\`clearBug\` may be omitted or \`false\`),
+  omit reaction, and do not start Builder work. Do not react to or dispatch
+  Design UX/interaction work (Sid) or any Content work (Alice); record the
+  owner instead.
+- For an actionable repo-owned Slack clear bug with no existing eyes 👀,
+  you MUST pass \`reaction: eyes\` 👀 on \`dispatch-factory-item\` — never
+  dispatch a clear bug without it. Every parent this run marks must later
+  receive a verified @agent-native Fixed, In progress, or Clarification needed
+  reply; a reaction, forward, generic acknowledgement, or another person's
+  reply is not a disposition. Group only genuinely repeated symptoms and
+  dispatch one Builder thread for the cluster.
 - Choose the smallest owning seam: local regression for one symptom, shared
   contract for repeated cross-surface evidence, discovery/action wiring for a
   missing capability, and release/deployment diagnosis for source-versus-live
@@ -37,9 +41,11 @@ contract is evidence-first and reply-producing:
   separate. Do not claim a fix, PR, reply, or deployment without confirmation
   from the relevant action or runtime evidence.
 
-After classifying every processed item, call \`dispatch-factory-item\` with
-\`clearBug: true\` or \`false\` and a concise evidence-grounded reason so every
-skip or dispatch is recorded.`;
+After classifying every processed item, call \`dispatch-factory-item\` so every
+skip or dispatch is recorded: \`alreadyClaimed: true\` (\`clearBug\` may be
+omitted or \`false\`) when the parent already has eyes 👀, otherwise
+\`clearBug: true\` or \`false\` with a concise evidence-grounded reason and
+\`reaction: eyes\` when \`clearBug\` is true.`;
 
 const PR_ALIGNMENT = `## Current review-prs contract
 

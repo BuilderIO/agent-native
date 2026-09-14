@@ -1,4 +1,4 @@
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import {
@@ -19,7 +19,6 @@ export interface FeatureFlagRules {
 }
 
 export interface FeatureFlagScope {
-  transaction?: DbExec;
   userEmail?: string;
   /** Canonical authenticated identity. V1 callers use normalized email. */
   userKey?: string;
@@ -171,7 +170,7 @@ export function normalizeFeatureFlagRules(value: unknown): FeatureFlagRules {
 
 export async function getFeatureFlagRules(
   key: string,
-  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+  scope: Pick<FeatureFlagScope, "orgId">,
 ): Promise<FeatureFlagRules> {
   if (!getFeatureFlagDefinition(key)) return defaultFeatureFlagRules();
   // An organization-specific rule overrides the global rule. The fallback is
@@ -180,12 +179,10 @@ export async function getFeatureFlagRules(
   // round trips; both settings rows are independent, so read them together.
   const orgId = scope.orgId?.trim();
   if (!orgId)
-    return normalizeFeatureFlagRules(
-      await getSetting(settingKey(key), { transaction: scope.transaction }),
-    );
+    return normalizeFeatureFlagRules(await getSetting(settingKey(key)));
   const [orgStored, globalStored] = await Promise.all([
-    getOrgSetting(orgId, settingKey(key), { transaction: scope.transaction }),
-    getSetting(settingKey(key), { transaction: scope.transaction }),
+    getOrgSetting(orgId, settingKey(key)),
+    getSetting(settingKey(key)),
   ]);
   return normalizeFeatureFlagRules(orgStored ?? globalStored);
 }

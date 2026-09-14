@@ -27,6 +27,7 @@ export function documentVersionChatContextFromAction(
     !context ||
     (context.caller !== "tool" &&
       context.caller !== "mcp" &&
+      context.caller !== "webmcp" &&
       context.caller !== "a2a")
   ) {
     return undefined;

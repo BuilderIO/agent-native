@@ -126,6 +126,9 @@ describe("DocsSidebar", () => {
     expect(databaseGroup?.children?.map((item) => item.id)).toEqual([
       "database-neon",
       "database-supabase",
+      "database-aws-rds",
+      "database-cloud-sql",
+      "database-azure-postgres",
       "database-postgres",
     ]);
     const productionGroup = deployment?.items.find(
@@ -155,6 +158,30 @@ describe("DocsSidebar", () => {
       "core-architecture",
       "apps",
     ]);
+
+    const apps = sections.find((section) => section.id === "apps");
+    expect(apps?.items.slice(0, 4).map((item) => item.id)).toEqual([
+      "cloneable-saas",
+      "creating-templates",
+      "syncing-template-changes",
+      "pure-agent-apps",
+    ]);
+    expect(sectionIds).not.toContain("build-apps");
+
+    const usingYourAgent = sections.find(
+      (section) => section.id === "using-your-agent",
+    );
+    expect(usingYourAgent?.items.map((item) => item.id)).toContain(
+      "embedding-sdk",
+    );
+
+    const agentResources = sections.find(
+      (section) => section.id === "agent-resources",
+    );
+    expect(agentResources?.items.map((item) => item.id)).toContain(
+      "writing-agent-instructions",
+    );
+    expect(getDocsNavItems().map((item) => item.id)).not.toContain("frames");
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {

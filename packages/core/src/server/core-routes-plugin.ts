@@ -168,6 +168,7 @@ import {
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
   normalizeBuilderAgentContext,
+  parseBuilderConnectStateCookie,
   provisionBuilderAccount,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
@@ -227,6 +228,7 @@ import { shouldReportError } from "./error-noise-filter.js";
 import {
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
+  type H3AppShim,
   awaitBootstrap,
   markDefaultPluginProvided,
   markFrameworkRoutesReadyBeforeBootstrap,
@@ -503,11 +505,16 @@ export async function resolveBuilderOrgMutation(
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   return [
-    { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+    {
+      key: "ENABLE_BUILDER",
+      label: "Enable Builder.io features",
+      secret: false,
+    },
     {
       key: "AGENT_ENGINE_PREFER_BYO_KEY",
       label:
         "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+      secret: false,
     },
     {
       key: "RESEND_API_KEY",
@@ -526,6 +533,7 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
       label: "Email from address",
       helpText:
         "Sender address for transactional email. Required when using SendGrid.",
+      secret: false,
     },
     ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
       key: envVar,
@@ -832,6 +840,7 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
+  "design_make_real_waitlist",
   "docs_build_online_waitlist",
   "docs_edit_online_waitlist",
 ]);
@@ -1262,6 +1271,36 @@ export async function readBuilderConnectPendingState(
   }
 }
 
+/**
+ * Narrows cookie-recovered states to the flows that could still complete.
+ * Returns null when the pending store cannot be read: unreadable is not the
+ * same as dead, and treating it as dead would discard live flows.
+ */
+export async function selectLiveBuilderConnectStates(
+  states: string[],
+  now = Date.now(),
+  read: typeof getSetting = getSetting,
+): Promise<string[] | null> {
+  const live: string[] = [];
+  for (const state of states) {
+    let pending: Record<string, unknown> | null;
+    try {
+      pending = await read(`builder-connect-pending:${state}`);
+    } catch (err) {
+      console.error(
+        "[builder] Could not read pending-connect state:",
+        (err as Error)?.message ?? err,
+      );
+      return null;
+    }
+    if (!pending || pending.consumed === true) continue;
+    const expiresAt = pending.expiresAt;
+    if (typeof expiresAt !== "number" || now >= expiresAt) continue;
+    live.push(state);
+  }
+  return live;
+}
+
 const BUILDER_CONNECT_PENDING_PREFIX = "builder-connect-pending:";
 
 export async function purgeExpiredBuilderConnectPendingStates(
@@ -1664,6 +1703,38 @@ export function shouldRunCoreRouteBootDatabaseWork(
   return !isProductionServerlessFunctionRuntime(env);
 }
 
+export function getBuilderConnectErrorDisposition(
+  error: unknown,
+  connectAttemptId: string | null,
+): "correlated" | "legacy" | null {
+  if (!error || typeof error !== "object" || !("message" in error)) {
+    return null;
+  }
+  const attemptId = "attemptId" in error ? error.attemptId : undefined;
+  if (typeof attemptId === "string") {
+    return attemptId === connectAttemptId ? "correlated" : null;
+  }
+  return "legacy";
+}
+
+export function getBuilderConnectErrorKey(
+  ownerEmail: string,
+  connectAttemptId: string | null = null,
+): string {
+  return connectAttemptId
+    ? `builder-connect-error:${ownerEmail}:${connectAttemptId}`
+    : `builder-connect-error:${ownerEmail}`;
+}
+
+function getBuilderConnectErrorCleanupKeys(
+  ownerEmail: string,
+  connectAttemptId: string | null,
+): string[] {
+  const legacyKey = getBuilderConnectErrorKey(ownerEmail);
+  const attemptKey = getBuilderConnectErrorKey(ownerEmail, connectAttemptId);
+  return attemptKey === legacyKey ? [legacyKey] : [attemptKey, legacyKey];
+}
+
 /**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
@@ -1808,6 +1879,57 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
   }
 }
 
+export function mountApplicationStateRoutes(
+  nitroApp: any,
+  routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
+  app: H3AppShim = getH3App(nitroApp),
+): void {
+  app.use(
+    `${routePrefix}/application-state/compose`,
+    defineEventHandler(async (event: H3Event) => {
+      const id =
+        (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+      if (event.context) {
+        event.context.params = { ...event.context.params, id };
+      }
+      const method = getMethod(event);
+      if (!id) {
+        if (method === "GET") return listComposeDrafts(event);
+        if (method === "DELETE") return deleteAllComposeDrafts(event);
+      } else {
+        if (method === "GET") return getComposeDraft(event);
+        if (method === "PUT") return putComposeDraft(event);
+        if (method === "DELETE") return deleteComposeDraft(event);
+      }
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }),
+  );
+
+  app.use(
+    `${routePrefix}/application-state`,
+    defineEventHandler(async (event: H3Event) => {
+      const key =
+        (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+      if (key === "compose") return;
+      if (key === "") {
+        if (getMethod(event) === "GET") return getStateMany(event);
+        return;
+      }
+      if (event.context) {
+        event.context.params = { ...event.context.params, key };
+      }
+      const method = getMethod(event);
+      if (method === "GET") return getState(event);
+      if (method === "PUT") return putState(event);
+      if (method === "PATCH") return compareAndSetState(event);
+      if (method === "DELETE") return deleteState(event);
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }),
+  );
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1838,6 +1960,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
         `${FRAMEWORK_ROUTE_PREFIX}/identity`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
+        `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -1848,6 +1971,7 @@ export function createCoreRoutesPlugin(
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
+        ...(!options.disableAppState ? [`${P}/application-state`] : []),
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
@@ -1856,6 +1980,13 @@ export function createCoreRoutesPlugin(
       // provider under the conventional `s3` id, so preserve that explicit
       // registration instead of replacing it during core bootstrap.
       ensureS3FileUploadProvider();
+
+      if (!options.disableAppState) {
+        // Application state is part of the client bootstrap contract. Register
+        // it before optional plugin/bootstrap work so the first localization
+        // write cannot fall through to the template router on a cold start.
+        mountApplicationStateRoutes(nitroApp, P);
+      }
 
       // This response is a side-effect-free static contract used by the SSR
       // shell. Mount it before optional default-plugin/bootstrap work so a
@@ -2726,19 +2857,21 @@ export function createCoreRoutesPlugin(
             // looks successful even though the user's credentials were not saved.
             try {
               if (userEmail) {
-                const errKey = `builder-connect-error:${userEmail}`;
+                const errKey = getBuilderConnectErrorKey(
+                  userEmail,
+                  connectAttemptId,
+                );
                 const errRow = await getSetting(errKey);
-                const isCorrelatedProvisioningError =
-                  errRow?.code === "account_exists" &&
-                  typeof connectAttemptId === "string" &&
-                  errRow.attemptId === connectAttemptId;
-                const isLegacyConnectError = errRow?.code !== "account_exists";
+                const errorDisposition = getBuilderConnectErrorDisposition(
+                  errRow,
+                  connectAttemptId,
+                );
                 if (
                   errRow &&
                   typeof errRow.message === "string" &&
-                  (isCorrelatedProvisioningError || isLegacyConnectError)
+                  errorDisposition
                 ) {
-                  if (isLegacyConnectError) {
+                  if (errorDisposition === "legacy") {
                     await deleteSetting(errKey).catch(() => {});
                   }
                   return withConnectToken({
@@ -3106,11 +3239,14 @@ export function createCoreRoutesPlugin(
                 sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
               },
             );
-            await putSetting(`builder-connect-error:${ownerEmail}`, {
-              message: crossOriginMessage,
-              at: Date.now(),
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            }).catch(() => {});
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: crossOriginMessage,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             console.warn("[builder-connect] rejected cross-origin connect", {
               hasConnectToken: Boolean(connectToken),
               secFetchSite: getHeader(event, "sec-fetch-site") ?? null,
@@ -3143,12 +3279,15 @@ export function createCoreRoutesPlugin(
               reason: string,
               code?: string,
             ) => {
-              await putSetting(`builder-connect-error:${ownerEmail}`, {
-                message,
-                at: Date.now(),
-                ...(code ? { code } : {}),
-                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-              }).catch(() => {});
+              await putSetting(
+                getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+                {
+                  message,
+                  at: Date.now(),
+                  ...(code ? { code } : {}),
+                  ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+                },
+              ).catch(() => {});
               await trackBuilderLifecycle(
                 event,
                 "builder connect failed",
@@ -3215,8 +3354,13 @@ export function createCoreRoutesPlugin(
                 deleteSetting("builder-disconnected").catch(
                   () => false, // coercion-ok: best-effort cleanup after successful provisioning
                 ),
-                deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
-                  () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                ...getBuilderConnectErrorCleanupKeys(
+                  ownerEmail,
+                  connectAttemptId,
+                ).map((key) =>
+                  deleteSetting(key).catch(
+                    () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                  ),
                 ),
               ]);
               await trackBuilderLifecycle(
@@ -3269,7 +3413,12 @@ export function createCoreRoutesPlugin(
           // useBuilderStatus polling sees the stale error and aborts the
           // new attempt before it can complete.
           try {
-            await deleteSetting(`builder-connect-error:${ownerEmail}`);
+            await Promise.all(
+              getBuilderConnectErrorCleanupKeys(
+                ownerEmail,
+                connectAttemptId,
+              ).map((key) => deleteSetting(key)),
+            );
           } catch {
             // No prior error row — fine
           }
@@ -3303,6 +3452,14 @@ export function createCoreRoutesPlugin(
             allowMemberInitiation: true,
           });
           if (orgConnectDenied) {
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: orgConnectDenied,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             await trackBuilderLifecycle(
               event,
               "builder connect failed",
@@ -3387,11 +3544,14 @@ export function createCoreRoutesPlugin(
             );
             // Best-effort: also write the error row so the parent's
             // /builder/status poll picks it up if BroadcastChannel doesn't.
-            await putSetting(`builder-connect-error:${ownerEmail}`, {
-              message: msg,
-              at: Date.now(),
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            }).catch(() => {});
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message: msg,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
             setResponseStatus(event, 503);
             setResponseHeader(
               event,
@@ -3626,7 +3786,7 @@ export function createCoreRoutesPlugin(
                 await writeBuilderCredentials(ownerEmail, credentials, scope);
                 await Promise.all([
                   deleteSetting("builder-disconnected").catch(() => false),
-                  deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
+                  deleteSetting(getBuilderConnectErrorKey(ownerEmail)).catch(
                     () => false,
                   ),
                 ]);
@@ -3797,12 +3957,50 @@ export function createCoreRoutesPlugin(
           // from the host-only cookie set by /builder/connect; the pending row
           // and authenticated session still bind it to this account.
           const queryState = requestUrl.searchParams.get("state");
-          const state = resolveBuilderConnectCallbackState(
-            queryState,
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-          );
+          const rawStateCookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+          const cookieStates = parseBuilderConnectStateCookie(rawStateCookie);
+          // A consumed, expired, or already-failed state must not make a
+          // recoverable callback look ambiguous. A null selection means the
+          // pending store could not be read, so keep the cookie as-is and let
+          // the resolver fail closed on it.
+          const liveStates = cookieStates?.length
+            ? await selectLiveBuilderConnectStates(cookieStates)
+            : cookieStates;
+          const { state, resetStateCookie } =
+            resolveBuilderConnectCallbackState(
+              queryState,
+              liveStates ? liveStates.join(",") : rawStateCookie,
+            );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           let callbackAttemptId = requestConnectAttemptId;
+          // A finished attempt — succeeded or failed — must not leave its
+          // state in the cookie, or the next restart resolves against two
+          // states and fails for a reason the user cannot clear.
+          const dropConnectStateCookie = (finishedState: string) => {
+            const cookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
+            if (!cookie) return;
+            const remaining = removeBuilderConnectStateCookie(
+              cookie,
+              finishedState,
+            );
+            // Rewriting a cookie this attempt does not own would resurrect
+            // states a concurrent callback just finished with.
+            if (remaining === cookie) return;
+            if (!remaining) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+              return;
+            }
+            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remaining, {
+              httpOnly: true,
+              secure: (
+                resolveBuilderConnectCallbackUrl(event, finishedState) ??
+                parentOrigin
+              ).startsWith("https://"),
+              sameSite: "lax",
+              path: "/",
+              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
+            });
+          };
           const fail = async (
             status: number,
             message: string,
@@ -3810,12 +4008,18 @@ export function createCoreRoutesPlugin(
             reason?: string,
             tracking: BuilderConnectTrackingParams = {},
           ) => {
+            if (state) dropConnectStateCookie(state);
             if (ownerEmail) {
-              await putSetting(`builder-connect-error:${ownerEmail}`, {
-                message,
-                at: Date.now(),
-                ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
-              }).catch(() => {});
+              await putSetting(
+                getBuilderConnectErrorKey(ownerEmail, callbackAttemptId),
+                {
+                  message,
+                  at: Date.now(),
+                  ...(callbackAttemptId
+                    ? { attemptId: callbackAttemptId }
+                    : {}),
+                },
+              ).catch(() => {});
               await trackBuilderLifecycle(
                 event,
                 "builder connect failed",
@@ -3840,6 +4044,16 @@ export function createCoreRoutesPlugin(
           };
 
           if (!state || !isSignedBuilderConnectState(state)) {
+            // This route is a SameSite=Lax GET, so a prefetch, a history
+            // revisit, or a cross-site link reaches it without a payload.
+            // Only a request carrying a real OAuth result may discard the
+            // recovery states of flows still running in other tabs.
+            const carriesOAuthResult =
+              requestUrl.searchParams.has("code") ||
+              requestUrl.searchParams.has("error");
+            if (resetStateCookie && carriesOAuthResult) {
+              deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
+            }
             return fail(
               403,
               "No active Builder connect flow found. Restart the connection from Settings.",
@@ -3990,27 +4204,18 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const remainingStates = removeBuilderConnectStateCookie(
-            getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
-            state,
-          );
-          if (remainingStates) {
-            setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remainingStates, {
-              httpOnly: true,
-              secure: expectedRedirectUri.startsWith("https://"),
-              sameSite: "lax",
-              path: "/",
-              maxAge: Math.ceil(BUILDER_CONNECT_PENDING_TTL_MS / 1_000),
-            });
-          } else {
-            deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
-          }
+          dropConnectStateCookie(state);
 
           try {
             await Promise.all([
               deleteSetting("builder-disconnected").catch(() => false), // coercion-ok: best-effort cleanup after successful OAuth save
-              deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
-                () => false, // coercion-ok: best-effort cleanup after successful OAuth save
+              ...getBuilderConnectErrorCleanupKeys(
+                ownerEmail,
+                callbackAttemptId,
+              ).map((key) =>
+                deleteSetting(key).catch(
+                  () => false, // coercion-ok: best-effort cleanup after successful OAuth save
+                ),
               ),
             ]);
           } catch {
@@ -5179,64 +5384,6 @@ export function createCoreRoutesPlugin(
         );
       }
 
-      if (!options.disableAppState) {
-        // Compose draft routes (more specific path, mounted first so the
-        // generic app-state matcher below doesn't shadow them). The framework
-        // strips the mount prefix from event.url.pathname before calling us,
-        // so we just see e.g. `/abc-123` (id) or `/` (collection root).
-        getH3App(nitroApp).use(
-          `${P}/application-state/compose`,
-          defineEventHandler(async (event: H3Event) => {
-            const id =
-              (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
-              "";
-            if (event.context) {
-              event.context.params = { ...event.context.params, id };
-            }
-            const method = getMethod(event);
-            if (!id) {
-              if (method === "GET") return listComposeDrafts(event);
-              if (method === "DELETE") return deleteAllComposeDrafts(event);
-            } else {
-              if (method === "GET") return getComposeDraft(event);
-              if (method === "PUT") return putComposeDraft(event);
-              if (method === "DELETE") return deleteComposeDraft(event);
-            }
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }),
-        );
-
-        // Generic application state — match `/application-state/:key` only
-        // (NOT `/application-state/compose/...` which the handler above owns).
-        getH3App(nitroApp).use(
-          `${P}/application-state`,
-          defineEventHandler(async (event: H3Event) => {
-            const key =
-              (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
-              "";
-            // Skip — compose handler above already handled it
-            if (key === "compose") return;
-            // Collection root: `GET ?keys=a,b,c` batches many single-key reads
-            // into one request (and one identity resolution) — the chat rail
-            // alone reads ~6 keys on every mount.
-            if (key === "") {
-              if (getMethod(event) === "GET") return getStateMany(event);
-              return;
-            }
-            if (event.context) {
-              event.context.params = { ...event.context.params, key };
-            }
-            const method = getMethod(event);
-            if (method === "GET") return getState(event);
-            if (method === "PUT") return putState(event);
-            if (method === "PATCH") return compareAndSetState(event);
-            if (method === "DELETE") return deleteState(event);
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }),
-        );
-      }
       resolveInit();
     } catch (error) {
       // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,

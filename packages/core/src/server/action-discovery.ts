@@ -244,6 +244,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.toolCallable = entry.toolCallable;
   }
   if (
+    Array.isArray(entry.capabilityScopes) &&
+    entry.capabilityScopes.length > 0 &&
+    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
+  ) {
+    out.capabilityScopes = entry.capabilityScopes;
+  }
+  if (
     entry.publicAgent &&
     typeof entry.publicAgent === "object" &&
     !Array.isArray(entry.publicAgent)
@@ -683,6 +690,10 @@ export async function mergeCoreSharingActions(
       () => import("../email-catalog/actions/list-email-log.js"),
     ],
     [
+      "get-email-log-body",
+      () => import("../email-catalog/actions/get-email-log-body.js"),
+    ],
+    [
       "list-email-activity",
       () => import("../email-catalog/actions/list-email-activity.js"),
     ],
@@ -713,6 +724,16 @@ export async function mergeCoreSharingActions(
     [
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
+    ],
+    ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["set-lab", () => import("../labs/actions/set-lab.js")],
+    [
+      "get-experiments",
+      () => import("../experiments/actions/get-experiments.js"),
+    ],
+    [
+      "set-experiment",
+      () => import("../experiments/actions/set-experiment.js"),
     ],
     // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
     // recurring jobs and personal automations. The agent-facing native tools
@@ -900,6 +921,11 @@ export async function mergeCoreSharingActions(
       "list-resource-suggestions",
       () =>
         import("../review/suggestions/actions/list-resource-suggestions.js"),
+    ],
+    [
+      "update-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/update-resource-suggestion.js"),
     ],
     [
       "get-resource-suggestion",

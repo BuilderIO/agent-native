@@ -250,6 +250,7 @@ import { contentFilesWebviewDenialReason } from "./content-files-webview-access.
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import { captureDesktopBrowserScreenshot } from "./desktop-browser-screenshot";
 import {
   DESKTOP_IDENTITY_PARTITION,
   DesktopIdentityBroker,
@@ -2199,7 +2200,7 @@ ipcMain.on(
   },
 );
 
-function getActiveWebviewContents() {
+function getActiveWebviewContents(options: { trackedOnly?: boolean } = {}) {
   const allContents = webContents.getAllWebContents();
   const liveWebviewContents = (contents?: Electron.WebContents | null) => {
     if (!contents) return undefined;
@@ -2213,12 +2214,15 @@ function getActiveWebviewContents() {
   const webviewContents = allContents.filter((wc) => liveWebviewContents(wc));
 
   const activeTarget =
-    activeWebviewContentsId &&
-    liveWebviewContents(webContents.fromId(activeWebviewContentsId));
+    activeWebviewContentsId !== undefined
+      ? liveWebviewContents(webContents.fromId(activeWebviewContentsId))
+      : undefined;
 
-  if (activeWebviewContentsId && !activeTarget) {
+  if (activeWebviewContentsId !== undefined && !activeTarget) {
     activeWebviewContentsId = undefined;
   }
+
+  if (options.trackedOnly) return activeTarget;
 
   // Fall back to the currently focused guest, then to the active app by URL.
   return (
@@ -2234,6 +2238,17 @@ function getActiveWebviewContents() {
         }
       })) ||
     webviewContents[0]
+  );
+}
+
+async function captureActiveDesktopBrowserScreenshot() {
+  const contents = getActiveWebviewContents({ trackedOnly: true });
+  if (!contents) {
+    throw new Error("No active inline browser surface is available.");
+  }
+  return captureDesktopBrowserScreenshot(
+    contents,
+    () => activeWebviewContentsId === contents.id,
   );
 }
 
@@ -5769,6 +5784,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     permissionStatus: () => getComputerPermissionStatus(systemPreferences),
     screenObserver,
     browserBridge,
+    captureActiveBrowserScreenshot: captureActiveDesktopBrowserScreenshot,
     browserNativeHostInstalled: () =>
       Boolean(
         browserNativeHostManifestPath &&
@@ -12966,7 +12982,9 @@ registerAppsIpc({
   },
 });
 
-registerDesktopChatIpc();
+registerDesktopChatIpc({
+  captureActiveBrowserScreenshot: captureActiveDesktopBrowserScreenshot,
+});
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,

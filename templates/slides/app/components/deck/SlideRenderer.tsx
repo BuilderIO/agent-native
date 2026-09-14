@@ -23,6 +23,10 @@ import {
 } from "@/lib/sanitize-slide-html";
 
 import type { DesignSystemData } from "../../../shared/api";
+import {
+  backgroundCssValue,
+  resolveSlideBackground,
+} from "../../../shared/slide-background";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import { MermaidRenderer } from "./MermaidRenderer";
 
@@ -53,6 +57,29 @@ export const layoutClasses: Record<string, string> = {
   "full-image": "flex flex-col",
   blank: "flex flex-col",
 };
+
+function isDarkSlideBackground(value: string): boolean {
+  if (
+    /^(?:bg-black|bg-(?:slate|gray|zinc|neutral|stone)-(?:900|950))$/i.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  const match = value.match(/^#([\da-f]{3,8})$/i);
+  if (!match) return /(?:^|-)black(?:$|\s)/i.test(value);
+  const hex = match[1];
+  const channels =
+    hex.length === 3 || hex.length === 4
+      ? hex
+          .slice(0, 3)
+          .split("")
+          .map((channel) => parseInt(channel + channel, 16))
+      : [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((channel) =>
+          parseInt(channel, 16),
+        );
+  return channels[0] * 0.299 + channels[1] * 0.587 + channels[2] * 0.114 < 128;
+}
 
 /** Custom image component that shows skeleton while loading */
 function LazyImage({
@@ -878,7 +905,9 @@ function BlankSlideContent({ content }: { content: string }) {
   if (mermaidBlocks.length > 0) {
     return (
       <div
-        className="slide-content text-white/90 w-full block h-full"
+        className="slide-content w-full block h-full"
+        // guard:allow-raw-color - design-system text fallback for raw HTML
+        style={{ color: "var(--ds-text, #1f2933)" }}
         data-slide-content-scope={scopeId}
       >
         <MermaidHtmlContent
@@ -891,7 +920,9 @@ function BlankSlideContent({ content }: { content: string }) {
 
   return (
     <div
-      className="slide-content text-white/90 w-full block h-full"
+      className="slide-content w-full block h-full"
+      // guard:allow-raw-color - design-system text fallback for raw HTML
+      style={{ color: "var(--ds-text, #1f2933)" }}
       data-slide-content-scope={scopeId}
       dangerouslySetInnerHTML={dangerousHtml}
     />
@@ -962,25 +993,43 @@ export function SlideInner({
     height: dims.height,
   };
 
-  const bg = slide.background || "bg-[#000000]";
+  const bg = resolveSlideBackground(slide.background, designSystem);
   const isGradientClass = bg.startsWith("bg-");
-  const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
+  const cssBackground = isGradientClass ? backgroundCssValue(bg) : bg;
+  const safeBackground = cssBackground ? sanitizeCssValue(cssBackground) : null;
   const bgStyle = safeBackground ? { background: safeBackground } : undefined;
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";
+  const darkSlide = isDarkSlideBackground(safeBackground ?? bg);
 
-  const dsStyle = designSystem
-    ? ({
-        "--ds-accent": designSystem.colors.accent,
-        "--ds-bg": designSystem.colors.background,
-        "--ds-text": designSystem.colors.text,
-        "--ds-text-muted": designSystem.colors.textMuted,
-        "--ds-heading-font": designSystem.typography.headingFont,
-        "--ds-body-font": designSystem.typography.bodyFont,
-        "--ds-primary": designSystem.colors.primary,
-        "--ds-radius": designSystem.borders.radius,
-      } as React.CSSProperties)
-    : {};
+  const dsStyle = {
+    "--ds-bg": safeBackground ?? "transparent",
+    ...(designSystem
+      ? {
+          "--ds-accent": designSystem.colors.accent,
+          "--ds-text": designSystem.colors.text,
+          "--ds-text-muted": designSystem.colors.textMuted,
+          "--ds-heading-font": designSystem.typography.headingFont,
+          "--ds-body-font": designSystem.typography.bodyFont,
+          "--ds-primary": designSystem.colors.primary,
+          "--ds-secondary": designSystem.colors.secondary,
+          // guard:allow-raw-color - safe placeholder surface fallback
+          "--ds-surface":
+            // guard:allow-raw-color - safe placeholder surface fallback
+            sanitizeCssValue(designSystem.colors.surface) ?? "#FFFFFF",
+          "--ds-radius": designSystem.borders.radius,
+        }
+      : {}),
+  } as React.CSSProperties & Record<string, string>;
+  if (
+    darkSlide &&
+    (!designSystem || isDarkSlideBackground(designSystem.colors.text))
+  ) {
+    // guard:allow-raw-color - readable Markdown defaults on explicit dark slides
+    dsStyle["--ds-text"] = "#FFFFFF";
+    // guard:allow-raw-color - readable Markdown defaults on explicit dark slides
+    dsStyle["--ds-text-muted"] = "rgba(255, 255, 255, 0.72)";
+  }
 
   const overflowByTargetRef = useRef(new Map<string, SlideOverflowInfo>());
   const reportTargetOverflow = useCallback(
@@ -1119,7 +1168,7 @@ export function SlideInner({
           canvasWidth={dims.width}
           canvasHeight={dims.height}
           fitKey={`${slide.layoutFitRevision ?? ""}:${left}`}
-          className="slide-content text-white/90"
+          className="slide-content"
           {...(slideDeclaresTextColor(left)
             ? { contentScope: AUTHORED_COLOR_SCOPE }
             : {})}
@@ -1137,7 +1186,7 @@ export function SlideInner({
           canvasWidth={dims.width}
           canvasHeight={dims.height}
           fitKey={`${slide.layoutFitRevision ?? ""}:${right}`}
-          className="slide-content text-white/90"
+          className="slide-content"
           {...(slideDeclaresTextColor(right)
             ? { contentScope: AUTHORED_COLOR_SCOPE }
             : {})}
@@ -1192,7 +1241,7 @@ export function SlideInner({
         canvasWidth={dims.width}
         canvasHeight={dims.height}
         fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
-        className="slide-content text-white/90 w-full"
+        className="slide-content w-full"
         {...(slideDeclaresTextColor(content)
           ? { contentScope: AUTHORED_COLOR_SCOPE }
           : {})}

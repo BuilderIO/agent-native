@@ -495,7 +495,14 @@ export async function applyMigration(
       documentId: row.documentId,
       title: persisted.document.title,
       content: persisted.document.content,
+      groupId: versionId,
+      groupKind: "operation",
+      actorKind: "system",
+      origin: "content-database-migration",
+      operation: "migrate-content-database-row",
+      checkpointKind: "before",
       createdAt: now,
+      updatedAt: now,
     });
   }
   for (const batch of chunks(versionRows, 100))

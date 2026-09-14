@@ -6,6 +6,7 @@ import { resolveNetlifyPrebuiltTarget } from "./netlify-prebuilt-target.ts";
 
 test("maps the beta chat site to the chat template and beta ref", () => {
   const target = resolveNetlifyPrebuiltTarget("beta", "chat");
+  const productionTarget = resolveNetlifyPrebuiltTarget("production", "chat");
 
   assert.equal(target.siteName, "chat");
   assert.equal(target.sourceTemplate, "chat");
@@ -17,6 +18,7 @@ test("maps the beta chat site to the chat template and beta ref", () => {
   );
   assert.match(target.host, /^beta\./);
   assert.match(target.siteId, /^[0-9a-f-]{36}$/);
+  assert.equal(target.migrationSiteId, productionTarget.siteId);
 });
 
 test("maps the production chat alias to the starter site", () => {
@@ -27,6 +29,15 @@ test("maps the production chat alias to the starter site", () => {
   assert.equal(target.sourceRef, "main");
   assert.equal(target.publishDirectory, "templates/chat/dist");
   assert.match(target.host, /^starter\./);
+});
+
+test("maps PR previews to canonical production sites with a preview ref", () => {
+  const target = resolveNetlifyPrebuiltTarget("preview", "slides");
+
+  assert.equal(target.siteName, "slides");
+  assert.equal(target.sourceTemplate, "slides");
+  assert.equal(target.sourceRef, "preview");
+  assert.equal(target.host, "slides.agent-native.com");
 });
 
 test("maps the framework production site to the docs project", () => {

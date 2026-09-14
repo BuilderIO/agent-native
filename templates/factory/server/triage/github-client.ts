@@ -128,6 +128,24 @@ export interface GitHubComment {
   htmlUrl: string;
 }
 
+export interface GitHubIssueCommentObservation {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  htmlUrl: string;
+}
+
+/**
+ * `truncated` is a cannot-confirm marker, not a hint. A capped page proves
+ * nothing about a body it did not return, so a caller asking "have we already
+ * posted this?" must refuse rather than read a short list as "no".
+ */
+export interface GitHubIssueCommentPage {
+  comments: readonly GitHubIssueCommentObservation[];
+  truncated: boolean;
+}
+
 export class GitHubRequestError extends Error {
   constructor(
     message: string,
@@ -163,7 +181,22 @@ export interface GitHubPullRequestEvidence {
   checksCoverage: TriageCoverage;
 }
 
+/**
+ * One page of an open-item listing. `hasMore` reflects the raw provider page,
+ * not the parsed items: `listOpenIssues` drops pull requests from the issues
+ * endpoint, so a full provider page can yield fewer issues and still have a
+ * next page behind it. `unparsed` counts those dropped entries so a caller can
+ * tell "the repository has no issues" from "this page held only pull
+ * requests"; without it an empty `items` reads the same either way.
+ */
+export interface GitHubOpenItemPage<T> {
+  items: T[];
+  unparsed: number;
+  hasMore: boolean;
+}
+
 const MAX_REVIEW_PAGES = 5;
+const MAX_ISSUE_COMMENT_PAGES = 5;
 
 interface JsonResponse {
   ok: boolean;
@@ -208,6 +241,13 @@ function pageSize(limit?: number): number {
     );
   }
   return limit;
+}
+
+function requirePositivePage(page: number): number {
+  if (!Number.isInteger(page) || page < 1) {
+    throw new Error("GitHub page must be an integer of 1 or more");
+  }
+  return page;
 }
 
 function repositoryPath(repository: GitHubRepositoryRef): string {
@@ -318,6 +358,20 @@ function parseReviewComment(value: unknown): ReviewCommentObservation {
         : undefined,
     line: typeof line === "number" && Number.isFinite(line) ? line : undefined,
     createdAt: requiredString(item.created_at, "review comment created time"),
+  };
+}
+
+function parseIssueComment(value: unknown): GitHubIssueCommentObservation {
+  const item = record(value);
+  return {
+    id: String(requiredNumber(item.id, "issue comment id")),
+    author: loginFromUser(item.user, "issue comment"),
+    body:
+      typeof item.body === "string"
+        ? item.body
+        : requiredString(item.body, "issue comment body"),
+    createdAt: requiredString(item.created_at, "issue comment created time"),
+    htmlUrl: requiredString(item.html_url, "issue comment URL"),
   };
 }
 
@@ -543,25 +597,43 @@ export function createGitHubClient(options: GitHubClientOptions) {
     async listOpenPullRequests(
       repository: GitHubRepositoryRef,
       limit?: number,
-    ) {
+      options: { page?: number } = {},
+    ): Promise<GitHubOpenItemPage<GitHubPullRequest>> {
+      const perPage = pageSize(limit);
+      const page = requirePositivePage(options.page ?? 1);
       const value = await request<unknown>(
-        `${repositoryPath(repository)}/pulls?state=open&per_page=${pageSize(limit)}`,
+        `${repositoryPath(repository)}/pulls?state=open&per_page=${perPage}&page=${page}`,
       );
       if (!Array.isArray(value))
         throw new Error("GitHub pull request response was not an array");
-      return value.map(parsePullRequest);
+      return {
+        items: value.map(parsePullRequest),
+        unparsed: 0,
+        hasMore: value.length >= perPage,
+      };
     },
 
-    async listOpenIssues(repository: GitHubRepositoryRef, limit?: number) {
+    async listOpenIssues(
+      repository: GitHubRepositoryRef,
+      limit?: number,
+      options: { page?: number } = {},
+    ): Promise<GitHubOpenItemPage<GitHubIssue>> {
+      const perPage = pageSize(limit);
+      const page = requirePositivePage(options.page ?? 1);
       const value = await request<unknown>(
-        `${repositoryPath(repository)}/issues?state=open&per_page=${pageSize(limit)}`,
+        `${repositoryPath(repository)}/issues?state=open&per_page=${perPage}&page=${page}`,
       );
       if (!Array.isArray(value))
         throw new Error("GitHub issue response was not an array");
-      return value.flatMap((item) => {
+      const items = value.flatMap((item) => {
         const issue = parseIssue(item);
         return issue ? [issue] : [];
       });
+      return {
+        items,
+        unparsed: value.length - items.length,
+        hasMore: value.length >= perPage,
+      };
     },
 
     async listPullRequestReviews(
@@ -608,6 +680,29 @@ export function createGitHubClient(options: GitHubClientOptions) {
         comments,
         commentsTruncated: comments.length >= MAX_PAGE_SIZE,
       };
+    },
+
+    async listIssueComments(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+    ): Promise<GitHubIssueCommentPage> {
+      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+        throw new Error("GitHub issue number must be a positive integer");
+      }
+      const comments: GitHubIssueCommentObservation[] = [];
+      let truncated = false;
+      for (let page = 1; page <= MAX_ISSUE_COMMENT_PAGES; page += 1) {
+        const payload = requireArray(
+          await request<unknown>(
+            `${repositoryPath(repository)}/issues/${issueNumber}/comments?per_page=${pageSize()}&page=${page}`,
+          ),
+          "issue comment",
+        );
+        comments.push(...payload.map(parseIssueComment));
+        if (payload.length < MAX_PAGE_SIZE) break;
+        if (page === MAX_ISSUE_COMMENT_PAGES) truncated = true;
+      }
+      return { comments, truncated };
     },
 
     async getPullRequestEvidence(

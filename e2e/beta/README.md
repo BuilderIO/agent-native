@@ -90,10 +90,10 @@ Two secrets, one of them a one-time manual step.
 **1. A session.** Beta accepts Google OAuth only, and CI must never drive a
 credential form, so a human signs in once and CI replays the result.
 
-Use a **dedicated e2e account**, not a personal one. The run writes to that
-account (see _What this run leaves behind_ below), and CI artifacts contain
-traces of its authenticated requests, so its session is effectively shared with
-anyone who can read this repository.
+Use a **dedicated e2e account whose email contains `+autoz`**, not a personal
+one. The run writes to that account (see _What this run leaves behind_ below),
+and CI artifacts contain traces of its authenticated requests, so its session
+is effectively shared with anyone who can read this repository.
 
 ```bash
 pnpm e2e:beta:capture
@@ -128,7 +128,7 @@ change the default for everyone in the org.
 
 | Secret                        | Purpose                                                                                                |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`              | The identity every authenticated spec asserts it is running as                                         |
+| `BETA_E2E_EMAIL`              | The dedicated `+autoz` identity every authenticated spec asserts it is running as                      |
 | `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
 | `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                            |
 | `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                           |

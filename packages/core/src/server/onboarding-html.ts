@@ -67,8 +67,9 @@ import {
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
-  identitySsoLoginButtonHtml,
   isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
+  isIdentitySsoAvailableForRequest,
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
@@ -1129,8 +1130,9 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
-  /** Exact host and protocol used by the SSO route's request-boundary check. */
+  /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
   identitySsoRequestHost?: string;
+  /** @deprecated Browser SSO was removed. The field is retained for patch compatibility. */
   identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
@@ -1250,6 +1252,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     "/agent-native-icon-dark.svg",
     appBasePath,
   );
+  const brandMarkLightSrc = withAppBasePath(
+    "/agent-native-icon-light.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
@@ -1270,36 +1276,41 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
-  const identitySsoEnabled = Boolean(
-    identitySsoLoginButtonHtml({ requestHost: identitySsoRequestHost }),
-  );
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: identitySsoRequestProtocol,
+  });
   const identitySsoAuto =
     identitySsoEnabled &&
-    isCanonicalIdentitySsoClientRequest(
+    (isCanonicalIdentitySsoClientRequest(
       identitySsoRequestHost,
-      opts.identitySsoRequestProtocol,
-    );
-  const embeddedAuthCss = identitySsoEnabled
-    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
-    : "";
-  const identitySsoMagicLinkSelector = identitySsoEnabled
-    ? "  .card.magic-link-complete #identity-sso-btn,\n"
-    : "";
-
+      identitySsoRequestProtocol,
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
-  #starfield {
+  body.has-marketing {
+    --b-hero-ocean-opacity: 0.32;
+    --b-hero-shader-opacity: 0.15;
+    padding: 0;
+    position: relative;
+    overflow-x: hidden;
+    color-scheme: dark;
+  }
+  [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.35;
+    opacity: var(--b-hero-shader-opacity, 0.15);
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    #starfield { opacity: 0.18; }
+    [data-agent-native-starfield] {
+      opacity: var(--b-hero-shader-opacity, 0.15);
+    }
   }
   .split {
     position: relative;
@@ -1469,6 +1480,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
+      --b-hero-ocean-opacity: 0.3;
+      --b-hero-shader-opacity: 0.22;
       background: color-mix(in srgb, CanvasText 4%, Canvas);
       color: CanvasText;
       color-scheme: light;
@@ -1484,6 +1497,33 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     }
     .auth-marketing-home .auth-marketing-learn-more-link {
       color: LinkText;
+    }
+    /* The marketing panel's base colors are picked for the near-black body.
+       Without these the app name renders white-on-white and the whole panel
+       reads as empty rather than as low contrast. */
+    .auth-marketing-home .app-name { color: CanvasText; }
+    .auth-marketing-home .app-tagline,
+    .auth-marketing-home .feature-list li {
+      color: color-mix(in srgb, CanvasText 72%, Canvas);
+    }
+    .auth-marketing-home .app-desc {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+    }
+    .auth-marketing-home .feature-list li::before {
+      background: color-mix(in srgb, CanvasText 22%, transparent);
+      border-color: color-mix(in srgb, CanvasText 38%, transparent);
+    }
+    .auth-marketing-home .oss-link { color: LinkText; }
+    .auth-marketing-home .oss-link:hover {
+      color: color-mix(in srgb, LinkText 75%, CanvasText);
+    }
+    .auth-marketing-home .copy-run-local {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .copy-run-local:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 32%, transparent);
     }
     .auth-marketing-home .card {
       background: Canvas;
@@ -1648,6 +1688,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         : undefined,
     marketingLocales: authMarketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
     signupLegalNotice,
@@ -1956,7 +1997,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-signin {
     margin: 1.25rem 0 0.25rem;
     padding-top: 1rem;
-    border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   }
   .btn-local-dev {
     margin-top: 0.25rem;
@@ -2003,7 +2043,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .local-dev-full-options {
     display: block;
-    margin: 0.75rem auto 0;
+    margin: 1rem 0 0;
     padding: 0;
     background: transparent;
     border: 0;
@@ -2193,7 +2233,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .card.magic-link-complete .subtitle,
   .card.magic-link-complete #google-signin,
-${identitySsoMagicLinkSelector}
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
   .card.magic-link-complete #upgrade-note,
@@ -2263,7 +2302,6 @@ ${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
-${embeddedAuthCss}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
@@ -2299,50 +2337,42 @@ ${embeddedAuthCss}
     justify-content: center;
     align-items: flex-start;
   }
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap,
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    max-height: calc(100vh - 5rem);
-  }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
     width: 100%;
-    max-width: 927px;
-    margin-inline: 0;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    filter: blur(3px);
-    opacity: 0.8;
-  }
-  .auth-marketing-home.has-product-screenshot .form-panel .card {
-    position: relative;
-    z-index: 1;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    filter: none;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
-    flex: 0 0 28rem;
-    min-width: 28rem;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
     max-width: none;
+    padding: 1rem clamp(1rem, 4vw, 4rem);
+    overflow-y: auto;
   }
-  @media (min-width: 901px) and (max-width: 1500px) {
-    .auth-marketing-home.has-product-screenshot .form-panel .card {
-      left: -140px;
-    }
-  }
-  @media (min-width: 1501px) {
-    .auth-marketing-home.has-product-screenshot .split {
-      display: grid;
-      grid-template-columns: minmax(0, 927px) minmax(0, 1fr);
-      gap: 0;
-    }
-    .auth-marketing-home.has-product-screenshot .marketing-panel {
-      flex: none;
-      width: 927px;
-    }
-    .auth-marketing-home.has-product-screenshot .form-panel {
-      flex: none;
-      width: 100%;
-    }
+  .auth-marketing-home.has-product-screenshot .form-panel > .card {
+    margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
   @media (max-width: 900px) {
     body.has-marketing {
       align-items: flex-start;
@@ -2358,13 +2388,10 @@ ${embeddedAuthCss}
     .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
-    .auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
-      padding: 3.75rem 0.8125rem 1.5rem;
-    }
-    .auth-marketing-home.has-product-screenshot .form-panel .card {
-      left: auto;
+      align-items: center;
+      padding: 1rem;
     }
   }
 `;

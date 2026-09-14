@@ -5,6 +5,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs";
+import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconArrowLeft,
   IconCheck,
@@ -24,7 +26,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
+import { Navigate, NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
@@ -458,6 +460,7 @@ function ActionItemTextEditor({
 
 export default function MeetingDetailRoute() {
   const t = useT();
+  const lab = useLabState(CLIPS_MEETINGS.key);
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1029,6 +1032,10 @@ export default function MeetingDetailRoute() {
   // never retries, so collapsing any of them into the skeleton pins it forever.
   // A failed live-poll on top of an already-loaded meeting is none of them —
   // keep showing the meeting.
+  if (lab.isSuccess && !lab.enabled) {
+    return <Navigate replace to="/library" />;
+  }
+
   if (isError && !meeting) {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">

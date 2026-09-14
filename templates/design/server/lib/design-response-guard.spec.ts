@@ -42,6 +42,245 @@ describe("Design final response guard", () => {
     expect(
       looksLikeDesignMutationRequest("can you create another version of this"),
     ).toBe(true);
+    expect(looksLikeDesignMutationRequest("create a LinkedIn visual")).toBe(
+      true,
+    );
+    expect(
+      looksLikeDesignMutationRequest("create a hero visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("add a button visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a card visual snapshot"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "give me tips to create a LinkedIn visual",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual regression test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual snapshot test"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual-regression test"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("add a visual test")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add a visual regression test for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add a visual regression test for the hero and footer",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero, footer and nav",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create visual snapshots for this design"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("create a visual snapshot of the hero"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a dark-mode visual regression test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero layout and after that update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, then run it",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test — for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette, then run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the hero layout after creating visual snapshots",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the hero layout for visual regression tests",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a visual snapshot test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a hero visual regression test and a card visual snapshot",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a hero and footer visual regression test",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and buttons",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("add visual snapshots and cards"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero layout and a card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a new card",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and some cards",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test and a primary button",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero after we update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, add buttons",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test; create cards",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero or update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero or a card",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette — create a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test before improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test after improving the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test for the hero — then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add visual regression and snapshot tests for the hero",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual snapshot and regression tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression or snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests for the hero, then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette followed by run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, — for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "give me a tutorial to create a LinkedIn visual",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("teach me to create a LinkedIn visual"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "teach me to improve this visual, then fix the hero layout",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the visual regression in the hero layout",
+      ),
+    ).toBe(true);
     expect(looksLikeDesignMutationRequest("how do I create a design?")).toBe(
       false,
     );
@@ -435,5 +674,112 @@ describe("Design final response guard", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  it("does not read a bare mention of a design as a request to change one", () => {
+    // `design` is the only token in both the verb and the object pattern, so
+    // testing them independently let one word stand in for both halves.
+    expect(looksLikeDesignMutationRequest("nice design")).toBe(false);
+    expect(looksLikeDesignMutationRequest("I love design")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("thanks, the design looks good"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("the design system is linked")).toBe(
+      false,
+    );
+    expect(
+      looksLikeDesignMutationRequest(
+        "Design is an agent-native prototyping app.",
+      ),
+    ).toBe(false);
+
+    expect(designFinalResponseGuard(guardContext("nice design"))).toBeNull();
+  });
+
+  it("lets `design` supply the verb only where a verb can stand", () => {
+    // The noun is the common use in this app, so a mention must not supply
+    // the verb even when some other word supplies the object.
+    expect(looksLikeDesignMutationRequest("I love this design")).toBe(false);
+    expect(looksLikeDesignMutationRequest("this design looks good")).toBe(
+      false,
+    );
+    expect(looksLikeDesignMutationRequest("that design is great")).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("I love this design, but it needs work"),
+    ).toBe(false);
+    expect(looksLikeDesignMutationRequest("Design is the design system")).toBe(
+      false,
+    );
+
+    expect(looksLikeDesignMutationRequest("design it")).toBe(true);
+    expect(looksLikeDesignMutationRequest("design a login screen")).toBe(true);
+    expect(looksLikeDesignMutationRequest("can you design a hero")).toBe(true);
+    expect(looksLikeDesignMutationRequest("and then design a footer")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("I need you to design a hero")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("make this design darker")).toBe(
+      true,
+    );
+  });
+
+  it("keeps a pronoun subject with a trailing verb a mutation request", () => {
+    expect(looksLikeDesignMutationRequest("this needs updating")).toBe(true);
+    expect(looksLikeDesignMutationRequest("it needs fixing")).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("the color palette needs updating"),
+    ).toBe(true);
+
+    expect(looksLikeDesignMutationRequest("make it darker")).toBe(true);
+    expect(looksLikeDesignMutationRequest("update this")).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("this is the design, make it darker"),
+    ).toBe(true);
+  });
+
+  it("still requires proof for a real design change", () => {
+    expect(looksLikeDesignMutationRequest("update the design")).toBe(true);
+    expect(looksLikeDesignMutationRequest("design a login screen")).toBe(true);
+    expect(looksLikeDesignMutationRequest("make the hero darker")).toBe(true);
+    expect(
+      designFinalResponseGuard(guardContext("update the design")),
+    ).not.toBeNull();
+  });
+
+  it("accepts a mutation saved in the same turn it is confirmed", () => {
+    expect(
+      designFinalResponseGuard(
+        guardContext("update the design", {
+          toolResults: [
+            toolResult("generate-design", {
+              renderable: true,
+              savedFiles: ["file-1"],
+            }),
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("labels an unproven draft instead of replacing it with a save failure", () => {
+    // Intent is read from prose, so it misfires on text that only describes
+    // design work — the app's own action guide says "create a new design".
+    // No pattern separates that from a request, so a miss must stay
+    // recoverable: the user keeps the answer and is told nothing was saved.
+    const selfReferential = [
+      "# Design — Agent Guide",
+      "",
+      "| Action | Purpose |",
+      "| --- | --- |",
+      "| `create-design` | Start a new design (empty shell) |",
+    ].join("\n");
+
+    const guard = designFinalResponseGuard(guardContext(selfReferential));
+    expect(guard).not.toBeNull();
+    expect(guard).toMatchObject({
+      exhaustedDraftPrefix: expect.stringContaining("Unverified"),
+    });
   });
 });

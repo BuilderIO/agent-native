@@ -5,12 +5,15 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const getGithubStarCount = vi.hoisted(() => vi.fn());
+
 // The real modal pulls the docs search index; the header only owns the open
 // state, so the lazy chunk is stubbed with a probe.
 vi.mock("../SearchModal", () => ({
   SearchModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="search-modal" /> : null,
 }));
+vi.mock("../../../lib/github-star-count", () => ({ getGithubStarCount }));
 
 import { docsI18nCatalog } from "../../i18n";
 import { SnackbarProvider } from "./ds/snackbar";
@@ -22,6 +25,7 @@ function LocationProbe() {
 }
 
 beforeEach(() => {
+  getGithubStarCount.mockResolvedValue(null);
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -39,10 +43,11 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  getGithubStarCount.mockReset();
   vi.clearAllMocks();
 });
 
-function renderHeader() {
+function renderHeader(starCount: number | null = 1234) {
   return render(
     <MemoryRouter>
       <AgentNativeI18nProvider
@@ -52,7 +57,7 @@ function renderHeader() {
         persistPreference={false}
       >
         <SnackbarProvider>
-          <SiteHeader starCount={1234} />
+          <SiteHeader starCount={starCount} />
         </SnackbarProvider>
         <LocationProbe />
       </AgentNativeI18nProvider>
@@ -61,6 +66,26 @@ function renderHeader() {
 }
 
 describe("SiteHeader search", () => {
+  it("fills in the GitHub star count after hydration", async () => {
+    getGithubStarCount.mockResolvedValue(4647);
+
+    renderHeader(null);
+
+    expect(
+      await screen.findAllByRole("link", { name: "GitHub — 4.6k stars" }),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the rendered star count when refresh has no value", async () => {
+    getGithubStarCount.mockResolvedValue(null);
+
+    renderHeader();
+
+    expect(
+      await screen.findAllByRole("link", { name: "GitHub — 1.2k stars" }),
+    ).toHaveLength(1);
+  });
+
   it("does not mount the search modal until it is asked for", () => {
     renderHeader();
 

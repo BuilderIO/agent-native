@@ -17,6 +17,7 @@ import {
   DEFAULT_CLIPS_RECORDING_VISIBILITY,
   type ClipsDefaultVisibility,
 } from "@shared/clips-ai-prefs";
+import { CLIPS_LABS } from "@shared/labs";
 import { IconBell } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -81,6 +82,31 @@ async function saveSettings(value: ClipsUserSettings): Promise<void> {
 
 export default function SettingsIndexRoute() {
   const t = useT();
+  const labs = useMemo(
+    () =>
+      CLIPS_LABS.map((lab) => {
+        if (lab.key === "clips.video-editing") {
+          return {
+            ...lab,
+            displayName: t("settings.labVideoEditing"),
+            description: t("settings.labVideoEditingDescription"),
+          };
+        }
+        if (lab.key === "clips.meetings") {
+          return {
+            ...lab,
+            displayName: t("settings.labMeetings"),
+            description: t("settings.labMeetingsDescription"),
+          };
+        }
+        return {
+          ...lab,
+          displayName: t("settings.labWisprFlow"),
+          description: t("settings.labWisprFlowDescription"),
+        };
+      }),
+    [t],
+  );
   const agentSettingsTabs = useAgentSettingsTabs();
   const notificationSettingsTab = useMemo<SettingsTabItem>(
     () => ({
@@ -277,6 +303,9 @@ export default function SettingsIndexRoute() {
       </PageHeader>
       <SettingsTabsPage
         account={<AccountSettingsCard />}
+        labs={labs}
+        labsIntro={t("settings.labsIntro")}
+        labsLabel={t("settings.labs")}
         whatsNewLabel={t("settings.whatsNew")}
         extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}

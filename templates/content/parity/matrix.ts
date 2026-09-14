@@ -36,6 +36,8 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "actions/database-setup.db.test.ts",
+      "actions/database-setup-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
@@ -169,6 +171,28 @@ export const parityMatrix: ParityRow[] = [
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "editor.suggested-edits",
+    surface: "editor",
+    label: "Propose reviewable suggested edits (track changes)",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/ReviewDiscussionTools.tsx",
+      "app/components/editor/CommentsSidebar.tsx",
+    ],
+    durableEffect:
+      "Pending suggestions are stored as authored proposal records; the canonical page body stays unchanged until a reviewer accepts.",
+    uiImplementation:
+      "The editor's suggesting mode creates proposals through the core create-resource-suggestion action with tracked-change operations; agents propose typed find/replace suggestions through suggest-document-edit.",
+    status: "action-backed",
+    actions: ["suggest-document-edit"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/suggest-document-edit.db.test.ts"],
   },
   {
     id: "editor.blocks-field-word-count",
@@ -454,6 +478,7 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
+      "actions/database-setup-mcp.db.test.ts",
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
       "actions/resync-content-database-source.db.test.ts",
@@ -801,7 +826,13 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "Version panel reads and restores through document version actions.",
     status: "action-backed",
-    actions: ["list-document-versions", "restore-document-version"],
+    actions: [
+      "list-document-versions",
+      "list-document-history",
+      "list-document-history-checkpoints",
+      "get-document-history-checkpoint",
+      "restore-document-version",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",

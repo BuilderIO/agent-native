@@ -10,6 +10,8 @@ import {
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 
+import { STANDARD_APP_ROUTES } from "../../navigation/index.js";
+import { appMountedPath } from "../api-path.js";
 import type { ResourceView } from "../resources/ResourcesPanel.js";
 import { AgentsSection } from "../settings/AgentsSection.js";
 import { cn } from "../utils.js";
@@ -122,7 +124,10 @@ function ResourceContent({ resource }: { resource: ResourceView }) {
                   window.history.pushState(
                     null,
                     "",
-                    `/settings/agent/resources/${tab.id}${window.location.search}`,
+                    `${appMountedPath(
+                      `/settings/agent/resources/${tab.id}`,
+                      STANDARD_APP_ROUTES.settings,
+                    )}${window.location.search}`,
                   );
                   window.dispatchEvent(new Event("popstate"));
                 }

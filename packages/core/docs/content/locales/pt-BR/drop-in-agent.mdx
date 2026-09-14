@@ -205,7 +205,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`background`** — com `newTab`, execute sem focar o novo thread. A execução oculta é rastreada em `RunsTray`.
 - **`openSidebar`** — definido como `false` para envios em segundo plano/silenciosos. O padrão abre a barra lateral para que o usuário veja a resposta.
 - **Para trabalho de IA visível iniciado pelo usuário**, use `openSidebar: true`. Use `false` apenas para trabalho em segundo plano ou iniciado pelo sistema que seja explicitamente silencioso e mantenha os acompanhamentos no mesmo thread do AgentSidebar.
-- **`type`** — `"content"` (padrão) mantém o trabalho no agente incorporado, que usa ferramentas do aplicativo. `"code"` roteia para um frame separado com capacidade de código para alterações no repositório; a escrita só fica disponível quando o host concede intencionalmente ferramentas de repository/workspace. Consulte [Frames](/docs/frames).
+- **`type`** — `"content"` (padrão) mantém o trabalho no agente incorporado, que usa ferramentas do aplicativo. `"code"` roteia para um host separado com capacidade de código para alterações no repositório; a escrita só fica disponível quando o host concede intencionalmente ferramentas de repository/workspace. Consulte [Agent-Native Código UI](/docs/code-agents-ui).
 
 `sendToAgentChat` retorna um `tabId` estável que você pode usar para monitorar a execução do chat.
 

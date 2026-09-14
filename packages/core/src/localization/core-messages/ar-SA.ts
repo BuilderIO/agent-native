@@ -69,6 +69,34 @@ const messages: AgentChatTranslation = {
     "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
+  "onboarding.capability.llm.keySummary":
+    "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
+  "onboarding.capability.fileStorage.keySummary":
+    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
+  "onboarding.capability.voiceInput.keySummary":
+    "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
+  "onboarding.capability.voiceInput.why":
+    "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
+  "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "أرصدة Builder أو مفتاح مزود صور",
+  "onboarding.capability.assetsImageGeneration.why":
+    "إنشاء الصور هو سير العمل الأساسي لإنشاء أصول متوافقة مع العلامة التجارية.",
+  "onboarding.capability.assetsVideoGeneration.label": "إنشاء الفيديو",
+  "onboarding.capability.assetsVideoGeneration.keySummary": "مفتاح Gemini API",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "إنشاء الفيديو اختياري؛ سير العمل الأساسي في Assets هو إنشاء الصور.",
+  "onboarding.capability.clipsObjectStorage.label": "تخزين الكائنات",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "تحتاج الفيديوهات المسجلة إلى تخزين كائنات دائم قبل تشغيلها أو مشاركتها.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "مفتاح مزود تحويل الكلام إلى نص",
+  "onboarding.capability.about": "حول {{label}}",
+  "onboarding.capability.why": "لماذا نحتاج إلى {{label}}",
+  "onboarding.openAiKeySettings": "فتح إعدادات مفاتيح الذكاء الاصطناعي",
   "aboutAgentNative.title": "حول Agent-Native",
   "aboutAgentNative.version": "الإصدار",
   "aboutAgentNative.environment": "البيئة",
@@ -113,6 +141,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "افتح تطبيق سطح المكتب لاستخدام هذه المحادثة.",
   "composer.removeAttachment": "إزالة {{name}}",
   "composer.scrollToBottom": "التمرير إلى الأسفل",
+  "composer.suggestedPrompts": "اقتراحات المطالبات",
   "composer.stopResponse": "إيقاف الرد",
   "composer.subAgentReadOnly":
     "أرسل الرسائل إلى محادثة المنسّق — يعمل هذا الوكيل الفرعي تلقائيًا",
@@ -141,6 +170,7 @@ const messages: AgentChatTranslation = {
   "composer.configureProviderKeys": "إعداد Anthropic أو OpenAI أو مزوّد آخر",
   "composer.connectAbove": "اتصل بالذكاء الاصطناعي أعلاه للمتابعة...",
   "composer.connectBuilder": "الاتصال بـ Builder.io",
+  "composer.connectKeys": "ربط المفاتيح",
   "composer.connectingBuilder": "جارٍ الاتصال بـ Builder.io…",
   "composer.costHigher": "تكلفة أعلى",
   "composer.costLower": "تكلفة أقل",
@@ -271,7 +301,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "هذا المتصفح لا يدعم المحادثات الصوتية في الوقت الفعلي.",
   "voiceMode.hideChat": "إخفاء المحادثة",
-  "voiceMode.keepDictating": "إملاء",
+  "voiceMode.keepDictating": "إملاء رسالة",
   "voiceMode.promptDescription":
     "يستمر الوضع الصوتي في الاستماع أثناء تنقّل الوكيل وتنفيذه للإجراءات.",
   "voiceMode.promptTitle": "استخدم صوتك",
@@ -313,7 +343,7 @@ const messages: AgentChatTranslation = {
     "اتصل بـ Builder.io لاستخدام الصوت المُدار بأرصدة مجانية، أو أضف مفاتيحك الخاصة.",
   "voiceMode.setupTitle": "إعداد الوضع الصوتي",
   "voiceMode.showChat": "إظهار المحادثة",
-  "voiceMode.start": "صوت في الوقت الفعلي",
+  "voiceMode.start": "بدء محادثة صوتية",
   "voiceMode.startWithOpenAiKey": "البدء باستخدام مفتاح OpenAI",
   "voiceMode.status.connecting": "جارٍ الاتصال",
   "voiceMode.status.ending": "جارٍ إنهاء الوضع الصوتي",
@@ -358,6 +388,8 @@ const messages: AgentChatTranslation = {
     "تعذّر الوصول إلى مزوّد النموذج. تحقّق من اتصالك وأعد المحاولة.",
   "errorMessages.providerRateLimit":
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
+  "errorMessages.providerTransientRejection":
+    "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
   "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
   "feedback.inaccurate": "غير دقيق",
@@ -381,6 +413,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "جارٍ البحث...",
   "history.untitledChat": "محادثة",
   "history.yesterday": "أمس",
+  "integrations.availableSection": "عمليات التكامل المتاحة",
+  "integrations.connectedSection": "متصل",
+  "integrations.goToApiKeys": "الانتقال إلى مفاتيح API",
+  "integrations.goToIntegrations": "الانتقال إلى عمليات التكامل",
+  "integrations.lookingForApiKeys": "هل تبحث عن مفتاح API بدلاً من ذلك؟",
+  "integrations.lookingForProviders": "هل تبحث عن مزوّدي OAuth أو MCP؟",
+  "integrations.manage": "إدارة",
+  "integrations.recommended": "موصى به",
+  "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
   "limit.account": "حسابك",
   "limit.descriptionAll":
     "استخدم الوكيل جميع الخطوات المتاحة. تابع في دورة جديدة، أو ارفع حد {{scope}} أولًا.",
@@ -496,6 +537,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "إزالة من قائمة الانتظار",
   "queue.sendNow": "إرسال الآن",
   "queue.sendNowHint": "الإرسال الآن (يوقف الرد الحالي)",
+  "queue.steer": "توجيه",
+  "queue.steerHint": "إرسال هذه الرسالة التالية",
+  "queue.moreActions": "إجراءات إضافية",
+  "queue.moveToTop": "نقل إلى الأعلى",
   "recovery.connectingBuilder": "جارٍ الاتصال بـ Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
@@ -516,6 +561,31 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "انتهى تدفق الوكيل السابق أثناء استرداد التشغيل. تابع أو أعد المحاولة لإعادة الاتصال بالتشغيل.",
   "recovery.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
+  "secrets.addCustomKeyNamed": 'إضافة "{{name}}" كمفتاح مخصص',
+  "secrets.chooseKey": "اختر مفتاحًا",
+  "secrets.customKey": "مفتاح مخصص",
+  "secrets.customKeyHint": "أضف أي مفتاح بالاسم",
+  "secrets.emptyHint": "أضف مفتاحًا لاستخدام حساباتك الخاصة.",
+  "secrets.emptyMore": "و{{count}} أخرى ضمن جديد، أو أضف أي مفتاح مخصص",
+  "secrets.emptyTitle": "لا توجد مفاتيح بعد.",
+  "secrets.fromEnvironment": "توفّره بيئة النشر.",
+  "secrets.managedInVault":
+    "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",
+  "secrets.openVault": "فتح Vault",
+  "secrets.newKey": "جديد",
+  "secrets.noKeysFound": "لم يتم العثور على مفاتيح.",
+  "secrets.overridesVault":
+    "يتجاوز هذا المفتاح الشخصي قيمة Vault الخاصة بمساحة العمل. أزِله لاستخدام مفتاح Vault.",
+  "secrets.overridesWorkspace":
+    "يتجاوز هذا المفتاح الشخصي قيمة مساحة العمل. أزِله لاستخدام المفتاح المشترك.",
+  "secrets.setForWorkspace": "مضبوط لجميع الأشخاص في مساحة العمل هذه.",
+  "secrets.sourceEnvironment": "البيئة",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "مساحة العمل",
+  "secrets.statusUnavailable": "غير متاح",
+  "secrets.required": "مطلوب",
+  "secrets.searchKeys": "البحث عن مفاتيح...",
+  "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",

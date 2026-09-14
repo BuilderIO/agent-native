@@ -64,8 +64,11 @@ const messages = {
     extensions: "Extensiones",
     newRecording: "Nueva grabación",
     folders: "Carpetas",
+    recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
     noSpaces: "Aún no hay espacios",
+    noSpacesAdminCta:
+      "Pide a un administrador de la organización que cree el primer espacio.",
     desktopCta: "Obtener la app de escritorio",
     desktopTitle: "Obtén la app de escritorio de Clips.",
     desktopBody:
@@ -517,6 +520,11 @@ const messages = {
     shareLink: "Enlace para compartir",
     shareWithHumans: "Compartir con personas",
     shareWithAgents: "Compartir con agentes",
+    people: "Personas",
+    agents: "Agentes",
+    openInClaude: "Abrir en Claude",
+    openInClaudeCode: "Abrir en Claude Code",
+    openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
       "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
@@ -670,9 +678,11 @@ const messages = {
     downloadAgain: "¿No funcionó? Intenta descargar de nuevo",
     alsoFor: "También disponible para {{platform}}",
     backToLibrary: "Volver a la biblioteca",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Descargar Clips",
     stable: "Estable",
     nightly: "Nightly",
+    allPlatforms: "Todas las plataformas",
+    releaseChannel: "Canal de lanzamiento",
     switchToNightly: "Cambiar a compilaciones Nightly",
     switchToStable: "Cambiar a compilaciones estables",
     retry: "Intentar de nuevo",
@@ -724,6 +734,17 @@ const messages = {
     agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
+    labs: "Labs",
+    labsIntro:
+      "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
+    labVideoEditing: "Edición de vídeo",
+    labVideoEditingDescription: "Prueba el nuevo editor de vídeo.",
+    labMeetings: "Reuniones y transcripción",
+    labMeetingsDescription:
+      "Prueba la captura y transcripción automática de reuniones.",
+    labWisprFlow: "Dictado por voz",
+    labWisprFlowDescription:
+      "Muestra u oculta el dictado por voz en Clips Desktop.",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
     preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
@@ -960,6 +981,8 @@ const messages = {
     renameFailed: "No se pudo renombrar el clip",
     renameClip: "Renombrar clip",
     clipTitle: "Título del clip",
+    archiveAction: "Archivar",
+    moveToTrashAction: "Mover a la papelera",
     movedToTrash: "Movido a la papelera",
     restoredFromArchive: "Restaurado desde el archivo",
     archived: "Archivado",
@@ -1357,12 +1380,11 @@ const messages = {
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.",
     chromeTitle: "Chrome extension",
     chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab.",
+      "Captura pestañas del navegador con la extensión de Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL.",
     desktopTitle: "Desktop app",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    desktopDescription: "Graba con atajos globales y audio del sistema.",
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {
@@ -1739,6 +1761,7 @@ const messages = {
     donePageTitle: "Informe de error enviado · Clips",
     eyebrow: "Informe de error",
     title: "Grabar un informe de error",
+    sidebarCta: "Enviar comentarios",
     description:
       "Captura una reproducción breve con pantalla, voz y contexto del navegador redactado para tu equipo.",
     issueTitleLabel: "Título del problema",
@@ -1813,7 +1836,7 @@ const messages = {
     refreshing: "Refreshing…",
     howToTriggerTitle: "How to trigger meeting notes",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.",
+      "Las notas de reuniones de Clips reúnen eventos del calendario, captura de audio del escritorio y transcripciones con notas de IA en un solo historial.",
     guideCalendarTitle: "Connect Google Calendar",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you.",
@@ -1839,6 +1862,37 @@ const messages = {
       "Útil para recuperar el inicio de una explicación más larga.",
     privateReady:
       "Este clip es privado. Ya puedes añadir el historial local de Rewind.",
+  },
+  browserDiagnostics: {
+    debug: "Depuración",
+    title: "Diagnósticos del navegador",
+    failureSummary:
+      "{{consoleCount}} problemas de consola · {{networkCount}} solicitudes fallidas",
+    noFailures: "No se detectaron fallos",
+    failuresPresent: "Se detectaron fallos del navegador",
+    unviewedCount: "{{count}} sin ver",
+    captureSuccessful: "Diagnósticos capturados correctamente",
+    capturedFrom: "Capturado desde {{source}}",
+    browserCapture: "Captura del navegador",
+    views: "Vistas de diagnóstico",
+    issues: "Problemas",
+    consoleSource: "Consola",
+    networkSource: "Red",
+    consoleCount: "Consola {{count}}",
+    networkCount: "Red {{count}}",
+    afterRecording: "Después de la grabación",
+    seekToTime: "Ir a {{time}}",
+    occurrences: "Apariciones",
+    message: "Mensaje",
+    stackTrace: "Traza de pila",
+    request: "Solicitud",
+    status: "Estado",
+    duration: "Duración",
+    error: "Error",
+    noIssuesTitle: "No se detectaron problemas del navegador",
+    noConsoleTitle: "No hay eventos de consola",
+    noNetworkTitle: "No hay solicitudes de red",
+    capturedDescription: "Se capturaron diagnósticos para esta grabación.",
   },
   timeline: { clipStartedHere: "El clip empezó aquí" },
 };

@@ -8,6 +8,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
 import { useSettingsPanelController } from "./useSettingsPanelController.js";
 
+vi.mock("../labs/LabsSettings.js", () => ({
+  LabsSettings: ({
+    labs,
+  }: {
+    labs: readonly { key: string; displayName?: string }[];
+  }) => (
+    <div data-testid="labs-content">
+      {labs.map((lab) => (
+        <span key={lab.key} id={`lab-${lab.key}`}>
+          {lab.displayName ?? lab.key}
+        </span>
+      ))}
+    </div>
+  ),
+}));
+
 function stubMobileViewport(isMobile: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -197,6 +213,188 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("General content");
     expect(container.textContent).not.toContain("Integration content");
+  });
+
+  it("only adds labs when definitions exist and indexes each lab", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            labs={[
+              {
+                key: "clips.meetings",
+                displayName: "Meetings and transcription",
+                description: "Try meetings",
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(searchInput).not.toBeNull();
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(searchInput, "meetings");
+      searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const result = container.querySelector('[role="option"]');
+    expect(result).not.toBeNull();
+    expect(result?.textContent).toContain("Meetings and transcription");
+    await act(async () =>
+      result?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+
+    expect(window.location.pathname).toBe("/settings/labs/lab-clips.meetings");
+    expect(
+      container.querySelector("[data-testid=labs-content]")?.textContent,
+    ).toContain("Meetings and transcription");
+
+    await act(async () => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage general={<div>General content</div>} />
+        </MemoryRouter>,
+      );
+    });
+    expect(container.querySelector("#settings-tab-labs")).toBeNull();
+  });
+
+  it("places labs after app-specific tabs such as notifications", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "notifications",
+              label: "Notifications",
+              content: <div>Notifications content</div>,
+            },
+          ]}
+          labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+        />,
+      );
+    });
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>("[id^='settings-tab-']"),
+    ).map((tab) => tab.id);
+    expect(tabs.indexOf("settings-tab-notifications")).toBeLessThan(
+      tabs.indexOf("settings-tab-labs"),
+    );
+  });
+
+  it("resolves legacy experiment routes to Labs", async () => {
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      runAnimationFramesImmediately();
+      await act(async () => {
+        root.render(
+          <MemoryRouter
+            initialEntries={["/settings/experiments/experiment-clips.meetings"]}
+          >
+            <SettingsTabsPage
+              general={<div>General content</div>}
+              labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+            />
+          </MemoryRouter>,
+        );
+      });
+
+      expect(
+        container
+          .querySelector("#settings-tab-labs")
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      });
+    } finally {
+      if (previousScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          previousScrollIntoView,
+        );
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      }
+    }
+  });
+
+  it.each([
+    "#experiments:experiment-clips.meetings",
+    "#experiment-clips.meetings",
+  ])("canonicalizes legacy experiment hash %s", async (hash) => {
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      window.history.replaceState(null, "", `/${hash}`);
+      runAnimationFramesImmediately();
+      await act(async () => {
+        root.render(
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+          />,
+        );
+      });
+
+      expect(
+        container
+          .querySelector("#settings-tab-labs")
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(window.location.pathname).toBe(
+        "/settings/labs/lab-clips.meetings",
+      );
+      expect(window.location.hash).toBe("");
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      });
+    } finally {
+      if (previousScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          previousScrollIntoView,
+        );
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      }
+    }
   });
 
   it("restores a connections tab from its canonical route after a remount", () => {
@@ -660,6 +858,53 @@ describe("SettingsTabsPage", () => {
     });
 
     expect(container.textContent).toContain("Agent voice settings");
+    expect(container.textContent).not.toContain("General content");
+  });
+
+  it("resolves a legacy secrets deep link (with a focused key) to the keys tab", () => {
+    window.history.replaceState(null, "", "/settings#secrets:OPENAI_API_KEY");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "keys",
+              label: "API keys",
+              content: <div>API keys content</div>,
+              searchEntries: [
+                { id: "section:secrets", label: "API keys", hash: "secrets" },
+              ],
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("API keys content");
+    expect(container.textContent).not.toContain("General content");
+  });
+
+  it("resolves a legacy #browser deep link to the integrations tab", () => {
+    window.history.replaceState(null, "", "/settings#browser");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "integrations",
+              label: "Integrations",
+              content: <div>Integrations content</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Integrations content");
     expect(container.textContent).not.toContain("General content");
   });
 

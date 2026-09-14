@@ -82,7 +82,7 @@ export function formAuthorFilter(
   ids: readonly string[] | undefined,
 ): AutomationAuthorFilter {
   const authorIds = ids ?? [];
-  if (mode === "include" && authorIds.length > 0) return "include";
+  if (mode === "include") return "include";
   if (mode === "exclude" && authorIds.length > 0) return "exclude";
   return "none";
 }
@@ -164,6 +164,123 @@ export function isDestinationFilled(
   return false;
 }
 
+/**
+ * List rows store unused destinations as `null`. The save schema is an optional
+ * string, so `null` fails validation. Empty string stays empty (explicit clear).
+ */
+export function omitNullDestination(
+  value: string | null | undefined,
+): string | undefined {
+  return value ?? undefined;
+}
+
+export type AutomationEditorSnapshot = {
+  id: string;
+  name: string;
+  displayName?: string | null;
+  prompt?: string | null;
+  body?: string | null;
+  model?: string | null;
+  schedule?: string | null;
+  enabled?: boolean;
+  source?: AutomationSource | null;
+  template?: AutomationTemplateId | null;
+  slackWorkspace?: "primary" | "secondary" | null;
+  slackChannelId?: string | null;
+  slackChannelName?: string | null;
+  repository?: string | null;
+  sentryOrgSlug?: string | null;
+  sentryProjectSlug?: string | null;
+  sentryEnvironment?: string | null;
+  authorMode?: AutomationAuthorMode | null;
+  authorIds?: readonly string[] | null;
+  authorFilter?: AutomationAuthorFilter | null;
+  scheduleMode?: AutomationScheduleMode | null;
+  intervalMinutes?: number | null;
+  dailyHour?: number | null;
+  dailyMinute?: number | null;
+  timezone?: string | null;
+  inboxLimit?: number | null;
+  workLimit?: number | null;
+  updatedAt?: string | number | null;
+  runs?: unknown;
+  pastRuns?: unknown;
+};
+
+/**
+ * Only fields the server round-trips through `list-factory-automations`. A
+ * client-only field here would never match the saved row, so the editor would
+ * look permanently unsaved and stop accepting server updates.
+ */
+export function automationEditorConfigKey(
+  automation: AutomationEditorSnapshot,
+): string {
+  const scheduleMode = automation.scheduleMode ?? "";
+  return JSON.stringify({
+    id: automation.id,
+    name: automation.name,
+    displayName: automation.displayName ?? "",
+    prompt: automation.prompt ?? automation.body ?? "",
+    model: automation.model ?? "",
+    schedule: automation.schedule ?? "",
+    enabled: Boolean(automation.enabled),
+    source: automation.source ?? "",
+    template: automation.template ?? "",
+    slackWorkspace: automation.slackWorkspace ?? "",
+    slackChannelId: automation.slackChannelId ?? "",
+    slackChannelName: automation.slackChannelName ?? "",
+    repository: automation.repository ?? "",
+    sentryOrgSlug: automation.sentryOrgSlug ?? "",
+    sentryProjectSlug: automation.sentryProjectSlug ?? "",
+    sentryEnvironment: automation.sentryEnvironment ?? "",
+    authorMode: automation.authorMode ?? "",
+    authorIds: automation.authorIds ?? [],
+    scheduleMode,
+    intervalMinutes: automation.intervalMinutes ?? null,
+    dailyHour: automation.dailyHour ?? null,
+    dailyMinute: automation.dailyMinute ?? null,
+    // Save clears the timezone outside daily mode, so an interval draft that
+    // still carries the browser zone must not read as a pending change.
+    timezone: scheduleMode === "daily" ? (automation.timezone ?? "") : "",
+    inboxLimit: automation.inboxLimit ?? null,
+    workLimit: automation.workLimit ?? null,
+  });
+}
+
+export function mergeListedAutomationDraft<T extends AutomationEditorSnapshot>(
+  current: T | null,
+  listed: T,
+  syncedKey: string | null,
+): { draft: T; syncedKey: string } {
+  const nextKey = automationEditorConfigKey(listed);
+  if (!current || current.id !== listed.id) {
+    return { draft: listed, syncedKey: nextKey };
+  }
+  const currentKey = automationEditorConfigKey(current);
+  const dirty = syncedKey != null && currentKey !== syncedKey;
+  if (dirty && currentKey !== nextKey) {
+    return {
+      draft: {
+        ...current,
+        runs: listed.runs,
+        pastRuns: listed.pastRuns,
+        updatedAt: listed.updatedAt,
+      },
+      syncedKey,
+    };
+  }
+  // `authorFilter` is a radio selection, not stored config: Include with no ids
+  // yet has the same saved shape as Everyone, so adopting the row would snap the
+  // radio back while the user is still adding ids.
+  return {
+    draft: {
+      ...listed,
+      authorFilter: current.authorFilter ?? listed.authorFilter,
+    },
+    syncedKey: nextKey,
+  };
+}
+
 type FactoryAutomationConfigQuery = {
   error?: unknown;
   data?: {
@@ -203,6 +320,9 @@ export function canSaveFactoryAutomation(
   connections?: FactoryAutomationConnections,
 ): boolean {
   if (!form.displayName.trim()) return false;
+  if (form.authorFilter === "include" && form.authorIds.length === 0) {
+    return false;
+  }
   if (!form.enabled) return true;
   return canCreateFactoryAutomation(form, connections);
 }

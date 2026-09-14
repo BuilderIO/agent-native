@@ -232,6 +232,7 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(fs.readFileSync(gitignore, "utf-8")).toContain(
       "node-compile-cache/",
     );
+    expect(fs.readFileSync(gitignore, "utf-8")).toContain("data/*.lock");
   });
 
   it("normalizes @agent-native/core for blank standalone apps", async () => {

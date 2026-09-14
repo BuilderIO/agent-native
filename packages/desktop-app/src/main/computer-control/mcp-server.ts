@@ -21,6 +21,10 @@ import type {
   BrowserCommand,
   BrowserTaskRegistration,
 } from "../browser-control/protocol";
+import {
+  desktopBrowserScreenshotToolResult,
+  type CaptureActiveDesktopBrowserScreenshot,
+} from "../desktop-browser-screenshot";
 import type { ComputerControlBroker } from "./broker";
 import { normalizeOrigin } from "./policy";
 import type { EphemeralScreenObserver } from "./screen-observer";
@@ -75,6 +79,7 @@ export interface DesktopComputerMcpBridgeOptions {
   browserBridge?: BrowserControlLoopbackBridge;
   browserNativeHostInstalled?: () => boolean;
   browserExtensionPath?: () => string | undefined;
+  captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot;
   token?: () => string;
   leaseTtlMs?: number;
   openContentWorkingCopy?: (input: {
@@ -569,6 +574,29 @@ export class DesktopComputerMcpBridge {
       },
     );
 
+    mcp.registerTool(
+      "browser_screenshot",
+      {
+        description:
+          "Capture the pixels of the currently active Agent-Native inline browser surface, including an app tab or chat-first browser sidebar. This is separate from attached Chrome control.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async () => {
+        const context = this.context();
+        if (context.connector) {
+          throw new Error(
+            "Inline browser screenshots are unavailable to remote connectors.",
+          );
+        }
+        const capture = this.options.captureActiveBrowserScreenshot;
+        if (!capture) {
+          throw new Error(
+            "Inline browser screenshots are unavailable in this desktop session.",
+          );
+        }
+        return desktopBrowserScreenshotToolResult(await capture());
+      },
+    );
     mcp.registerTool(
       "browser_status",
       {

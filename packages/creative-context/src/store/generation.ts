@@ -141,7 +141,7 @@ export async function recordGenerationCreativeContext(
     assertGenerationArtifactAccessProof(
       input,
       options.artifactAccess,
-      "editor",
+      "record",
     );
   }
   const row = {
@@ -188,11 +188,7 @@ export async function getGenerationCreativeContext(
     );
   }
   if (options.artifactAccess) {
-    assertGenerationArtifactAccessProof(
-      input,
-      options.artifactAccess,
-      "viewer",
-    );
+    assertGenerationArtifactAccessProof(input, options.artifactAccess, "read");
   }
   const actorScope = options.artifactAccess
     ? eq(schema.generationRecords.orgId, actor.orgId!)

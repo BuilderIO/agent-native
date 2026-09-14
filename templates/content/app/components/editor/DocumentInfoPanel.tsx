@@ -23,6 +23,7 @@ interface DocumentInfoPanelProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   canEdit: boolean;
+  popoverContainer?: HTMLElement | null;
   onSaveDescription: (description: string) => Promise<unknown>;
 }
 
@@ -33,6 +34,7 @@ export function DocumentInfoPanel({
   databaseId,
   databaseDocumentId,
   canEdit,
+  popoverContainer,
   onSaveDescription,
 }: DocumentInfoPanelProps) {
   const t = useT();
@@ -113,6 +115,7 @@ export function DocumentInfoPanel({
             databaseDocumentId ?? document.databaseMembership.databaseDocumentId
           }
           canEdit={canEdit}
+          popoverContainer={popoverContainer}
         />
       ) : null}
     </div>

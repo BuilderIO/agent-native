@@ -64,8 +64,11 @@ const messages = {
     extensions: "Erweiterungen",
     newRecording: "Neue Aufnahme",
     folders: "Ordner",
+    recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",
+    noSpacesAdminCta:
+      "Bitte einen Organisationsadmin, den ersten Bereich anzulegen.",
     desktopCta: "Desktop-App laden",
     desktopTitle: "Hol dir die Clips-Desktop-App.",
     desktopBody:
@@ -522,6 +525,11 @@ const messages = {
     shareLink: "Teillink",
     shareWithHumans: "Mit Menschen teilen",
     shareWithAgents: "Mit Agenten teilen",
+    people: "Personen",
+    agents: "Agenten",
+    openInClaude: "In Claude öffnen",
+    openInClaudeCode: "In Claude Code öffnen",
+    openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
       "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
@@ -673,9 +681,11 @@ const messages = {
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
     alsoFor: "Auch verfügbar für {{platform}}",
     backToLibrary: "Zurück zur Bibliothek",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips herunterladen",
     stable: "Stabil",
     nightly: "Nightly",
+    allPlatforms: "Alle Plattformen",
+    releaseChannel: "Release-Kanal",
     switchToNightly: "Zu Nightly-Builds wechseln",
     switchToStable: "Zu stabilen Builds wechseln",
     retry: "Erneut versuchen",
@@ -728,6 +738,17 @@ const messages = {
     agentTitle: "Agent verwalten",
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
+    labs: "Labs",
+    labsIntro:
+      "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
+    labVideoEditing: "Videobearbeitung",
+    labVideoEditingDescription: "Teste den neuen Videoeditor.",
+    labMeetings: "Meetings und Transkription",
+    labMeetingsDescription:
+      "Teste die automatische Erfassung und Transkription von Meetings.",
+    labWisprFlow: "Sprachdiktat",
+    labWisprFlowDescription:
+      "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
     preferencesTitle: "Voreinstellungen",
@@ -965,6 +986,8 @@ const messages = {
     renameFailed: "Clip konnte nicht umbenannt werden",
     renameClip: "Clip umbenennen",
     clipTitle: "Clip-Titel",
+    archiveAction: "Archivieren",
+    moveToTrashAction: "In den Papierkorb verschieben",
     movedToTrash: "In den Papierkorb verschoben",
     restoredFromArchive: "Aus dem Archiv wiederhergestellt",
     archived: "Archiviert",
@@ -1359,13 +1382,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (Lokalisiert)",
     chromeTitle: "Chrome extension (Lokalisiert)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (Lokalisiert)",
+    chromeDescription: "Nimm Browser-Tabs mit der Chrome-Erweiterung auf.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (Lokalisiert)",
     desktopTitle: "Desktop app (Lokalisiert)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Lokalisiert)",
+    desktopDescription: "Nimm mit globalen Tastenkürzeln und Systemaudio auf.",
     openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
@@ -1749,6 +1770,7 @@ const messages = {
     donePageTitle: "Fehlerbericht gesendet · Clips",
     eyebrow: "Fehlerbericht",
     title: "Fehlerbericht aufnehmen",
+    sidebarCta: "Feedback senden",
     description:
       "Nimm eine kurze Reproduktion mit Bildschirm, Stimme und redigiertem Browserkontext für dein Team auf.",
     issueTitleLabel: "Titel des Problems",
@@ -1825,7 +1847,7 @@ const messages = {
     refreshing: "Refreshing… (Lokalisiert)",
     howToTriggerTitle: "How to trigger meeting notes (Lokalisiert)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (Lokalisiert)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (Lokalisiert)",
     guideCalendarTitle: "Connect Google Calendar (Lokalisiert)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (Lokalisiert)",
@@ -1851,6 +1873,37 @@ const messages = {
       "Hilfreich, um den Einstieg in eine längere Erklärung wiederherzustellen.",
     privateReady:
       "Dieser Clip ist privat. Du kannst jetzt lokalen Rewind-Verlauf hinzufügen.",
+  },
+  browserDiagnostics: {
+    debug: "Debug",
+    title: "Browserdiagnose",
+    failureSummary:
+      "{{consoleCount}} Konsolenprobleme · {{networkCount}} fehlgeschlagene Anfragen",
+    noFailures: "Keine Fehler erkannt",
+    failuresPresent: "Browserfehler erkannt",
+    unviewedCount: "{{count}} ungesehen",
+    captureSuccessful: "Diagnosedaten erfolgreich erfasst",
+    capturedFrom: "Erfasst von {{source}}",
+    browserCapture: "Browseraufnahme",
+    views: "Diagnoseansichten",
+    issues: "Probleme",
+    consoleSource: "Konsole",
+    networkSource: "Netzwerk",
+    consoleCount: "Konsole {{count}}",
+    networkCount: "Netzwerk {{count}}",
+    afterRecording: "Nach der Aufnahme",
+    seekToTime: "Zu {{time}} springen",
+    occurrences: "Vorkommen",
+    message: "Meldung",
+    stackTrace: "Stacktrace",
+    request: "Anfrage",
+    status: "Status",
+    duration: "Dauer",
+    error: "Fehler",
+    noIssuesTitle: "Keine Browserprobleme erkannt",
+    noConsoleTitle: "Keine Konsolenereignisse",
+    noNetworkTitle: "Keine Netzwerkanfragen",
+    capturedDescription: "Für diese Aufnahme wurden Diagnosedaten erfasst.",
   },
   timeline: { clipStartedHere: "Clip begann hier" },
 };

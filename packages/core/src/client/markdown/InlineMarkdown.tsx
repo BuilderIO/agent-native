@@ -18,17 +18,15 @@ const INLINE_MARKDOWN_ELEMENTS = [
   "strong",
 ] as const;
 
+const BLOCK_MARKDOWN_ELEMENTS = [...INLINE_MARKDOWN_ELEMENTS, "li", "ol", "ul"];
+
 export interface InlineMarkdownProps {
   content: string;
   className?: string;
   linkClassName?: string;
   codeClassName?: string;
   inline?: boolean;
-  renderLink?: (
-    href: string,
-    children: ReactNode,
-    className: string,
-  ) => ReactNode;
+  renderLists?: boolean;
   protectedSpans?: readonly InlineMarkdownProtectedSpan[];
   renderProtectedSpan?: (
     span: InlineMarkdownProtectedSpan,
@@ -46,8 +44,9 @@ export interface InlineMarkdownProtectedSpan {
 /**
  * Render user-authored Markdown for compact text surfaces.
  *
- * This intentionally has no block-level Markdown elements: headings, lists,
- * quotes, and raw HTML are either flattened to their text or omitted.
+ * Compact renders omit block-level Markdown by default. Callers that own a
+ * block surface can opt into ordered and unordered lists; headings, quotes,
+ * and raw HTML stay omitted.
  */
 export function InlineMarkdown({
   content,
@@ -55,7 +54,7 @@ export function InlineMarkdown({
   linkClassName,
   codeClassName,
   inline = false,
-  renderLink,
+  renderLists = false,
   protectedSpans = [],
   renderProtectedSpan,
 }: InlineMarkdownProps) {
@@ -82,18 +81,16 @@ export function InlineMarkdown({
         ? defaultUrlTransform(normalizeInlineMarkdownHref(href))
         : "";
       if (!safeHref) return <>{children}</>;
-      const anchorClassName = cn(
-        "text-primary underline-offset-2 hover:underline",
-        linkClassName,
-      );
-      if (renderLink) return renderLink(safeHref, children, anchorClassName);
 
       return (
         <a
           href={safeHref}
           target="_blank"
           rel="noopener noreferrer"
-          className={anchorClassName}
+          className={cn(
+            "text-primary underline-offset-2 hover:underline",
+            linkClassName,
+          )}
         >
           {children}
         </a>
@@ -112,6 +109,8 @@ export function InlineMarkdown({
     ),
     p: ({ children }) =>
       inline ? <span>{children}</span> : <p className="m-0">{children}</p>,
+    ul: ({ children }) => <ul className="list-disc ps-5">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal ps-5">{children}</ol>,
   };
 
   const Root = inline ? "span" : "div";
@@ -119,7 +118,11 @@ export function InlineMarkdown({
   return (
     <Root className={cn("whitespace-pre-wrap break-words", className)}>
       <ReactMarkdown
-        allowedElements={INLINE_MARKDOWN_ELEMENTS}
+        allowedElements={
+          renderLists && !inline
+            ? BLOCK_MARKDOWN_ELEMENTS
+            : INLINE_MARKDOWN_ELEMENTS
+        }
         components={components}
         remarkPlugins={[remarkGfm]}
         skipHtml

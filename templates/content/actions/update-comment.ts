@@ -104,20 +104,31 @@ export default defineAction({
           : {}),
       };
 
-    if (
-      (args.content !== undefined || args.mentions !== undefined) &&
-      args.resolved !== undefined
-    ) {
+    if (args.resolved !== undefined) {
       await db.transaction(async (tx) => {
+        // Serialize replies and resolution before either takes its write snapshot.
         await tx
-          .update(schema.documentComments)
-          .set(contentUpdates)
+          .select({ id: schema.documentComments.id })
+          .from(schema.documentComments)
           .where(
             and(
-              eq(schema.documentComments.id, args.id),
+              eq(schema.documentComments.id, comment.threadId),
               eq(schema.documentComments.documentId, comment.documentId),
             ),
-          );
+          )
+          .limit(1)
+          .for("update");
+        if (args.content !== undefined || args.mentions !== undefined) {
+          await tx
+            .update(schema.documentComments)
+            .set(contentUpdates)
+            .where(
+              and(
+                eq(schema.documentComments.id, args.id),
+                eq(schema.documentComments.documentId, comment.documentId),
+              ),
+            );
+        }
         await tx
           .update(schema.documentComments)
           .set({ resolved: args.resolved ? 1 : 0, updatedAt })
@@ -130,34 +141,6 @@ export default defineAction({
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
       return { ok: true, resolved: args.resolved };
-    }
-
-    if (args.resolved === true) {
-      await db
-        .update(schema.documentComments)
-        .set({ resolved: 1, updatedAt })
-        .where(
-          and(
-            eq(schema.documentComments.documentId, comment.documentId),
-            eq(schema.documentComments.threadId, comment.threadId),
-          ),
-        );
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return { ok: true, resolved: true };
-    }
-
-    if (args.resolved === false) {
-      await db
-        .update(schema.documentComments)
-        .set({ resolved: 0, updatedAt })
-        .where(
-          and(
-            eq(schema.documentComments.documentId, comment.documentId),
-            eq(schema.documentComments.threadId, comment.threadId),
-          ),
-        );
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return { ok: true, resolved: false };
     }
 
     await db

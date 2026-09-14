@@ -53,12 +53,26 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toContain("<DocumentEditorSkeleton />");
+    expect(source).toContain(
+      "<DocumentEditorSkeleton title={pendingDocumentTitle} />",
+    );
   });
 
   it("creates keyboard pages without waiting for persistence before returning", () => {
     const source = readLayoutSource();
 
     expect(source).toContain("useCreatePage({ awaitPersist: false })");
+  });
+
+  it("includes the current document revision in chat history restores", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("prepareRegisteredDocumentHistoryRestore");
+    expect(source).toContain("applyRegisteredDocumentHistoryRestore");
+    expect(source).toContain("expectedUpdatedAt:");
+    expect(source).toContain("onRestored: async (restored)");
+    expect(source).toContain(
+      'toast.error(t("editor.historyRestoreAppliedRefreshFailed"))',
+    );
   });
 });

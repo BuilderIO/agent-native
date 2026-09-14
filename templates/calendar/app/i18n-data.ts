@@ -1,4 +1,4 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -809,6 +809,7 @@ const enUS = {
     other: "Other",
     openInSidebar: "Open in sidebar",
     openInGoogleCalendar: "Open in Google Calendar",
+    proposeNewTime: "Propose a new time",
     optionalDescription: "Optional description",
     optionalLocation: "Optional location",
     optionalNote: "Optional note",
@@ -839,6 +840,7 @@ const enUS = {
     after: "After",
     occurrences: "occurrences",
     reviewInvite: "Review Invite",
+    reviewProposedTime: "Review proposed time",
     responseAwaitingCount: "{{count}} awaiting",
     responseMaybeCount: "{{count}} maybe",
     responseNoCount: "{{count}} no",
@@ -9668,6 +9670,63 @@ const translatedCalendarNotificationSettings = {
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
 
+const translatedCalendarTimeProposalActions = {
+  "zh-CN": {
+    eventForm: {
+      proposeNewTime: "提出新时间",
+      reviewProposedTime: "查看建议时间",
+    },
+  },
+  "es-ES": {
+    eventForm: {
+      proposeNewTime: "Proponer una hora nueva",
+      reviewProposedTime: "Revisar la hora propuesta",
+    },
+  },
+  "fr-FR": {
+    eventForm: {
+      proposeNewTime: "Proposer une nouvelle heure",
+      reviewProposedTime: "Examiner l’heure proposée",
+    },
+  },
+  "de-DE": {
+    eventForm: {
+      proposeNewTime: "Neue Zeit vorschlagen",
+      reviewProposedTime: "Vorgeschlagene Zeit prüfen",
+    },
+  },
+  "ja-JP": {
+    eventForm: {
+      proposeNewTime: "新しい時刻を提案",
+      reviewProposedTime: "提案された時刻を確認",
+    },
+  },
+  "ko-KR": {
+    eventForm: {
+      proposeNewTime: "새 시간 제안",
+      reviewProposedTime: "제안된 시간 검토",
+    },
+  },
+  "pt-BR": {
+    eventForm: {
+      proposeNewTime: "Propor um novo horário",
+      reviewProposedTime: "Revisar horário proposto",
+    },
+  },
+  "hi-IN": {
+    eventForm: {
+      proposeNewTime: "नया समय सुझाएं",
+      reviewProposedTime: "सुझाए गए समय की समीक्षा करें",
+    },
+  },
+  "ar-SA": {
+    eventForm: {
+      proposeNewTime: "اقتراح وقت جديد",
+      reviewProposedTime: "مراجعة الوقت المقترح",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
 function applyTranslatedCalendarOverrides(
   translationSet: Partial<Record<LocaleCode, PartialMessages>>,
 ) {
@@ -9893,3 +9952,4 @@ applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);
 applyTranslatedCalendarOverrides(translatedCalendarAvailabilityFix);
 applyTranslatedCalendarOverrides(translatedBookingHostAvailability);
 applyTranslatedCalendarOverrides(translatedCalendarNotificationSettings);
+applyTranslatedCalendarOverrides(translatedCalendarTimeProposalActions);

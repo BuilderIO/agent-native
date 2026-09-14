@@ -1,4 +1,13 @@
 import { getRotatedFrameCorners } from "./canvas-math.js";
+import {
+  getResponsiveBreakpointHeightPx,
+  getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
+  getResponsiveGroupWidth,
+  getScreenPreviewViewport,
+  MAX_SANE_FRAME_DIMENSION_PX,
+  visibleBreakpointWidths,
+} from "./responsive-frame-layout.js";
 
 export interface CanvasFrameGeometry {
   x?: number;
@@ -96,12 +105,50 @@ function numericEntryError(
   numericKeys: ReadonlySet<string>,
 ): string | null {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  if (map === "screenMetadata") {
+    const heights = (entry as Record<string, unknown>).breakpointHeights;
+    if (heights !== undefined) {
+      if (!heights || typeof heights !== "object" || Array.isArray(heights)) {
+        return "screenMetadata.breakpointHeights must be an object keyed by breakpoint width.";
+      }
+      for (const [width, height] of Object.entries(
+        heights as Record<string, unknown>,
+      )) {
+        const error = breakpointHeightError(width, height);
+        if (error) return error;
+      }
+    }
+  }
   for (const [key, value] of Object.entries(entry)) {
     if (!numericKeys.has(key)) continue;
     const error = numericValueError(map, key, value);
     if (error) return error;
   }
   return null;
+}
+
+function breakpointHeightError(width: string, value: unknown): string | null {
+  const widthPx = Number(width);
+  if (
+    !Number.isSafeInteger(widthPx) ||
+    widthPx <= 0 ||
+    String(widthPx) !== width
+  ) {
+    return `Responsive breakpoint width "${width}" must be a positive integer.`;
+  }
+  const error = numericValueError(
+    "screenMetadata.breakpointHeights",
+    width,
+    value,
+  );
+  if (error) return error;
+  const height = value as number;
+  if (height <= 0) {
+    return `Responsive breakpoint height at width ${width} must be positive.`;
+  }
+  return height <= MAX_SANE_FRAME_DIMENSION_PX
+    ? null
+    : `Responsive breakpoint height at width ${width} must be at most ${MAX_SANE_FRAME_DIMENSION_PX} px.`;
 }
 
 /**
@@ -119,6 +166,25 @@ export function numericDesignDataWriteError(
   const map = path[0];
   const numericKeys = map ? NUMERIC_DESIGN_DATA_ENTRY_KEYS[map] : undefined;
   if (!map || !numericKeys) return null;
+
+  if (map === "screenMetadata" && path[2] === "breakpointHeights") {
+    if (path.length === 3) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return "screenMetadata.breakpointHeights must be an object keyed by breakpoint width.";
+      }
+      for (const [width, height] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        const error = breakpointHeightError(width, height);
+        if (error) return error;
+      }
+      return null;
+    }
+    if (path.length === 4) {
+      return breakpointHeightError(path[3]!, value);
+    }
+    return "screenMetadata.breakpointHeights entries have no nested values.";
+  }
 
   if (path.length === 1) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -146,15 +212,31 @@ export function numericDesignDataWriteError(
 export function nextFreeCanvasRowY(
   existing: unknown,
   gap: number,
-  options: { ignoreFileIds?: readonly string[] } = {},
+  options: {
+    ignoreFileIds?: readonly string[];
+    responsiveLayout?: {
+      screenFileIds?: readonly string[];
+      screenMetadataByFileId?: unknown;
+      breakpointWidths?: readonly number[];
+    };
+  } = {},
 ): number {
   const ignored = new Set(options.ignoreFileIds ?? []);
   const frames = Object.entries(parseCanvasFrameGeometryById(existing)).filter(
     ([id]) => !ignored.has(id),
   );
+  const responsiveLayout = options.responsiveLayout;
+  const metadataByFileId = responsiveLayout?.screenMetadataByFileId;
+  const metadataMap =
+    metadataByFileId &&
+    typeof metadataByFileId === "object" &&
+    !Array.isArray(metadataByFileId)
+      ? (metadataByFileId as Record<string, unknown>)
+      : {};
+  const screenFileIds = new Set(responsiveLayout?.screenFileIds ?? []);
   let bottom = 0;
   let sawFrame = false;
-  for (const [, frame] of frames) {
+  for (const [id, frame] of frames) {
     const y = frame.y ?? 0;
     const height = frame.height ?? 0;
     if (!Number.isFinite(y) || !Number.isFinite(height)) continue;
@@ -162,16 +244,82 @@ export function nextFreeCanvasRowY(
     const x = frame.x ?? 0;
     const width = frame.width ?? 0;
     const rotation = frame.rotation ?? 0;
-    // A rotated frame's visual box extends below y + height; place under
-    // its rotated corners so the new row cannot overlap it.
-    const frameBottom =
-      rotation && Number.isFinite(x) && Number.isFinite(width)
-        ? Math.max(
-            ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(
-              (corner) => corner.y,
-            ),
-          )
-        : y + height;
+    const rawMetadata = metadataMap[id];
+    const responsiveScreen = screenFileIds.has(id)
+      ? responsiveLayout
+      : undefined;
+    const metadata =
+      rawMetadata &&
+      typeof rawMetadata === "object" &&
+      !Array.isArray(rawMetadata)
+        ? (rawMetadata as Record<string, unknown>)
+        : {};
+    const metadataWidth = finiteNumber(metadata.width);
+    const metadataHeight = finiteNumber(metadata.height);
+    const primaryWidth = Math.max(1, width || 320);
+    const sourceWidth = Math.max(1, metadataWidth ?? 1280);
+    const sourceHeight = Math.max(1, metadataHeight ?? 2560);
+    const primaryHeight = Math.max(
+      1,
+      height ||
+        Math.max(80, Math.round((primaryWidth * sourceHeight) / sourceWidth)),
+    );
+    const visibleWidths = responsiveScreen
+      ? visibleBreakpointWidths(
+          responsiveScreen.breakpointWidths,
+          metadataWidth ?? width,
+        )
+      : [];
+    const resolveBreakpointHeightPx = (widthPx: number) =>
+      getResponsiveBreakpointHeightPx(metadata, widthPx);
+    const scale = getScreenPreviewViewport(
+      { width: sourceWidth, height: sourceHeight },
+      { width: primaryWidth, height: primaryHeight },
+    ).scale;
+    const paintedWidth = responsiveScreen
+      ? getResponsiveGroupWidth({
+          primaryWidth,
+          scale,
+          visibleWidths,
+        })
+      : width;
+    const paintedHeight = responsiveScreen
+      ? getResponsiveGroupHeight({
+          primaryHeight,
+          scale,
+          sourceWidth,
+          sourceHeight,
+          visibleWidths,
+          resolveBreakpointHeightPx,
+        })
+      : height;
+    // A rotated frame's visual box extends below y + height; place under its
+    // rotated corners so the new row cannot overlap it. Responsive previews
+    // rotate with the primary around its center, so use their full group
+    // footprint around that same pivot.
+    let frameBottom: number;
+    if (!rotation) {
+      frameBottom = y + paintedHeight;
+    } else if (responsiveScreen) {
+      const bounds = getResponsiveGroupRotatedBounds({
+        x,
+        y,
+        primaryWidth,
+        primaryHeight,
+        groupWidth: paintedWidth,
+        groupHeight: paintedHeight,
+        rotation,
+      });
+      frameBottom = bounds.y + bounds.height;
+    } else if (Number.isFinite(x) && Number.isFinite(width)) {
+      frameBottom = Math.max(
+        ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(
+          (corner) => corner.y,
+        ),
+      );
+    } else {
+      frameBottom = y + paintedHeight;
+    }
     bottom = Math.max(bottom, frameBottom);
   }
   return sawFrame ? bottom + gap : 0;

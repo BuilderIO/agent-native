@@ -21,16 +21,9 @@ import {
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
-const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
-  assets: 4,
-  chat: 3,
-};
+const genericFaqCounts: Partial<Record<Template["slug"], number>> = {};
 
-const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
-  assets:
-    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8670a102c1f44808aa158c4a7a66f6e6",
-  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc6afb337a30240e19f1e0523aaef6865",
-};
+const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {};
 
 function findTemplate(slug: string | undefined) {
   return templates.find((t) => t.slug === slug);

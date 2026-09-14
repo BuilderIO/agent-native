@@ -35,11 +35,24 @@ describe("onboarding app profiles", () => {
     expect(
       profile.capabilities.some((capability) => capability.builderIncluded),
     ).toBe(true);
+    const storage = profile.capabilities.find(
+      (capability) =>
+        capability.id === "file-storage" || capability.id === "video-storage",
+    );
+    expect(storage).toMatchObject({
+      builderIncluded: true,
+      suggested: appId !== "clips" && appId !== "assets",
+    });
+    expect(storage?.required).toBe(appId === "clips" || appId === "assets");
     expect(profile.capabilities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "file-storage",
-          builderIncluded: true,
+          id: "llm",
+          required: true,
+        }),
+        expect.objectContaining({
+          id: "voice-input",
+          required: false,
           suggested: true,
         }),
       ]),
@@ -52,11 +65,13 @@ describe("onboarding app profiles", () => {
 
     expect(ids).toEqual([
       "llm",
-      "file-storage",
       "video-storage",
+      "voice-input",
       "transcription",
     ]);
-    expect(clips.capabilities[2]?.keySummary).toContain("S3");
+    expect(clips.capabilities[1]?.required).toBe(true);
+    expect(clips.capabilities[1]?.keySummary).toContain("S3");
+    expect(clips.capabilities[1]?.label).toBe("Object storage");
     expect(clips.capabilities[3]?.required).toBe(false);
 
     clips.capabilities[0]!.label = "Changed locally";
@@ -88,5 +103,26 @@ describe("onboarding app profiles", () => {
         (capability) => capability.id,
       ),
     ).not.toContain("design-system-intelligence");
+  });
+
+  it("separates Assets image and video requirements", () => {
+    const assets = getOnboardingAppProfile("assets").capabilities;
+
+    expect(assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "media-generation",
+          required: true,
+        }),
+        expect.objectContaining({
+          id: "video-generation",
+          required: false,
+        }),
+        expect.objectContaining({
+          id: "file-storage",
+          required: true,
+        }),
+      ]),
+    );
   });
 });

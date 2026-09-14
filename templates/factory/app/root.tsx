@@ -121,6 +121,7 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
   const t = useT();
+  const location = useLocation();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
@@ -128,12 +129,19 @@ function AppContent() {
         open={cmdkOpen}
         onOpenChange={setCmdkOpen}
         changelog={changelog}
-        changelogKey="chat"
+        changelogKey="factory"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {location.pathname.startsWith("/factory") ? (
+            <CommandMenu.Item onSelect={() => navigate("/new-factory")}>
+              {t("factoryRoute.newFactory")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/new-factory" ? (
+            <CommandMenu.Item onSelect={() => navigate("/factory")}>
+              {t("factoryRoute.backToFactories")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[

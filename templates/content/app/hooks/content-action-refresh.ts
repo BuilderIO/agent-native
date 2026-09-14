@@ -1,5 +1,6 @@
 interface ActionQuery {
   queryKey: readonly unknown[];
+  isActive?: () => boolean;
 }
 
 interface ActionEvent {
@@ -16,8 +17,10 @@ const COMMENT_MUTATIONS = new Set([
 
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
+  "decide-resource-suggestion",
   "delete-document",
   "delete-document-property",
+  "delete-content-database",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
@@ -36,6 +39,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "resolve-local-folder-conflict",
   "resolve-notion-sync-conflict",
   "restore-document",
+  "restore-content-database",
   "restore-document-version",
   "set-document-discoverability",
   "set-document-property",
@@ -46,27 +50,107 @@ const DOCUMENT_MUTATIONS = new Set([
   "update-document",
 ]);
 
+const DATABASE_RESULT_MUTATIONS = new Set([
+  "add-database-item",
+  "configure-document-property",
+  "delete-content-database",
+  "delete-document",
+  "delete-document-property",
+  "duplicate-database-item",
+  "duplicate-database-items",
+  "duplicate-document-property",
+  "edit-document",
+  "execute-builder-source-batch",
+  "execute-builder-source-execution",
+  "import-content-source",
+  "migrate-content-database-rows",
+  "move-database-item",
+  "remove-database-items",
+  "reorder-document-property",
+  "restore-content-database",
+  "restore-document",
+  "set-document-property",
+  "submit-content-database-form",
+  "update-database-item",
+  "update-database-items",
+  "update-content-database-view",
+  "update-document",
+  "upsert-database-item-by-key",
+]);
+
+const DATABASE_PRESENTATION_MUTATIONS = new Set([
+  "update-content-database-personal-view",
+]);
+
+const DATABASE_LIFECYCLE_MUTATIONS = new Set([
+  "delete-content-database",
+  "restore-content-database",
+]);
+
+const DATABASE_LIFECYCLE_QUERIES = new Set([
+  "list-content-databases",
+  "list-documents",
+  "list-trashed-content-databases",
+  "list-trashed-documents",
+]);
+
 const CONTENT_MUTATIONS = new Set([
   ...COMMENT_MUTATIONS,
   ...DOCUMENT_MUTATIONS,
 ]);
 
+const SUGGESTION_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "suggest-document-edit",
+  "update-resource-suggestion",
+  "decide-resource-suggestion",
+]);
+
+const REVIEW_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "suggest-document-edit",
+  "decide-resource-suggestion",
+  "create-review-comment",
+  "reply-review-comment",
+  "resolve-review-thread",
+  "delete-review-comment",
+  "consume-review-feedback",
+  "send-review-thread-to-agent",
+  "set-review-status",
+  "react-to-review-comment",
+  "set-review-thread-unread",
+  "set-review-thread-muted",
+]);
+
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
-  const actionName = query.queryKey[1];
-  const args = query.queryKey[2];
-  if (!args || typeof args !== "object") return false;
-  if (actionName === "get-document") {
-    return "id" in args && args.id === documentId;
-  }
   if (
-    actionName === "list-comments" ||
-    actionName === "list-comment-ai-requests"
+    query.queryKey[1] !== "get-document" &&
+    query.queryKey[1] !== "list-comments" &&
+    query.queryKey[1] !== "list-document-properties"
   ) {
-    return "documentId" in args && args.documentId === documentId;
+    return false;
   }
+  const args = query.queryKey[2];
   return (
-    actionName === "list-resource-suggestions" &&
+    !!args &&
+    typeof args === "object" &&
+    (("id" in args && args.id === documentId) ||
+      ("documentId" in args && args.documentId === documentId))
+  );
+}
+
+function queryTargetsDocumentReviewResource(
+  query: ActionQuery,
+  actionName: "list-resource-suggestions" | "list-review-comments",
+  documentId: string,
+): boolean {
+  if (query.queryKey[0] !== "action" || query.queryKey[1] !== actionName)
+    return false;
+  const args = query.queryKey[2];
+  return (
+    !!args &&
+    typeof args === "object" &&
     "resourceType" in args &&
     args.resourceType === "document" &&
     "resourceId" in args &&
@@ -74,44 +158,55 @@ function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   );
 }
 
-function queryActionName(query: ActionQuery): string | undefined {
-  return query.queryKey[0] === "action" && typeof query.queryKey[1] === "string"
-    ? query.queryKey[1]
-    : undefined;
+function eventsIncludeMutation(
+  events: readonly ActionEvent[],
+  mutations: ReadonlySet<string>,
+): boolean {
+  return events.some(
+    (event) =>
+      event.source === "action" &&
+      typeof event.key === "string" &&
+      mutations.has(event.key),
+  );
 }
 
-function eventRefreshesQuery(eventKey: string, queryAction: string): boolean {
-  if (CONTENT_MUTATIONS.has(eventKey)) {
-    return queryAction === "get-document" || queryAction === "list-comments";
-  }
-  if (eventKey === "start-comment-ai-request") {
-    return queryAction === "list-comment-ai-requests";
-  }
+function isDatabaseQuery(query: ActionQuery): boolean {
   if (
-    eventKey === "reply-to-comment-ai-request" ||
-    eventKey === "create-comment-ai-suggestion"
+    query.queryKey[0] !== "action" ||
+    (query.queryKey[1] !== "get-content-database" &&
+      query.queryKey[1] !== "query-content-database-items")
   ) {
-    return (
-      queryAction === "list-comments" ||
-      queryAction === "list-comment-ai-requests" ||
-      queryAction === "list-resource-suggestions"
-    );
+    return false;
   }
-  if (eventKey === "apply-comment-ai-request") {
-    return (
-      queryAction === "get-document" ||
-      queryAction === "list-comments" ||
-      queryAction === "list-comment-ai-requests" ||
-      queryAction === "list-resource-suggestions"
-    );
-  }
-  if (eventKey === "decide-resource-suggestion") {
-    return (
-      queryAction === "get-document" ||
-      queryAction === "list-resource-suggestions"
-    );
-  }
-  return false;
+  return true;
+}
+
+function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
+  if (!isDatabaseQuery(query)) return false;
+  const args = query.queryKey[2];
+  return (
+    (!!args &&
+      typeof args === "object" &&
+      "documentId" in args &&
+      args.documentId === documentId) ||
+    query.isActive?.() === true
+  );
+}
+
+function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    query.queryKey[1] === "get-content-database-personal-view" &&
+    query.isActive?.() === true
+  );
+}
+
+function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    typeof query.queryKey[1] === "string" &&
+    DATABASE_LIFECYCLE_QUERIES.has(query.queryKey[1])
+  );
 }
 
 export function contentDocumentIdFromPathname(
@@ -126,16 +221,78 @@ export function contentActionInvalidatePredicate(
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
-    if (documentId === undefined || !queryTargetsDocument(query, documentId)) {
+    const args = query.queryKey[2];
+    const targetId =
+      args && typeof args === "object"
+        ? "id" in args
+          ? args.id
+          : "documentId" in args
+            ? args.documentId
+            : undefined
+        : undefined;
+    if (
+      (isDatabaseLifecycleQuery(query) ||
+        (isDatabaseQuery(query) && query.isActive?.() === true)) &&
+      events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          DATABASE_LIFECYCLE_MUTATIONS.has(event.key),
+      )
+    ) {
+      return true;
+    }
+    if (documentId === undefined) {
       return false;
     }
-    const actionName = queryActionName(query);
-    if (!actionName) return false;
-    return events.some(
-      (event) =>
-        event.source === "action" &&
-        typeof event.key === "string" &&
-        eventRefreshesQuery(event.key, actionName),
-    );
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-resource-suggestions",
+        documentId,
+      )
+    ) {
+      return eventsIncludeMutation(events, SUGGESTION_MUTATIONS);
+    }
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-review-comments",
+        documentId,
+      )
+    ) {
+      return eventsIncludeMutation(events, REVIEW_MUTATIONS);
+    }
+    if (
+      typeof targetId === "string" &&
+      queryTargetsDocument(query, targetId) &&
+      (query.isActive ? query.isActive() : targetId === documentId)
+    ) {
+      // Mounted Page surfaces can belong to a collection preview rather than
+      // the route. Keep inactive cached Pages out of the refresh fan-out.
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          CONTENT_MUTATIONS.has(event.key),
+      );
+    }
+    if (queryTargetsDatabase(query, documentId)) {
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          DATABASE_RESULT_MUTATIONS.has(event.key),
+      );
+    }
+    if (queryTargetsActiveDatabasePresentation(query)) {
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          DATABASE_PRESENTATION_MUTATIONS.has(event.key),
+      );
+    }
+    return false;
   };
 }

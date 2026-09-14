@@ -1,14 +1,17 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useDecksMock } = vi.hoisted(() => ({ useDecksMock: vi.fn() }));
+const { agentSidebarMock, useDecksMock } = vi.hoisted(() => ({
+  agentSidebarMock: vi.fn(),
+  useDecksMock: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({ children, ...props }: { children: ReactNode }) => {
-    void props;
+    agentSidebarMock(props);
     return <div data-testid="agent-sidebar">{children}</div>;
   },
   focusAgentChat: vi.fn(),
@@ -69,13 +72,90 @@ function renderLayout(path: string) {
       <Layout>
         <div data-testid="page-content">Content</div>
       </Layout>
+      <NavigateAway />
     </MemoryRouter>,
+  );
+}
+
+function NavigateAway() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate("/")}>
+      Navigate away
+    </button>
   );
 }
 
 describe("Slides Layout", () => {
   beforeEach(() => {
+    agentSidebarMock.mockClear();
     useDecksMock.mockReturnValue({ decks: [], loading: false });
+  });
+
+  it("enables agent-panel auto-open only during a run", () => {
+    renderLayout("/");
+
+    expect(agentSidebarMock).toHaveBeenCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-a" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-b" },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: true }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "chat-a" },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: true }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "chat-b" },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
+  });
+
+  it("clears running tabs when leaving full-page chat", () => {
+    renderLayout("/chat");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-a" },
+        }),
+      );
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Navigate away" }).click();
+    });
+
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
   });
 
   it("keeps the app shell visible on the empty root route", () => {

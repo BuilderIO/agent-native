@@ -339,7 +339,12 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         : event.source;
   return {
     key,
-    id: event.googleEventId ?? event.id,
+    // Keep the app id when it carries a calendar namespace; the raw provider
+    // id is only unique within one Google calendar.
+    id:
+      event.googleEventId && event.id !== `google-${event.googleEventId}`
+        ? event.id
+        : (event.googleEventId ?? event.id),
     title: cap(event.title) ?? "Untitled",
     start: event.start,
     end: event.end,

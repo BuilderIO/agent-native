@@ -12,6 +12,8 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
+  IconMail,
+  IconMailOpened,
   IconMailOff,
   IconX,
   IconArrowBackUp,
@@ -50,7 +52,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  applyDraftSaveResult,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -381,16 +386,68 @@ export function EmailThread({
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
+  const keepUnreadThreadRef = useRef<string | undefined>(undefined);
+  const failedAutoReadThreadRef = useRef<string | undefined>(undefined);
+  const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    keepUnreadThreadRef.current = undefined;
+    failedAutoReadThreadRef.current = undefined;
+  }, [threadId]);
+  const setCurrentEmailReadState = useCallback(
+    (isRead: boolean) => {
+      if (!email) return;
+      if (!isRead) {
+        keepUnreadThreadRef.current = threadId;
+        if (autoReadTimerRef.current !== undefined) {
+          clearTimeout(autoReadTimerRef.current);
+          autoReadTimerRef.current = undefined;
+        }
+      }
+      markRead.mutate({
+        id: email.id,
+        isRead,
+        accountEmail: email.accountEmail,
+        threadId,
+      });
+    },
+    [email, markRead, threadId],
+  );
 
   // Auto-mark all unread messages in this thread as read when viewed.
   // Defer the mutation past the commit so its optimistic emails-cache update
   // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
-    if (threadId && hasUnread) {
+    if (
+      threadId &&
+      hasUnread &&
+      keepUnreadThreadRef.current !== threadId &&
+      failedAutoReadThreadRef.current !== threadId
+    ) {
       const id = threadId;
-      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
-      return () => clearTimeout(handle);
+      const accountEmail = messages.find(
+        (m) => (m.threadId || m.id) === id,
+      )?.accountEmail;
+      const handle = setTimeout(() => {
+        autoReadTimerRef.current = undefined;
+        markThreadRead.mutate(
+          { threadId: id, accountEmail },
+          {
+            onError: () => {
+              failedAutoReadThreadRef.current = id;
+            },
+          },
+        );
+      }, 0);
+      autoReadTimerRef.current = handle;
+      return () => {
+        clearTimeout(handle);
+        if (autoReadTimerRef.current === handle) {
+          autoReadTimerRef.current = undefined;
+        }
+      };
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -650,7 +707,8 @@ export function EmailThread({
 
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets) unarchiveEmail.mutate(t.id);
+      for (const t of targets)
+        unarchiveEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
@@ -706,7 +764,8 @@ export function EmailThread({
 
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets) untrashEmail.mutate(t.id);
+      for (const t of targets)
+        untrashEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
@@ -717,7 +776,8 @@ export function EmailThread({
       { action: { label: "UNDO", onClick: undo } },
     );
     advanceOrGoBack();
-    for (const t of targets) trashEmail.mutate(t.id);
+    for (const t of targets)
+      trashEmail.mutate({ id: t.id, accountEmail: t.accountEmail });
     setSelectedIds?.(new Set());
   }, [
     email,
@@ -953,38 +1013,17 @@ export function EmailThread({
       },
       {
         key: "u",
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: !email.isRead,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => email && setCurrentEmailReadState(!email.isRead),
       },
       {
         key: "I",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: true,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(true),
       },
       {
         key: "U",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: false,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(false),
       },
     ],
     !!threadId,
@@ -1022,12 +1061,7 @@ export function EmailThread({
           handleForward();
           break;
         case "markUnread":
-          if (email)
-            markRead.mutate({
-              id: email.id,
-              isRead: false,
-              accountEmail: email.accountEmail,
-            });
+          setCurrentEmailReadState(false);
           break;
         case "prev":
           goToSibling(-1);
@@ -1046,7 +1080,7 @@ export function EmailThread({
       handleReplyAll,
       handleForward,
       email,
-      markRead,
+      setCurrentEmailReadState,
       goToSibling,
     ],
   );
@@ -1135,6 +1169,46 @@ export function EmailThread({
       setUnsubscribing(false);
     }
   }, [t, unsubscribeInfo]);
+
+  const handleCloseInlineDraft = (id: string) => {
+    const draft = compose.drafts.find((item) => item.id === id);
+    const hasContent = !!(
+      draft?.to?.trim() ||
+      draft?.cc?.trim() ||
+      draft?.bcc?.trim() ||
+      draft?.subject?.trim() ||
+      draft?.body?.trim()
+    );
+    const snapshot = draft ? { ...draft } : null;
+    const savePromise = compose.close(id);
+    if (!hasContent || !snapshot) return;
+
+    toast(t("mail.toasts.draftClosed"), {
+      action: {
+        label: t("mail.compose.reopenDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          const { id: _id, ...reopenData } = savedSnapshot;
+          compose.open({ ...reopenData, inline: true });
+        },
+      },
+      cancel: {
+        label: t("mail.compose.deleteDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          if (savedSnapshot.savedDraftId) {
+            await compose.deleteSavedDraft(savedSnapshot);
+          }
+        },
+      },
+    });
+  };
 
   if (!threadId) return null;
 
@@ -1242,6 +1316,35 @@ export function EmailThread({
                       : t("mail.aiFilter.filterButton")}
                   </TooltipContent>
                 </Tooltip>
+                {email && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentEmailReadState(!email.isRead)}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label={t(
+                          email.isRead
+                            ? "mail.actions.markUnread"
+                            : "mail.actions.markRead",
+                        )}
+                      >
+                        {email.isRead ? (
+                          <IconMail className="h-4 w-4" />
+                        ) : (
+                          <IconMailOpened className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t(
+                        email.isRead
+                          ? "mail.actions.markUnread"
+                          : "mail.actions.markRead",
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -1441,45 +1544,7 @@ export function EmailThread({
                       messages={messages}
                       onUpdate={compose.update}
                       onDiscard={compose.discard}
-                      onClose={(id) => {
-                        const drafts = compose.drafts ?? [];
-                        const draft = drafts.find((d: any) => d.id === id);
-                        const hasContent = !!(
-                          draft?.to?.trim() ||
-                          draft?.cc?.trim() ||
-                          draft?.bcc?.trim() ||
-                          draft?.subject?.trim() ||
-                          draft?.body?.trim()
-                        );
-                        const snapshot = draft ? { ...draft } : null;
-                        compose.close(id);
-                        if (hasContent && snapshot) {
-                          toast("Draft saved.", {
-                            action: {
-                              label: "REOPEN",
-                              onClick: () => {
-                                const { id: _id, ...reopenData } = snapshot;
-                                compose.open({ ...reopenData, inline: true });
-                              },
-                            },
-                            cancel: {
-                              label: "DELETE DRAFT",
-                              onClick: () => {
-                                if (snapshot.savedDraftId) {
-                                  void fetch(
-                                    appApiPath(
-                                      `/api/emails/${snapshot.savedDraftId}`,
-                                    ),
-                                    {
-                                      method: "DELETE",
-                                    },
-                                  );
-                                }
-                              },
-                            },
-                          });
-                        }
-                      }}
+                      onClose={handleCloseInlineDraft}
                       onPopOut={(id) => compose.update(id, { inline: false })}
                       onFlush={compose.flush}
                       onReopen={(state) =>
@@ -1502,45 +1567,7 @@ export function EmailThread({
                   messages={messages}
                   onUpdate={compose.update}
                   onDiscard={compose.discard}
-                  onClose={(id) => {
-                    const drafts = compose.drafts ?? [];
-                    const draft = drafts.find((d: any) => d.id === id);
-                    const hasContent = !!(
-                      draft?.to?.trim() ||
-                      draft?.cc?.trim() ||
-                      draft?.bcc?.trim() ||
-                      draft?.subject?.trim() ||
-                      draft?.body?.trim()
-                    );
-                    const snapshot = draft ? { ...draft } : null;
-                    compose.close(id);
-                    if (hasContent && snapshot) {
-                      toast("Draft saved.", {
-                        action: {
-                          label: "REOPEN",
-                          onClick: () => {
-                            const { id: _id, ...reopenData } = snapshot;
-                            compose.open({ ...reopenData, inline: true });
-                          },
-                        },
-                        cancel: {
-                          label: "DELETE DRAFT",
-                          onClick: () => {
-                            if (snapshot.savedDraftId) {
-                              void fetch(
-                                appApiPath(
-                                  `/api/emails/${snapshot.savedDraftId}`,
-                                ),
-                                {
-                                  method: "DELETE",
-                                },
-                              );
-                            }
-                          },
-                        },
-                      });
-                    }
-                  }}
+                  onClose={handleCloseInlineDraft}
                   onPopOut={(id) => compose.update(id, { inline: false })}
                   onFlush={compose.flush}
                   onReopen={(state) => compose.open({ ...state, inline: true })}

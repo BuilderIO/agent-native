@@ -15,7 +15,7 @@ type Row = {
   updatedAt: string;
 };
 
-const state = vi.hoisted(() => ({ rows: [] as Row[] }));
+const state = vi.hoisted(() => ({ rows: [] as Row[], locked: [] as string[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
 const mockWriteAppState = vi.hoisted(() => vi.fn());
@@ -72,7 +72,7 @@ vi.mock("../server/db/index.js", () => {
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
         where: (cond: any) => ({
-          limit: async (n: number) => {
+          limit: (n: number) => {
             const matched = state.rows.filter((r) => matches(r, cond));
             const project = (row: Row) => {
               if (!projection) return row;
@@ -82,7 +82,13 @@ vi.mock("../server/db/index.js", () => {
               }
               return out;
             };
-            return matched.slice(0, n).map(project);
+            const result = matched.slice(0, n).map(project);
+            return Object.assign(Promise.resolve(result), {
+              for: async () => {
+                state.locked.push(...matched.map((row) => row.id));
+                return result;
+              },
+            });
           },
         }),
       }),
@@ -117,6 +123,7 @@ function run(args: {
 beforeEach(() => {
   vi.resetAllMocks();
   mockGetUserEmail.mockReturnValue("author@example.com");
+  state.locked = [];
   state.rows = [
     {
       id: "c-1",
@@ -199,6 +206,7 @@ describe("update-comment (action) — reopen permission", () => {
       "doc-1",
       "editor",
     );
+    expect(state.locked).toEqual(["c-1"]);
     expect(state.rows[1].resolved).toBe(1); // whole thread resolved
     expect(state.rows[2].resolved).toBe(0); // sibling thread unchanged
   });

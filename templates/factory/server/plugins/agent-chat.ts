@@ -99,8 +99,12 @@ manual. Clips, Design, and Content are fully owner-managed: never react, tag
 Builder, auto-approve, or auto-merge those items. Slack clear bugs use the
 thread-preserving dispatch-factory-item flow; GitHub issues and Sentry clear
 bugs tag @builderio-bot on a GitHub issue. Slack repeat reports must be clustered
-by underlying symptom, with one Builder thread for the cluster. After classifying an item, call dispatch-factory-item with
-clearBug true or false and a short reason so a skip is recorded. Pass reaction when the prompt names one. Do not post
+by underlying symptom, with one Builder thread for the cluster. After classifying an item, call dispatch-factory-item so the skip or
+dispatch is recorded. If a Slack parent already has eyes 👀, pass alreadyClaimed
+true (clearBug may be omitted or false) so started work is not rewritten to
+needs_manual. Otherwise pass clearBug true or false and a short reason. For
+Slack clear bugs with no 👀, pass reaction eyes — never dispatch without it.
+Omit reaction on skips. Do not post
 Slack messages, reactions, or @mentions yourself; dispatch-factory-item owns
 the Builder ping. Use /address-feedback for the repository feedback workflow.
 For pull requests, follow review-prs: read the complete diff and review

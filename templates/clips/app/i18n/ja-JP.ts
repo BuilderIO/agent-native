@@ -64,8 +64,10 @@ const messages = {
     extensions: "拡張機能",
     newRecording: "新規録画",
     folders: "フォルダ",
+    recordings: "録画",
     newFolder: "新規フォルダ",
     noSpaces: "スペースはまだありません",
+    noSpacesAdminCta: "組織の管理者に最初のスペース作成を依頼してください。",
     desktopCta: "デスクトップアプリを入手",
     desktopTitle: "Clips デスクトップアプリを入手しましょう。",
     desktopBody:
@@ -514,6 +516,11 @@ const messages = {
     shareLink: "共有リンク",
     shareWithHumans: "人と共有する",
     shareWithAgents: "エージェントと共有する",
+    people: "ユーザー",
+    agents: "エージェント",
+    openInClaude: "Claude で開く",
+    openInClaudeCode: "Claude Code で開く",
+    openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
       "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
@@ -664,9 +671,11 @@ const messages = {
     downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips をダウンロード",
     stable: "安定版",
     nightly: "Nightly",
+    allPlatforms: "すべてのプラットフォーム",
+    releaseChannel: "リリースチャンネル",
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",
@@ -717,6 +726,17 @@ const messages = {
     agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
+    labs: "Labs",
+    labsIntro:
+      "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
+    labVideoEditing: "動画編集",
+    labVideoEditingDescription: "新しい動画エディターをお試しください。",
+    labMeetings: "会議と文字起こし",
+    labMeetingsDescription:
+      "会議の自動キャプチャと文字起こしをお試しください。",
+    labWisprFlow: "音声入力",
+    labWisprFlowDescription:
+      "Clips Desktop の音声入力を表示または非表示にします。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",
@@ -947,6 +967,8 @@ const messages = {
     renameFailed: "クリップ名の変更に失敗しました",
     renameClip: "クリップ名を変更",
     clipTitle: "クリップタイトル",
+    archiveAction: "アーカイブ",
+    moveToTrashAction: "ゴミ箱に移動",
     movedToTrash: "ゴミ箱に移動しました",
     restoredFromArchive: "アーカイブから復元しました",
     archived: "アーカイブしました",
@@ -1338,13 +1360,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (ローカライズ済み)",
     chromeTitle: "Chrome extension (ローカライズ済み)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (ローカライズ済み)",
+    chromeDescription: "Chrome 拡張機能でブラウザのタブをキャプチャします。",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (ローカライズ済み)",
     desktopTitle: "Desktop app (ローカライズ済み)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (ローカライズ済み)",
+    desktopDescription: "グローバルショートカットとシステム音声で録画します。",
     openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {
@@ -1734,6 +1754,7 @@ const messages = {
     donePageTitle: "バグレポートを送信しました · Clips",
     eyebrow: "バグレポート",
     title: "バグレポートを録画",
+    sidebarCta: "フィードバックを送る",
     description:
       "画面、音声、編集済みのブラウザーコンテキストで短い再現手順をチーム向けに記録します。",
     issueTitleLabel: "問題のタイトル",
@@ -1810,7 +1831,7 @@ const messages = {
     refreshing: "Refreshing… (ローカライズ済み)",
     howToTriggerTitle: "How to trigger meeting notes (ローカライズ済み)",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (ローカライズ済み)",
+      "Meeting notes in Clips bring calendar events, desktop audio capture, and transcripts plus AI notes together in one history. (ローカライズ済み)",
     guideCalendarTitle: "Connect Google Calendar (ローカライズ済み)",
     guideCalendarDescription:
       "Meetings are pulled from your calendar so Clips knows when to remind you. (ローカライズ済み)",
@@ -1835,6 +1856,37 @@ const messages = {
     add5MinutesDescription: "長い説明の導入部分を復元するのに便利です。",
     privateReady:
       "このクリップは非公開です。ローカルのRewind履歴を追加できます。",
+  },
+  browserDiagnostics: {
+    debug: "デバッグ",
+    title: "ブラウザ診断",
+    failureSummary:
+      "コンソールの問題 {{consoleCount}} 件 · 失敗したリクエスト {{networkCount}} 件",
+    noFailures: "失敗は検出されませんでした",
+    failuresPresent: "ブラウザの問題が検出されました",
+    unviewedCount: "未確認 {{count}} 件",
+    captureSuccessful: "診断情報を取得しました",
+    capturedFrom: "{{source}} から取得",
+    browserCapture: "ブラウザキャプチャ",
+    views: "診断ビュー",
+    issues: "問題",
+    consoleSource: "コンソール",
+    networkSource: "ネットワーク",
+    consoleCount: "コンソール {{count}}",
+    networkCount: "ネットワーク {{count}}",
+    afterRecording: "録画終了後",
+    seekToTime: "{{time}} に移動",
+    occurrences: "発生時刻",
+    message: "メッセージ",
+    stackTrace: "スタックトレース",
+    request: "リクエスト",
+    status: "ステータス",
+    duration: "所要時間",
+    error: "エラー",
+    noIssuesTitle: "ブラウザの問題は検出されませんでした",
+    noConsoleTitle: "コンソールイベントはありません",
+    noNetworkTitle: "ネットワークリクエストはありません",
+    capturedDescription: "この録画の診断情報を取得しました。",
   },
   timeline: { clipStartedHere: "クリップはここから開始" },
 };

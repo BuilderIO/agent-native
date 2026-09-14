@@ -24,6 +24,9 @@ const messages = {
       extensions: "Extensões",
       noteToSelf: "Nota para mim",
     },
+    inbox: {
+      syncing: "Sincronizando caixa de entrada…",
+    },
     toolbar: {
       toggleMenu: "Alternar menu",
       menu: "Menu",
@@ -35,6 +38,7 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Fixar barra lateral",
       unpinSidebar: "Desafixar barra lateral",
+      closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
     },
     search: {
@@ -85,6 +89,8 @@ const messages = {
       cancel: "Cancelar",
       code: "Código",
       deleteDraft: "Excluir rascunho",
+      deleteDrafts: "Excluir rascunhos",
+      reopenDraft: "Reabrir",
       discardDraft: "Descartar rascunho",
       enterLinkUrl: "Digite a URL do link.",
       forward: "Forward",
@@ -280,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Falha ao enviar imagem",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Mensagem enviada.",
+      failedToSaveDraft: "Não foi possível salvar o rascunho.",
+      failedToDeleteDraft: "Não foi possível excluir o rascunho.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -292,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Rascunho fechado.",
+      draftsClosed: "{{count}} rascunhos fechados.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -313,6 +324,7 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "Não foi possível carregar: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Conecte sua conta Google",

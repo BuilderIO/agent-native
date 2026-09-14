@@ -28,7 +28,7 @@ import {
   getServerAppBasePath,
   queryString,
 } from "../lib/public-agent-context.js";
-import { isRecordingExpired } from "../lib/recording-page-access.js";
+import { isRecordingExpiredForViewer } from "../lib/recording-page-access.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -96,11 +96,16 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
 
+  // SSR is an impersonal cache shell. Owner-specific expiry and discovery are
+  // resolved by the authenticated public-recording payload after hydration.
   if (
     !recording ||
     recording.archivedAt ||
     recording.trashedAt ||
-    isRecordingExpired(recording.expiresAt)
+    isRecordingExpiredForViewer({
+      expiresAt: recording.expiresAt,
+      viewerIsOwner: false,
+    })
   ) {
     return null;
   }

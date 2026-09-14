@@ -149,10 +149,14 @@ describe("processor seam — processOutputStream abort", () => {
       reason: "Blocked: secret detected",
       processor: "no-secrets",
     });
-    // The reason is surfaced as a final assistant message.
+    // The reason is surfaced as a terminal error message. Keeping the
+    // tripwire telemetry separate from the terminal event lets run-manager
+    // persist the failed status instead of synthesizing `done`.
     expect(events).toContainEqual({
-      type: "text",
-      text: "Blocked: secret detected",
+      type: "error",
+      error: "Blocked: secret detected",
+      errorCode: "guardrail:no-secrets",
+      recoverable: false,
     });
     // A tripwired run does NOT end with a normal `done`.
     expect(events.some((e) => e.type === "done")).toBe(false);

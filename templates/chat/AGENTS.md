@@ -17,6 +17,7 @@ the matching skill only when this app actually uses that workflow. The
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Follow the root framework contract: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -51,6 +52,10 @@ brand. Its `app.name` is used in transactional emails, and its optional
 - `navigate` moves the UI when the app supports it.
 - `view-screen` is the first tool to call when the user's visible context
   matters.
+- `provider-api-request` calls Slack through the shared workspace connection.
+  Use `provider: "slack"` and an exact Web API path such as `/auth.test`.
+  Missing access pauses the run and opens the contextual connection card; do
+  not ask the user to paste credentials or replace the request with prose.
 
 ## Source Changes
 

@@ -84,20 +84,131 @@ describe("ensureFactoryAutomations", () => {
     expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 
+  it("repairs a suffixed PR babysit copy back to GitHub", async () => {
+    const copyPath = "jobs/factories/support-triage/factory-pr-babysit-2.md";
+    const copyContent = `---
+schedule: "*/5 * * * *"
+enabled: false
+orgId: org-1
+appId: factory
+template: pr-babysit
+repository: acme/widgets
+source: slack
+---
+Babysit pull requests.
+`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "copy",
+        owner: "__organization__:org-1",
+        path: copyPath,
+        content: copyContent,
+      },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, path: string) => {
+      if (path !== copyPath) return null;
+      return {
+        id: "copy",
+        owner: "__organization__:org-1",
+        path: copyPath,
+        content: copyContent,
+        updatedAt: 1,
+      };
+    });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "copy" });
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "support-triage",
+    );
+
+    const saved = resourcePutIfCurrentMock.mock.calls.find(
+      (call) => call[0]?.path === copyPath,
+    )?.[0]?.content as string | undefined;
+    expect(saved).toMatch(/^source: github$/m);
+    expect(saved).toMatch(/^template: pr-babysit$/m);
+  });
+
+  it("preserves automation display name, channel, and author filter during repair", async () => {
+    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
+    const content = `---
+schedule: "* * * * *"
+enabled: true
+orgId: org-1
+appId: factory
+template: slack-feedback
+source: slack
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+slackChannelName: product-feedback
+authorMode: exclude
+authorIds: U096KN3EL2Y
+model: claude-sonnet-4-20250514
+maxIterations: 20
+maxRunInputTokens: 200000
+---
+Classify Slack feedback.
+`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+      },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
+      if (p !== path) return null;
+      return {
+        id: "slack-feedback",
+        owner: "__organization__:org-1",
+        path,
+        content,
+        updatedAt: 1,
+      };
+    });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "product-an-feedback",
+    );
+
+    const saved = resourcePutIfCurrentMock.mock.calls.find(
+      (call) => call[0]?.path === path,
+    )?.[0]?.content as string | undefined;
+    expect(saved).toBeDefined();
+    expect(saved).toContain("displayName: Product feedback");
+    expect(saved).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(saved).toContain("authorIds: U096KN3EL2Y");
+  });
+
   it("keeps the Slack template prompt lean and names the reaction argument", () => {
     const prompt = factoryAutomationTemplatePrompt("slack-feedback", "slack");
-    expect(prompt).toContain("reaction robot_face 🤖");
+    expect(prompt).toContain("MUST pass reaction eyes");
     expect(prompt).toContain("get-slack-feedback-context");
     expect(prompt).toContain("productUxImplications false");
     expect(prompt).toContain("visual/UI defects");
+    expect(prompt).toContain("already has eyes 👀");
+    expect(prompt).toContain("alreadyClaimed true");
+    expect(prompt).toContain("clearBug may be omitted");
+    expect(prompt).toContain("omit reaction");
+    expect(prompt).not.toContain("robot_face");
     expect(prompt).not.toContain("limit 20");
-    expect(prompt).not.toContain("👀");
+    expect(prompt).not.toContain("that action adds 👀");
   });
 
   it("keeps the PR babysit prompt as a thin action playbook", () => {
     const prompt = factoryAutomationTemplatePrompt("pr-babysit", "github");
+    expect(prompt).toContain("propose-pr-babysit-status");
     expect(prompt).toContain("babysit-factory-pull-request");
-    expect(prompt).toContain("It owns GitHub");
+    expect(prompt).toContain("already_asked");
+    expect(prompt).toContain("stuck");
+    expect(prompt).toContain("is not new work");
+    expect(prompt).not.toContain("It owns GitHub");
+    expect(prompt).not.toContain("the quiet window");
     expect(prompt).not.toContain("A changed commit, new unresolved");
     expect(prompt).not.toContain("2 minutes");
     expect(prompt).not.toContain("Do not ask the bot to poll");

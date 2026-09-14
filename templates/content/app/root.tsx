@@ -40,6 +40,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -564,9 +565,27 @@ function ContentCommandMenu({
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  useCommandMenuShortcut(
+    useCallback(() => {
+      commandTrigger.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      setCmdkOpen(true);
+    }, []),
+  );
+  useEffect(() => {
+    if (cmdkOpen || !commandTrigger.current) return;
+    const trigger = commandTrigger.current;
+    commandTrigger.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (trigger.isConnected) trigger.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [cmdkOpen]);
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.

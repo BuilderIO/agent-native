@@ -7,10 +7,8 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  documentVersionChatContextFromAction,
-  serializeDocumentVersionChatContext,
-} from "../server/lib/document-version-context.js";
+import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
@@ -58,49 +56,6 @@ function conflict(
     details,
     statusCode: 409,
   });
-}
-
-function validateDocumentEditSnapshot(
-  document: typeof schema.documents.$inferSelect | undefined,
-  base: { revision: number; contentHash: string },
-  baseRevision: string,
-  edits: DocumentTextEdit[],
-) {
-  if (!document) {
-    throw new ActionContractError("Document not found.", {
-      errorCode: "DOCUMENT_NOT_FOUND",
-      statusCode: 404,
-    });
-  }
-  const beforeContent = document.content ?? "";
-  const beforeHash = documentContentHash(beforeContent);
-  if (
-    document.bodyRevision !== base.revision ||
-    beforeHash !== base.contentHash
-  ) {
-    conflict("STALE_BASE_REVISION", "The document changed after it was read.", {
-      expectedRevision: baseRevision,
-      currentRevision: documentRevisionToken(
-        document.bodyRevision,
-        beforeContent,
-      ),
-      currentBodyRevision: document.bodyRevision,
-      currentContentHash: beforeHash,
-    });
-  }
-  const resolved = resolveDocumentTextEdits(beforeContent, edits);
-  if (!resolved.ok) {
-    conflict(
-      resolved.error.kind === "missing"
-        ? "EDIT_MATCH_MISSING"
-        : resolved.error.kind === "ambiguous"
-          ? "EDIT_MATCH_AMBIGUOUS"
-          : "EDIT_RANGES_OVERLAP",
-      "The complete edit batch could not be resolved against the base document.",
-      { validation: resolved.error },
-    );
-  }
-  return { document, beforeContent, beforeHash, resolved };
 }
 
 function callerScope(ctx: ActionRunContext): string {
@@ -214,86 +169,88 @@ export async function mutateDocumentBody(args: {
     creativeContext: args.creativeContextDigest ?? args.creativeContext ?? null,
   });
 
-  const readReplay = async (client: Db) => {
-    const [stored] = await client
-      .select()
-      .from(schema.documentEditReceipts)
-      .where(
-        and(
-          eq(schema.documentEditReceipts.documentId, args.documentId),
-          eq(schema.documentEditReceipts.callerScope, scope),
-          eq(schema.documentEditReceipts.idempotencyKey, args.idempotencyKey),
-        ),
-      );
-    if (stored) {
-      if (stored.payloadDigest !== payloadDigest) {
-        conflict(
-          "IDEMPOTENCY_KEY_REUSED",
-          "This idempotency key was already used for a different document edit.",
-          { idempotencyKey: args.idempotencyKey },
-        );
-      }
-      return replayResult(stored);
-    }
-    return null;
-  };
-
   try {
-    const previous = await readReplay(db);
-    if (previous) return previous;
-    const [preflightDocument] = await db
-      .select()
-      .from(schema.documents)
-      .where(eq(schema.documents.id, args.documentId));
-    validateDocumentEditSnapshot(
-      preflightDocument,
-      base,
-      args.baseRevision,
-      normalizedEdits,
-    );
-    const creativeContext = args.resolveCreativeContext
-      ? await args.resolveCreativeContext()
-      : args.creativeContext;
     return await db.transaction(async (transaction) => {
       const tx = transaction as unknown as Db;
-      const concurrent = await readReplay(tx);
-      if (concurrent) return concurrent;
+      const [stored] = await tx
+        .select()
+        .from(schema.documentEditReceipts)
+        .where(
+          and(
+            eq(schema.documentEditReceipts.documentId, args.documentId),
+            eq(schema.documentEditReceipts.callerScope, scope),
+            eq(schema.documentEditReceipts.idempotencyKey, args.idempotencyKey),
+          ),
+        );
+      if (stored) {
+        if (stored.payloadDigest !== payloadDigest) {
+          conflict(
+            "IDEMPOTENCY_KEY_REUSED",
+            "This idempotency key was already used for a different document edit.",
+            { idempotencyKey: args.idempotencyKey },
+          );
+        }
+        return replayResult(stored);
+      }
 
       const [document] = await tx
         .select()
         .from(schema.documents)
         .where(eq(schema.documents.id, args.documentId));
-      const validated = validateDocumentEditSnapshot(
-        document,
-        base,
-        args.baseRevision,
-        normalizedEdits,
-      );
-      const { beforeContent, beforeHash, resolved } = validated;
+      if (!document) {
+        throw new ActionContractError("Document not found.", {
+          errorCode: "DOCUMENT_NOT_FOUND",
+          statusCode: 404,
+        });
+      }
+      const beforeContent = document.content ?? "";
+      const beforeHash = documentContentHash(beforeContent);
+      if (
+        document.bodyRevision !== base.revision ||
+        beforeHash !== base.contentHash
+      ) {
+        conflict(
+          "STALE_BASE_REVISION",
+          "The document changed after it was read.",
+          {
+            expectedRevision: args.baseRevision,
+            currentRevision: documentRevisionToken(
+              document.bodyRevision,
+              beforeContent,
+            ),
+            currentBodyRevision: document.bodyRevision,
+            currentContentHash: beforeHash,
+          },
+        );
+      }
+      const resolved = resolveDocumentTextEdits(beforeContent, normalizedEdits);
+      if (!resolved.ok) {
+        conflict(
+          resolved.error.kind === "missing"
+            ? "EDIT_MATCH_MISSING"
+            : resolved.error.kind === "ambiguous"
+              ? "EDIT_MATCH_AMBIGUOUS"
+              : "EDIT_RANGES_OVERLAP",
+          "The complete edit batch could not be resolved against the base document.",
+          { validation: resolved.error },
+        );
+      }
+      const creativeContext = args.resolveCreativeContext
+        ? await args.resolveCreativeContext()
+        : args.creativeContext;
 
       const changed = resolved.content !== beforeContent;
       const afterRevision = changed
         ? document.bodyRevision + 1
         : document.bodyRevision;
       const afterHash = documentContentHash(resolved.content);
-      const now = new Date().toISOString();
+      const now = nextDocumentUpdatedAt(document.updatedAt);
       const receiptId = crypto.randomUUID();
       if (changed) {
         const primaryBlocksFields = await lockPrimaryBlocksFields(
           tx,
           args.documentId,
         );
-        await tx.insert(schema.documentVersions).values({
-          id: crypto.randomUUID(),
-          ownerEmail: document.ownerEmail,
-          documentId: document.id,
-          title: document.title,
-          content: beforeContent,
-          chatContext: serializeDocumentVersionChatContext(
-            documentVersionChatContextFromAction(args.ctx),
-          ),
-          createdAt: now,
-        });
         const updated = await tx
           .update(schema.documents)
           .set({
@@ -329,6 +286,15 @@ export async function mutateDocumentBody(args: {
             now,
           });
         }
+        await recordDocumentHistoryTransition({
+          db: tx,
+          ownerEmail: document.ownerEmail,
+          documentId: document.id,
+          before: { title: document.title, content: beforeContent },
+          after: { title: document.title, content: resolved.content },
+          cause: { ctx: args.ctx, operation: "edit-document" },
+          now,
+        });
         if (creativeContext) {
           await recordGenerationCreativeContext(
             {
@@ -407,7 +373,11 @@ export async function mutateDocumentBody(args: {
         readback.bodyRevision !== afterRevision ||
         documentContentHash(readback.content) !== afterHash
       ) {
-        throw new Error("Document edit readback verification failed.");
+        conflict(
+          "STALE_BASE_REVISION",
+          "The document changed while the edit was being verified.",
+          { expectedRevision: args.baseRevision },
+        );
       }
       return result;
     });
@@ -415,8 +385,24 @@ export async function mutateDocumentBody(args: {
     // Concurrent duplicate deliveries may both miss the receipt before one
     // commits. Re-read after rollback so the loser returns the winner's durable
     // outcome instead of surfacing a false stale/unique-key failure.
-    const replay = await readReplay(db);
-    if (!replay) throw error;
-    return replay;
+    const [stored] = await db
+      .select()
+      .from(schema.documentEditReceipts)
+      .where(
+        and(
+          eq(schema.documentEditReceipts.documentId, args.documentId),
+          eq(schema.documentEditReceipts.callerScope, scope),
+          eq(schema.documentEditReceipts.idempotencyKey, args.idempotencyKey),
+        ),
+      );
+    if (!stored) throw error;
+    if (stored.payloadDigest !== payloadDigest) {
+      conflict(
+        "IDEMPOTENCY_KEY_REUSED",
+        "This idempotency key was already used for a different document edit.",
+        { idempotencyKey: args.idempotencyKey },
+      );
+    }
+    return replayResult(stored);
   }
 }

@@ -721,64 +721,51 @@ export default function Index() {
     ],
   );
 
-  const startBlankDesign = useCallback(
-    async (askInEditor: boolean) => {
-      if (skipToEditorPendingRef.current) return;
-      skipToEditorPendingRef.current = true;
-      setNewDesignHandoffPending(true);
+  const startBlankDesign = useCallback(async () => {
+    if (skipToEditorPendingRef.current) return;
+    skipToEditorPendingRef.current = true;
+    setNewDesignHandoffPending(true);
 
-      const designSystemId =
-        newDesignSystemId === undefined
-          ? resolveDefaultDesignSystemId()
-          : newDesignSystemId;
-      const { id, ready } = createDesign(
-        t("home.untitledDesign"),
-        designSystemId,
-      );
+    const designSystemId =
+      newDesignSystemId === undefined
+        ? resolveDefaultDesignSystemId()
+        : newDesignSystemId;
+    const { id, ready } = createDesign(
+      t("home.untitledDesign"),
+      designSystemId,
+    );
 
-      try {
-        // Unlike prompt-backed creation, an empty shell has no pending-generation
-        // marker to keep the editor polling across its route remount. Wait for the
-        // row to persist so the first get-design read cannot briefly return 404.
-        await ready;
-        void navigate(`/design/${id}${askInEditor ? "?new=1" : ""}`);
-      } catch (error) {
-        skipToEditorPendingRef.current = false;
-        setNewDesignHandoffPending(false);
-        toast.error(t("home.failedToCreateDesign"));
-        throw error;
-      }
-    },
-    [
-      createDesign,
-      navigate,
-      newDesignSystemId,
-      resolveDefaultDesignSystemId,
-      t,
-    ],
-  );
+    try {
+      // Unlike prompt-backed creation, an empty shell has no pending-generation
+      // marker to keep the editor polling across its route remount. Wait for the
+      // row to persist so the first get-design read cannot briefly return 404.
+      await ready;
+      void navigate(`/design/${id}`);
+    } catch (error) {
+      skipToEditorPendingRef.current = false;
+      setNewDesignHandoffPending(false);
+      toast.error(t("home.failedToCreateDesign"));
+      throw error;
+    }
+  }, [
+    createDesign,
+    navigate,
+    newDesignSystemId,
+    resolveDefaultDesignSystemId,
+    t,
+  ]);
 
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
       await handleSubmitPrompt("", [], {});
       return false;
     }
-    // Picking the blank-canvas card already answered "what do you want", so the
-    // editor must not open its own ask on arrival.
-    await startBlankDesign(false);
+    await startBlankDesign();
     return false;
   }, [handleSubmitPrompt, newDesignMode, selectedTemplate, startBlankDesign]);
 
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
-      // A design and an app are different creation calls, so that one choice
-      // has to be made before the row exists. With full app building off there
-      // is nothing left to ask up front, and the editor asks instead — where
-      // the drawing tools are also on screen.
-      if (!fullAppBuildingEnabled) {
-        void startBlankDesign(true);
-        return;
-      }
       anchorElRef.current = e.currentTarget;
       newDesignSystemWasChosenRef.current = false;
       syncSelectedTemplate(null);
@@ -787,13 +774,7 @@ export default function Index() {
       );
       setShowNewPrompt(true);
     },
-    [
-      designSystemsLoading,
-      fullAppBuildingEnabled,
-      resolveDefaultDesignSystemId,
-      startBlankDesign,
-      syncSelectedTemplate,
-    ],
+    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
   );
 
   const handleDelete = useCallback(() => {
@@ -1020,10 +1001,14 @@ export default function Index() {
             retrying={isFetching}
           />
         ) : designs.length === 0 ? (
-          <EmptyState
-            onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
-          />
+          normalizedSearch ? (
+            <SearchEmptyState />
+          ) : (
+            <EmptyState
+              onCreateDesign={openNewDesign}
+              onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
+            />
+          )
         ) : (
           <>
             {isSelectingDesigns ? (
@@ -1325,11 +1310,10 @@ export default function Index() {
             : t("home.describeBuild")
         }
         onSkip={handleSkipToEditor}
-        offerStartChoice
         skipLabel={
           selectedTemplate
             ? t("templatesPage.useTemplate")
-            : t("home.skipToEditor")
+            : t("promptDialog.skipPrompt")
         }
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
@@ -1588,6 +1572,23 @@ function EmptyState({
         <IconPlus className="w-4 h-4" />
         {t("home.newDesign")}
       </Button>
+    </div>
+  );
+}
+
+function SearchEmptyState() {
+  const t = useT();
+  return (
+    <div
+      aria-live="polite"
+      className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+    >
+      <h2 className="text-xl font-semibold text-foreground mb-2">
+        {t("home.searchNoResultsTitle")}
+      </h2>
+      <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
+        {t("home.searchNoResultsDescription")}
+      </p>
     </div>
   );
 }

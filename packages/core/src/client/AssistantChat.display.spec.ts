@@ -28,7 +28,6 @@ import {
   assistantChatAutoscrollStatusKey,
   assistantUiMessageListStructureKey,
   assistantUiRecoverableRenderErrorKind,
-  approvalProtocolContinuationContext,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
   shouldShowReconnectOverlay,
@@ -39,14 +38,15 @@ import {
   isAssistantUiStaleIndexError,
   installAssistantUiMessageRepositoryRecovery,
   latestNonRecoveryUserMessageText,
-  latestProtocolContinuationContext,
   matchesUserStoppedRun,
-  protocolContinuationContext,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
+  resolveAssistantChatSuggestionInputs,
+  shouldShowAssistantChatSuggestions,
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
+  restoreAssistantChatHistoryVersion,
   shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
@@ -57,6 +57,195 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("assistant chat resource history restore", () => {
+  it("awaits preparation, applies the committed result, and then refetches history", async () => {
+    const events: string[] = [];
+    const version = {
+      id: "version-1",
+      createdAt: "2026-09-09T10:00:00.000Z",
+    };
+    const history = {
+      list: {
+        action: "list-versions",
+        getVersions: () => [version],
+      },
+      restore: {
+        action: "restore-version",
+        args: async () => {
+          events.push("prepare");
+          return { versionId: version.id, expectedUpdatedAt: "current" };
+        },
+        onRestored: async (restored: { id: string }) => {
+          events.push(`apply-${restored.id}`);
+        },
+      },
+    };
+
+    await restoreAssistantChatHistoryVersion({
+      history,
+      version,
+      restore: async (args) => {
+        events.push(`restore-${String(args.expectedUpdatedAt)}`);
+        return { id: "restored" };
+      },
+      refetch: async () => {
+        events.push("refetch");
+      },
+      onRefetchError: vi.fn(),
+    });
+
+    expect(events).toEqual([
+      "prepare",
+      "restore-current",
+      "apply-restored",
+      "refetch",
+    ]);
+  });
+
+  it("still refetches committed history when applying the result fails", async () => {
+    const applicationError = new Error("editor apply failed");
+    const refetch = vi.fn(async () => undefined);
+    const version = { id: "version-1", createdAt: 1 };
+
+    await expect(
+      restoreAssistantChatHistoryVersion({
+        history: {
+          list: { action: "list-versions", getVersions: () => [version] },
+          restore: {
+            action: "restore-version",
+            args: async () => ({ versionId: version.id }),
+            onRestored: async () => {
+              throw applicationError;
+            },
+          },
+        },
+        version,
+        restore: async () => ({ id: "restored" }),
+        refetch,
+        onRefetchError: vi.fn(),
+      }),
+    ).rejects.toBe(applicationError);
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not coerce a falsy application failure into success", async () => {
+    const version = { id: "version-1", createdAt: 1 };
+    const result = await restoreAssistantChatHistoryVersion({
+      history: {
+        list: { action: "list-versions", getVersions: () => [version] },
+        restore: {
+          action: "restore-version",
+          args: async () => ({ versionId: version.id }),
+          onRestored: async () => {
+            throw undefined;
+          },
+        },
+      },
+      version,
+      restore: async () => ({ id: "restored" }),
+      refetch: async () => undefined,
+      onRefetchError: vi.fn(),
+    }).then(
+      () => ({ rejected: false, error: undefined }),
+      (error: unknown) => ({ rejected: true, error }),
+    );
+
+    expect(result).toEqual({ rejected: true, error: undefined });
+  });
+});
+
+describe("resolveAssistantChatSuggestionInputs", () => {
+  it("preserves structured agent-authored actions while merging dynamic prompts", () => {
+    const authored = {
+      id: "review",
+      label: "Review changes",
+      prompt: "Review the changes in detail",
+      metadata: { source: "agent" },
+    } as const;
+
+    expect(
+      resolveAssistantChatSuggestionInputs(
+        ["Review the changes in detail", "Explain this screen"],
+        [authored],
+      ),
+    ).toEqual([authored, "Explain this screen"]);
+  });
+});
+
+describe("shouldShowAssistantChatSuggestions", () => {
+  it("defers full-page next actions until the agent has replied", () => {
+    expect(
+      shouldShowAssistantChatSuggestions("after-agent-response", false),
+    ).toBe(false);
+    expect(
+      shouldShowAssistantChatSuggestions("after-agent-response", true),
+    ).toBe(true);
+  });
+
+  it("preserves immediate contextual suggestions for panel variants", () => {
+    expect(shouldShowAssistantChatSuggestions("always", false)).toBe(true);
+  });
+});
+
+describe("page composer geometry", () => {
+  it("keeps the focused hero composer subtle and multiline content inset", () => {
+    const styles = readFileSync("src/styles/agent-native.css", "utf8");
+    const tokens = readFileSync("src/styles/tokens/agent-kit.css", "utf8");
+    const focusRule = styles.slice(
+      styles.indexOf(".agent-composer-root--hero:focus-within"),
+      styles.indexOf(
+        '.agent-composer-root--hero [data-agent-composer-slot="editor-wrap"]',
+      ),
+    );
+    const editorRule = styles.slice(
+      styles.indexOf(
+        '.agent-composer-root--hero [data-agent-composer-slot="editor-input"]',
+      ),
+      styles.indexOf("/* Keep touch-width editors at 16px"),
+    );
+    const mobileEditorRule = styles.slice(
+      styles.indexOf("@media (max-width: 767px)"),
+      styles.indexOf(".agent-composer-root--hero .agent-composer-toolbar"),
+    );
+
+    expect(focusRule).toContain("var(--agent-kit-composer-focus-border-color)");
+    expect(focusRule).not.toContain("var(--ring)");
+    expect(styles).toContain(
+      "padding-inline: var(--agent-kit-composer-editor-padding-inline);",
+    );
+    expect(styles).toContain(
+      "scroll-padding-block: var(--agent-kit-composer-block-padding-start);",
+    );
+    expect(editorRule).toContain(
+      "font-size: var(--agent-kit-composer-font-size);",
+    );
+    expect(editorRule).toContain(
+      "line-height: var(--agent-kit-composer-line-height);",
+    );
+    expect(mobileEditorRule).toContain(
+      "font-size: var(--agent-kit-composer-mobile-font-size);",
+    );
+    expect(mobileEditorRule).toContain(
+      "line-height: var(--agent-kit-composer-mobile-line-height);",
+    );
+    expect(tokens).toContain(
+      "--agent-kit-composer-editor-padding-inline: 1rem;",
+    );
+    expect(tokens).toContain("--agent-kit-composer-font-size: 0.875rem;");
+  });
+});
+
+describe("message branch controls", () => {
+  it("exposes alternate-response navigation through assistant-ui primitives", () => {
+    const source = readFileSync("src/client/chat/message-components.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("BranchPickerPrimitive.Root");
+    expect(source).toContain("MessageBranchPicker");
+  });
+});
 
 describe("shouldShowAssistantChatModelSelector", () => {
   it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
@@ -307,6 +496,26 @@ describe("queuedMessageImageSources", () => {
         ],
       }),
     ).toEqual([image]);
+  });
+
+  it("bounds queued image previews when a message has many references", () => {
+    const images = Array.from(
+      { length: 20 },
+      (_, index) => `data:image/png;base64,reference-${index}`,
+    );
+
+    expect(
+      queuedMessageImageSources({
+        images: undefined,
+        attachments: images.map((image, index) => ({
+          id: `attachment-${index}`,
+          type: "image",
+          name: `reference-${index}.png`,
+          content: [{ type: "image", image }],
+          status: { type: "complete" },
+        })),
+      }),
+    ).toEqual(images.slice(0, 4));
   });
 });
 
@@ -579,131 +788,6 @@ describe("createUserMessageRunConfig model snapshot", () => {
     expect(options.runConfig?.custom).toEqual({
       agentNativeQueuedMessageId: "queued-legacy",
     });
-  });
-
-  it("preserves the action scope in queued run configuration", () => {
-    const options = createUserMessageRunConfig(
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      "queued-scope",
-      undefined,
-      undefined,
-      "turn-scope",
-      undefined,
-      { kind: "content-comment-ai", requestId: "request-1" },
-    );
-
-    expect(options.runConfig?.custom).toMatchObject({
-      agentNativeQueuedMessageId: "queued-scope",
-      actionScope: {
-        kind: "content-comment-ai",
-        requestId: "request-1",
-      },
-    });
-    expect(options.metadata?.custom).toMatchObject({
-      turnId: "turn-scope",
-      actionScope: {
-        kind: "content-comment-ai",
-        requestId: "request-1",
-      },
-    });
-  });
-});
-
-describe("scoped protocol continuations", () => {
-  const scopedUser = {
-    role: "user",
-    metadata: {
-      custom: {
-        turnId: "turn-scoped",
-        actionScope: {
-          kind: "content-comment-ai",
-          requestId: "request-1",
-        },
-      },
-    },
-    content: [{ type: "text", text: "Draft a reply" }],
-  };
-
-  it("restores scope only for the matching turn", () => {
-    expect(protocolContinuationContext([scopedUser], "turn-scoped")).toEqual({
-      turnId: "turn-scoped",
-      actionScope: {
-        kind: "content-comment-ai",
-        requestId: "request-1",
-      },
-    });
-    expect(protocolContinuationContext([scopedUser], "turn-other")).toEqual({
-      turnId: "turn-other",
-    });
-  });
-
-  it("does not leak an older scope into an unrelated newer turn", () => {
-    const unscopedAssistant = {
-      role: "assistant",
-      metadata: { custom: { turnId: "turn-unscoped" } },
-      content: [{ type: "text", text: "Done" }],
-    };
-
-    expect(
-      latestProtocolContinuationContext([scopedUser, unscopedAssistant]),
-    ).toEqual({ turnId: "turn-unscoped" });
-  });
-
-  it("binds approval scope to the message with that approval", () => {
-    const approvalMessage = {
-      role: "assistant",
-      metadata: { custom: { turnId: "turn-scoped" } },
-      content: [
-        {
-          type: "tool-call",
-          approval: { approvalKey: "approval-scoped" },
-        },
-      ],
-    };
-    const laterUnscoped = {
-      role: "assistant",
-      metadata: { custom: { turnId: "turn-unscoped" } },
-      content: [{ type: "text", text: "Later message" }],
-    };
-
-    expect(
-      approvalProtocolContinuationContext(
-        [scopedUser, approvalMessage, laterUnscoped],
-        "approval-scoped",
-      ),
-    ).toEqual({
-      turnId: "turn-scoped",
-      actionScope: {
-        kind: "content-comment-ai",
-        requestId: "request-1",
-      },
-    });
-    expect(
-      approvalProtocolContinuationContext(
-        [scopedUser, approvalMessage, laterUnscoped],
-        "approval-other",
-      ),
-    ).toEqual({});
-  });
-
-  it("fails closed when stored scope metadata is malformed", () => {
-    expect(() =>
-      protocolContinuationContext(
-        [
-          {
-            ...scopedUser,
-            metadata: {
-              custom: { turnId: "turn-scoped", actionScope: [] },
-            },
-          },
-        ],
-        "turn-scoped",
-      ),
-    ).toThrow("actionScope must be a JSON object");
   });
 });
 
@@ -1770,46 +1854,20 @@ describe("tool approval continuation", () => {
     expect(approvalSource).toContain(
       "true, // hideUserMessage: this is a protocol continuation, not a new prompt",
     );
-    expect(approvalSource).toContain("approvalProtocolContinuationContext(");
-    expect(approvalSource).toContain("continuation.actionScope");
-  });
-});
-
-describe("protocol continuation scope wiring", () => {
-  it("carries the originating scope through reconnect and recovery controls", () => {
-    const source = readFileSync("src/client/AssistantChat.tsx", {
-      encoding: "utf8",
-    });
-    const reconnectStart = source.indexOf(
-      "if (!pendingReconnectRecovery) return;",
-    );
-    const reconnectEnd = source.indexOf(
-      "const latestMessage =",
-      reconnectStart,
-    );
-    const controlsStart = source.indexOf(
-      "{visibleLoopLimit && !showRunningInUI && (",
-    );
-    const controlsEnd = source.indexOf(
-      "{showReconnectOverlay &&",
-      controlsStart,
-    );
-
-    expect(source.slice(reconnectStart, reconnectEnd)).toContain(
-      "continuation.actionScope",
-    );
-    expect(source.slice(controlsStart, controlsEnd)).toContain(
-      "continuation.actionScope",
-    );
-    expect(
-      source
-        .slice(controlsStart, controlsEnd)
-        .match(/continuation\.actionScope/g),
-    ).toHaveLength(2);
   });
 });
 
 describe("chat connection suggestion alignment", () => {
+  it("does not promote integrations from composer text", () => {
+    const chatSource = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(chatSource).not.toContain(
+      "<McpConnectionSuggestion text={composerText}",
+    );
+  });
+
   it("uses the fullscreen composer width contract and removes page-only insets", () => {
     const panelSource = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
@@ -1825,9 +1883,11 @@ describe("chat connection suggestion alignment", () => {
     expect(panelSource).toContain(
       ".agent-composer-area:not(.agent-composer-area--compact)",
     );
-    expect(panelSource).toContain("const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;");
+    expect(panelSource).toContain(
+      "max-width:var(--agent-kit-conversation-max-width);",
+    );
     expect(panelSource).toContain("padding-left:0;padding-right:0;");
-    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),750px)]");
+    expect(suggestionSource).toContain("agent-kit-composer-adjacent-width");
     expect(suggestionSource).toContain(
       "agent-mcp-connection-suggestion-error--composer",
     );
@@ -2206,7 +2266,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
 describe("resolveAssistantChatComposerPlaceholder", () => {
   it("provides a clear default for shared chat composers", () => {
     expect(resolveAssistantChatComposerPlaceholder(undefined)).toBe(
-      "Write a message...",
+      "Ask the agent to explore, build, or explain…",
     );
   });
 

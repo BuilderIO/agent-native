@@ -42,7 +42,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
     tagline:
       "A company memory layer where raw conversations become reviewed, searchable institutional knowledge.",
     features: [
-      "Import transcripts, notes, Slack exports, and Granola summaries",
+      "Import transcripts, notes, Slack exports, and meeting summaries",
       "Validate every fact against exact source quotes",
       "Review company-wide knowledge through proposal workflows",
     ],
