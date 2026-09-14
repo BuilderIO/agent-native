@@ -37,9 +37,9 @@ export async function requestNetlifyApi(
       signal: AbortSignal.timeout(30_000),
     });
     if (response.status === 429) {
-      await response.arrayBuffer();
       if (rateLimitAttempts >= MAX_RATE_LIMIT_ATTEMPTS - 1) return response;
 
+      await response.arrayBuffer();
       const delay = retryDelayMilliseconds(response, rateLimitAttempts);
       rateLimitAttempts += 1;
       console.warn(
@@ -54,11 +54,11 @@ export async function requestNetlifyApi(
       response.status >= 500 &&
       response.status < 600
     ) {
-      await response.arrayBuffer();
       if (deleteServerErrorAttempts >= MAX_DELETE_SERVER_ERROR_ATTEMPTS - 1) {
         return response;
       }
 
+      await response.arrayBuffer();
       const delay =
         DELETE_SERVER_ERROR_BACKOFF_MS * 2 ** deleteServerErrorAttempts;
       deleteServerErrorAttempts += 1;

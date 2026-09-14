@@ -7,6 +7,7 @@ import {
   classifyGoogleAuthorizeResponse,
   classifyGoogleHealthResponse,
   fetchWithRetry,
+  googleHealthRedirectUriMismatch,
   googleRedirectProbeExitCode,
   healthContractDisagreement,
   isInconclusiveGoogleHealthStatus,
@@ -400,7 +401,68 @@ test("does not accept a success payload from an unexpected HTTP status", () => {
     credentialMode: null,
     managedConnection: null,
     callbackPaths: null,
+    redirectUriStatus: null,
+    redirectUri: null,
   });
+});
+
+test("preserves valid credentials from a callback-mismatch health 503", () => {
+  const expectedRedirectUri =
+    "https://agent-workspace.builder.io/_agent-native/google/callback";
+  const misconfiguredRedirectUri =
+    "https://builder-agent-native-workspace.netlify.app/_agent-native/google/callback";
+  const body = JSON.stringify({
+    status: "valid",
+    clientId: "client-id.apps.googleusercontent.com",
+    redirectUriStatus: "mismatched",
+    redirectUri: misconfiguredRedirectUri,
+    callbackPaths: ["/_agent-native/google/callback"],
+  });
+  const result = classifyGoogleHealthResponse(
+    new Response(body, { status: 503, headers: jsonHeaders }),
+    body,
+  );
+  assert.equal(result.status, "valid");
+  assert.equal(result.clientId, "client-id.apps.googleusercontent.com");
+  assert.equal(result.redirectUriStatus, "mismatched");
+  assert.equal(result.redirectUri, misconfiguredRedirectUri);
+  assert.deepEqual(result.callbackPaths, ["/_agent-native/google/callback"]);
+  assert.equal(
+    googleHealthRedirectUriMismatch(result, expectedRedirectUri),
+    `health endpoint advertises ${misconfiguredRedirectUri}, expected ${expectedRedirectUri}`,
+  );
+
+  const registeredRedirect = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "valid",
+        clientId: "client-id.apps.googleusercontent.com",
+        redirectUriStatus: "registered",
+        redirectUri: expectedRedirectUri,
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "valid",
+      clientId: "client-id.apps.googleusercontent.com",
+      redirectUriStatus: "registered",
+      redirectUri: expectedRedirectUri,
+    }),
+  );
+  assert.equal(
+    googleHealthRedirectUriMismatch(registeredRedirect, expectedRedirectUri),
+    null,
+  );
+
+  const unrelated503 = classifyGoogleHealthResponse(
+    new Response('{"status":"valid","clientId":"client-id"}', {
+      status: 503,
+      headers: jsonHeaders,
+    }),
+    '{"status":"valid","clientId":"client-id"}',
+  );
+  assert.equal(unrelated503.status, "unknown");
+  assert.equal(unrelated503.clientId, null);
 });
 
 test("keeps absent, malformed, and redirected health responses out of the pass count", () => {

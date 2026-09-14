@@ -120,6 +120,78 @@ function layerRowNth(page: Page, name: string, index: number): Locator {
     .locator('xpath=ancestor::*[@role="treeitem"][1]');
 }
 
+async function layerRowForPath(
+  page: Page,
+  name: string,
+  parentPath: string[],
+): Promise<Locator> {
+  let matchingIds: string[] = [];
+  await expect
+    .poll(
+      async () => {
+        matchingIds = await layerTree(page).evaluate(
+          (tree, target) => {
+            const path: Array<{ level: number; name: string }> = [];
+            const matches: string[] = [];
+            for (const row of tree.querySelectorAll<HTMLElement>(
+              '[role="treeitem"]',
+            )) {
+              const level = Number(row.getAttribute("aria-level"));
+              while (path.length > 0 && path[path.length - 1]!.level >= level)
+                path.pop();
+              const rowName =
+                row
+                  .querySelector("[data-layer-row-button] span[title]")
+                  ?.getAttribute("title") ?? "";
+              if (
+                rowName === target.name &&
+                path.map((entry) => entry.name).join("\0") ===
+                  target.parentPath.join("\0")
+              ) {
+                const id = row.querySelector<HTMLElement>(
+                  "[data-layer-row-button]",
+                )?.dataset.layerNodeId;
+                if (id) matches.push(id);
+              }
+              path.push({ level, name: rowName });
+            }
+            return matches;
+          },
+          { name, parentPath },
+        );
+        return matchingIds.length;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(1);
+  const id = matchingIds[0];
+  if (!id || !/^[\w:-]+$/.test(id))
+    throw new Error(`Unexpected layer id: ${id}`);
+  const rowButton = layerTree(page).locator(
+    `[data-layer-row-button][data-layer-node-id="${id}"]`,
+  );
+  return rowButton.locator('xpath=ancestor::*[@role="treeitem"][1]');
+}
+
+async function expandLayer(row: Locator): Promise<void> {
+  const expandButton = row.getByRole("button", { name: "Expand layer" });
+  if (await expandButton.count()) {
+    await expandButton.click({ modifiers: ["Alt"], force: true });
+  }
+}
+
+async function selectLayerAtPath(
+  page: Page,
+  name: string,
+  parentPath: string[],
+): Promise<void> {
+  const row = await layerRowForPath(page, name, parentPath);
+  const rowButton = row.locator("[data-layer-row-button]");
+  await expect(rowButton).toBeVisible();
+  await rowButton.click({ force: true });
+  await expect.poll(() => selectedLayerName(page)).toBe(name);
+}
+
 async function clickLayerRow(page: Page, name: string): Promise<void> {
   const button = layerRowButton(page, name);
   await expect(button, `layer row "${name}" must exist`).toBeVisible({
@@ -1821,17 +1893,48 @@ test("layers panel: dragging a row reorders it in the DOM", async ({
   await openOverview(page, designId, 2);
   await expandAllLayers(page);
   await expandAllLayers(page);
+  await expandAllLayers(page); // two full-screen trees exceed the 16-row cap
 
-  const cardRowRow = layerRow(page, "CardRow");
-  const heroRow = layerRow(page, "Hero");
+  // Resolve each desktop row id through canvas selection: persisted HTML ids
+  // are not the hashed ids used by the Layers tree.
+  const selectDesktopLayerId = async (name: string) => {
+    const layer = page
+      .locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
+      )
+      .contentFrame()
+      .locator(`[data-agent-native-layer-name="${name}"]`)
+      .first();
+    await expect(layer).toBeVisible();
+    const bounds = await layer.boundingBox();
+    if (!bounds) throw new Error(`Desktop ${name} has no canvas bounds`);
+    await page.mouse.click(bounds.x + 10, bounds.y + 10);
+    await expect.poll(() => selectedLayerName(page)).toBe(name);
+    const id = await layerTree(page)
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .getAttribute("data-layer-node-id");
+    if (!id) throw new Error(`Selected desktop ${name} has no layer id`);
+    return id;
+  };
+  const cardRowId = await selectDesktopLayerId("CardRow");
+  const heroId = await selectDesktopLayerId("Hero");
+  const rowForNodeId = (id: string) =>
+    layerTree(page)
+      .locator(`[data-layer-row-button][data-layer-node-id="${id}"]`)
+      .locator('xpath=ancestor::*[@role="treeitem"][1]');
+  const cardRowRow = rowForNodeId(cardRowId);
+  const heroRow = rowForNodeId(heroId);
   await expect(cardRowRow).toBeVisible();
   await expect(heroRow).toBeVisible();
   await expect(cardRowRow).toHaveAttribute("draggable", "true");
-  await heroRow.getByRole("button", { name: "Collapse layer" }).click();
   const heroBounds = await heroRow.boundingBox();
-  expect(heroBounds).not.toBeNull();
+  if (!heroBounds) throw new Error("Hero has no Layers row bounds");
   await cardRowRow.dragTo(heroRow, {
-    targetPosition: { x: 24, y: heroBounds!.height - 2 },
+    // The Layers tree is reversed from DOM paint order: drop below Hero here
+    // to insert CardRow before it in the persisted DOM.
+    targetPosition: { x: 24, y: heroBounds.height - 2 },
   });
 
   const persistedTopLevelOrder = async () => {
@@ -1891,25 +1994,62 @@ test("trailing: typed Gap values commit on NavLinks, HeroCTAGroup, and HeroCopy"
   page,
 }) => {
   await openOverview(page, designId, 2);
-  await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
-
-  await clickLayerRow(page, "NavLinks");
-  await setScrubField(page, "Gap", "32");
-  await clickLayerRow(page, "HeroCTAGroup");
-  await setScrubField(page, "Gap", "16");
-  await clickLayerRow(page, "HeroCopy");
-  await setScrubField(page, "Gap", "24");
-
   const frame = page
     .locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
     )
     .contentFrame();
-  const navLinksGap = await frame
-    .locator('[data-agent-native-layer-name="NavLinks"]')
-    .evaluate((el) => getComputedStyle(el).columnGap);
-  expect(navLinksGap).toBe("32px");
+  await expandLayer(await layerRowForPath(page, "Landing Page", []));
+  await expandLayer(await layerRowForPath(page, "Navbar", ["Landing Page"]));
+  await expandLayer(await layerRowForPath(page, "Hero", ["Landing Page"]));
+
+  // The tree contains both desktop and mobile copies with the same layer
+  // names; resolve the desktop row through its full ancestor path.
+  const htmlBeforeGap = await screenHtml(page, deskScreenId);
+  const navbarId = nodeIdsForLayerName(htmlBeforeGap, "Navbar").find(
+    (id) => !elementInner(htmlBeforeGap, id).includes("(c) 2026 Brand"),
+  );
+  if (!navbarId) throw new Error("Desktop Navbar was not found in saved HTML");
+  const navLinksId = nodeIdsForLayerName(
+    elementInner(htmlBeforeGap, navbarId),
+    "NavLinks",
+  )[0];
+  if (!navLinksId) throw new Error("Desktop NavLinks was not found in Navbar");
+  await selectLayerAtPath(page, "NavLinks", ["Landing Page", "Navbar"]);
+  await setScrubField(page, "Gap", "32");
+  await expect
+    .poll(() =>
+      frame
+        .locator('[data-agent-native-layer-name="NavLinks"]')
+        .first()
+        .evaluate((el) => getComputedStyle(el).columnGap),
+    )
+    .toBe("32px");
+  await expect
+    .poll(
+      async () =>
+        [
+          ...(await screenHtml(page, deskScreenId)).matchAll(
+            /<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*>/g,
+          ),
+        ]
+          .find((tag) =>
+            tag[0].includes(`data-agent-native-node-id="${navLinksId}"`),
+          )?.[0]
+          .includes("gap: 32px") ?? false,
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+
+  await selectLayerAtPath(page, "HeroCTAGroup", [
+    "Landing Page",
+    "Hero",
+    "HeroCopy",
+  ]);
+  await setScrubField(page, "Gap", "16");
+  await selectLayerAtPath(page, "HeroCopy", ["Landing Page", "Hero"]);
+  await setScrubField(page, "Gap", "24");
+
   const heroCtaGap = await frame
     .locator('[data-agent-native-layer-name="HeroCTAGroup"]')
     .evaluate((el) => getComputedStyle(el).columnGap);
@@ -1924,13 +2064,14 @@ test("trailing: typed corner radius (12 on CTAButton) and per-corner override (H
   page,
 }) => {
   await openOverview(page, designId, 2);
-  await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandLayer(await layerRowForPath(page, "Landing Page", []));
+  await expandLayer(await layerRowForPath(page, "Navbar", ["Landing Page"]));
+  await expandLayer(await layerRowForPath(page, "Hero", ["Landing Page"]));
 
   await clickLayerRow(page, "CTAButton");
   await setScrubField(page, "Corner radius", "12");
 
-  await clickLayerRow(page, "HeroImage");
+  await selectLayerAtPath(page, "HeroImage", ["Landing Page", "Hero"]);
   await setScrubField(page, "Corner radius", "16");
   const independentToggle = page.locator(
     'button[aria-label="Independent corners"]',
@@ -1973,9 +2114,9 @@ test("trailing: a drop-shadow effect is added to Navbar via the inspector", asyn
   page,
 }) => {
   await openOverview(page, designId, 2);
-  await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
-  await clickLayerRow(page, "Navbar");
+  await expandLayer(await layerRowForPath(page, "Landing Page", []));
+  await expandLayer(await layerRowForPath(page, "Navbar", ["Landing Page"]));
+  await selectLayerAtPath(page, "Navbar", ["Landing Page"]);
 
   const effectsHeading = page.getByRole("heading", { name: /^Effects$/i });
   await expect(
@@ -2010,10 +2151,11 @@ test("trailing: typed padding (32 horizontal on Navbar, 80 on Hero) and gap-mode
   page,
 }) => {
   await openOverview(page, designId, 2);
-  await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandLayer(await layerRowForPath(page, "Landing Page", []));
+  await expandLayer(await layerRowForPath(page, "Navbar", ["Landing Page"]));
+  await expandLayer(await layerRowForPath(page, "Hero", ["Landing Page"]));
 
-  await clickLayerRow(page, "Navbar");
+  await selectLayerAtPath(page, "Navbar", ["Landing Page"]);
   await setScrubField(page, "Left / Right", "32");
   const gapModeButton = page.locator('button[aria-label^="Gap mode"]').first();
   if (await gapModeButton.count()) {
@@ -2022,7 +2164,7 @@ test("trailing: typed padding (32 horizontal on Navbar, 80 on Hero) and gap-mode
     await page.waitForTimeout(300);
   }
 
-  await clickLayerRow(page, "Hero");
+  await selectLayerAtPath(page, "Hero", ["Landing Page"]);
   await setScrubField(page, "Left / Right", "80");
   await setScrubField(page, "Top / Bottom", "80");
 

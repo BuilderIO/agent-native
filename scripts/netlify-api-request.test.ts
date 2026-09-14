@@ -31,7 +31,7 @@ describe("requestNetlifyApi", () => {
     let calls = 0;
     globalThis.fetch = async () => {
       calls += 1;
-      return new Response(null, {
+      return new Response(calls === 6 ? "final rate limit details" : null, {
         status: 429,
         headers: { "retry-after": "0" },
       });
@@ -41,6 +41,7 @@ describe("requestNetlifyApi", () => {
       const response = await requestNetlifyApi("https://example.test");
       assert.equal(response.status, 429);
       assert.equal(calls, 6);
+      assert.equal(await response.text(), "final rate limit details");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -63,6 +64,26 @@ describe("requestNetlifyApi", () => {
       });
       assert.equal(response.status, 204);
       assert.equal(calls, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("preserves the final delete error body after bounded retries", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response("Netlify delete details", { status: 502 });
+    };
+
+    try {
+      const response = await requestNetlifyApi("https://example.test", {
+        method: "DELETE",
+      });
+      assert.equal(response.status, 502);
+      assert.equal(calls, 3);
+      assert.equal(await response.text(), "Netlify delete details");
     } finally {
       globalThis.fetch = originalFetch;
     }

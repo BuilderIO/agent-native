@@ -202,15 +202,17 @@ async function checkHealth(
 }
 
 async function checkRoot(baseUrl: string): Promise<CheckResult> {
-  try {
-    const response = await fetchWithTimeout(`${baseUrl}/`);
-    if (response.status < 200 || response.status >= 400) {
-      return { ok: false, reason: `/ returned HTTP ${response.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: `/ network error: ${errorMessage(err)}` };
+  const { response, error } = await fetchWithRetry(`${baseUrl}/`);
+  if (!response) {
+    return { ok: false, reason: `/ network error: ${errorMessage(error)}` };
   }
+  if (response.status < 200 || response.status >= 400) {
+    return {
+      ok: false,
+      reason: `/ returned HTTP ${response.status} after retries`,
+    };
+  }
+  return { ok: true };
 }
 
 async function checkAuthRoutes(baseUrl: string): Promise<CheckResult> {

@@ -57,6 +57,11 @@ const SAFE_MANAGED_CONNECTIONS = new Set([
   "not_applicable",
   "unknown",
 ]);
+const SAFE_REDIRECT_URI_STATUSES = new Set([
+  "registered",
+  "mismatched",
+  "unknown",
+]);
 
 setDefaultResultOrder("ipv4first");
 
@@ -78,6 +83,11 @@ export type GoogleHealthStatus =
   | "absent"
   | "not_applicable";
 
+export type GoogleRedirectUriHealthStatus =
+  | "registered"
+  | "mismatched"
+  | "unknown";
+
 export type GoogleHealthResult = {
   status: GoogleHealthStatus;
   reason: string | null;
@@ -88,6 +98,8 @@ export type GoogleHealthResult = {
   credentialMode: "managed" | "user" | null;
   managedConnection: "required" | "not_applicable" | "unknown" | null;
   callbackPaths: string[] | null;
+  redirectUriStatus: GoogleRedirectUriHealthStatus | null;
+  redirectUri: string | null;
 };
 
 export function isInconclusiveGoogleHealthStatus(
@@ -181,6 +193,8 @@ function emptyHealth(
     credentialMode: null,
     managedConnection: null,
     callbackPaths: null,
+    redirectUriStatus: null,
+    redirectUri: null,
   };
 }
 
@@ -517,6 +531,21 @@ function advertisedCallbackPaths(value: unknown): string[] | null {
   return paths.length === value.length ? [...new Set(paths)] : null;
 }
 
+function advertisedRedirectUri(value: unknown): string | null {
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    return null;
+  }
+  return `${url.origin}${url.pathname}`;
+}
+
 /** Parse the public health contract without trusting arbitrary response text. */
 export function classifyGoogleHealthResponse(
   response: Response,
@@ -552,10 +581,12 @@ export function classifyGoogleHealthResponse(
   ) {
     return emptyHealth("unknown", "health response had an unknown status");
   }
-  if (
-    !(response.status >= 200 && response.status < 300) &&
-    !(response.status === 503 && rawStatus === "invalid")
-  ) {
+  const rawRedirectUriStatus = body.redirectUriStatus;
+  const expected503 =
+    response.status === 503 &&
+    (rawStatus === "invalid" ||
+      (rawStatus === "valid" && rawRedirectUriStatus === "mismatched"));
+  if (!(response.status >= 200 && response.status < 300) && !expected503) {
     return emptyHealth(
       "unknown",
       `health endpoint returned HTTP ${response.status}`,
@@ -595,6 +626,12 @@ export function classifyGoogleHealthResponse(
         ? (body.managedConnection as "required" | "not_applicable" | "unknown")
         : null,
     callbackPaths: advertisedCallbackPaths(body.callbackPaths),
+    redirectUriStatus:
+      typeof rawRedirectUriStatus === "string" &&
+      SAFE_REDIRECT_URI_STATUSES.has(rawRedirectUriStatus)
+        ? (rawRedirectUriStatus as GoogleRedirectUriHealthStatus)
+        : null,
+    redirectUri: advertisedRedirectUri(body.redirectUri),
   };
 }
 
@@ -726,6 +763,23 @@ export function healthContractDisagreement(
     !sameStringSet(managed.callbackPaths, signIn.callbackPaths)
   ) {
     return "callback paths differ between health contracts";
+  }
+  return null;
+}
+
+export function googleHealthRedirectUriMismatch(
+  health: GoogleHealthResult,
+  expectedRedirectUri: string,
+): string | null {
+  if (health.status !== "valid") return null;
+  if (
+    health.redirectUri !== null &&
+    health.redirectUri !== expectedRedirectUri
+  ) {
+    return `health endpoint advertises ${health.redirectUri}, expected ${expectedRedirectUri}`;
+  }
+  if (health.redirectUriStatus === "mismatched") {
+    return `health endpoint reports an unregistered callback for ${expectedRedirectUri}`;
   }
   return null;
 }
@@ -887,6 +941,10 @@ async function run(argv: string[]): Promise<number> {
         health.mismatchedPairs ? "mismatched-pairs" : "",
         health.credentialSource ? `source=${health.credentialSource}` : "",
         health.managedConnection ? `managed=${health.managedConnection}` : "",
+        health.redirectUriStatus
+          ? `redirect_uri_status=${health.redirectUriStatus}`
+          : "",
+        health.redirectUri ? `redirect_uri=${health.redirectUri}` : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -938,6 +996,16 @@ async function run(argv: string[]): Promise<number> {
       } else if (health.status !== "valid") {
         console.log(
           `UNKNOWN\t${row.host}\t${client}\thealth\t${health.reason ?? health.status}`,
+        );
+      }
+      const redirectUriMismatch = googleHealthRedirectUriMismatch(
+        health,
+        `https://${row.host}${CALLBACK_PATHS.root}`,
+      );
+      if (redirectUriMismatch) {
+        unregistered += 1;
+        console.log(
+          `FAIL\t${row.host}\t${client}\thealth\t${redirectUriMismatch}`,
         );
       }
       if (health.clientId && health.callbackPaths === null) {
