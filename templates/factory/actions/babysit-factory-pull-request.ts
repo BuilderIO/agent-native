@@ -576,16 +576,26 @@ export default defineAction({
         return { ok: true, action: "clean" };
       }
 
-      if (decision === "defer" || mechanical.builderActive) {
+      if (mechanical.builderActive) {
         const builderActiveUntil =
           recommendationResult.builderActiveUntil ??
           mechanical.builderActiveUntil;
+        if (!builderActiveUntil) {
+          throw new Error(
+            "Builder-active defer is missing prBabysitBuilderActiveUntil.",
+          );
+        }
         await park("defer", babysitDeferClause(), {
-          metadata: builderActiveUntil
-            ? { prBabysitBuilderActiveUntil: builderActiveUntil }
-            : undefined,
+          metadata: { prBabysitBuilderActiveUntil: builderActiveUntil },
         });
         return { ok: true, action: "defer" };
+      }
+      if (decision === "defer") {
+        await park(
+          "waiting",
+          "waiting; Builder is not active, so defer does not apply.",
+        );
+        return { ok: true, action: "waiting" };
       }
 
       if (decision === "stuck") {
@@ -637,6 +647,18 @@ export default defineAction({
         pullRequestNumber,
         DEFAULT_BABYSIT_PR_COMMENT,
       );
+      // Persist comment identity before audit so a failed audit write cannot
+      // lose the Factory author/head metadata retries need for duplicate veto.
+      await updateBabysitItem(itemId, orgId, {
+        prBabysitState: "waiting",
+        prBabysitFingerprint: fingerprint,
+        prBabysitLastCheckedAt: nowIso,
+        prBabysitLastCommentAt: nowIso,
+        prBabysitLastCommentUrl: comment.htmlUrl,
+        prBabysitLastPingHeadSha: pullRequest.headSha,
+        prBabysitFactoryAuthor: comment.author,
+        ...parkedPatch,
+      });
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -657,19 +679,6 @@ export default defineAction({
         },
         factoryId,
       );
-      // Posting parks straight to `waiting`: the ask is out, so the item leaves
-      // needsReview until poll finds new human review work. An `active` state here
-      // is what let mergeability flicker re-list and re-ping the same PR.
-      await updateBabysitItem(itemId, orgId, {
-        prBabysitState: "waiting",
-        prBabysitFingerprint: fingerprint,
-        prBabysitLastCheckedAt: nowIso,
-        prBabysitLastCommentAt: nowIso,
-        prBabysitLastCommentUrl: comment.htmlUrl,
-        prBabysitLastPingHeadSha: pullRequest.headSha,
-        prBabysitFactoryAuthor: comment.author,
-        ...parkedPatch,
-      });
       return {
         ok: true,
         action: "commented",
