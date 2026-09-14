@@ -16,9 +16,11 @@
  */
 
 const PENDING_STORAGE_KEY = "agent-native:mcp-connection-pending";
-/** Matches the OAuth resume TTL; a longer window would keep refetching on
- *  focus for a connect the user abandoned. */
-const PENDING_TTL_MS = 10 * 60 * 1_000;
+/** The same five minutes `useBuilderConnectFlow` gives a connect popup before
+ *  it declares the flow dead (`POLL_TIMEOUT_MS`). A provider consent screen can
+ *  take minutes with login and 2FA, so the window has to outlast that; past it
+ *  the flow is abandoned and a focus refetch would buy nothing. */
+const PENDING_TTL_MS = 5 * 60 * 1_000;
 
 let memoryPendingStartedAt: number | null = null;
 

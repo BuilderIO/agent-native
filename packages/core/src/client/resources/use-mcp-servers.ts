@@ -19,10 +19,7 @@ import {
 
 import { agentNativePath } from "../api-path.js";
 import { useAfterPaint } from "../use-after-paint.js";
-import {
-  clearMcpConnectionPending,
-  hasPendingMcpConnection,
-} from "./mcp-connection-refresh.js";
+import { hasPendingMcpConnection } from "./mcp-connection-refresh.js";
 import { addMcpConnectionCompleteListener } from "./mcp-connection-resume.js";
 
 export type McpServerScope = "user" | "org";
@@ -178,11 +175,6 @@ const defaultMcpServersApi: McpServersApi = {
   testExisting: testExistingMcpServer,
 };
 
-function countMcpServers(list: McpServersList | undefined): number {
-  if (!list) return 0;
-  return list.user.length + list.org.length;
-}
-
 export interface UseMcpServersOptions {
   /**
    * Defer the first list read until after the first paint. Only for surfaces
@@ -220,25 +212,24 @@ export function useMcpServers(options: UseMcpServersOptions = {}) {
   // QueryClient turns refetchOnWindowFocus off on purpose.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const revalidate = async () => {
+    const revalidate = () => {
+      // Deliberately no "did it land?" heuristic. Nothing the client can see
+      // distinguishes "the authorization landed" from an ordinary first read,
+      // a reconnect that replaces credentials in place, or a second flow
+      // running concurrently, so every such guess can clear the marker while a
+      // real return is still outstanding — which is the stale "Connect" this
+      // hook exists to prevent. The TTL is the bound instead.
       if (!hasPendingMcpConnection()) return;
-      const before = countMcpServers(qc.getQueryData<McpServersList>(LIST_KEY));
-      await qc.invalidateQueries({ queryKey: LIST_KEY });
-      // The marker exists to catch a connection this window has not seen yet.
-      // Once one lands the job is done; the TTL is the backstop for a flow the
-      // user abandoned, which produces no observable change to stop on.
-      const after = countMcpServers(qc.getQueryData<McpServersList>(LIST_KEY));
-      if (after > before) clearMcpConnectionPending();
+      void qc.invalidateQueries({ queryKey: LIST_KEY });
     };
-    const onFocus = () => void revalidate();
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void revalidate();
+      if (document.visibilityState === "visible") revalidate();
     };
-    window.addEventListener("focus", onFocus);
+    window.addEventListener("focus", revalidate);
     document.addEventListener("visibilitychange", onVisibility);
-    const removeCompleteListener = addMcpConnectionCompleteListener(onFocus);
+    const removeCompleteListener = addMcpConnectionCompleteListener(revalidate);
     return () => {
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", revalidate);
       document.removeEventListener("visibilitychange", onVisibility);
       removeCompleteListener();
     };

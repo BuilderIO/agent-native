@@ -44,7 +44,7 @@ describe("MCP connection pending window", () => {
     markMcpConnectionPending(startedAt);
 
     expect(hasPendingMcpConnection(startedAt + 60_000)).toBe(true);
-    expect(hasPendingMcpConnection(startedAt + 11 * 60 * 1_000)).toBe(false);
+    expect(hasPendingMcpConnection(startedAt + 6 * 60 * 1_000)).toBe(false);
     // The expired read clears the marker so the tab stops refetching on focus.
     expect(hasPendingMcpConnection(startedAt + 60_000)).toBe(false);
   });
@@ -126,10 +126,15 @@ describe("useMcpServers post-OAuth revalidation", () => {
     });
   }
 
+  // invalidate -> refetch -> render is several turns deep. Flushing a fixed
+  // number of turns keeps that deterministic under parallel test load, where
+  // waiting a single tick made the event-driven assertions load-sensitive.
   async function settle() {
     await act(async () => {
-      await Promise.resolve();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (let turn = 0; turn < 5; turn += 1) {
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
     });
   }
 
@@ -250,8 +255,8 @@ describe("useMcpServers post-OAuth revalidation", () => {
     );
   });
 
-  it("stops revalidating once the new connection has been observed", async () => {
-    renderList();
+  it("keeps revalidating until the TTL rather than guessing the flow finished", async () => {
+    const container = renderList();
     await settle();
 
     markMcpConnectionPending();
@@ -266,30 +271,51 @@ describe("useMcpServers post-OAuth revalidation", () => {
       window.dispatchEvent(new Event("focus"));
     });
     await settle();
-    const callsAfterConnect = listCalls;
+    const callsAfterFirstReturn = listCalls;
 
-    // The marker exists to catch an unseen connection; it has now been seen.
-    expect(hasPendingMcpConnection()).toBe(false);
-
+    // A second flow, a reconnect, or a slow provider can still be outstanding,
+    // and none of those are distinguishable from here — so the window stays
+    // open and a later return is still picked up.
+    list = {
+      user: [
+        connectedServer("https://mcp.sentry.dev/mcp"),
+        { ...connectedServer("https://mcp.notion.com/mcp"), id: "server-2" },
+      ],
+      org: [],
+      orgId: null,
+      role: null,
+    };
     act(() => {
       window.dispatchEvent(new Event("focus"));
     });
     await settle();
 
-    expect(listCalls).toBe(callsAfterConnect);
+    expect(listCalls).toBeGreaterThan(callsAfterFirstReturn);
+    expect(
+      container.querySelector("[data-testid=urls]")?.textContent,
+    ).toContain("https://mcp.notion.com/mcp");
   });
 
-  it("keeps the marker while an abandoned flow shows no new connection", async () => {
-    renderList();
-    await settle();
-
+  it("does not treat a first list load as the pending connection landing", async () => {
+    // main defers four call sites, so an undefined cache is a normal state.
     markMcpConnectionPending();
+    list = {
+      user: [connectedServer("https://mcp.sentry.dev/mcp")],
+      org: [],
+      orgId: null,
+      role: null,
+    };
+
+    renderList();
+    // Focus lands before the very first read settles, so the cache is still
+    // undefined when the revalidation samples it.
     act(() => {
       window.dispatchEvent(new Event("focus"));
     });
     await settle();
 
-    // Nothing landed, so the TTL stays the only bound on the retry window.
+    // Nothing connected during this window; the list was simply read for the
+    // first time. Clearing here would strand the real OAuth return.
     expect(hasPendingMcpConnection()).toBe(true);
   });
 
