@@ -41,14 +41,25 @@ const NOISE_SEGMENTS = new Set([
 const STACK_FRAME_RE =
   /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
-// React 19 creates _debugStack as `Error("react-stack-top-frame")` inside
-// jsxDEV itself, so the JSX factory is always the top frame of the owner
-// stack and never an authoring site. Matched by name (never createElement,
-// which a user helper can legitimately share) regardless of path.
-const JSX_FACTORY_FRAME_RE = /(^|\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
+// React 19 captures _debugStack inside the JSX runtime itself, so its
+// module is always the top frame; recognised by a runtime module name
+// INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*` —
+// the optimizer always writes pre-bundles there, even under a custom
+// cacheDir with no node_modules segment) — never by basename alone, since an
+// authored file that happens to be named react.js or jsx-runtime.js outside
+// a deps directory is a real local file.
+const REACT_RUNTIME_MODULE_RE =
+  /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
+const VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
 
 function isNoisePath(path: string): boolean {
   const segments = path.split("/");
+  const runtimeInsideDepsDir = segments.some(
+    (segment, index) =>
+      VITE_DEPS_SEGMENT_RE.test(segment) &&
+      REACT_RUNTIME_MODULE_RE.test(segments[index + 1] ?? ""),
+  );
+  if (runtimeInsideDepsDir) return true;
   if (segments.some((segment) => NOISE_SEGMENTS.has(segment))) return true;
   const nextIndex = segments.indexOf("_next");
   return nextIndex >= 0 && segments[nextIndex + 1] === "static";
@@ -97,9 +108,6 @@ export function parseReactStackFrame(line: string): ParsedStackFrame | null {
   const match = STACK_FRAME_RE.exec(line);
   if (!match) return null;
   const [, functionName, rawUrl, lineText, columnText] = match;
-  // Drop before resolving the URL: a JSX factory frame is never an authoring
-  // site regardless of which path served it.
-  if (functionName && JSX_FACTORY_FRAME_RE.test(functionName)) return null;
   const sourceFile = resolveFrameUrl(rawUrl!);
   if (!sourceFile || isNoisePath(sourceFile)) return null;
   const lineNumber = Number(lineText);

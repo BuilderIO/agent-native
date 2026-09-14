@@ -645,6 +645,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ".vite": true,
   };
 
+  // React 19 captures _debugStack inside the JSX runtime itself, so its
+  // module is always the top frame; recognised by a runtime module name
+  // INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*`
+  // — the optimizer always writes pre-bundles there, even under a custom
+  // cacheDir with no node_modules segment) — never by basename alone, since
+  // an authored file that happens to be named react.js or jsx-runtime.js
+  // outside a deps directory is a real local file.
+  var PROVENANCE_REACT_RUNTIME_MODULE_RE =
+    /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
+  var PROVENANCE_VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
+
   // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
   // built package is a real local file. node_modules stays noise even
   // through /@fs/: Vite resolves symlinks, so a linked workspace package
@@ -655,6 +666,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     localServedOutput: boolean,
   ): boolean {
     var segments = path.split("/");
+    for (var i = 0; i < segments.length - 1; i += 1) {
+      if (
+        PROVENANCE_VITE_DEPS_SEGMENT_RE.test(segments[i]!) &&
+        PROVENANCE_REACT_RUNTIME_MODULE_RE.test(segments[i + 1]!)
+      ) {
+        return true;
+      }
+    }
     for (var i = 0; i < segments.length; i += 1) {
       var segment = segments[i]!;
       if (localServedOutput && (segment === "dist" || segment === "build")) {
@@ -710,12 +729,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var PROVENANCE_STACK_FRAME_RE =
     /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
-  // React 19 creates _debugStack as `Error("react-stack-top-frame")` inside
-  // jsxDEV itself, so the JSX factory is always the top frame of the owner
-  // stack and never an authoring site. Matched by name (never createElement,
-  // which a user helper can legitimately share) regardless of path.
-  var PROVENANCE_JSX_FACTORY_FRAME_RE = /(^|\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
-
   function parseProvenanceStackFrame(lineText: string): {
     sourceFile: string;
     line: number;
@@ -726,11 +739,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   } | null {
     var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
     if (!match) return null;
-    // Drop before the /@fs/ exemption below, which would otherwise let a
-    // jsxDEV frame served from node_modules/@fs through unfiltered.
-    if (match[1] && PROVENANCE_JSX_FACTORY_FRAME_RE.test(match[1])) {
-      return null;
-    }
     var resolved = resolveProvenanceFrameUrl(match[2]!);
     if (!resolved) return null;
     // A Vite /@fs/ frame is a real local file even when its path contains

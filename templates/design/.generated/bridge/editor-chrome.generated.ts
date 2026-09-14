@@ -1262,8 +1262,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       public: true,
       ".vite": true
     };
+    var PROVENANCE_REACT_RUNTIME_MODULE_RE = /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\\.development|\\.production(?:\\.min)?)?\\.(?:m?js|cjs)$/;
+    var PROVENANCE_VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
     function isProvenanceNoisePath(path, localServedOutput) {
       var segments = path.split("/");
+      for (var i = 0; i < segments.length - 1; i += 1) {
+        if (PROVENANCE_VITE_DEPS_SEGMENT_RE.test(segments[i]) && PROVENANCE_REACT_RUNTIME_MODULE_RE.test(segments[i + 1])) {
+          return true;
+        }
+      }
       for (var i = 0; i < segments.length; i += 1) {
         var segment = segments[i];
         if (localServedOutput && (segment === "dist" || segment === "build")) {
@@ -1299,13 +1306,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     var PROVENANCE_STACK_FRAME_RE = /^\\s*at\\s+(?:([^\\s(]+)\\s+\\()?([^()\\s][^()]*?):(\\d+):(\\d+)\\)?\\s*$/;
-    var PROVENANCE_JSX_FACTORY_FRAME_RE = /(^|\\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
     function parseProvenanceStackFrame(lineText) {
       var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
       if (!match) return null;
-      if (match[1] && PROVENANCE_JSX_FACTORY_FRAME_RE.test(match[1])) {
-        return null;
-      }
       var resolved = resolveProvenanceFrameUrl(match[2]);
       if (!resolved) return null;
       if (isProvenanceNoisePath(resolved.sourceFile, resolved.localServedOutput)) {

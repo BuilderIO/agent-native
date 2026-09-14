@@ -79,6 +79,17 @@
     ".vite": true,
   };
 
+  // React 19 captures _debugStack inside the JSX runtime itself, so its
+  // module is always the top frame; recognised by a runtime module name
+  // INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*`
+  // — the optimizer always writes pre-bundles there, even under a custom
+  // cacheDir with no node_modules segment) — never by basename alone, since
+  // an authored file that happens to be named react.js or jsx-runtime.js
+  // outside a deps directory is a real local file.
+  var REACT_RUNTIME_MODULE_RE =
+    /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
+  var VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
+
   // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
   // built package is a real local file. node_modules stays noise even
   // through /@fs/: Vite resolves symlinks, so a linked workspace package
@@ -86,6 +97,14 @@
   // arrives here by its real path.
   function isNoisePath(path: string, localServedOutput: boolean): boolean {
     var segments = path.split("/");
+    for (var i = 0; i < segments.length - 1; i += 1) {
+      if (
+        VITE_DEPS_SEGMENT_RE.test(segments[i]!) &&
+        REACT_RUNTIME_MODULE_RE.test(segments[i + 1]!)
+      ) {
+        return true;
+      }
+    }
     for (var i = 0; i < segments.length; i += 1) {
       var segment = segments[i]!;
       if (localServedOutput && (segment === "dist" || segment === "build")) {
@@ -128,12 +147,6 @@
   var STACK_FRAME_RE =
     /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
-  // React 19 creates _debugStack as `Error("react-stack-top-frame")` inside
-  // jsxDEV itself, so the JSX factory is always the top frame of the owner
-  // stack and never an authoring site. Matched by name (never createElement,
-  // which a user helper can legitimately share) regardless of path.
-  var JSX_FACTORY_FRAME_RE = /(^|\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
-
   function parseStackFrame(line: string): {
     sourceFile: string;
     line: number;
@@ -143,9 +156,6 @@
     var match = STACK_FRAME_RE.exec(line);
     if (!match) return null;
     var functionName = match[1];
-    // Drop before the /@fs/ exemption below, which would otherwise let a
-    // jsxDEV frame served from node_modules/@fs through unfiltered.
-    if (functionName && JSX_FACTORY_FRAME_RE.test(functionName)) return null;
     var rawUrl = match[2]!;
     var resolved = resolveFrameUrl(rawUrl);
     if (!resolved) return null;

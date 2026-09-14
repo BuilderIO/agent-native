@@ -20,8 +20,15 @@ export const sourceLocationBridgeScript: string = `"use strict";
       public: true,
       ".vite": true
     };
+    var REACT_RUNTIME_MODULE_RE = /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\\.development|\\.production(?:\\.min)?)?\\.(?:m?js|cjs)$/;
+    var VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
     function isNoisePath(path, localServedOutput) {
       var segments = path.split("/");
+      for (var i = 0; i < segments.length - 1; i += 1) {
+        if (VITE_DEPS_SEGMENT_RE.test(segments[i]) && REACT_RUNTIME_MODULE_RE.test(segments[i + 1])) {
+          return true;
+        }
+      }
       for (var i = 0; i < segments.length; i += 1) {
         var segment = segments[i];
         if (localServedOutput && (segment === "dist" || segment === "build")) {
@@ -52,12 +59,10 @@ export const sourceLocationBridgeScript: string = `"use strict";
       }
     }
     var STACK_FRAME_RE = /^\\s*at\\s+(?:([^\\s(]+)\\s+\\()?([^()\\s][^()]*?):(\\d+):(\\d+)\\)?\\s*$/;
-    var JSX_FACTORY_FRAME_RE = /(^|\\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
     function parseStackFrame(line) {
       var match = STACK_FRAME_RE.exec(line);
       if (!match) return null;
       var functionName = match[1];
-      if (functionName && JSX_FACTORY_FRAME_RE.test(functionName)) return null;
       var rawUrl = match[2];
       var resolved = resolveFrameUrl(rawUrl);
       if (!resolved) return null;

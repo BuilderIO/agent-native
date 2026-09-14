@@ -317,6 +317,104 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
     });
   });
 
+  it("keeps an authored helper legitimately named `jsx` instead of dropping it by name", () => {
+    // The old function-name rule matched `jsx` itself — indistinguishable by
+    // name from the JSX runtime factory — and wrongly dropped this authored
+    // frame too. The module rule only recognizes the runtime's OWN file, so
+    // an application helper that happens to be named `jsx` still resolves.
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugStack: {
+          stack: [
+            "Error: react-stack-top-frame",
+            "    at exports.jsxDEV (http://127.0.0.1:9611/.vite/deps/react_jsx-dev-runtime.js?v=1:193:83)",
+            "    at jsx (http://127.0.0.1:9611/src/helpers/element.jsx:2:10)",
+            "    at Card (http://127.0.0.1:9611/src/components/Card.jsx:8:8)",
+          ].join("\n"),
+        },
+        return: {
+          type: Card,
+          key: null,
+          _debugStack: rootViteStack(
+            "    at App (http://127.0.0.1:9611/src/App.jsx?t=1:44:20)",
+          ),
+          return: null,
+        },
+      }),
+    );
+
+    expect(provenance.sourceFile).toBe("src/helpers/element.jsx");
+    expect(provenance.line).toBe(2);
+    expect(provenance.ownerSourceFile).toBe("src/App.jsx");
+  });
+
+  it("keeps an authored file merely NAMED react.js when it is outside any Vite deps directory", () => {
+    // A basename-only rule would drop this: "react.js" matches the runtime
+    // module regex regardless of where it lives. The runtime is only ever
+    // served from inside a Vite optimizer deps directory, so an authored
+    // src/helpers/react.js must resolve like any other application file.
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugStack: {
+          stack: [
+            "Error: react-stack-top-frame",
+            "    at makeButton (http://localhost:5173/src/helpers/react.js:2:10)",
+          ].join("\n"),
+        },
+        return: null,
+      }),
+    );
+
+    expect(provenance.sourceFile).toBe("src/helpers/react.js");
+    expect(provenance.line).toBe(2);
+    expect(provenance.column).toBe(10);
+  });
+
+  it("recognizes the JSX runtime by module name under a non-.vite custom cacheDir (jsxDEV and classic createElement)", () => {
+    // No path segment here is noise (no node_modules/.vite/dist/…) — only
+    // the module-name rule can drop these, proving it runs independent of
+    // the segment-based noise check.
+    const jsxDevUnderCustomCacheDir = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugStack: {
+          stack: [
+            "Error: react-stack-top-frame",
+            "    at exports.jsxDEV (http://127.0.0.1:9611/tmp/vite/deps/react_jsx-dev-runtime.js?v=1:193:83)",
+            "    at Card (http://127.0.0.1:9611/src/components/Card.jsx:8:8)",
+          ].join("\n"),
+        },
+        return: null,
+      }),
+    );
+    expect(jsxDevUnderCustomCacheDir.sourceFile).toBe(
+      "src/components/Card.jsx",
+    );
+
+    const classicUnderCustomCacheDir = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugStack: {
+          stack: [
+            "Error: react-stack-top-frame",
+            "    at exports.createElement (http://127.0.0.1:9611/tmp/vite/deps/react.js?v=1:20:1)",
+            "    at Card (http://127.0.0.1:9611/src/components/Card.jsx:8:8)",
+          ].join("\n"),
+        },
+        return: null,
+      }),
+    );
+    expect(classicUnderCustomCacheDir.sourceFile).toBe(
+      "src/components/Card.jsx",
+    );
+  });
+
   it("never borrows an ancestor frame when the leaf stack has only a root-level .vite cache frame", () => {
     const provenance = frameworkDebugProvenance(
       elementWithFiber({
