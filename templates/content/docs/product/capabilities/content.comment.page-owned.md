@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-14"
 ---
 
 # Comments
@@ -42,6 +42,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
 - Comments submitted through MCP or the in-app agent's Action tools retain the authenticated account as their author and separately persist their submission source. The UI and notifications identify them as posted via AI on that person's behalf; this describes submission, not a claim that AI wrote every word. Replies record their own source, edits preserve the original submission attribution, and historical comments without provenance remain unclassified.
+- Each explicit Ask AI request keeps its source Comment, intent, operation, agent thread, model, and reasoning attempts distinct. Unrelated Page edits trigger a bounded contextual refresh or exact-target reanchor; changed feedback, ambiguous targets, and partial saves remain typed, recoverable states on the original thread.
 - References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
 
 ## Boundaries and non-goals
@@ -60,6 +61,10 @@ Given a Comment on a Block range, when the range and Block are deleted, then the
 
 Given a Page with a Comment thread is referenced or embedded elsewhere, when a viewer opens the thread from either occurrence, then they see the same Page-owned thread and access decision.
 
+### Keep concurrent AI work attached to its source
+
+Given Ask AI is started on two Comments while the Page is also edited, when both operations reason and commit, then each uses a distinct operation and agent thread, preserves its submitted intent, tolerates unrelated changes, and leaves any true source or target conflict open with a typed recovery state.
+
 ## Current evidence
 
 `document_comments` schema and editor Comment UI/actions provide anchored threaded-comment substrate. Stable multi-Block anchors, rich universal fields, historical repair, and embed authority are not fully proven; this remains `approved_shape`.
@@ -72,6 +77,14 @@ refreshes. Behavioral coverage lives in `CommentsSidebar.interaction.test.tsx`,
 retention, responsive sizing, failed and overlapping mutations, and existing
 commenter/editor access. They do not establish the broader multi-Block,
 historical-deletion, notification, or embed contracts above.
+
+The action/runtime substrate now persists isolated Comment AI operations and
+attempt-specific Page and discussion bases. Database-backed concurrency coverage
+proves distinct operations across Comments, one active operation per source
+Comment across simultaneous starts, bounded reply refresh, disjoint apply commits,
+typed overlapping-target and discussion conflicts, idempotent receipts, lifecycle
+status reconciliation, and agent model attribution. The inline Comment UI and a
+live model-run acceptance pass remain separate integration proof.
 
 ## Proof plan
 

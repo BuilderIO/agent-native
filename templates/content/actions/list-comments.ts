@@ -73,6 +73,7 @@ export default defineAction({
       author_email: row.authorEmail,
       submission_source: row.submissionSource,
       submission_run_id: row.submissionRunId,
+      author_model: row.authorModel,
       author_name: resolveUserProfileName(
         row.authorEmail,
         row.authorName,

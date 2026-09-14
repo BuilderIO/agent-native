@@ -1105,6 +1105,62 @@ export const runContentMigrations = runMigrations(
       name: "content-document-collab-body-revision",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_body_revision INTEGER`,
     },
+    {
+      version: 93,
+      name: "content-comment-ai-concurrent-operations",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_model TEXT;
+      CREATE TABLE IF NOT EXISTS comment_ai_requests (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        requester_email TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        root_comment_id TEXT NOT NULL,
+        field_id TEXT NOT NULL,
+        intent TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued',
+        submitted_thread_digest TEXT NOT NULL,
+        submitted_snapshot_json TEXT NOT NULL,
+        agent_thread_id TEXT NOT NULL,
+        run_id TEXT,
+        model TEXT,
+        engine TEXT,
+        active_attempt_id TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        result_json TEXT,
+        error_code TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_comment_idx
+        ON comment_ai_requests (document_id, root_comment_id)
+        WHERE status IN ('queued', 'running', 'refreshing');
+      CREATE INDEX IF NOT EXISTS comment_ai_requests_document_requester_idx
+        ON comment_ai_requests (document_id, requester_email);
+      CREATE TABLE IF NOT EXISTS comment_ai_attempts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'reasoning',
+        source_revision TEXT NOT NULL,
+        suggestion_revision TEXT NOT NULL,
+        thread_digest TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        payload_json TEXT,
+        run_id TEXT,
+        model TEXT,
+        error_code TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_attempts_request_number_unique
+        ON comment_ai_attempts (request_id, attempt_number);
+      CREATE INDEX IF NOT EXISTS comment_ai_attempts_request_idx
+        ON comment_ai_attempts (request_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
