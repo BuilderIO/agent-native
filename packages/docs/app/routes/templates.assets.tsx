@@ -21,50 +21,45 @@ export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title: "Free AI Workspace for Docs & Tasks | Agent-Native Content",
+        title: "Free Brand Asset Management & AI Images | Agent-Native Assets",
       },
       {
         name: "description",
         content:
-          "Write documents, track tasks, and collect requests with your AI agents. Content is a free and open-source workspace with collaborative editing and databases.",
+          "Generate images with your brand references, refine results, and organize media for reuse. Assets is a free and open-source brand asset library with AI generation.",
       },
       {
         property: "og:title",
-        content: "Free AI Workspace for Docs & Tasks | Agent-Native Content",
+        content:
+          "Free Brand Asset Management & AI Images | Agent-Native Assets",
       },
       {
         property: "og:description",
         content:
-          "Write documents, track tasks, and collect requests with your AI agents. Content is a free and open-source workspace with collaborative editing and databases.",
-      },
-      {
-        name: "keywords",
-        content:
-          "AI workspace, AI document editor, open source Notion alternative, AI task tracker, AI database, agent-native content, collaborative documents, AI writing assistant",
+          "Generate images with your brand references, refine results, and organize media for reuse. Assets is a free and open-source brand asset library with AI generation.",
       },
     ],
-    "Content",
+    "Assets",
   );
 
-const template = templates.find((t) => t.slug === "content")!;
+const template = templates.find((t) => t.slug === "assets")!;
 
-// Same no-imagery pattern Slides and Clips used before their use-case mocks
-// existed: plain ContentCards, no `image`/`imageLabel`, so the section reads
-// as one system with the key-features grid below it instead of leaving
-// placeholder boxes.
+// Same no-imagery pattern Slides uses: plain ContentCards, no `image`/
+// `imageLabel`, so the section reads as one system with the key-features
+// grid below it instead of leaving placeholder boxes.
 const USE_CASES = [
   {
-    id: "write-and-review-content",
+    id: "create-campaign-visuals",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
   },
   {
-    id: "track-work-with-agents",
+    id: "adapt-images-for-new-projects",
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
   },
   {
-    id: "collect-project-requests",
+    id: "share-brand-assets-across-work",
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
   },
@@ -72,55 +67,43 @@ const USE_CASES = [
 
 const KEY_FEATURES = [
   {
-    id: "ai-writing-and-review",
+    id: "brand-asset-libraries",
     titleKey: "feature1Title",
     bodyKey: "feature1Body",
   },
   {
-    id: "documents-and-nested-pages",
+    id: "ai-image-and-video-generation",
     titleKey: "feature2Title",
     bodyKey: "feature2Body",
   },
+  { id: "image-editing", titleKey: "feature3Title", bodyKey: "feature3Body" },
   {
-    id: "databases-and-views",
-    titleKey: "feature3Title",
-    bodyKey: "feature3Body",
-  },
-  {
-    id: "page-and-field-instructions",
+    id: "reusable-templates",
     titleKey: "feature4Title",
     bodyKey: "feature4Body",
   },
   {
-    id: "connected-ai-agents",
+    id: "original-logo-placement",
     titleKey: "feature5Title",
     bodyKey: "feature5Body",
   },
-  {
-    id: "team-collaboration",
-    titleKey: "feature6Title",
-    bodyKey: "feature6Body",
-  },
+  { id: "agent-access", titleKey: "feature6Title", bodyKey: "feature6Body" },
 ] as const;
 
 const FAQ_ITEMS = [
-  { id: "what-is-content", question: "question1", answer: "answer1" },
-  { id: "use-own-ai-agent", question: "question2", answer: "answer2" },
+  { id: "what-is-assets", question: "question1", answer: "answer1" },
+  { id: "brand-guidelines-usage", question: "question2", answer: "answer2" },
   {
-    id: "review-without-rewriting",
+    id: "upload-organize-existing-media",
     question: "question3",
     answer: "answer3",
   },
   {
-    id: "track-tasks-collect-requests",
+    id: "agent-access-from-other-apps",
     question: "question4",
     answer: "answer4",
   },
-  {
-    id: "control-access-restore-version",
-    question: "question5",
-    answer: "answer5",
-  },
+  { id: "logo-compositing", question: "question5", answer: "answer5" },
 ] as const;
 
 // TemplateHero assumes an ancestor centers it at max-w-site with zero extra
@@ -131,56 +114,53 @@ const FAQ_ITEMS = [
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
-export default function ContentTemplate() {
+export default function AssetsTemplate() {
   const t = useT();
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — copy and layout updated to match Slides; existing hero
-          screenshot kept since there's no newer Content asset yet. */}
+      {/* Hero — copy and layout match the Slides/Clips pattern; existing
+          generic hero screenshot kept since there's no newer Assets asset
+          yet. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
-          title={
-            <span className="block max-w-[560px]">
-              {t("templateLanding.content.heroTitle")}
-            </span>
-          }
+          title={t("templateLanding.assets.heroTitle")}
           eyebrow={
             <span className="inline-flex items-center gap-2 text-[var(--fg)]">
               <LogoMark className="size-6" />
               <span className="font-sans text-2xl font-bold tracking-tight">
-                {t("templateLanding.content.heroEyebrow")}
+                {t("templateLanding.assets.heroEyebrow")}
               </span>
             </span>
           }
           customizeTemplate={template}
           headingAction={
             <a
-              href={firstPartyAppUrl("https://content.agent-native.com")}
+              href={firstPartyAppUrl("https://assets.agent-native.com")}
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"
               style={{ gap: "4px" }}
               onClick={(event) => {
                 applyFirstTouchAttributionToLink(event.currentTarget);
-                trackEvent("try live demo", {
+                trackEvent("open assets", {
                   template: template.slug,
                   location: "landing_page_hero",
                 });
               }}
             >
-              {t("templateLanding.content.heroCta")}
+              {t("templateLanding.assets.heroCta")}
               <IconArrowUpRight size={16} />
             </a>
           }
-          description={<p>{t("templateLanding.content.heroDescription")}</p>}
+          description={<p>{t("templateLanding.assets.heroDescription")}</p>}
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
             <BuilderImage
-              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68b5bbef2877492486232130fd297ecb"
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8670a102c1f44808aa158c4a7a66f6e6"
               crossOrigin="anonymous"
-              alt={t("templateLanding.content.s001")}
+              alt={t("templateLanding.assets.s001")}
               loading="lazy"
               decoding="async"
               className="h-auto max-h-[640px] w-full object-cover object-top"
@@ -189,14 +169,14 @@ export default function ContentTemplate() {
         />
       </div>
 
-      {/* What can you do with Content? — three use-case cards */}
+      {/* What can you do with Assets? — three use-case cards */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
-            {t("templateLanding.content.useCasesHeading")}
+            {t("templateLanding.assets.useCasesHeading")}
           </h2>
           <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
-            {t("templateLanding.content.useCasesBody")}
+            {t("templateLanding.assets.useCasesBody")}
           </p>
         </GridInner>
 
@@ -205,8 +185,8 @@ export default function ContentTemplate() {
             {USE_CASES.map((useCase) => (
               <ContentCard
                 key={useCase.id}
-                title={t(`templateLanding.content.${useCase.titleKey}`)}
-                body={t(`templateLanding.content.${useCase.bodyKey}`)}
+                title={t(`templateLanding.assets.${useCase.titleKey}`)}
+                body={t(`templateLanding.assets.${useCase.bodyKey}`)}
               />
             ))}
           </div>
@@ -214,15 +194,15 @@ export default function ContentTemplate() {
       </PageSection>
 
       {/* Key features — six cards, same layout as builder.io/platform/code
-          and the Slides/Clips key-features grids, so every app reads as one
+          and the Slides/Clips key-features grid, so every app reads as one
           system. */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
-            {t("templateLanding.content.keyFeaturesEyebrow")}
+            {t("templateLanding.assets.keyFeaturesEyebrow")}
           </p>
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
-            {t("templateLanding.content.keyFeaturesHeading")}
+            {t("templateLanding.assets.keyFeaturesHeading")}
           </h2>
         </GridInner>
 
@@ -231,30 +211,29 @@ export default function ContentTemplate() {
             {KEY_FEATURES.map((feature) => (
               <ContentCard
                 key={feature.id}
-                title={t(`templateLanding.content.${feature.titleKey}`)}
-                body={t(`templateLanding.content.${feature.bodyKey}`)}
+                title={t(`templateLanding.assets.${feature.titleKey}`)}
+                body={t(`templateLanding.assets.${feature.bodyKey}`)}
               />
             ))}
           </div>
         </GridInner>
       </PageSection>
 
-      {/* FAQs — Clips gets this section's breathing room for free from its
-          "See Clips in action" section in between; Content has no such
-          section, so add the same pt-20 rhythm directly here instead of
-          landing the FAQ flush against the feature grid above it. */}
+      {/* FAQs — Assets has no "see it in action" section in between, so add
+          the same pt-20 rhythm directly here instead of landing the FAQ
+          flush against the feature grid above it. */}
       <PageSection>
         <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
           <FaqAccordion
-            idPrefix="content-faq"
+            idPrefix="assets-faq"
             eyebrow={t("templateLanding.faq.eyebrow")}
             title={t("templateLanding.faq.title")}
             items={FAQ_ITEMS.map((item) => ({
               id: item.id,
-              question: t(`templateLanding.content.faq.${item.question}`),
+              question: t(`templateLanding.assets.faq.${item.question}`),
               answer: (
                 <p className="m-0">
-                  {t(`templateLanding.content.faq.${item.answer}`)}
+                  {t(`templateLanding.assets.faq.${item.answer}`)}
                 </p>
               ),
             }))}
@@ -266,14 +245,14 @@ export default function ContentTemplate() {
       <PageSection>
         <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
-            {t("templateLanding.content.finalCtaHeading")}
+            {t("templateLanding.assets.finalCtaHeading")}
           </h2>
           <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
-            {t("templateLanding.content.finalCtaBody")}
+            {t("templateLanding.assets.finalCtaBody")}
           </p>
           <Button
             variant="cta"
-            href={firstPartyAppUrl("https://content.agent-native.com")}
+            href={firstPartyAppUrl("https://assets.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             // The shared cta variant renders at 14px in sentence case, but
@@ -284,13 +263,13 @@ export default function ContentTemplate() {
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("try live demo", {
+              trackEvent("open assets", {
                 template: template.slug,
                 location: "landing_page_final_cta",
               });
             }}
           >
-            {t("templateLanding.content.finalCtaButton")}
+            {t("templateLanding.assets.finalCtaButton")}
           </Button>
         </GridInner>
       </PageSection>
