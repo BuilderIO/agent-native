@@ -148,6 +148,8 @@ const database = {
     "コレクション行とローカルプロパティは保持されました。",
   failedToAttachSource: "ソースを接続できませんでした",
   failedToCreateRow: "行を作成できませんでした",
+  pageCreatedCollectionRefreshFailed:
+    "ページは作成されましたが、このコレクションを更新できませんでした。再読み込みしてください。",
   failedToDeleteRow: "行を削除できませんでした",
   failedToDeleteSelectedRows: "選択した行を削除できませんでした",
   failedToDuplicateEverySelectedRow: "選択したすべての行を複製できませんでした",

@@ -216,6 +216,7 @@ import {
 import {
   isDocumentUpdateConflict,
   type DocumentUpdateResult,
+  useCreateDocument,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
@@ -268,6 +269,7 @@ import {
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
+import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
@@ -931,7 +933,10 @@ function DatabaseTable({
   const attachPreviewActive = Boolean(data?.attachPreview);
   const effectiveCanEdit = canEdit && !attachPreviewActive;
   const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
-  const isCreatingDatabaseItem = addItem.isPending;
+  const createDocument = useCreateDocument();
+  const createTarget = databaseCreateTarget(data);
+  const canCreateItems = databaseCanCreateItems(createTarget);
+  const isCreatingDatabaseItem = addItem.isPending || createDocument.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -1903,7 +1908,33 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
-    if (isWorkspaceCatalog) return null;
+    if (createTarget.kind === "unsupported") return null;
+    const createdItem =
+      createTarget.kind === "space-page"
+        ? await createWorkspacePage(createTarget.spaceId, title)
+        : await createCollectionRow(title, propertyValueOverrides);
+    if (!createdItem) return null;
+    // Both create paths settle the same way, so the workspace Files table
+    // opens and focuses a new page exactly like an ordinary collection row.
+    const needsPreview = databaseCreatedItemNeedsPreview(
+      items,
+      createdItem,
+      options,
+    );
+    if (needsPreview) {
+      setCreatedPreviewItem(createdItem);
+      setPreviewDocumentId(createdItem.document.id);
+      setPreviewTitleFocusDocumentId(createdItem.document.id);
+    } else if (options.focusInlineTitle) {
+      setInlineTitleFocusDocumentId(createdItem.document.id);
+    }
+    return createdItem;
+  }
+
+  async function createCollectionRow(
+    title: string,
+    propertyValueOverrides: Record<string, DocumentPropertyValue>,
+  ) {
     const mutationContract = data?.mutationContract;
     if (!mutationContract) {
       toast.error(dbText("failedToCreateRow"));
@@ -1913,15 +1944,31 @@ function DatabaseTable({
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
     };
-    let response;
     try {
-      response = await addItem.mutateAsync({
+      const response = await addItem.mutateAsync({
         target: mutationContract.target,
         expectedSchemaRevision: mutationContract.schemaRevision,
         idempotencyKey: crypto.randomUUID(),
         ...(title.trim() ? { title } : {}),
         propertyValues:
           Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
+      });
+      return response.createdItem ?? null;
+    } catch (err) {
+      toast.error(dbText("failedToCreateRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+      return null;
+    }
+  }
+
+  async function createWorkspacePage(spaceId: string, title: string) {
+    let created;
+    try {
+      created = await createDocument.mutateAsync({
+        title: title.trim(),
+        spaceId,
       });
     } catch (err) {
       toast.error(dbText("failedToCreateRow"), {
@@ -1930,19 +1977,21 @@ function DatabaseTable({
       });
       return null;
     }
-    const createdItem = response.createdItem ?? null;
-    const needsPreview =
-      !!createdItem &&
-      databaseCreatedItemNeedsPreview(items, createdItem, options);
-    if (createdItem && needsPreview) {
-      setCreatedPreviewItem(createdItem);
-      setPreviewDocumentId(createdItem.document.id);
-      setPreviewTitleFocusDocumentId(createdItem.document.id);
+    // `refetch` resolves with an error result rather than rejecting, so a
+    // failed refresh has to be read off the result. The page is already
+    // committed here; reporting the stale view is what keeps a successful
+    // create from looking like it did nothing.
+    const refreshed = await database.refetch();
+    if (refreshed.isError) {
+      toast.error(dbText("pageCreatedCollectionRefreshFailed"));
+      return null;
     }
-    if (createdItem && options.focusInlineTitle && !needsPreview) {
-      setInlineTitleFocusDocumentId(createdItem.document.id);
-    }
-    return createdItem ?? null;
+    const refreshedData =
+      refreshed.data && "database" in refreshed.data ? refreshed.data : null;
+    return (
+      refreshedData?.items.find((item) => item.document.id === created.id) ??
+      null
+    );
   }
 
   async function createBoardCard(group: DatabaseBoardGroup, title = "") {
@@ -3033,7 +3082,7 @@ function DatabaseTable({
                 New
               </Button>
             </WorkspaceSourceMenu>
-          ) : effectiveCanEdit ? (
+          ) : effectiveCanEdit && canCreateItems ? (
             <Button
               type="button"
               size="sm"
@@ -3161,7 +3210,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
@@ -3199,7 +3248,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -3223,7 +3272,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -3248,7 +3297,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -3285,7 +3334,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={effectiveCanEdit}
-          canCreateItems={!isWorkspaceCatalog}
+          canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}

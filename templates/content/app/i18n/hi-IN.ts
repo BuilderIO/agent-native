@@ -140,6 +140,8 @@ const database = {
     "संग्रह पंक्तियां और स्थानीय प्रॉपर्टीज़ सुरक्षित रहीं।",
   failedToAttachSource: "स्रोत संलग्न करने में विफल",
   failedToCreateRow: "पंक्ति बनाने में विफल",
+  pageCreatedCollectionRefreshFailed:
+    "पृष्ठ बन गया, लेकिन यह संग्रह रीफ़्रेश नहीं हो सका. इसे देखने के लिए पुनः लोड करें.",
   failedToDeleteRow: "पंक्ति हटाने में विफल",
   failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
   failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",

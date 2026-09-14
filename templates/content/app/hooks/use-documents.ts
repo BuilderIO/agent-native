@@ -9,6 +9,7 @@ import type {
   ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
+  DocumentCreateResult,
   DocumentListResponse,
   DocumentPropertiesResponse,
   DocumentUpdateRequest,
@@ -637,9 +638,10 @@ export function useResolvePreviewDocumentDraft() {
 }
 
 export function useCreateDocument() {
-  return useActionMutation<Document, DocumentCreateRequest>("create-document", {
-    skipActionQueryInvalidation: true,
-  });
+  return useActionMutation<DocumentCreateResult, DocumentCreateRequest>(
+    "create-document",
+    { skipActionQueryInvalidation: true },
+  );
 }
 
 export function useUpdateDocument() {

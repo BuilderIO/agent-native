@@ -89,6 +89,8 @@ const databaseMessages = {
     "Collection rows and local properties were kept intact.",
   failedToAttachSource: "Failed to attach source",
   failedToCreateRow: "Failed to create row",
+  pageCreatedCollectionRefreshFailed:
+    "The page was created, but this collection could not refresh. Reload to see it.",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",

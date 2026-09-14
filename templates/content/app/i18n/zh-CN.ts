@@ -132,6 +132,8 @@ const database = {
   databaseRowsAndLocalPropertiesWereKeptIntact: "集合行和本地属性已保留。",
   failedToAttachSource: "附加来源失败",
   failedToCreateRow: "创建行失败",
+  pageCreatedCollectionRefreshFailed:
+    "页面已创建，但此集合无法刷新。请重新加载以查看。",
   failedToDeleteRow: "删除行失败",
   failedToDeleteSelectedRows: "删除所选行失败",
   failedToDuplicateEverySelectedRow: "未能复制所有选中行",
