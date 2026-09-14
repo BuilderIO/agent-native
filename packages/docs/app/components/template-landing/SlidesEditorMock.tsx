@@ -201,7 +201,7 @@ function TypedReply({ text }: { text: string }) {
       {words.map((word, wordIndex) => (
         <span key={word + wordIndex}>
           <span className="sm-type-word">
-            {[...word].map((character, index) => (
+            {Array.from(word).map((character, index) => (
               <span
                 key={index}
                 className="sm-type-char"
