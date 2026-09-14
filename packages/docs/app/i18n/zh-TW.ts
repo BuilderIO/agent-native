@@ -1189,6 +1189,47 @@ const messages = {
     },
     design: {
       s001: "Design 範本螢幕截圖",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "用你的 AI 代理設計互動式原型",
+      heroDescription:
+        "Design 是一款免費開源的 AI 設計與原型工具，能建立符合品牌風格的頁面與產品介面，且你可以自己編輯設計。",
+      heroCta: "開始設計",
+      useCasesHeading: "用 Design 能做什麼？",
+      useCasesBody:
+        "在動手打造之前，先探索新的頁面、產品流程或介面。把簡報說明和重要細節告訴你的 AI 代理。",
+      useCase1Title: "探索到達頁構想",
+      useCase1Body:
+        "把行銷活動或產品簡報變成到達頁原型。與團隊一起檢視訊息、版面與行動呼籲。",
+      useCase2Title: "梳理產品流程",
+      useCase2Body:
+        "建立引導流程、註冊流程或結帳流程的原型。逐步檢視每個步驟，在投入實作前完善體驗。",
+      useCase3Title: "設計儀表板與內部工具",
+      useCase3Body:
+        "把工作流程需求變成儀表板或管理介面。探索使用者將如何找到資訊並完成日常任務。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "設計、製作原型與分享所需的一切",
+      feature1Title: "互動式原型",
+      feature1Body:
+        "描述你需要的頁面或流程。你的 AI 代理會建立含互動效果的 HTML 原型，讓你在預覽中試用。",
+      feature2Title: "AI 與視覺化編輯",
+      feature2Body:
+        "使用視覺化控制項調整文字、間距與樣式，或請你的 AI 代理修改版面與互動效果。",
+      feature3Title: "並列比較的設計變體",
+      feature3Body:
+        "請你的 AI 代理提供不同的設計方向。在畫布上比較它們，選定一個方向並持續完善。",
+      feature4Title: "可重複使用的品牌樣式",
+      feature4Body:
+        "連結包含你的顏色、字體排印與樣式的設計系統。用它來指引整個專案中的新設計與修訂。",
+      feature5Title: "設計審閱留言",
+      feature5Body:
+        "把意見回饋釘選在特定元素上，讓背景脈絡保持清楚。傳送留言給你的 AI 代理，一起處理這項變更。",
+      feature6Title: "HTML 匯出與程式碼交接",
+      feature6Body:
+        "匯出設計檔案的 HTML 或 ZIP。把原型和背景脈絡交給開發人員或程式開發代理，讓他們接續實作。",
+      finalCtaHeading: "開始你的下一個設計",
+      finalCtaBody: "帶來一份簡報說明。探索各種可能性。完善細節。",
+      finalCtaButton: "開始設計",
       s002: "描述",
       s003: "生成",
       s004: "精煉",
@@ -1250,21 +1291,21 @@ const messages = {
       s060: "檢視所有範本",
       s061: "100% 免費、開放原始碼且可自訂。",
       faq: {
-        question1: "AI 能產生真正的程式碼設計，而不只是模型圖嗎？",
+        question1: "什麼是 Agent-Native Design？",
         answer1:
-          "可以。Design 會輸出完整、獨立的 HTML，使用 Tailwind 設定樣式並以 Alpine 實作互動。原型本身就是實作，不必再交接給別人重建。",
-        question2: "Design 與 Figma 有什麼不同？",
+          "Agent-Native Design 是一款免費開源的 AI 設計與原型工具。用 AI 代理建立互動式 HTML 原型，套用你的品牌風格，並透過視覺化控制項或聊天來完善設計。分享成果以取得意見回饋，或匯出供開發使用。",
+        question2: "AI 產生設計之後，我可以編輯嗎？",
         answer2:
-          "Figma 面向在像素層面工作的設計團隊，輸出的是需要他人重新實作的畫面。Design 從提示開始，以可直接發布或繼續迭代的 HTML/CSS/JS 結束。",
-        question3: "它能遵循我的設計系統嗎？",
+          "可以。使用視覺化控制項調整文字、間距與樣式，或請 AI 代理修改設計。你可以比較不同方向，並持續完善你選定的方案。",
+        question3: "我能使用自己的設計系統嗎？",
         answer3:
-          "可以。儲存可重複使用的設計系統偏好，然後以視覺方式調整常用變數，同時讓代理處理結構和文案變更，例如「使用更溫暖的配色」或「讓標題更醒目」。",
-        question4: "匯出時會得到什麼？",
+          "可以。連結一個設計系統來指引顏色、字體排印、樣式與品牌規範。你可以在多個設計中重複使用它，並作為 AI 代理進行修改時的參考背景。",
+        question4: "我能處理來自 Figma 的設計嗎？",
         answer4:
-          "得到的是真正的成品：可匯出為檔案、ZIP 或 PDF 的完整 HTML/CSS/JS。內容完全獨立，不使用專有格式，可以發布到任何地方。",
-        question5: "Design 免費嗎？",
+          "可以。Design 支援 Figma 匯入流程，並提供專用的 Figma 適用 SVG 匯出功能。轉移設計後，請檢查字型、版面與可編輯元素，因為相容性取決於來源與匯出格式。",
+        question5: "我能匯出什麼，這是一個完成的應用程式嗎？",
         answer5:
-          "免費且開放原始碼；相較之下，許多設計工具按席次每月收費，或按點數計量。",
+          "可以匯出設計檔案的 HTML 或 ZIP，或為程式開發代理準備交接內容。原型提供了開發的起點；應用程式邏輯、整合、測試與部署仍需要實作與審查。HTML 匯出檔可能會使用外部執行階段資源。",
       },
     },
     dispatch: {

@@ -1226,23 +1226,64 @@ const hiIN = {
     },
     design: {
       faq: {
-        question1: "क्या AI ऐसा design बना सकता है जो mockup नहीं, असली code हो?",
+        question1: "Agent-Native Design क्या है?",
         answer1:
-          "हाँ। Design, Tailwind styling और Alpine interactions के साथ पूरा, self-contained HTML देता है। Prototype ही implementation है — handoff करके दोबारा बनाने के लिए कुछ नहीं।",
-        question2: "Design, Figma से कैसे अलग है?",
+          "Agent-Native Design एक फ्री और ओपन-सोर्स AI design और prototyping tool है। AI एजेंट के साथ इंटरैक्टिव HTML prototypes बनाएं, अपना ब्रांड अप्लाई करें, और visual controls या chat से designs को refine करें। फीडबैक के लिए result शेयर करें या development के लिए export करें।",
+        question2: "AI के जनरेट करने के बाद क्या मैं design एडिट कर सकता हूँ?",
         answer2:
-          "Figma pixel level पर काम करने वाली design teams के लिए बना है, और उसका output एक तस्वीर होता है जिसे कोई फिर से implement करता है। Design prompt से शुरू होकर काम करने वाले HTML/CSS/JS पर खत्म होता है, जिसे आप ship या आगे iterate कर सकते हैं।",
-        question3: "क्या यह मेरे design system का पालन कर सकता है?",
+          "हाँ। visual controls से टेक्स्ट, स्पेसिंग और स्टाइलिंग adjust करें, या AI एजेंट से design बदलने को कहें। आप अलग-अलग directions compare कर सकते हैं और जो चुनें उसे आगे refine करते रह सकते हैं।",
+        question3: "क्या मैं अपना खुद का design system इस्तेमाल कर सकता हूँ?",
         answer3:
-          "हाँ। दोबारा इस्तेमाल होने वाली design-system preferences save करें, फिर सामान्य variables को visually adjust करें जबकि agent structure और copy के बदलाव संभाले — “थोड़ा गर्म palette”, “ज़्यादा bold headline”, और काम पूरा।",
-        question4: "Export करने पर मुझे क्या मिलता है?",
+          "हाँ। कलर्स, टाइपोग्राफी, स्टाइलिंग और ब्रांड इंस्ट्रक्शंस गाइड करने के लिए एक design system लिंक करें। आप इसे कई designs में दोबारा इस्तेमाल कर सकते हैं और AI एजेंट के revisions के लिए context के तौर पर यूज़ कर सकते हैं।",
+        question4: "क्या मैं Figma के designs के साथ काम कर सकता हूँ?",
         answer4:
-          "असल परिणाम: file, ZIP या PDF के रूप में पूरा HTML/CSS/JS। Self-contained, बिना किसी proprietary format के और कहीं भी ship करने के लिए आपका।",
-        question5: "क्या Design मुफ़्त है?",
+          "हाँ। Design, Figma import workflows और एक खास Figma-ready SVG export सपोर्ट करता है। design ट्रांसफर करने के बाद fonts, layouts और editable elements चेक करें, क्योंकि compatibility सोर्स और export format पर निर्भर करती है।",
+        question5: "मैं क्या export कर सकता हूँ, और क्या यह एक पूरा तैयार app है?",
         answer5:
-          "हाँ — मुफ़्त और open source, जबकि अन्य design tools हर user के लिए मासिक शुल्क लेते हैं या credits से उपयोग मापते हैं।",
+          "design files का HTML या ZIP export करें, या किसी coding एजेंट के लिए handoff तैयार करें। Prototype development के लिए एक शुरुआती पॉइंट देता है; application logic, integrations, testing और deployment के लिए अभी भी implementation और review की ज़रूरत है। HTML exports बाहरी runtime resources इस्तेमाल कर सकते हैं।",
       },
       s001: "Design टेम्पलेट स्क्रीनशॉट",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "अपने AI एजेंट से इंटरैक्टिव prototypes design करें",
+      heroDescription:
+        "Design एक फ्री और ओपन-सोर्स AI design और prototyping tool है, जो आपके ब्रांड के अनुरूप pages और product interfaces बनाता है, जिन्हें आप खुद एडिट कर सकते हैं।",
+      heroCta: "Design करना शुरू करें",
+      useCasesHeading: "Design से आप क्या कर सकते हैं?",
+      useCasesBody:
+        "बनाने से पहले किसी नए page, product flow या interface को explore करें। अपने AI एजेंट को brief और ज़रूरी डिटेल्स बताएं।",
+      useCase1Title: "Landing-page आइडियाज़ explore करें",
+      useCase1Body:
+        "किसी campaign या product brief को landing-page prototype में बदलें। मैसेज, लेआउट और calls to action को अपनी टीम के साथ रिव्यू करें।",
+      useCase2Title: "Product flows पर काम करें",
+      useCase2Body:
+        "किसी onboarding, signup, या checkout flow का prototype बनाएं। implementation पर commit करने से पहले steps को देखें और experience को refine करें।",
+      useCase3Title: "Dashboards और internal tools design करें",
+      useCase3Body:
+        "Workflow requirements को dashboard या admin interface में बदलें। explore करें कि लोग जानकारी कैसे ढूंढेंगे और अपने रोज़ के काम कैसे पूरे करेंगे।",
+      keyFeaturesEyebrow: "मुख्य फीचर्स",
+      keyFeaturesHeading: "Design करने, prototype बनाने और शेयर करने के लिए जो भी चाहिए",
+      feature1Title: "Interactive prototypes",
+      feature1Body:
+        "जो page या flow चाहिए उसे describe करें। आपका AI एजेंट ऐसा HTML prototype बनाता है जिसके interactions आप preview में try कर सकते हैं।",
+      feature2Title: "AI और विज़ुअल एडिटिंग",
+      feature2Body:
+        "visual controls से टेक्स्ट, स्पेसिंग और स्टाइलिंग adjust करें, या अपने AI एजेंट से layout और interactions बदलने को कहें।",
+      feature3Title: "साथ-साथ design variants",
+      feature3Body:
+        "अपने AI एजेंट से अलग-अलग design directions मांगें। उन्हें canvas पर compare करें, कोई approach चुनें, और उसे refine करते रहें।",
+      feature4Title: "फिर से इस्तेमाल हो सकने वाली brand styles",
+      feature4Body:
+        "अपने कलर्स, टाइपोग्राफी और स्टाइलिंग के साथ एक design system लिंक करें। इसे अपने पूरे प्रोजेक्ट में नए designs और revisions को गाइड करने के लिए इस्तेमाल करें।",
+      feature5Title: "Design review comments",
+      feature5Body:
+        "किसी खास element पर feedback पिन करें ताकि context साफ़ रहे। बदलाव पर काम करने के लिए अपने AI एजेंट को कमेंट भेजें।",
+      feature6Title: "HTML export और code handoff",
+      feature6Body:
+        "अपनी design files का HTML या ZIP export करें। implementation जारी रखने के लिए किसी developer या coding एजेंट को prototype और context दें।",
+      finalCtaHeading: "अपना अगला design शुरू करें",
+      finalCtaBody: "एक brief लाएं। संभावनाएं explore करें। डिटेल्स को refine करें।",
+      finalCtaButton: "Design करना शुरू करें",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",

@@ -1189,6 +1189,47 @@ const zhCN = {
     },
     design: {
       s001: "Design 模板屏幕截图",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "用你的 AI 智能体设计交互式原型",
+      heroDescription:
+        "Design 是一款免费开源的 AI 设计与原型工具，可以创建符合品牌风格的页面和产品界面，并且你可以自己编辑设计。",
+      heroCta: "开始设计",
+      useCasesHeading: "用 Design 能做什么？",
+      useCasesBody:
+        "在动手搭建之前，先探索一个新页面、产品流程或界面。把简报和重要细节告诉你的 AI 智能体。",
+      useCase1Title: "探索落地页创意",
+      useCase1Body:
+        "把营销活动或产品简报变成落地页原型。和团队一起审阅信息、布局和行动号召。",
+      useCase2Title: "梳理产品流程",
+      useCase2Body:
+        "构建引导流程、注册流程或结账流程的原型。逐步走查每个环节，在确定实现方案前完善体验。",
+      useCase3Title: "设计仪表盘与内部工具",
+      useCase3Body:
+        "把工作流程需求变成仪表盘或管理界面。探索用户将如何查找信息并完成日常任务。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "设计、制作原型和分享所需的一切",
+      feature1Title: "交互式原型",
+      feature1Body:
+        "描述你需要的页面或流程。你的 AI 智能体会创建带有交互效果的 HTML 原型，供你在预览中试用。",
+      feature2Title: "AI 与可视化编辑",
+      feature2Body:
+        "使用可视化控制调整文字、间距和样式，或让你的 AI 智能体修改布局和交互。",
+      feature3Title: "并排比较的设计变体",
+      feature3Body:
+        "让你的 AI 智能体提供不同的设计方向。在画布上进行比较，选定一种方案并持续完善。",
+      feature4Title: "可复用的品牌样式",
+      feature4Body:
+        "关联包含你的颜色、排版和样式的设计系统。用它来指导整个项目中的新设计与修订。",
+      feature5Title: "设计评审评论",
+      feature5Body:
+        "将反馈固定在特定元素上，让背景信息保持清晰。发送评论给你的 AI 智能体，一起处理这项更改。",
+      feature6Title: "HTML 导出与代码交接",
+      feature6Body:
+        "导出设计文件的 HTML 或 ZIP。把原型和背景信息交给开发者或编程智能体，让他们继续实现。",
+      finalCtaHeading: "开始你的下一个设计",
+      finalCtaBody: "带来一份简报。探索各种可能性。完善细节。",
+      finalCtaButton: "开始设计",
       s002: "描述",
       s003: "生成",
       s004: "精炼",
@@ -1250,21 +1291,21 @@ const zhCN = {
       s060: "查看所有模板",
       s061: "100% 免费、开源且可自定义。",
       faq: {
-        question1: "AI 能生成真正的代码设计，而不只是模型图吗？",
+        question1: "什么是 Agent-Native Design？",
         answer1:
-          "可以。Design 会输出完整、独立的 HTML，并使用 Tailwind 设置样式、使用 Alpine 实现交互。原型本身就是实现，不需要再交接给别人重建。",
-        question2: "Design 与 Figma 有什么不同？",
+          "Agent-Native Design 是一款免费开源的 AI 设计与原型工具。用 AI 智能体创建交互式 HTML 原型，应用你的品牌风格，并通过可视化控制或聊天来完善设计。分享成果以获取反馈，或导出用于开发。",
+        question2: "AI 生成设计之后，我可以编辑吗？",
         answer2:
-          "Figma 面向在像素层面工作的设计团队，输出的是需要他人重新实现的画面。Design 从提示开始，以可直接发布或继续迭代的 HTML/CSS/JS 结束。",
-        question3: "它能遵循我的设计系统吗？",
+          "可以。使用可视化控制调整文字、间距和样式，或让 AI 智能体修改设计。你可以比较不同方向，并持续完善你选定的方案。",
+        question3: "我能使用自己的设计系统吗？",
         answer3:
-          "可以。保存可复用的设计系统偏好，然后可视化调整常用变量，同时让代理处理结构和文案变化，例如“使用更温暖的配色”或“让标题更醒目”。",
-        question4: "导出时会得到什么？",
+          "可以。关联一个设计系统来指导颜色、排版、样式和品牌规范。你可以在多个设计中复用它，并将其作为 AI 智能体进行修改时的参考背景。",
+        question4: "我能处理来自 Figma 的设计吗？",
         answer4:
-          "得到的是真正的成品：可导出为文件、ZIP 或 PDF 的完整 HTML/CSS/JS。内容完全独立，不使用专有格式，可以发布到任何地方。",
-        question5: "Design 免费吗？",
+          "可以。Design 支持 Figma 导入工作流，并提供专门面向 Figma 的 SVG 导出功能。转移设计后，请检查字体、布局和可编辑元素，因为兼容性取决于来源和导出格式。",
+        question5: "我能导出什么，这是一个完成的应用吗？",
         answer5:
-          "免费且开源；相比之下，许多设计工具按席位每月收费，或按点数计量。",
+          "可以导出设计文件的 HTML 或 ZIP，或为编程智能体准备交接内容。原型为开发提供了一个起点；应用逻辑、集成、测试和部署仍需要实现与审查。HTML 导出文件可能会使用外部运行时资源。",
       },
     },
     dispatch: {
