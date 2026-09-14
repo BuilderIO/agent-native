@@ -17,7 +17,8 @@ export const sourceLocationBridgeScript: string = `"use strict";
       dist: true,
       build: true,
       ".next": true,
-      public: true
+      public: true,
+      ".vite": true
     };
     function isNoisePath(path) {
       var segments = path.split("/");
@@ -47,10 +48,12 @@ export const sourceLocationBridgeScript: string = `"use strict";
       }
     }
     var STACK_FRAME_RE = /^\\s*at\\s+(?:([^\\s(]+)\\s+\\()?([^()\\s][^()]*?):(\\d+):(\\d+)\\)?\\s*$/;
+    var JSX_FACTORY_FRAME_RE = /(^|\\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
     function parseStackFrame(line) {
       var match = STACK_FRAME_RE.exec(line);
       if (!match) return null;
       var functionName = match[1];
+      if (functionName && JSX_FACTORY_FRAME_RE.test(functionName)) return null;
       var rawUrl = match[2];
       var resolved = resolveFrameUrl(rawUrl);
       if (!resolved) return null;

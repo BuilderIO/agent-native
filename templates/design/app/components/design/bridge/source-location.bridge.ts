@@ -76,6 +76,7 @@
     build: true,
     ".next": true,
     public: true,
+    ".vite": true,
   };
 
   function isNoisePath(path: string): boolean {
@@ -118,6 +119,12 @@
   var STACK_FRAME_RE =
     /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
+  // React 19 creates _debugStack as `Error("react-stack-top-frame")` inside
+  // jsxDEV itself, so the JSX factory is always the top frame of the owner
+  // stack and never an authoring site. Matched by name (never createElement,
+  // which a user helper can legitimately share) regardless of path.
+  var JSX_FACTORY_FRAME_RE = /(^|\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
+
   function parseStackFrame(line: string): {
     sourceFile: string;
     line: number;
@@ -127,6 +134,9 @@
     var match = STACK_FRAME_RE.exec(line);
     if (!match) return null;
     var functionName = match[1];
+    // Drop before the /@fs/ exemption below, which would otherwise let a
+    // jsxDEV frame served from node_modules/@fs through unfiltered.
+    if (functionName && JSX_FACTORY_FRAME_RE.test(functionName)) return null;
     var rawUrl = match[2]!;
     var resolved = resolveFrameUrl(rawUrl);
     if (!resolved) return null;

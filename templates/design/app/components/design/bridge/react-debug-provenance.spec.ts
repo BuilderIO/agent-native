@@ -105,6 +105,22 @@ function viteStack(frame: string): { stack: string } {
   };
 }
 
+/**
+ * A project with no root `node_modules` (the exact fixture shape) gets its
+ * Vite dependency cache served from a root-level `.vite/deps/`, not
+ * `node_modules/.vite/deps/` — the frame the noise filter previously missed.
+ */
+function rootViteStack(frame: string): { stack: string } {
+  return {
+    stack: [
+      "Error: react-stack-top-frame",
+      "    at exports.jsxDEV (http://127.0.0.1:9611/.vite/deps/react_jsx-dev-runtime.js?v=5118678b:193:83)",
+      frame,
+      "    at renderWithHooks (http://127.0.0.1:9611/.vite/deps/react-dom_client.js?v=712ea63d:4213:19)",
+    ].join("\n"),
+  };
+}
+
 function hydratedBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -237,6 +253,58 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
     expect(provenance).toMatchObject({
       sourceFile: "src/AnonymousWidget.tsx",
       component: "AnonymousWidget",
+    });
+  });
+
+  it("resolves both leaf and owner from a root-level .vite cache jsxDEV frame (no node_modules segment)", () => {
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugStack: rootViteStack(
+          "    at Card (http://127.0.0.1:9611/src/components/Card.jsx?t=1:12:5)",
+        ),
+        return: {
+          type: Card,
+          key: null,
+          _debugStack: rootViteStack(
+            "    at App (http://127.0.0.1:9611/src/App.jsx?t=1:44:20)",
+          ),
+          return: null,
+        },
+      }),
+    );
+
+    expect(provenance).toMatchObject({
+      sourceFile: "src/components/Card.jsx",
+      ownerSourceFile: "src/App.jsx",
+      method: "debug-stack",
+      component: "Card",
+    });
+  });
+
+  it("never borrows an ancestor frame when the leaf stack has only a root-level .vite cache frame", () => {
+    const provenance = frameworkDebugProvenance(
+      elementWithFiber({
+        type: "h1",
+        key: null,
+        _debugStack: rootViteStack(
+          "    at exports.createElement (http://127.0.0.1:9611/.vite/deps/react.js?v=5118678b:20:1)",
+        ),
+        return: {
+          type: Card,
+          key: null,
+          _debugStack: rootViteStack(
+            "    at MarketingHome (http://127.0.0.1:9611/src/MarketingHome.tsx?t=1:163:41)",
+          ),
+          return: null,
+        },
+      }),
+    );
+
+    expect(provenance).toEqual({
+      framework: "react",
+      unavailableReason: "no-debug-info",
     });
   });
 

@@ -1259,7 +1259,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       dist: true,
       build: true,
       ".next": true,
-      public: true
+      public: true,
+      ".vite": true
     };
     function isProvenanceNoisePath(path) {
       var segments = path.split("/");
@@ -1294,9 +1295,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     var PROVENANCE_STACK_FRAME_RE = /^\\s*at\\s+(?:([^\\s(]+)\\s+\\()?([^()\\s][^()]*?):(\\d+):(\\d+)\\)?\\s*$/;
+    var PROVENANCE_JSX_FACTORY_FRAME_RE = /(^|\\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
     function parseProvenanceStackFrame(lineText) {
       var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
       if (!match) return null;
+      if (match[1] && PROVENANCE_JSX_FACTORY_FRAME_RE.test(match[1])) {
+        return null;
+      }
       var resolved = resolveProvenanceFrameUrl(match[2]);
       if (!resolved) return null;
       if (!resolved.localServedOutput && isProvenanceNoisePath(resolved.sourceFile)) {

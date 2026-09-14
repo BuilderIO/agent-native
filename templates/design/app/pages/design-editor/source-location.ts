@@ -34,11 +34,18 @@ const NOISE_SEGMENTS = new Set([
   "build",
   ".next",
   "public",
+  ".vite",
 ]);
 
 // V8 stack frame: "at Name (url:line:col)" or the anonymous "at url:line:col".
 const STACK_FRAME_RE =
   /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
+
+// React 19 creates _debugStack as `Error("react-stack-top-frame")` inside
+// jsxDEV itself, so the JSX factory is always the top frame of the owner
+// stack and never an authoring site. Matched by name (never createElement,
+// which a user helper can legitimately share) regardless of path.
+const JSX_FACTORY_FRAME_RE = /(^|\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
 
 function isNoisePath(path: string): boolean {
   const segments = path.split("/");
@@ -90,6 +97,9 @@ export function parseReactStackFrame(line: string): ParsedStackFrame | null {
   const match = STACK_FRAME_RE.exec(line);
   if (!match) return null;
   const [, functionName, rawUrl, lineText, columnText] = match;
+  // Drop before resolving the URL: a JSX factory frame is never an authoring
+  // site regardless of which path served it.
+  if (functionName && JSX_FACTORY_FRAME_RE.test(functionName)) return null;
   const sourceFile = resolveFrameUrl(rawUrl!);
   if (!sourceFile || isNoisePath(sourceFile)) return null;
   const lineNumber = Number(lineText);

@@ -642,6 +642,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     build: true,
     ".next": true,
     public: true,
+    ".vite": true,
   };
 
   function isProvenanceNoisePath(path: string): boolean {
@@ -697,6 +698,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var PROVENANCE_STACK_FRAME_RE =
     /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
+  // React 19 creates _debugStack as `Error("react-stack-top-frame")` inside
+  // jsxDEV itself, so the JSX factory is always the top frame of the owner
+  // stack and never an authoring site. Matched by name (never createElement,
+  // which a user helper can legitimately share) regardless of path.
+  var PROVENANCE_JSX_FACTORY_FRAME_RE = /(^|\.)(jsxDEV|jsxDEVImpl|jsxs?)$/;
+
   function parseProvenanceStackFrame(lineText: string): {
     sourceFile: string;
     line: number;
@@ -707,6 +714,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   } | null {
     var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
     if (!match) return null;
+    // Drop before the /@fs/ exemption below, which would otherwise let a
+    // jsxDEV frame served from node_modules/@fs through unfiltered.
+    if (match[1] && PROVENANCE_JSX_FACTORY_FRAME_RE.test(match[1])) {
+      return null;
+    }
     var resolved = resolveProvenanceFrameUrl(match[2]!);
     if (!resolved) return null;
     // A Vite /@fs/ frame is a real local file even when its path contains

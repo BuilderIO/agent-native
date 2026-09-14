@@ -88,6 +88,32 @@ describe("parseReactStackFrame", () => {
   it("returns null for a non-frame line", () => {
     expect(parseReactStackFrame("Error: some message")).toBeNull();
   });
+
+  it("skips a JSX runtime frame served from a root-level .vite cache", () => {
+    expect(
+      parseReactStackFrame(
+        "    at exports.jsxDEV (http://127.0.0.1:9611/.vite/deps/react_jsx-dev-runtime.js?v=5118678b:193:83)",
+      ),
+    ).toBeNull();
+    expect(
+      parseReactStackFrame(
+        "    at Card (http://127.0.0.1:9611/src/components/Card.jsx?t=1:12:5)",
+      ),
+    ).toEqual({
+      sourceFile: "src/components/Card.jsx",
+      line: 12,
+      column: 5,
+      functionName: "Card",
+    });
+  });
+
+  it("skips a jsxDEV frame served through /@fs/", () => {
+    expect(
+      parseReactStackFrame(
+        "    at exports.jsxDEV (http://127.0.0.1:9611/@fs/Users/x/node_modules/.pnpm/react@19.2.7/node_modules/react/jsx-dev-runtime.js:193:83)",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("extractSourceFromDebugStack", () => {
@@ -102,6 +128,21 @@ describe("extractSourceFromDebugStack", () => {
       sourceFile: "src/components/Card.jsx",
       line: 15,
       column: 20,
+      functionName: "Card",
+    });
+  });
+
+  it("skips a root-level .vite cache jsxDEV frame and finds the authored frame below it", () => {
+    const stack = [
+      "Error: react-stack-top-frame",
+      "    at exports.jsxDEV (http://127.0.0.1:9611/.vite/deps/react_jsx-dev-runtime.js?v=5118678b:193:83)",
+      "    at Card (http://127.0.0.1:9611/src/components/Card.jsx?t=1:12:5)",
+      "    at renderWithHooks (http://127.0.0.1:9611/.vite/deps/react-dom_client.js?v=712ea63d:4213:19)",
+    ].join("\n");
+    expect(extractSourceFromDebugStack(stack)).toEqual({
+      sourceFile: "src/components/Card.jsx",
+      line: 12,
+      column: 5,
       functionName: "Card",
     });
   });
