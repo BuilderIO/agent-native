@@ -27,6 +27,7 @@ import {
 } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
+import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
@@ -80,7 +81,7 @@ export type McpOAuthScopeResolution =
   | { ok: true; scope: RemoteMcpScope }
   | { ok: false; violation: McpOAuthScopeViolation };
 
-const FLOW_TTL_SECONDS = 10 * 60;
+const FLOW_TTL_SECONDS = MCP_OAUTH_FLOW_TTL_SECONDS;
 const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{

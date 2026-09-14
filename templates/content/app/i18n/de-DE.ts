@@ -152,6 +152,8 @@ const database = {
     "Sammlungszeilen und lokale Eigenschaften wurden beibehalten.",
   failedToAttachSource: "Quelle konnte nicht angehängt werden",
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
+  pageCreatedCollectionRefreshFailed:
+    "Die Seite wurde erstellt, aber diese Sammlung konnte nicht aktualisiert werden. Neu laden, um sie zu sehen.",
   failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
   failedToDeleteSelectedRows:
     "Ausgewählte Zeilen konnten nicht gelöscht werden",
@@ -829,6 +831,19 @@ const rawLiterals = {
     useDiskVersion: "Version vom Datenträger verwenden",
     keepLocalDraft: "Meine Version behalten",
     previewDraftRecovery: "Ungespeicherter Seitenentwurf",
+    previewDraftCompare: "Wähle die Version aus, die du behalten möchtest",
+    previewDraftYourEdits: "Deine Änderungen",
+    previewDraftSavedVersion: "Gespeicherte Version",
+    previewDraftKeepMine: "Meine Version behalten",
+    previewDraftUseSaved: "Gespeicherte Version verwenden",
+    previewDraftSaveSeparately: "Meine Version als separate Seite speichern",
+    previewDraftSavedToHistory:
+      "Deine Änderungen wurden im Versionsverlauf gespeichert",
+    previewDraftSavedSeparately:
+      "Deine Änderungen wurden als separate Seite gespeichert",
+    previewDraftOpenSavedPage: "Seite öffnen",
+    previewDraftConflict:
+      "Dieser Entwurf steht im Konflikt mit einer neueren Seitenversion. Er wurde nicht wiederhergestellt.",
     restorePreviewDraft: "Entwurf wiederherstellen",
     pageSaveBeforeNavigationFailed:
       "Die letzten Änderungen konnten nicht gespeichert werden. Versuche es erneut, bevor du diese Seite verlässt.",
@@ -1055,6 +1070,7 @@ const history = {
   historyCheckpointAfter: "Danach",
   historyCheckpointBefore: "Davor",
   historyCheckpointLegacy: "Gespeichert",
+  historyCheckpointRecovery: "Wiederhergestellter Entwurf",
   historyCheckpointLoadError: "Prüfpunkte konnten nicht geladen werden.",
   historyDetailLoadError: "Dieser Prüfpunkt konnte nicht geladen werden.",
   historyGroupAgent: "Agentenlauf",

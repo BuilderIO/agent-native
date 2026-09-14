@@ -243,7 +243,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     // subsequent Option+Arrow nudge landing on/writing to the wrong file).
     const SOURCE_SCREEN = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
-<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"></div>
+<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"><span data-agent-native-node-id="source-child-id"></span></div>
 </body></html>`;
     const runtimeStructureInsertRevisionRef = { current: 0 };
     let nextDestinationContent = "";
@@ -298,16 +298,32 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         sourcePointerOffset: { x: 10, y: 12 },
         duplicate: true,
         sourceCloneHtml:
-          '<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"></div>',
+          '<div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"><span data-agent-native-node-id="source-child-id"></span></div>',
       },
     );
 
     const projection = buildCodeLayerProjection(nextDestinationContent);
-    const copyIds = projection.nodes
-      .map((node) => node.dataAttributes["data-agent-native-node-id"])
-      .filter((id) => id && id !== "frame-1");
-    expect(copyIds).toHaveLength(1);
-    expect(copyIds[0]).not.toBe("source-id");
+    const copyNodes = projection.nodes.filter((node) => {
+      const id = node.dataAttributes["data-agent-native-node-id"];
+      return id && id !== "frame-1";
+    });
+    const copyIds = copyNodes.map(
+      (node) => node.dataAttributes["data-agent-native-node-id"],
+    );
+    // Root AND descendant must both be re-stamped — a descendant kept
+    // walking the ORIGINAL id map before this fix, since claimClonedNodeId
+    // only saw ids already present in the destination doc.
+    expect(copyIds).toHaveLength(2);
+    expect(copyIds).not.toContain("source-id");
+    expect(copyIds).not.toContain("source-child-id");
+    expect(new Set(copyIds).size).toBe(2);
+    // The root's parent is the destination anchor (outside the copied
+    // subtree); the child's parent is the copy root itself.
+    const copyRoot = copyNodes.find(
+      (node) => !copyIds.includes(node.parentId ?? ""),
+    );
+    const copyChild = copyNodes.find((node) => node.id !== copyRoot?.id);
+    expect(copyChild?.parentId).toBe(copyRoot?.id);
   });
 
   it("still reserves the still-live source's id when the source is a localhost/fusion screen", () => {
@@ -369,16 +385,31 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetLocalPoint: { x: 240, y: 300 },
         duplicate: true,
         sourceCloneHtml:
-          '<div id="live-node" data-agent-native-node-id="live-node-1" style="position:absolute;left:20px;top:20px;width:60px;height:60px;"></div>',
+          '<div id="live-node" data-agent-native-node-id="live-node-1" style="position:absolute;left:20px;top:20px;width:60px;height:60px;"><span data-agent-native-node-id="live-node-child-1"></span></div>',
       },
     );
 
     const projection = buildCodeLayerProjection(nextDestinationContent);
-    const copyIds = projection.nodes
-      .map((node) => node.dataAttributes["data-agent-native-node-id"])
-      .filter((id) => id && id !== "frame-1");
-    expect(copyIds).toHaveLength(1);
-    expect(copyIds[0]).not.toBe("live-node-1");
+    const copyNodes = projection.nodes.filter((node) => {
+      const id = node.dataAttributes["data-agent-native-node-id"];
+      return id && id !== "frame-1";
+    });
+    const copyIds = copyNodes.map(
+      (node) => node.dataAttributes["data-agent-native-node-id"],
+    );
+    // buildCodeLayerProjection(sourceContent) finds nothing for a
+    // localhost/fusion source (getScreenContent returns the route URL, not
+    // markup) — the descendant reservation can only come from reading
+    // sourceCloneHtml itself, root and children alike.
+    expect(copyIds).toHaveLength(2);
+    expect(copyIds).not.toContain("live-node-1");
+    expect(copyIds).not.toContain("live-node-child-1");
+    expect(new Set(copyIds).size).toBe(2);
+    const copyRoot = copyNodes.find(
+      (node) => !copyIds.includes(node.parentId ?? ""),
+    );
+    const copyChild = copyNodes.find((node) => node.id !== copyRoot?.id);
+    expect(copyChild?.parentId).toBe(copyRoot?.id);
   });
 });
 

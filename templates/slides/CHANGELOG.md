@@ -3,6 +3,20 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-12
+
+### Fixed
+
+- Multi-object rotation keeps translated objects aligned
+- Objects keep their position when ungrouping a rotated group.
+- Preserve scaled child transforms and fractional matrix angles when ungrouping rotated groups
+
+## 2026-09-10
+
+### Fixed
+
+- When Google Slides export falls back to downloading a .pptx, it now says so instead of offering a button that opens an empty Google Slides tab.
+
 ## 2026-09-09
 
 ### Improved
@@ -12,6 +26,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Google Slides export is now marked unavailable instead of sending you to a broken Google sign-in page when the Google connection cannot be used.
 - When an agent's slide edit does not match the slide, it now says so instead of reporting an internal server error, so the agent can correct the edit rather than retrying the same one.
 
 ## 2026-09-03
