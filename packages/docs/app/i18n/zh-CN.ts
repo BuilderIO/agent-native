@@ -776,7 +776,8 @@ const zhCN = {
         "Analytics 是一款免费开源的 AI 分析工具，用于查询你连接的数据、构建仪表板，并调查用户会话。",
       heroCta: "探索你的数据",
       useCasesHeading: "用 Analytics 能做什么？",
-      useCasesBody: "跟踪产品增长、报告业务表现，或调查有人在你的应用中遇到的问题。",
+      useCasesBody:
+        "跟踪产品增长、报告业务表现，或调查有人在你的应用中遇到的问题。",
       useCase1Title: "跟踪产品增长",
       useCase1Body:
         "询问注册量、活跃用户或转化率是如何变化的。比较不同时间段，并按渠道、套餐或客户细分拆解结果。",
@@ -1159,7 +1160,8 @@ const zhCN = {
         "Content 是一款免费开源的工作空间，用于文档、任务列表和数据库，你和你的 AI 智能体可以一起阅读和更新。",
       heroCta: "整理你的工作",
       useCasesHeading: "用 Content 能做什么？",
-      useCasesBody: "处理一份草稿，跟踪待办事项，或收集一项新请求所需的详细信息。",
+      useCasesBody:
+        "处理一份草稿，跟踪待办事项，或收集一项新请求所需的详细信息。",
       useCase1Title: "撰写和审阅内容",
       useCase1Body:
         "让你的 AI 智能体起草一个页面、修改一段文字，或在你的写作上留下评论。你可以选择希望它如何帮忙。",

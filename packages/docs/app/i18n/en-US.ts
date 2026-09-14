@@ -782,7 +782,8 @@ const enUS = {
       feature6Body:
         "Connect your AI agent to search the library, generate media, and choose assets from chat. Supported apps can also embed an asset picker.",
       finalCtaHeading: "Create your next brand asset",
-      finalCtaBody: "Choose your references and tell your AI agent what you need.",
+      finalCtaBody:
+        "Choose your references and tell your AI agent what you need.",
       finalCtaButton: "Generate an image",
     },
     chat: {
@@ -885,7 +886,8 @@ const enUS = {
       useCase3Body:
         "Find a recorded session and replay what happened. Inspect console errors and network requests, then share diagnostics with your AI agent.",
       keyFeaturesEyebrow: "Key features",
-      keyFeaturesHeading: "Everything you need to query, visualize, and explore",
+      keyFeaturesHeading:
+        "Everything you need to query, visualize, and explore",
       feature1Title: "Natural language queries",
       feature1Body:
         "Ask your AI agent a question about your data. Get a chart, table, or metric, then follow up with a different breakdown.",
@@ -905,7 +907,8 @@ const enUS = {
       feature6Body:
         "Replay recorded sessions with console and network activity alongside them. Jump to errors and copy a temporary diagnostics link for your AI agent.",
       finalCtaHeading: "Start with a question about your data",
-      finalCtaBody: "Connect a source and ask your AI agent for the first chart.",
+      finalCtaBody:
+        "Connect a source and ask your AI agent for the first chart.",
       finalCtaButton: "Explore your data",
       s001: "Analytics app screenshot",
       s002: "Data connectors",
@@ -1249,7 +1252,8 @@ const enUS = {
         question2: "Can I use my own AI agent with Content?",
         answer2:
           "Yes. Content provides an MCP connection for supported tools such as Claude Code, Codex, and Cursor. After connecting and authorizing access, your agent can work with the documents and databases available to it. You can also use Content's built-in agent.",
-        question3: "Can I ask the AI to review my writing without rewriting it?",
+        question3:
+          "Can I ask the AI to review my writing without rewriting it?",
         answer3:
           "Yes. Ask your AI agent to leave comments on a document or passage. You can read the feedback and make changes yourself, or ask the agent to edit the text. Requesting comments does not require handing over the writing.",
         question4: "Can Content track tasks and collect team requests?",
@@ -1404,8 +1408,7 @@ const enUS = {
       useCase3Body:
         "Turn workflow requirements into a dashboard or admin interface. Explore how people will find information and complete their daily tasks.",
       keyFeaturesEyebrow: "Key features",
-      keyFeaturesHeading:
-        "Everything you need to design, prototype, and share",
+      keyFeaturesHeading: "Everything you need to design, prototype, and share",
       feature1Title: "Interactive prototypes",
       feature1Body:
         "Describe the page or flow you need. Your AI agent creates an HTML prototype with interactions you can try in the preview.",
@@ -1763,7 +1766,8 @@ const enUS = {
       useCase3Body:
         "Ask your AI agent to label invoices, archive newsletters, or star messages from a client. Apply rules to handle similar emails as they arrive.",
       keyFeaturesEyebrow: "Key features",
-      keyFeaturesHeading: "Everything you need to read, write, and organize email",
+      keyFeaturesHeading:
+        "Everything you need to read, write, and organize email",
       feature1Title: "AI thread summaries",
       feature1Body:
         "Ask about the conversation you have open. Your AI agent reads the thread to summarize the discussion and identify outstanding questions.",

@@ -776,7 +776,8 @@ const messages = {
         "Analytics 是一款免費開源的 AI 分析工具，可用來查詢你連線的資料、建立儀表板，並調查使用者工作階段。",
       heroCta: "探索你的資料",
       useCasesHeading: "用 Analytics 能做什麼？",
-      useCasesBody: "追蹤產品成長、回報業務表現，或調查有人在你的應用程式中遇到的問題。",
+      useCasesBody:
+        "追蹤產品成長、回報業務表現，或調查有人在你的應用程式中遇到的問題。",
       useCase1Title: "追蹤產品成長",
       useCase1Body:
         "詢問註冊數、活躍使用者或轉換率有何變化。比較不同期間，並依管道、方案或客戶區隔拆解結果。",
@@ -1159,7 +1160,8 @@ const messages = {
         "Content 是一款免費開放原始碼的工作空間，用於文件、任務清單和資料庫，你和你的 AI 代理可以一起閱讀和更新。",
       heroCta: "整理你的工作",
       useCasesHeading: "用 Content 能做什麼？",
-      useCasesBody: "處理一份草稿，追蹤待辦事項，或收集一項新請求所需的詳細資訊。",
+      useCasesBody:
+        "處理一份草稿，追蹤待辦事項，或收集一項新請求所需的詳細資訊。",
       useCase1Title: "撰寫和審閱內容",
       useCase1Body:
         "請你的 AI 代理起草一個頁面、修改一段文字，或在你的寫作上留下評論。你可以選擇希望它如何幫忙。",
@@ -1783,8 +1785,7 @@ const messages = {
       useCase3Body:
         "請你的編碼代理針對 pull request、commit 或分支產生視覺化回顧。審閱行為變更和受影響的檔案。",
       keyFeaturesEyebrow: "主要功能",
-      keyFeaturesHeading:
-        "視覺化、審閱與討論所需的一切",
+      keyFeaturesHeading: "視覺化、審閱與討論所需的一切",
       feature1Title: "架構圖表",
       feature1Body:
         "在計畫中呈現請求流程、系統關係和資料模型。當做法改變時，請你的 AI 編碼代理更新圖表。",
@@ -1804,8 +1805,7 @@ const messages = {
       feature6Body:
         "分享計畫讓團隊成員在瀏覽器中審閱。需要獨立副本時，可匯出為 HTML、Markdown、JSON 或 MDX。",
       finalCtaHeading: "以視覺化方式審閱你的下一項編碼任務",
-      finalCtaBody:
-        "請你的代理提供計畫，然後一起討論細節。",
+      finalCtaBody: "請你的代理提供計畫，然後一起討論細節。",
       finalCtaButton: "視覺化規劃",
     },
     slides: {

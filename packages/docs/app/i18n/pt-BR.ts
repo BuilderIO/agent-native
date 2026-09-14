@@ -764,7 +764,8 @@ const ptBR = {
       useCase3Body:
         "Encontre uma sessão gravada e reproduza o que aconteceu. Inspecione erros de console e requisições de rede, depois compartilhe o diagnóstico com seu agente de IA.",
       keyFeaturesEyebrow: "Principais recursos",
-      keyFeaturesHeading: "Tudo que você precisa para consultar, visualizar e explorar",
+      keyFeaturesHeading:
+        "Tudo que você precisa para consultar, visualizar e explorar",
       feature1Title: "Consultas em linguagem natural",
       feature1Body:
         "Faça uma pergunta ao seu agente de IA sobre seus dados. Receba um gráfico, tabela ou métrica, e continue com um detalhamento diferente.",
@@ -784,7 +785,8 @@ const ptBR = {
       feature6Body:
         "Reproduza sessões gravadas junto com a atividade de console e rede. Vá direto aos erros e copie um link de diagnóstico temporário para seu agente de IA.",
       finalCtaHeading: "Comece com uma pergunta sobre seus dados",
-      finalCtaBody: "Conecte uma fonte e peça ao seu agente de IA o primeiro gráfico.",
+      finalCtaBody:
+        "Conecte uma fonte e peça ao seu agente de IA o primeiro gráfico.",
       finalCtaButton: "Explore seus dados",
       s001: "Captura de tela do modelo Analytics",
       s002: "Conectores de dados",
@@ -1012,7 +1014,8 @@ const ptBR = {
       useCase3Body:
         "Mantenha logotipos, imagens de produto e referências de marca juntos para que colegas de equipe e agentes de IA conectados encontrem mídias para apresentações, sites e outros projetos.",
       keyFeaturesEyebrow: "Principais recursos",
-      keyFeaturesHeading: "Tudo o que você precisa para gerar, refinar e reutilizar",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para gerar, refinar e reutilizar",
       feature1Title: "Bibliotecas de assets de marca",
       feature1Body:
         "Organize mídias enviadas e geradas em bibliotecas e pastas. Adicione logotipos, imagens de referência e notas de estilo para seu agente de IA usar.",
@@ -1536,7 +1539,8 @@ const ptBR = {
       useCase3Body:
         "Verifique a última execução de uma tarefa e quaisquer erros. Use os detalhes de threads e monitoramento disponíveis para investigar o que aconteceu quando um fluxo de trabalho precisa de atenção.",
       keyFeaturesEyebrow: "Principais recursos",
-      keyFeaturesHeading: "Tudo o que você precisa para delegar, agendar e monitorar",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para delegar, agendar e monitorar",
       feature1Title: "Delegação entre aplicativos",
       feature1Body:
         "Envie solicitações ao aplicativo conectado que cuida do trabalho. Cada aplicativo usa seu próprio agente, ações e dados para responder.",
@@ -1621,7 +1625,8 @@ const ptBR = {
         question2: "Posso editar um formulário depois que a IA o cria?",
         answer2:
           "Sim. Altere perguntas, rótulos, opções, campos obrigatórios e a ordem dos campos no editor visual, ou peça ao seu agente de IA para fazer as alterações. As duas formas atualizam o mesmo formulário. Você também pode adicionar perguntas condicionais com base em respostas anteriores.",
-        question3: "As pessoas precisam de uma conta para preencher meu formulário?",
+        question3:
+          "As pessoas precisam de uma conta para preencher meu formulário?",
         answer3:
           "Não. Qualquer pessoa com o link público de um formulário publicado pode enviar uma resposta sem conta. Formulários em rascunho não são públicos, e formulários fechados param de aceitar novas respostas.",
         question4: "Posso coletar feedback anônimo?",
@@ -1650,7 +1655,8 @@ const ptBR = {
       useCase3Body:
         "Ofereça às pessoas um formulário para solicitações de design, briefings de projeto ou suporte interno. Peça prazos, requisitos e outros detalhes que sua equipe precise.",
       keyFeaturesEyebrow: "Principais recursos",
-      keyFeaturesHeading: "Tudo que você precisa para criar, compartilhar e analisar",
+      keyFeaturesHeading:
+        "Tudo que você precisa para criar, compartilhar e analisar",
       feature1Title: "Geração de formulários com IA",
       feature1Body:
         "Descreva o que você quer coletar e seu agente de IA cria o formulário. Peça para ele adicionar perguntas ou revisar campos existentes.",
@@ -1743,10 +1749,12 @@ const ptBR = {
         question3: "O agente de IA vai enviar e-mails sem minha aprovação?",
         answer3:
           "Quando você pede ao agente de IA para enviar um e-mail no chat, é necessária sua aprovação. Envios acionados por automações também exigem aprovação, a menos que você ative explicitamente o envio automático nas configurações do Mail. Você pode revisar e editar os rascunhos antes de enviá-los.",
-        question4: "A IA pode organizar minha caixa de entrada automaticamente?",
+        question4:
+          "A IA pode organizar minha caixa de entrada automaticamente?",
         answer4:
           "Sim. Crie regras em linguagem natural para rotular, arquivar, marcar com estrela ou marcar como lidas as mensagens recebidas. O Mail também é compatível com filtros nativos do Gmail para condições como remetente ou assunto. Os filtros do Gmail rodam no Gmail e continuam funcionando mesmo com o Mail fechado.",
-        question5: "Um colega de equipe pode preparar um e-mail para eu revisar?",
+        question5:
+          "Um colega de equipe pode preparar um e-mail para eu revisar?",
         answer5:
           "Sim. Um colega de equipe pode solicitar um rascunho que aparece na sua fila de revisão. Abra-o, edite a mensagem e envie quando estiver pronto. Quem solicitou não pode enviá-lo em seu nome; quem controla o envio é o dono do rascunho ou um administrador da organização.",
       },

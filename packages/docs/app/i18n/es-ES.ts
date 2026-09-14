@@ -769,7 +769,8 @@ const esES = {
       useCase3Body:
         "Encuentra una sesión grabada y reproduce lo que ocurrió. Inspecciona errores de consola y solicitudes de red, y comparte después el diagnóstico con tu agente de IA.",
       keyFeaturesEyebrow: "Funciones clave",
-      keyFeaturesHeading: "Todo lo que necesitas para consultar, visualizar y explorar",
+      keyFeaturesHeading:
+        "Todo lo que necesitas para consultar, visualizar y explorar",
       feature1Title: "Consultas en lenguaje natural",
       feature1Body:
         "Hazle a tu agente de IA una pregunta sobre tus datos. Obtén un gráfico, una tabla o una métrica, y continúa con un desglose distinto.",
@@ -789,7 +790,8 @@ const esES = {
       feature6Body:
         "Reproduce sesiones grabadas junto con la actividad de consola y red. Ve directo a los errores y copia un enlace de diagnóstico temporal para tu agente de IA.",
       finalCtaHeading: "Empieza con una pregunta sobre tus datos",
-      finalCtaBody: "Conecta una fuente y pídele a tu agente de IA el primer gráfico.",
+      finalCtaBody:
+        "Conecta una fuente y pídele a tu agente de IA el primer gráfico.",
       finalCtaButton: "Explora tus datos",
       s001: "Analytics captura de pantalla de la plantilla",
       s002: "Conectores de datos",
@@ -868,7 +870,8 @@ const esES = {
         question3: "¿Qué puede hacer el agente de IA con mi calendario?",
         answer3:
           "Tu agente de IA puede consultar tu agenda, encontrar horarios disponibles y crear o reprogramar eventos. Cuando le pides que encuentre un horario, comprueba tus reglas de disponibilidad y los eventos existentes, además de la información de libre/ocupado de los asistentes indicados cuando es accesible. Tú eliges el horario sugerido antes de que se reserve la reunión.",
-        question4: "¿Necesitan cuenta las personas para reservar una reunión conmigo?",
+        question4:
+          "¿Necesitan cuenta las personas para reservar una reunión conmigo?",
         answer4:
           "No. Cualquiera con tu enlace de reserva público puede elegir un horario disponible y responder tus preguntas de reserva sin iniciar sesión. Tras reservar, recibe un enlace privado para reprogramar o cancelar la reunión.",
         question5:
@@ -1519,7 +1522,8 @@ const esES = {
         question4: "¿Pueden los agentes ejecutar tareas según un horario?",
         answer4:
           "Sí. Configura una tarea recurrente y, si es necesario, un destino de entrega para sus resultados. Dispatch muestra la última ejecución, la próxima ejecución y el estado de error de la tarea para que puedas comprobar si se ejecutó correctamente.",
-        question5: "¿Las aprobaciones de Dispatch cubren todo lo que hace un agente?",
+        question5:
+          "¿Las aprobaciones de Dispatch cubren todo lo que hace un agente?",
         answer5:
           "No. En un espacio de trabajo de equipo, Dispatch puede exigir revisión de sus propios cambios en recursos y configuraciones compartidos. Las acciones dentro de las apps conectadas, como enviar un correo electrónico, siguen los controles de esas apps. La cola de aprobaciones de Dispatch no es una puerta universal para cada acción del agente.",
       },
@@ -1658,7 +1662,8 @@ const esES = {
       useCase3Body:
         "Ofrece a las personas un formulario para solicitudes de diseño, briefs de proyecto o soporte interno. Pide plazos, requisitos y otros detalles que tu equipo necesite.",
       keyFeaturesEyebrow: "Funciones clave",
-      keyFeaturesHeading: "Todo lo que necesitas para crear, compartir y revisar",
+      keyFeaturesHeading:
+        "Todo lo que necesitas para crear, compartir y revisar",
       feature1Title: "Generación de formularios con IA",
       feature1Body:
         "Describe lo que quieres recopilar y tu agente de IA construye el formulario. Pídele que añada preguntas o revise los campos existentes.",
@@ -1751,10 +1756,12 @@ const esES = {
         question3: "¿El agente de IA enviará correos sin mi aprobación?",
         answer3:
           "Cuando le pides al agente de IA que envíe un correo en el chat, necesita tu aprobación. Los envíos activados por automatizaciones también requieren aprobación, salvo que actives explícitamente el envío automático en la configuración de Mail. Puedes revisar y editar los borradores antes de enviarlos.",
-        question4: "¿Puede la IA organizar mi bandeja de entrada automáticamente?",
+        question4:
+          "¿Puede la IA organizar mi bandeja de entrada automáticamente?",
         answer4:
           "Sí. Crea reglas en lenguaje natural para etiquetar, archivar, destacar con estrella o marcar como leídos los mensajes entrantes. Mail también admite filtros nativos de Gmail para condiciones como el remitente o el asunto. Los filtros de Gmail se ejecutan en Gmail y siguen funcionando aunque Mail esté cerrado.",
-        question5: "¿Puede un compañero de equipo preparar un correo para que yo lo revise?",
+        question5:
+          "¿Puede un compañero de equipo preparar un correo para que yo lo revise?",
         answer5:
           "Sí. Un compañero de equipo puede solicitar un borrador que aparece en tu cola de revisión. Ábrelo, edita el mensaje y envíalo cuando esté listo. Quien lo solicitó no puede enviarlo en tu nombre; quien es propietario del borrador o un administrador de la organización controla el envío.",
       },
@@ -1871,7 +1878,8 @@ const esES = {
         question2: "¿Cómo uso Plans con mi agente de código?",
         answer2:
           "Instala las skills de planificación y el conector con `npx @agent-native/core@latest skills add visual-plan`, y completa el paso de autenticación de tu cliente. La guía de instalación cubre clientes como Claude Code y Codex. Usa `/visual-plan` para pedirle a tu agente un plan de implementación visual.",
-        question3: "¿Puede mi agente actualizar un plan a partir de mis comentarios?",
+        question3:
+          "¿Puede mi agente actualizar un plan a partir de mis comentarios?",
         answer3:
           "Sí. Deja comentarios en el texto o fíjalos a un elemento visual, y pídele a tu agente que los lea y los resuelva. Puede actualizar el plan y responder en los hilos de revisión. Esto respalda tu proceso de revisión, pero no impide automáticamente que el agente cambie código.",
         question4: "¿Puedo usar Plans para revisar código que ya está escrito?",
@@ -1922,8 +1930,7 @@ const esES = {
       feature6Body:
         "Comparte un plan para que tu equipo lo revise en el navegador. Expórtalo como HTML, Markdown, JSON o MDX cuando necesites una copia aparte.",
       finalCtaHeading: "Revisa visualmente tu próxima tarea de código",
-      finalCtaBody:
-        "Pídele un plan a tu agente y revisa los detalles juntos.",
+      finalCtaBody: "Pídele un plan a tu agente y revisa los detalles juntos.",
       finalCtaButton: "Planifica visualmente",
     },
     slides: {

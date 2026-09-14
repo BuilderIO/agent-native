@@ -29,7 +29,8 @@ export const meta = () =>
       },
       {
         property: "og:title",
-        content: "Free Brand Asset Management & AI Images | Agent-Native Assets",
+        content:
+          "Free Brand Asset Management & AI Images | Agent-Native Assets",
       },
       {
         property: "og:description",

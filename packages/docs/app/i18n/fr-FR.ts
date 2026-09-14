@@ -745,7 +745,8 @@ const frFR = {
         question4: "Puis-je utiliser nos propres définitions de métriques ?",
         answer4:
           "Oui. Utilisez le dictionnaire de données pour documenter les définitions, les noms de tables et de colonnes, des exemples de requêtes et des exceptions, comme l'exclusion des comptes internes. Votre agent IA peut utiliser ces définitions lors de l'écriture des requêtes. Vérifiez le SQL et les résultats lors du contrôle d'une métrique métier.",
-        question5: "Puis-je partager des tableaux de bord et planifier des rapports ?",
+        question5:
+          "Puis-je partager des tableaux de bord et planifier des rapports ?",
         answer5:
           "Oui. Partagez des tableaux de bord avec des coéquipiers ou votre organisation avec un accès lecteur, éditeur ou administrateur. Vous pouvez aussi planifier des rapports par e-mail avec les résultats actuels du tableau de bord, ou configurer des alertes pour les conditions que vous souhaitez surveiller.",
       },
@@ -768,7 +769,8 @@ const frFR = {
       useCase3Body:
         "Trouvez une session enregistrée et rejouez ce qui s'est passé. Examinez les erreurs de console et les requêtes réseau, puis partagez le diagnostic avec votre agent IA.",
       keyFeaturesEyebrow: "Fonctionnalités clés",
-      keyFeaturesHeading: "Tout ce qu'il faut pour interroger, visualiser et explorer",
+      keyFeaturesHeading:
+        "Tout ce qu'il faut pour interroger, visualiser et explorer",
       feature1Title: "Requêtes en langage naturel",
       feature1Body:
         "Posez une question à votre agent IA sur vos données. Obtenez un graphique, un tableau ou une métrique, puis demandez une autre ventilation.",
@@ -868,8 +870,7 @@ const frFR = {
         question3: "Que peut faire l'agent IA avec mon calendrier ?",
         answer3:
           "Votre agent IA peut consulter votre emploi du temps, trouver des créneaux disponibles et créer ou reprogrammer des événements. Lorsque vous lui demandez de trouver un créneau, il vérifie vos règles de disponibilité et vos événements existants, ainsi que les informations libre/occupé des participants nommés lorsqu'elles sont accessibles. Vous choisissez le créneau suggéré avant qu'il ne réserve la réunion.",
-        question4:
-          "Faut-il un compte pour réserver une réunion avec moi ?",
+        question4: "Faut-il un compte pour réserver une réunion avec moi ?",
         answer4:
           "Non. Toute personne disposant de votre lien de réservation public peut choisir un créneau disponible et répondre à vos questions de réservation sans se connecter. Après la réservation, elle reçoit un lien privé pour reprogrammer ou annuler la réunion.",
         question5:
@@ -988,13 +989,16 @@ const frFR = {
         question2: "Comment Assets utilise-t-il mes consignes de marque ?",
         answer2:
           "Ajoutez votre logo, des images de référence, des couleurs et des notes de style à un kit de marque. Des modèles réutilisables fournissent des instructions pour des types de contenu spécifiques. Votre agent IA s'appuie sur ce contexte pour guider la génération, et vous pouvez revoir et affiner les résultats avant de les enregistrer.",
-        question3: "Puis-je importer et organiser des images et vidéos existantes ?",
+        question3:
+          "Puis-je importer et organiser des images et vidéos existantes ?",
         answer3:
           "Oui. Importez des médias existants ou un asset depuis une URL, puis organisez-le dans des bibliothèques et des dossiers aux côtés des contenus générés. Vous pouvez parcourir et rechercher dans la bibliothèque, réutiliser des assets comme références, ou les exporter pour un autre projet.",
-        question4: "Mon agent IA peut-il utiliser Assets depuis une autre app ?",
+        question4:
+          "Mon agent IA peut-il utiliser Assets depuis une autre app ?",
         answer4:
           "Oui. Connectez un agent compatible via l'intégration MCP d'Assets pour rechercher, générer et sélectionner des médias depuis le chat. Les apps Agent-Native peuvent aussi demander des assets ou intégrer un sélecteur. L'expérience disponible dépend de l'app hôte et de sa connexion à Assets.",
-        question5: "Assets peut-il utiliser mon vrai logo dans les images générées ?",
+        question5:
+          "Assets peut-il utiliser mon vrai logo dans les images générées ?",
         answer5:
           "Oui. Définissez un logo canonique dans votre kit de marque et activez le compositing de logo pour la génération. Assets place le logo original sur l'image après la génération, de sorte que le modèle d'image ne le redessine pas. Vérifiez son emplacement et l'image environnante avant utilisation.",
       },
@@ -1017,7 +1021,8 @@ const frFR = {
       useCase3Body:
         "Regroupez logos, images produit et références de marque afin que vos collègues et les agents IA connectés puissent trouver des médias pour des présentations, des sites web et d'autres projets.",
       keyFeaturesEyebrow: "Fonctionnalités clés",
-      keyFeaturesHeading: "Tout ce qu'il faut pour générer, affiner et réutiliser",
+      keyFeaturesHeading:
+        "Tout ce qu'il faut pour générer, affiner et réutiliser",
       feature1Title: "Bibliothèques d'assets de marque",
       feature1Body:
         "Organisez les médias importés et générés dans des bibliothèques et des dossiers. Ajoutez logos, images de référence et notes de style que votre agent IA pourra utiliser.",
@@ -1049,7 +1054,8 @@ const frFR = {
         question2: "Chat est-il un assistant IA fini ?",
         answer2:
           "Chat fournit une interface de conversation fonctionnelle et le framework qui la fait tourner. Elle inclut une action d'exemple, mais les workflows métier et les intégrations avec des fournisseurs sont à vous d'implémenter et de configurer.",
-        question3: "Puis-je ajouter des écrans au-delà de l'interface de chat ?",
+        question3:
+          "Puis-je ajouter des écrans au-delà de l'interface de chat ?",
         answer3:
           "Oui. Ajoutez des routes et des composants pour des listes, des files d'attente, des éditeurs ou toute autre vue dont votre workflow a besoin. Connectez-les aux mêmes actions et données d'application que l'agent utilise.",
         question4: "Chat inclut-il des connexions à mes outils métier ?",
@@ -1517,7 +1523,8 @@ const frFR = {
         question3: "Puis-je utiliser Dispatch depuis Slack ou Telegram ?",
         answer3:
           "Oui. Configurez le canal de messagerie et associez votre identité à votre compte d'espace de travail si nécessaire. Dispatch peut recevoir des demandes et renvoyer des résultats via ce canal. Connecter un canal ne donne pas automatiquement à chaque expéditeur l'accès à toutes les applications.",
-        question4: "Les agents peuvent-ils exécuter des tâches selon un planning ?",
+        question4:
+          "Les agents peuvent-ils exécuter des tâches selon un planning ?",
         answer4:
           "Oui. Configurez une tâche récurrente et, si nécessaire, une destination de livraison pour ses résultats. Dispatch affiche la dernière exécution de la tâche, sa prochaine exécution et son état d'erreur afin que vous puissiez vérifier si elle s'est bien déroulée.",
         question5:
@@ -1638,8 +1645,7 @@ const frFR = {
         question4: "Puis-je recueillir des retours anonymes ?",
         answer4:
           "Oui. Activez le mode anonyme pour omettre l'identité de la personne qui répond et les métadonnées de provenance. Évitez aussi les questions demandant nom, e-mail ou autres informations identifiantes si vous voulez que les réponses restent anonymes.",
-        question5:
-          "Puis-je envoyer les réponses vers Google Sheets ou Slack ?",
+        question5: "Puis-je envoyer les réponses vers Google Sheets ou Slack ?",
         answer5:
           "Oui, après avoir configuré une destination pour le formulaire. Slack et Discord utilisent des URL de webhook. Google Sheets nécessite un point de terminaison Google Apps Script déployé qui reçoit les soumissions ; un simple lien de feuille de calcul ne suffit pas. Vous pouvez aussi utiliser un webhook ou exporter les réponses en CSV. Les exports agent de toutes les réponses en CSV ou JSON nécessitent un stockage de fichiers connecté.",
       },
@@ -1755,10 +1761,12 @@ const frFR = {
         question3: "L'agent IA enverra-t-il des e-mails sans mon approbation ?",
         answer3:
           "Lorsque vous demandez à l'agent IA d'envoyer un e-mail dans le chat, il a besoin de votre approbation. Les envois déclenchés par une automatisation nécessitent également une approbation, sauf si vous activez explicitement l'envoi automatique dans les paramètres de Mail. Vous pouvez relire et modifier les brouillons avant leur envoi.",
-        question4: "L'IA peut-elle organiser automatiquement ma boîte de réception ?",
+        question4:
+          "L'IA peut-elle organiser automatiquement ma boîte de réception ?",
         answer4:
           "Oui. Créez des règles en langage naturel pour libeller, archiver, marquer d'une étoile ou marquer comme lus les messages entrants. Mail prend également en charge les filtres natifs de Gmail pour des conditions telles que l'expéditeur ou l'objet. Les filtres Gmail s'exécutent dans Gmail et continuent de fonctionner même lorsque Mail est fermé.",
-        question5: "Un collègue peut-il préparer un e-mail que je dois relire ?",
+        question5:
+          "Un collègue peut-il préparer un e-mail que je dois relire ?",
         answer5:
           "Oui. Un collègue peut demander un brouillon qui apparaît dans votre file de relecture. Ouvrez-le, modifiez le message et envoyez-le lorsqu'il est prêt. La personne à l'origine de la demande ne peut pas l'envoyer à votre place ; c'est le propriétaire du brouillon ou un administrateur de l'organisation qui contrôle l'envoi.",
       },

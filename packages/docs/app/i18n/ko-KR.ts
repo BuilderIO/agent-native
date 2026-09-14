@@ -830,7 +830,8 @@ const koKR = {
       feature6Body:
         "기록된 세션을 콘솔 및 네트워크 활동과 함께 재생하세요. 오류로 바로 이동하고, AI 에이전트를 위한 임시 진단 링크를 복사할 수 있습니다.",
       finalCtaHeading: "데이터에 대한 질문으로 시작하세요",
-      finalCtaBody: "소스를 연결하고 AI 에이전트에게 첫 번째 차트를 요청하세요.",
+      finalCtaBody:
+        "소스를 연결하고 AI 에이전트에게 첫 번째 차트를 요청하세요.",
       finalCtaButton: "데이터 살펴보기",
       faq: {
         question1: "Agent-Native Analytics는 무엇인가요?",
@@ -1026,7 +1027,8 @@ const koKR = {
       feature6Body:
         "AI 에이전트를 연결해 라이브러리를 검색하고, 미디어를 생성하고, 채팅에서 자산을 선택하세요. 지원되는 앱은 자산 선택기를 삽입할 수도 있습니다.",
       finalCtaHeading: "다음 브랜드 자산을 만들어 보세요",
-      finalCtaBody: "레퍼런스를 선택하고 필요한 것을 AI 에이전트에게 알려주세요.",
+      finalCtaBody:
+        "레퍼런스를 선택하고 필요한 것을 AI 에이전트에게 알려주세요.",
       finalCtaButton: "이미지 생성하기",
     },
     clips: {
@@ -1216,7 +1218,8 @@ const koKR = {
       feature6Body:
         "페이지를 함께 편집하고, 구절에 댓글을 달고, 스레드에서 답장하세요. 특정 사람이나 조직과 공유하고 접근 권한 수준을 선택할 수 있습니다.",
       finalCtaHeading: "다음 프로젝트를 Content로 가져오세요",
-      finalCtaBody: "이미 팀에서 사용 중인 문서, 작업 목록, 테이블로 시작해 보세요.",
+      finalCtaBody:
+        "이미 팀에서 사용 중인 문서, 작업 목록, 테이블로 시작해 보세요.",
       finalCtaButton: "작업 정리하기",
       s002: "모든 템플릿",
       s003: "MDX을 위한 오픈 소스 Obsidian",
@@ -1319,7 +1322,8 @@ const koKR = {
       useCase3Body:
         "워크플로 요구 사항을 대시보드나 관리자 인터페이스로 바꿔 보세요. 사용자가 정보를 어떻게 찾고 일상 업무를 어떻게 완료할지 살펴보세요.",
       keyFeaturesEyebrow: "주요 기능",
-      keyFeaturesHeading: "디자인하고, 프로토타입을 만들고, 공유하는 데 필요한 모든 것",
+      keyFeaturesHeading:
+        "디자인하고, 프로토타입을 만들고, 공유하는 데 필요한 모든 것",
       feature1Title: "인터랙티브 프로토타입",
       feature1Body:
         "필요한 페이지나 흐름을 설명하세요. AI 에이전트가 미리보기에서 바로 사용해 볼 수 있는 상호작용이 담긴 HTML 프로토타입을 만들어 줍니다.",
@@ -1339,7 +1343,8 @@ const koKR = {
       feature6Body:
         "디자인 파일의 HTML이나 ZIP을 내보내세요. 개발자나 코딩 에이전트에게 프로토타입과 맥락을 전달해 구현을 이어가도록 하세요.",
       finalCtaHeading: "다음 디자인을 시작하세요",
-      finalCtaBody: "브리핑을 가져오세요. 가능성을 살펴보세요. 세부 사항을 다듬으세요.",
+      finalCtaBody:
+        "브리핑을 가져오세요. 가능성을 살펴보세요. 세부 사항을 다듬으세요.",
       finalCtaButton: "무료로 디자인하기",
       s002: "설명하다",
       s003: "생성",
@@ -1832,7 +1837,8 @@ const koKR = {
       feature6Body:
         "팀원이 브라우저에서 검토할 수 있도록 계획을 공유하세요. 별도 사본이 필요하면 HTML, Markdown, JSON, MDX로 내보낼 수 있습니다.",
       finalCtaHeading: "다음 코딩 작업을 시각적으로 검토하세요",
-      finalCtaBody: "에이전트에게 계획을 요청하고, 세부 사항을 함께 검토해 보세요.",
+      finalCtaBody:
+        "에이전트에게 계획을 요청하고, 세부 사항을 함께 검토해 보세요.",
       finalCtaButton: "시각적으로 계획하기",
     },
     slides: {

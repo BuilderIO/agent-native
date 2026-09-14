@@ -99,7 +99,11 @@ const KEY_FEATURES = [
 
 const FAQ_ITEMS = [
   { id: "what-is-dispatch", question: "question1", answer: "answer1" },
-  { id: "which-apps-can-dispatch-use", question: "question2", answer: "answer2" },
+  {
+    id: "which-apps-can-dispatch-use",
+    question: "question2",
+    answer: "answer2",
+  },
   { id: "slack-or-telegram", question: "question3", answer: "answer3" },
   { id: "scheduled-tasks-faq", question: "question4", answer: "answer4" },
   { id: "approvals-scope", question: "question5", answer: "answer5" },

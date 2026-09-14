@@ -1006,8 +1006,7 @@ const deDE = {
       s001: "Screenshot der Vorlage Assets",
       // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
-      heroTitle:
-        "Markenmaterial mit Ihrem KI-Agenten erstellen und verwalten",
+      heroTitle: "Markenmaterial mit Ihrem KI-Agenten erstellen und verwalten",
       heroDescription:
         "Assets ist eine kostenlose Open-Source-Marken-Asset-Bibliothek zum Organisieren Ihrer Bilder, Videos und Markenreferenzen, mit einem KI-Agenten, der Medien anhand Ihres Markenkits generiert und bearbeitet.",
       heroCta: "Generiere ein Bild",
@@ -1057,7 +1056,8 @@ const deDE = {
         question2: "Ist Chat ein fertiger KI-Assistent?",
         answer2:
           "Chat liefert eine funktionierende Konversationsoberfläche und das Framework dahinter. Es enthält eine Beispiel-Action, aber Geschäftsworkflows und Provider-Integrationen implementieren und konfigurieren Sie selbst.",
-        question3: "Kann ich Screens über die Chat-Oberfläche hinaus hinzufügen?",
+        question3:
+          "Kann ich Screens über die Chat-Oberfläche hinaus hinzufügen?",
         answer3:
           "Ja. Fügen Sie Routen und Komponenten für Listen, Warteschlangen, Editoren oder andere Ansichten hinzu, die Ihr Workflow benötigt. Verbinden Sie sie mit denselben Actions und Anwendungsdaten, die der Agent nutzt.",
         question4: "Enthält Chat Verbindungen zu meinen Geschäftstools?",
@@ -1088,7 +1088,8 @@ const deDE = {
       useCase3Body:
         "Bauen Sie eine Warteschlange, Liste oder einen Editor, wenn Nutzer Arbeit visuell prüfen müssen. Verbinden Sie sie mit denselben Actions und Daten wie Ihr Agent.",
       keyFeaturesEyebrow: "Kernfunktionen",
-      keyFeaturesHeading: "Ein Ausgangspunkt für Ihren Agenten und seine Oberfläche",
+      keyFeaturesHeading:
+        "Ein Ausgangspunkt für Ihren Agenten und seine Oberfläche",
       feature1Title: "Gespeicherte Unterhaltungen",
       feature1Body:
         "Geben Sie Nutzern Threads, zu denen sie zurückkehren können. Erstellen, öffnen, benennen, pinnen und archivieren Sie Unterhaltungen über die integrierte Seitenleiste.",
@@ -1392,7 +1393,8 @@ const deDE = {
         question1: "Was ist Agent-Native Design?",
         answer1:
           "Agent-Native Design ist ein kostenloses Open-Source-Tool für KI-Design und Prototyping. Erstelle mit einem KI-Agenten interaktive HTML-Prototypen, wende deine Marke an und verfeinere Designs mit visuellen Steuerelementen oder im Chat. Teile das Ergebnis für Feedback oder exportiere es für die Entwicklung.",
-        question2: "Kann ich ein Design bearbeiten, nachdem die KI es generiert hat?",
+        question2:
+          "Kann ich ein Design bearbeiten, nachdem die KI es generiert hat?",
         answer2:
           "Ja. Passe Text, Abstände und Stil mit visuellen Steuerelementen an, oder bitte den KI-Agenten, das Design zu ändern. Du kannst verschiedene Richtungen vergleichen und die gewählte weiter verfeinern.",
         question3: "Kann ich mein eigenes Design-System verwenden?",
@@ -1631,7 +1633,8 @@ const deDE = {
         question1: "Was ist Agent-Native Forms?",
         answer1:
           "Agent-Native Forms ist ein kostenloser Open-Source-KI-Formular-Builder. Erstelle Formulare und Umfragen mit einem KI-Agenten, bearbeite Felder visuell, veröffentliche einen öffentlichen Link und sieh dir die Antworten in derselben App an oder lass sie analysieren.",
-        question2: "Kann ich ein Formular bearbeiten, nachdem die KI es erstellt hat?",
+        question2:
+          "Kann ich ein Formular bearbeiten, nachdem die KI es erstellt hat?",
         answer2:
           "Ja. Ändere Fragen, Beschriftungen, Optionen, Pflichtfelder und die Feldreihenfolge im visuellen Editor, oder bitte deinen KI-Agenten, die Änderungen vorzunehmen. Beide Wege aktualisieren dasselbe Formular. Du kannst auch bedingte Fragen basierend auf vorherigen Antworten hinzufügen.",
         question3: "Brauchen Personen ein Konto, um mein Formular auszufüllen?",
@@ -1663,7 +1666,8 @@ const deDE = {
       useCase3Body:
         "Gib Leuten ein Formular für Designanfragen, Projekt-Briefings oder internen Support. Frage nach Fristen, Anforderungen und anderen Details, die dein Team braucht.",
       keyFeaturesEyebrow: "Hauptfunktionen",
-      keyFeaturesHeading: "Alles, was du zum Erstellen, Teilen und Auswerten brauchst",
+      keyFeaturesHeading:
+        "Alles, was du zum Erstellen, Teilen und Auswerten brauchst",
       feature1Title: "KI-Formular-Generierung",
       feature1Body:
         "Beschreibe, was du erfassen willst, und dein KI-Agent baut das Formular. Bitte ihn, Fragen hinzuzufügen oder bestehende Felder zu überarbeiten.",
@@ -1759,7 +1763,8 @@ const deDE = {
         question4: "Kann KI meinen Posteingang automatisch organisieren?",
         answer4:
           "Ja. Erstelle Regeln in natürlicher Sprache, um eingehende Nachrichten zu kennzeichnen, zu archivieren, mit einem Stern zu markieren oder als gelesen zu markieren. Mail unterstützt außerdem native Gmail-Filter für Bedingungen wie Absender oder Betreff. Gmail-Filter laufen in Gmail und funktionieren weiter, auch wenn Mail geschlossen ist.",
-        question5: "Kann ein Teammitglied eine E-Mail für mich zur Prüfung vorbereiten?",
+        question5:
+          "Kann ein Teammitglied eine E-Mail für mich zur Prüfung vorbereiten?",
         answer5:
           "Ja. Ein Teammitglied kann einen Entwurf anfordern, der in deiner Prüfungswarteschlange erscheint. Öffne ihn, bearbeite die Nachricht und sende sie, wenn sie fertig ist. Die anfragende Person kann sie nicht in deinem Namen senden; die Eigentümerin oder der Eigentümer des Entwurfs oder eine Organisationsadministration steuert das Senden.",
       },
