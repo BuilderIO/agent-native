@@ -67,11 +67,13 @@ pnpm action create-document --title "Research" --description "Evidence and sourc
 
 When a user asks for a Page in an interactive Content conversation, creation is
 not a complete handoff. After `create-document` succeeds, call `navigate` with
-the returned document `id`, then call `view-screen` to verify that the same Page
-is open before saying it is ready. The create result already supplies the
-stable Page link. Surface that link so the Page remains reachable if navigation
-is interrupted. Do not navigate for background, batch, or API creation unless
-the caller explicitly asked to open the result.
+the returned document `id`, then call `view-screen` and compare its document ID
+with the create result. Navigation is asynchronous: if `view-screen` still
+reports the previous Page, repeat `navigate` and `view-screen` up to two more
+times. Say the Page is open only after the IDs match. If they never match, say
+the Page was created but navigation could not be verified, and provide the
+stable Page link from the create result. Do not navigate for background, batch,
+or API creation unless the caller explicitly asked to open the result.
 
 ### edit-document
 
