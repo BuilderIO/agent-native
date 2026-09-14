@@ -274,21 +274,32 @@ export default defineAction({
     }
 
     const nowIso = new Date(now).toISOString();
-    await mutateUserSetting(
-      ownerEmail,
-      OVERLAY_REQUESTS_SETTING_KEY,
-      (current) => {
-        const state = normalizeOverlayRequestState(current);
-        const perPeer = { ...state.perPeer };
-        // Same ownership guard as the failure path above: don't overwrite a
-        // newer reservation or confirmation with this late-finishing call's.
-        // The daily count was already incremented at reservation time above,
-        // so a confirmed send doesn't increment it again.
-        if (perPeer[peerEmail] !== reservation) return state;
-        perPeer[peerEmail] = nowIso;
-        return { perPeer, dailyCounts: state.dailyCounts };
-      },
-    );
+    try {
+      await mutateUserSetting(
+        ownerEmail,
+        OVERLAY_REQUESTS_SETTING_KEY,
+        (current) => {
+          const state = normalizeOverlayRequestState(current);
+          const perPeer = { ...state.perPeer };
+          // Same ownership guard as the failure path above: don't overwrite a
+          // newer reservation or confirmation with this late-finishing call's.
+          // The daily count was already incremented at reservation time above,
+          // so a confirmed send doesn't increment it again.
+          if (perPeer[peerEmail] !== reservation) return state;
+          perPeer[peerEmail] = nowIso;
+          return { perPeer, dailyCounts: state.dailyCounts };
+        },
+      );
+    } catch (err) {
+      // The email already sent, so throwing here would report a delivered
+      // request as failed and invite an immediate, avoidable resend. Log and
+      // report success instead; the dangling `pending:` marker still expires
+      // after PENDING_STALE_MS like any other abandoned reservation.
+      console.error(
+        "[send-overlay-request] failed to confirm sent request",
+        err,
+      );
+    }
 
     return { email: peerEmail, requestSentAt: nowIso, emailSent: true };
   },

@@ -508,10 +508,13 @@ export default function CalendarView() {
       // A free/busy-only source is excluded from enabledGoogleSources above,
       // so its visibility toggle must not hide that person's overlay events.
       if (source.accessRole === "freeBusyReader") continue;
-      const visible =
-        viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
-        (source.primary || source.selected);
-      if (!visible) hidden.add(source.calendarId.toLowerCase());
+      // Mirrors the Sidebar's merged-row visibility: Google's own default
+      // "selected" state must not hide a deliberately-added overlay peer, so
+      // only an explicit stored preference counts as hidden here.
+      const explicitVisible =
+        viewPrefs.googleCalendarVisibility[source.canonicalKey];
+      if (explicitVisible === false)
+        hidden.add(source.calendarId.toLowerCase());
     }
     return hidden;
   }, [googleCalendars.data, viewPrefs.googleCalendarVisibility]);

@@ -742,10 +742,18 @@ export function Sidebar({
     const personVisible = item.person
       ? !isHiddenCalendar("people", item.person.email)
       : true;
-    const googleVisible = item.google
-      ? (googleCalendarVisibility[item.google.canonicalKey] ??
-        (item.google.primary || item.google.selected))
-      : true;
+    if (!item.google) return personVisible;
+    const explicitGoogleVisible =
+      googleCalendarVisibility[item.google.canonicalKey];
+    // Google's own "selected" default is about which calendars Google shows
+    // in its own UI, not whether this person's overlay events should show
+    // here. For a merged row, a peer the owner deliberately added must not
+    // default to hidden just because that default hasn't been overridden —
+    // only an explicit toggle (present in `googleCalendarVisibility`) should
+    // hide it.
+    const googleVisible =
+      explicitGoogleVisible ??
+      (item.person ? true : item.google.primary || item.google.selected);
     return personVisible && googleVisible;
   }
   function toggleOtherItemVisibility(item: OtherCalendarItem) {

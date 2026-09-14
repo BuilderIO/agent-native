@@ -668,17 +668,22 @@ function BookingHostsEditor({
   function isOverlayHost(host: BookingHost) {
     const normalized = normalizeHostEmail(host.email);
     // Once the owner-scoped status list has loaded, it is authoritative.
-    // Before that (or if it fails to load), fall back to the signed-in
-    // user's own overlay list, which is correct for the common case where
-    // the editor is the owner and for a brand-new, unsaved draft.
     if (hostStatuses) {
       return hostStatuses.some(
         (entry) => normalizeHostEmail(entry.email) === normalized,
       );
     }
-    return overlayPeople.some(
-      (person) => normalizeHostEmail(person.email) === normalized,
-    );
+    // Before that, the signed-in user's own overlay list is only a safe
+    // stand-in for a brand-new, unsaved draft, where they are certainly the
+    // eventual owner. For a real link, a shared (non-owner) editor's own
+    // list can disagree with the owner's — guessing from it would briefly
+    // render an owner-managed host as manual, so show manual (undetermined)
+    // instead until the real status resolves.
+    return isNewDraft
+      ? overlayPeople.some(
+          (person) => normalizeHostEmail(person.email) === normalized,
+        )
+      : false;
   }
 
   const calendarHosts = hosts.filter((host) => isOverlayHost(host));

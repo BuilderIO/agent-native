@@ -88,10 +88,12 @@ const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
 // (see useEvents) so they never get an optimistic patch meant for the
 // caller's own writable calendars; a mutation must still invalidate them
 // alongside the primary key or their busy-time data goes stale indefinitely.
-const OVERLAY_EVENTS_BATCH_KEY = ["overlay-events-batch"] as const;
+export const OVERLAY_EVENTS_BATCH_KEY = ["overlay-events-batch"] as const;
 const OPTIMISTIC_EVENT_PREFIX = "optimistic_event_";
 
-function invalidateEventQueries(queryClient: ReturnType<typeof useQueryClient>) {
+function invalidateEventQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
   void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: OVERLAY_EVENTS_BATCH_KEY });
 }

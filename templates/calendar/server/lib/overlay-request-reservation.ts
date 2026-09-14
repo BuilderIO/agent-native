@@ -34,8 +34,10 @@ export function overlayRequestDayKey(ms: number): string {
  * Normalizes a stored `calendar-overlay-requests` value into the current
  * `{ perPeer, dailyCounts }` shape. Older stored data is a flat
  * `Record<peerEmail, string>` (no daily-count bucket yet); that shape is
- * read as `perPeer` with an empty `dailyCounts`, so existing settings keep
- * working without a migration.
+ * read as `perPeer`, with `dailyCounts` rebuilt by bucketing each entry's own
+ * timestamp by day rather than left empty — an undercount for a peer resent
+ * same-day (the flat shape only ever kept one entry per peer), but far closer
+ * to the real count than reporting zero and handing back a full cap for free.
  */
 export function normalizeOverlayRequestState(
   current: unknown,
@@ -47,8 +49,13 @@ export function normalizeOverlayRequestState(
       dailyCounts: state.dailyCounts ?? {},
     };
   }
-  return {
-    perPeer: (current ?? {}) as Record<string, string>,
-    dailyCounts: {},
-  };
+  const perPeer = (current ?? {}) as Record<string, string>;
+  const dailyCounts: Record<string, number> = {};
+  for (const value of Object.values(perPeer)) {
+    const { sentAt } = parseOverlayRequestEntry(value);
+    if (sentAt === null) continue;
+    const dayKey = overlayRequestDayKey(sentAt);
+    dailyCounts[dayKey] = (dailyCounts[dayKey] ?? 0) + 1;
+  }
+  return { perPeer, dailyCounts };
 }
