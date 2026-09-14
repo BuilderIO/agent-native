@@ -113,7 +113,10 @@ export function applyRootAttributeEdit(
 
   let newOpenTag: string;
   if (attrRe.test(openTag)) {
-    newOpenTag = openTag.replace(attrRe, `$1"${escaped}"`);
+    newOpenTag = openTag.replace(
+      attrRe,
+      (_match, prefix: string) => `${prefix}"${escaped}"`,
+    );
   } else {
     const insertOffset = openTag.endsWith("/>")
       ? openTag.length - 2

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ElementInfo } from "@/components/design/types";
 import type {
   ClipboardContentMutationOrigin,
@@ -19,6 +20,8 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import {
   getCanvasFrameGeometry,
@@ -363,7 +366,7 @@ export interface UndoArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   applyGeometryHistoryContentChanges?: (
     changes: readonly ContentHistoryChange[],
     direction: "undo" | "redo",
@@ -381,7 +384,7 @@ export interface UndoArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   applyDesignDataHistoryChanges?: (
     changes: readonly ContentHistoryChange[],
     direction: "undo" | "redo",
@@ -752,93 +755,105 @@ export function runUndo({
     syncUndoRedoState();
     return;
   }
-  const clipboardPasteUndo =
-    clipboardPasteUndoStackRef.current[
-      clipboardPasteUndoStackRef.current.length - 1
-    ];
-  if (clipboardPasteUndo) {
+  const undoClipboardPaste = () => {
+    if (
+      historyOrderRef.current[historyOrderRef.current.length - 1] !==
+      "clipboard-paste"
+    ) {
+      return false;
+    }
+    const clipboardPasteUndo =
+      clipboardPasteUndoStackRef.current[
+        clipboardPasteUndoStackRef.current.length - 1
+      ];
+    if (!clipboardPasteUndo) return false;
     const currentContent =
       pendingLocalFileContentsRef.current.get(clipboardPasteUndo.fileId)
         ?.content ??
       (clipboardPasteUndo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteUndo.fileId) ?? ""));
-    // Only claim the command when this paste is still the top document
-    // state. If another edit followed it, the ordinary chronological
-    // history below gets first chance; once that edit is undone back to
-    // `after`, the next Cmd+Z reaches this immutable paste entry.
-    if (currentContent === clipboardPasteUndo.after) {
-      const clipboardMutation = publishAuthoritativeClipboardMutation({
-        fileId: clipboardPasteUndo.fileId,
-        baseContent: clipboardPasteUndo.after,
-        nextContent: clipboardPasteUndo.before,
-        origin: "clipboard-undo",
-        baseSource: "document",
+    // A newer history token stays ahead of this paste; if the current
+    // document no longer matches it, keep this top token intact.
+    if (currentContent !== clipboardPasteUndo.after) return false;
+    if (isShaderWriteInFlight(clipboardPasteUndo.fileId)) {
+      toast.error(t("designEditor.toasts.saveConflict"), {
+        id: `design-source-shader-conflict:${clipboardPasteUndo.fileId}`,
       });
-      if (!clipboardMutation) return;
-      clipboardPasteUndoStackRef.current =
-        clipboardPasteUndoStackRef.current.slice(0, -1);
-      clipboardPasteRedoStackRef.current = [
-        ...clipboardPasteRedoStackRef.current.slice(
-          -(MAX_DESIGN_UNDO_STACK - 1),
-        ),
-        clipboardPasteUndo,
-      ];
-      if (clipboardPasteUndo.fileId === activeFile?.id) {
-        applyLocalContentUpdate(clipboardPasteUndo.before, {
-          recordHistory: false,
-          forcePreviewFullDocument: true,
-          immediateSave: true,
-          clipboardMutation,
-        });
-      } else {
-        applyFileContentUpdate(
-          clipboardPasteUndo.fileId,
-          clipboardPasteUndo.before,
-          {
+      return false;
+    }
+    const clipboardMutation = publishAuthoritativeClipboardMutation({
+      fileId: clipboardPasteUndo.fileId,
+      baseContent: clipboardPasteUndo.after,
+      nextContent: clipboardPasteUndo.before,
+      origin: "clipboard-undo",
+      baseSource: "document",
+    });
+    if (!clipboardMutation) return false;
+    const writeResult =
+      clipboardPasteUndo.fileId === activeFile?.id
+        ? applyLocalContentUpdate(clipboardPasteUndo.before, {
             recordHistory: false,
             forcePreviewFullDocument: true,
+            immediateSave: true,
             clipboardMutation,
-          },
-        );
-      }
-      if (clipboardPasteUndo.fileId === activeFile.id) {
-        const selection = clipboardPasteUndo.selectionBefore
-          ? resolveLocalHistorySelection(
-              clipboardPasteUndo.selectionBefore,
-              clipboardPasteUndo.fileId,
-              clipboardPasteUndo.before,
-            )
-          : undefined;
-        const source = {
-          kind: "design-file" as const,
-          fileId: clipboardPasteUndo.fileId,
-        };
-        setSelectedElement((previous) =>
-          selection
-            ? selection.selectedElement
-            : previous
-              ? refreshElementInfoFromContent(
-                  clipboardPasteUndo.before,
-                  previous,
-                  source,
-                )
-              : previous,
-        );
-        setSelectedLayerIdsState((previous) =>
-          selection
-            ? selection.selectedLayerIds
-            : refreshSelectedLayerIdsFromContent(
+          })
+        : applyFileContentUpdate(
+            clipboardPasteUndo.fileId,
+            clipboardPasteUndo.before,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+              clipboardMutation,
+            },
+          );
+    if (writeResult.status !== "accepted") return false;
+    clipboardPasteUndoStackRef.current =
+      clipboardPasteUndoStackRef.current.slice(0, -1);
+    clipboardPasteRedoStackRef.current = [
+      ...clipboardPasteRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      clipboardPasteUndo,
+    ];
+    historyOrderRef.current = historyOrderRef.current.slice(0, -1);
+    redoOrderRef.current = [
+      ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "clipboard-paste",
+    ];
+    if (clipboardPasteUndo.fileId === activeFile.id) {
+      const selection = clipboardPasteUndo.selectionBefore
+        ? resolveLocalHistorySelection(
+            clipboardPasteUndo.selectionBefore,
+            clipboardPasteUndo.fileId,
+            clipboardPasteUndo.before,
+          )
+        : undefined;
+      const source = {
+        kind: "design-file" as const,
+        fileId: clipboardPasteUndo.fileId,
+      };
+      setSelectedElement((previous) =>
+        selection
+          ? selection.selectedElement
+          : previous
+            ? refreshElementInfoFromContent(
                 clipboardPasteUndo.before,
                 previous,
                 source,
-              ),
-        );
-      }
-      syncUndoRedoState();
-      return;
+              )
+            : previous,
+      );
+      setSelectedLayerIdsState((previous) =>
+        selection
+          ? selection.selectedLayerIds
+          : refreshSelectedLayerIdsFromContent(
+              clipboardPasteUndo.before,
+              previous,
+              source,
+            ),
+      );
     }
-  }
+    return true;
+  };
   const um = undoManagerRef.current;
   const canUseOverviewHistory = viewModeRef.current === "overview";
   let prunedUndoHistory = 0;
@@ -1592,6 +1607,7 @@ export function runUndo({
   };
 
   const undoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+    if (preferred === "clipboard-paste") return undoClipboardPaste();
     if (preferred === "selection") {
       return undoSelection() || undoContent() || undoGeometry();
     }
@@ -1630,7 +1646,13 @@ export function runUndo({
   let didUndo = false;
   if (canUseOverviewHistory) {
     while (!didUndo) {
-      const preferred = historyOrderRef.current.pop();
+      const preferred =
+        historyOrderRef.current[historyOrderRef.current.length - 1];
+      if (preferred === "clipboard-paste") {
+        didUndo = undoClipboardPaste();
+        break;
+      }
+      historyOrderRef.current.pop();
       didUndo = undoByOrder(preferred);
       if (didUndo || preferred === undefined) break;
     }
@@ -1643,7 +1665,9 @@ export function runUndo({
       !!linkedEntry &&
       "linkedComponent" in linkedEntry &&
       linkedEntry.linkedComponent === true;
-    if (preferred === "file-content" && canUndoLinkedEntry) {
+    if (preferred === "clipboard-paste") {
+      didUndo = undoClipboardPaste();
+    } else if (preferred === "file-content" && canUndoLinkedEntry) {
       historyOrderRef.current.pop();
       didUndo = undoContent("global");
       if (!didUndo && prunedUndoHistory === 0)

@@ -84,6 +84,24 @@ function fileEntry(revision: number, content = `revision-${revision}`) {
 }
 
 describe("design save outbox", () => {
+  it.each([undefined, null, false, {}, { ok: true }, { updated: false }])(
+    "retains the queued edit when a save has no persistence acknowledgement: %j",
+    async (actionResult) => {
+      const storage = new MemoryOutboxStorage();
+      const entry = fileEntry(1);
+      await journalDesignSaveOutboxEntry(entry, storage);
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockResolvedValue(actionResult),
+        storage,
+      });
+      expect(result.saved).toEqual([]);
+      expect(result.failed).toHaveLength(1);
+      expect(await storage.list("design-1", "user-1")).toEqual([entry]);
+    },
+  );
+
   it("keeps the newest revision when an older journal write finishes later", async () => {
     const storage = new MemoryOutboxStorage();
     await journalDesignSaveOutboxEntry(fileEntry(3), storage);
@@ -128,7 +146,10 @@ describe("design save outbox", () => {
     const storage = new MemoryOutboxStorage();
     const content = `<main>${"x".repeat(70_000)}</main>`;
     await journalDesignSaveOutboxEntry(fileEntry(1, content), storage);
-    const invokeAction = vi.fn().mockResolvedValue({ ok: true });
+    const invokeAction = vi.fn().mockResolvedValue({
+      updated: true,
+      versionHash: sourceContentHash(content),
+    });
 
     const result = await drainDesignSaveOutbox({
       designId: "design-1",
@@ -164,26 +185,29 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
-  it("retains a skipped stale file operation when the persisted hash belongs to newer content", async () => {
-    const storage = new MemoryOutboxStorage();
-    const entry = fileEntry(1, "requested content");
-    await journalDesignSaveOutboxEntry(entry, storage);
+  it.each([true, false])(
+    "retains a file save when the persisted hash belongs to newer content (skipped: %s)",
+    async (skippedStaleOperation) => {
+      const storage = new MemoryOutboxStorage();
+      const entry = fileEntry(1, "requested content");
+      await journalDesignSaveOutboxEntry(entry, storage);
 
-    const result = await drainDesignSaveOutbox({
-      designId: "design-1",
-      actorScope: "user-1",
-      invokeAction: vi.fn().mockResolvedValue({
-        updated: true,
-        skippedStaleOperation: true,
-        versionHash: sourceContentHash("newer persisted content"),
-      }),
-      storage,
-    });
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockResolvedValue({
+          updated: true,
+          skippedStaleOperation,
+          versionHash: sourceContentHash("newer persisted content"),
+        }),
+        storage,
+      });
 
-    expect(result.saved).toEqual([]);
-    expect(result.failed).toHaveLength(1);
-    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
-  });
+      expect(result.saved).toEqual([]);
+      expect(result.failed).toHaveLength(1);
+      expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+    },
+  );
 
   it("acknowledges an exact idempotent file replay when its content hash is proven", async () => {
     const storage = new MemoryOutboxStorage();

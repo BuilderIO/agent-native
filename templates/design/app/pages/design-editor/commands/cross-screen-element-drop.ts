@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import { dndHostLog } from "@/components/design/dnd-debug";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi-screen/cross-screen-drop";
 import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type {
@@ -530,6 +531,10 @@ export function runCrossScreenElementDrop(
       return;
     }
     const nextDestContent = nextContent.content;
+    if (isShaderWriteInFlight(targetScreenId)) {
+      toast.error(t("designEditor.toasts.saveConflict"));
+      return;
+    }
     recordContentHistoryEntry({
       changes: [
         {
@@ -1002,6 +1007,18 @@ export function runCrossScreenElementDrop(
     });
   } catch {
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
+
+  const publicationFileIds = new Set<string>();
+  if (result.sourceHtml !== sourceContent) {
+    publicationFileIds.add(sourceScreenId);
+  }
+  if (nextDestContent !== rawDestContent) {
+    publicationFileIds.add(targetScreenId);
+  }
+  if ([...publicationFileIds].some(isShaderWriteInFlight)) {
+    toast.error(t("designEditor.toasts.saveConflict"));
     return;
   }
 

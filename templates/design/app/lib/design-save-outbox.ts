@@ -318,23 +318,38 @@ export async function discardDesignSaveOutboxEntry(
   return await storage.deleteIfRevision(entry);
 }
 
-/** A versioned update-file no-op is safe to acknowledge only when the server
- * proves the exact requested content is already persisted. A higher revision
- * from the same source also reports skippedStaleOperation, but its version hash
- * belongs to different content and must leave this entry conflict-retained. */
+/** A save requires an explicit acknowledgement. A supplied hash must match
+ * the requested content, including idempotent no-ops; a higher revision from
+ * the same source may acknowledge different content that must stay queued. */
 export function updateFileResultPersistedContent(
   actionResult: unknown,
   expectedContent: string,
+  unconfirmedMessage = "The file save response did not confirm persistence",
 ): boolean {
-  if (!actionResult || typeof actionResult !== "object") return true;
+  if (!actionResult || typeof actionResult !== "object") {
+    throw new Error(unconfirmedMessage);
+  }
   const result = actionResult as {
+    updated?: unknown;
     skippedStaleMirror?: unknown;
     skippedStaleOperation?: unknown;
     versionHash?: unknown;
   };
+  if (
+    result.updated !== true ||
+    (result.skippedStaleMirror !== undefined &&
+      typeof result.skippedStaleMirror !== "boolean") ||
+    (result.skippedStaleOperation !== undefined &&
+      typeof result.skippedStaleOperation !== "boolean") ||
+    (result.versionHash !== undefined && typeof result.versionHash !== "string")
+  ) {
+    throw new Error(unconfirmedMessage);
+  }
   if (result.skippedStaleMirror) return false;
-  if (!result.skippedStaleOperation) return true;
-  return result.versionHash === sourceContentHash(expectedContent);
+  if (result.versionHash !== undefined) {
+    return result.versionHash === sourceContentHash(expectedContent);
+  }
+  return !result.skippedStaleOperation;
 }
 
 async function drainEntries(

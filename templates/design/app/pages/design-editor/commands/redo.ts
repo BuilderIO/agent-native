@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type {
@@ -25,6 +26,8 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getCanvasFrameGeometry,
@@ -97,7 +100,7 @@ export interface RedoArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   applyDesignDataHistoryChanges?: (
     changes: readonly ContentHistoryChange[],
     direction: "undo" | "redo",
@@ -119,7 +122,7 @@ export interface RedoArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
@@ -649,56 +652,70 @@ export function runRedo({
     syncUndoRedoState();
     return;
   }
-  const clipboardPasteRedo =
-    clipboardPasteRedoStackRef.current[
-      clipboardPasteRedoStackRef.current.length - 1
-    ];
-  if (clipboardPasteRedo) {
+  const redoClipboardPaste = () => {
+    if (
+      redoOrderRef.current[redoOrderRef.current.length - 1] !==
+      "clipboard-paste"
+    ) {
+      return false;
+    }
+    const clipboardPasteRedo =
+      clipboardPasteRedoStackRef.current[
+        clipboardPasteRedoStackRef.current.length - 1
+      ];
+    if (!clipboardPasteRedo) return false;
     const currentContent =
       pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
         ?.content ??
       (clipboardPasteRedo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
-    if (currentContent === clipboardPasteRedo.before) {
-      const clipboardMutation = publishAuthoritativeClipboardMutation({
-        fileId: clipboardPasteRedo.fileId,
-        baseContent: clipboardPasteRedo.before,
-        nextContent: clipboardPasteRedo.after,
-        origin: "clipboard-redo",
-        baseSource: "document",
+    if (currentContent !== clipboardPasteRedo.before) return false;
+    if (isShaderWriteInFlight(clipboardPasteRedo.fileId)) {
+      toast.error(t("designEditor.toasts.saveConflict"), {
+        id: `design-source-shader-conflict:${clipboardPasteRedo.fileId}`,
       });
-      if (!clipboardMutation) return;
-      clipboardPasteRedoStackRef.current =
-        clipboardPasteRedoStackRef.current.slice(0, -1);
-      clipboardPasteUndoStackRef.current = [
-        ...clipboardPasteUndoStackRef.current.slice(
-          -(MAX_DESIGN_UNDO_STACK - 1),
-        ),
-        clipboardPasteRedo,
-      ];
-      if (clipboardPasteRedo.fileId === activeFile?.id) {
-        applyLocalContentUpdate(clipboardPasteRedo.after, {
-          recordHistory: false,
-          forcePreviewFullDocument: true,
-          immediateSave: true,
-          clipboardMutation,
-        });
-      } else {
-        applyFileContentUpdate(
-          clipboardPasteRedo.fileId,
-          clipboardPasteRedo.after,
-          {
+      return false;
+    }
+    const clipboardMutation = publishAuthoritativeClipboardMutation({
+      fileId: clipboardPasteRedo.fileId,
+      baseContent: clipboardPasteRedo.before,
+      nextContent: clipboardPasteRedo.after,
+      origin: "clipboard-redo",
+      baseSource: "document",
+    });
+    if (!clipboardMutation) return false;
+    const writeResult =
+      clipboardPasteRedo.fileId === activeFile?.id
+        ? applyLocalContentUpdate(clipboardPasteRedo.after, {
             recordHistory: false,
             forcePreviewFullDocument: true,
+            immediateSave: true,
             clipboardMutation,
-          },
-        );
-      }
-      syncUndoRedoState();
-      return;
-    }
-  }
+          })
+        : applyFileContentUpdate(
+            clipboardPasteRedo.fileId,
+            clipboardPasteRedo.after,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+              clipboardMutation,
+            },
+          );
+    if (writeResult.status !== "accepted") return false;
+    clipboardPasteRedoStackRef.current =
+      clipboardPasteRedoStackRef.current.slice(0, -1);
+    clipboardPasteUndoStackRef.current = [
+      ...clipboardPasteUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      clipboardPasteRedo,
+    ];
+    redoOrderRef.current = redoOrderRef.current.slice(0, -1);
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "clipboard-paste",
+    ];
+    return true;
+  };
   const um = undoManagerRef.current;
   const canUseOverviewHistory = viewModeRef.current === "overview";
   let prunedRedoHistory = 0;
@@ -1215,6 +1232,7 @@ export function runRedo({
   };
 
   const redoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+    if (preferred === "clipboard-paste") return redoClipboardPaste();
     if (preferred === "selection") {
       return redoSelection() || redoContent() || redoGeometry();
     }
@@ -1253,7 +1271,8 @@ export function runRedo({
   let didRedo = false;
   if (canUseOverviewHistory) {
     while (!didRedo) {
-      const preferred = redoOrderRef.current.pop();
+      const preferred = redoOrderRef.current[redoOrderRef.current.length - 1];
+      if (preferred !== "clipboard-paste") redoOrderRef.current.pop();
       didRedo = redoByOrder(preferred);
       if (didRedo) {
         // Figma parity (ground-truth Round 4, Part B): redoing a real edit
@@ -1274,7 +1293,7 @@ export function runRedo({
         }
         break;
       }
-      if (preferred === undefined) break;
+      if (preferred === "clipboard-paste" || preferred === undefined) break;
     }
   } else {
     const preferred = redoOrderRef.current[redoOrderRef.current.length - 1];
@@ -1284,7 +1303,9 @@ export function runRedo({
       !!linkedEntry &&
       "linkedComponent" in linkedEntry &&
       linkedEntry.linkedComponent === true;
-    if (preferred === "file-content" && canRedoLinkedEntry) {
+    if (preferred === "clipboard-paste") {
+      didRedo = redoClipboardPaste();
+    } else if (preferred === "file-content" && canRedoLinkedEntry) {
       redoOrderRef.current.pop();
       didRedo = redoContent("global");
       if (!didRedo && prunedRedoHistory === 0)

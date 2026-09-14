@@ -99,6 +99,22 @@ describe("escapeAttributeValue", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyRootAttributeEdit", () => {
+  it("preserves replacement tokens in an existing attribute value", () => {
+    const html = '<button data-label="before">Child</button>';
+    const value = "$1 $$ $` $'";
+    expect(
+      applyRootAttributeEdit(
+        html,
+        { openStart: 0, openEnd: html.indexOf(">") + 1 },
+        "data-label",
+        value,
+      ),
+    ).toEqual({
+      content: `<button data-label="${value}">Child</button>`,
+      changed: true,
+    });
+  });
+
   // `<button …>` open tag is bytes 0..N of this string.
   const html = `<button class="btn" data-agent-native-prop-variant="solid">Save</button>`;
   const openEnd = html.indexOf(">") + 1;

@@ -1118,7 +1118,7 @@ export function ComponentSection({
                             !editingEnabled || applyPropMutation.isPending
                           }
                           aria-label={t(
-                            "designEditor.editPanel.interactionStates.resetOverride",
+                            "editPanel.interactionStates.resetOverride",
                           )}
                           onClick={onResetOverrides}
                         >
@@ -1126,9 +1126,7 @@ export function ComponentSection({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {t(
-                          "designEditor.editPanel.interactionStates.resetOverride",
-                        )}
+                        {t("editPanel.interactionStates.resetOverride")}
                       </TooltipContent>
                     </Tooltip>
                   ) : null}

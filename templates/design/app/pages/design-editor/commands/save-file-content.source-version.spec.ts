@@ -1,3 +1,4 @@
+import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
@@ -52,7 +53,10 @@ describe("runSaveFileContent source version", () => {
         markFirstSaveStarted();
         return firstSaveResponse;
       }
-      return Promise.resolve({ versionHash: "hash-after-second-save" });
+      return Promise.resolve({
+        updated: true,
+        versionHash: sourceContentHash(secondPending.content),
+      });
     });
     const updateFileMutation = {
       mutateAsync,
@@ -87,7 +91,10 @@ describe("runSaveFileContent source version", () => {
     await firstSaveStarted;
     expect(mutateAsync).toHaveBeenCalledTimes(1);
 
-    releaseFirstSave({ versionHash: "hash-after-first-save" });
+    releaseFirstSave({
+      updated: true,
+      versionHash: sourceContentHash(firstPending.content),
+    });
     await fileSaveChainsRef.current[firstPending.id];
 
     expect(mutateAsync.mock.calls).toEqual([
@@ -150,7 +157,10 @@ describe("runSaveFileContent source version", () => {
       string,
       { content: string; identityMigrationSourceContent?: string }
     >();
-    const mutateAsync = vi.fn(async () => ({}));
+    const mutateAsync = vi.fn(async () => ({
+      updated: true,
+      versionHash: sourceContentHash(userContent),
+    }));
     const createFileSaveOutboxEntry = vi.fn((request: FileContentSaveRequest) =>
       request.identityMigrationSourceContent !== undefined
         ? migrationOutbox
@@ -432,7 +442,10 @@ describe("runSaveFileContent source version", () => {
         expect(errorToast).not.toHaveBeenCalled();
         expect(args.acknowledgeOutboxEntry).toHaveBeenCalledWith(oldOutbox);
 
-        newResponse.resolve({});
+        newResponse.resolve({
+          updated: true,
+          versionHash: sourceContentHash(nextMigration.content),
+        });
         await latestChain;
       } finally {
         errorToast.mockRestore();

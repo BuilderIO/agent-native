@@ -100,6 +100,7 @@ export function getPersistedContentHostSyncOptions(args: {
 }): {
   forcePreviewFullDocument: boolean;
   persist: false;
+  sourceAlreadyPersisted: true;
   updatedAt?: string;
 } {
   return {
@@ -108,6 +109,7 @@ export function getPersistedContentHostSyncOptions(args: {
       args.activeFileId !== undefined &&
       args.fileId === args.activeFileId,
     persist: false,
+    sourceAlreadyPersisted: true,
     updatedAt: args.updatedAt,
   };
 }
@@ -413,12 +415,14 @@ export type UndoRedoOrderKind =
   | "content"
   | "file-content"
   | "geometry"
+  | "clipboard-paste"
   | "file-created"
   | "file-deleted";
 
 export function getUndoRedoPriorityOrder(
   preferred: UndoRedoOrderKind | undefined,
 ): UndoRedoOrderKind[] {
+  if (preferred === "clipboard-paste") return ["clipboard-paste"];
   if (preferred === "file-deleted")
     return [
       "file-deleted",

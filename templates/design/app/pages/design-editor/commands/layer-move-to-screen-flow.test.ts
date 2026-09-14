@@ -1,10 +1,16 @@
 // @vitest-environment happy-dom
 
+const shaderLocks = vi.hoisted(() => ({ fileIds: new Set<string>() }));
+
+vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+  isShaderWriteInFlight: (fileId: string) => shaderLocks.fileIds.has(fileId),
+}));
+
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -63,7 +69,77 @@ function acceptFixture(fileId: string, content: string) {
   };
 }
 
-afterEach(() => document.body.replaceChildren());
+afterEach(() => {
+  shaderLocks.fileIds.clear();
+  document.body.replaceChildren();
+});
+
+it("does not mutate source, destination, or history while either moved file is shader-locked", () => {
+  const sourceContent = `<html><body><div data-agent-native-node-id="moving" style="position:absolute;left:20px;top:20px;width:40px;height:40px">Move</div></body></html>`;
+  const targetContent = `<html><body><main data-agent-native-node-id="target"></main></body></html>`;
+  const sourceFile = file(SOURCE_ID, sourceContent);
+  const targetFile = file(TARGET_ID, targetContent);
+  const sourceProjection = buildCodeLayerProjection(sourceContent, {
+    source: { kind: "design-file", fileId: SOURCE_ID },
+  });
+  const targetProjection = buildCodeLayerProjection(targetContent, {
+    source: { kind: "design-file", fileId: TARGET_ID },
+  });
+  const sourceTree = buildCodeLayerTree(sourceProjection);
+  const moving = sourceProjection.nodes.find(
+    (node) => node.dataAttributes["data-agent-native-node-id"] === "moving",
+  )!;
+  const writes = vi.fn((id: string, content: string) =>
+    acceptFixture(id, content),
+  );
+  const history = vi.fn();
+  mountPreview(sourceContent, SOURCE_ID);
+  mountPreview(targetContent, TARGET_ID);
+  shaderLocks.fileIds.add(TARGET_ID);
+
+  runLayerMoveToScreen(
+    {
+      activeFile: sourceFile,
+      applyFileContentUpdate: writes,
+      boardFileId: undefined,
+      codeLayerOwnerByNodeId: new Map([
+        [
+          moving.id,
+          {
+            fileId: SOURCE_ID,
+            node: moving,
+            sourceProjection,
+            tree: sourceTree,
+            runtimeOnly: false,
+          },
+        ],
+      ]),
+      effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
+      files: [sourceFile, targetFile],
+      getFreshActiveContent: () => sourceContent,
+      getScreenContent: (id) =>
+        id === SOURCE_ID ? sourceContent : targetContent,
+      recordContentHistoryEntry: history,
+      recordLocalContentHistoryEntry: history,
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      setExpandedLayerIds: vi.fn(),
+      setRuntimeStructureInsertRequest: vi.fn(),
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key) => key,
+      viewModeRef: { current: "overview" },
+    },
+    {
+      draggedIds: [moving.id],
+      targetId: targetProjection.nodes[0]!.id,
+      placement: "inside",
+    },
+    TARGET_ID,
+  );
+
+  expect(writes).not.toHaveBeenCalled();
+  expect(history).not.toHaveBeenCalled();
+});
 
 function moveBoardLayerIntoLiveScreenBody(
   sourceContent: string,

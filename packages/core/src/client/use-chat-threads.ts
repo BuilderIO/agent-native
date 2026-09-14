@@ -107,6 +107,7 @@ function hasClientDraftThreadMarker(id: string): boolean {
   try {
     return window.localStorage.getItem(clientDraftThreadKey(id)) === "1";
   } catch {
+    // coercion-ok: current-session drafts remain in newlyCreatedRef; without storage, an older active pointer cannot be restored either.
     return false;
   }
 }
@@ -116,7 +117,7 @@ function markClientDraftThread(id: string): void {
   try {
     window.localStorage.setItem(clientDraftThreadKey(id), "1");
   } catch {
-    // The live hook remains authoritative when browser storage is unavailable.
+    // coercion-ok: newlyCreatedRef keeps this draft active in memory; storage only preserves it across reloads.
   }
 }
 
@@ -125,7 +126,7 @@ function clearClientDraftThreadMarker(id: string): void {
   try {
     window.localStorage.removeItem(clientDraftThreadKey(id));
   } catch {
-    // The marker is optional once the server has confirmed the thread.
+    // coercion-ok: callers retain server confirmation in memory; this marker only helps classify a draft on reload.
   }
 }
 
@@ -408,6 +409,7 @@ export function useChatThreads(
   const knownThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
+  const serverConfirmedThreadIdsRef = useRef<Set<string>>(new Set());
   const pendingPinnedAtRef = useRef<Map<string, number | null>>(new Map());
   const pendingArchivedAtRef = useRef<Map<string, number | null>>(new Map());
   const userRenamedThreadIdsRef = useRef<Set<string>>(new Set());
@@ -679,6 +681,7 @@ export function useChatThreads(
         }
         for (const thread of loaded) {
           knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+          serverConfirmedThreadIdsRef.current.add(thread.id);
           clearClientDraftThreadMarker(thread.id);
           newlyCreatedRef.current.delete(thread.id);
         }
@@ -879,12 +882,13 @@ export function useChatThreads(
           ? await fetchThreadById(apiUrl, restoredId!, historyScope)
           : restoredOnPage;
       if (restoredThread) {
-        clearClientDraftThreadMarker(restoredThread.id);
-        newlyCreatedRef.current.delete(restoredThread.id);
+        serverConfirmedThreadIdsRef.current.add(restoredThread.id);
         knownThreadScopesRef.current.set(
           restoredThread.id,
           restoredThread.scope ?? null,
         );
+        clearClientDraftThreadMarker(restoredThread.id);
+        newlyCreatedRef.current.delete(restoredThread.id);
       }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
         // Lookup unreachable. Reclassifying now would stamp this thread with the
@@ -956,7 +960,7 @@ export function useChatThreads(
             const parsed = raw ? Number.parseInt(raw, 10) : NaN;
             if (Number.isFinite(parsed)) seenAt = parsed;
           } catch {
-            // localStorage unavailable — fall back to now (current behaviour).
+            // coercion-ok: without a readable age, retaining the tab with a fresh timestamp avoids discarding its draft.
           }
         }
         addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
@@ -1303,6 +1307,7 @@ export function useChatThreads(
   const isNewThread = useCallback(
     (id: string) => {
       if (routeControlsActiveThread && routeThreadId === id) return false;
+      if (serverConfirmedThreadIdsRef.current.has(id)) return false;
       return newlyCreatedRef.current.has(id) || hasClientDraftThreadMarker(id);
     },
     [routeControlsActiveThread, routeThreadId],
@@ -1417,6 +1422,7 @@ export function useChatThreads(
           );
         }
         if (!response.ok) return;
+        serverConfirmedThreadIdsRef.current.add(id);
         clearClientDraftThreadMarker(id);
         newlyCreatedRef.current.delete(id);
         emitThreadsUpdated();

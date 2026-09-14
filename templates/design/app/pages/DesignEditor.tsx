@@ -2351,6 +2351,7 @@ function DesignEditor() {
     fileDeletionRedoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
     pendingLiveNonStyleRedoStackRef.current = [];
+    clipboardPasteRedoStackRef.current = [];
     pendingStructureRedoReplayRef.current = undefined;
     selectionRedoStackRef.current = [];
     if (pendingStructureRedoReplayTimerRef.current !== undefined) {
@@ -8714,6 +8715,7 @@ function DesignEditor() {
         historyBeforeContent?: string;
         sourceBaseContent?: string;
         identityMigrationSourceContent?: string;
+        sourceAlreadyPersisted?: boolean;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
@@ -8794,6 +8796,7 @@ function DesignEditor() {
         historyBeforeContent?: string;
         sourceBaseContent?: string;
         identityMigrationSourceContent?: string;
+        sourceAlreadyPersisted?: boolean;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
@@ -12407,6 +12410,7 @@ function DesignEditor() {
           getCanvasScreenClipboardEntries,
           getFreshActiveContent,
           getScreenContent,
+          historyOrderRef,
           latestClipboardMutationContentRef,
           pasteCascadeRef,
           pasteCopiedScreens,
@@ -12438,6 +12442,7 @@ function DesignEditor() {
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
       getScreenContent,
+      historyOrderRef,
       files,
       pasteCopiedScreens,
       publishAuthoritativeClipboardMutation,

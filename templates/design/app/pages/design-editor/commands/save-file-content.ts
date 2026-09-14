@@ -118,6 +118,7 @@ export function runSaveFileContent(
         const persistedContentMatches = updateFileResultPersistedContent(
           resultInfo,
           pending.content,
+          t("common.genericError"),
         );
         if (persistedContentMatches && outboxEntry) {
           await acknowledgeOutboxEntry(outboxEntry);

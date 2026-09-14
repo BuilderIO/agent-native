@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
+const shaderLocks = vi.hoisted(() => ({ fileIds: new Set<string>() }));
+
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+  isShaderWriteInFlight: (fileId: string) => shaderLocks.fileIds.has(fileId),
+  waitForShaderWriteToSettle: async () => {},
+}));
 
 import {
   buildCodeLayerProjection,
@@ -10,7 +16,7 @@ import { analyzeComponentLinks } from "@shared/component-links";
 import { COMPONENT_REF_ATTR } from "@shared/component-model";
 import { createSourceDocumentProvenance } from "@shared/preview-source-provenance";
 import { toast } from "sonner";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   codeLayerSourceNodeIdAttrs,
@@ -32,6 +38,8 @@ const SCREEN_WITH_FRAME = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
 <div data-agent-native-node-id="frame-1"></div>
 </body></html>`;
+
+afterEach(() => shaderLocks.fileIds.clear());
 
 function acceptFixture(fileId: string, content: string) {
   const prepared = prepareCanonicalSourceContent(content, {
@@ -842,6 +850,58 @@ describe("runCrossScreenElementDrop ordinary move routing", () => {
       (node) => node.dataAttributes["data-agent-native-node-id"],
     );
     expect(sourceIds).not.toContain("move-id");
+  });
+});
+
+describe("runCrossScreenElementDrop shader publication preflight", () => {
+  it.each(["source", "target"])(
+    "leaves source, destination, and history untouched when %s is shader-locked",
+    (lockedFileId) => {
+      const sourceContent = `<html><body><div id="move-me" data-agent-native-node-id="move-id">Move</div></body></html>`;
+      shaderLocks.fileIds.add(lockedFileId);
+
+      const { writes, historyEntries } = runStoredCrossScreenDrop({
+        sourceContent,
+        destinationContent: SCREEN_WITH_FRAME,
+        drop: {
+          sourceSelector: "#move-me",
+          sourceNodeId: "move-id",
+          sourceProvenance: { uniqueNodeId: "move-id" },
+          sourceScreenId: "source",
+          targetScreenId: "target",
+        },
+      });
+
+      expect(writes.size).toBe(0);
+      expect(historyEntries).toHaveLength(0);
+    },
+  );
+
+  it("preflights the destination before recording a duplicate-only history entry", () => {
+    shaderLocks.fileIds.add("target");
+    const { writes, historyEntries } = runStoredCrossScreenDrop({
+      sourceContent: "http://localhost:5173/",
+      destinationContent: SCREEN_WITH_FRAME,
+      drop: {
+        sourceSelector: "#live-node",
+        sourceNodeId: "live-root-id",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "frame-1",
+        targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
+        targetAnchorProvenance: { uniqueNodeId: "frame-1" },
+        targetAnchorPlacement: "inside",
+        targetDropMode: "absolute-container",
+        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetLocalPoint: { x: 240, y: 300 },
+        duplicate: true,
+        sourceCloneHtml:
+          '<div id="live-node" data-agent-native-node-id="live-root-id"><span data-agent-native-node-id="live-child-id">child</span></div>',
+      },
+    });
+
+    expect(writes.size).toBe(0);
+    expect(historyEntries).toHaveLength(0);
   });
 });
 

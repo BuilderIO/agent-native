@@ -804,6 +804,7 @@ function readOverrides(node: CodeLayerNode): ComponentOverride[] | null {
   try {
     parsed = JSON.parse(decodeURIComponent(raw));
   } catch {
+    // coercion-ok: malformed metadata returns a typed null sentinel; callers reject it before any linked edits or resets write.
     return null;
   }
   if (!Array.isArray(parsed)) return null;

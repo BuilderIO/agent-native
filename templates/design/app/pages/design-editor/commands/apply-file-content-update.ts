@@ -4,10 +4,7 @@ import type { RefObject } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
-import {
-  isShaderWriteInFlight,
-  waitForShaderWriteToSettle,
-} from "@/components/design/inspector/GlslShaderPanel";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   resolveScreenCollabSyncTarget,
@@ -44,6 +41,7 @@ export interface ApplyFileContentUpdateArgs {
       historyBeforeContent?: string;
       sourceBaseContent?: string;
       identityMigrationSourceContent?: string;
+      sourceAlreadyPersisted?: boolean;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -60,6 +58,7 @@ export interface ApplyFileContentUpdateArgs {
       historyBeforeContent?: string;
       sourceBaseContent?: string;
       identityMigrationSourceContent?: string;
+      sourceAlreadyPersisted?: boolean;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -131,28 +130,22 @@ export function runApplyFileContentUpdate(
     historyBeforeContent?: string;
     sourceBaseContent?: string;
     identityMigrationSourceContent?: string;
+    sourceAlreadyPersisted?: boolean;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
   } = {},
 ): ApplyFileContentUpdateResult {
   if (!canEditDesignRef.current) return { status: "refused" };
+  // Raw whole-document snapshots cannot be safely replayed after a shader
+  // round trip: the callback may belong to a different active Screen by then.
+  if (isShaderWriteInFlight(fileId) && !options.sourceAlreadyPersisted) {
+    toast.error(t("designEditor.toasts.saveConflict"), {
+      id: `design-source-shader-conflict:${fileId}`,
+    });
+    return { status: "refused" };
+  }
   if (fileId === activeFile?.id) {
     return applyLocalContentUpdate(nextContent, options);
-  }
-  // Cross-pipeline write race guard — same hazard commitVisualStyles
-  // already defends against (see its withShaderWriteLock note): a shader
-  // apply/remove/knob-commit for this same file runs a separate
-  // read-source-file -> apply-source-edit round trip, and the overview
-  // writeLiveDoc rewrite below replays FULL content into the connected
-  // overviewYdoc. Racing the two corrupts the doc (server-side diff vs
-  // synchronous untracked full rewrite). Defer the whole update until the
-  // in-flight shader write settles; the common no-shader case stays fully
-  // synchronous.
-  if (isShaderWriteInFlight(fileId)) {
-    void waitForShaderWriteToSettle(fileId).then(() => {
-      applyFileContentUpdate(fileId, nextContent, options);
-    });
-    return { status: "deferred" };
   }
   const previousFile = files.find((file) => file.id === fileId);
   const previousContent =

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import {
@@ -135,6 +136,7 @@ export function runApplyLocalContentUpdate(
     historyBeforeContent?: string;
     sourceBaseContent?: string;
     identityMigrationSourceContent?: string;
+    sourceAlreadyPersisted?: boolean;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
     /** Figma-parity undo selection restore for when this write lands on the
@@ -146,6 +148,12 @@ export function runApplyLocalContentUpdate(
   } = {},
 ): ApplyLocalContentUpdateResult {
   if (!activeFile || !canEditDesignRef.current) return { status: "refused" };
+  if (isShaderWriteInFlight(activeFile.id) && !options.sourceAlreadyPersisted) {
+    toast.error(t("designEditor.toasts.saveConflict"), {
+      id: `design-source-shader-conflict:${activeFile.id}`,
+    });
+    return { status: "refused" };
+  }
   const previousContent =
     typeof options.historyBeforeContent === "string"
       ? options.historyBeforeContent

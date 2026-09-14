@@ -38,6 +38,7 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
     expect(options).toStrictEqual({
       forcePreviewFullDocument: true,
       persist: false,
+      sourceAlreadyPersisted: true,
       updatedAt: "2026-07-07T00:00:00.000Z",
     });
   });
@@ -54,6 +55,7 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
       expect(Object.keys(options).sort()).toStrictEqual([
         "forcePreviewFullDocument",
         "persist",
+        "sourceAlreadyPersisted",
         "updatedAt",
       ]);
     }
@@ -90,6 +92,7 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
       updatedAt: "2026-07-07T12:34:56.789Z",
     });
     expect(withStamp.persist).toBe(false);
+    expect(withStamp.sourceAlreadyPersisted).toBe(true);
     expect(withStamp.updatedAt).toBe("2026-07-07T12:34:56.789Z");
 
     // apply-shader-fill returns no updatedAt when the deterministic editor
@@ -100,6 +103,7 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
       activeFileId: "screen-1",
     });
     expect(withoutStamp.persist).toBe(false);
+    expect(withoutStamp.sourceAlreadyPersisted).toBe(true);
     expect(withoutStamp.updatedAt).toBeUndefined();
   });
 });

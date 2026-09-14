@@ -12,6 +12,12 @@ import {
 import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it, vi } from "vitest";
 
+const shaderWrites = vi.hoisted(() => new Set<string>());
+vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+  isShaderWriteInFlight: (fileId: string | undefined) =>
+    Boolean(fileId && shaderWrites.has(fileId)),
+}));
+
 import type { ElementInfo } from "@/components/design/types";
 import { publishClipboardContentMutation } from "@/lib/clipboard-content-lineage";
 import {
@@ -23,7 +29,7 @@ import { runRecordPendingVisualStyleEdit } from "@/pages/design-editor/commands/
 import { runRedo } from "@/pages/design-editor/commands/redo";
 import { runStyleChange } from "@/pages/design-editor/commands/style-change";
 import { runStylesChange } from "@/pages/design-editor/commands/styles-change";
-import { runUndo } from "@/pages/design-editor/commands/undo";
+import { runUndo, type UndoArgs } from "@/pages/design-editor/commands/undo";
 import {
   type ContentHistoryChange,
   contentHistoryEntryFromChanges,
@@ -118,11 +124,18 @@ function commandArgs() {
   const contentHistorySelectionAfterRef = { current: new WeakMap() };
   const historyOrderRef = { current: ["content", "file-content"] as string[] };
   const redoOrderRef = { current: [] as string[] };
+  const contentUndoSelectionStackRef: UndoArgs["contentUndoSelectionStackRef"] =
+    {
+      current: [selection],
+    };
+  const viewModeRef: UndoArgs["viewModeRef"] = { current: "single" };
   const applyLocalContentUpdate = vi.fn((next: string) => {
     content.set("file-a", next);
+    return { status: "accepted" as const, content: next, nodeIdMap: new Map() };
   });
   const applyFileContentUpdate = vi.fn((fileId: string, next: string) => {
     content.set(fileId, next);
+    return { status: "accepted" as const, content: next, nodeIdMap: new Map() };
   });
   const localContentRedoStackRef = { current: [] as any[] };
   const localContentUndoStackRef = {
@@ -144,7 +157,7 @@ function commandArgs() {
     contentHistorySelectionAfterRef,
     contentRedoSelectionStackRef: { current: [undefined] },
     contentRedoStackRef,
-    contentUndoSelectionStackRef: { current: [selection] },
+    contentUndoSelectionStackRef,
     contentUndoStackRef,
     createFileMutation: { mutateAsync: vi.fn() },
     deleteFileMutation: { mutateAsync: vi.fn() },
@@ -215,7 +228,7 @@ function commandArgs() {
     t: (key: string) => key,
     undoManagerRef: { current: null },
     updateLiveScreenSnapshotContent: vi.fn(),
-    viewModeRef: { current: "single" as const },
+    viewModeRef,
     writeFrameGeometrySnapshot: vi.fn(),
     ydoc: null,
   };
@@ -375,6 +388,7 @@ describe("single-screen linked component history", () => {
     state.args.clipboardPasteUndoStackRef.current = [
       { fileId: "file-b", before, after },
     ];
+    state.args.historyOrderRef.current = ["clipboard-paste"];
     state.args.publishAuthoritativeClipboardMutation.mockImplementation(
       (
         input: Parameters<
@@ -406,6 +420,218 @@ describe("single-screen linked component history", () => {
     expect(state.contentUndoStackRef.current[0]).toBe(linkedEntry);
     expect(lineage.get("file-b")?.mutationId).toBe(9);
   });
+
+  it("keeps clipboard paste undo and redo in cross-screen chronology across view changes", () => {
+    const state = commandArgs();
+    const beforeA = "<main>before A</main>";
+    const afterA = "<main>after A</main>";
+    const beforeB = "<main>before B</main>";
+    const afterB = "<main>pasted B</main>";
+
+    state.content.set("file-a", afterA);
+    state.content.set("file-b", afterB);
+    state.args.viewModeRef.current = "overview";
+    state.args.contentUndoStackRef.current = [
+      contentHistoryEntryFromChanges([
+        { fileId: "file-a", before: beforeA, after: afterA },
+      ])!,
+    ];
+    state.args.contentUndoSelectionStackRef.current = [undefined];
+    state.args.contentRedoStackRef.current = [];
+    state.args.contentRedoSelectionStackRef.current = [];
+    state.args.clipboardPasteUndoStackRef.current = [
+      { fileId: "file-b", before: beforeB, after: afterB },
+    ];
+    state.args.clipboardPasteRedoStackRef.current = [];
+    state.args.historyOrderRef.current = ["clipboard-paste", "file-content"];
+    state.args.redoOrderRef.current = [];
+    state.args.publishAuthoritativeClipboardMutation.mockImplementation(
+      ({ nextContent, origin }) => ({
+        mutationId: 1,
+        contentHash: sourceContentHash(nextContent),
+        origin,
+      }),
+    );
+
+    runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+    expect(state.content.get("file-a")).toBe(beforeA);
+    expect(state.content.get("file-b")).toBe(afterB);
+    expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
+    expect(state.historyOrderRef.current).toEqual(["clipboard-paste"]);
+    expect(state.redoOrderRef.current).toEqual(["file-content"]);
+
+    state.args.viewModeRef.current = "single";
+    runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+    expect(state.content.get("file-a")).toBe(beforeA);
+    expect(state.content.get("file-b")).toBe(beforeB);
+    expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(0);
+    expect(state.args.clipboardPasteRedoStackRef.current).toHaveLength(1);
+    expect(state.historyOrderRef.current).toEqual([]);
+    expect(state.redoOrderRef.current).toEqual([
+      "file-content",
+      "clipboard-paste",
+    ]);
+
+    state.args.viewModeRef.current = "overview";
+    runRedo(state.args as unknown as Parameters<typeof runRedo>[0]);
+
+    expect(state.content.get("file-a")).toBe(beforeA);
+    expect(state.content.get("file-b")).toBe(afterB);
+    expect(state.historyOrderRef.current).toEqual(["clipboard-paste"]);
+    expect(state.redoOrderRef.current).toEqual(["file-content"]);
+
+    runRedo(state.args as unknown as Parameters<typeof runRedo>[0]);
+
+    expect(state.content.get("file-a")).toBe(afterA);
+    expect(state.content.get("file-b")).toBe(afterB);
+    expect(state.historyOrderRef.current).toEqual([
+      "clipboard-paste",
+      "file-content",
+    ]);
+    expect(state.redoOrderRef.current).toEqual([]);
+  });
+
+  it.each(["refused", "deferred"] as const)(
+    "keeps a %s clipboard undo at the top of history",
+    (status) => {
+      const state = commandArgs();
+      const beforeB = "<main>before B</main>";
+      const afterB = "<main>pasted B</main>";
+      state.content.set("file-b", afterB);
+      state.args.clipboardPasteUndoStackRef.current = [
+        { fileId: "file-b", before: beforeB, after: afterB },
+      ];
+      state.args.historyOrderRef.current = ["file-content", "clipboard-paste"];
+      state.args.viewModeRef.current = "overview";
+      state.args.publishAuthoritativeClipboardMutation.mockImplementation(
+        ({ nextContent, origin }) => ({
+          mutationId: 1,
+          contentHash: sourceContentHash(nextContent),
+          origin,
+        }),
+      );
+      state.applyFileContentUpdate.mockImplementation(
+        () => ({ status }) as never,
+      );
+
+      runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+      expect(state.content.get("file-a")).toBe(
+        '<main><div data-agent-native-node-id="layer-a">after A</div></main>',
+      );
+      expect(state.content.get("file-b")).toBe(afterB);
+      expect(state.args.contentUndoStackRef.current).toHaveLength(1);
+      expect(state.applyFileContentUpdate).toHaveBeenCalledOnce();
+      expect(
+        state.args.publishAuthoritativeClipboardMutation,
+      ).toHaveBeenCalledOnce();
+      expect(state.args.clipboardPasteUndoStackRef.current).toEqual([
+        { fileId: "file-b", before: beforeB, after: afterB },
+      ]);
+      expect(state.historyOrderRef.current).toEqual([
+        "file-content",
+        "clipboard-paste",
+      ]);
+      expect(state.redoOrderRef.current).toEqual([]);
+    },
+  );
+
+  it.each(["refused", "deferred"] as const)(
+    "keeps a %s clipboard redo at the top of history",
+    (status) => {
+      const state = commandArgs();
+      const beforeB = "<main>before B</main>";
+      const afterB = "<main>pasted B</main>";
+      state.content.set("file-b", beforeB);
+      state.args.clipboardPasteRedoStackRef.current = [
+        { fileId: "file-b", before: beforeB, after: afterB },
+      ];
+      state.redoOrderRef.current = ["file-content", "clipboard-paste"];
+      state.args.viewModeRef.current = "overview";
+      state.args.publishAuthoritativeClipboardMutation.mockImplementation(
+        ({ nextContent, origin }) => ({
+          mutationId: 1,
+          contentHash: sourceContentHash(nextContent),
+          origin,
+        }),
+      );
+      state.applyFileContentUpdate.mockImplementation(
+        () => ({ status }) as never,
+      );
+
+      runRedo(state.args as unknown as Parameters<typeof runRedo>[0]);
+
+      expect(state.content.get("file-a")).toBe(
+        '<main><div data-agent-native-node-id="layer-a">after A</div></main>',
+      );
+      expect(state.content.get("file-b")).toBe(beforeB);
+      expect(state.args.contentRedoStackRef.current).toHaveLength(0);
+      expect(state.applyFileContentUpdate).toHaveBeenCalledOnce();
+      expect(
+        state.args.publishAuthoritativeClipboardMutation,
+      ).toHaveBeenCalledOnce();
+      expect(state.args.clipboardPasteRedoStackRef.current).toEqual([
+        { fileId: "file-b", before: beforeB, after: afterB },
+      ]);
+      expect(state.redoOrderRef.current).toEqual([
+        "file-content",
+        "clipboard-paste",
+      ]);
+      expect(state.historyOrderRef.current).toEqual([
+        "content",
+        "file-content",
+      ]);
+    },
+  );
+
+  it.each(["undo", "redo"] as const)(
+    "does not reserve a clipboard %s while the target source is shader-locked",
+    (direction) => {
+      const state = commandArgs();
+      const beforeB = "<main>before B</main>";
+      const afterB = "<main>pasted B</main>";
+      state.args.viewModeRef.current = "overview";
+      shaderWrites.add("file-b");
+      try {
+        if (direction === "undo") {
+          state.content.set("file-b", afterB);
+          state.args.clipboardPasteUndoStackRef.current = [
+            { fileId: "file-b", before: beforeB, after: afterB },
+          ];
+          state.args.historyOrderRef.current = [
+            "file-content",
+            "clipboard-paste",
+          ];
+          runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+          expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
+          expect(state.historyOrderRef.current).toEqual([
+            "file-content",
+            "clipboard-paste",
+          ]);
+        } else {
+          state.content.set("file-b", beforeB);
+          state.args.clipboardPasteRedoStackRef.current = [
+            { fileId: "file-b", before: beforeB, after: afterB },
+          ];
+          state.redoOrderRef.current = ["file-content", "clipboard-paste"];
+          runRedo(state.args as unknown as Parameters<typeof runRedo>[0]);
+          expect(state.args.clipboardPasteRedoStackRef.current).toHaveLength(1);
+          expect(state.redoOrderRef.current).toEqual([
+            "file-content",
+            "clipboard-paste",
+          ]);
+        }
+        expect(
+          state.args.publishAuthoritativeClipboardMutation,
+        ).not.toHaveBeenCalled();
+        expect(state.applyFileContentUpdate).not.toHaveBeenCalled();
+      } finally {
+        shaderWrites.delete("file-b");
+      }
+    },
+  );
 
   it("does not replay an unmarked global content entry", () => {
     const state = commandArgs();
@@ -446,6 +672,27 @@ function editorCallback(pattern: RegExp, bindings: Record<string, unknown>) {
     ...Object.values(bindings),
   );
 }
+
+it("clears clipboard redo when a new content edit branches history", () => {
+  const state = commandArgs();
+  state.args.clipboardPasteRedoStackRef.current = [
+    {
+      fileId: "file-b",
+      before: "<main>before B</main>",
+      after: "<main>pasted B</main>",
+    },
+  ];
+  state.redoOrderRef.current = ["clipboard-paste"];
+
+  const clearRedoStacks = editorCallback(
+    /const clearRedoStacks = useCallback\((\(\) => \{[\s\S]*?\n  \}), \[\]\);/,
+    state.args,
+  );
+  clearRedoStacks();
+
+  expect(state.args.clipboardPasteRedoStackRef.current).toEqual([]);
+  expect(state.redoOrderRef.current).toEqual([]);
+});
 
 it.each(["rejected", "no-op", "committed", "intervening edit"])(
   "preserves existing Redo until confirmed nonempty commit: %s",

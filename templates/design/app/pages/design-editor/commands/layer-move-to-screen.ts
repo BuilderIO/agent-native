@@ -12,6 +12,7 @@ import {
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { LayersPanelMoveIntent } from "@/components/design/LayersPanel";
 import type {
   ElementInfo,
@@ -561,6 +562,13 @@ export function runLayerMoveToScreen(
     toast.error(t("designEditor.toasts.layerMoveFailed"), {
       duration: 4000,
     });
+    return;
+  }
+
+  const publicationFileIds = new Set(sourceContentMap.keys());
+  if (nextDestContent !== destContent) publicationFileIds.add(targetFileId);
+  if ([...publicationFileIds].some(isShaderWriteInFlight)) {
+    toast.error(t("designEditor.toasts.saveConflict"));
     return;
   }
 

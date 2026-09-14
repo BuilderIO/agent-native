@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import type {
   ElementInfo,
@@ -29,7 +30,10 @@ import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "@/pages/design-editor/commands/selection-publication";
-import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
+import {
+  isStandaloneHttpUrl,
+  type UndoRedoOrderKind,
+} from "@/pages/design-editor/editor-state";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
 import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
 import {
@@ -127,6 +131,7 @@ export interface PasteSelectionArgs {
   getCanvasScreenClipboardEntries: () => DesignClipboardScreenEntry[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
+  historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
   latestClipboardMutationContentRef: RefObject<
     Map<string, ClipboardContentLineage>
   >;
@@ -190,6 +195,7 @@ export async function runPasteSelection(
     getCanvasScreenClipboardEntries,
     getFreshActiveContent,
     getScreenContent,
+    historyOrderRef,
     latestClipboardMutationContentRef,
     pasteCascadeRef,
     pasteCopiedScreens,
@@ -460,6 +466,12 @@ export async function runPasteSelection(
   const applyPasteContentUpdate = (
     nextContent: string,
   ): Extract<ApplyFileContentUpdateResult, { status: "accepted" }> | null => {
+    if (isShaderWriteInFlight(targetFileId)) {
+      toast.error(t("designEditor.toasts.saveConflict"), {
+        id: `design-source-shader-conflict:${targetFileId}`,
+      });
+      return null;
+    }
     const clipboardMutation = publishAuthoritativeClipboardMutation({
       fileId: targetFileId,
       baseContent,
@@ -515,6 +527,10 @@ export async function runPasteSelection(
       ];
       clipboardPasteRedoStackRef.current = [];
       clearRedoStacks();
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "clipboard-paste",
+      ];
       syncUndoRedoState();
     }
     return publication;

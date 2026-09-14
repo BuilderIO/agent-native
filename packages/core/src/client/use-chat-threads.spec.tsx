@@ -738,6 +738,23 @@ describe("useChatThreads", () => {
       updatedAt: Date.now(),
       scope: null,
     };
+    const removeItem = window.localStorage.removeItem.bind(window.localStorage);
+    const removeMarker = vi
+      .spyOn(window.localStorage, "removeItem")
+      .mockImplementation((key) => {
+        if (key === draftMarker) throw new Error("storage cleanup unavailable");
+        removeItem(key);
+      });
+    try {
+      await act(async () => {
+        await hook!.refreshThreads();
+        await Promise.resolve();
+      });
+      expect(window.localStorage.getItem(draftMarker)).toBe("1");
+      expect(hook!.isNewThread(threadId)).toBe(false);
+    } finally {
+      removeMarker.mockRestore();
+    }
     await act(async () => {
       await hook!.refreshThreads();
       await Promise.resolve();

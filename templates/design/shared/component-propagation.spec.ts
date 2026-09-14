@@ -801,4 +801,28 @@ describe("linked component property propagation", () => {
     expect(documents.map(({ content }) => content)).toEqual(before);
     expect(nestedDocuments.map(({ content }) => content)).toEqual(nestedBefore);
   });
+
+  it("refuses malformed override metadata before editing or resetting an instance", () => {
+    const documents = componentDocuments();
+    documents[1]!.content = documents[1]!.content.replace(
+      `${nodeIdAttr}="instance-b-label"`,
+      `${nodeIdAttr}="instance-b-label" ${COMPONENT_OVERRIDES_ATTR}="%"`,
+    );
+    const before = documents.map(({ content }) => content);
+
+    const edit = applyComponentPropertyEdit({
+      documents,
+      target: handle("screen-b", "instance-b-label"),
+      edit: { kind: "style", property: "color", value: "#f00" },
+    });
+    expect(edit.status).toBe("invalid-override-metadata");
+    expect(documents.map(({ content }) => content)).toEqual(before);
+
+    const reset = resetComponentInstanceOverrides({
+      documents,
+      instance: handle("screen-b", "instance-b-label"),
+    });
+    expect(reset.status).toBe("invalid-override-metadata");
+    expect(documents.map(({ content }) => content)).toEqual(before);
+  });
 });

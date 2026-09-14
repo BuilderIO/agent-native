@@ -4,6 +4,11 @@ import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastError = vi.fn();
+const shaderWrites = vi.hoisted(() => new Set<string>());
+vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+  isShaderWriteInFlight: (fileId: string | undefined) =>
+    Boolean(fileId && shaderWrites.has(fileId)),
+}));
 vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => toastError(...args) },
 }));
@@ -142,6 +147,9 @@ function harness(
     getCanvasScreenClipboardEntries: () => [],
     getFreshActiveContent: () => contentByFileId.get(activeFile.id) ?? "",
     getScreenContent: (screenId) => contentByFileId.get(screenId) ?? "",
+    historyOrderRef: ref(
+      [] as PasteSelectionArgs["historyOrderRef"]["current"],
+    ),
     latestClipboardMutationContentRef: lineageRef as never,
     pasteCascadeRef: ref(0),
     pasteCopiedScreens: () => {},
@@ -212,9 +220,14 @@ describe("pasting copied layers with no explicit drop point", () => {
 
   it("keeps the copy inside the frame it came from when the board is the active surface", async () => {
     const { args, writes } = harness();
+    args.historyOrderRef.current = ["selection"];
 
     await runPasteSelection(args);
 
+    expect(args.historyOrderRef.current).toEqual([
+      "selection",
+      "clipboard-paste",
+    ]);
     expect(writes.map((write) => write.fileId)).toEqual(["home"]);
     const acceptedContent = writes[0]!.content;
     const lineage = args.latestClipboardMutationContentRef.current.get("home");
@@ -234,6 +247,23 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(left).toBeLessThan(390);
     expect(top).toBeGreaterThanOrEqual(0);
     expect(top).toBeLessThan(844);
+  });
+
+  it("does not reserve paste history while the target shader write is active", async () => {
+    const { args, writes } = harness();
+    shaderWrites.add("home");
+    try {
+      await runPasteSelection(args);
+
+      expect(writes).toEqual([]);
+      expect(args.clipboardPasteUndoStackRef.current).toEqual([]);
+      expect(args.historyOrderRef.current).toEqual([]);
+      expect(args.latestClipboardMutationContentRef.current.has("home")).toBe(
+        false,
+      );
+    } finally {
+      shaderWrites.delete("home");
+    }
   });
 
   it("keeps a same-Design pasted main linked after the clipboard clone", async () => {
