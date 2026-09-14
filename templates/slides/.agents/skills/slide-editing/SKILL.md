@@ -102,6 +102,50 @@ To edit a slide's content:
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
 
+## Style-Only Edits
+
+For a request that changes appearance and nothing else — colors, borders,
+shadows, background — set `styleOnly: true` on `update-slide`.
+
+`styleOnly` accepts the structured `edits` array and nothing else. `fullContent`
+and the top-level legacy `find` / `replace` / `objectId` fields are rejected in
+this mode, so even a single replacement goes as one `edits` entry:
+
+```jsonc
+{
+  "deckId": "...", "slideId": "...", "styleOnly": true,
+  "baseContentHash": "<contentHash from get-deck>",
+  "edits": [
+    { "find": "background:#111111", "replace": "background:#f4f0e8", "expectedMatches": 1 }
+  ]
+}
+```
+
+The action then rejects any result that changes text, markup, element order, or
+protected layout CSS (padding, margin, gap, font-size, line-height, dimensions,
+positioning), so the edit can only move the declarations you targeted.
+
+### Copying one slide's look onto the rest of the deck
+
+"Make every slide match slide 1" is a per-slide job, not one deck-wide call.
+Each slide declares its own background in its own markup, so there is no single
+string to replace and no shared hash.
+
+1. Read the reference slide with `get-deck` (`slideId`, `compact=false`) and
+   take the background declaration off its `.fmd-slide` wrapper — not off a
+   child. `deckStyle` summarizes the whole deck, including interior gradients,
+   so it is not a substitute for the wrapper's own value.
+2. Read each target slide the same way for its exact current declaration and
+   `contentHash`.
+3. Send one `styleOnly` `edits` call per slide, passing that slide's
+   `contentHash` as `baseContentHash`.
+
+Change only the `.fmd-slide` wrapper's background. Interior card fills, image
+backgrounds, and gradients are separate visual elements; leave them alone unless
+the user asked for those too. A slide whose wrapper already carries no
+background declaration needs one added to the wrapper's `style`, not a
+find/replace against a declaration that is not there.
+
 ## Skipping a Slide
 
 Set a slide's `skipped: true` via a `patch-deck` `patch-slide` operation to
