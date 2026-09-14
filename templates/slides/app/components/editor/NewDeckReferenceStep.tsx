@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
+import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -82,6 +83,9 @@ interface NewDeckReferenceStepProps {
   ) => Promise<ImportedReference | null>;
   onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
+  /** Called after the inline "create a design system" dialog completes, so
+   * the caller can refetch the list and surface the new option. */
+  onDesignSystemsChanged: () => void;
   importing?: boolean;
   title: string;
   designSystemLabel: string;
@@ -104,6 +108,7 @@ export function NewDeckReferenceStep({
   onImportSource,
   onSkip,
   onOpenChange,
+  onDesignSystemsChanged,
   importing = false,
   title,
   designSystemLabel,
@@ -129,6 +134,7 @@ export function NewDeckReferenceStep({
   const [continuing, setContinuing] = useState(false);
   const [importingSource, setImportingSource] =
     useState<FileImportSource | null>(null);
+  const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
@@ -284,14 +290,13 @@ export function NewDeckReferenceStep({
                   {designSystemLabel}
                 </span>
                 {designSystems.length === 0 && (
-                  <a
-                    href="/design-systems"
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => setShowDesignSystemSetup(true)}
                     className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
                   >
                     {t("home.addDesignSystem")}
-                  </a>
+                  </button>
                 )}
               </div>
               <Select
@@ -555,6 +560,15 @@ export function NewDeckReferenceStep({
           <IconCheck className="ms-1.5 size-4" />
         </Button>
       </footer>
+
+      <DesignSystemSetup
+        open={showDesignSystemSetup}
+        onClose={() => setShowDesignSystemSetup(false)}
+        onComplete={() => {
+          setShowDesignSystemSetup(false);
+          onDesignSystemsChanged();
+        }}
+      />
     </div>
   ) : null;
 }
