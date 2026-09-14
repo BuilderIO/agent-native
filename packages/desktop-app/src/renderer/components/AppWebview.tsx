@@ -1618,6 +1618,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           loadFailureRef.current = false;
           setError(false);
           setSlowLoad(false);
+          emitNavigationState();
           return;
         }
         if (!loadFailureRef.current) setSlowLoad(false);
