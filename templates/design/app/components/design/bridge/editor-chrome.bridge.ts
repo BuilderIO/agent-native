@@ -2658,9 +2658,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function resolveNestedSelector(selector: string, scope: string): string {
-    return selector.replace(PORTABLE_STYLE_NESTING_SELECTOR, function (m) {
-      return m === "&" ? ":is(" + scope + ")" : m;
-    });
+    var explicit = false;
+    var resolved = selector.replace(
+      PORTABLE_STYLE_NESTING_SELECTOR,
+      function (m) {
+        if (m !== "&") return m;
+        explicit = true;
+        return ":is(" + scope + ")";
+      },
+    );
+    // Engines serialize a nested selector with its implied `&` made explicit
+    // (`.child` → `& .child`); should one hand back the relative form, the
+    // implied `& ` prefix is restored rather than matching `.child` anywhere
+    // in the document.
+    return explicit ? resolved : ":is(" + scope + ") " + resolved;
   }
 
   type PortableStyleWalkState = {

@@ -2607,9 +2607,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutOpaqueText);
     }
     function resolveNestedSelector(selector, scope) {
-      return selector.replace(PORTABLE_STYLE_NESTING_SELECTOR, function(m) {
-        return m === "&" ? ":is(" + scope + ")" : m;
-      });
+      var explicit = false;
+      var resolved = selector.replace(
+        PORTABLE_STYLE_NESTING_SELECTOR,
+        function(m) {
+          if (m !== "&") return m;
+          explicit = true;
+          return ":is(" + scope + ")";
+        }
+      );
+      return explicit ? resolved : ":is(" + scope + ") " + resolved;
     }
     function walkPortableStyleRules(ruleList, el, property, grouped, state, scope) {
       for (var r = 0; r < ruleList.length; r += 1) {
