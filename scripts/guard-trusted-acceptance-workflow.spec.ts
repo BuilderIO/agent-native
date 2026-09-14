@@ -326,7 +326,27 @@ describe("trusted acceptance reaper boundary", () => {
   it("ties enabled selection and empty-matrix skipping to active workflow wiring", () => {
     const mutations = [
       reaper.replace("workspace.enabled === true && ", ""),
+      reaper.replace(
+        "let selected = configured;",
+        "let selected = config.workspaces;",
+      ),
+      reaper.replace(
+        "selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
+        "selected = config.workspaces.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
+      ),
+      reaper.replace(
+        "selected.map(({id}) => ({workspace: id}))",
+        "config.workspaces.map(({id}) => ({workspace: id}))",
+      ),
       reaper.replace("selected.length > 0", "selected.length >= 0"),
+      reaper.replace(
+        "matrix: ${{ steps.workspaces.outputs.matrix }}",
+        "matrix: 'static'",
+      ),
+      reaper.replace(
+        "matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}",
+        "matrix: 'static'",
+      ),
       reaper.replace(
         "has_workspaces: ${{ steps.workspaces.outputs.has_workspaces }}",
         "has_workspaces: 'true'",
@@ -334,6 +354,10 @@ describe("trusted acceptance reaper boundary", () => {
       reaper.replace(
         "if: needs.plan.outputs.has_workspaces == 'true'",
         "if: always()",
+      ),
+      reaper.replace(
+        "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);",
+        "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);\n          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=true\\n`);",
       ),
     ];
 

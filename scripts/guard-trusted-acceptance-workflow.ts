@@ -352,7 +352,6 @@ export function validateTrustedAcceptanceReaper(
   if (!source.includes("environment: trusted-acceptance"))
     issues.push("reaper must use the protected acceptance environment");
   if (
-    !source.includes("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}") ||
     !source.includes("group: trusted-acceptance-${{ matrix.workspace }}") ||
     !source.includes("cancel-in-progress: false")
   )
@@ -391,44 +390,76 @@ export function validateTrustedAcceptanceReaper(
     isRecord(workspaceStep) && typeof workspaceStep.run === "string"
       ? workspaceStep.run
       : "";
+  const runLines = selector.split("\n").map((line) => line.trim());
+  const selectionAssignments = runLines.filter((line) =>
+    /^(?:let )?selected =/.test(line),
+  );
   if (
     !/^\s*const configured = config\.workspaces\.filter\(workspace => workspace\.enabled === true && workspace\.runtimeAuthority\?\.provisioner\?\.kind === ["']trusted-lease-v1["']\);?\s*$/m.test(
       selector,
-    )
-  ) {
-    issues.push("reaper must select only enabled trusted-lease workspaces");
-  }
-  if (
-    !/^\s*fs\.appendFileSync\(process\.env\.GITHUB_OUTPUT, `has_workspaces=\$\{selected\.length > 0\}\\n`\);\s*$/m.test(
-      selector,
-    )
+    ) ||
+    selectionAssignments.length !== 2 ||
+    selectionAssignments[0] !== "let selected = configured;" ||
+    selectionAssignments[1] !==
+      "selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);"
   ) {
     issues.push(
-      "reaper must derive the empty-matrix output from selected workspaces",
+      "reaper must derive scheduled and manual selections from enabled trusted-lease workspaces",
+    );
+  }
+
+  const matrixWrite =
+    "fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({include: selected.map(({id}) => ({workspace: id}))})}\\n`);";
+  const matrixWrites = runLines.filter((line) =>
+    line.startsWith("fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix="),
+  );
+  if (matrixWrites.length !== 1 || matrixWrites[0] !== matrixWrite) {
+    issues.push(
+      "reaper matrix output must be built from the selected workspaces",
+    );
+  }
+
+  const hasWorkspacesWrite =
+    "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);";
+  const hasWorkspacesWrites = runLines.filter((line) =>
+    line.startsWith(
+      "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=",
+    ),
+  );
+  if (
+    hasWorkspacesWrites.length !== 1 ||
+    hasWorkspacesWrites[0] !== hasWorkspacesWrite
+  ) {
+    issues.push(
+      "reaper must write the empty-matrix output once from selected workspaces",
     );
   }
   if (
     !isRecord(plan.outputs) ||
+    plan.outputs.matrix !== "${{ steps.workspaces.outputs.matrix }}" ||
     plan.outputs.has_workspaces !==
       "${{ steps.workspaces.outputs.has_workspaces }}"
   ) {
     issues.push(
-      "reaper plan must expose the workspace step's empty-matrix output",
+      "reaper plan must expose the workspace step's matrix and empty-matrix outputs",
     );
   }
 
+  const reapStrategy = isRecord(reap.strategy) ? reap.strategy : undefined;
   const reapNeedsPlan =
     reap.needs === "plan" ||
     (Array.isArray(reap.needs) && reap.needs.includes("plan"));
   if (
     !reapNeedsPlan ||
+    !reapStrategy ||
+    reapStrategy.matrix !== "${{ fromJSON(needs.plan.outputs.matrix) }}" ||
     typeof reap.if !== "string" ||
     !/^\s*(?:\$\{\{\s*)?needs\.plan\.outputs\.has_workspaces\s*==\s*'true'(?:\s*\}\})?\s*$/.test(
       reap.if,
     )
   ) {
     issues.push(
-      "reaper job must depend on plan and skip when no workspaces were selected",
+      "reaper job must consume the plan matrix and skip when no workspaces were selected",
     );
   }
   return { ok: issues.length === 0, issues };
