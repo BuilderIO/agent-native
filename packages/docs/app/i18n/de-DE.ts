@@ -984,19 +984,70 @@ const deDE = {
     },
     assets: {
       faq: {
-        question1: "Kann KI markenkonforme Bilder erzeugen?",
+        question1: "Was ist Agent-Native Assets?",
         answer1:
-          "Ja — die Generierung stützt sich auf Ihre hochgeladenen Markenbibliotheken und Referenzen, nicht auf den Geschmack eines generischen Modells. Markenkonforme Bilder und Videos entstehen nach Regeln, die der Agent tatsächlich gelesen hat.",
-        question2: "Wie unterscheidet sich Assets von einem DAM?",
+          "Agent-Native Assets ist eine kostenlose Open-Source-Markenbibliothek mit KI-Bild- und Videogenerierung. Organisieren Sie vorhandene Medien, stellen Sie Markenreferenzen bereit und arbeiten Sie mit einem KI-Agenten, um Assets projektübergreifend zu erzeugen, zu bearbeiten und wiederzuverwenden.",
+        question2: "Wie nutzt Assets meine Markenrichtlinien?",
         answer2:
-          "Ein DAM speichert freigegebene Dateien, damit Menschen sie suchen können. Assets tut das ebenfalls und macht die Marke maschinenlesbar — so erzeugen und wählen Agents standardmäßig markenkonforme Medien aus.",
-        question3: "Können meine anderen Apps Assets verwenden?",
+          "Fügen Sie Ihrem Markenkit Ihr Logo, Referenzbilder, Farben und Stilnotizen hinzu. Wiederverwendbare Vorlagen liefern Anweisungen für bestimmte Inhaltstypen. Ihr KI-Agent nutzt diesen Kontext, um die Generierung zu steuern, und Sie können die Ergebnisse vor dem Speichern überprüfen und verfeinern.",
+        question3:
+          "Kann ich vorhandene Bilder und Videos hochladen und organisieren?",
         answer3:
-          "Ja — jede Agent-Native-App kann Assets über A2A aufrufen oder als Auswahl einbetten, sodass Apps wie Slides und Design dieselbe freigegebene Bibliothek nutzen.",
-        question4: "Ist Assets kostenlos?",
+          "Ja. Laden Sie vorhandene Medien hoch oder importieren Sie ein Asset über eine URL und organisieren Sie es zusammen mit generierten Inhalten in Bibliotheken und Ordnern. Sie können die Bibliothek durchsuchen, Assets als Referenzen wiederverwenden oder für ein anderes Projekt exportieren.",
+        question4:
+          "Kann mein KI-Agent Assets aus einer anderen App heraus verwenden?",
         answer4:
-          "Ja — kostenlos und Open Source. `npx @agent-native/core@latest create my-assets-app --template assets` und die App gehört Ihnen.",
+          "Ja. Verbinden Sie einen unterstützten Agenten über die MCP-Integration von Assets, um Medien im Chat zu suchen, zu generieren und auszuwählen. Agent-Native-Apps können Assets auch anfordern oder eine Auswahl einbetten. Der verfügbare Funktionsumfang hängt von der Host-App und ihrer Verbindung zu Assets ab.",
+        question5:
+          "Kann Assets mein tatsächliches Logo in generierten Bildern verwenden?",
+        answer5:
+          "Ja. Legen Sie ein kanonisches Logo in Ihrem Markenkit fest und aktivieren Sie das Logo-Compositing für die Generierung. Assets platziert das Originallogo nach der Generierung auf dem Bild, sodass das Bildmodell es nicht neu zeichnet. Überprüfen Sie die Platzierung und das umgebende Bild vor der Verwendung.",
       },
+      s001: "Screenshot der Vorlage Assets",
+      // V3 landing page copy (2026-09-11) — hero through final CTA below.
+      heroEyebrow: "Assets",
+      heroTitle:
+        "Markenmaterial mit Ihrem KI-Agenten erstellen und verwalten",
+      heroDescription:
+        "Assets ist eine kostenlose Open-Source-Marken-Asset-Bibliothek zum Organisieren Ihrer Bilder, Videos und Markenreferenzen, mit einem KI-Agenten, der Medien anhand Ihres Markenkits generiert und bearbeitet.",
+      heroCta: "Assets öffnen",
+      useCasesHeading: "Was können Sie mit Assets tun?",
+      useCasesBody:
+        "Erstellen Sie Kampagnenbilder, passen Sie Visuals für neue Projekte an oder geben Sie Ihrem Team und Ihren KI-Agenten eine gemeinsame Markenbibliothek.",
+      useCase1Title: "Kampagnen-Visuals erstellen",
+      useCase1Body:
+        "Bitten Sie Ihren KI-Agenten um Blogbilder, Social-Media-Grafiken oder Launch-Visuals anhand Ihrer Markenreferenzen. Vergleichen Sie die Optionen und verfeinern Sie die ausgewählte.",
+      useCase2Title: "Bilder für neue Projekte anpassen",
+      useCase2Body:
+        "Geben Sie Ihrem KI-Agenten ein vorhandenes Bild und beschreiben Sie die gewünschten Änderungen, etwa einen anderen Hintergrund oder Platz für eine Überschrift.",
+      useCase3Title: "Markenmaterial teamübergreifend teilen",
+      useCase3Body:
+        "Bewahren Sie Logos, Produktbilder und Markenreferenzen an einem Ort auf, damit Teammitglieder und verbundene KI-Agenten Medien für Präsentationen, Websites und andere Projekte finden.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was Sie zum Generieren, Verfeinern und Wiederverwenden brauchen",
+      feature1Title: "Marken-Asset-Bibliotheken",
+      feature1Body:
+        "Organisieren Sie hochgeladene und generierte Medien in Bibliotheken und Ordnern. Fügen Sie Logos, Referenzbilder und Stilnotizen für Ihren KI-Agenten hinzu.",
+      feature2Title: "KI-Bild- und Videogenerierung",
+      feature2Body:
+        "Beschreiben Sie die benötigten Medien und wählen Sie Ihre Markenreferenzen aus. Generieren Sie Bildoptionen oder kurze Videos und prüfen Sie die Ergebnisse vor dem Speichern.",
+      feature3Title: "Bildbearbeitung",
+      feature3Body:
+        "Bitten Sie Ihren KI-Agenten, ein Bild zu bearbeiten oder umzugestalten. Nutzen Sie ein vorhandenes Asset als Referenz und verfeinern Sie es durch Feedback.",
+      feature4Title: "Wiederverwendbare Vorlagen",
+      feature4Body:
+        "Speichern Sie Generierungsanweisungen für wiederkehrende Arbeiten, etwa Blog-Titelbilder oder Social-Media-Grafiken. Verknüpfen Sie Vorlagen mit einem Markenkit, um dessen Referenzen wiederzuverwenden.",
+      feature5Title: "Platzierung des Originallogos",
+      feature5Body:
+        "Legen Sie das Logo Ihres Markenkits fest und fügen Sie es generierten Bildern hinzu. Das Logo-Compositing platziert die Originaldatei, statt eine neue Version zu generieren.",
+      feature6Title: "Agentenzugriff",
+      feature6Body:
+        "Verbinden Sie Ihren KI-Agenten, um die Bibliothek zu durchsuchen, Medien zu generieren und Assets im Chat auszuwählen. Unterstützte Apps können außerdem eine Asset-Auswahl einbetten.",
+      finalCtaHeading: "Erstellen Sie Ihr nächstes Markenmaterial",
+      finalCtaBody:
+        "Wählen Sie Ihre Referenzen aus und teilen Sie Ihrem KI-Agenten mit, was Sie brauchen.",
+      finalCtaButton: "Assets öffnen",
     },
     chat: {
       faq: {

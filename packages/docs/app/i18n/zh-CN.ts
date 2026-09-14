@@ -947,19 +947,63 @@ const zhCN = {
     },
     assets: {
       faq: {
-        question1: "AI 能生成符合品牌的图片吗？",
+        question1: "什么是 Agent-Native Assets？",
         answer1:
-          "可以。生成会以你上传的品牌素材库和参考资料为依据，而不是依赖通用模型的审美。代理会实际读取规则，据此生成符合品牌的图片和视频。",
-        question2: "Assets 与 DAM 有什么不同？",
+          "Agent-Native Assets 是一款免费开源的品牌素材库，具备 AI 图片和视频生成能力。你可以整理现有媒体、提供品牌参考资料，并与 AI 智能体协作，在多个项目中生成、编辑和复用素材。",
+        question2: "Assets 如何使用我的品牌规范？",
         answer2:
-          "DAM 存储经过批准的文件，供人搜索。Assets 不仅能做到这一点，还会让品牌信息变得机器可读，使代理默认就能生成并选择符合品牌的媒体。",
-        question3: "我的其他应用可以使用它吗？",
+          "把你的标志、参考图片、颜色和风格说明添加到品牌套件中。可复用模板会针对特定内容类型提供生成指示。你的 AI 智能体会依据这些上下文来指导生成过程，你也可以在保存前查看并完善结果。",
+        question3: "我可以上传并整理现有的图片和视频吗？",
         answer3:
-          "可以。任何 Agent-Native 应用都能通过 A2A 调用 Assets，或将其嵌入为选择器，因此 Slides、Design 等应用可使用同一个经过批准的素材库。",
-        question4: "Assets 免费吗？",
+          "可以。上传现有媒体，或通过 URL 导入素材，然后将其与生成内容一起归入素材库和文件夹中。你可以浏览、搜索素材库，把素材当作参考再次使用，或将其导出用于其他项目。",
+        question4: "我的 AI 智能体可以从其他应用调用 Assets 吗？",
         answer4:
-          "免费且开源。运行 `npx @agent-native/core@latest create my-assets-app --template assets`，它就属于你。",
+          "可以。通过 Assets 的 MCP 集成连接受支持的智能体，即可在聊天中搜索、生成和选择媒体。Agent-Native 应用也可以请求素材或嵌入选择器。具体的可用体验取决于宿主应用及其与 Assets 的连接方式。",
+        question5: "Assets 能在生成的图片中使用我的真实标志吗？",
+        answer5:
+          "可以。在品牌套件中设置一个标准标志，并在生成时启用标志合成。Assets 会在生成完成后把原始标志置入图片，因此图像模型不会重新绘制它。使用前请检查标志的位置以及周围图像的效果。",
       },
+      s001: "Assets 应用截图",
+      heroEyebrow: "Assets",
+      heroTitle: "用你的 AI 智能体创建和管理品牌素材",
+      heroDescription:
+        "Assets 是一款免费开源的品牌素材库，用于整理你的图片、视频和品牌参考资料，并配有 AI 智能体，能使用你的品牌套件生成和编辑媒体。",
+      heroCta: "打开 Assets",
+      useCasesHeading: "用 Assets 能做什么？",
+      useCasesBody:
+        "创建活动图片，为新项目调整素材，或为团队和 AI 智能体提供一个共享的品牌素材库。",
+      useCase1Title: "创建营销活动素材",
+      useCase1Body:
+        "让你的 AI 智能体根据品牌参考资料生成博客配图、社交媒体图片或上线宣传素材。比较不同选项，再完善你选中的那一个。",
+      useCase2Title: "为新项目调整图片",
+      useCase2Body:
+        "把一张现有图片交给你的 AI 智能体，说明你需要的改动，比如更换背景，或为标题预留空间。",
+      useCase3Title: "在各项工作中共享品牌素材",
+      useCase3Body:
+        "把标志、产品图片和品牌参考资料集中存放，让团队成员和已连接的 AI 智能体都能找到用于演示文稿、网站和其他项目的媒体。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "生成、完善和复用所需的一切",
+      feature1Title: "品牌素材库",
+      feature1Body:
+        "在素材库和文件夹中整理上传和生成的媒体。添加标志、参考图片和风格说明，供你的 AI 智能体使用。",
+      feature2Title: "AI 图片与视频生成",
+      feature2Body:
+        "描述你需要的媒体，选择你的品牌参考资料。生成多个图片方案或短视频，保存前先查看结果。",
+      feature3Title: "图片编辑",
+      feature3Body:
+        "让你的 AI 智能体编辑或重新设计一张图片。以现有素材为参考，通过反馈不断完善。",
+      feature4Title: "可复用模板",
+      feature4Body:
+        "为博客封面、社交媒体图片等常见任务保存生成指令。将模板关联到品牌套件，以复用其参考资料。",
+      feature5Title: "原始标志置入",
+      feature5Body:
+        "在品牌套件中设置你的标志，并将其添加到生成的图片中。标志合成会直接置入原始文件，而不是重新生成一份。",
+      feature6Title: "智能体接入",
+      feature6Body:
+        "连接你的 AI 智能体即可搜索素材库、生成媒体，并在聊天中选择素材。受支持的应用还可以嵌入素材选择器。",
+      finalCtaHeading: "创建你的下一份品牌素材",
+      finalCtaBody: "选好参考资料，告诉你的 AI 智能体你需要什么。",
+      finalCtaButton: "打开 Assets",
     },
     clips: {
       s001: "Clips 模板屏幕截图",
