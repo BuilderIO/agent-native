@@ -71,6 +71,7 @@ const REPO_ROOT = path.resolve(
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
+  ".tmp",
   "dist",
   "build",
   ".next",

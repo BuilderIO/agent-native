@@ -301,7 +301,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "هذا المتصفح لا يدعم المحادثات الصوتية في الوقت الفعلي.",
   "voiceMode.hideChat": "إخفاء المحادثة",
-  "voiceMode.keepDictating": "إملاء",
+  "voiceMode.keepDictating": "إملاء رسالة",
   "voiceMode.promptDescription":
     "يستمر الوضع الصوتي في الاستماع أثناء تنقّل الوكيل وتنفيذه للإجراءات.",
   "voiceMode.promptTitle": "استخدم صوتك",
@@ -343,7 +343,7 @@ const messages: AgentChatTranslation = {
     "اتصل بـ Builder.io لاستخدام الصوت المُدار بأرصدة مجانية، أو أضف مفاتيحك الخاصة.",
   "voiceMode.setupTitle": "إعداد الوضع الصوتي",
   "voiceMode.showChat": "إظهار المحادثة",
-  "voiceMode.start": "صوت في الوقت الفعلي",
+  "voiceMode.start": "بدء محادثة صوتية",
   "voiceMode.startWithOpenAiKey": "البدء باستخدام مفتاح OpenAI",
   "voiceMode.status.connecting": "جارٍ الاتصال",
   "voiceMode.status.ending": "جارٍ إنهاء الوضع الصوتي",
