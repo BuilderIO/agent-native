@@ -372,6 +372,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "没有帮助",
   "feedback.placeholder": "告诉我们哪里出了问题……",
   "feedback.submit": "提交",
+  "feedback.submitted": "反馈已提交",
   "feedback.thumbsDown": "不喜欢",
   "feedback.thumbsUp": "喜欢",
   "feedback.tooSlow": "太慢",

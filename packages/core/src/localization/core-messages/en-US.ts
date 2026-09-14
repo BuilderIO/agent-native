@@ -392,6 +392,7 @@ const messages = {
   "feedback.notHelpful": "Not helpful",
   "feedback.placeholder": "Tell us what went wrong...",
   "feedback.submit": "Submit",
+  "feedback.submitted": "Feedback submitted",
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",
