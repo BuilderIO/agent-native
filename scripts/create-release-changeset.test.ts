@@ -4,12 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { NPM_PUBLISH_PACKAGE_NAMES } from "./changeset-publish-sequential.ts";
 import {
   createReleaseChangeset,
   parseReleaseBumpType,
   releaseChangesetContents,
 } from "./create-release-changeset.ts";
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
 
 describe("create release changeset", () => {
   it("accepts only the supported stable bump types", () => {

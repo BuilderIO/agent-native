@@ -90,6 +90,16 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
+  // Real class, not vi.fn(): production code does `instanceof
+  // GmailQuotaCooldownError` to classify cooldown errors, which only works
+  // against the actual constructor.
+  GmailQuotaCooldownError: class GmailQuotaCooldownError extends Error {
+    retryAfterMs: number;
+    constructor(message: string, retryAfterMs: number) {
+      super(message);
+      this.retryAfterMs = retryAfterMs;
+    }
+  },
   gmailBatchGetMessages: vi.fn(),
   gmailBatchGetThreads: vi.fn(),
   gmailGetMessage: vi.fn(),
@@ -641,6 +651,41 @@ describe("gmailToEmailMessage", () => {
       name: "Cuevas, Gustavo",
       email: "cuevas@example.com",
     });
+  });
+
+  it("embeds inline image data when Gmail omits an attachment id", () => {
+    const imageData = Buffer.from("inline-image").toString("base64url");
+    const html = Buffer.from(
+      '<img alt="logo" src="cid:image001%40example.com">',
+    ).toString("base64url");
+    const message = gmailToEmailMessage({
+      id: "message-inline-image",
+      threadId: "thread-inline-image",
+      internalDate: "1750000000000",
+      labelIds: ["INBOX"],
+      payload: {
+        mimeType: "multipart/related",
+        headers: [
+          { name: "From", value: "sender@example.com" },
+          { name: "Date", value: "2025-06-15T12:00:00.000Z" },
+        ],
+        parts: [
+          { mimeType: "text/html", body: { data: html } },
+          {
+            mimeType: "image/png",
+            headers: [
+              { name: "Content-ID", value: " <image001@example.com> " },
+            ],
+            body: { data: imageData },
+          },
+        ],
+      },
+      snippet: "",
+    });
+
+    expect(message.bodyHtml).toBe(
+      '<img alt="logo" src="data:image/png;base64,aW5saW5lLWltYWdl">',
+    );
   });
 });
 

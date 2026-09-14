@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
@@ -40,6 +39,7 @@ import {
   IconMailForward,
   IconStar,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
@@ -64,7 +64,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  applyDraftSaveResult,
+  DRAFT_DELETE_FAILED_EVENT,
+  DRAFT_SAVE_FAILED_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import {
   useLabels,
@@ -213,6 +218,33 @@ function labelDepth(name: string): number {
   return Math.max(0, name.split("/").length - 1);
 }
 
+export interface LabelTreeRow {
+  label: Label;
+  depth: number;
+  displayName: string;
+}
+
+/**
+ * Sort labels by full path (case-insensitive, natural) and compute each
+ * row's nesting depth and leaf display name. A parent path that has no
+ * label of its own (e.g. "1-clients" when only "1-clients/electric kiwi"
+ * exists) is never synthesized — the child just sorts and indents where
+ * the parent would have been.
+ */
+export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
+  return [...labels]
+    .sort((a, b) =>
+      a.name
+        .toLowerCase()
+        .localeCompare(b.name.toLowerCase(), undefined, { numeric: true }),
+    )
+    .map((label) => ({
+      label,
+      depth: labelDepth(label.name),
+      displayName: shortLabelName(label.name),
+    }));
+}
+
 /**
  * Move `draggedId` next to `targetId` (before it when `side` is "left",
  * after when "right"), or to the end of the list when `targetId` is
@@ -298,6 +330,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
+  useEffect(() => {
+    const handleDraftSaveFailed = () => {
+      toast.error(t("mail.toasts.failedToSaveDraft"));
+    };
+    const handleDraftDeleteFailed = () => {
+      toast.error(t("mail.toasts.failedToDeleteDraft"));
+    };
+    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleDraftSaveFailed);
+    window.addEventListener(DRAFT_DELETE_FAILED_EVENT, handleDraftDeleteFailed);
+    return () => {
+      window.removeEventListener(
+        DRAFT_SAVE_FAILED_EVENT,
+        handleDraftSaveFailed,
+      );
+      window.removeEventListener(
+        DRAFT_DELETE_FAILED_EVENT,
+        handleDraftDeleteFailed,
+      );
+    };
+  }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -1088,12 +1140,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       key: "Tab",
       shouldHandle: canCycleTab,
       handler: () => cycleTab(false),
+      skipInInput: false,
     },
     {
       key: "Tab",
       shift: true,
       shouldHandle: canCycleTab,
       handler: () => cycleTab(true),
+      skipInInput: false,
     },
     {
       key: "Escape",
@@ -1232,7 +1286,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               </nav>
             ) : (
               <nav
-                className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                className="hidden sm:flex flex-nowrap min-w-0 items-center gap-1 overflow-x-auto hide-scrollbar"
                 data-mail-tab-list
               >
                 {topBarTabs.map((tab, tabIndex) => {
@@ -1252,16 +1306,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   const link = (
                     <Link
                       to={tab.href}
+                      aria-current={tab.isActive ? "page" : undefined}
                       draggable={canDrag}
                       onDragStart={(e) =>
                         dragItemForTab && handleTabDragStart(e, dragItemForTab)
                       }
                       onDragEnd={handleTabDragEnd}
                       className={cn(
-                        "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px]",
+                        "flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] transition-colors",
                         tab.isActive
-                          ? "text-foreground font-semibold"
-                          : "text-muted-foreground font-medium hover:text-foreground/80",
+                          ? "bg-accent text-foreground font-semibold"
+                          : "text-muted-foreground font-medium hover:bg-accent/50 hover:text-foreground/80",
                       )}
                     >
                       {tab.color && (
@@ -1288,7 +1343,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   return (
                     <div
                       key={tab.pinnedId || tab.id}
-                      className="relative flex items-center"
+                      className="relative flex shrink-0 items-center"
                       onDragOver={(e) => handleTabDragOver(e, tabIndex)}
                       onDrop={handleTabDrop}
                     >
@@ -1312,7 +1367,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
                 {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
                 {currentInHidden && (
-                  <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                  <span className="flex shrink-0 items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
                     {t(
                       collapsibleViews.find((v) => v.id === view)?.labelKey ??
                         "mail.views.inbox",
@@ -1612,42 +1667,55 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               >
                 {!showCollapsedSidebar && (
                   <div className="ms-auto flex items-center gap-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (sidebarPinned) {
-                              setSidebarPinned(false);
-                              setSidebarOpen(!isMobile);
-                              return;
+                    {isMobile ? (
+                      // The drawer is always a slide-out overlay on mobile,
+                      // so "pin" has nothing to pin here — offer to close it.
+                      <button
+                        type="button"
+                        onClick={() => setSidebarOpen(false)}
+                        className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        aria-label={t("mail.toolbar.closeSidebar")}
+                      >
+                        <IconX className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sidebarPinned) {
+                                setSidebarPinned(false);
+                                setSidebarOpen(true);
+                                return;
+                              }
+                              setSidebarPinned(true);
+                              setSidebarOpen(true);
+                            }}
+                            className={cn(
+                              "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                              sidebarPinned && "text-foreground bg-accent/50",
+                            )}
+                            aria-label={
+                              sidebarPinned
+                                ? t("mail.toolbar.unpinSidebar")
+                                : t("mail.toolbar.pinSidebar")
                             }
-                            setSidebarPinned(true);
-                            setSidebarOpen(true);
-                          }}
-                          className={cn(
-                            "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                            sidebarPinned && "text-foreground bg-accent/50",
-                          )}
-                          aria-label={
-                            sidebarPinned
-                              ? t("mail.toolbar.unpinSidebar")
-                              : t("mail.toolbar.pinSidebar")
-                          }
-                        >
-                          {sidebarPinned ? (
-                            <IconPinnedFilled className="h-4 w-4" />
-                          ) : (
-                            <IconPin className="h-4 w-4" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {sidebarPinned
-                          ? t("mail.toolbar.unpinSidebar")
-                          : t("mail.toolbar.pinSidebar")}
-                      </TooltipContent>
-                    </Tooltip>
+                          >
+                            {sidebarPinned ? (
+                              <IconPinnedFilled className="h-4 w-4" />
+                            ) : (
+                              <IconPin className="h-4 w-4" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {sidebarPinned
+                            ? t("mail.toolbar.unpinSidebar")
+                            : t("mail.toolbar.pinSidebar")}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                 )}
               </AppSidebarHeader>
@@ -1974,30 +2042,35 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               const draft = popoutDrafts.find((d) => d.id === id);
               const hasContent = !!(
                 draft?.to?.trim() ||
+                draft?.cc?.trim() ||
+                draft?.bcc?.trim() ||
                 draft?.subject?.trim() ||
                 draft?.body?.trim()
               );
               const snapshot = draft ? { ...draft } : null;
-              compose.close(id);
+              const savePromise = compose.close(id);
               if (hasContent && snapshot) {
-                toast("Draft saved.", {
+                toast(t("mail.toasts.draftClosed"), {
                   action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      const { id: _id, ...reopenData } = snapshot;
+                    label: t("mail.compose.reopenDraft"),
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      const { id: _id, ...reopenData } = savedSnapshot;
                       compose.open(reopenData);
                     },
                   },
                   cancel: {
-                    label: "DELETE DRAFT",
-                    onClick: () => {
-                      if (snapshot.savedDraftId) {
-                        void fetch(
-                          appApiPath(`/api/emails/${snapshot.savedDraftId}`),
-                          {
-                            method: "DELETE",
-                          },
-                        );
+                    label: t("mail.compose.deleteDraft"),
+                    onClick: async () => {
+                      const savedSnapshot = applyDraftSaveResult(
+                        snapshot,
+                        await savePromise,
+                      );
+                      if (savedSnapshot.savedDraftId) {
+                        await compose.deleteSavedDraft(savedSnapshot);
                       }
                     },
                   },
@@ -2006,44 +2079,87 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             }}
             onCloseAll={() => {
               const draftsWithContent = popoutDrafts.filter(
-                (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+                (d) =>
+                  !!(
+                    d.to?.trim() ||
+                    d.cc?.trim() ||
+                    d.bcc?.trim() ||
+                    d.subject?.trim() ||
+                    d.body?.trim()
+                  ),
               );
               const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const ids = popoutDrafts.map((d) => d.id);
-              ids.forEach((id) => compose.close(id));
+              const savePromises = compose.closeAll(
+                popoutDrafts.map((draft) => draft.id),
+              );
               if (snapshots.length > 0) {
-                toast(`${snapshots.length} draft(s) saved.`, {
-                  action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        const { id: _id, ...reopenData } = snap;
-                        compose.open(reopenData);
-                      }
-                    },
-                  },
-                  cancel: {
-                    label: "DELETE DRAFTS",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        if (snap.savedDraftId) {
-                          void fetch(
-                            appApiPath(`/api/emails/${snap.savedDraftId}`),
-                            {
-                              method: "DELETE",
-                            },
+                toast(
+                  t("mail.toasts.draftsClosed", { count: snapshots.length }),
+                  {
+                    action: {
+                      label: t("mail.compose.reopenDraft"),
+                      onClick: async () => {
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
+                        );
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.setActiveId(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
                           );
+                          const { id: _id, ...reopenData } = savedSnapshot;
+                          compose.open(reopenData);
                         }
-                      }
+                      },
+                    },
+                    cancel: {
+                      label: t("mail.compose.deleteDrafts"),
+                      onClick: async () => {
+                        const saveResults = await Promise.all(
+                          snapshots.map(async (snapshot) => ({
+                            snapshot,
+                            result: await savePromises.get(snapshot.id),
+                          })),
+                        );
+                        for (const { snapshot, result } of saveResults) {
+                          if (
+                            result?.status === "failed" ||
+                            result?.status === "unavailable" ||
+                            result?.status === "cancelled"
+                          ) {
+                            compose.discard(snapshot.id);
+                            continue;
+                          }
+                          const savedSnapshot = applyDraftSaveResult(
+                            snapshot,
+                            result,
+                          );
+                          if (savedSnapshot.savedDraftId) {
+                            await compose.deleteSavedDraft(savedSnapshot);
+                          }
+                        }
+                      },
                     },
                   },
-                });
+                );
               }
             }}
             onDiscard={compose.discard}
+            onStageForSend={compose.stageForSend}
+            onRestoreAfterSend={compose.restoreAfterSend}
             onNewDraft={handleCompose}
             onFlush={compose.flush}
-            onReopen={compose.open}
             onInitialExpandedConsumed={clearComposeInitialExpanded}
           />
         );
@@ -2353,16 +2469,19 @@ function CheckboxRow({
   checked,
   label,
   color,
+  indent = 0,
   onToggle,
 }: {
   checked: boolean;
   label: string;
   color?: string;
+  indent?: number;
   onToggle: () => void;
 }) {
   return (
     <button
       onClick={onToggle}
+      style={indent ? { paddingInlineStart: 12 + indent } : undefined}
       className="flex items-center gap-2.5 w-full px-3 py-1.5 text-start hover:bg-accent/50 transition-colors"
     >
       <span
@@ -2470,17 +2589,15 @@ function TabSettingsPopover({
     : mergedCategories;
   const filteredLabels = allLabels.filter((l) => !gmailCategoryIds.has(l.id));
 
-  // Sort: pinned first, then alphabetical
-  const sortedLabels = [...filteredLabels].sort((a, b) => {
-    const ap = pinnedLabels.includes(a.id) ? 0 : 1;
-    const bp = pinnedLabels.includes(b.id) ? 0 : 1;
-    return ap - bp || a.name.localeCompare(b.name);
-  });
+  // Nested by full label path so e.g. "1-clients/electric kiwi" sorts and
+  // indents under where "1-clients" would sort, even when "1-clients" isn't
+  // a label of its own.
+  const labelRows = labelTreeRows(filteredLabels);
 
   const showViews = filteredViews.length > 0;
   const showSavedFilters = filteredSavedFilters.length > 0;
   const showCategories = filteredCategories.length > 0;
-  const showLabels = sortedLabels.length > 0;
+  const showLabels = labelRows.length > 0;
   const noResults =
     !showViews && !showSavedFilters && !showCategories && !showLabels && search;
 
@@ -2591,20 +2708,25 @@ function TabSettingsPopover({
             >
               {t("mail.views.labels")}
             </p>
-            {sortedLabels.map((label) => {
+            {labelRows.map(({ label, depth, displayName: leafName }) => {
               const isPinned = pinnedLabels.includes(label.id);
               const isEditing = editingId === label.id;
               const alias = labelAliases[label.id];
               const displayName =
-                alias ||
-                labelDisplayNames.get(label.id) ||
-                shortLabelName(label.name);
+                alias || labelDisplayNames.get(label.id) || leafName;
 
               return (
                 <div key={label.id} className="group flex items-center">
                   <div className="flex-1 min-w-0">
                     {isEditing ? (
-                      <div className="flex items-center gap-1 px-3 py-1">
+                      <div
+                        className="flex items-center gap-1 px-3 py-1"
+                        style={
+                          depth
+                            ? { paddingInlineStart: 12 + depth * 12 }
+                            : undefined
+                        }
+                      >
                         <input
                           autoFocus
                           value={editValue}
@@ -2622,8 +2744,7 @@ function TabSettingsPopover({
                           }}
                           className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
                           placeholder={
-                            labelDisplayNames.get(label.id) ||
-                            shortLabelName(label.name)
+                            labelDisplayNames.get(label.id) || leafName
                           }
                         />
                       </div>
@@ -2632,6 +2753,7 @@ function TabSettingsPopover({
                         checked={isPinned}
                         label={displayName}
                         color={label.color}
+                        indent={depth * 12}
                         onToggle={() => onToggle(label.id)}
                       />
                     )}

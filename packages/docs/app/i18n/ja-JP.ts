@@ -58,6 +58,10 @@ const jaJP = {
     draftLabel: "ドラフト",
     draftDescription:
       "このページは作成中です。内容は公開前に不完全であったり変更される場合があります。",
+    translationLabel: "機械翻訳",
+    translationDescription:
+      "このページは自動的に翻訳されたもので、内容が完全に正確でない場合があります。",
+    translationViewOriginal: "英語の原文を見る",
   },
   search: {
     dialogLabel: "ドキュメントを検索",
@@ -2264,6 +2268,7 @@ const jaJP = {
     dropInAgent: "Drop-in Agent の追加",
     componentApi: "コンポーネント API",
     nativeChatUi: "ネイティブチャット UI",
+    agentkit: "AgentKit",
     generativeUi: "生成 UI",
     realTimeCollaboration: "リアルタイム共同編集",
     agentResourcesOverview: "エージェント リソースの概要",
@@ -2318,7 +2323,7 @@ const jaJP = {
     content: "コンテンツ",
     contentOverview: "概要",
     contentEditing: "執筆と整理",
-    contentDatabases: "データベースとフォーム",
+    contentDatabases: "コレクションとフォーム",
     contentSync: "ローカルファイルと同期",
     contentDevelopers: "開発者ガイド",
     plans: "Plans",

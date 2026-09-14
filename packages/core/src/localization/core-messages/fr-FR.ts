@@ -149,6 +149,7 @@ const messages: AgentChatTranslation = {
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
+  "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
   "composer.subAgentReadOnly":
     "Envoyez des messages au chat de l’orchestrateur ; ce sous-agent s’exécute automatiquement",
@@ -225,6 +226,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Retirer de la file d’attente",
   "queue.sendNow": "Envoyer maintenant",
   "queue.sendNowHint": "Envoyer maintenant (arrête la réponse actuelle)",
+  "queue.steer": "Orienter",
+  "queue.steerHint": "Envoyer ce message ensuite",
+  "queue.moreActions": "Autres actions",
+  "queue.moveToTop": "Déplacer en haut",
   "recovery.connectingBuilder": "Connexion à Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
@@ -375,6 +380,7 @@ const messages: AgentChatTranslation = {
   "composer.connectAbove":
     "Connectez un fournisseur d’IA ci-dessus pour continuer...",
   "composer.connectBuilder": "Connecter Builder.io",
+  "composer.connectKeys": "Connecter des clés",
   "composer.connectingBuilder": "Connexion à Builder.io…",
   "composer.costHigher": "Coût plus élevé",
   "composer.costLower": "Coût inférieur",
@@ -515,7 +521,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Ce navigateur ne prend pas en charge les conversations vocales en temps réel.",
   "voiceMode.hideChat": "Masquer la discussion",
-  "voiceMode.keepDictating": "Dicter",
+  "voiceMode.keepDictating": "Dicter un message",
   "voiceMode.promptDescription":
     "Le mode vocal continue d’écouter pendant que l’agent navigue et effectue des actions.",
   "voiceMode.promptTitle": "Utilisez votre voix",
@@ -557,7 +563,7 @@ const messages: AgentChatTranslation = {
     "Connectez Builder.io pour utiliser la voix gérée avec des crédits gratuits, ou ajoutez vos propres clés.",
   "voiceMode.setupTitle": "Configurer le mode vocal",
   "voiceMode.showChat": "Afficher le chat",
-  "voiceMode.start": "Voix en temps réel",
+  "voiceMode.start": "Démarrer le chat vocal",
   "voiceMode.startWithOpenAiKey": "Démarrer avec une clé OpenAI",
   "voiceMode.status.connecting": "Connexion en cours",
   "voiceMode.status.ending": "Fin du mode vocal",

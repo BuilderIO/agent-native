@@ -21,7 +21,11 @@ export function normalizeLabValues(
   stored: Record<string, unknown> | null | undefined,
 ): Record<string, boolean> {
   return Object.fromEntries(
-    listLabs().map(({ key }) => [key, stored?.[key] === true]),
+    listLabs().map(({ key, defaultEnabled }) => [
+      key,
+      stored?.[key] === true ||
+        (stored?.[key] === undefined && defaultEnabled === true),
+    ]),
   );
 }
 

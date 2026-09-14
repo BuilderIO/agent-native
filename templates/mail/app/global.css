@@ -138,6 +138,15 @@
   background: hsl(var(--muted-foreground) / 0.34);
 }
 
+/* Referenced by the top tab bar and compose toolbar to scroll without a
+   visible scrollbar; was previously used but never defined. */
+.hide-scrollbar {
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Email body prose reset */
 .email-body-content {
   font-size: 0.9375rem;

@@ -105,7 +105,15 @@ import {
   useDocumentSyncStatus,
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
-import { rememberContentLandingDocument } from "@/lib/content-landing";
+import {
+  useOptimisticDocumentTitle,
+  refreshLandingTitleHintCache,
+} from "@/hooks/use-optimistic-document-title";
+import {
+  CONTENT_LANDING_PATH,
+  contentLandingRecoveryTarget,
+  rememberContentLandingDocument,
+} from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import {
@@ -454,7 +462,7 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-function DocumentUnavailable({ onOpenHome }: { onOpenHome?: () => void }) {
+function DocumentUnavailable() {
   const t = useT();
   const sidebarTrigger = useSidebarTrigger();
 
@@ -476,11 +484,6 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome?: () => void }) {
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t("empty.documentUnavailableDescription")}
           </p>
-          {onOpenHome ? (
-            <Button className="mt-6" variant="outline" onClick={onOpenHome}>
-              {t("empty.goToDocuments")}
-            </Button>
-          ) : null}
         </div>
       </div>
     </div>
@@ -562,6 +565,12 @@ export function PageEditorSurface({
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
+  // While the dedicated get-document response is awaited, a snapshot another
+  // surface seeded into the cache still carries a usable title.
+  const optimisticTitle = useOptimisticDocumentTitle(documentId, {
+    seededTitle:
+      queriedDocument?.id === documentId ? queriedDocument.title : null,
+  });
   const loadFailure = updateDocumentLoadFailureState({
     previous: loadFailureRef.current,
     documentId,
@@ -614,11 +623,27 @@ export function PageEditorSurface({
     }
   }
 
+  const landingRecovery =
+    loadState.view === "unavailable"
+      ? contentLandingRecoveryTarget({ host, documentId })
+      : null;
+  const landingRecoveryDocumentId =
+    landingRecovery?.state.unavailableDocumentId ?? null;
+  useEffect(() => {
+    if (!landingRecoveryDocumentId) return;
+    void navigate(CONTENT_LANDING_PATH, {
+      replace: true,
+      state: { unavailableDocumentId: landingRecoveryDocumentId },
+    });
+  }, [landingRecoveryDocumentId, navigate]);
+
   if (loadState.view === "unavailable") {
-    return (
-      <DocumentUnavailable
-        onOpenHome={host === "page" ? () => navigate("/home") : undefined}
-      />
+    // The redirect above owns the full-page host; showing the skeleton keeps
+    // that one frame from reading as a dead end the user has to click out of.
+    return landingRecovery ? (
+      <DocumentEditorSkeleton />
+    ) : (
+      <DocumentUnavailable />
     );
   }
 
@@ -640,7 +665,7 @@ export function PageEditorSurface({
   // get-document response; later poll/SSE refetches remain live and reconcile
   // without replacing the editor.
   if (!document || loadState.view === "skeleton") {
-    return <DocumentEditorSkeleton />;
+    return <DocumentEditorSkeleton title={optimisticTitle} />;
   }
 
   const editor = (
@@ -1226,7 +1251,7 @@ export function documentEditorDefaultIconKind(
 export function databaseMembershipDatabaseTitle(
   membership: Document["databaseMembership"],
 ) {
-  return membership?.databaseTitle?.trim() || "Untitled database";
+  return membership?.databaseTitle?.trim() || "Untitled collection";
 }
 
 export function documentEditorBreadcrumbItems(
@@ -1401,7 +1426,10 @@ function PageEditorSessionBody({
   });
   useEffect(() => {
     if (host !== "page") return;
-    void rememberContentLandingDocument(documentId).catch((error) => {
+    void rememberContentLandingDocument(
+      documentId,
+      currentDocumentRef.current?.title,
+    ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
@@ -3200,6 +3228,12 @@ function PageEditorSessionBody({
       localTitleRef.current = newTitle;
       setLocalTitle(newTitle);
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
+      // Renames must not leave a stale optimistic title for the next landing.
+      refreshLandingTitleHintCache(queryClient, documentId, newTitle);
+      // The in-memory refresh dies with a reload; the persisted last-location
+      // hint must carry the rename too or the next cold landing shows the old
+      // title until the editor load corrects it.
+      void rememberContentLandingDocument(documentId, newTitle).catch(() => {});
       debouncedSave(newTitle, localContentRef.current);
     },
     [debouncedSave, documentId, editorCanEdit, isSuggesting, queryClient],

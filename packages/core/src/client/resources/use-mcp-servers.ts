@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { useAfterPaint } from "../use-after-paint.js";
 
 export type McpServerScope = "user" | "org";
 
@@ -171,12 +172,41 @@ const defaultMcpServersApi: McpServersApi = {
   testExisting: testExistingMcpServer,
 };
 
-export function useMcpServers() {
+export interface UseMcpServersOptions {
+  /**
+   * Defer the first list read until after the first paint. Only for surfaces
+   * that are mounted during startup but not visible then (agent rail, settings
+   * panel) — navigable tabs, pages, and dialogs must stay eager so a direct
+   * render never inherits the deferral window.
+   */
+  defer?: boolean;
+}
+
+export type McpServersQuery = ReturnType<typeof useMcpServers>;
+
+/**
+ * True until a list read has settled (success or error). Deferred call sites
+ * must treat this as pending: hold empty states, permission derivation, and
+ * connect affordances until it clears instead of reading the undefined data
+ * as "no servers".
+ */
+export function isMcpServersPending(query: McpServersQuery): boolean {
+  return !query.isSuccess && !query.isError;
+}
+
+export function useMcpServers(options: UseMcpServersOptions = {}) {
   const api = useMcpServersApi();
+  // The list is never visible during first paint, but only surfaces that are
+  // mounted while invisible (agent rail, settings) may wait out the paint
+  // window; everything else fetches eagerly so a direct render shows a real
+  // pending state.
+  const defer = options.defer === true;
+  const afterPaint = useAfterPaint();
   return useQuery<McpServersList>({
     queryKey: LIST_KEY,
     queryFn: api.list,
     staleTime: 10_000,
+    enabled: defer ? afterPaint : true,
   });
 }
 

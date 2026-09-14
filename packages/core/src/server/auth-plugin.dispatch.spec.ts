@@ -16,11 +16,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   autoMountAuth: vi.fn(),
+  getSession: vi.fn(),
   runBetterAuthMigrations: vi.fn(),
 }));
 
 vi.mock("./auth.js", () => ({
   autoMountAuth: mocks.autoMountAuth,
+  getSession: mocks.getSession,
 }));
 vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
@@ -64,6 +66,7 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
   it("holds a request to /_agent-native/auth/session until Better Auth mounts, then dispatches to the registered handler", async () => {
     const nitroApp = createNitroApp();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue({ ok: true });
     let resolveMount!: () => void;
     mocks.autoMountAuth.mockImplementation(async (app: any) => {
       await new Promise<void>((resolve) => {
@@ -136,6 +139,7 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
     // mocked to resolve immediately above; a fast mount must dispatch fast.
     const nitroApp = createNitroApp();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue({ ok: true });
     mocks.autoMountAuth.mockImplementation(async (app: any) => {
       app.use("/_agent-native/auth/session", () => ({ ok: true }));
       return true;

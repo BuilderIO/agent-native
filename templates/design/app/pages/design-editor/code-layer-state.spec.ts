@@ -6,12 +6,14 @@ import type { ElementInfo } from "@/components/design/types";
 import {
   canonicalElementInfoForCodeLayerNode,
   codeLayerNodeLooksLikeComponent,
+  codeLayerPatchMessage,
   layerTypeForCodeLayer,
   codeLayerNodeMatchesBridgeTarget,
   resolveCodeLayerTargetFromBridge,
   resolveCodeLayerTargetFromElementInfo,
   elementInfoFromCodeLayerNode,
   isClientRenderedMountShell,
+  codeLayerSourceNodeIdAttrs,
   isCodeLayerNodeRuntimeOnly,
   liveDeleteSelectorGroups,
   refreshedBoundingRectSize,
@@ -19,6 +21,32 @@ import {
   resolveCodeLayerNodeFromBridge,
   runtimeLayerStateHandoffMode,
 } from "./code-layer-state";
+
+describe("codeLayerPatchMessage", () => {
+  it("hides internal target-resolution details behind the caller fallback", () => {
+    expect(
+      codeLayerPatchMessage(
+        'Node with data-agent-native-node-id="layer-1" not found in sourceHtml.',
+        "Could not move that layer",
+      ),
+    ).toBe("Could not move that layer");
+    expect(
+      codeLayerPatchMessage(
+        'Selector ".card" did not match a code layer node.',
+        "Could not move that layer",
+      ),
+    ).toBe("Could not move that layer");
+  });
+
+  it("preserves an actionable user-facing message", () => {
+    expect(
+      codeLayerPatchMessage(
+        "This screen is backed by a live route URL.",
+        "Could not move that layer",
+      ),
+    ).toBe("This screen is backed by a live route URL.");
+  });
+});
 
 function makeElementInfo(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -760,6 +788,38 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
         sourceNodeIdAttrs: new Set(["an-abc123"]),
       }),
     ).toBe(true);
+  });
+
+  it("keeps editor-minted runtime ids out of authored source identity", () => {
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs: new Set(["an-authored"]),
+      }),
+    ).toBe(true);
+
+    const sourceNodeIdAttrs = codeLayerSourceNodeIdAttrs(
+      '<main data-agent-native-node-id="an-authored"></main>',
+    );
+    expect(sourceNodeIdAttrs.has("runtime-1m2vou")).toBe(false);
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs,
+      }),
+    ).toBe(true);
+
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs: codeLayerSourceNodeIdAttrs(
+          '<main data-agent-native-node-id="runtime-1m2vou"></main>',
+        ),
+      }),
+    ).toBe(false);
   });
 
   it("is runtime-only when the node has no stamped id at all", () => {

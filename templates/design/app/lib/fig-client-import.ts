@@ -73,9 +73,8 @@ export async function importFigInBrowser(
       })) as { url?: string };
       uploaded += 1;
       onProgress?.({ phase: "images", ratio: total ? uploaded / total : 1 });
-      // A null result is the "storage unavailable" signal the converter already
-      // handles: it leaves the placeholder in place and warns about it, rather
-      // than persisting a data URL.
+      // A null result means storage is unavailable; the converter rejects the
+      // import rather than persisting frames with missing images.
       return url?.url ? { url: url.url } : null;
     },
   });

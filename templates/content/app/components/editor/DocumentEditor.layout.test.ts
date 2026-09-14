@@ -1251,7 +1251,9 @@ describe("document editor layout", () => {
     expect(source).toContain("isFetchedAfterMount");
     expect(source).toContain("queriedDocument?.id === documentId");
     expect(source).toContain("documentEditorLoadState");
-    expect(source).toContain("return <DocumentEditorSkeleton />");
+    expect(source).toContain(
+      "return <DocumentEditorSkeleton title={optimisticTitle} />",
+    );
   });
 
   it("keeps the contextual right rail inside the document scroll surface", () => {
@@ -1907,7 +1909,7 @@ describe("document editor layout", () => {
         databaseTitle: "   ",
         position: 0,
       }),
-    ).toBe("Untitled database");
+    ).toBe("Untitled collection");
   });
 
   it("starts page breadcrumbs with the containing database", () => {

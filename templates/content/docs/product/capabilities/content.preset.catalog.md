@@ -16,7 +16,7 @@ acceptance_summary: "Presets are superseded by Multi-object Templates: governed 
 proof_requirements:
   [
     "All new reusable-system work belongs to content.template.graph and its governance/update capabilities.",
-    "A former preset must remain inspectable as ordinary Pages, Databases, Views, Properties, Rules, expressions, and bodies.",
+    "A former preset must remain inspectable as ordinary Pages, Collections, Views, Properties, Rules, expressions, and bodies.",
     "This record preserves lineage only and does not create a second catalog or migration requirement.",
   ]
 evidence: []
@@ -37,7 +37,7 @@ A team follows a legacy Preset link to its Template graph lineage and adopts a T
 ## Product contract
 
 - All new reusable-system work belongs to content.template.graph and its governance/update capabilities.
-- A former preset must remain inspectable as ordinary Pages, Databases, Views, Properties, Rules, expressions, and bodies.
+- A former preset must remain inspectable as ordinary Pages, Collections, Views, Properties, Rules, expressions, and bodies.
 - This record preserves lineage only and does not create a second catalog or migration requirement.
 
 ## Boundaries and non-goals

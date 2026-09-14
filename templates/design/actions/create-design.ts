@@ -43,7 +43,11 @@ export default defineAction({
       .describe(
         "Optional pre-generated UI ID. Agents should omit this and use the ID returned by the successful action.",
       ),
-    title: z.string().describe("Design project title"),
+    title: z
+      .string()
+      .describe(
+        "A concise, specific project name derived from the user's request. Never use a placeholder such as 'Untitled Design'.",
+      ),
     description: z
       .string()
       .optional()

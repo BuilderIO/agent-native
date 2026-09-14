@@ -13,6 +13,7 @@ const requestString = (value: unknown) =>
       : value instanceof Request
         ? value.url
         : (JSON.stringify(value) ?? "");
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,6 +43,15 @@ vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 
+// Export routing is what this suite measures, and it counts export requests
+// exactly. The availability probe has its own suite in
+// ExportMenu.google-availability.test.tsx.
+vi.mock("@/lib/google-slides-export-availability-client", () => ({
+  useGoogleSlidesExportAvailability: () => ({ available: true }),
+  fetchGoogleSlidesExportAvailability: async () => ({ available: true }),
+  invalidateGoogleSlidesExportAvailability: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
@@ -59,6 +69,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportPptx": "Export as PPTX",
         "editorExport.exporting": "Exporting...",
         "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesOpenImporter": "Open Google Slides import",
         "editorExport.googleSlidesImportHint":
           "Import the downloaded PPTX into Google Slides.",
         "editorExport.pptxFailed": "PPTX export failed",
@@ -125,19 +136,23 @@ function captureDownloadNames() {
   return names;
 }
 
+let queryClient: QueryClient;
+
 function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
   return render(
-    <ExportMenu
-      deckId="deck-1"
-      deckTitle="Quarterly Review"
-      onDuplicate={vi.fn()}
-      onExportPdf={vi.fn()}
-      onExportPptx={vi.fn()}
-      onExportGoogleSlides={vi.fn().mockResolvedValue({
-        url: "https://docs.google.com/presentation/d/new-deck/edit",
-      })}
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <ExportMenu
+        deckId="deck-1"
+        deckTitle="Quarterly Review"
+        onDuplicate={vi.fn()}
+        onExportPdf={vi.fn()}
+        onExportPptx={vi.fn()}
+        onExportGoogleSlides={vi.fn().mockResolvedValue({
+          url: "https://docs.google.com/presentation/d/new-deck/edit",
+        })}
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -148,6 +163,9 @@ function openExportMenu() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   // Editor-authored by default: only imported decks leave the browser path.
   getDeckMock.mockReturnValue(undefined);
   flushDeckSaveMock.mockResolvedValue(undefined);
@@ -295,18 +313,20 @@ describe("<ExportMenu>", () => {
   it("renders export actions inline inside a parent menu", async () => {
     const onExportPptx = vi.fn().mockResolvedValue(undefined);
     render(
-      <DropdownMenu open>
-        <DropdownMenuContent>
-          <ExportMenu
-            inline
-            deckId="deck-1"
-            deckTitle="Quarterly Review"
-            onDuplicate={vi.fn()}
-            onExportPdf={vi.fn()}
-            onExportPptx={onExportPptx}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <QueryClientProvider client={queryClient}>
+        <DropdownMenu open>
+          <DropdownMenuContent>
+            <ExportMenu
+              inline
+              deckId="deck-1"
+              deckTitle="Quarterly Review"
+              onDuplicate={vi.fn()}
+              onExportPdf={vi.fn()}
+              onExportPptx={onExportPptx}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </QueryClientProvider>,
     );
 
     expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
@@ -427,8 +447,11 @@ describe("<ExportMenu>", () => {
       "Import the downloaded PPTX into Google Slides.",
     );
     expect(window.open).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Export to Google Slides" }),
+    ).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Export to Google Slides" }),
+      screen.getByRole("button", { name: "Open Google Slides import" }),
     );
     expect(window.open).toHaveBeenCalledWith(
       "https://docs.google.com/presentation/u/0/?usp=import",

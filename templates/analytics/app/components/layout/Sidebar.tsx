@@ -2348,7 +2348,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <nav className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-0.5">
-                <div>
+                <div className="flex w-full min-w-0 items-center">
                   <Link
                     to="/ask"
                     onClick={handleAskClick}

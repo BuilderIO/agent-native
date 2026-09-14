@@ -83,16 +83,17 @@ async function replaceDocumentWithSelection(
   html: string,
   selectedSelector: string,
   selectorCandidates: string[],
+  forceFullDocument = true,
 ): Promise<void> {
   await page.evaluate(
-    ({ content, selector, candidates }) => {
+    ({ content, selector, candidates, force }) => {
       window.postMessage(
         {
           type: "replace-document-content",
           content,
           selectedSelector: selector,
           selectorCandidates: candidates,
-          forceFullDocument: true,
+          forceFullDocument: force,
         },
         "*",
       );
@@ -101,9 +102,21 @@ async function replaceDocumentWithSelection(
       content: html,
       selector: selectedSelector,
       candidates: selectorCandidates,
+      force: forceFullDocument,
     },
   );
   await page.waitForTimeout(50);
+}
+
+/** Ids of `an-main`'s direct children, in live DOM order. */
+async function mainChildOrder(page: Page): Promise<(string | null)[]> {
+  return page.evaluate(() =>
+    Array.from(
+      document.querySelectorAll(
+        '[data-agent-native-node-id="an-main"] > [data-agent-native-node-id]',
+      ),
+    ).map((el) => el.getAttribute("data-agent-native-node-id")),
+  );
 }
 
 /** Records the `sourceId` of every element-select the bridge posts upward. */
@@ -1180,6 +1193,69 @@ describe("a forced replacement re-anchors only stable identity", () => {
           expect(await readSelections(page)).toEqual([]);
         },
       );
+    },
+  );
+});
+
+// Peer-reported gap: a same-parent sibling reorder written WITHOUT
+// forceFullDocument (runLayerMove's applyFileContentUpdate calls) only
+// reaches the live DOM through this scoped path when a and b are both
+// selection-scoped candidates; the moment the active selection is some OTHER
+// node entirely, the scoped branch above patches only that node's own
+// subtree and returns before ever calling morphRuntimeBody — so a and b's
+// new sibling order is silently dropped from the live iframe even though the
+// write "applied".
+describe("a same-parent reorder without forceFullDocument", () => {
+  it(
+    "is dropped from the live DOM when the active selection is an unrelated sibling",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        expect(await mainChildOrder(page)).toEqual(["a", "b", "c"]);
+
+        // c is selected (unrelated to the a/b reorder below) and the write
+        // does not force a full-document replace — exactly what
+        // runLayerMove's applyFileContentUpdate(..., { refreshPreview:
+        // false }) sends today for a panel-drag sibling reorder.
+        await replaceDocumentWithSelection(
+          page,
+          documentHtml(
+            [card("b", "Beta"), card("a", "Alpha"), card("c", "Gamma")].join(
+              "",
+            ),
+          ),
+          '[data-agent-native-node-id="c"]',
+          ['[data-agent-native-node-id="c"]'],
+          false,
+        );
+
+        // This assertion documents the bug: a real sibling reorder in the
+        // written document never reaches the live DOM because the scoped
+        // morph only touched c's own (unchanged) subtree and returned.
+        expect(await mainChildOrder(page)).toEqual(["a", "b", "c"]);
+      });
+    },
+  );
+
+  it(
+    "reaches the live DOM when forceFullDocument is set (the fix runLayerMove must opt into)",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await replaceDocumentWithSelection(
+          page,
+          documentHtml(
+            [card("b", "Beta"), card("a", "Alpha"), card("c", "Gamma")].join(
+              "",
+            ),
+          ),
+          '[data-agent-native-node-id="c"]',
+          ['[data-agent-native-node-id="c"]'],
+          true,
+        );
+
+        expect(await mainChildOrder(page)).toEqual(["b", "a", "c"]);
+      });
     },
   );
 });

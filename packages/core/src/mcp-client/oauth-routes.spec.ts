@@ -15,6 +15,10 @@ vi.mock("../server/credential-provider.js", () => ({
   resolveSecretPairs: resolveSecretPairsMock,
 }));
 
+import {
+  DEFAULT_MCP_INTEGRATIONS,
+  mcpUrlRequiresOrganizationScope,
+} from "../client/resources/mcp-integration-catalog.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   bindMcpOAuthAuthorizationScope,
@@ -24,6 +28,7 @@ import {
   redirectWithStagedCookies,
   resolveMcpOAuthStartError,
   resolveMcpOAuthScope,
+  describeMcpOAuthScopeViolation,
   resolveTrustedMcpOAuthAuthorizationScope,
   resolveManagedMcpOAuthClient,
   resolveMcpOAuthReturnPath,
@@ -54,9 +59,40 @@ describe("trusted MCP OAuth authorization scopes", () => {
   it("requires Builder Publish connections to use organization scope", () => {
     const serverUrl = new URL("https://mcp.builder.io/mcp/publish");
 
-    expect(resolveMcpOAuthScope(serverUrl, "user")).toBeNull();
-    expect(resolveMcpOAuthScope(serverUrl, undefined)).toBeNull();
-    expect(resolveMcpOAuthScope(serverUrl, "org")).toBe("org");
+    expect(resolveMcpOAuthScope(serverUrl, "user")).toEqual({
+      ok: false,
+      violation: "organization-scope-required",
+    });
+    expect(resolveMcpOAuthScope(serverUrl, undefined)).toEqual({
+      ok: false,
+      violation: "organization-scope-required",
+    });
+    expect(resolveMcpOAuthScope(serverUrl, "org")).toEqual({
+      ok: true,
+      scope: "org",
+    });
+  });
+
+  it("explains each violated scope constraint in its own direction", () => {
+    const orgOnly = describeMcpOAuthScopeViolation(
+      "organization-scope-required",
+    );
+    const personalOnly = describeMcpOAuthScopeViolation(
+      "personal-scope-required",
+    );
+
+    expect(orgOnly).not.toBe(personalOnly);
+    // The reported bug was an org-only server answering with personal-only text.
+    expect(orgOnly).toMatch(/set up for your workspace/i);
+    expect(orgOnly).toMatch(/owner or admin/i);
+    expect(orgOnly).not.toMatch(/personal connection/i);
+    expect(personalOnly).toMatch(/personal connection/i);
+    expect(personalOnly).not.toMatch(/set up for your workspace/i);
+
+    for (const message of [orgOnly, personalOnly]) {
+      expect(message).not.toMatch(/managed mcp oauth/i);
+      expect(message).not.toMatch(/scope/i);
+    }
   });
 
   it("records the trusted read scope when the token response omits scope", () => {
@@ -311,23 +347,87 @@ describe("managed MCP OAuth clients", () => {
   it("rejects organization scope for managed MCP OAuth servers", () => {
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org"),
-    ).toBeNull();
+    ).toEqual({ ok: false, violation: "personal-scope-required" });
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org", {
         allowManagedOrgReconnect: true,
       }),
-    ).toBe("org");
+    ).toEqual({ ok: true, scope: "org" });
     expect(
       resolveMcpOAuthScope(new URL("https://drivemcp.googleapis.com"), "org", {
         allowManagedOrgReconnect: true,
       }),
-    ).toBe("org");
+    ).toEqual({ ok: true, scope: "org" });
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "user"),
-    ).toBe("user");
+    ).toEqual({ ok: true, scope: "user" });
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.example.com"), "org"),
-    ).toBe("org");
+    ).toEqual({ ok: true, scope: "org" });
+  });
+
+  it("matches the server org-only rule for hand-entered Builder Publish URLs", () => {
+    for (const raw of [
+      "https://mcp.builder.io/mcp/publish",
+      "https://mcp.builder.io/mcp/publish/",
+    ]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(true);
+      expect(resolveMcpOAuthScope(new URL(raw), "user").ok).toBe(false);
+    }
+    // A query or fragment takes the URL outside the trusted Builder Publish
+    // match on the server too, so it is a generic server that accepts either
+    // scope. Forcing org here would fail requests the server would allow.
+    for (const raw of [
+      "https://mcp.builder.io/mcp/fusion",
+      "https://mcp.builder.io/mcp/publish?x=1",
+      "https://mcp.builder.io/mcp/publish#frag",
+      "https://mcp.example.com/mcp",
+    ]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(false);
+      expect(resolveMcpOAuthScope(new URL(raw), "user")).toEqual({
+        ok: true,
+        scope: "user",
+      });
+    }
+    for (const raw of ["https://mcp.hubspot.com", "not-a-url"]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(false);
+    }
+  });
+
+  it("keeps every catalog scope flag in step with what the server enforces", () => {
+    for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      if (integration.authMode !== "oauth" || !integration.url) continue;
+      const serverUrl = new URL(integration.url);
+
+      // The client must not advertise a personal connection the server rejects.
+      expect({
+        id: integration.id,
+        organizationScopeOnly: integration.organizationScopeOnly === true,
+      }).toEqual({
+        id: integration.id,
+        organizationScopeOnly: !resolveMcpOAuthScope(serverUrl, "user").ok,
+      });
+
+      // The URL-level rule that buildMcpOAuthStartUrl enforces has to agree
+      // with the server too, since custom servers carry no catalog flag.
+      expect({
+        id: integration.id,
+        urlRequiresOrg: mcpUrlRequiresOrganizationScope(integration.url),
+      }).toEqual({
+        id: integration.id,
+        urlRequiresOrg: !resolveMcpOAuthScope(serverUrl, "user").ok,
+      });
+
+      // ...nor a workspace connection the server rejects. `managedOAuth` is
+      // what makes the UI hide the workspace option for those providers.
+      expect({
+        id: integration.id,
+        managedOAuth: integration.managedOAuth === true,
+      }).toEqual({
+        id: integration.id,
+        managedOAuth: !resolveMcpOAuthScope(serverUrl, "org").ok,
+      });
+    }
   });
 
   it("resolves the workspace HubSpot client without exposing its secret to the browser", async () => {
@@ -375,7 +475,10 @@ describe("managed MCP OAuth clients", () => {
         client_secret: "google-client-secret",
         token_endpoint_auth_method: "client_secret_post",
       });
-      expect(resolveMcpOAuthScope(new URL(origin), "org")).toBeNull();
+      expect(resolveMcpOAuthScope(new URL(origin), "org")).toEqual({
+        ok: false,
+        violation: "personal-scope-required",
+      });
     }
     expect(resolveSecretPairsMock).toHaveBeenLastCalledWith(
       [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],

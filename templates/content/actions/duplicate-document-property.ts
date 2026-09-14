@@ -32,7 +32,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Database ID that owns the property; omit only for context-free entry points",
+        "Collection ID that owns the property; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID to duplicate"),
   }),

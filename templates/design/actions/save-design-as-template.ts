@@ -16,6 +16,7 @@ import {
   redactTemplateDesignData,
   remapTemplateFileIds,
 } from "../server/lib/design-template-data.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 
 export const designTemplateCategorySchema = z.enum([
@@ -62,10 +63,8 @@ export default defineAction({
     }
 
     const snapshot = await buildDesignSnapshot(designId, rawData);
-    const renderableFiles = snapshot.files.filter((file) =>
-      ["html", "jsx", "css"].includes(file.fileType),
-    );
-    if (renderableFiles.length === 0) {
+    const screenFiles = snapshot.files.filter(isOverviewScreenFile);
+    if (screenFiles.length === 0) {
       throw new Error(
         "Add at least one design screen before saving a template.",
       );
@@ -84,8 +83,8 @@ export default defineAction({
       fileIdMap,
     );
     const preferredFile =
-      snapshot.files.find((file) => file.filename === "index.html") ??
-      snapshot.files[0];
+      screenFiles.find((file) => file.filename === "index.html") ??
+      screenFiles[0];
     const dimensions = firstTemplateDimensions(
       data,
       preferredFile ? fileIdMap.get(preferredFile.id) : undefined,

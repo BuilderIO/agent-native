@@ -1253,7 +1253,12 @@ export class DesktopIdentityBroker {
       ).then(() => true);
 
       const exchangeSucceeded = await Promise.race([exchange, windowClosed]);
-      if (!exchangeSucceeded) return false;
+      if (!exchangeSucceeded) {
+        if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+          this.setStatus("sign-in-required");
+        }
+        return false;
+      }
 
       // The close grace only protects exchange redemption. Once the one-time
       // credential is stored, finish the app fan-out before returning so a

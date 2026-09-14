@@ -105,6 +105,7 @@ const messages = {
     status: "स्थिति",
     coverage: "कवरेज",
     reason: "कारण",
+    summary: "सारांश",
     evidence: "साक्ष्य",
     actionsTaken: "लॉग",
     threadTruncated: "यह Slack थ्रेड अधूरा है।",

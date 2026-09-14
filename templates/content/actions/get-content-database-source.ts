@@ -21,7 +21,7 @@ const sourceStatusAgentSchema = z
       .string()
       .min(1)
       .optional()
-      .describe("Exact database ID from discovery"),
+      .describe("Exact collection ID from discovery"),
     documentId: z
       .string()
       .min(1)
@@ -36,14 +36,14 @@ const sourceStatusAgentSchema = z
 
 export default defineAction({
   description:
-    "Get source-binding status for a content database, including local/no-source status, source metadata, field mappings, row identity, freshness, capabilities, and change sets.",
+    "Get source-binding status for a content collection, including local/no-source status, source metadata, field mappings, row identity, freshness, capabilities, and change sets.",
   mcpTool: true,
   agentInputSchema: sourceStatusAgentSchema,
   schema: z
     .object({
       statusOnly: z.boolean().optional(),
-      databaseId: z.string().optional().describe("Database ID"),
-      documentId: z.string().optional().describe("Database document/page ID"),
+      databaseId: z.string().optional().describe("Collection ID"),
+      documentId: z.string().optional().describe("Collection document/page ID"),
     })
     .strict(),
   http: { method: "GET" },
