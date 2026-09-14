@@ -2197,10 +2197,10 @@ test("trailing: the mobile screen is resized to 390 wide via a typed inspector v
 }) => {
   await openOverview(page, designId, 2);
   const mobileCard = page
-    .locator(`[data-screen-iframe-id="${mobileScreenId}"]`)
-    .locator("xpath=ancestor::*[@data-screen-card][1]");
-  // The name label, not the card body — see the mobile-duplicate test's note.
-  await mobileCard.locator("[data-frame-label]").first().click({ force: true });
+    .locator(`[data-screen-shell][data-frame-id="${mobileScreenId}"]`)
+    .locator("[data-frame-label]");
+  // The label is a sibling of the card inside the screen shell.
+  await mobileCard.click({ force: true });
   await page.waitForTimeout(400);
 
   const widthInput = page.locator(
