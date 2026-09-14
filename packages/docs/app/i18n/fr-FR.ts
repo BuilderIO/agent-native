@@ -837,7 +837,7 @@ const frFR = {
           "Oui. Ajoutez des co-hôtes obligatoires, et Calendar vérifie leurs informations libre/occupé avant de proposer un créneau. Pour respecter également les horaires de travail configurés de chaque co-hôte, vous et ce co-hôte devez ajouter mutuellement vos calendriers en superposition. Sans ce partage mutuel, Calendar ne vérifie que leurs informations libre/occupé.",
       },
       s001: "Capture d'écran du modèle Calendar",
-      // Copie V3 de la page de destination (10/09/2026) — du hero au CTA final.
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
       heroTitle: "Gérez votre emploi du temps avec votre agent IA",
       heroDescription:
@@ -846,13 +846,13 @@ const frFR = {
       useCasesHeading: "Que pouvez-vous faire avec Calendar ?",
       useCasesBody:
         "Réservez un appel client, réunissez votre équipe ou ajustez votre journée quand les plans changent.",
-      useCase1Title: "Réservez des appels et démos clients",
+      useCase1Title: "Réserver des appels et démos clients",
       useCase1Body:
         "Donnez à vos prospects et clients un lien de réservation pour qu'ils choisissent un créneau. Recueillez les informations dont vous avez besoin avant l'appel.",
-      useCase2Title: "Trouvez un créneau pour les réunions d'équipe",
+      useCase2Title: "Trouver un créneau pour les réunions d'équipe",
       useCase2Body:
         "Demandez à votre agent IA un créneau où vos coéquipiers sont disponibles. Choisissez un créneau suggéré pour réserver la réunion.",
-      useCase3Title: "Ajustez votre journée quand les plans changent",
+      useCase3Title: "Ajuster votre journée quand les plans changent",
       useCase3Body:
         "Demandez à votre agent IA de déplacer une réunion ou de trouver un autre créneau, en tenant compte de vos événements et horaires de travail existants.",
       keyFeaturesEyebrow: "Fonctionnalités clés",

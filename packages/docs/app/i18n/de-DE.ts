@@ -822,64 +822,65 @@ const deDE = {
       faq: {
         question1: "Was ist Agent-Native Calendar?",
         answer1:
-          "Agent-Native Calendar ist ein kostenloser Open-Source-KI-Terminassistent, der sich mit Google Calendar verbindet. Nutzen Sie einen KI-Agenten, um Termine zu verwalten und Zeiten zu finden, oder teilen Sie Buchungslinks, damit andere sich mit Ihnen abstimmen können.",
+          "Agent-Native Calendar ist ein kostenloser Open-Source-KI-Planungsassistent, der sich mit Google Calendar verbindet. Nutze einen KI-Agenten, um Termine zu verwalten und Besprechungstermine zu finden, oder teile Buchungslinks, damit andere Termine bei dir vereinbaren können.",
         question2: "Welche Kalender kann ich verbinden?",
         answer2:
-          "Verbinden Sie mehrere Google-Konten, um deren Termine gemeinsam anzuzeigen. Neue und aktualisierte Termine werden in den primären Kalender des ausgewählten Kontos geschrieben. Sie können außerdem schreibgeschützte ICS- oder Webcal-Feeds einblenden; das sind keine bidirektionalen Outlook- oder Apple-Calendar-Integrationen. Freigegebene Google-Kalender sind nur lesbar und blockieren die Buchungsverfügbarkeit nicht.",
+          "Verbinde mehrere Google-Konten, um ihre Termine gemeinsam anzuzeigen. Neue und aktualisierte Termine werden in den Hauptkalender des ausgewählten Kontos geschrieben. Du kannst außerdem schreibgeschützte ICS- oder Webcal-Feeds anzeigen; das sind keine zweiseitigen Outlook- oder Apple-Calendar-Integrationen. Freigegebene Google-Kalender sind schreibgeschützt und blockieren keine Buchungsverfügbarkeit.",
         question3: "Was kann der KI-Agent mit meinem Kalender tun?",
         answer3:
-          "Ihr KI-Agent kann Ihren Terminplan prüfen, verfügbare Zeiten finden und Termine erstellen oder verschieben. Wenn Sie ihn bitten, eine Zeit zu finden, prüft er Ihre Verfügbarkeitsregeln und bestehenden Termine sowie — sofern zugänglich — die Frei/Gebucht-Informationen genannter Teilnehmer. Sie wählen die vorgeschlagene Zeit aus, bevor der Termin gebucht wird.",
-        question4: "Brauchen andere ein Konto, um einen Termin mit mir zu buchen?",
+          "Dein KI-Agent kann deinen Kalender prüfen, verfügbare Besprechungstermine finden und Termine erstellen oder verschieben. Wenn du ihn bittest, einen Termin zu finden, prüft er deine Verfügbarkeitsregeln und bestehenden Termine sowie – sofern zugänglich – die Verfügbarkeitsinformationen namentlich genannter Teilnehmer. Du wählst einen vorgeschlagenen Termin aus, bevor er das Meeting bucht.",
+        question4:
+          "Brauchen andere ein Konto, um ein Meeting mit mir zu buchen?",
         answer4:
-          "Nein. Jeder mit Ihrem öffentlichen Buchungslink kann eine verfügbare Zeit wählen und Ihre Buchungsfragen ohne Anmeldung beantworten. Nach der Buchung erhält die Person einen privaten Link, um den Termin zu verschieben oder abzusagen.",
+          "Nein. Jeder mit deinem öffentlichen Buchungslink kann einen verfügbaren Termin auswählen und deine Buchungsfragen beantworten, ohne sich anzumelden. Nach der Buchung erhält die Person einen privaten Link, um das Meeting zu verschieben oder abzusagen.",
         question5:
-          "Kann ein Buchungslink die Verfügbarkeit mehrerer Gastgeber prüfen?",
+          "Kann ein Buchungslink die Verfügbarkeit mehrerer Hosts prüfen?",
         answer5:
-          "Ja. Fügen Sie erforderliche Co-Gastgeber hinzu, und Calendar prüft deren Frei/Gebucht-Informationen, bevor eine Zeit angeboten wird. Damit auch die konfigurierten Arbeitszeiten jedes Co-Gastgebers berücksichtigt werden, müssen Sie und dieser Co-Gastgeber die Kalender des jeweils anderen als Overlay hinzufügen. Ohne diese gegenseitige Freigabe prüft Calendar nur deren Frei/Gebucht-Informationen.",
+          "Ja. Füge erforderliche Co-Hosts hinzu, und Calendar prüft deren Verfügbarkeitsinformationen, bevor ein Termin angeboten wird. Damit auch die konfigurierten Arbeitszeiten jedes Co-Hosts berücksichtigt werden, müsst ihr eure Kalender gegenseitig als Overlay hinzufügen. Ohne diese gegenseitige Freigabe prüft Calendar nur die Verfügbarkeitsinformationen.",
       },
       s001: "Screenshot der Vorlage Calendar",
-      // V3-Copy der Landingpage (10.09.2026) — vom Hero bis zum finalen CTA.
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Calendar",
-      heroTitle: "Verwalten Sie Ihren Terminplan mit Ihrem KI-Agenten",
+      heroTitle: "Verwalte deinen Kalender mit deinem KI-Agenten",
       heroDescription:
-        "Calendar ist ein kostenloser Open-Source-KI-Terminassistent zum Verwalten von Google-Calendar-Terminen, Finden von Zeiten und Ermöglichen von Buchungen durch andere.",
+        "Calendar ist ein kostenloser Open-Source-KI-Planungsassistent zum Verwalten von Google Calendar-Terminen und Finden von Besprechungsterminen – und lässt andere Termine bei dir buchen.",
       heroCta: "Calendar öffnen",
-      useCasesHeading: "Was können Sie mit Calendar tun?",
+      useCasesHeading: "Was kannst du mit Calendar machen?",
       useCasesBody:
-        "Buchen Sie ein Kundengespräch, bringen Sie Ihr Team zusammen oder passen Sie Ihren Tag an, wenn sich Pläne ändern.",
+        "Buche ein Kundengespräch, bring dein Team zusammen oder passe deinen Tag an, wenn sich Pläne ändern.",
       useCase1Title: "Kundengespräche und Demos buchen",
       useCase1Body:
-        "Geben Sie Interessenten und Kunden einen Buchungslink, damit sie eine Zeit wählen können. Erfassen Sie die Angaben, die Sie vor dem Gespräch benötigen.",
-      useCase2Title: "Zeit für Team-Meetings finden",
+        "Gib Interessenten und Kunden einen Buchungslink, damit sie selbst einen Termin auswählen können. Erfasse die Angaben, die du vor dem Gespräch brauchst.",
+      useCase2Title: "Termine für Team-Meetings finden",
       useCase2Body:
-        "Bitten Sie Ihren KI-Agenten um eine Zeit, zu der Ihre Teammitglieder verfügbar sind. Wählen Sie einen vorgeschlagenen Termin, um das Meeting zu buchen.",
-      useCase3Title: "Ihren Tag anpassen, wenn sich Pläne ändern",
+        "Bitte deinen KI-Agenten um einen Termin, an dem deine Teammitglieder verfügbar sind. Wähle einen vorgeschlagenen Slot aus, um das Meeting zu buchen.",
+      useCase3Title: "Deinen Tag anpassen, wenn sich Pläne ändern",
       useCase3Body:
-        "Bitten Sie Ihren KI-Agenten, einen Termin zu verschieben oder eine andere Zeit zu finden — mit Blick auf Ihre bestehenden Termine und Arbeitszeiten.",
-      keyFeaturesEyebrow: "Kernfunktionen",
+        "Bitte deinen KI-Agenten, ein Meeting zu verschieben oder einen anderen Termin zu finden – deine bestehenden Termine und Arbeitszeiten hat er dabei im Blick.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
       keyFeaturesHeading:
-        "Alles, was Sie zum Planen, Buchen und Umplanen brauchen",
-      feature1Title: "KI-Terminplanung",
+        "Alles, was du zum Planen, Buchen und Umplanen brauchst",
+      feature1Title: "KI-Planung",
       feature1Body:
-        "Bitten Sie Ihren KI-Agenten, Ihren Terminplan zu prüfen, verfügbare Zeiten zu finden und Termine in Ihrem verbundenen Google Calendar zu erstellen oder zu verschieben.",
+        "Bitte deinen KI-Agenten, deinen Kalender zu prüfen, verfügbare Termine zu finden und Termine in deinem verbundenen Google Calendar zu erstellen oder zu verschieben.",
       feature2Title: "Mehrere Kalenderkonten",
       feature2Body:
-        "Sehen Sie geschäftliche und private Google-Konten gemeinsam in der Tages-, Wochen- oder Monatsansicht. Fügen Sie schreibgeschützte Kalender-Feeds neben Ihren Terminen hinzu.",
+        "Sieh dir geschäftliche und private Google-Konten gemeinsam in der Tages-, Wochen- oder Monatsansicht an. Füge schreibgeschützte Kalender-Feeds neben deinen Terminen hinzu.",
       feature3Title: "Anpassbare Buchungslinks",
       feature3Body:
-        "Erstellen Sie Buchungsseiten für verschiedene Termintypen. Legen Sie die Dauer fest und fügen Sie Fragen hinzu, die Personen bei der Buchung beantworten.",
-      feature4Title: "Verfügbarkeitssteuerung",
+        "Erstelle Buchungsseiten für unterschiedliche Terminarten. Lege die Dauer fest und füge Fragen hinzu, die andere beim Buchen beantworten.",
+      feature4Title: "Verfügbarkeitseinstellungen",
       feature4Body:
-        "Legen Sie Ihre Arbeitszeiten, Zeitzone und Pufferzeiten zwischen Terminen fest. Bestimmen Sie den benötigten Vorlauf und wie weit im Voraus gebucht werden kann.",
-      feature5Title: "Terminplanung mit Co-Gastgebern",
+        "Lege deine Arbeitszeiten, Zeitzone und Pufferzeiten zwischen Terminen fest. Bestimme, wie viel Vorlauf du brauchst und wie weit im Voraus andere buchen können.",
+      feature5Title: "Planung mit Co-Hosts",
       feature5Body:
-        "Fügen Sie einem Buchungslink erforderliche Co-Gastgeber hinzu. Bieten Sie Zeiten an, zu denen alle frei sind, und laden Sie sie ein, sobald jemand bucht.",
-      feature6Title: "Links für Videomeetings",
+        "Füge einem Buchungslink erforderliche Co-Hosts hinzu. Biete Termine an, an denen alle verfügbar sind, und lade sie ein, sobald jemand bucht.",
+      feature6Title: "Video-Meeting-Links",
       feature6Body:
-        "Fügen Sie Google Meet hinzu, verbinden Sie Zoom oder verwenden Sie einen eigenen Meeting-Link, damit Gäste bei der Buchung wissen, wo sie teilnehmen.",
-      finalCtaHeading: "Tragen Sie Ihren nächsten Termin in den Kalender ein",
+        "Füge Google Meet hinzu, verbinde Zoom oder verwende einen eigenen Meeting-Link, damit Gäste wissen, wo sie beitreten, wenn sie buchen.",
+      finalCtaHeading: "Trage dein nächstes Meeting in den Kalender ein",
       finalCtaBody:
-        "Finden Sie eine Zeit mit Ihrem KI-Agenten oder senden Sie einen Buchungslink.",
+        "Finde einen Termin mit deinem KI-Agenten oder verschicke einen Buchungslink.",
       finalCtaButton: "Calendar öffnen",
       s002: "Calendar Aufrufe",
       s003: "Agentenaktionen",
