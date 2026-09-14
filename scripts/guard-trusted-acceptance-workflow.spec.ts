@@ -325,6 +325,10 @@ describe("trusted acceptance reaper boundary", () => {
 
   it("ties enabled selection and empty-matrix skipping to active workflow wiring", () => {
     const mutations = [
+      reaper.replace(
+        'fs.readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8")',
+        'fs.readFileSync("untrusted-workspaces.json", "utf8")',
+      ),
       reaper.replace("workspace.enabled === true && ", ""),
       reaper.replace(
         "let selected = configured;",
@@ -337,6 +341,10 @@ describe("trusted acceptance reaper boundary", () => {
       reaper.replace(
         "selected.map(({id}) => ({workspace: id}))",
         "config.workspaces.map(({id}) => ({workspace: id}))",
+      ),
+      reaper.replace(
+        "let selected = configured;",
+        "let selected = configured;\n          selected.push(...config.workspaces);",
       ),
       reaper.replace("selected.length > 0", "selected.length >= 0"),
       reaper.replace(
