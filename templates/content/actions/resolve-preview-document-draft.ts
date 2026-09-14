@@ -22,6 +22,8 @@ const exactDraft = {
 };
 
 const durableClaimPayload = z.object({
+  choice: z.enum(["keep_mine", "use_saved", "save_separately"]),
+  status: z.enum(["claimed", "resolved"]),
   draftId: z.string().min(1),
   baseDocumentUpdatedAt: z.string().nullable(),
   loadedContentWasEmpty: z.number().int(),
@@ -97,6 +99,8 @@ export default defineAction({
       orgId,
     });
     const claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
+    const claimDocumentId =
+      ownerEmail === userEmail ? args.documentId : claimId;
     const draftFilter = and(
       eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
       eq(schema.documentPreviewDrafts.orgId, orgId),
@@ -120,8 +124,8 @@ export default defineAction({
             .where(
               and(
                 eq(schema.documentVersions.id, claimId),
-                eq(schema.documentVersions.ownerEmail, ownerEmail),
-                eq(schema.documentVersions.documentId, args.documentId),
+                eq(schema.documentVersions.ownerEmail, userEmail),
+                eq(schema.documentVersions.documentId, claimDocumentId),
               ),
             )
             .limit(1);
@@ -136,6 +140,9 @@ export default defineAction({
           const payload = durableClaimPayload.parse(
             JSON.parse(claim.chatContext),
           );
+          if (payload.choice !== args.choice) {
+            conflict("This draft was already resolved with another choice.");
+          }
           return {
             id: payload.draftId,
             ownerEmail: userEmail,
@@ -156,11 +163,13 @@ export default defineAction({
           .insert(schema.documentVersions)
           .values({
             id: claimId,
-            ownerEmail,
-            documentId: args.documentId,
+            ownerEmail: userEmail,
+            documentId: claimDocumentId,
             title: draft.title,
             content: draft.content,
             chatContext: JSON.stringify({
+              choice: args.choice,
+              status: "claimed",
               draftId: draft.id,
               baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
               loadedContentWasEmpty: draft.loadedContentWasEmpty,
@@ -191,6 +200,37 @@ export default defineAction({
         return draft;
       });
     };
+    const markClaimResolved = async () => {
+      const [claim] = await db
+        .select({ chatContext: schema.documentVersions.chatContext })
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.id, claimId),
+            eq(schema.documentVersions.ownerEmail, userEmail),
+            eq(schema.documentVersions.documentId, claimDocumentId),
+          ),
+        )
+        .limit(1);
+      if (!claim?.chatContext) conflict("The recovery claim was lost.");
+      const payload = durableClaimPayload.parse(JSON.parse(claim.chatContext));
+      if (payload.choice !== args.choice) {
+        conflict("This draft was already resolved with another choice.");
+      }
+      await db
+        .update(schema.documentVersions)
+        .set({
+          chatContext: JSON.stringify({ ...payload, status: "resolved" }),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.documentVersions.id, claimId),
+            eq(schema.documentVersions.ownerEmail, userEmail),
+            eq(schema.documentVersions.documentId, claimDocumentId),
+          ),
+        );
+    };
     const restoreClaimedDraft = async (
       draft: typeof schema.documentPreviewDrafts.$inferSelect,
     ) => {
@@ -218,6 +258,7 @@ export default defineAction({
           current?.title === draft.title &&
           current.content === draft.content
         ) {
+          await markClaimResolved();
           return {
             status: "resolved" as const,
             choice: args.choice,
@@ -245,6 +286,7 @@ export default defineAction({
             document: (saved as DocumentUpdateConflictResponse).document,
           };
         }
+        await markClaimResolved();
         return {
           status: "resolved" as const,
           choice: args.choice,
@@ -258,6 +300,7 @@ export default defineAction({
 
     if (args.choice === "use_saved") {
       await claimExactDraft();
+      await markClaimResolved();
       return { status: "resolved" as const, choice: args.choice };
     }
 
@@ -275,8 +318,10 @@ export default defineAction({
         ? existing
         : null;
     };
+    const draft = await claimExactDraft();
     const existingRecovery = await findExistingRecovery();
     if (existingRecovery) {
+      await markClaimResolved();
       return {
         status: "resolved" as const,
         choice: args.choice,
@@ -291,7 +336,6 @@ export default defineAction({
       };
     }
 
-    const draft = await claimExactDraft();
     let created;
     try {
       try {
@@ -315,6 +359,7 @@ export default defineAction({
           content: existing.content,
         };
       }
+      await markClaimResolved();
       return {
         status: "resolved" as const,
         choice: args.choice,
