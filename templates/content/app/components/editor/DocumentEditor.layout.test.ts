@@ -113,7 +113,10 @@ describe("document editor layout", () => {
       sameAnchoredCommentPosition(position, { ...position, top: 121 }),
     ).toBe(false);
     expect(
-      sameAnchoredCommentPosition(position, { ...position, placement: "above" }),
+      sameAnchoredCommentPosition(position, {
+        ...position,
+        placement: "above",
+      }),
     ).toBe(false);
   });
   it("hides suggestion decorations with comments without losing resolved anchor metadata", () => {
