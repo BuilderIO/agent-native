@@ -322,7 +322,8 @@ const messages = {
     summaryRecent_few: "{{count}} recent runs",
     summaryRecent_many: "{{count}} recent runs",
     noTrackedWorkYet: "لا يوجد عمل تم تعقبه حتى الآن",
-    emptyDescription: "سيظهر عمل وكيل الخلفية هنا أثناء تشغيله وبعد انتهائه.",
+    emptyDescription:
+      "تظهر هنا جولات المحادثة وعمل وكيل الخلفية أثناء تشغيلها وبعد انتهائها.",
     open: "فتح",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",

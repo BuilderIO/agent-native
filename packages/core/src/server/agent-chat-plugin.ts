@@ -5643,31 +5643,59 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { ok: true };
           }
 
-          // Route: GET /runs/list?goalId=agent-team|agent-harness
-          // Returns background agents in the Code hub-compatible run shape.
+          // Route: GET /runs/list?goalId=agent-team|agent-harness|agent-chat
+          // Returns background agents in the Code hub-compatible run shape,
+          // plus ordinary chat turns from the durable `agent_runs` ledger so
+          // the Agent runs tray reflects the work happening in the chat next
+          // to it. Callers that ask for a specific goalId are unaffected.
           const listMatch =
             url.match(/\/runs\/list(?:[/?]|$)/) ||
             url.match(/^\/list(?:[/?]|$)/);
           if (listMatch && method === "GET") {
             const query = getQuery(event);
             const goalId = query.goalId ? String(query.goalId) : undefined;
+            const requestedLimit = Number(query.limit);
+            const limit = Number.isFinite(requestedLimit)
+              ? Math.min(Math.max(Math.floor(requestedLimit), 1), 50)
+              : 5;
             const runs = await runWithRequestContext(
               { userEmail: owner, orgId },
               async () => {
                 const runs: unknown[] = [];
+                const claimedThreadIds = new Set<string>();
+                const claimThread = (run: unknown) => {
+                  const threadId = (
+                    run as { sourceRecord?: { threadId?: string } }
+                  )?.sourceRecord?.threadId;
+                  if (threadId) claimedThreadIds.add(threadId);
+                };
                 if (!goalId || goalId === "agent-team") {
                   const { listAgentTeamBackgroundRuns } =
                     await import("./agent-teams.js");
-                  runs.push(...(await listAgentTeamBackgroundRuns()));
+                  const teamRuns = await listAgentTeamBackgroundRuns();
+                  teamRuns.forEach(claimThread);
+                  runs.push(...teamRuns);
                 }
                 if (!goalId || goalId === "agent-harness") {
                   const { listAgentHarnessBackgroundRuns } =
                     await import("../agent/harness/background.js");
+                  const harnessRuns = await listAgentHarnessBackgroundRuns({
+                    goalId: "agent-harness",
+                    ownerEmail: owner,
+                    orgId,
+                  });
+                  harnessRuns.forEach(claimThread);
+                  runs.push(...harnessRuns);
+                }
+                if (!goalId || goalId === "agent-chat") {
+                  const { listRecentChatRuns } =
+                    await import("../agent/recent-chat-runs.js");
                   runs.push(
-                    ...(await listAgentHarnessBackgroundRuns({
-                      goalId: "agent-harness",
+                    ...(await listRecentChatRuns({
                       ownerEmail: owner,
                       orgId,
+                      limit,
+                      excludeThreadIds: claimedThreadIds,
                     })),
                   );
                 }

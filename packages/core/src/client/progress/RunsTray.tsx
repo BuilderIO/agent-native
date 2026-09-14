@@ -30,7 +30,7 @@ import { cn } from "../utils.js";
 type AgentRunDto = AgentRun;
 type BackgroundAgentRunDto = {
   id: string;
-  kind: "code" | "agent-team" | "harness";
+  kind: "code" | "agent-team" | "harness" | "chat";
   source: string;
   sourceLabel?: string;
   title: string;
@@ -43,6 +43,7 @@ type BackgroundAgentRunDto = {
     | "needs-approval"
     | "completed"
     | "errored"
+    | "cancelled"
     | "unknown";
   phase?: string;
   goalId: string;
@@ -202,6 +203,12 @@ function useRunsTrayState({
 
   const stopRun = useCallback(
     async (runId: string) => {
+      // `/stop` only knows durable task-backed runs (Agent Teams, harness). A
+      // chat turn is an in-flight run-manager run, so it stops through
+      // `/abort`; sending it to `/stop` just 404s and leaves it running.
+      const endpoint = runs.some((run) => run.id === runId && isChatRun(run))
+        ? `/_agent-native/agent-chat/runs/${runId}/abort`
+        : `/_agent-native/agent-chat/runs/${runId}/stop`;
       // Optimistic: mark as cancelled immediately so the UI is responsive.
       setRuns((current) =>
         current.map((run) =>
@@ -211,20 +218,17 @@ function useRunsTrayState({
         ),
       );
       try {
-        const res = await fetch(
-          agentNativePath(`/_agent-native/agent-chat/runs/${runId}/stop`),
-          {
-            method: "POST",
-            headers: { "X-Agent-Native-CSRF": "1" },
-          },
-        );
+        const res = await fetch(agentNativePath(endpoint), {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        });
         if (!res.ok) throw new Error(`Stop failed (${res.status})`);
       } catch {
         // Reconcile from server on failure
         void refresh();
       }
     },
-    [refresh],
+    [refresh, runs],
   );
 
   const hasRuns = runs.length > 0;
@@ -590,12 +594,14 @@ function normalizeBackgroundRun(run: BackgroundAgentRunDto): AgentRunDto {
   const status: ProgressStatus =
     run.status === "errored"
       ? "failed"
-      : run.status === "queued" ||
-          run.status === "running" ||
-          run.status === "needs-input" ||
-          run.status === "needs-approval"
-        ? "running"
-        : "succeeded";
+      : run.status === "cancelled"
+        ? "cancelled"
+        : run.status === "queued" ||
+            run.status === "running" ||
+            run.status === "needs-input" ||
+            run.status === "needs-approval"
+          ? "running"
+          : "succeeded";
   return {
     id: run.id,
     owner: "",
@@ -679,6 +685,14 @@ function isAgentTeamRun(run: AgentRunDto): boolean {
     typeof run.metadata === "object" &&
     run.metadata !== null &&
     (run.metadata as Record<string, unknown>).kind === "agent-team"
+  );
+}
+
+function isChatRun(run: AgentRunDto): boolean {
+  return (
+    typeof run.metadata === "object" &&
+    run.metadata !== null &&
+    (run.metadata as Record<string, unknown>).kind === "chat"
   );
 }
 
@@ -869,6 +883,7 @@ function isBackgroundStatus(
     value === "needs-approval" ||
     value === "completed" ||
     value === "errored" ||
+    value === "cancelled" ||
     value === "unknown"
   );
 }

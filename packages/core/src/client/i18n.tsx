@@ -823,7 +823,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.summaryRecent_other": "{{count}} recent runs",
   "runsTray.noTrackedWorkYet": "No tracked work yet",
   "runsTray.emptyDescription":
-    "Background agent work will appear here while it runs and after it finishes.",
+    "Chat turns and background agent work appear here while they run and after they finish.",
   "runsTray.open": "Open",
   "runsTray.stopRun": "Stop {{title}}",
   "runsTray.hideRun": "Hide {{title}}",

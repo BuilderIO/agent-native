@@ -732,18 +732,27 @@ export interface ListThreadsOptions {
   sourceAppId?: string | null;
 }
 
-function chatThreadAccessSql(
+/**
+ * Access predicate for `chat_threads`, emitted as raw SQL so a caller that
+ * joins another table to it reuses these owner/org/share rules instead of
+ * restating them. `agent_runs` carries no owner column, so its owner-scoped
+ * reads depend on this. Columns are fully qualified and the table must not be
+ * aliased by the caller.
+ */
+export function chatThreadAccessSql(
   userEmail: string,
   orgId: string | null | undefined,
 ): { sql: string; args: (string | number)[] } {
   const normalizedEmail = userEmail.trim().toLowerCase();
   const clauses = [
-    `LOWER(owner_email) = ?`,
+    `LOWER(chat_threads.owner_email) = ?`,
     `EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?)`,
   ];
   const args: (string | number)[] = [normalizedEmail, normalizedEmail];
   if (orgId) {
-    clauses.push(`(visibility = 'org' AND org_id = ?)`);
+    clauses.push(
+      `(chat_threads.visibility = 'org' AND chat_threads.org_id = ?)`,
+    );
     args.push(orgId);
     clauses.push(
       `EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'org' AND chat_thread_shares.principal_id = ?)`,

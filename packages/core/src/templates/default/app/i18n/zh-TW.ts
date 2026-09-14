@@ -293,7 +293,7 @@ const messages = {
       "{{activeCount}} 個執行中 · {{terminalCount}} 個最近項目",
     summaryRecent_other: "{{count}} 個最近執行",
     noTrackedWorkYet: "尚未跟蹤工作",
-    emptyDescription: "背景代理工作在執行時和完成後將顯示在此處。",
+    emptyDescription: "聊天回合與背景代理工作在執行時和完成後將顯示於此處。",
     open: "開啟",
     stopRun: "停止 {{title}}",
     hideRun: "隱藏 {{title}}",

@@ -16,6 +16,7 @@ import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
+import { recordChange } from "../server/poll.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -33,6 +34,22 @@ let _initPromise: Promise<void> | undefined;
  * reaped and a zombie would keep running, eventually clobbering the new row.
  */
 export const RUN_STALE_MS = 15_000;
+
+/**
+ * Announce a run lifecycle transition on the shared `runs` poll source so the
+ * Agent runs tray refreshes. The tray is mounted with idle polling disabled in
+ * the agent panel, so without this a run that starts or ends between mounts is
+ * never picked up. Best-effort and synchronous: poll state is in-memory, and a
+ * failure here must never fail the run it is reporting on.
+ */
+function bumpRunsPoll(threadId: string): void {
+  try {
+    recordChange({ source: "runs", type: "change", key: threadId });
+  } catch {
+    // coercion-ok: poll notification is advisory; the tray still polls while a
+    // run reads as active, and a missed bump cannot corrupt run state.
+  }
+}
 
 /**
  * Stale window for runs dispatched into a Netlify background function
@@ -716,6 +733,7 @@ export async function insertRun(
       options?.dispatchPayload ?? null,
     ],
   });
+  bumpRunsPoll(threadId);
 }
 
 /**
@@ -1258,6 +1276,7 @@ export async function tryClaimRunSlot(
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to insert claimed run ${runId}`);
     }
+    bumpRunsPoll(threadId);
     return { claimed: true, activeRunId: null };
   });
 }
@@ -2325,12 +2344,14 @@ export async function updateRunStatus(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  await client.execute({
+  const { rows } = await client.execute({
     // Terminal writes also drop the (potentially large) dispatch payload —
     // it only exists to rehydrate a not-yet-claimed background worker.
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ?`,
+    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? RETURNING thread_id`,
     args: [status, Date.now(), runId],
   });
+  const threadId = (rows[0] as { thread_id?: string } | undefined)?.thread_id;
+  if (threadId) bumpRunsPoll(threadId);
 }
 
 /**
@@ -2347,12 +2368,14 @@ export async function updateRunStatusIfRunning(
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rowsAffected } = await client.execute({
+  const { rowsAffected, rows } = await client.execute({
     // Terminal writes also drop the (potentially large) dispatch payload —
     // it only exists to rehydrate a not-yet-claimed background worker.
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running'`,
+    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running' RETURNING thread_id`,
     args: [status, Date.now(), runId],
   });
+  const threadId = (rows[0] as { thread_id?: string } | undefined)?.thread_id;
+  if (threadId) bumpRunsPoll(threadId);
   return (rowsAffected ?? 0) > 0;
 }
 

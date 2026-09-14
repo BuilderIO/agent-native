@@ -977,7 +977,7 @@ const messages = {
     summaryRecent_other: "{{count}} recent runs",
     noTrackedWorkYet: "No tracked work yet",
     emptyDescription:
-      "Background agent work will appear here while it runs and after it finishes.",
+      "Chat turns and background agent work appear here while they run and after they finish.",
     open: "Open",
     stopRun: "Stop {{title}}",
     hideRun: "Hide {{title}}",
