@@ -1570,23 +1570,63 @@ const ptBR = {
     },
     forms: {
       faq: {
-        question1: "A IA pode criar um formulário para mim?",
+        question1: "O que é o Agent-Native Forms?",
         answer1:
-          "Sim. Descreva o formulário e ele aparecerá completo. Refine por conversa — “adicione uma lista suspensa obrigatória de nível de experiência” — ou mova os campos no editor visual, com prévia em tempo real e opção de desfazer.",
-        question2: "O que acontece quando alguém envia o formulário?",
+          "Agent-Native Forms é um criador de formulários com IA gratuito e de código aberto. Crie formulários e pesquisas com um agente de IA, edite os campos visualmente, publique um link público e revise ou analise as respostas no mesmo app.",
+        question2: "Posso editar um formulário depois que a IA o cria?",
         answer2:
-          "A resposta é salva no seu próprio banco de dados SQL e encaminhada imediatamente, de forma estruturada, para Slack, Discord, Google Sheets ou um webhook. As respostas chegam onde seu agente pode agir, não em uma exportação que ninguém abre.",
-        question3: "Qual é a diferença entre Forms e Typeform?",
+          "Sim. Altere perguntas, rótulos, opções, campos obrigatórios e a ordem dos campos no editor visual, ou peça ao seu agente de IA para fazer as alterações. As duas formas atualizam o mesmo formulário. Você também pode adicionar perguntas condicionais com base em respostas anteriores.",
+        question3: "As pessoas precisam de uma conta para preencher meu formulário?",
         answer3:
-          "Typeform aprimora a experiência de preenchimento. Forms se concentra no que acontece depois: respostas no seu próprio banco de dados, encaminhadas às suas ferramentas, sem cobrança por resposta; além disso, o próprio formulário evolui por prompt.",
-        question4: "Forms é gratuito? Há limite de respostas?",
+          "Não. Qualquer pessoa com o link público de um formulário publicado pode enviar uma resposta sem conta. Formulários em rascunho não são públicos, e formulários fechados param de aceitar novas respostas.",
+        question4: "Posso coletar feedback anônimo?",
         answer4:
-          "É gratuito e de código aberto, sem tarifa ou limite por resposta. Os dados estão no seu banco de dados; a capacidade dele é o limite.",
-        question5: "Posso colocar um formulário no meu próprio site?",
+          "Sim. Ative o modo anônimo para omitir a identidade de quem responde e os metadados de origem. Também evite perguntas que peçam nome, e-mail ou outros dados de identificação se quiser que as respostas continuem anônimas.",
+        question5: "Posso enviar as respostas para o Google Sheets ou o Slack?",
         answer5:
-          "Sim: incorpore-o em qualquer site ou hospede-o em um domínio personalizado. Cada formulário também recebe uma URL pública própria e otimizada para SEO.",
+          "Sim, depois de configurar um destino para o formulário. Slack e Discord usam URLs de webhook. O Google Sheets exige um endpoint do Google Apps Script implantado que receba os envios; apenas um link de planilha não funciona. Você também pode usar um webhook ou exportar as respostas como CSV. Exportações do agente de todas as respostas em CSV ou JSON exigem armazenamento de arquivos conectado.",
       },
       s001: "Captura de tela do modelo Forms",
+      heroEyebrow: "Forms",
+      heroTitle: "Crie formulários com seu agente de IA",
+      heroDescription:
+        "Forms é um criador de formulários com IA gratuito e de código aberto para criar pesquisas, formulários de inscrição e formulários de solicitação, com perguntas que você mesmo pode editar e respostas que seu agente de IA pode ajudar a analisar.",
+      heroCta: "Criar um formulário",
+      useCasesHeading: "O que você pode fazer com o Forms?",
+      useCasesBody:
+        "Colete feedback de clientes, inscreva pessoas em um evento ou reúna os detalhes que sua equipe precisa para atender uma solicitação.",
+      useCase1Title: "Colete feedback de clientes",
+      useCase1Body:
+        "Pergunte aos clientes sobre a experiência deles com avaliações, perguntas de múltipla escolha e respostas escritas. Peça ao seu agente de IA para resumir o feedback recebido.",
+      useCase2Title: "Reúna inscrições e cadastros",
+      useCase2Body:
+        "Crie um formulário para um webinar, evento ou lista de espera de produto. Colete dados de contato e preferências, depois revise ou exporte os envios.",
+      useCase3Title: "Colete solicitações de projeto",
+      useCase3Body:
+        "Ofereça às pessoas um formulário para solicitações de design, briefings de projeto ou suporte interno. Peça prazos, requisitos e outros detalhes que sua equipe precise.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading: "Tudo que você precisa para criar, compartilhar e analisar",
+      feature1Title: "Geração de formulários com IA",
+      feature1Body:
+        "Descreva o que você quer coletar e seu agente de IA cria o formulário. Peça para ele adicionar perguntas ou revisar campos existentes.",
+      feature2Title: "Edição visual de campos",
+      feature2Body:
+        "Edite rótulos, opções, campos obrigatórios e a ordem das perguntas você mesmo. Escolha tipos de campo como texto, e-mail, múltipla escolha, datas, avaliações e escalas.",
+      feature3Title: "Perguntas condicionais",
+      feature3Body:
+        "Mostre uma pergunta de acompanhamento quando uma resposta anterior corresponder a uma regra. Peça mais detalhes quando alguém selecionar “Outro”, por exemplo.",
+      feature4Title: "Links públicos do formulário",
+      feature4Body:
+        "Publique um formulário e compartilhe o link. Defina uma mensagem de conclusão ou redirecionamento, e feche o formulário quando parar de aceitar respostas.",
+      feature5Title: "Insights e exportação de respostas",
+      feature5Body:
+        "Revise os envios em uma tabela ou peça ao seu agente de IA resumos e tendências das respostas. Baixe a tabela de respostas como CSV.",
+      feature6Title: "Integrações de envio",
+      feature6Body:
+        "Configure o envio para Slack, Discord, Google Sheets ou um webhook. Novas respostas vão para o destino configurado para aquele formulário.",
+      finalCtaHeading: "Crie seu próximo formulário",
+      finalCtaBody: "Diga ao seu agente de IA o que você quer coletar.",
+      finalCtaButton: "Criar um formulário",
       s002: "Descrever",
       s003: "Gerar",
       s004: "Rota",

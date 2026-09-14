@@ -1580,24 +1580,65 @@ const frFR = {
     },
     forms: {
       faq: {
-        question1: "L'IA peut-elle créer un formulaire pour moi ?",
+        question1: "Qu'est-ce qu'Agent-Native Forms ?",
         answer1:
-          "Oui. Décrivez-le et un formulaire complet apparaît. Affinez-le par conversation — « ajouter une liste déroulante obligatoire pour le niveau d'expérience » — ou déplacez les champs dans l'éditeur visuel avec aperçu en direct et fonction d'annulation.",
-        question2:
-          "Que se passe-t-il lorsqu'une personne envoie le formulaire ?",
+          "Agent-Native Forms est un créateur de formulaires IA gratuit et open source. Créez des formulaires et des sondages avec un agent IA, modifiez les champs visuellement, publiez un lien public, puis consultez ou analysez les réponses dans la même application.",
+        question2: "Puis-je modifier un formulaire après que l'IA l'a créé ?",
         answer2:
-          "La réponse arrive dans votre propre base de données SQL et est immédiatement acheminée, sous forme structurée, vers Slack, Discord, Google Sheets ou un webhook. Les réponses arrivent là où votre agent peut agir, pas dans un export que personne n'ouvre.",
-        question3: "En quoi Forms diffère-t-il de Typeform ?",
+          "Oui. Modifiez les questions, les libellés, les options, les champs obligatoires et l'ordre des champs dans l'éditeur visuel, ou demandez à votre agent IA de faire les changements. Les deux méthodes mettent à jour le même formulaire. Vous pouvez aussi ajouter des questions conditionnelles basées sur des réponses précédentes.",
+        question3:
+          "Les personnes ont-elles besoin d'un compte pour remplir mon formulaire ?",
         answer3:
-          "Typeform peaufine l'expérience de remplissage. Forms se concentre sur la suite : réponses dans votre propre base de données, acheminées vers vos outils, sans tarification par réponse ; le formulaire lui-même évolue aussi par prompt.",
-        question4: "Forms est-il gratuit ? Y a-t-il une limite de réponses ?",
+          "Non. Toute personne disposant du lien public d'un formulaire publié peut envoyer une réponse sans compte. Les formulaires en brouillon ne sont pas publics, et les formulaires fermés n'acceptent plus de nouvelles réponses.",
+        question4: "Puis-je recueillir des retours anonymes ?",
         answer4:
-          "Il est gratuit et open source, sans frais ni plafond par réponse. Les données sont dans votre base de données ; sa capacité constitue la limite.",
-        question5: "Puis-je intégrer un formulaire à mon propre site ?",
+          "Oui. Activez le mode anonyme pour omettre l'identité de la personne qui répond et les métadonnées de provenance. Évitez aussi les questions demandant nom, e-mail ou autres informations identifiantes si vous voulez que les réponses restent anonymes.",
+        question5:
+          "Puis-je envoyer les réponses vers Google Sheets ou Slack ?",
         answer5:
-          "Oui : intégrez-le à n'importe quel site web ou hébergez-le sur un domaine personnalisé. Chaque formulaire dispose aussi de sa propre URL publique optimisée pour le SEO.",
+          "Oui, après avoir configuré une destination pour le formulaire. Slack et Discord utilisent des URL de webhook. Google Sheets nécessite un point de terminaison Google Apps Script déployé qui reçoit les soumissions ; un simple lien de feuille de calcul ne suffit pas. Vous pouvez aussi utiliser un webhook ou exporter les réponses en CSV. Les exports agent de toutes les réponses en CSV ou JSON nécessitent un stockage de fichiers connecté.",
       },
       s001: "Capture d'écran du modèle Forms",
+      heroEyebrow: "Forms",
+      heroTitle: "Créez des formulaires avec votre agent IA",
+      heroDescription:
+        "Forms est un créateur de formulaires IA gratuit et open source pour créer des sondages, des formulaires d'inscription et des formulaires de demande, avec des questions que vous pouvez modifier vous-même et des réponses que votre agent IA peut vous aider à analyser.",
+      heroCta: "Créer un formulaire",
+      useCasesHeading: "Que pouvez-vous faire avec Forms ?",
+      useCasesBody:
+        "Recueillez les retours de vos clients, inscrivez des personnes à un événement, ou rassemblez les informations dont votre équipe a besoin pour traiter une demande.",
+      useCase1Title: "Recueillir les retours clients",
+      useCase1Body:
+        "Interrogez vos clients sur leur expérience avec des notes, des questions à choix multiples et des réponses libres. Demandez à votre agent IA de résumer les retours reçus.",
+      useCase2Title: "Recueillir des inscriptions",
+      useCase2Body:
+        "Créez un formulaire pour un webinaire, un événement ou une liste d'attente produit. Recueillez coordonnées et préférences, puis consultez ou exportez les soumissions.",
+      useCase3Title: "Recueillir des demandes de projet",
+      useCase3Body:
+        "Proposez un formulaire pour des demandes de design, des briefs de projet ou du support interne. Demandez délais, exigences et autres détails dont votre équipe a besoin.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading: "Tout ce qu'il faut pour créer, partager et analyser",
+      feature1Title: "Génération de formulaires par IA",
+      feature1Body:
+        "Décrivez ce que vous voulez recueillir et votre agent IA construit le formulaire. Demandez-lui d'ajouter des questions ou de revoir les champs existants.",
+      feature2Title: "Édition visuelle des champs",
+      feature2Body:
+        "Modifiez vous-même les libellés, les options, les champs obligatoires et l'ordre des questions. Choisissez des types de champ comme texte, e-mail, choix multiple, dates, notes et échelles.",
+      feature3Title: "Questions conditionnelles",
+      feature3Body:
+        "Affichez une question complémentaire lorsqu'une réponse précédente correspond à une règle. Demandez plus de détails quand quelqu'un sélectionne « Autre », par exemple.",
+      feature4Title: "Liens de formulaire publics",
+      feature4Body:
+        "Publiez un formulaire et partagez son lien. Définissez un message de fin ou une redirection, et fermez le formulaire quand vous arrêtez d'accepter des réponses.",
+      feature5Title: "Analyses et exports des réponses",
+      feature5Body:
+        "Consultez les soumissions dans un tableau ou demandez à votre agent IA des résumés et des tendances. Téléchargez le tableau des réponses au format CSV.",
+      feature6Title: "Intégrations de soumission",
+      feature6Body:
+        "Configurez l'envoi vers Slack, Discord, Google Sheets ou un webhook. Chaque nouvelle réponse part vers la destination configurée pour ce formulaire.",
+      finalCtaHeading: "Créez votre prochain formulaire",
+      finalCtaBody: "Dites à votre agent IA ce que vous voulez recueillir.",
+      finalCtaButton: "Créer un formulaire",
       s002: "Décrire",
       s003: "Générer",
       s004: "Itinéraire",
