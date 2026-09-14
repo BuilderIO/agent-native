@@ -1081,7 +1081,7 @@ export function Sidebar({
                             <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
                           )}
                           <span className="min-w-0 flex-1 text-start">
-                            Feeds
+                            {t("sidebar.feedsGroup")}
                           </span>
                           <span className="text-[10px]">
                             {externalCalendars.length}

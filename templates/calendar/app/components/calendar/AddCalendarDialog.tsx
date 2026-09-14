@@ -235,14 +235,6 @@ function PeopleTab({
     contacts.data?.scopeRequired || directorySearch.data?.scopeRequired,
   );
 
-  // Seed the search from a deep link. Keyed on open/prefill so it can't
-  // clobber what the user is typing, and never clears an existing query.
-  useEffect(() => {
-    if (!open || !prefillPersonEmail) return;
-    setQuery(prefillPersonEmail);
-    setSearchQuery(prefillPersonEmail);
-  }, [open, prefillPersonEmail]);
-
   useEffect(() => {
     const timeout = window.setTimeout(
       () => setSearchQuery(query),
@@ -255,11 +247,14 @@ function PeopleTab({
     setActiveIndex(results.length > 0 ? 0 : -1);
   }, [results]);
 
+  // Reset on open, seeding from a deep link when present, so the later
+  // prefill effect below can't be clobbered by this one running afterward.
   useEffect(() => {
     if (!open) return;
-    setQuery("");
-    setSearchQuery("");
+    setQuery(prefillPersonEmail ?? "");
+    setSearchQuery(prefillPersonEmail ?? "");
     setActiveIndex(-1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on open, not on every prefill change
   }, [open]);
 
   useEffect(() => {

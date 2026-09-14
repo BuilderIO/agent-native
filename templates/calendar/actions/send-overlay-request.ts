@@ -244,6 +244,7 @@ export default defineAction({
         }),
         replyTo: ownerEmail,
         templateId: CALENDAR_OVERLAY_REQUEST_EMAIL_ID,
+        timeoutMs: PENDING_STALE_MS - 30000,
       });
     } catch (err) {
       // Release the reservation so a send failure doesn't permanently burn

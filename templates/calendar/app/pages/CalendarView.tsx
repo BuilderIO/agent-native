@@ -505,6 +505,9 @@ export default function CalendarView() {
     const hidden = new Set<string>();
     for (const source of googleCalendars.data ?? []) {
       if (!isPersonCalendarId(source.calendarId)) continue;
+      // A free/busy-only source is excluded from enabledGoogleSources above,
+      // so its visibility toggle must not hide that person's overlay events.
+      if (source.accessRole === "freeBusyReader") continue;
       const visible =
         viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
         (source.primary || source.selected);
