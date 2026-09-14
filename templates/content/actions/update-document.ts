@@ -41,6 +41,7 @@ import { provisionContentSpaces } from "./_content-spaces.js";
 import {
   documentContentHash,
   documentRevisionToken,
+  parseDocumentRevisionToken,
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 
@@ -335,6 +336,18 @@ export default defineAction({
       .describe(
         "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
       ),
+    baseRevision: z
+      .string()
+      .optional()
+      .describe(
+        "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
+      ),
+    baseTitle: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title from the caller's base snapshot when a title and body are saved together",
+      ),
     historySessionId: z
       .string()
       .min(1)
@@ -527,8 +540,12 @@ export default defineAction({
     // silently overwritten. A recovery may carry unchanged content alongside
     // a stale title, so supplying content still guards the whole write.
     // Title/icon/favorite-only requests without content remain unaffected.
-    const useContentCas =
-      args.content !== undefined && args.baseUpdatedAt !== undefined;
+    const useBodyRevisionCas =
+      args.content !== undefined && args.baseRevision !== undefined;
+    const useDocumentCas =
+      args.content !== undefined &&
+      args.baseRevision === undefined &&
+      args.baseUpdatedAt !== undefined;
 
     if (anyChange) {
       let contentCasConflict = false;
@@ -566,6 +583,35 @@ export default defineAction({
           lockedContentChanged ||
           lockedDescriptionChanged ||
           lockedIconChanged;
+        const parsedBaseRevision = args.baseRevision
+          ? parseDocumentRevisionToken(args.baseRevision)
+          : null;
+        if (args.baseRevision && !parsedBaseRevision) {
+          throw new ActionContractError(
+            "baseRevision is not a valid document revision token.",
+            { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
+          );
+        }
+        if (
+          lockedContentChanged &&
+          args.baseRevision &&
+          args.baseRevision !==
+            documentRevisionToken(
+              historyBefore.bodyRevision,
+              historyBefore.content,
+            )
+        ) {
+          contentCasConflict = true;
+          return;
+        }
+        if (
+          lockedTitleChanged &&
+          args.baseTitle !== undefined &&
+          historyBefore.title !== args.baseTitle
+        ) {
+          contentCasConflict = true;
+          return;
+        }
         const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
         const updates: Record<string, unknown> = { updatedAt };
         if (lockedTitleChanged) updates.title = args.title;
@@ -584,17 +630,29 @@ export default defineAction({
           : [];
         const applied = await commitCanonicalDocumentBodyMutation({
           write: async () => {
-            if (useContentCas) {
+            if (
+              (useBodyRevisionCas && lockedContentChanged) ||
+              useDocumentCas
+            ) {
               const rows = await tx
                 .update(schema.documents)
                 .set(updates)
                 .where(
                   and(
                     eq(schema.documents.id, id),
-                    eq(
-                      schema.documents.updatedAt,
-                      args.baseUpdatedAt as string,
-                    ),
+                    ...(parsedBaseRevision
+                      ? [
+                          eq(
+                            schema.documents.bodyRevision,
+                            parsedBaseRevision.revision,
+                          ),
+                        ]
+                      : [
+                          eq(
+                            schema.documents.updatedAt,
+                            args.baseUpdatedAt as string,
+                          ),
+                        ]),
                   ),
                 )
                 .returning({ id: schema.documents.id });
