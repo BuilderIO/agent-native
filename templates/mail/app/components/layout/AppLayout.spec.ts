@@ -105,6 +105,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("onFocus={() => setSearchFocused(true)}");
   });
 
+  it("labels the hidden keyboard-shortcut target for Search", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'id="mail-search"\n              aria-label={t("mail.search.label")}\n              className="sr-only"',
+    );
+  });
+
   it("restores the invoking control's focus after Escape closes the palette", () => {
     const appLayout = appLayoutSource();
     const focusHook = commandPaletteFocusSource();

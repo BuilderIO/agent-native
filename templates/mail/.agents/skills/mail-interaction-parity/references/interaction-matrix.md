@@ -96,9 +96,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   Search. With the Toggle menu button focused, `/` did not open Search. These
   focus-context behaviors need paired Superhuman replay before treating either
   as a parity gap. No mailbox contacts/results were available, and mobile plus
-  Superhuman behavior remain unverified. The search combobox had no accessible
-  name and the query-clear button was unnamed in the local accessibility tree;
-  both now use existing localized labels, with a focused regression test.
+  Superhuman behavior remain unverified. The active search combobox, query-clear
+  button, and hidden keyboard-focus target lacked accessible names in the local
+  accessibility tree; they now use existing localized labels with regression
+  coverage.
 - SEARCH-002 — Type one character, two characters, three characters, spaces,
   quoted text, unicode, punctuation, and a long query. Confirm debounce,
   local-match timing, remote-search timing, and no request for short queries.
@@ -130,7 +131,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   guide as reference. This planned comparison is not runtime proof.
 - SEARCH-006 — Submit with Enter, click a result, click outside, clear with the
   X, and press Escape. Confirm whether the active query stays, clears, or
-  restores the pre-search route exactly as the reference does.
+  restores the pre-search route exactly as the reference does. An isolated
+  browser pass cleared `/all?q=abc` with the X and landed at `/all`; Escape
+  from the command palette, tested separately below, returned focus to Search
+  without changing that query. Paired Superhuman behavior remains unverified.
 - SEARCH-007 — Save a search as a tab. Test empty name, whitespace, duplicate
   name, max-count limit, success, slow response, failure, retry, cancel, and
   reopened tab.
@@ -702,7 +706,11 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   focus; the next Escape closes it and returns focus to Search without changing
   its query or route. Repeat with an empty palette query, from button/body/editor
   focus, and after selecting a command; selection must not be mistaken for
-  dismissal.
+  dismissal. An isolated browser pass with Search value `abc` confirmed that
+  Cmd+K focuses the palette, typing `archive` selects Go to Archive, the first
+  Escape clears the palette query while keeping it open, and the second closes
+  it and restores Search focus, query `abc`, and `/all?q=abc`. Paired Superhuman
+  behavior remains unverified.
 - SETTINGS-002 — Open shortcut reference and hover every action. Confirm the
   displayed shortcut is the one that actually runs. Compare US QWERTY with the
   documented Belgian/French/German alternatives for Search, Trash, Tab, snippet,

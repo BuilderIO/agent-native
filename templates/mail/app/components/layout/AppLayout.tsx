@@ -1467,6 +1467,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {!searchFocused && !activeSearchQuery && (
             <input
               id="mail-search"
+              aria-label={t("mail.search.label")}
               className="sr-only"
               tabIndex={-1}
               onFocus={() => setSearchFocused(true)}
