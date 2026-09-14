@@ -815,20 +815,68 @@ const ptBR = {
     },
     calendar: {
       faq: {
-        question1: "A IA pode agendar minhas reuniões?",
+        question1: "O que é o Agent-Native Calendar?",
         answer1:
-          "Sim. Peça ao agente para encontrar um horário, criar um evento, verificar a disponibilidade ou reagendar: ele trabalha dentro do seu calendário real e respeita os eventos existentes.",
-        question2: "Calendar oferece links de reserva como o Calendly?",
+          "O Agent-Native Calendar é um assistente de agendamento com IA gratuito e de código aberto que se conecta ao Google Calendar. Use um agente de IA para gerenciar eventos e encontrar horários, ou compartilhe links de reserva para que outras pessoas agendem com você.",
+        question2: "Quais calendários posso conectar?",
         answer2:
-          "Sim: páginas de reserva personalizáveis, com disponibilidade por tipo, coleta de informações do visitante, confirmações e domínios personalizados.",
-        question3: "Ele sincroniza com o Google Calendar?",
+          "Conecte várias contas do Google para ver os eventos delas juntos. Eventos novos e atualizados são gravados no calendário principal da conta selecionada. Você também pode exibir feeds ICS ou webcal somente leitura; eles não são integrações bidirecionais com Outlook ou Apple Calendar. Calendários do Google compartilhados são somente visualização e não bloqueiam a disponibilidade de reserva.",
+        question3: "O que o agente de IA pode fazer com meu calendário?",
         answer3:
-          "Sim: sincronização via OAuth, suporte a várias contas e atualização automática de tokens. Crie, atualize e exclua eventos diretamente no Google.",
-        question4: "Calendar é gratuito?",
+          "Seu agente de IA pode verificar sua agenda, encontrar horários disponíveis e criar ou reagendar eventos. Quando você pede para ele encontrar um horário, ele verifica suas regras de disponibilidade e eventos existentes, além das informações de livre/ocupado dos convidados nomeados quando acessíveis. Você escolhe o horário sugerido antes que a reunião seja marcada.",
+        question4:
+          "As pessoas precisam de uma conta para marcar uma reunião comigo?",
         answer4:
-          "Sim. É gratuito e de código aberto, incluindo as páginas de reserva.",
+          "Não. Qualquer pessoa com seu link de reserva público pode escolher um horário disponível e responder suas perguntas de reserva sem fazer login. Após a reserva, ela recebe um link privado para reagendar ou cancelar a reunião.",
+        question5:
+          "Um link de reserva pode verificar a disponibilidade de vários anfitriões?",
+        answer5:
+          "Sim. Adicione coanfitriões obrigatórios, e o Calendar verifica as informações de livre/ocupado deles antes de oferecer um horário. Para também respeitar o horário de trabalho configurado de cada coanfitrião, você e esse coanfitrião precisam adicionar os calendários um do outro como sobreposições. Sem esse compartilhamento mútuo, o Calendar verifica apenas as informações de livre/ocupado deles.",
       },
       s001: "Captura de tela do modelo Calendar",
+      // Cópia V3 da página de destino (10/09/2026) — do hero ao CTA final.
+      heroEyebrow: "Calendar",
+      heroTitle: "Gerencie sua agenda com seu agente de IA",
+      heroDescription:
+        "Calendar é um assistente de agendamento com IA gratuito e de código aberto para gerenciar eventos do Google Calendar, encontrar horários e permitir que outras pessoas marquem com você.",
+      heroCta: "Abrir Calendar",
+      useCasesHeading: "O que você pode fazer com o Calendar?",
+      useCasesBody:
+        "Marque uma chamada com um cliente, reúna sua equipe ou ajuste seu dia quando os planos mudarem.",
+      useCase1Title: "Marque chamadas e demonstrações com clientes",
+      useCase1Body:
+        "Dê aos seus clientes em potencial e atuais um link de reserva para que escolham um horário. Colete as informações que você precisa antes da chamada.",
+      useCase2Title: "Encontre horários para reuniões de equipe",
+      useCase2Body:
+        "Peça ao seu agente de IA um horário em que seus colegas de equipe estejam disponíveis. Escolha um horário sugerido para marcar a reunião.",
+      useCase3Title: "Ajuste seu dia quando os planos mudarem",
+      useCase3Body:
+        "Peça ao seu agente de IA para mover uma reunião ou encontrar outro horário, considerando seus eventos e horários de trabalho existentes.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para agendar, marcar e reagendar",
+      feature1Title: "Agendamento com IA",
+      feature1Body:
+        "Peça ao seu agente de IA para verificar sua agenda, encontrar horários disponíveis e criar ou reagendar eventos no seu Google Calendar conectado.",
+      feature2Title: "Várias contas de calendário",
+      feature2Body:
+        "Veja contas do Google de trabalho e pessoais juntas nas visualizações de dia, semana ou mês. Adicione feeds de calendário somente leitura ao lado dos seus eventos.",
+      feature3Title: "Links de reserva personalizáveis",
+      feature3Body:
+        "Crie páginas de reserva para diferentes tipos de reunião. Defina a duração e adicione perguntas para as pessoas responderem ao marcar.",
+      feature4Title: "Controles de disponibilidade",
+      feature4Body:
+        "Defina seu horário de trabalho, fuso horário e intervalos entre reuniões. Escolha quanto aviso prévio você precisa e com quanta antecedência as pessoas podem marcar.",
+      feature5Title: "Agendamento com coanfitriões",
+      feature5Body:
+        "Adicione coanfitriões obrigatórios a um link de reserva. Ofereça horários em que todos estejam livres e convide-os assim que alguém marcar.",
+      feature6Title: "Links de reunião por vídeo",
+      feature6Body:
+        "Adicione o Google Meet, conecte o Zoom ou use um link de reunião personalizado para que os convidados saibam onde entrar ao marcar.",
+      finalCtaHeading: "Coloque sua próxima reunião no calendário",
+      finalCtaBody:
+        "Encontre um horário com seu agente de IA ou envie um link de reserva.",
+      finalCtaButton: "Abrir Calendar",
       s002: "Calendar visualizações",
       s003: "Ações do agente",
       s004: "Tipos de link de reserva",

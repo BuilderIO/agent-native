@@ -789,6 +789,46 @@ const messages = {
     },
     calendar: {
       s001: "Calendar 範本螢幕截圖",
+      // V3 到達頁文案(2026年9月10日)—— 從 hero 到最終 CTA。
+      heroEyebrow: "Calendar",
+      heroTitle: "用你的 AI 代理管理行程",
+      heroDescription:
+        "Calendar 是一款免費開放原始碼的 AI 排程助理，用於管理 Google Calendar 活動、尋找會議時間，並讓其他人可以與你預約。",
+      heroCta: "開啟 Calendar",
+      useCasesHeading: "用 Calendar 能做什麼？",
+      useCasesBody: "預約客戶通話、召集你的團隊，或在計畫變動時調整你的一天。",
+      useCase1Title: "預約客戶通話與展示",
+      useCase1Body:
+        "給潛在客戶與現有客戶一個預約連結，讓他們自行選擇時間。在通話前收集你需要的資訊。",
+      useCase2Title: "為團隊會議找到合適時間",
+      useCase2Body:
+        "請你的 AI 代理找出團隊成員都有空的時間。選擇一個建議的時段來預約會議。",
+      useCase3Title: "計畫變動時調整你的一天",
+      useCase3Body:
+        "請你的 AI 代理搬移會議或另找時間，同時會參考你現有的活動與工作時間。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "排程、預約與改期所需的一切",
+      feature1Title: "AI 排程",
+      feature1Body:
+        "請你的 AI 代理查看你的行程、尋找可用時間，並在已連線的 Google Calendar 上建立或改期活動。",
+      feature2Title: "多個行事曆帳戶",
+      feature2Body:
+        "在日、週或月檢視中同時查看工作與個人 Google 帳戶。還可在你的活動旁加入唯讀行事曆訂閱。",
+      feature3Title: "可自訂的預約連結",
+      feature3Body:
+        "為不同類型的會議建立預約頁面。設定時長，並加入問題讓對方在預約時回答。",
+      feature4Title: "可用性控制",
+      feature4Body:
+        "設定你的工作時間、時區以及會議之間的緩衝時間。選擇你需要多少提前通知，以及他人可以提前多久預約。",
+      feature5Title: "共同主持人排程",
+      feature5Body:
+        "在預約連結中加入必要的共同主持人。提供所有人都有空的時間，一旦有人預約就邀請他們。",
+      feature6Title: "視訊會議連結",
+      feature6Body:
+        "加入 Google Meet、連線 Zoom，或使用自訂會議連結，讓參與者在預約時就知道從哪裡加入。",
+      finalCtaHeading: "把你的下一場會議加入行事曆",
+      finalCtaBody: "用你的 AI 代理找到時間，或傳送一個預約連結。",
+      finalCtaButton: "開啟 Calendar",
       s002: "Calendar 觀看次數",
       s003: "代理動作",
       s004: "預訂連結型別",
@@ -848,17 +888,21 @@ const messages = {
       s057: "託管示範說明",
       s058: "雙向同步",
       faq: {
-        question1: "AI 能幫我安排會議嗎？",
+        question1: "Agent-Native Calendar 是什麼？",
         answer1:
-          "可以。請代理尋找時段、建立活動、檢查空檔或重新排程；它會在你的實際行事曆中操作，並尊重現有活動。",
-        question2: "Calendar 能像 Calendly 一樣提供預約連結嗎？",
+          "Agent-Native Calendar 是一款免費開放原始碼的 AI 排程助理，可連線至 Google Calendar。使用 AI 代理管理活動、尋找會議時間，或分享預約連結讓其他人可以與你預約。",
+        question2: "我可以連線哪些行事曆？",
         answer2:
-          "可以。它提供可自訂的預約頁面，支援依類型設定可用時間、收集訪客資訊、傳送確認通知及使用自訂網域。",
-        question3: "它能與 Google Calendar 同步嗎？",
+          "連線多個 Google 帳戶，即可一起檢視它們的活動。新建與更新的活動會寫入所選帳戶的主要行事曆。你也可以顯示唯讀的 ICS 或 webcal 訂閱；這些並非與 Outlook 或 Apple 行事曆的雙向整合。共用的 Google 行事曆僅供檢視，不會阻擋預約的可用性。",
+        question3: "AI 代理能對我的行事曆做什麼？",
         answer3:
-          "可以。它透過 OAuth 同步，支援多個帳戶和自動重新整理權杖，並可直接在 Google 上建立、更新和刪除活動。",
-        question4: "Calendar 免費嗎？",
-        answer4: "免費且開放原始碼，預約頁面也包含在內。",
+          "你的 AI 代理可以查看你的行程、尋找可用的會議時間，並建立或改期活動。當你請它尋找時間時，會檢查你的可用性規則與現有活動，在可存取的情況下還會檢查指定與會者的忙碌/空閒資訊。會議被預約前，由你選擇建議的時間。",
+        question4: "其他人預約與我的會議需要帳戶嗎？",
+        answer4:
+          "不需要。任何擁有你公開預約連結的人，都能在不登入的情況下選擇可用時間並回答你的預約問題。預約完成後，對方會收到一個私人連結，用於改期或取消會議。",
+        question5: "預約連結能檢查多位主持人的可用性嗎？",
+        answer5:
+          "可以。加入必要的共同主持人後，Calendar 會在提供時間之前檢查他們的忙碌/空閒資訊。若要同時遵守每位共同主持人設定的工作時間，你與該共同主持人須將彼此的行事曆加入為疊加層。若沒有這種相互共用，Calendar 只會檢查他們的忙碌/空閒資訊。",
       },
     },
     assets: {

@@ -839,19 +839,65 @@ const enUS = {
     },
     calendar: {
       faq: {
-        question1: "Can AI schedule my meetings?",
+        question1: "What is Agent-Native Calendar?",
         answer1:
-          "Yes. Tell the agent to find a slot, create an event, check availability, or reschedule — it works inside your real calendar and respects existing events.",
-        question2: "Does Calendar do booking links like Calendly?",
+          "Agent-Native Calendar is a free and open-source AI scheduling assistant that connects to Google Calendar. Use an AI agent to manage events and find meeting times, or share booking links so people can schedule with you.",
+        question2: "Which calendars can I connect?",
         answer2:
-          "Yes — customizable booking pages with per-type availability, visitor info capture, confirmations, and custom domains.",
-        question3: "Does it sync with Google Calendar?",
+          "Connect multiple Google accounts to view their events together. New and updated events are written to the selected account's primary calendar. You can also display read-only ICS or webcal feeds; these are not two-way Outlook or Apple Calendar integrations. Shared Google calendars are view-only and do not block booking availability.",
+        question3: "What can the AI agent do with my calendar?",
         answer3:
-          "Yes — OAuth sync with multi-account support and automatic token refresh. Create, update, and delete events on Google directly.",
-        question4: "Is Calendar free?",
-        answer4: "Yes. Free and open source — including the booking pages.",
+          "Your AI agent can check your schedule, find available meeting times, and create or reschedule events. When you ask it to find a time, it checks your availability rules and existing events, plus named attendees' free/busy information when accessible. You choose a suggested time before it books the meeting.",
+        question4: "Do people need an account to book a meeting with me?",
+        answer4:
+          "No. Anyone with your public booking link can choose an available time and answer your booking questions without signing in. After booking, they receive a private link to reschedule or cancel the meeting.",
+        question5: "Can a booking link check availability for multiple hosts?",
+        answer5:
+          "Yes. Add required co-hosts, and Calendar checks their free/busy information before offering a time. To also respect each co-host's configured working hours, you and that co-host must add each other's calendars as overlays. Without that mutual sharing, Calendar checks their free/busy information only.",
       },
       s001: "Calendar app screenshot",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Calendar",
+      heroTitle: "Manage your schedule with your AI agent",
+      heroDescription:
+        "Calendar is a free and open-source AI scheduling assistant for managing Google Calendar events, finding meeting times, and letting people book with you.",
+      heroCta: "Open Calendar",
+      useCasesHeading: "What can you do with Calendar?",
+      useCasesBody:
+        "Book a client call, bring your team together, or adjust your day when plans change.",
+      useCase1Title: "Book client calls and demos",
+      useCase1Body:
+        "Give prospects and customers a booking link so they can choose a time. Collect the details you need before the call.",
+      useCase2Title: "Find time for team meetings",
+      useCase2Body:
+        "Ask your AI agent for a time when your teammates are available. Choose a suggested slot to book the meeting.",
+      useCase3Title: "Adjust your day when plans change",
+      useCase3Body:
+        "Ask your AI agent to move a meeting or find another time, with your existing events and working hours in view.",
+      keyFeaturesEyebrow: "Key features",
+      keyFeaturesHeading:
+        "Everything you need to schedule, book, and reschedule",
+      feature1Title: "AI scheduling",
+      feature1Body:
+        "Ask your AI agent to check your schedule, find available times, and create or reschedule events on your connected Google Calendar.",
+      feature2Title: "Multiple calendar accounts",
+      feature2Body:
+        "View work and personal Google accounts together in day, week, or month view. Add read-only calendar feeds alongside your events.",
+      feature3Title: "Customizable booking links",
+      feature3Body:
+        "Create booking pages for different meeting types. Set the duration and add questions for people to answer when they book.",
+      feature4Title: "Availability controls",
+      feature4Body:
+        "Set your working hours, time zone, and buffers between meetings. Choose how much notice you need and how far ahead people can book.",
+      feature5Title: "Co-host scheduling",
+      feature5Body:
+        "Add required co-hosts to a booking link. Offer meeting times when everyone is free, then invite them when someone books.",
+      feature6Title: "Video meeting links",
+      feature6Body:
+        "Add Google Meet, connect Zoom, or use a custom meeting link so guests know where to join when they book.",
+      finalCtaHeading: "Put your next meeting on the calendar",
+      finalCtaBody: "Find a time with your AI agent, or send a booking link.",
+      finalCtaButton: "Open Calendar",
       s002: "Calendar views",
       s003: "Agent actions",
       s004: "Booking link types",
