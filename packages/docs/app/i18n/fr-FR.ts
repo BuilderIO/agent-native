@@ -1238,27 +1238,67 @@ const frFR = {
     },
     dispatch: {
       faq: {
-        question1:
-          "Comment exécuter plusieurs agents IA sans devoir surveiller chacun d'eux ?",
+        question1: "Qu'est-ce qu'Agent-Native Dispatch ?",
         answer1:
-          "Dispatch sert de base : envoyez-lui un message depuis Slack ou Telegram, et il achemine le travail vers vos autres agents — Mail, Slides, Design — via A2A, avec les approbations et les planifications réunies au même endroit.",
-        question2: "Puis-je parler à mon agent depuis Slack ?",
+          "Agent-Native Dispatch est une application gratuite et open source d'orchestration d'agents IA pour un espace de travail Agent-Native. Elle coordonne les demandes entre les applications connectées, reçoit des messages depuis les canaux pris en charge, planifie des tâches récurrentes et gère les intégrations partagées.",
+        question2: "Avec quelles applications Dispatch peut-il fonctionner ?",
         answer2:
-          "Oui : messagerie bidirectionnelle avec contexte du fil et approbations intégrées, dans Slack ou Telegram. Les résultats de l'agent reviennent dans la même conversation.",
-        question3: "L'agent peut-il travailler selon un planning ?",
+          "Dispatch délègue aux applications connectées et disponibles dans votre espace de travail, comme Analytics ou Mail. Chaque application gère ses propres tâches et données. Configurez les connexions et les autorisations concernées avant de demander à Dispatch de les utiliser.",
+        question3: "Puis-je utiliser Dispatch depuis Slack ou Telegram ?",
         answer3:
-          "Oui : des jobs basés sur cron pour les stand-ups quotidiens, les récapitulatifs hebdomadaires et les vérifications horaires. Les résultats arrivent dans votre messagerie, pas dans un tableau de bord que vous devez penser à ouvrir.",
-        question4: "Se souvient-il des conversations précédentes ?",
+          "Oui. Configurez le canal de messagerie et associez votre identité à votre compte d'espace de travail si nécessaire. Dispatch peut recevoir des demandes et renvoyer des résultats via ce canal. Connecter un canal ne donne pas automatiquement à chaque expéditeur l'accès à toutes les applications.",
+        question4: "Les agents peuvent-ils exécuter des tâches selon un planning ?",
         answer4:
-          "Oui : les enseignements de chaque conversation sont automatiquement enregistrés et leur portée peut être définie par utilisateur, par organisation ou globalement. La mémoire est consultable et modifiable, ce n'est pas une boîte noire.",
-        question5: "Et si je ne veux pas qu'il agisse seul ?",
+          "Oui. Configurez une tâche récurrente et, si nécessaire, une destination de livraison pour ses résultats. Dispatch affiche la dernière exécution de la tâche, sa prochaine exécution et son état d'erreur afin que vous puissiez vérifier si elle s'est bien déroulée.",
+        question5:
+          "Les approbations Dispatch couvrent-elles tout ce que fait un agent ?",
         answer5:
-          "Les workflows d'approbation sont intégrés : les actions sensibles — envoyer un e-mail, publier une mise à jour, exécuter une automatisation — attendent une approbation en un geste dans Slack. Vous choisissez les actions qui nécessitent une validation.",
-        question6: "Dispatch est-il gratuit ?",
-        answer6:
-          "Oui. Il est gratuit et open source, contrairement aux plateformes d'agents facturées chaque mois par utilisateur.",
+          "Non. Dans un espace de travail d'équipe, Dispatch peut exiger une vérification de ses propres modifications aux ressources et paramètres partagés. Les actions effectuées dans les applications connectées, comme l'envoi d'un e-mail, suivent les contrôles propres à ces applications. La file d'approbation de Dispatch n'est pas un point de contrôle universel pour chaque action d'agent.",
       },
       s001: "Capture d'écran du modèle Dispatch",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "Coordonnez vos agents IA depuis un seul endroit",
+      heroDescription:
+        "Dispatch est une application gratuite et open source d'orchestration d'agents IA pour déléguer du travail aux applications Agent-Native connectées, planifier des tâches récurrentes et gérer les connexions partagées.",
+      heroCta: "Ouvrir Dispatch",
+      useCasesHeading: "Que pouvez-vous faire avec Dispatch ?",
+      useCasesBody:
+        "Demandez de l'aide à une application connectée, mettez en place une mise à jour régulière ou examinez une exécution d'agent qui nécessite votre attention.",
+      useCase1Title: "Déléguer du travail depuis une seule conversation",
+      useCase1Body:
+        "Demandez un résumé de métriques ou un brouillon de réponse. Dispatch transmet la demande à l'agent Analytics ou Mail connecté et renvoie le résultat.",
+      useCase2Title: "Mettre en place des mises à jour d'équipe récurrentes",
+      useCase2Body:
+        "Planifiez un résumé quotidien de métriques ou une synthèse hebdomadaire depuis vos applications connectées. Choisissez un canal ou une boîte de réception configurés où le résultat doit arriver.",
+      useCase3Title: "Examiner l'activité des agents",
+      useCase3Body:
+        "Vérifiez la dernière exécution d'une tâche et ses éventuelles erreurs. Utilisez les détails de fil de discussion et de surveillance disponibles pour comprendre ce qui s'est passé lorsqu'un workflow nécessite votre attention.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading:
+        "Tout ce qu'il faut pour déléguer, planifier et surveiller",
+      feature1Title: "Délégation entre applications",
+      feature1Body:
+        "Envoyez des demandes à l'application connectée qui prend en charge le travail. Chaque application utilise son propre agent, ses propres actions et ses propres données pour répondre.",
+      feature2Title: "Connexions de messagerie",
+      feature2Body:
+        "Connectez des canaux comme Slack ou Telegram pour envoyer des demandes et recevoir des réponses. Associez les identités afin que Dispatch sache quel utilisateur de l'espace de travail fait la demande.",
+      feature3Title: "Tâches planifiées",
+      feature3Body:
+        "Donnez un planning à un travail récurrent. Vérifiez si une tâche est activée, sa dernière exécution, sa prochaine exécution et toute erreur enregistrée.",
+      feature4Title: "Destinations de livraison enregistrées",
+      feature4Body:
+        "Enregistrez un canal Slack, une conversation Telegram ou une adresse e-mail comme destination de livraison. Réutilisez-la pour les résultats planifiés et vérifiez l'état de la livraison.",
+      feature5Title: "Intégrations partagées",
+      feature5Body:
+        "Configurez une connexion à un fournisseur une seule fois et accordez l'accès aux applications qui en ont besoin. Gérez les connexions partagées et l'accès aux applications depuis Dispatch.",
+      feature6Title: "Approbations des modifications de l'espace de travail",
+      feature6Body:
+        "Exigez qu'un autre administrateur vérifie les modifications apportées par Dispatch aux ressources et paramètres partagés. Examinez les demandes en attente et approuvez-les ou rejetez-les dans un espace de travail d'équipe.",
+      finalCtaHeading: "Commencez avec une seule tâche connectée",
+      finalCtaBody:
+        "Choisissez les applications dont vous avez besoin et demandez à Dispatch de coordonner le travail.",
+      finalCtaButton: "Ouvrir Dispatch",
       s002: "+ Telegram inclus",
       s003: "Entre agents",
       s004: "Mémoire",

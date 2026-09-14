@@ -1232,27 +1232,65 @@ const ptBR = {
     },
     dispatch: {
       faq: {
-        question1:
-          "Como executo vários agentes de IA sem precisar supervisionar cada um?",
+        question1: "O que é o Agent-Native Dispatch?",
         answer1:
-          "Dispatch é a base de operações: envie uma mensagem pelo Slack ou Telegram, e ele encaminhará o trabalho para seus outros agentes — Mail, Slides, Design — via A2A, com aprovações e agendas em um só lugar.",
-        question2: "Posso falar com meu agente pelo Slack?",
+          "O Agent-Native Dispatch é um aplicativo gratuito e de código aberto de orquestração de agentes de IA para um workspace Agent-Native. Ele coordena solicitações entre aplicativos conectados, recebe mensagens de canais compatíveis, agenda tarefas recorrentes e gerencia integrações compartilhadas.",
+        question2: "Com quais aplicativos o Dispatch pode trabalhar?",
         answer2:
-          "Sim: mensagens bidirecionais com contexto da thread e aprovações integradas, no Slack ou Telegram. Os resultados do agente retornam à mesma conversa.",
-        question3: "O agente pode trabalhar de acordo com uma agenda?",
+          "O Dispatch delega tarefas para aplicativos conectados e disponíveis no seu workspace, como Analytics ou Mail. Cada aplicativo cuida de suas próprias tarefas e dados. Configure as conexões e permissões relevantes antes de pedir ao Dispatch para usá-los.",
+        question3: "Posso usar o Dispatch pelo Slack ou Telegram?",
         answer3:
-          "Sim: jobs baseados em cron para stand-ups diários, resumos semanais e verificações de hora em hora. Os resultados chegam ao seu mensageiro, não a um painel que você precisa lembrar de abrir.",
-        question4: "Ele se lembra das conversas anteriores?",
+          "Sim. Configure o canal de mensagens e vincule sua identidade à conta do workspace, se necessário. O Dispatch pode receber solicitações e retornar resultados por esse canal. Conectar um canal não concede automaticamente a todo remetente acesso a todos os aplicativos.",
+        question4: "Os agentes podem executar tarefas em uma agenda?",
         answer4:
-          "Sim: os aprendizados de cada conversa são capturados automaticamente e têm escopo por usuário, por organização ou global. A memória pode ser inspecionada e editada; não é uma caixa-preta.",
-        question5: "E se eu não quiser que ele aja sozinho?",
+          "Sim. Configure uma tarefa recorrente e, se necessário, um destino de entrega para os resultados. O Dispatch mostra a última execução da tarefa, a próxima execução e o status de erro, para que você possa verificar se ela foi executada com sucesso.",
+        question5: "As aprovações do Dispatch cobrem tudo o que um agente faz?",
         answer5:
-          "Os fluxos de aprovação são integrados: ações sensíveis — enviar um e-mail, publicar uma atualização, executar uma automação — aguardam uma aprovação com um toque no Slack. Você configura quais ações precisam de autorização.",
-        question6: "Dispatch é gratuito?",
-        answer6:
-          "Sim. É gratuito e de código aberto, ao contrário de plataformas de agentes que cobram mensalmente por usuário.",
+          "Não. Em um workspace de equipe, o Dispatch pode exigir revisão das próprias alterações que faz em recursos e configurações compartilhados. Ações dentro de aplicativos conectados, como enviar e-mail, seguem os controles desses aplicativos. A fila de aprovações do Dispatch não é um portão universal para toda ação de agente.",
       },
       s001: "Captura de tela do modelo Dispatch",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "Coordene seus agentes de IA em um só lugar",
+      heroDescription:
+        "O Dispatch é um aplicativo gratuito e de código aberto de orquestração de agentes de IA para delegar trabalho a aplicativos Agent-Native conectados, agendar tarefas recorrentes e gerenciar conexões compartilhadas.",
+      heroCta: "Abrir o Dispatch",
+      useCasesHeading: "O que você pode fazer com o Dispatch?",
+      useCasesBody:
+        "Peça ajuda a um aplicativo conectado, configure uma atualização regular ou investigue uma execução de agente que precisa de atenção.",
+      useCase1Title: "Delegue trabalho a partir de uma única conversa",
+      useCase1Body:
+        "Peça um resumo de métricas ou um rascunho de resposta. O Dispatch encaminha a solicitação ao agente Analytics ou Mail conectado e retorna o resultado.",
+      useCase2Title: "Configure atualizações recorrentes para a equipe",
+      useCase2Body:
+        "Agende um resumo diário de métricas ou um resumo semanal a partir dos seus aplicativos conectados. Escolha um canal ou caixa de entrada configurado para onde o resultado deve chegar.",
+      useCase3Title: "Investigue a atividade dos agentes",
+      useCase3Body:
+        "Verifique a última execução de uma tarefa e quaisquer erros. Use os detalhes de threads e monitoramento disponíveis para investigar o que aconteceu quando um fluxo de trabalho precisa de atenção.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading: "Tudo o que você precisa para delegar, agendar e monitorar",
+      feature1Title: "Delegação entre aplicativos",
+      feature1Body:
+        "Envie solicitações ao aplicativo conectado que cuida do trabalho. Cada aplicativo usa seu próprio agente, ações e dados para responder.",
+      feature2Title: "Conexões de mensagens",
+      feature2Body:
+        "Conecte canais como Slack ou Telegram para enviar solicitações e receber respostas. Vincule identidades para que o Dispatch saiba qual usuário do workspace está perguntando.",
+      feature3Title: "Tarefas agendadas",
+      feature3Body:
+        "Defina uma agenda para o trabalho recorrente. Veja se uma tarefa está ativada, quando foi executada pela última vez, a próxima execução e qualquer erro registrado.",
+      feature4Title: "Destinos de entrega salvos",
+      feature4Body:
+        "Salve um canal do Slack, um chat do Telegram ou um endereço de e-mail como destino de entrega. Reutilize-o para resultados agendados e verifique o status da entrega.",
+      feature5Title: "Integrações compartilhadas",
+      feature5Body:
+        "Configure uma conexão de provedor uma vez e conceda acesso aos aplicativos que precisam dela. Gerencie conexões compartilhadas e acesso de aplicativos a partir do Dispatch.",
+      feature6Title: "Aprovações de mudanças no workspace",
+      feature6Body:
+        "Exija que outro administrador revise as mudanças que o Dispatch faz em recursos e configurações compartilhados. Revise solicitações pendentes e aprove ou rejeite-as em um workspace de equipe.",
+      finalCtaHeading: "Comece com uma tarefa conectada",
+      finalCtaBody:
+        "Escolha os aplicativos de que você precisa e peça ao Dispatch para coordenar o trabalho.",
+      finalCtaButton: "Abrir o Dispatch",
       s002: "+ Telegram incluído",
       s003: "Interagente",
       s004: "Memória",

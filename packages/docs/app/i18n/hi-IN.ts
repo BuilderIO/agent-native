@@ -1217,26 +1217,64 @@ const hiIN = {
     },
     dispatch: {
       faq: {
-        question1: "हर AI agent पर नज़र रखे बिना मैं कई agents कैसे चला सकता हूँ?",
+        question1: "Agent-Native Dispatch क्या है?",
         answer1:
-          "Dispatch आपका home base है: Slack या Telegram से उसे message करें और वह A2A के जरिए काम को आपके दूसरे agents — Mail, Slides, Design — तक भेजता है, साथ ही approvals और schedules एक जगह रखता है।",
-        question2: "क्या मैं Slack से अपने agent से बात कर सकता हूँ?",
+          "Agent-Native Dispatch एक Agent-Native workspace के लिए मुफ़्त और open source AI agent orchestration app है। यह connected apps में requests को coordinate करता है, supported channels से messages पाता है, recurring tasks schedule करता है, और shared integrations manage करता है।",
+        question2: "Dispatch किन apps के साथ काम कर सकता है?",
         answer2:
-          "हाँ — Slack या Telegram में thread context और inline approvals के साथ दो-तरफ़ा messaging। Agent के परिणाम उसी conversation में वापस आते हैं।",
-        question3: "क्या agent schedule के अनुसार काम कर सकता है?",
+          "Dispatch आपके workspace में connected और उपलब्ध apps को काम सौंपता है, जैसे Analytics या Mail। हर app अपने खुद के tasks और data को संभालता है। Dispatch से इन्हें इस्तेमाल करवाने से पहले संबंधित connections और grants configure करें।",
+        question3: "क्या मैं Dispatch को Slack या Telegram से इस्तेमाल कर सकता हूँ?",
         answer3:
-          "हाँ — cron-based jobs: रोज़ाना stand-ups, साप्ताहिक summaries और हर घंटे checks। परिणाम आपके messenger में पहुँचते हैं, ऐसे dashboard में नहीं जिसे खोलना आपको याद रखना पड़े।",
-        question4: "क्या यह पिछली conversations याद रखता है?",
+          "हाँ। ज़रूरत के अनुसार messaging channel configure करें और अपनी पहचान को अपने workspace account से link करें। Dispatch उस channel के ज़रिए requests पा सकता है और results वापस भेज सकता है। किसी channel को connect करने से हर sender को हर app का access अपने-आप नहीं मिल जाता।",
+        question4: "क्या agents किसी schedule पर tasks चला सकते हैं?",
         answer4:
-          "हाँ — हर conversation से सीख अपने-आप capture होती है और उसका scope हर user, हर organization या global रखा जा सकता है। Memory को देखा और edit किया जा सकता है; यह black box नहीं है।",
-        question5: "अगर मैं नहीं चाहता कि यह अकेले कार्रवाई करे तो क्या होगा?",
+          "हाँ। एक recurring task सेट करें और ज़रूरत पड़ने पर उसके results के लिए एक delivery destination भी। Dispatch उस task का last run, next run, और error status दिखाता है ताकि आप देख सकें कि वह सफलतापूर्वक चला या नहीं।",
+        question5: "क्या Dispatch की approvals एक agent के हर काम को कवर करती हैं?",
         answer5:
-          "Approval workflows built in हैं: संवेदनशील actions — email भेजना, update post करना, automation चलाना — Slack में एक-tap approval का इंतज़ार करती हैं। किन actions के लिए sign-off चाहिए, यह आप तय करते हैं।",
-        question6: "क्या Dispatch मुफ़्त है?",
-        answer6:
-          "हाँ। मुफ़्त और open source, जबकि हर user के लिए मासिक शुल्क लेने वाले agent platforms इसके विकल्प हैं।",
+          "नहीं। एक team workspace में, Dispatch shared resources और settings में अपने खुद के बदलावों की review ज़रूरी बना सकता है। Connected apps के अंदर की actions, जैसे email भेजना, उन apps के अपने controls को follow करती हैं। Dispatch की approval queue हर agent action के लिए एक universal gate नहीं है।",
       },
       s001: "Dispatch टेम्पलेट स्क्रीनशॉट",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "अपने AI agents को एक जगह से coordinate करें",
+      heroDescription:
+        "Dispatch एक मुफ़्त और open source AI agent orchestration app है, जो connected Agent-Native apps को काम सौंपने, recurring tasks schedule करने, और shared connections manage करने के लिए बना है।",
+      heroCta: "Dispatch खोलें",
+      useCasesHeading: "आप Dispatch से क्या कर सकते हैं?",
+      useCasesBody:
+        "किसी connected app से मदद माँगें, कोई नियमित update सेट करें, या किसी ऐसे agent run की जांच करें जिस पर ध्यान देने की ज़रूरत है।",
+      useCase1Title: "एक ही बातचीत से काम सौंपें",
+      useCase1Body:
+        "metrics का summary या reply का draft माँगें। Dispatch उस request को connected Analytics या Mail agent तक भेजता है और result वापस लाता है।",
+      useCase2Title: "बार-बार होने वाले team updates सेट करें",
+      useCase2Body:
+        "अपने connected apps से रोज़ाना का metrics summary या साप्ताहिक digest schedule करें। वह configured channel या inbox चुनें जहाँ result पहुँचना चाहिए।",
+      useCase3Title: "agent की activity की जांच करें",
+      useCase3Body:
+        "किसी task का last run और कोई भी errors देखें। जब किसी workflow पर ध्यान देने की ज़रूरत हो, तो यह जांचने के लिए उपलब्ध thread और monitoring details का इस्तेमाल करें कि क्या हुआ।",
+      keyFeaturesEyebrow: "मुख्य विशेषताएं",
+      keyFeaturesHeading: "काम सौंपने, schedule करने और monitor करने के लिए ज़रूरी सब कुछ",
+      feature1Title: "cross-app delegation",
+      feature1Body:
+        "उस काम को संभालने वाले connected app को requests भेजें। हर app जवाब देने के लिए अपने खुद के agent, actions, और data का इस्तेमाल करता है।",
+      feature2Title: "messaging connections",
+      feature2Body:
+        "requests भेजने और replies पाने के लिए Slack या Telegram जैसे channels connect करें। identities link करें ताकि Dispatch को पता चले कि कौन सा workspace user पूछ रहा है।",
+      feature3Title: "scheduled tasks",
+      feature3Body:
+        "बार-बार होने वाले काम के लिए schedule तय करें। देखें कि task enabled है या नहीं, वह पिछली बार कब चला, अगली बार कब चलेगा, और कोई recorded error है या नहीं।",
+      feature4Title: "saved delivery destinations",
+      feature4Body:
+        "किसी Slack channel, Telegram chat, या email address को delivery target के रूप में save करें। इसे scheduled results के लिए दोबारा इस्तेमाल करें और delivery status जांचें।",
+      feature5Title: "shared integrations",
+      feature5Body:
+        "एक बार provider connection configure करें और उसकी ज़रूरत वाले apps को access दें। Dispatch से shared connections और app access manage करें।",
+      feature6Title: "workspace change approvals",
+      feature6Body:
+        "किसी दूसरे admin को shared resources और settings में Dispatch के अपने बदलावों की review करना ज़रूरी बनाएं। team workspace में pending requests review करें और उन्हें approve या reject करें।",
+      finalCtaHeading: "एक connected task से शुरुआत करें",
+      finalCtaBody: "अपनी ज़रूरत के apps चुनें और Dispatch से काम coordinate करने को कहें।",
+      finalCtaButton: "Dispatch खोलें",
       s002: "+ Telegram support",
       s003: "अंतर-एजेंट",
       s004: "स्मृति",
