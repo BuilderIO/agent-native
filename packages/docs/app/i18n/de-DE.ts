@@ -1523,22 +1523,66 @@ const deDE = {
     },
     mail: {
       faq: {
-        question1: "Kann KI meinen Posteingang sortieren?",
+        question1: "Was ist Agent-Native Mail?",
         answer1:
-          "Ja. Der Agent liest Ihren Posteingang, hebt Prioritäten hervor, kennzeichnet und sortiert Nachrichten, entwirft Antworten, legt Regeln für die automatische Archivierung fest und fasst ungelesene E-Mails mit herausgearbeiteten Aktionspunkten zusammen.",
-        question2: "Wie unterscheidet sich Mail von Superhuman?",
+          "Agent-Native Mail ist ein kostenloser, quelloffener E-Mail-Client für Gmail mit einem KI-E-Mail-Assistenten. Lies und durchsuche Nachrichten, fasse Unterhaltungen zusammen, entwirf Antworten und organisiere deine E-Mails über den Posteingang oder deinen KI-Agenten.",
+        question2: "Funktioniert Mail mit meinem bestehenden Gmail-Konto?",
         answer2:
-          "Die tastaturorientierte Geschwindigkeit ist die Grundlage — verfassen, archivieren und antworten, alles per Tastenkürzel. Der Unterschied: ein Agent, der den Posteingang tatsächlich bearbeitet, kein Abonnement und Code, der Ihnen gehört.",
-        question3: "Funktioniert Mail mit Gmail?",
-        answer3: "Ja — mit Gmail und Unterstützung für mehrere Konten.",
-        question4: "Sind meine E-Mails privat?",
+          "Ja. Verbinde dein bestehendes Gmail-Konto, um E-Mails über Mail zu lesen und zu senden. Du kannst mehrere Gmail-Konten verbinden und kontoübergreifend suchen. Mail stellt keine neue E-Mail-Adresse bereit und unterstützt derzeit Gmail statt Outlook oder anderer E-Mail-Anbieter.",
+        question3: "Sendet der KI-Agent E-Mails ohne meine Freigabe?",
+        answer3:
+          "Wenn du den KI-Agenten im Chat bittest, eine E-Mail zu senden, benötigt er deine Freigabe. Auch durch Automatisierungen ausgelöste Sendevorgänge erfordern eine Freigabe, sofern du das automatische Senden nicht ausdrücklich in den Mail-Einstellungen aktivierst. Du kannst Entwürfe vor dem Senden prüfen und bearbeiten.",
+        question4: "Kann KI meinen Posteingang automatisch organisieren?",
         answer4:
-          "Mail ist Open Source und läuft lokal — Ihre E-Mails bleiben in Ihrer Infrastruktur, und Sie können jede Codezeile lesen, die darauf zugreift.",
-        question5: "Ist Mail kostenlos?",
+          "Ja. Erstelle Regeln in natürlicher Sprache, um eingehende Nachrichten zu kennzeichnen, zu archivieren, mit einem Stern zu markieren oder als gelesen zu markieren. Mail unterstützt außerdem native Gmail-Filter für Bedingungen wie Absender oder Betreff. Gmail-Filter laufen in Gmail und funktionieren weiter, auch wenn Mail geschlossen ist.",
+        question5: "Kann ein Teammitglied eine E-Mail für mich zur Prüfung vorbereiten?",
         answer5:
-          "Ja. Kostenlos und Open Source — kein Abonnement und keine Anbieterbindung.",
+          "Ja. Ein Teammitglied kann einen Entwurf anfordern, der in deiner Prüfungswarteschlange erscheint. Öffne ihn, bearbeite die Nachricht und sende sie, wenn sie fertig ist. Die anfragende Person kann sie nicht in deinem Namen senden; die Eigentümerin oder der Eigentümer des Entwurfs oder eine Organisationsadministration steuert das Senden.",
       },
       s001: "Screenshot der Vorlage Mail",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "Verwalte deinen Posteingang mit deinem KI-Agenten",
+      heroDescription:
+        "Mail ist ein kostenloser, quelloffener E-Mail-Client für Gmail mit einem KI-Agenten, der Nachrichten findet, Unterhaltungen zusammenfasst, Antworten entwirft und deinen Posteingang organisiert.",
+      heroCta: "Mail öffnen",
+      useCasesHeading: "Was kannst du mit Mail machen?",
+      useCasesBody:
+        "Hol Unterhaltungen nach, antworte Kunden und Kollegen oder arbeite einen E-Mail-Rückstand auf.",
+      useCase1Title: "Unterhaltungen nachholen",
+      useCase1Body:
+        "Frag deinen KI-Agenten, was in einem langen Thread passiert ist, was vereinbart wurde und welche Fragen noch offen sind.",
+      useCase2Title: "Kunden und Kollegen antworten",
+      useCase2Body:
+        "Gib deinem KI-Agenten die Punkte, die du ansprechen möchtest. Prüfe und bearbeite die Antwort im Verfassen-Bereich, bevor du sie sendest.",
+      useCase3Title: "Deinen Posteingang sortieren",
+      useCase3Body:
+        "Bitte deinen KI-Agenten, Rechnungen zu kennzeichnen, Newsletter zu archivieren oder Nachrichten eines Kunden mit einem Stern zu markieren. Wende Regeln an, um ähnliche E-Mails automatisch zu behandeln, sobald sie eintreffen.",
+      keyFeaturesEyebrow: "Wichtige Funktionen",
+      keyFeaturesHeading:
+        "Alles, was du zum Lesen, Schreiben und Organisieren von E-Mails brauchst",
+      feature1Title: "KI-Thread-Zusammenfassungen",
+      feature1Body:
+        "Frag nach der Unterhaltung, die du gerade geöffnet hast. Dein KI-Agent liest den Thread, um die Diskussion zusammenzufassen und offene Fragen zu identifizieren.",
+      feature2Title: "KI-E-Mail-Entwürfe",
+      feature2Body:
+        "Verfasse eine Antwort oder überarbeite markierten Text mit deinem KI-Agenten. Lege Schreibpräferenzen fest, füge deine Signatur hinzu und bearbeite Entwürfe selbst.",
+      feature3Title: "Kontoübergreifende Suche",
+      feature3Body:
+        "Verbinde geschäftliche und private Gmail-Konten. Durchsuche sie alle von einem Posteingang aus – über die Suchleiste oder deinen KI-Agenten.",
+      feature4Title: "Posteingangs-Automatisierungen",
+      feature4Body:
+        "Beschreibe Regeln zum Kennzeichnen, Archivieren, Markieren mit Stern oder Markieren eingehender Nachrichten als gelesen. Nutze KI-Regeln oder richte native Gmail-Filter ein.",
+      feature5Title: "Tastaturkürzel",
+      feature5Body:
+        "Navigiere durch Nachrichten, verfasse Antworten, archiviere Unterhaltungen und durchsuche deinen Posteingang über die Tastatur. Öffne die Befehlspalette, um weitere Aktionen zu finden.",
+      feature6Title: "Geplantes Senden und Schlummerfunktion",
+      feature6Body:
+        "Lege fest, wann eine E-Mail gesendet wird, oder hole eine Nachricht später wieder in deinen Fokus. Prüfe geplante Elemente und storniere sie, wenn sich Pläne ändern.",
+      finalCtaHeading: "Starte mit deiner nächsten E-Mail",
+      finalCtaBody:
+        "Öffne eine Unterhaltung und bitte deinen KI-Agenten um eine Zusammenfassung oder einen Antwortentwurf.",
+      finalCtaButton: "Mail öffnen",
       s002: "Zuerst die Tastatur",
       s003: "Posteingangs-Sortierung",
       s004: "Ansichten",

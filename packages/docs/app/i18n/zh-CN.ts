@@ -1463,7 +1463,64 @@ const zhCN = {
       },
     },
     mail: {
+      faq: {
+        question1: "什么是 Agent-Native Mail？",
+        answer1:
+          "Agent-Native Mail 是一款面向 Gmail 的免费开源邮件客户端，内置 AI 邮件助手。你可以阅读和搜索邮件、总结对话、起草回复，并通过收件箱或你的 AI 智能体整理邮件。",
+        question2: "Mail 能配合我现有的 Gmail 账号使用吗？",
+        answer2:
+          "可以。连接你现有的 Gmail 账号，即可通过 Mail 收发邮件。你可以连接多个 Gmail 账号并同时搜索所有账号。Mail 不会提供新的邮箱地址，目前也只支持 Gmail，暂不支持 Outlook 或其他邮件服务商。",
+        question3: "AI 智能体会在未经我同意的情况下发送邮件吗？",
+        answer3:
+          "当你在对话中要求 AI 智能体发送邮件时，需要你的批准。由自动化触发的发送同样需要批准，除非你在 Mail 设置中明确启用自动发送。发送前你都可以查看并编辑草稿。",
+        question4: "AI 能自动整理我的收件箱吗？",
+        answer4:
+          "可以。用自然语言创建规则，为收到的邮件添加标签、归档、加星标或标记为已读。Mail 还支持基于发件人或主题等条件的原生 Gmail 过滤器。Gmail 过滤器在 Gmail 中运行，即使关闭 Mail 也会继续生效。",
+        question5: "同事能替我准备一封邮件供我审核吗？",
+        answer5:
+          "可以。同事可以请求生成一份草稿，出现在你的审核队列中。打开它、编辑内容，准备好后再发送。请求方无法代替你发送；由草稿的所有者或组织管理员来控制发送。",
+      },
       s001: "Mail 模板屏幕截图",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "用你的 AI 智能体管理收件箱",
+      heroDescription:
+        "Mail 是一款面向 Gmail 的免费开源邮件客户端，AI 智能体可以查找邮件、总结对话、起草回复，并整理你的收件箱。",
+      heroCta: "打开 Mail",
+      useCasesHeading: "用 Mail 能做什么？",
+      useCasesBody: "跟上对话进度、回复客户和同事，或整理积压的邮件。",
+      useCase1Title: "跟上对话进度",
+      useCase1Body:
+        "让你的 AI 智能体告诉你一个长对话里发生了什么、达成了什么共识，以及哪些问题还需要回答。",
+      useCase2Title: "回复客户和同事",
+      useCase2Body:
+        "把你想表达的要点告诉你的 AI 智能体。发送前，在撰写面板中查看并编辑它的回复。",
+      useCase3Title: "整理你的收件箱",
+      useCase3Body:
+        "让你的 AI 智能体给发票加标签、归档订阅邮件，或给某位客户的邮件加星标。设置规则，让类似的邮件到达时自动处理。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "阅读、撰写和整理邮件所需的一切",
+      feature1Title: "AI 对话摘要",
+      feature1Body:
+        "就你打开的对话提问。你的 AI 智能体会读取整个对话串，总结讨论内容并找出尚未解决的问题。",
+      feature2Title: "AI 邮件起草",
+      feature2Body:
+        "和你的 AI 智能体一起起草回复，或修改选中的文字。设置写作偏好、添加签名，草稿也可以自己编辑。",
+      feature3Title: "多账号搜索",
+      feature3Body:
+        "连接你的工作和个人 Gmail 账号，通过搜索栏或直接询问你的 AI 智能体，在一个收件箱中搜索所有账号。",
+      feature4Title: "收件箱自动化",
+      feature4Body:
+        "描述规则，为收到的邮件添加标签、归档、加星标或标记为已读。可以使用 AI 规则，也可以设置原生 Gmail 过滤器。",
+      feature5Title: "键盘快捷键",
+      feature5Body:
+        "用键盘浏览邮件、撰写回复、归档对话、搜索收件箱。打开命令面板可以找到更多操作。",
+      feature6Title: "定时发送与稍后提醒",
+      feature6Body:
+        "选择邮件的发送时间，或让某条消息稍后再提醒你。查看已安排的任务，计划变化时可以取消。",
+      finalCtaHeading: "从下一封邮件开始",
+      finalCtaBody: "打开一段对话，让你的 AI 智能体给你一份摘要或回复草稿。",
+      finalCtaButton: "打开 Mail",
       s002: "键盘优先",
       s003: "收件箱分类",
       s004: "意见",

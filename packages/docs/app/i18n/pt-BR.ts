@@ -1517,22 +1517,66 @@ const ptBR = {
     },
     mail: {
       faq: {
-        question1: "A IA pode organizar minha caixa de entrada?",
+        question1: "O que é o Agent-Native Mail?",
         answer1:
-          "Sim. O agente lê sua caixa de entrada, destaca prioridades, aplica rótulos e organiza as mensagens, redige respostas, define regras de arquivamento automático e resume e-mails não lidos com os itens de ação em destaque.",
-        question2: "Qual é a diferença entre Mail e Superhuman?",
+          "O Agent-Native Mail é um cliente de e-mail gratuito e de código aberto para o Gmail com um assistente de e-mail com IA. Leia e pesquise mensagens, resuma conversas, redija respostas e organize seu e-mail pela caixa de entrada ou pelo seu agente de IA.",
+        question2: "O Mail funciona com minha conta do Gmail existente?",
         answer2:
-          "A velocidade centrada no teclado é o ponto de partida: escrever, arquivar e responder, tudo por atalhos. A diferença é um agente que realmente trabalha na caixa de entrada, sem assinatura e com código que pertence a você.",
-        question3: "Mail funciona com Gmail?",
-        answer3: "Sim, funciona com Gmail e oferece suporte a várias contas.",
-        question4: "Meu e-mail é privado?",
+          "Sim. Conecte sua conta do Gmail existente para ler e enviar e-mails pelo Mail. Você pode conectar várias contas do Gmail e pesquisar em todas elas. O Mail não oferece um novo endereço de e-mail, e atualmente é compatível com o Gmail, e não com o Outlook ou outros provedores de e-mail.",
+        question3: "O agente de IA vai enviar e-mails sem minha aprovação?",
+        answer3:
+          "Quando você pede ao agente de IA para enviar um e-mail no chat, é necessária sua aprovação. Envios acionados por automações também exigem aprovação, a menos que você ative explicitamente o envio automático nas configurações do Mail. Você pode revisar e editar os rascunhos antes de enviá-los.",
+        question4: "A IA pode organizar minha caixa de entrada automaticamente?",
         answer4:
-          "Mail é de código aberto e roda localmente: seus e-mails permanecem na sua infraestrutura, e você pode ler cada linha de código que acessa as mensagens.",
-        question5: "Mail é gratuito?",
+          "Sim. Crie regras em linguagem natural para rotular, arquivar, marcar com estrela ou marcar como lidas as mensagens recebidas. O Mail também é compatível com filtros nativos do Gmail para condições como remetente ou assunto. Os filtros do Gmail rodam no Gmail e continuam funcionando mesmo com o Mail fechado.",
+        question5: "Um colega de equipe pode preparar um e-mail para eu revisar?",
         answer5:
-          "Sim. É gratuito e de código aberto, sem assinatura ou dependência de fornecedor.",
+          "Sim. Um colega de equipe pode solicitar um rascunho que aparece na sua fila de revisão. Abra-o, edite a mensagem e envie quando estiver pronto. Quem solicitou não pode enviá-lo em seu nome; quem controla o envio é o dono do rascunho ou um administrador da organização.",
       },
       s001: "Captura de tela do modelo Mail",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "Gerencie sua caixa de entrada com seu agente de IA",
+      heroDescription:
+        "O Mail é um cliente de e-mail gratuito e de código aberto para o Gmail, com um agente de IA que encontra mensagens, resume conversas, redige respostas e organiza sua caixa de entrada.",
+      heroCta: "Abrir o Mail",
+      useCasesHeading: "O que você pode fazer com o Mail?",
+      useCasesBody:
+        "Coloque as conversas em dia, responda a clientes e colegas, ou organize um acúmulo de e-mails.",
+      useCase1Title: "Coloque as conversas em dia",
+      useCase1Body:
+        "Pergunte ao seu agente de IA o que aconteceu em uma conversa longa, o que foi combinado e quais perguntas ainda precisam de resposta.",
+      useCase2Title: "Responda a clientes e colegas",
+      useCase2Body:
+        "Dê ao seu agente de IA os pontos que você quer abordar. Revise e edite a resposta no painel de redação antes de enviá-la.",
+      useCase3Title: "Organize sua caixa de entrada",
+      useCase3Body:
+        "Peça ao seu agente de IA para rotular faturas, arquivar newsletters ou marcar com estrela as mensagens de um cliente. Aplique regras para tratar e-mails semelhantes assim que chegarem.",
+      keyFeaturesEyebrow: "Principais recursos",
+      keyFeaturesHeading:
+        "Tudo o que você precisa para ler, escrever e organizar e-mails",
+      feature1Title: "Resumos de conversas com IA",
+      feature1Body:
+        "Pergunte sobre a conversa que você tem aberta. Seu agente de IA lê a conversa para resumir a discussão e identificar perguntas em aberto.",
+      feature2Title: "Redação de e-mails com IA",
+      feature2Body:
+        "Redija uma resposta ou revise o texto selecionado com seu agente de IA. Defina suas preferências de escrita, adicione sua assinatura e edite os rascunhos você mesmo.",
+      feature3Title: "Pesquisa multiconta",
+      feature3Body:
+        "Conecte suas contas do Gmail pessoal e de trabalho. Pesquise em todas elas a partir de uma única caixa de entrada, usando a barra de pesquisa ou pedindo ao seu agente de IA.",
+      feature4Title: "Automações da caixa de entrada",
+      feature4Body:
+        "Descreva regras para rotular, arquivar, marcar com estrela ou marcar como lidas as mensagens recebidas. Use regras de IA ou configure filtros nativos do Gmail.",
+      feature5Title: "Atalhos de teclado",
+      feature5Body:
+        "Navegue entre mensagens, redija respostas, arquive conversas e pesquise sua caixa de entrada pelo teclado. Abra a paleta de comandos para encontrar mais ações.",
+      feature6Title: "Envios programados e adiamento",
+      feature6Body:
+        "Escolha quando enviar um e-mail ou quando trazer uma mensagem de volta à sua atenção. Revise os itens programados e cancele-os se os planos mudarem.",
+      finalCtaHeading: "Comece com seu próximo e-mail",
+      finalCtaBody:
+        "Abra uma conversa e peça ao seu agente de IA um resumo ou um rascunho de resposta.",
+      finalCtaButton: "Abrir o Mail",
       s002: "Teclado primeiro",
       s003: "Triagem da caixa de entrada",
       s004: "Visualizações",

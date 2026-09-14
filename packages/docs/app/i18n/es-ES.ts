@@ -1520,22 +1520,66 @@ const esES = {
     },
     mail: {
       faq: {
-        question1: "¿Puede la IA organizar mi bandeja de entrada?",
+        question1: "¿Qué es Agent-Native Mail?",
         answer1:
-          "Sí. El agente lee tu bandeja de entrada, destaca las prioridades, etiqueta y ordena, redacta respuestas, configura reglas de archivado automático y resume el correo sin leer extrayendo las tareas pendientes.",
-        question2: "¿En qué se diferencia Mail de Superhuman?",
+          "Agent-Native Mail es un cliente de correo electrónico gratuito y de código abierto para Gmail con un asistente de correo con IA. Lee y busca mensajes, resume conversaciones, redacta respuestas y organiza el correo desde la bandeja de entrada o con tu agente de IA.",
+        question2: "¿Mail funciona con mi cuenta de Gmail actual?",
         answer2:
-          "La velocidad centrada en el teclado es el punto de partida: redacta, archiva y responde mediante atajos. La diferencia es un agente que trabaja de verdad en la bandeja de entrada, sin suscripción y con código que te pertenece.",
-        question3: "¿Mail funciona con Gmail?",
-        answer3: "Sí, funciona con Gmail y admite varias cuentas.",
-        question4: "¿Mi correo es privado?",
+          "Sí. Conecta tu cuenta de Gmail actual para leer y enviar correo a través de Mail. Puedes conectar varias cuentas de Gmail y buscar en todas ellas. Mail no ofrece una dirección de correo nueva, y por ahora es compatible con Gmail en lugar de Outlook u otros proveedores de correo.",
+        question3: "¿El agente de IA enviará correos sin mi aprobación?",
+        answer3:
+          "Cuando le pides al agente de IA que envíe un correo en el chat, necesita tu aprobación. Los envíos activados por automatizaciones también requieren aprobación, salvo que actives explícitamente el envío automático en la configuración de Mail. Puedes revisar y editar los borradores antes de enviarlos.",
+        question4: "¿Puede la IA organizar mi bandeja de entrada automáticamente?",
         answer4:
-          "Mail es de código abierto y se ejecuta de forma local: tu correo permanece en tu infraestructura y puedes leer cada línea de código que accede a él.",
-        question5: "¿Mail es gratuito?",
+          "Sí. Crea reglas en lenguaje natural para etiquetar, archivar, destacar con estrella o marcar como leídos los mensajes entrantes. Mail también admite filtros nativos de Gmail para condiciones como el remitente o el asunto. Los filtros de Gmail se ejecutan en Gmail y siguen funcionando aunque Mail esté cerrado.",
+        question5: "¿Puede un compañero de equipo preparar un correo para que yo lo revise?",
         answer5:
-          "Sí. Es gratuito y de código abierto, sin suscripción ni dependencia de un proveedor.",
+          "Sí. Un compañero de equipo puede solicitar un borrador que aparece en tu cola de revisión. Ábrelo, edita el mensaje y envíalo cuando esté listo. Quien lo solicitó no puede enviarlo en tu nombre; quien es propietario del borrador o un administrador de la organización controla el envío.",
       },
       s001: "Mail captura de pantalla de la plantilla",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "Gestiona tu bandeja de entrada con tu agente de IA",
+      heroDescription:
+        "Mail es un cliente de correo electrónico gratuito y de código abierto para Gmail, con un agente de IA que encuentra mensajes, resume conversaciones, redacta respuestas y organiza tu bandeja de entrada.",
+      heroCta: "Abrir Mail",
+      useCasesHeading: "¿Qué puedes hacer con Mail?",
+      useCasesBody:
+        "Ponte al día con conversaciones, responde a clientes y compañeros, o resuelve una acumulación de correo.",
+      useCase1Title: "Ponte al día con conversaciones",
+      useCase1Body:
+        "Pregúntale a tu agente de IA qué pasó en un hilo largo, qué se acordó y qué preguntas siguen sin respuesta.",
+      useCase2Title: "Responde a clientes y compañeros",
+      useCase2Body:
+        "Dale a tu agente de IA los puntos que quieres tratar. Revisa y edita su respuesta en el panel de redacción antes de enviarla.",
+      useCase3Title: "Organiza tu bandeja de entrada",
+      useCase3Body:
+        "Pídele a tu agente de IA que etiquete facturas, archive boletines o destaque con estrella los mensajes de un cliente. Aplica reglas para gestionar correos similares a medida que llegan.",
+      keyFeaturesEyebrow: "Funciones clave",
+      keyFeaturesHeading:
+        "Todo lo que necesitas para leer, escribir y organizar el correo",
+      feature1Title: "Resúmenes de hilos con IA",
+      feature1Body:
+        "Pregunta sobre la conversación que tienes abierta. Tu agente de IA lee el hilo para resumir la discusión e identificar las preguntas pendientes.",
+      feature2Title: "Redacción de correos con IA",
+      feature2Body:
+        "Redacta una respuesta o revisa el texto seleccionado con tu agente de IA. Define tus preferencias de escritura, añade tu firma y edita los borradores tú mismo.",
+      feature3Title: "Búsqueda multicuenta",
+      feature3Body:
+        "Conecta tus cuentas de Gmail personales y de trabajo. Busca en todas ellas desde una sola bandeja de entrada, con la barra de búsqueda o preguntando a tu agente de IA.",
+      feature4Title: "Automatizaciones de la bandeja de entrada",
+      feature4Body:
+        "Describe reglas para etiquetar, archivar, destacar con estrella o marcar como leídos los mensajes entrantes. Usa reglas de IA o configura filtros nativos de Gmail.",
+      feature5Title: "Atajos de teclado",
+      feature5Body:
+        "Navega entre mensajes, redacta respuestas, archiva conversaciones y busca en tu bandeja de entrada desde el teclado. Abre la paleta de comandos para encontrar más acciones.",
+      feature6Title: "Envíos programados y posponer mensajes",
+      feature6Body:
+        "Elige cuándo enviar un correo o cuándo quieres que un mensaje vuelva a llamar tu atención. Revisa los elementos programados y cancélalos si cambian los planes.",
+      finalCtaHeading: "Empieza con tu próximo correo",
+      finalCtaBody:
+        "Abre una conversación y pídele a tu agente de IA un resumen o un borrador de respuesta.",
+      finalCtaButton: "Abrir Mail",
       s002: "Teclado primero",
       s003: "Clasificación de bandeja de entrada",
       s004: "Vistas",

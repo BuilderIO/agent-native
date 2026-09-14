@@ -1525,22 +1525,66 @@ const frFR = {
     },
     mail: {
       faq: {
-        question1: "L'IA peut-elle trier ma boîte de réception ?",
+        question1: "Qu'est-ce qu'Agent-Native Mail ?",
         answer1:
-          "Oui. L'agent lit votre boîte de réception, fait ressortir les priorités, applique des libellés et trie, rédige des réponses, définit des règles d'archivage automatique et résume les messages non lus en faisant ressortir les actions à mener.",
-        question2: "En quoi Mail diffère-t-il de Superhuman ?",
+          "Agent-Native Mail est un client de messagerie gratuit et open source pour Gmail, avec un assistant e-mail par IA. Lisez et recherchez des messages, résumez des conversations, rédigez des réponses et organisez vos e-mails depuis la boîte de réception ou avec votre agent IA.",
+        question2: "Mail fonctionne-t-il avec mon compte Gmail existant ?",
         answer2:
-          "La rapidité centrée sur le clavier est la base : rédiger, archiver et répondre, tout se fait par raccourcis. La différence : un agent qui traite réellement la boîte de réception, aucun abonnement et un code qui vous appartient.",
-        question3: "Mail fonctionne-t-il avec Gmail ?",
-        answer3: "Oui, avec Gmail et la prise en charge de plusieurs comptes.",
-        question4: "Mes e-mails restent-ils privés ?",
+          "Oui. Connectez votre compte Gmail existant pour lire et envoyer des e-mails via Mail. Vous pouvez connecter plusieurs comptes Gmail et effectuer des recherches sur l'ensemble d'entre eux. Mail ne fournit pas de nouvelle adresse e-mail, et prend actuellement en charge Gmail plutôt qu'Outlook ou d'autres fournisseurs de messagerie.",
+        question3: "L'agent IA enverra-t-il des e-mails sans mon approbation ?",
+        answer3:
+          "Lorsque vous demandez à l'agent IA d'envoyer un e-mail dans le chat, il a besoin de votre approbation. Les envois déclenchés par une automatisation nécessitent également une approbation, sauf si vous activez explicitement l'envoi automatique dans les paramètres de Mail. Vous pouvez relire et modifier les brouillons avant leur envoi.",
+        question4: "L'IA peut-elle organiser automatiquement ma boîte de réception ?",
         answer4:
-          "Mail est open source et s'exécute localement : vos e-mails restent sur votre infrastructure, et vous pouvez lire chaque ligne de code qui y accède.",
-        question5: "Mail est-il gratuit ?",
+          "Oui. Créez des règles en langage naturel pour libeller, archiver, marquer d'une étoile ou marquer comme lus les messages entrants. Mail prend également en charge les filtres natifs de Gmail pour des conditions telles que l'expéditeur ou l'objet. Les filtres Gmail s'exécutent dans Gmail et continuent de fonctionner même lorsque Mail est fermé.",
+        question5: "Un collègue peut-il préparer un e-mail que je dois relire ?",
         answer5:
-          "Oui. Il est gratuit et open source, sans abonnement ni dépendance envers un fournisseur.",
+          "Oui. Un collègue peut demander un brouillon qui apparaît dans votre file de relecture. Ouvrez-le, modifiez le message et envoyez-le lorsqu'il est prêt. La personne à l'origine de la demande ne peut pas l'envoyer à votre place ; c'est le propriétaire du brouillon ou un administrateur de l'organisation qui contrôle l'envoi.",
       },
       s001: "Capture d'écran du modèle Mail",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "Gérez votre boîte de réception avec votre agent IA",
+      heroDescription:
+        "Mail est un client de messagerie gratuit et open source pour Gmail, doté d'un agent IA qui retrouve vos messages, résume les conversations, rédige des réponses et organise votre boîte de réception.",
+      heroCta: "Ouvrir Mail",
+      useCasesHeading: "Que pouvez-vous faire avec Mail ?",
+      useCasesBody:
+        "Reprenez le fil de vos conversations, répondez à vos clients et collègues, ou faites le tri dans une pile d'e-mails en retard.",
+      useCase1Title: "Reprendre le fil des conversations",
+      useCase1Body:
+        "Demandez à votre agent IA ce qui s'est passé dans un long fil de discussion, ce qui a été convenu et quelles questions restent sans réponse.",
+      useCase2Title: "Répondre à vos clients et collègues",
+      useCase2Body:
+        "Donnez à votre agent IA les points que vous souhaitez aborder. Relisez et modifiez sa réponse dans le panneau de rédaction avant de l'envoyer.",
+      useCase3Title: "Faire le tri dans votre boîte de réception",
+      useCase3Body:
+        "Demandez à votre agent IA de libeller des factures, d'archiver des newsletters ou de marquer d'une étoile les messages d'un client. Appliquez des règles pour traiter automatiquement les e-mails similaires à leur arrivée.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading:
+        "Tout ce dont vous avez besoin pour lire, écrire et organiser vos e-mails",
+      feature1Title: "Résumés de fils de discussion par IA",
+      feature1Body:
+        "Posez une question sur la conversation que vous avez ouverte. Votre agent IA lit le fil de discussion pour résumer les échanges et identifier les questions en suspens.",
+      feature2Title: "Rédaction d'e-mails par IA",
+      feature2Body:
+        "Rédigez une réponse ou révisez un texte sélectionné avec votre agent IA. Définissez vos préférences de rédaction, ajoutez votre signature et modifiez vous-même les brouillons.",
+      feature3Title: "Recherche multi-comptes",
+      feature3Body:
+        "Connectez vos comptes Gmail professionnels et personnels. Effectuez des recherches sur l'ensemble d'entre eux depuis une seule boîte de réception, via la barre de recherche ou en interrogeant votre agent IA.",
+      feature4Title: "Automatisations de la boîte de réception",
+      feature4Body:
+        "Décrivez des règles pour libeller, archiver, marquer d'une étoile ou marquer comme lus les messages entrants. Utilisez des règles IA ou configurez des filtres Gmail natifs.",
+      feature5Title: "Raccourcis clavier",
+      feature5Body:
+        "Naviguez entre les messages, rédigez des réponses, archivez des conversations et effectuez des recherches dans votre boîte de réception depuis le clavier. Ouvrez la palette de commandes pour trouver d'autres actions.",
+      feature6Title: "Envois programmés et report de messages",
+      feature6Body:
+        "Choisissez quand envoyer un e-mail ou quand faire revenir un message à votre attention. Consultez les éléments programmés et annulez-les si vos plans changent.",
+      finalCtaHeading: "Commencez avec votre prochain e-mail",
+      finalCtaBody:
+        "Ouvrez une conversation et demandez à votre agent IA un résumé ou un brouillon de réponse.",
+      finalCtaButton: "Ouvrir Mail",
       s002: "Le clavier d'abord",
       s003: "Triage de la boîte de réception",
       s004: "Vues",
