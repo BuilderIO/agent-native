@@ -112,4 +112,17 @@ describe("add-comment access", () => {
     ).rejects.toThrow("Parent comment does not belong to this recording.");
     expect(mockInsertValues).not.toHaveBeenCalled();
   });
+
+  it("rejects empty reply IDs before looking up a parent", async () => {
+    await expect(
+      addComment.run({
+        recordingId: "recording-1",
+        content: "An orphan reply",
+        videoTimestampMs: 12_000,
+        threadId: "thread-1",
+        parentId: "",
+      }),
+    ).rejects.toThrow("Invalid action parameters");
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
 });

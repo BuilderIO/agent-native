@@ -870,6 +870,7 @@ describe("CommentsPanel reply composer", () => {
     renderPanel("viewer@example.com");
     const options = actionMocks.mutationOptions.get("react-to-comment");
     expect(options).toBeDefined();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
     const first = await options.onMutate({
       commentId: rootComment.id,
@@ -882,22 +883,14 @@ describe("CommentsPanel reply composer", () => {
 
     await act(async () => {
       options.onSuccess?.(
-        { reactions: { "👍": ["viewer@example.com"] } },
-        { commentId: rootComment.id, emoji: "👍" },
-        first,
-      );
-      await Promise.resolve();
-    });
-    expect(container.textContent).not.toContain("👍 1");
-
-    await act(async () => {
-      options.onSuccess?.(
         { reactions: {} },
         { commentId: rootComment.id, emoji: "👍" },
         second,
       );
       await Promise.resolve();
     });
+    expect(container.textContent).not.toContain("👍 1");
+    expect(invalidateQueries).not.toHaveBeenCalled();
 
     await act(async () => {
       options.onSuccess?.(
@@ -908,6 +901,48 @@ describe("CommentsPanel reply composer", () => {
       await Promise.resolve();
     });
     expect(container.textContent).not.toContain("👍 1");
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["recording", "recording-1"],
+    });
+  });
+
+  it("restores the confirmed edit when every overlapping edit fails", async () => {
+    renderPanel("author@example.com");
+    const options = actionMocks.mutationOptions.get("update-comment");
+    expect(options).toBeDefined();
+
+    const first = await options.onMutate({
+      id: rootComment.id,
+      content: "Rejected edit A",
+    });
+    const second = await options.onMutate({
+      id: rootComment.id,
+      content: "Rejected edit B",
+    });
+
+    await act(async () => {
+      options.onError?.(
+        new Error("first edit failed"),
+        { id: rootComment.id, content: "Rejected edit A" },
+        first,
+      );
+      options.onError?.(
+        new Error("second edit failed"),
+        { id: rootComment.id, content: "Rejected edit B" },
+        second,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "common.cancel")
+        ?.click();
+    });
+
+    expect(container.textContent).toContain(rootComment.content);
+    expect(container.textContent).not.toContain("Rejected edit A");
+    expect(container.textContent).not.toContain("Rejected edit B");
   });
 
   it("only offers comment editing to the comment author", () => {

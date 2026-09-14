@@ -45,10 +45,14 @@ export default defineAction({
       .describe("Video time (ms) the comment is attached to"),
     threadId: z
       .string()
+      .trim()
+      .min(1)
       .optional()
       .describe("Thread ID (for replies). Omit to start a new thread."),
     parentId: z
       .string()
+      .trim()
+      .min(1)
       .optional()
       .describe("Parent comment ID (for replies)."),
     authorName: z
@@ -83,13 +87,19 @@ export default defineAction({
 
     const db = getDb();
     const id = nanoid();
-    const threadId = args.threadId ?? id;
-    const parentId = args.parentId ?? null;
-    const now = new Date().toISOString();
-
-    if ((args.parentId === undefined) !== (args.threadId === undefined)) {
-      throw new Error("Replies must include both threadId and parentId.");
+    const hasParentId = args.parentId !== undefined;
+    const hasThreadId = args.threadId !== undefined;
+    if (
+      hasParentId !== hasThreadId ||
+      (hasParentId && (!args.parentId?.trim() || !args.threadId?.trim()))
+    ) {
+      throw new Error(
+        "Replies must include non-empty threadId and parentId values.",
+      );
     }
+    const threadId = args.threadId?.trim() ?? id;
+    const parentId = args.parentId?.trim() ?? null;
+    const now = new Date().toISOString();
 
     // Look up recording's organization so the comment denormalizes it.
     const [rec] = await db
@@ -100,7 +110,7 @@ export default defineAction({
 
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
 
-    if (args.parentId) {
+    if (parentId) {
       const [parent] = await db
         .select({
           id: schema.recordingComments.id,
@@ -111,10 +121,10 @@ export default defineAction({
         .from(schema.recordingComments)
         .where(
           and(
-            eq(schema.recordingComments.id, args.parentId),
+            eq(schema.recordingComments.id, parentId),
             eq(schema.recordingComments.recordingId, args.recordingId),
             eq(schema.recordingComments.organizationId, rec.organizationId),
-            eq(schema.recordingComments.threadId, args.threadId!),
+            eq(schema.recordingComments.threadId, threadId),
           ),
         )
         .limit(1);

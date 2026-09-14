@@ -82,14 +82,22 @@ type CommentsMutationContext = {
   reactionKey?: string;
   operationToken?: number;
   removed?: Comment[];
-  previous?: Comment;
-  optimisticUpdatedAt?: string;
 };
 
 type ReactionState = {
   confirmedUsers: string[];
+  confirmedToken: number;
   latestToken: number;
   pending: Map<number, { optimisticUsers: string[] }>;
+  authoritativeUsers?: string[];
+};
+
+type EditState = {
+  confirmed: Comment;
+  confirmedToken: number;
+  latestToken: number;
+  pending: Map<number, Comment>;
+  authoritative?: Comment;
 };
 
 const defaultLens: CommentsLens = {
@@ -247,6 +255,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const visibleCommentsRef = useRef(visibleComments);
   const reactionStatesRef = useRef(new Map<string, ReactionState>());
   const reactionSequenceRef = useRef(0);
+  const editStatesRef = useRef(new Map<string, EditState>());
+  const editSequenceRef = useRef(0);
   const successfulDeletionIdsRef = useRef(new Set<string>());
   const [draftMentions, setDraftMentions] = useState<MentionEntry[]>([]);
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
@@ -284,6 +294,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const reconcileReactionMutation = (
     ctx: CommentsMutationContext,
     serverUsers?: string[],
+    succeeded = false,
   ) => {
     if (
       !ctx.reactionKey ||
@@ -297,21 +308,26 @@ export function CommentsPanel(props: CommentsPanelProps) {
     if (!state) return;
 
     const token = ctx.operationToken;
-    if (serverUsers) state.confirmedUsers = serverUsers;
-
-    if (serverUsers && token === state.latestToken) {
-      // The newest response is authoritative for this emoji. Older requests
-      // were based on its optimistic projection, so their responses cannot
-      // safely replace it when they arrive later.
-      state.pending.clear();
-    } else {
-      state.pending.delete(token);
+    if (succeeded) {
+      if (serverUsers && token >= state.confirmedToken) {
+        state.confirmedUsers = serverUsers;
+        state.confirmedToken = token;
+      }
+      if (token === state.latestToken && serverUsers) {
+        // Keep older requests tracked: the server action is a toggle and an
+        // older request can still commit after this response arrives.
+        state.authoritativeUsers = serverUsers;
+      }
     }
+    state.pending.delete(token);
 
     const pending = Array.from(state.pending.entries()).sort(
       ([left], [right]) => right - left,
     )[0]?.[1];
-    const users = pending?.optimisticUsers ?? state.confirmedUsers;
+    const users =
+      state.authoritativeUsers ??
+      pending?.optimisticUsers ??
+      state.confirmedUsers;
     patchComments((list) =>
       list.map((comment) =>
         comment.id === ctx.commentId
@@ -328,7 +344,61 @@ export function CommentsPanel(props: CommentsPanelProps) {
     );
 
     if (state.pending.size === 0) {
+      void queryClient.invalidateQueries({ queryKey });
       reactionStatesRef.current.delete(ctx.reactionKey);
+    }
+  };
+
+  const reconcileEditMutation = (
+    ctx: CommentsMutationContext,
+    data?: {
+      id?: string;
+      content?: string;
+      mentions?: CommentMentionDisplay[];
+      updatedAt?: string;
+    },
+    succeeded = false,
+  ) => {
+    if (!ctx.commentId || !ctx.operationToken) return;
+    const state = editStatesRef.current.get(ctx.commentId);
+    if (!state) return;
+
+    const token = ctx.operationToken;
+    if (succeeded && data?.content && data.updatedAt) {
+      const serverComment: Comment = {
+        ...state.confirmed,
+        content: data.content,
+        ...(data.mentions !== undefined ? { mentions: data.mentions } : {}),
+        updatedAt: data.updatedAt,
+      };
+      if (token >= state.confirmedToken) {
+        state.confirmed = serverComment;
+        state.confirmedToken = token;
+      }
+      if (token === state.latestToken) state.authoritative = serverComment;
+    }
+    state.pending.delete(token);
+
+    const pending = Array.from(state.pending.entries()).sort(
+      ([left], [right]) => right - left,
+    )[0]?.[1];
+    const projection = state.authoritative ?? pending ?? state.confirmed;
+    patchComments((list) =>
+      list.map((comment) =>
+        comment.id === ctx.commentId
+          ? {
+              ...comment,
+              ...projection,
+              // Reactions are maintained by their own mutation queue.
+              emojiReactionsJson: comment.emojiReactionsJson,
+            }
+          : comment,
+      ),
+    );
+
+    if (state.pending.size === 0) {
+      void queryClient.invalidateQueries({ queryKey });
+      editStatesRef.current.delete(ctx.commentId);
     }
   };
 
@@ -350,29 +420,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
       );
       void queryClient.invalidateQueries({ queryKey });
       return;
-    }
-    if (
-      ctx.type === "update" &&
-      ctx.commentId &&
-      ctx.previous &&
-      ctx.optimisticUpdatedAt
-    ) {
-      patchComments((list) =>
-        list.map((comment) => {
-          if (
-            comment.id !== ctx.commentId ||
-            comment.updatedAt !== ctx.optimisticUpdatedAt
-          ) {
-            return comment;
-          }
-          return {
-            ...ctx.previous!,
-            // Preserve reactions or other fields changed by an overlapping
-            // operation while restoring only this edit's optimistic fields.
-            emojiReactionsJson: comment.emojiReactionsJson,
-          };
-        }),
-      );
     }
   };
 
@@ -439,6 +486,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         (() => {
           const next: ReactionState = {
             confirmedUsers: previousUsers,
+            confirmedToken: 0,
             latestToken: operationToken,
             pending: new Map(),
           };
@@ -470,13 +518,17 @@ export function CommentsPanel(props: CommentsPanelProps) {
       } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
-      reconcileReactionMutation(ctx);
+      reconcileReactionMutation(ctx, undefined, false);
     },
     onSuccess: (data: any, _vars: any, ctx: any) => {
       const users = ctx?.emoji
         ? (data?.reactions?.[ctx.emoji] ?? [])
         : undefined;
-      reconcileReactionMutation(ctx, Array.isArray(users) ? users : undefined);
+      reconcileReactionMutation(
+        ctx,
+        Array.isArray(users) ? users : undefined,
+        true,
+      );
     },
   });
 
@@ -519,9 +571,33 @@ export function CommentsPanel(props: CommentsPanelProps) {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
       const updatedAt = new Date().toISOString();
-      const previous = visibleCommentsRef.current.find(
+      const current = visibleCommentsRef.current.find(
         (comment) => comment.id === vars.id,
       );
+      const operationToken = ++editSequenceRef.current;
+      if (current) {
+        const state =
+          editStatesRef.current.get(vars.id) ??
+          (() => {
+            const next: EditState = {
+              confirmed: current,
+              confirmedToken: 0,
+              latestToken: operationToken,
+              pending: new Map(),
+            };
+            editStatesRef.current.set(vars.id, next);
+            return next;
+          })();
+        state.latestToken = operationToken;
+        state.pending.set(operationToken, {
+          ...current,
+          content: vars.content,
+          ...(vars.mentions === undefined
+            ? {}
+            : { mentions: displayCommentMentions(vars.mentions) }),
+          updatedAt,
+        });
+      }
       patchComments((list) =>
         list.map((comment) =>
           comment.id === vars.id
@@ -539,32 +615,17 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return {
         type: "update",
         commentId: vars.id,
-        previous,
-        optimisticUpdatedAt: updatedAt,
+        operationToken,
       } satisfies CommentsMutationContext;
     },
     onError: (_err, vars: any, ctx: any) => {
-      rollbackComments(ctx);
+      reconcileEditMutation(ctx, undefined, false);
       setEditingId(vars.id);
       setEditDraft(vars.content);
       setEditMentions(vars.mentions ?? []);
     },
-    onSuccess: (data: any) => {
-      if (!data?.id || !data?.content || !data?.updatedAt) return;
-      patchComments((list) =>
-        list.map((comment) =>
-          comment.id === data.id
-            ? {
-                ...comment,
-                content: data.content,
-                ...(data.mentions !== undefined
-                  ? { mentions: data.mentions }
-                  : {}),
-                updatedAt: data.updatedAt,
-              }
-            : comment,
-        ),
-      );
+    onSuccess: (data: any, _vars: any, ctx: any) => {
+      reconcileEditMutation(ctx, data, true);
     },
   });
 
