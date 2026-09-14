@@ -75,9 +75,15 @@ type CommentsLens = {
 };
 
 type CommentsMutationContext = {
-  prev?: unknown;
-  prevVisible: Comment[];
+  type: "add" | "reaction" | "remove" | "update";
   tempId?: string;
+  commentId?: string;
+  emoji?: string;
+  previousUsers?: string[];
+  optimisticUsers?: string[];
+  removed?: Comment[];
+  previous?: Comment;
+  optimisticUpdatedAt?: string;
 };
 
 const defaultLens: CommentsLens = {
@@ -130,6 +136,44 @@ function buildCommentThread(comments: Comment[]): CommentThreadNode | null {
   }
 
   return root;
+}
+
+export function collectCommentSubtreeIds(comments: Comment[], rootId: string) {
+  const ids = new Set([rootId]);
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const nextIds = comments
+      .filter(
+        (comment) => comment.parentId && frontier.includes(comment.parentId),
+      )
+      .map((comment) => comment.id)
+      .filter((id) => !ids.has(id));
+    nextIds.forEach((id) => ids.add(id));
+    frontier = nextIds;
+  }
+  return ids;
+}
+
+function updateReactionUsers(
+  raw: string,
+  emoji: string,
+  users: string[],
+): string {
+  const reactions = parseReactions(raw);
+  if (users.length === 0) delete reactions[emoji];
+  else reactions[emoji] = users;
+  return JSON.stringify(reactions);
+}
+
+function sameUsers(
+  left: readonly string[] | undefined,
+  right: readonly string[],
+) {
+  const normalizedLeft = left ?? [];
+  return (
+    normalizedLeft.length === right.length &&
+    normalizedLeft.every((user, index) => user === right[index])
+  );
 }
 
 export interface CommentsPanelProps {
@@ -202,10 +246,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
-  // Keep a local projection alongside the query cache. The redesign preview
-  // intentionally supplies fixture comments instead of query data, but its
-  // comment interactions should still behave like the real feed.
+  // Keep a local projection alongside the query cache so real recording
+  // mutations render immediately while the action request is in flight.
   const [visibleComments, setVisibleComments] = useState(comments);
+  const visibleCommentsRef = useRef(visibleComments);
   const [draftMentions, setDraftMentions] = useState<MentionEntry[]>([]);
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -224,11 +268,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    visibleCommentsRef.current = comments;
     setVisibleComments(comments);
   }, [comments]);
 
   const patchComments = (updater: (prev: Comment[]) => Comment[]) => {
-    setVisibleComments(updater);
+    const nextVisible = updater(visibleCommentsRef.current);
+    visibleCommentsRef.current = nextVisible;
+    setVisibleComments(nextVisible);
     queryClient.setQueryData(queryKey, (old: unknown) => {
       if (!old) return old;
       const current = selectComments(old) ?? [];
@@ -238,15 +285,70 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const rollbackComments = (ctx: CommentsMutationContext | undefined) => {
     if (!ctx) return;
-    setVisibleComments(ctx.prevVisible);
-    if (ctx.prev !== undefined) queryClient.setQueryData(queryKey, ctx.prev);
+    if (ctx.type === "add" && ctx.tempId) {
+      patchComments((list) =>
+        list.filter((comment) => comment.id !== ctx.tempId),
+      );
+      return;
+    }
+    if (ctx.type === "remove" && ctx.removed) {
+      patchComments((list) => {
+        const present = new Set(list.map((comment) => comment.id));
+        return [
+          ...list,
+          ...ctx.removed!.filter((comment) => !present.has(comment.id)),
+        ];
+      });
+      return;
+    }
+    if (ctx.type === "reaction" && ctx.commentId && ctx.emoji) {
+      patchComments((list) =>
+        list.map((comment) => {
+          if (comment.id !== ctx.commentId) return comment;
+          const current = parseReactions(comment.emojiReactionsJson)[
+            ctx.emoji!
+          ];
+          if (!sameUsers(current, ctx.optimisticUsers ?? [])) return comment;
+          return {
+            ...comment,
+            emojiReactionsJson: updateReactionUsers(
+              comment.emojiReactionsJson,
+              ctx.emoji!,
+              ctx.previousUsers ?? [],
+            ),
+          };
+        }),
+      );
+      return;
+    }
+    if (
+      ctx.type === "update" &&
+      ctx.commentId &&
+      ctx.previous &&
+      ctx.optimisticUpdatedAt
+    ) {
+      patchComments((list) =>
+        list.map((comment) => {
+          if (
+            comment.id !== ctx.commentId ||
+            comment.updatedAt !== ctx.optimisticUpdatedAt
+          ) {
+            return comment;
+          }
+          return {
+            ...ctx.previous!,
+            // Preserve reactions or other fields changed by an overlapping
+            // operation while restoring only this edit's optimistic fields.
+            emojiReactionsJson: comment.emojiReactionsJson,
+          };
+        }),
+      );
+    }
   };
 
   const addComment = useActionMutation("add-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
-      const prevVisible = visibleComments;
       const tempId = makeTempId();
       const now = new Date().toISOString();
       const optimistic: Comment = {
@@ -263,7 +365,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         updatedAt: now,
       };
       patchComments((list) => [...list, optimistic]);
-      return { prev, prevVisible, tempId };
+      return { type: "add", tempId } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
       rollbackComments(ctx);
@@ -283,10 +385,25 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const reactToComment = useActionMutation("react-to-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
-      const prevVisible = visibleComments;
       const currentUser = currentUserEmail;
-      if (!currentUser) return { prev, prevVisible };
+      if (!currentUser) {
+        return {
+          type: "reaction",
+          commentId: vars.commentId,
+          emoji: vars.emoji,
+          previousUsers: [],
+          optimisticUsers: [],
+        } satisfies CommentsMutationContext;
+      }
+      const currentComment = visibleCommentsRef.current.find(
+        (comment) => comment.id === vars.commentId,
+      );
+      const previousUsers = currentComment
+        ? (parseReactions(currentComment.emojiReactionsJson)[vars.emoji] ?? [])
+        : [];
+      const optimisticUsers = previousUsers.includes(currentUser)
+        ? previousUsers.filter((email) => email !== currentUser)
+        : [...previousUsers, currentUser];
       patchComments((commentList) =>
         commentList.map((comment) => {
           if (comment.id !== vars.commentId) return comment;
@@ -316,7 +433,13 @@ export function CommentsPanel(props: CommentsPanelProps) {
           };
         }),
       );
-      return { prev, prevVisible };
+      return {
+        type: "reaction",
+        commentId: vars.commentId,
+        emoji: vars.emoji,
+        previousUsers,
+        optimisticUsers,
+      } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
       rollbackComments(ctx);
@@ -336,21 +459,16 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const remove = useActionMutation("delete-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
-      const prevVisible = visibleComments;
-      // Deleting a root comment cascades to its replies server-side, so mirror
-      // that here: drop the target comment and any descendants in the same
-      // thread whose parent chain leads back to it.
+      const current = visibleCommentsRef.current;
+      const target = current.find((comment) => comment.id === vars.id);
+      const removedIds = target
+        ? collectCommentSubtreeIds(current, target.id)
+        : new Set<string>();
+      const removed = current.filter((comment) => removedIds.has(comment.id));
       patchComments((list) => {
-        const target = list.find((c) => c.id === vars.id);
-        if (!target) return list;
-        const isRoot = target.parentId == null;
-        if (isRoot) {
-          return list.filter((c) => c.threadId !== target.threadId);
-        }
-        return list.filter((c) => c.id !== vars.id);
+        return list.filter((comment) => !removedIds.has(comment.id));
       });
-      return { prev, prevVisible };
+      return { type: "remove", removed } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
       rollbackComments(ctx);
@@ -360,9 +478,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const updateComment = useActionMutation("update-comment", {
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
-      const prev = queryClient.getQueryData(queryKey);
-      const prevVisible = visibleComments;
       const updatedAt = new Date().toISOString();
+      const previous = visibleCommentsRef.current.find(
+        (comment) => comment.id === vars.id,
+      );
       patchComments((list) =>
         list.map((comment) =>
           comment.id === vars.id
@@ -377,7 +496,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
             : comment,
         ),
       );
-      return { prev, prevVisible };
+      return {
+        type: "update",
+        commentId: vars.id,
+        previous,
+        optimisticUpdatedAt: updatedAt,
+      } satisfies CommentsMutationContext;
     },
     onError: (_err, vars: any, ctx: any) => {
       rollbackComments(ctx);

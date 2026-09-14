@@ -334,6 +334,18 @@ describe("direct recording route shell cue", () => {
     );
   });
 
+  it("keeps the redesign comments preview fixture read-only", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "recordingId === VIEWER_REDESIGN_PREVIEW_ID\n      ? VIEWER_PREVIEW_COMMENTS",
+    );
+    expect(route).toContain(
+      "role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID",
+    );
+    expect(route).not.toContain("persistedPreviewReplies");
+  });
+
   it("badges the Debug tab with an unviewed count instead of an always-on dot", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     const debugTabStart = route.indexOf('<ViewerTabsTrigger value="debug">');

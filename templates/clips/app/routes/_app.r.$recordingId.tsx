@@ -902,22 +902,12 @@ export default function RecordingPage() {
   });
   const comments = useMemo(() => {
     const loadedComments: PlayerComment[] = playerDataQ.data?.comments ?? [];
-    if (recordingId !== VIEWER_REDESIGN_PREVIEW_ID) return loadedComments;
-
-    // Keep the curated fixture as the visual baseline, but retain replies
-    // written through the real action so a preview interaction survives a
-    // query refresh or a page reload.
-    const fixtureIds = new Set(
-      VIEWER_PREVIEW_COMMENTS.map((comment) => comment.id),
-    );
-    const fixtureThreadIds = new Set(
-      VIEWER_PREVIEW_COMMENTS.map((comment) => comment.threadId),
-    );
-    const persistedPreviewReplies = loadedComments.filter(
-      (comment) =>
-        !fixtureIds.has(comment.id) && fixtureThreadIds.has(comment.threadId),
-    );
-    return [...VIEWER_PREVIEW_COMMENTS, ...persistedPreviewReplies];
+    // The redesign route is a read-only fixture rather than a persisted
+    // recording. Keep it deterministic instead of sending writes that cannot
+    // satisfy the normal recording access and persistence contract.
+    return recordingId === VIEWER_REDESIGN_PREVIEW_ID
+      ? VIEWER_PREVIEW_COMMENTS
+      : loadedComments;
   }, [playerDataQ.data?.comments, recordingId]);
   const reactions = useMemo(
     () =>
@@ -1003,7 +993,7 @@ export default function RecordingPage() {
   // Reaching this page already requires a signed-in session with at least
   // viewer access to the recording, so any resolved role qualifies to
   // comment/react — no separate "commenter" tier.
-  const canComment = role != null;
+  const canComment = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||

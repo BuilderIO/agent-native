@@ -5,30 +5,39 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type Comment, CommentsPanel, relativeTime } from "./comments-panel";
+import {
+  collectCommentSubtreeIds,
+  type Comment,
+  CommentsPanel,
+  relativeTime,
+} from "./comments-panel";
 import { TimestampedCommentBar } from "./timestamped-comment-button";
 
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
   updateComment: vi.fn(),
   otherMutation: vi.fn(),
+  mutationOptions: new Map<string, any>(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
-  useActionMutation: (name: string, options?: any) => ({
-    mutate: (vars: any) => {
-      void options?.onMutate?.(vars);
-      return (
-        name === "add-comment"
-          ? actionMocks.addComment
-          : name === "update-comment"
-            ? actionMocks.updateComment
-            : actionMocks.otherMutation
-      )(vars);
-    },
-  }),
+  useActionMutation: (name: string, options?: any) => {
+    actionMocks.mutationOptions.set(name, options);
+    return {
+      mutate: (vars: any) => {
+        void options?.onMutate?.(vars);
+        return (
+          name === "add-comment"
+            ? actionMocks.addComment
+            : name === "update-comment"
+              ? actionMocks.updateComment
+              : actionMocks.otherMutation
+        )(vars);
+      },
+    };
+  },
   useAvatarUrl: () => null,
 }));
 
@@ -215,6 +224,7 @@ describe("CommentsPanel reply composer", () => {
     container.remove();
     vi.unstubAllGlobals();
     notifyResize = undefined;
+    actionMocks.mutationOptions.clear();
     vi.clearAllMocks();
   });
 
@@ -770,6 +780,58 @@ describe("CommentsPanel reply composer", () => {
         (button) => button.textContent?.trim() === "commentsPanel.reply",
       ),
     ).toBe(false);
+  });
+
+  it("collects every nested reply for optimistic deletion", () => {
+    const firstReply = {
+      ...rootComment,
+      id: "reply-1",
+      parentId: rootComment.id,
+    };
+    const secondReply = {
+      ...rootComment,
+      id: "reply-2",
+      parentId: firstReply.id,
+    };
+
+    expect(
+      collectCommentSubtreeIds(
+        [rootComment, firstReply, secondReply],
+        rootComment.id,
+      ),
+    ).toEqual(new Set([rootComment.id, firstReply.id, secondReply.id]));
+  });
+
+  it("rolls back one failed reaction without discarding another optimistic reaction", async () => {
+    renderPanel("viewer@example.com");
+    const options = actionMocks.mutationOptions.get("react-to-comment");
+    expect(options).toBeDefined();
+
+    const first = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "👍",
+    });
+    const second = await options.onMutate({
+      commentId: rootComment.id,
+      emoji: "💡",
+    });
+
+    await act(async () => {
+      options.onError?.(
+        new Error("reaction failed"),
+        {
+          commentId: rootComment.id,
+          emoji: "👍",
+        },
+        first,
+      );
+      await Promise.resolve();
+    });
+
+    const commentText = container.textContent ?? "";
+    expect(commentText).toContain("💡 1");
+    expect(commentText).not.toContain("👍 1");
+    expect(second).toMatchObject({ type: "reaction", emoji: "💡" });
   });
 
   it("only offers comment editing to the comment author", () => {
