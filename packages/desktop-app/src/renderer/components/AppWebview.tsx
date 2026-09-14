@@ -528,7 +528,7 @@ export function navigateAppWebviewHistory(
   > | null,
   direction: "back" | "forward",
 ): boolean {
-  if (!webview) return true;
+  if (!webview) return false;
   try {
     if (direction === "back") {
       if (webview.canGoBack()) webview.goBack();

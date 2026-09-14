@@ -90,6 +90,7 @@ describe("desktop webview navigation state", () => {
 
     expect(navigateAppWebviewHistory(webview, "back")).toBe(false);
     expect(webview.goBack).not.toHaveBeenCalled();
+    expect(navigateAppWebviewHistory(null, "forward")).toBe(false);
   });
 });
 
