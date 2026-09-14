@@ -2635,18 +2635,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // `:`, sibling combinator, universal selector, or comma-list is rejected
   // — excluded outright, same as before: never a candidate, never a masking
   // competitor either. Quoted attribute-value contents (`[data-x="a:b,c"]`)
-  // are stripped before the check so a literal `:`/`,`/`*` INSIDE a value
-  // doesn't falsely reject an otherwise-plain selector.
+  // and escaped characters (`.md\:w-64` — every Tailwind variant class) are
+  // stripped before the check so a literal `:`/`,`/`*` INSIDE a value or an
+  // ident doesn't falsely reject an otherwise-plain selector.
   var PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS = /[:,+~*]/;
-  var PORTABLE_STYLE_QUOTED_STRING = /"[^"]*"|'[^']*'/g;
+  var PORTABLE_STYLE_OPAQUE_SELECTOR_TEXT = /"[^"]*"|'[^']*'|\\./g;
+  // A nested selector's non-leading `&` stands for the enclosing rule's
+  // selector, but `el.matches` reads a bare `&` as `:scope` — `el` itself —
+  // which never matches a form where `&` is an ancestor (`.a & .b`). `*` is
+  // a superset of whatever `&` stands for, so evaluating it as `*` can only
+  // over-match (over-mask), never miss.
+  var PORTABLE_STYLE_NESTING_SELECTOR = /"[^"]*"|'[^']*'|\\.|&/g;
 
   function isPortableStyleSimpleSelector(selector: string): boolean {
     if (typeof selector !== "string" || !selector) return false;
-    var withoutQuotedValues = selector.replace(
-      PORTABLE_STYLE_QUOTED_STRING,
+    var withoutOpaqueText = selector.replace(
+      PORTABLE_STYLE_OPAQUE_SELECTOR_TEXT,
       "",
     );
-    return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
+    return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutOpaqueText);
+  }
+
+  function portableStyleMatchableSelector(selector: string): string {
+    return selector.replace(PORTABLE_STYLE_NESTING_SELECTOR, function (m) {
+      return m === "&" ? "*" : m;
+    });
   }
 
   type PortableStyleWalkState = {
@@ -2663,24 +2676,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // of masking it. A rule with its own `cssRules` and no `selectorText` is
   // a grouping rule (@media/@supports/@layer/@container/@scope/…); a rule
   // with `selectorText` and `style` is a style rule, whether or not it also
-  // carries nested `cssRules` (CSS nesting).
+  // carries nested `cssRules` (CSS nesting). Inside a style rule's own
+  // `cssRules` (at any depth, through nested @media/@supports/…), a rule
+  // with `style` and no `selectorText` is CSS nesting's bare declaration
+  // block (CSSNestedDeclarations): it declares for the enclosing rule's
+  // selector, which `scope` carries down — `.card { @media (…) { width:
+  // 200px } }` is what Tailwind v4 emits for every responsive utility, and
+  // it exposes neither `selectorText` nor `cssRules`, so by shape alone it
+  // looked like @font-face.
   function walkPortableStyleRules(
     ruleList: CSSRuleList,
     el: Element,
     property: string,
     grouped: boolean,
     state: PortableStyleWalkState,
+    scope?: string,
   ): void {
     for (var r = 0; r < ruleList.length; r += 1) {
       var rule = ruleList[r];
+      // CSSRule.PAGE_RULE: @page exposes `selectorText` + `style` like a
+      // style rule, but a page selector names a page, not an element —
+      // `@page wide` would otherwise read as the type selector `wide`.
+      if (rule.type === 6) continue;
       var nestedRules = (rule as any).cssRules as CSSRuleList | undefined;
       var selectorText = (rule as any).selectorText;
+      if (scope !== undefined) {
+        if (typeof selectorText !== "string" && (rule as any).style) {
+          selectorText = scope;
+        } else if (
+          typeof selectorText === "string" &&
+          selectorText.charAt(0) === "&"
+        ) {
+          // A leading `&` is exactly the enclosing selector (`&.active`,
+          // `& > .kid`); any other `&` is left for
+          // portableStyleMatchableSelector.
+          selectorText = scope + selectorText.slice(1);
+        }
+      }
       var isStyleRule =
         typeof selectorText === "string" && !!(rule as any).style;
 
       if (!isStyleRule) {
         if (nestedRules) {
-          walkPortableStyleRules(nestedRules, el, property, true, state);
+          walkPortableStyleRules(nestedRules, el, property, true, state, scope);
           continue;
         }
         if ((rule as any).styleSheet !== undefined) {
@@ -2697,14 +2735,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // import (`styleSheet` present but not yet populated) is treated the
           // same as unreadable, since its eventual rules can't be ruled out.
           if (importedRules) {
-            walkPortableStyleRules(importedRules, el, property, grouped, state);
+            walkPortableStyleRules(
+              importedRules,
+              el,
+              property,
+              grouped,
+              state,
+              scope,
+            );
           } else {
             state.masked = true;
           }
           continue;
         }
         // A rule type that cannot declare a `width`/`height` matching an
-        // arbitrary element via a selector (@font-face, @keyframes, @page,
+        // arbitrary element via a selector (@font-face, @keyframes,
         // @counter-style, @property, …) is genuinely harmless — ignored,
         // not masked.
         continue;
@@ -2715,9 +2760,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (raw && isPortableStyleSimpleSelector(selectorText)) {
         var matched = false;
         try {
-          matched = el.matches(selectorText);
+          matched = el.matches(portableStyleMatchableSelector(selectorText));
         } catch (_err) {
-          matched = false; // selector this engine can't evaluate
+          state.masked = true; // selector this engine can't evaluate: a match can't be ruled out
         }
         if (matched) {
           if (styleRule.style.getPropertyPriority(property) === "important") {
@@ -2743,7 +2788,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // their selectors are relative to the nesting context, not a plain
       // top-level match.
       if (nestedRules && nestedRules.length) {
-        walkPortableStyleRules(nestedRules, el, property, true, state);
+        walkPortableStyleRules(
+          nestedRules,
+          el,
+          property,
+          true,
+          state,
+          selectorText,
+        );
       }
     }
   }

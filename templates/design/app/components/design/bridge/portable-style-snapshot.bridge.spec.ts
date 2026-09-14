@@ -44,8 +44,10 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  * declare a matching `width`/`height` (`@font-face`, `@keyframes`, …, which
  * are simply ignored, not masked), or ANY same-property rule for a matching
  * selector inside `@media`/`@supports`/`@container`/`@layer`/`@scope` —
- * matching or not, since the condition isn't evaluated — all mask the
- * result and leave the element fluid rather than resolve a winner by
+ * matching or not, since the condition isn't evaluated — or nested inside
+ * the matching rule itself (CSS nesting: a `&` rule, or a bare declaration
+ * block `.card { @media (…) { width: 200px } }`) — all mask the result and
+ * leave the element fluid rather than resolve a winner by
  * specificity/cascade order.
  */
 function hydratedEditorChromeBridgeScript(): string {
@@ -645,7 +647,7 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
     "walks CSS nesting: a style rule's own nested rules still mask its match",
     { timeout: 30_000 },
     async () => {
-      const html = `<!doctype html><html><head><style>.card{width:320px;.row & {width:auto}}</style></head><body style="margin:0">
+      const html = `<!doctype html><html><head><style>.card{width:320px;@media (max-width:100px){.row & {width:200px}}}</style></head><body style="margin:0">
         <div class="row"><div class="card" data-agent-native-node-id="card"></div></div>
       </body></html>`;
       const styles = await portableStyleSnapshotStylesFor(
@@ -653,9 +655,125 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         '[data-agent-native-node-id="card"]',
       );
       // A CSSStyleRule can carry its own nested `cssRules` (CSS nesting) —
-      // never recursed before this fix, so a nested `.row & { width: auto }`
-      // competing declaration went invisible. It must mask the outer match
-      // exactly like a rule inside @media/@supports/etc. would.
+      // never recursed before this fix, so a nested `.row & { … }`
+      // competing declaration went invisible. The @media is inactive at
+      // this viewport, so the computed width still equals the outer 320px
+      // and the computed-vs-declared check cannot save this case: only the
+      // nested walk masking the outer match leaves it fluid.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "still carries the plain rule when a nested `&` rule does not match the element",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;.narrow & {width:200px}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The element is not inside `.narrow`, so the nested rule is a
+      // non-match, not a competitor — the outer rule stays the sole match.
+      expect(styles?.width).toBe("320px");
+    },
+  );
+
+  it(
+    "masks a bare declaration block nested in a style rule (CSSNestedDeclarations)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;@media (max-width:100px){width:200px}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // Bare declarations trailing a nested at-rule are exposed as a
+      // CSSNestedDeclarations rule: `style` only, no `selectorText`, no
+      // `cssRules`. Classified by shape alone it matched none of the
+      // grouping/style/@import cases and fell into the "harmless" bucket
+      // beside @font-face — silently dropping a real competing width for
+      // the enclosing `.card`. This is the shape Tailwind v4 emits for every
+      // responsive utility.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "masks a nested `&` rule inside an inactive grouping construct",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px;@media (max-width:100px){& {width:200px}}}</style></head><body style="margin:0">
+        <div class="card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // The explicit-`&` spelling of the case above: `&` resolves to the
+      // enclosing `.card`, so the nested rule matches and masks.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "resolves a leading `&` against the enclosing selector instead of `:scope`",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.child{width:320px}.card{@media (max-width:100px){& .child{width:200px}}}</style></head><body style="margin:0">
+        <div class="card"><div class="child" data-agent-native-node-id="child"></div></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="child"]',
+      );
+      // `el.matches("& .child")` reads `&` as `:scope` — the element itself
+      // — and asks whether `.child` is its own descendant: never. The
+      // nested rule really targets `.card .child`, i.e. this element, so
+      // it must mask the top-level `.child` match.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "ignores a named @page rule as element provenance",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>@page wide{width:500px}body{margin:0;width:500px}wide{display:block}</style></head><body>
+        <wide data-agent-native-node-id="card"></wide>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // `@page wide` exposes `selectorText: "wide"` and a `style` block,
+      // the same shape as a style rule — but a page selector names a page,
+      // not the `<wide>` element, so it is neither a candidate nor a
+      // competitor. The element has no authored width at all here.
+      expect(styles?.width).toBeUndefined();
+    },
+  );
+
+  it(
+    "treats an escaped `:` as ident text, not a pseudo-class (Tailwind variant classes)",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.card{width:320px}.md\\:card{@media (max-width:100px){width:200px}}</style></head><body style="margin:0">
+        <div class="card md:card" data-agent-native-node-id="card"></div>
+      </body></html>`;
+      const styles = await portableStyleSnapshotStylesFor(
+        html,
+        '[data-agent-native-node-id="card"]',
+      );
+      // `.md\:card` is one plain class whose name contains a literal colon
+      // (every Tailwind variant is spelled this way). Reading the escaped
+      // `:` as a pseudo-class rejected the selector from the allowlist —
+      // and a rejected selector is skipped, not masked — so its nested
+      // responsive width never masked the top-level match.
       expect(styles?.width).toBeUndefined();
     },
   );
