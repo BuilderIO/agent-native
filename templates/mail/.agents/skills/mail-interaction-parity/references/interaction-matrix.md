@@ -678,7 +678,17 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   routes to `/all`; an isolated, memory-backed browser replay on 2026-09-13
   verified the palette labels and G+A → `/all` / G+E → `/archive` routes.
   Superhuman paired replay is still pending. The other source findings remain
-  gaps to validate, not runtime parity evidence.
+  gaps to validate, not runtime parity evidence. On 2026-09-14, a hook test
+  exposed a stale-sequence bug: AppLayout's inline sequence list caused the
+  listener effect to restart on rerender, canceling the one-second expiry while
+  leaving the partial key buffered. `useSequenceShortcuts` now keeps one
+  listener, reads the latest sequence list through a ref, and clears pending
+  keys when disabled or unmounted. Regression coverage checks successful
+  one-shot dispatch, input exclusion, timeout across rerender, and disable
+  cleanup; 51 focused hook/layout/palette tests and all 847 Mail tests pass.
+  Local browser replay is still pending because `localhost:8080` did not
+  respond from this runner, and the Superhuman tab remains on its public
+  landing page.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

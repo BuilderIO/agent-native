@@ -1,17 +1,22 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, renderHook } from "@testing-library/react";
+import { act } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   isKeyboardShortcutTarget,
   shouldCycleMailTab,
+  useSequenceShortcuts,
 } from "./use-keyboard-shortcuts";
 
-describe("isKeyboardShortcutTarget", () => {
-  afterEach(() => {
-    document.body.replaceChildren();
-  });
+afterEach(() => {
+  cleanup();
+  document.body.replaceChildren();
+  vi.useRealTimers();
+});
 
+describe("isKeyboardShortcutTarget", () => {
   it("keeps global shortcuts inside editable controls", () => {
     const input = document.createElement("input");
     const editor = document.createElement("div");
@@ -55,10 +60,6 @@ describe("isKeyboardShortcutTarget", () => {
 });
 
 describe("shouldCycleMailTab", () => {
-  afterEach(() => {
-    document.body.replaceChildren();
-  });
-
   it("preserves native Tab behavior in editors and interactive controls", () => {
     const input = document.createElement("input");
     const editor = document.createElement("div");
@@ -90,5 +91,103 @@ describe("shouldCycleMailTab", () => {
     expect(shouldCycleMailTab(workspace)).toBe(true);
     expect(shouldCycleMailTab(tab)).toBe(true);
     expect(shouldCycleMailTab(dialogButton)).toBe(false);
+  });
+});
+
+describe("useSequenceShortcuts", () => {
+  it("runs a matching sequence once and prevents its terminal key", () => {
+    const handler = vi.fn();
+    const { unmount } = renderHook(() =>
+      useSequenceShortcuts([{ keys: ["g", "i"], handler }]),
+    );
+    const terminalKey = new KeyboardEvent("keydown", {
+      key: "i",
+      cancelable: true,
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "g", cancelable: true }),
+      );
+      window.dispatchEvent(terminalKey);
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "i", cancelable: true }),
+      );
+    });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(terminalKey.defaultPrevented).toBe(true);
+    unmount();
+  });
+
+  it("does not capture sequence keys from an input", () => {
+    const handler = vi.fn();
+    const input = document.createElement("input");
+    document.body.append(input);
+    const { unmount } = renderHook(() =>
+      useSequenceShortcuts([{ keys: ["g", "i"], handler }]),
+    );
+
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "g", bubbles: true }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "i", cancelable: true }),
+      );
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("expires an incomplete sequence even when its owner rerenders", () => {
+    vi.useFakeTimers();
+    const handler = vi.fn();
+    const makeSequences = () => [{ keys: ["g", "i"], handler }];
+    const { rerender } = renderHook(
+      ({ sequences }) => useSequenceShortcuts(sequences),
+      { initialProps: { sequences: makeSequences() } },
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "g", cancelable: true }),
+      );
+    });
+    rerender({ sequences: makeSequences() });
+    act(() => vi.advanceTimersByTime(1_001));
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "i", cancelable: true }),
+      );
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("clears an incomplete sequence when disabled", () => {
+    const handler = vi.fn();
+    const sequences = [{ keys: ["g", "i"], handler }];
+    const { rerender, unmount } = renderHook(
+      ({ enabled }) => useSequenceShortcuts(sequences, enabled),
+      { initialProps: { enabled: true } },
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "g", cancelable: true }),
+      );
+    });
+    rerender({ enabled: false });
+    rerender({ enabled: true });
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "i", cancelable: true }),
+      );
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    unmount();
   });
 });

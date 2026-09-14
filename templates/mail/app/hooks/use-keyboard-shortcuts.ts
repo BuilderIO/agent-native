@@ -119,6 +119,8 @@ export function useSequenceShortcuts(
   sequences: { keys: string[]; handler: () => void }[],
   enabled = true,
 ) {
+  const sequencesRef = useRef(sequences);
+  sequencesRef.current = sequences;
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -132,7 +134,7 @@ export function useSequenceShortcuts(
       clearTimeout(timerRef.current);
       bufferRef.current = [...bufferRef.current, e.key.toLowerCase()].slice(-3);
 
-      for (const seq of sequences) {
+      for (const seq of sequencesRef.current) {
         const buf = bufferRef.current;
         const keys = seq.keys;
         if (buf.length >= keys.length) {
@@ -155,6 +157,7 @@ export function useSequenceShortcuts(
     return () => {
       window.removeEventListener("keydown", handleKey);
       clearTimeout(timerRef.current);
+      bufferRef.current = [];
     };
-  }, [enabled, sequences]);
+  }, [enabled]);
 }
