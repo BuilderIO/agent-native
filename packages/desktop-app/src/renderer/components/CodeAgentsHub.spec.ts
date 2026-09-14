@@ -78,6 +78,31 @@ describe("Content desktop navigation", () => {
     act(() => root.unmount());
   });
 
+  it("keeps refresh available before history state is ready", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onRefresh = vi.fn();
+
+    act(() => {
+      root.render(
+        React.createElement(DesktopContentNavigationToolbar, {
+          onBack: vi.fn(),
+          onForward: vi.fn(),
+          onRefresh,
+        }),
+      );
+    });
+
+    const refresh = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Refresh"]',
+    );
+    expect(refresh?.disabled).toBe(false);
+    act(() => refresh?.click());
+    expect(onRefresh).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
   it("maps unshifted command brackets to webview history", () => {
     expect(
       resolveDesktopHistoryShortcut({

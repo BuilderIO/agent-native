@@ -261,7 +261,6 @@ export function DesktopContentNavigationToolbar({
               type="button"
               className="desktop-content-navigation__button"
               onClick={onRefresh}
-              disabled={!state}
               aria-label="Refresh"
             >
               <IconRefresh size={15} strokeWidth={1.8} aria-hidden="true" />
