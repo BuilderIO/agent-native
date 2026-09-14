@@ -1482,11 +1482,22 @@ describe("template/core version compatibility", () => {
   it("pins unpublished generated framework dependencies to compatible versions", () => {
     // Toolkit has no published range in monorepo source, so it falls back to
     // `latest`. AgentKit falls back to the local package version.
+    const agentKitManifest = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          path.dirname(fileURLToPath(import.meta.url)),
+          "../../../agentkit/package.json",
+        ),
+        "utf-8",
+      ),
+    ) as { version: string };
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       expect(_getToolkitDependencyVersion()).toBe("latest");
-      expect(_getAgentKitDependencyVersion()).toBe("^0.1.0");
+      expect(_getAgentKitDependencyVersion()).toBe(
+        `^${agentKitManifest.version}`,
+      );
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
