@@ -68,6 +68,7 @@ import {
 } from "./RecipientInput";
 import { SendLaterButton } from "./SendLaterButton";
 
+const SEND_UNDO_WINDOW_MS = 10_000;
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
 type ComposeAccount = { email: string; displayName?: string };
@@ -183,9 +184,10 @@ interface ComposeModalProps {
   onClose: (id: string) => void;
   onCloseAll: () => void;
   onDiscard: (id: string) => void;
+  onStageForSend: (id: string) => void;
+  onRestoreAfterSend: (id: string) => void;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
-  onReopen: (state: Omit<ComposeState, "id">) => void;
   onInitialExpandedConsumed?: () => void;
 }
 
@@ -199,15 +201,18 @@ export function ComposeModal({
   onClose,
   onCloseAll,
   onDiscard,
+  onStageForSend,
+  onRestoreAfterSend,
   onNewDraft,
   onFlush,
-  onReopen,
   onInitialExpandedConsumed,
 }: ComposeModalProps) {
   const t = useT();
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(
+    initialExpanded || activeDraft?.mode === "compose",
+  );
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
@@ -286,8 +291,8 @@ export function ComposeModal({
     // Snapshot draft data for potential undo
     const draftSnapshot = { ...activeDraft };
 
-    // Close composer immediately
-    onDiscard(activeId);
+    // Hide it during the undo window without deleting either draft copy.
+    onStageForSend(activeId);
 
     // Show optimistic reply in the thread immediately (for replies)
     const undoOptimistic = draftSnapshot.replyToId
@@ -304,43 +309,36 @@ export function ComposeModal({
       : undefined;
 
     let cancelled = false;
+    let dispatchStarted = false;
 
     const handleUndo = () => {
-      if (cancelled) return;
+      if (cancelled || dispatchStarted) return;
       cancelled = true;
       sendingIdsRef.current.delete(sendingId);
       clearTimeout(sendTimer);
-      clearTimeout(transitionTimer);
       toast.dismiss(toastId);
       undoOptimistic?.();
-      // Reopen composer with the saved draft
-      const { id: _id, ...reopenData } = draftSnapshot;
-      onReopen(reopenData);
+      onRestoreAfterSend(sendingId);
     };
 
-    // Show "Sending..." toast with undo
-    const toastId = toast("Sending...", {
-      action: { label: "UNDO", onClick: handleUndo },
+    // Keep undo available only while the provider call is still deferred.
+    const toastId = toast(t("mail.compose.sending"), {
+      action: { label: t("mail.actions.undo"), onClick: handleUndo },
       duration: Infinity,
     });
 
-    // After 1.5s, transition to "Message sent."
-    const transitionTimer = setTimeout(() => {
-      if (cancelled) return;
-      toast("Message sent.", {
-        id: toastId,
-        action: { label: "UNDO", onClick: handleUndo },
-        duration: Infinity,
-      });
-    }, 1500);
-
-    // After 5s, actually send the email
+    // After the 10s undo window, actually send the email. Once dispatch starts, dismiss the
+    // undo toast because a client-side flag cannot cancel an in-flight send.
     const sendTimer = setTimeout(() => {
       if (cancelled) return;
+      dispatchStarted = true;
       sendingIdsRef.current.delete(sendingId);
       toast.dismiss(toastId);
-      sendEmail.mutate(
-        {
+      const sendingToastId = toast(t("mail.compose.sending"), {
+        duration: Infinity,
+      });
+      void sendEmail
+        .mutateAsync({
           to: expandAliasTokens(draftSnapshot.to, aliases),
           cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
           bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
@@ -350,26 +348,27 @@ export function ComposeModal({
           replyToThreadId: draftSnapshot.replyToThreadId,
           accountEmail: draftSnapshot.accountEmail,
           attachments: draftSnapshot.attachments,
-        },
-        {
-          onSuccess: (result) => {
-            if (draftSnapshot.queuedDraftId) {
-              updateQueuedDraft.mutate({
-                id: draftSnapshot.queuedDraftId,
-                status: "sent",
-                sentMessageId: result?.id,
-              });
-            }
-          },
-          onError: () => {
-            toast.error(t("mail.toasts.failedToSendEmail"));
-            // Reopen composer on failure
-            const { id: _id, ...reopenData } = draftSnapshot;
-            onReopen(reopenData);
-          },
-        },
-      );
-    }, 5000);
+        })
+        .then((result) => {
+          toast(t("mail.toasts.messageSent"), {
+            id: sendingToastId,
+            duration: 3_000,
+          });
+          onDiscard(sendingId);
+          if (draftSnapshot.queuedDraftId) {
+            updateQueuedDraft.mutate({
+              id: draftSnapshot.queuedDraftId,
+              status: "sent",
+              sentMessageId: result?.id,
+            });
+          }
+        })
+        .catch(() => {
+          toast.dismiss(sendingToastId);
+          toast.error(t("mail.toasts.failedToSendEmail"));
+          onRestoreAfterSend(sendingId);
+        });
+    }, SEND_UNDO_WINDOW_MS);
   };
 
   const handleSendLater = async (runAt: number) => {
@@ -639,6 +638,7 @@ export function ComposeModal({
             ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
             : "bottom-0 h-[100dvh] sm:h-[520px] sm:w-[540px]",
       )}
+      data-mail-compose
       style={composeStyle}
       onKeyDown={handleKeyDown}
       onDragOverCapture={handleDragOver}

@@ -88,7 +88,6 @@
     "react-hook-form": "^7.71.2",
     "react-resizable-panels": "^4.10.0",
     "react-router": "^8.1.0",
-    "recharts": "^3.8.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",

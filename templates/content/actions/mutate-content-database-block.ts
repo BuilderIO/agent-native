@@ -10,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Insert, update, upsert, delete, or reorder one stable block in an exact Content database Blocks field. Requires schema, row, and field revisions; preserves siblings and returns an idempotent verified receipt.",
+    "Insert, update, upsert, delete, or reorder one stable block in an exact Content collection Blocks field. Requires schema, row, and field revisions; preserves siblings and returns an idempotent verified receipt.",
   schema: mutateDatabaseBlockSchema,
   audit: {
     recordInputs: false,

@@ -7,6 +7,7 @@ import {
   collectFontRequests,
   extractFontFaceRules,
   extractImportUrls,
+  getHtml2CanvasPlaceholderStyle,
   stripCssComments,
   mirrorPreviewWebFonts,
 } from "./export-font-mirror";
@@ -75,6 +76,22 @@ describe("collectFontRequests", () => {
     // The wrapper <div> holds no direct text, so it contributes no spec.
     expect(specs.filter((spec) => spec.includes("Neuron"))).toHaveLength(
       new Set(specs.filter((spec) => spec.includes("Neuron"))).size,
+    );
+  });
+});
+
+describe("getHtml2CanvasPlaceholderStyle", () => {
+  it("propagates computed-style failures instead of hiding export degradation", () => {
+    const input = document.createElement("input");
+    input.placeholder = "Search";
+    const view = {
+      getComputedStyle() {
+        throw new Error("computed styles unavailable");
+      },
+    } as unknown as Window;
+
+    expect(() => getHtml2CanvasPlaceholderStyle(input, view)).toThrow(
+      "computed styles unavailable",
     );
   });
 });
@@ -801,6 +818,36 @@ describe("collectFontRequests form controls", () => {
     for (const character of "TypedBodyChosen") {
       expect(requests[0].text).toContain(character);
     }
+  });
+
+  it("requests the font used to paint an empty control placeholder", () => {
+    const doc = controlDoc(`<input placeholder="Search">`);
+    const input = doc.querySelector("input")!;
+    const view = doc.defaultView as unknown as {
+      getComputedStyle: (
+        element: Element,
+        pseudoElement?: string | null,
+      ) => CSSStyleDeclaration;
+    };
+    const getComputedStyle = view.getComputedStyle.bind(view);
+    view.getComputedStyle = ((element, pseudoElement) => {
+      if (element === input && pseudoElement === "::placeholder") {
+        return {
+          fontFamily: '"PlaceholderFont"',
+          fontSize: "14px",
+          fontStyle: "italic",
+          fontWeight: "600",
+        } as CSSStyleDeclaration;
+      }
+      return getComputedStyle(element, pseudoElement);
+    }) as typeof view.getComputedStyle;
+
+    expect(collectFontRequests(doc)).toEqual([
+      {
+        spec: 'italic 600 14px "PlaceholderFont"',
+        text: "Search",
+      },
+    ]);
   });
 
   it("ignores an empty control and never samples a password value", () => {

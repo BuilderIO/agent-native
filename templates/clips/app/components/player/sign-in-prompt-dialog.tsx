@@ -1,11 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
-import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
-
-import { AccountGateHeader } from "./account-gate-header";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export interface SignInPromptDialogProps {
   open: boolean;
@@ -39,9 +41,6 @@ export function SignInPromptDialog({
   onCreateAccount,
 }: SignInPromptDialogProps) {
   const t = useT();
-  const copy = resolveNativeAuthCopy(
-    typeof navigator === "undefined" ? undefined : navigator.language,
-  );
   const intentLabel = t(
     intent === "comment"
       ? "signInPrompt.commentIntent"
@@ -54,13 +53,11 @@ export function SignInPromptDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100%-2rem)] gap-0 p-0 sm:max-w-md">
         <div className="px-6 pb-7 pt-8 sm:px-8 sm:pb-8">
-          <AccountGateHeader
-            actionLabel={t("signInPrompt.title", { intent: intentLabel })}
-            returnLabel={t("signInPrompt.description")}
-            welcomeLabel={copy.welcomeTitle}
-          />
+          <DialogTitle className="text-2xl tracking-tight">
+            {t("signInPrompt.title", { intent: intentLabel })}
+          </DialogTitle>
           <DialogFooter className="mt-7 gap-2 sm:justify-end">
-            <Button variant="ghost" asChild>
+            <Button variant="ghost" size="lg" asChild>
               <a href={signInHref} onClick={() => onSignIn?.()}>
                 {t("signInPrompt.signIn")}
               </a>
@@ -68,6 +65,7 @@ export function SignInPromptDialog({
             {onCreateAccount ? (
               <Button
                 type="button"
+                size="lg"
                 onClick={() => {
                   onSignUp?.();
                   onCreateAccount();
@@ -76,7 +74,7 @@ export function SignInPromptDialog({
                 {t("signInPrompt.createAccount")}
               </Button>
             ) : (
-              <Button asChild>
+              <Button size="lg" asChild>
                 <a href={signUpHref} onClick={() => onSignUp?.()}>
                   {t("signInPrompt.createAccount")}
                 </a>

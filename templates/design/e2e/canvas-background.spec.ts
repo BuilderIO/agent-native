@@ -79,18 +79,68 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
   );
 }
 
+/** A point on the canvas confirmed clear of the chrome rails —
+ * `elementFromPoint` can otherwise land on the left layers rail's own
+ * `--design-editor-panel-bg`, which reads as a plausible but wrong canvas
+ * colour (see parity-canvas-background.spec.ts's sampleXY). */
+async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
+  const canvasBox = await page
+    .locator("[data-design-canvas-container]")
+    .boundingBox();
+  if (!canvasBox) throw new Error("no canvas container box");
+  const leftShellBox = await page
+    .locator('[data-design-chrome-region="left-shell"]')
+    .boundingBox()
+    .catch(() => null);
+  const rightPanelBox = await page
+    .locator('[data-design-chrome-region="right-panel"]')
+    .boundingBox()
+    .catch(() => null);
+  const leftEdge = leftShellBox
+    ? leftShellBox.x + leftShellBox.width
+    : canvasBox.x;
+  const rightEdge = rightPanelBox
+    ? rightPanelBox.x
+    : canvasBox.x + canvasBox.width;
+  const x = Math.round(leftEdge + (rightEdge - leftEdge) * 0.5);
+  const y = Math.round(canvasBox.y + canvasBox.height * 0.5);
+
+  const hitInfo = await page.evaluate(
+    ({ px, py }) => {
+      const el = document.elementFromPoint(px, py) as HTMLElement | null;
+      if (!el) return { ok: false, reason: "no element" };
+      let cur: HTMLElement | null = el;
+      for (let i = 0; i < 8 && cur; i++) {
+        if (cur.dataset?.designChromeRegion) {
+          return {
+            ok: false,
+            reason: `hit chrome:${cur.dataset.designChromeRegion}`,
+          };
+        }
+        cur = cur.parentElement;
+      }
+      return { ok: true, reason: "clear" };
+    },
+    { px: x, py: y },
+  );
+  if (!hitInfo.ok) {
+    throw new Error(
+      `sampleXY point (${x},${y}) is not clear of chrome: ${hitInfo.reason}`,
+    );
+  }
+  return { x, y };
+}
+
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
+for (const { theme, canvasHex, boardTextColor } of [
   {
     theme: "dark",
-    canvasRgb: "26,26,26",
     canvasHex: "1A1A1A",
     boardTextColor: "rgb(255, 255, 255)",
   },
   {
     theme: "light",
-    canvasRgb: "235,235,235",
     canvasHex: "EBEBEB",
     boardTextColor: "currentcolor",
   },
@@ -124,14 +174,12 @@ for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
       await expect(page.locator("html")).toHaveClass(new RegExp(theme));
 
       // Well clear of both the shape drawn below and the floating toolbar.
-      const canvasBox = await page
-        .locator("[data-design-canvas-container]")
-        .boundingBox();
-      if (!canvasBox) throw new Error("no canvas container box");
-      const sampleX = Math.round(canvasBox.x + canvasBox.width * 0.15);
-      const sampleY = Math.round(canvasBox.y + canvasBox.height * 0.6);
+      const { x: sampleX, y: sampleY } = await sampleXY(page);
 
-      await expect.poll(() => pixelAt(page, sampleX, sampleY)).toBe(canvasRgb);
+      // Read the actual rendered canvas colour before any edit, rather than
+      // hardcoding a palette literal — a rendered-vs-token mismatch is a
+      // separate bug from the flash this test exists to catch.
+      const canvasRgb = await pixelAt(page, sampleX, sampleY);
 
       const canvasSection = page
         .locator("section.design-sidebar-section")

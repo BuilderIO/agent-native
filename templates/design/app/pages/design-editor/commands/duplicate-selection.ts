@@ -196,6 +196,7 @@ export function runDuplicateSelection({
                 {
                   x: sourcePosition.x + (repeatTransform?.dx ?? 0),
                   y: sourcePosition.y + (repeatTransform?.dy ?? 0),
+                  space: "layout",
                 },
               ]
             : undefined,

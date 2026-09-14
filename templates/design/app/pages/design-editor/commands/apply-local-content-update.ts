@@ -17,6 +17,7 @@ import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/
 import type {
   ContentHistoryChange,
   ContentHistoryEntry,
+  YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -52,7 +53,10 @@ export interface ApplyLocalContentUpdateArgs {
     content: string,
     options?: { syncCollab?: boolean; immediate?: boolean },
   ) => void;
-  recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
+  recordContentHistoryEntry: (
+    entry: ContentHistoryEntry,
+    selectedLayerIdsOverride?: string[],
+  ) => void;
   recordLocalContentHistoryChangeFallback: (
     change: ContentHistoryChange,
   ) => void;
@@ -119,6 +123,12 @@ export function runApplyLocalContentUpdate(
     historyBeforeContent?: string;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
+    /** Figma-parity undo selection restore for when this write lands on the
+     * non-Yjs local fallback stack (e.g. `!isSynced` yet) — see
+     * ContentHistoryChange.selectionBefore's doc comment. Ignored on the
+     * overview/global history path, which restores selection from its own
+     * parallel GeometryHistorySelection stack instead. */
+    selectionBefore?: YjsUndoSelectionSnapshot;
   } = {},
 ) {
   trace("persist", "write-file", {
@@ -179,9 +189,15 @@ export function runApplyLocalContentUpdate(
       after: nextContent,
     };
     if (viewModeRef.current === "overview") {
-      recordContentHistoryEntry(change);
+      recordContentHistoryEntry(
+        change,
+        options.selectionBefore?.selectedLayerIds,
+      );
     } else {
-      recordLocalContentHistoryEntry(change);
+      recordLocalContentHistoryEntry({
+        ...change,
+        selectionBefore: options.selectionBefore,
+      });
     }
   } else if (
     !suppressContentHistoryRef.current &&
@@ -199,6 +215,7 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      selectionBefore: options.selectionBefore,
     });
   }
   if (options.updatedAt) {

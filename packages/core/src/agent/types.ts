@@ -46,6 +46,11 @@ export interface AgentMessage {
   content: string;
 }
 
+export interface AgentFileMutationProof {
+  path: string;
+  contentSha256: string;
+}
+
 export type AgentChatStructuredContentPart =
   | { type: "text"; text: string }
   | {
@@ -399,6 +404,7 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;

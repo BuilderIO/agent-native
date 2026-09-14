@@ -73,7 +73,7 @@ describe("contentDatabaseCreationRequest", () => {
         spaceId: undefined,
         title: "Launches",
       }),
-    ).toThrow("Choose a Content space before creating a database");
+    ).toThrow("Choose a Content space before creating a collection");
   });
 });
 

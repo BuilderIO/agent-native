@@ -342,7 +342,7 @@ export function contentDatabaseViewSaveRequest({
   viewConfig: ContentDatabaseViewConfig;
 }): ContentDatabaseViewSaveRequest {
   if (!data || data.database.id !== databaseId) {
-    throw new Error("Database view save context is unavailable");
+    throw new Error("Collection view save context is unavailable");
   }
   if (data.database.systemRole != null || data.database.spaceId == null) {
     return { databaseId, viewConfig };
@@ -352,7 +352,7 @@ export function contentDatabaseViewSaveRequest({
     revision.databaseId !== databaseId ||
     revision.target.databaseId !== databaseId
   ) {
-    throw new Error("Database view save contract is unavailable");
+    throw new Error("Collection view save contract is unavailable");
   }
   return {
     operation: "replace",
@@ -905,7 +905,7 @@ function DatabaseTable({
   );
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
-  // the user-facing "Database unavailable" state.
+  // the user-facing "Collection unavailable" state.
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
@@ -2973,16 +2973,16 @@ function DatabaseTable({
             aria-label={
               builderReviewChangeSets.length > 0
                 ? builderReviewCountIsComplete
-                  ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
-                  : "Database settings, Builder updates pending"
-                : "Database settings"
+                  ? `Collection settings, ${builderReviewChangeSets.length} Builder update pending`
+                  : "Collection settings, Builder updates pending"
+                : "Collection settings"
             }
             title={
               builderReviewChangeSets.length > 0
                 ? builderReviewCountIsComplete
                   ? `${builderReviewChangeSets.length} Builder update pending`
                   : "Builder updates pending"
-                : "Database settings"
+                : "Collection settings"
             }
             className={cn(
               databaseToolbarIconButtonClass(
@@ -7603,7 +7603,7 @@ function DatabaseSettingsPanelSheet({
 
   const title =
     panel === "main"
-      ? "Database settings"
+      ? "Collection settings"
       : panel === "source"
         ? sourceNavTitle(sourceNavStack)
         : databaseSettingsPanelTitle(panel);
@@ -7754,7 +7754,7 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
   if (panel === "group") return "Group";
-  return "Database settings";
+  return "Collection settings";
 }
 
 function DatabaseSettingsMainPanel({
@@ -11427,7 +11427,7 @@ function databaseOpenPagesInLabel(value: ContentDatabaseOpenPagesIn) {
 function databaseOpenPagesInDescription(value: ContentDatabaseOpenPagesIn) {
   return value === "full_page"
     ? "Navigate to the page when opening a row."
-    : "Open rows in a side panel without leaving the database.";
+    : "Open rows in a side panel without leaving the collection.";
 }
 
 function databaseFilterModeLabel(filterMode: DatabaseFilterMode) {

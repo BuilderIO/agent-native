@@ -105,6 +105,7 @@ const messages = {
     status: "الحالة",
     coverage: "التغطية",
     reason: "السبب",
+    summary: "الملخص",
     evidence: "الدليل",
     actionsTaken: "السجل",
     threadTruncated: "سلسلة Slack هذه مقتطعة.",

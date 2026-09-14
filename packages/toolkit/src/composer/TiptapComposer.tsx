@@ -1562,7 +1562,6 @@ function ModelSelector({
     (agent) => agent.id === (selectedAgent ?? "default"),
   );
   const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
-  const selectedModelLabel = friendlyModelName(model, t).replace(/^GPT-/, "");
 
   const [detailSection, setDetailSection] = useState<
     "agent" | "model" | "effort" | "mode" | null
@@ -1628,6 +1627,22 @@ function ModelSelector({
     showProviderActions,
     providerGroups,
   );
+  const selectedModelProviderGroups = modelProviderGroups.filter(
+    (group) =>
+      group.models.includes(model) &&
+      (!selectedEngine || group.engine === selectedEngine),
+  );
+  const selectedModelNeedsConnection =
+    onlyConnectPathAvailable ||
+    (selectedModelProviderGroups.length > 0 &&
+      selectedModelProviderGroups.every((group) => !group.configured));
+  const selectedModelName = selectedModelNeedsConnection
+    ? t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
+    : friendlyModelName(model, t);
+  const selectedModelLabel = selectedModelName.replace(/^GPT-/, "");
+  const selectedModelButtonLabel = selectedModelNeedsConnection
+    ? selectedModelLabel
+    : compactComposerModelName(model, t);
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -1653,7 +1668,7 @@ function ModelSelector({
           data-agent-composer-slot="model-button"
           aria-label={`${t("agentChat.composer.model", {
             defaultValue: "Model",
-          })}: ${friendlyModelName(model, t)}${
+          })}: ${selectedModelName}${
             effortOptions.length > 0
               ? `. ${t("agentChat.composer.effort", {
                   defaultValue: "Effort",
@@ -1674,7 +1689,7 @@ function ModelSelector({
             ) : null}
             {selectedAgentOption && selectedAgentOption.id !== "default"
               ? selectedAgentLabel
-              : compactComposerModelName(model, t)}
+              : selectedModelButtonLabel}
           </span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink-0 truncate text-muted-foreground/70">

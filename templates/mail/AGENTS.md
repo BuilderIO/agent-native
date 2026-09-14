@@ -7,8 +7,9 @@ replies, and update mail state through actions and application state.
 
 Read the relevant skill before deeper work:
 
-- `inbox-reads-and-triage` for listing/searching mail, inventory coverage,
-  refreshing after mutations, and bulk unread cleanup.
+- `inbox-reads-and-triage` for listing/searching mail, coverage, refresh, and
+  bulk unread cleanup.
+- `mail-interaction-parity` for the Superhuman matrix and safe send testing.
 - `email-drafts` for composing, signatures, style, attachments, sending,
   scheduled sends, tracking, and aliases.
 - `draft-queue` for org and Slack draft review/send workflows.
@@ -39,9 +40,8 @@ Read the relevant skill before deeper work:
   call `refresh-list` unless the action itself writes `refresh-signal`.
 - Inventory reads report per-account success, empty, exhaustion, or error.
   Never describe partial coverage as complete.
-- Provider-specific actions are shortcuts, not limits: escalate to
-  `provider-api-catalog`/`-docs`/`-request` for exact endpoints, filters, or
-  API versions.
+- Provider actions are shortcuts; use `provider-api-catalog`/`-docs`/`-request`
+  for exact endpoints, filters, or API versions.
 - `get-hubspot-contact` is the only first-class CRM action; Gong, Pylon, and
   Apollo are UI-only — say so rather than implying `provider-api-request`
   reaches them. Aliases and provider API keys are Settings-UI only.

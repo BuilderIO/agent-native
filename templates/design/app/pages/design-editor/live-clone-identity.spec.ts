@@ -67,11 +67,14 @@ function duplicateThroughBridgeMessage() {
       },
       canEditDesign: true,
       getFreshActiveContent: () => nextContent,
+      selectedElement: null,
+      selectedLayerIdsState: [],
       setSelectedElement: () => {},
       setSelectedLayerIdsState: (value) => {
         selectedLayerIds.push(value as string[]);
       },
       t: (key) => key,
+      undoManagerRef: { current: null },
     },
     `[data-agent-native-node-id="${ORIGINAL_NODE_ID}"]`,
     ASIDE_MARKUP(CLONE_NODE_ID),

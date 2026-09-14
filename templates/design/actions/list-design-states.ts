@@ -41,7 +41,8 @@ export default defineAction({
   capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId, kind, sourceRef }) => {
-    await assertAccess("design", designId, "viewer");
+    // Captures and fixture data can contain private application values.
+    await assertAccess("design", designId, "editor");
     const db = getDb();
 
     // design_state has no own shares table, so the parent access check above is

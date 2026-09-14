@@ -2357,9 +2357,16 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     fs.writeFileSync(path.join(tarFsDir, "index.js"), "export {};");
     fs.writeFileSync(
       path.join(playwrightCoreDir, "package.json"),
-      JSON.stringify({ name: "playwright-core", main: "index.js" }),
+      JSON.stringify({
+        name: "playwright-core",
+        type: "module",
+        main: "index.js",
+      }),
     );
-    fs.writeFileSync(path.join(playwrightCoreDir, "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(playwrightCoreDir, "index.js"),
+      "export const chromium = { connectOverCDP: async () => ({}) };",
+    );
     fs.writeFileSync(
       path.join(root, "package.json"),
       JSON.stringify({ name: "test-app", dependencies: appDependencies }),
@@ -2421,6 +2428,44 @@ describe("copyInstalledBrowserRuntimePackages", () => {
 
     expect(findServerlessBrowserRuntimeConsumer(root)).toBe("playwright-core");
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+  });
+
+  it("ships the lightweight runtime when an app declares Playwright directly", async () => {
+    const { root, nodeModules, serverDir } = setupBrowserRuntimeStore({
+      playwright: "1.63.0",
+    });
+    const playwrightDir = path.join(nodeModules, "playwright");
+    fs.mkdirSync(playwrightDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(playwrightDir, "package.json"),
+      JSON.stringify({ name: "playwright", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(playwrightDir, "index.js"), "full runtime");
+
+    expect(findServerlessBrowserRuntimeConsumer(root)).toBe("playwright");
+    expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "@sparticuz", "chromium-min"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(serverDir, "node_modules", "tar-fs"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright-core")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright")),
+    ).toBe(false);
+
+    const entrypoint = path.join(serverDir, "main.mjs");
+    fs.writeFileSync(
+      entrypoint,
+      'export const { chromium } = await import("playwright-core");',
+    );
+    const runtime = await import(pathToFileURL(entrypoint).href);
+    expect(typeof runtime.chromium.connectOverCDP).toBe("function");
   });
 });
 

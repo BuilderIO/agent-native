@@ -62,9 +62,10 @@ function fillsItsFrame(candidate: CanvasLayerMarqueeCandidate): boolean {
 
 /**
  * Resolves what a single click on an already-selected frame's body should
- * select: the same layer a click that reached the content would have picked —
- * the innermost candidate under the pointer. Returns null when only
- * frame-filling wrappers sit there, so the caller leaves the frame selected.
+ * select: the outermost real layer under the pointer. This keeps grouped
+ * layers moving as one unit; double-click uses resolveDrillInTarget to descend.
+ * Returns null when only frame-filling wrappers sit there, so the caller leaves
+ * the frame selected.
  */
 export function resolvePickTargetAtPoint(args: {
   candidates: readonly CanvasLayerMarqueeCandidate[];
@@ -74,7 +75,7 @@ export function resolvePickTargetAtPoint(args: {
   const chain = drillInChainAtPoint(args).filter(
     (candidate) => !fillsItsFrame(candidate),
   );
-  return chain[chain.length - 1] ?? null;
+  return chain[0] ?? null;
 }
 
 /**
