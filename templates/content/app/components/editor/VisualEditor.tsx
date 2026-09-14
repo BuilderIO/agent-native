@@ -245,7 +245,7 @@ export function parseMarkdownClipboardSlice(
   if (!looksLikeMarkdown(text)) return null;
 
   const doc = editor.schema.nodeFromJSON(nfmToDoc(text));
-  return new Slice(doc.content, 0, 0);
+  return Slice.maxOpen(doc.content);
 }
 
 function parsePlainTextClipboardSlice(
@@ -310,7 +310,7 @@ const MarkdownPasteDetection = Extension.create({
             const div = document.createElement("div");
             div.innerHTML = html;
             const hasRichStructure = div.querySelector(
-              "h1, h2, h3, h4, h5, h6, ul, ol, blockquote, table",
+              "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s",
             );
             // But allow interception if the HTML is just a code/pre wrapper
             // (from code editors or terminals)

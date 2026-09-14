@@ -376,6 +376,8 @@ describe("markdown clipboard parsing", () => {
       expect(markdown.length).toBeGreaterThan(15_000);
       const slice = parseMarkdownClipboardSlice(editor, markdown);
       expect(slice).not.toBeNull();
+      expect(slice?.openStart).toBeGreaterThan(0);
+      expect(slice?.openEnd).toBeGreaterThan(0);
 
       editor.view.dispatch(
         editor.state.tr.replaceSelection(slice!).scrollIntoView(),
@@ -422,6 +424,39 @@ describe("markdown clipboard parsing", () => {
           (_, index) => editor.state.doc.child(index).type.name,
         ),
       ).toEqual(["paragraph", "paragraph", "paragraph"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves paragraph-only rich HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<p><strong># Rich heading</strong></p><p><em>- first</em><br>- second</p>",
+    );
+    clipboardData.setData("text/plain", "# Rich heading\n\n- first\n- second");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        "bold",
+      );
+      expect(editor.state.doc.textContent).toContain("# Rich heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
     } finally {
       editor.destroy();
     }
