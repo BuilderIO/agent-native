@@ -6,8 +6,53 @@ import {
   draftSuggestionAnchors,
   markdownSuggestionOperation,
   markdownSuggestionOperations,
+  markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForReplacements,
 } from "./markdown-operation";
+
+describe("editor-normalized revisions", () => {
+  const raw = "Alpha bravo charlie.\n\n- Echo foxtrot\n- Hotel india";
+  const editor = raw.replace(".\n\n-", ".\n-");
+
+  it.each([
+    ["insertion", editor.replace("bravo", "bravo NEW"), "", "NEW "],
+    ["deletion", editor.replace("bravo ", ""), "bravo ", ""],
+  ])(
+    "keeps a %s and drops only phantom structural changes",
+    (_, after, removed, inserted) => {
+      const operations = markdownSuggestionOperationsForEditorRevision({
+        before: raw,
+        after,
+        replacements: [],
+      });
+      expect(operations).toHaveLength(1);
+      expect(operations[0]).toMatchObject({
+        before: { markdown: raw, changedText: removed },
+        after: { changedText: inserted },
+      });
+    },
+  );
+
+  it("keeps multiple real edits without a paragraph/list newline operation", () => {
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: raw,
+      after: editor.replace("bravo", "BRAVO").replace("india", "INDIA!"),
+      replacements: [],
+    });
+    expect(
+      operations.map(({ before, after }) => [
+        before.changedText,
+        after.changedText,
+      ]),
+    ).toEqual([
+      ["bravo", "BRAVO"],
+      ["india", "INDIA!"],
+    ]);
+    expect(
+      operations.every((operation) => operation.before.markdown === raw),
+    ).toBe(true);
+  });
+});
 
 describe("mixed text and formatting proposals", () => {
   it.each([

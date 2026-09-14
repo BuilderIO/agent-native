@@ -1,8 +1,10 @@
+import { canonicalizeNfm } from "@shared/nfm";
 import {
   suggestionFormattingChanges,
   suggestionMarkedSourceRanges,
   SuggestionFormattingMappingError,
 } from "@shared/suggestion-formatting";
+import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
 
 export type MarkdownSuggestionOperation = {
   ordinal: number;
@@ -551,14 +553,108 @@ export function markdownSuggestionOperationsForReplacements(input: {
   return result;
 }
 
+export function markdownSuggestionOperationsForEditorRevision(input: {
+  before: string;
+  after: string;
+  replacements: ReadonlyArray<{ from: number; to: number }>;
+}): MarkdownSuggestionOperation[] {
+  const editorBefore = canonicalizeNfm(input.before);
+  const replacements = input.replacements.map(({ from, to }) => {
+    const changedText = input.before.slice(from, to);
+    const range = resolveMarkdownSuggestionRange(editorBefore, {
+      before: { markdown: input.before, changedText },
+      after: { markdown: input.before, changedText },
+      anchor: {
+        from,
+        to,
+        prefix: input.before.slice(Math.max(0, from - 32), from),
+        suffix: input.before.slice(to, to + 32),
+      },
+    });
+    if (!range) throw new SuggestionFormattingMappingError();
+    return range;
+  });
+  return markdownSuggestionOperationsForReplacements({
+    before: editorBefore,
+    after: input.after,
+    replacements,
+  }).map((operation, ordinal) => {
+    const range = resolveMarkdownSuggestionRange(input.before, operation);
+    if (!range) throw new SuggestionFormattingMappingError();
+    return operationForChange(
+      input.before,
+      range.from,
+      range.to,
+      operation.after.changedText,
+      ordinal,
+    );
+  });
+}
+
 export function draftSuggestionAnchors(
   operations: readonly MarkdownSuggestionOperation[],
   draft: string,
 ): MarkdownSuggestionOperation["anchor"][] {
+  const canonical = operations.every(
+    (operation) =>
+      canonicalizeNfm(operation.after.markdown) === operation.after.markdown,
+  );
+  let proposedRaw = operations[0]?.before.markdown ?? draft;
+  for (const operation of [...operations].reverse()) {
+    proposedRaw =
+      proposedRaw.slice(0, operation.anchor.from) +
+      operation.after.changedText +
+      proposedRaw.slice(operation.anchor.to);
+  }
+  const parts = canonical ? null : diffParts(proposedRaw, draft);
+  if (!canonical && !parts) throw new SuggestionFormattingMappingError();
+  const boundaryMap = new Array<number>(proposedRaw.length + 1);
+  let rawOffset = 0;
+  let draftOffset = 0;
+  boundaryMap[0] = 0;
+  for (const part of parts ?? []) {
+    if (part.type === "insert") {
+      draftOffset += part.text.length;
+      boundaryMap[rawOffset] = draftOffset;
+      continue;
+    }
+    for (let index = 0; index < part.text.length; index += 1) {
+      rawOffset += 1;
+      if (part.type === "equal") draftOffset += 1;
+      boundaryMap[rawOffset] = draftOffset;
+    }
+  }
+  if (
+    !canonical &&
+    (rawOffset !== proposedRaw.length || draftOffset !== draft.length)
+  )
+    throw new SuggestionFormattingMappingError();
+
   let delta = 0;
   return operations.map((operation) => {
-    const from = operation.anchor.from + delta;
-    const to = from + operation.after.changedText.length;
+    if (canonical) {
+      const from = operation.anchor.from + delta;
+      const to = from + operation.after.changedText.length;
+      delta +=
+        operation.after.changedText.length -
+        operation.before.changedText.length;
+      return {
+        from,
+        to,
+        prefix: draft.slice(Math.max(0, from - 32), from),
+        suffix: draft.slice(to, to + 32),
+      };
+    }
+    const rawFrom = operation.anchor.from + delta;
+    const rawTo = rawFrom + operation.after.changedText.length;
+    const from = boundaryMap[rawFrom];
+    const to = boundaryMap[rawTo];
+    if (
+      from === undefined ||
+      to === undefined ||
+      draft.slice(from, to) !== operation.after.changedText
+    )
+      throw new SuggestionFormattingMappingError();
     delta +=
       operation.after.changedText.length - operation.before.changedText.length;
     return {
