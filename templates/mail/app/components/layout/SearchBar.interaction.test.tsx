@@ -99,7 +99,10 @@ vi.mock("@/lib/threads", () => ({
 
 import { SearchBar } from "./SearchBar";
 
-function SearchPaletteHarness() {
+function SearchPaletteHarness({
+  initialQuery = "",
+  hasActiveSearch = false,
+}: { initialQuery?: string; hasActiveSearch?: boolean } = {}) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchMounted, setSearchMounted] = useState(true);
   const { openPalette, handleOpenChange, restoreFocusAfterEscape } =
@@ -112,7 +115,12 @@ function SearchPaletteHarness() {
   return (
     <>
       {searchMounted ? (
-        <SearchBar autoFocus onClose={() => setSearchMounted(false)} />
+        <SearchBar
+          autoFocus
+          hasActiveSearch={hasActiveSearch}
+          initialQuery={initialQuery}
+          onClose={() => setSearchMounted(false)}
+        />
       ) : (
         <input
           id="mail-search"
@@ -262,6 +270,59 @@ describe("SearchBar suggestion selection", () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(screen.getByRole("combobox"));
     });
+  });
+
+  it("clears the palette query before dismissal without changing active Mail search", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+
+    render(<SearchPaletteHarness initialQuery="abc" hasActiveSearch />);
+    const search = screen.getByRole("combobox", {
+      name: "mail.search.label",
+    }) as HTMLInputElement;
+    expect(search.value).toBe("abc");
+
+    const shortcutEvent = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => search.dispatchEvent(shortcutEvent));
+
+    const commandInput =
+      document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(commandInput).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(commandInput));
+
+    fireEvent.change(commandInput!, { target: { value: "archive" } });
+    expect(commandInput?.value).toBe("archive");
+
+    const pressEscape = () =>
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+
+    pressEscape();
+    expect(commandInput?.value).toBe("");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(search.value).toBe("abc");
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    pressEscape();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(search));
+    expect(search.value).toBe("abc");
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it("cancels the pending Search collapse when focus returns before the delay", () => {

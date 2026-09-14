@@ -133,8 +133,13 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   X, and press Escape. Confirm whether the active query stays, clears, or
   restores the pre-search route exactly as the reference does. An isolated
   browser pass cleared `/all?q=abc` with the X and landed at `/all`; Escape
-  from the command palette, tested separately below, returned focus to Search
-  without changing that query. Paired Superhuman behavior remains unverified.
+  from the command palette returned focus to Search without changing that
+  query. With `archive` in Command and `q=abc` in Search, the first Escape
+  cleared only the Command query and kept the palette open; the second closed
+  it, restored Search focus, and preserved `/all?q=abc`. A regression in
+  `SearchBar.interaction.test.tsx` now covers the two-stage dismissal, active
+  Search query preservation, focus restoration, and absence of navigation.
+  Paired Superhuman behavior remains unverified.
 - SEARCH-007 — Save a search as a tab. Test empty name, whitespace, duplicate
   name, max-count limit, success, slow response, failure, retry, cancel, and
   reopened tab.
