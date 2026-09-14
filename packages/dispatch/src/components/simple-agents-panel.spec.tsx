@@ -150,4 +150,51 @@ describe("SimpleAgentsPanel", () => {
     expect(document.body.textContent).toContain("Import an agent");
     expect(document.body.textContent).toContain("Connect endpoint");
   });
+
+  it("blocks connecting an agent with a malformed endpoint URL", async () => {
+    await act(async () => {
+      root.render(<SimpleAgentsPanel />);
+    });
+
+    const importButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Import or connect"),
+    );
+    await act(async () => {
+      importButton?.click();
+    });
+
+    const endpointTab = Array.from(
+      document.body.querySelectorAll('[role="tab"]'),
+    ).find((tab) => tab.textContent?.includes("Connect endpoint"));
+    await act(async () => {
+      // Radix Tabs activates on focus (automatic activation mode), not click.
+      (endpointTab as HTMLElement | undefined)?.focus();
+    });
+
+    const urlInput = document.getElementById(
+      "external-agent-url",
+    ) as HTMLInputElement | null;
+    expect(urlInput).not.toBeNull();
+
+    // Regression for the markdown-link-artifact paste reported in feedback:
+    // no inline error caught this before submit, so it reached the backend
+    // and surfaced as a raw 500 toast.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(urlInput, "https://api.github.com](https://api.github.com");
+      urlInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toMatch(/enter a valid url/i);
+
+    const connectButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Connect agent"));
+    expect((connectButton as HTMLButtonElement | undefined)?.disabled).toBe(
+      true,
+    );
+  });
 });
