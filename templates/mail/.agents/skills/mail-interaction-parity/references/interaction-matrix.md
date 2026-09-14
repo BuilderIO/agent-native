@@ -88,6 +88,12 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
 - SEARCH-002 — Type one character, two characters, three characters, spaces,
   quoted text, unicode, punctuation, and a long query. Confirm debounce,
   local-match timing, remote-search timing, and no request for short queries.
+  Mail source audit found contact/local matches start at two trimmed characters
+  and automatic navigation to `/all?q=...` starts at three after 400 ms.
+  Superhuman's official [Search in Seconds](https://help.superhuman.com/hc/en-us/articles/46005814266253-Search-in-Seconds)
+  workflow says to type a query and press Enter. Treat the timing/submit
+  difference as a candidate for authenticated paired replay, not a confirmed
+  discrepancy; the disconnected runtime had no mailbox results.
 - SEARCH-003 — Navigate contact suggestions with ArrowDown/ArrowUp, Home/End
   if supported, Enter, mouse hover, mouse click, and Tab. Confirm the selected
   result is the one opened and focus/URL are correct.
@@ -120,6 +126,10 @@ reference sequence; `MAIL` means the corresponding Mail sequence.
   `aria-activedescendant` is absent while closed or stale and otherwise always
   resolves to a rendered option in the open list. Drive this in a browser and
   assert the selection-reset rule at the smallest unit boundary available.
+  The synthetic `SearchBar.interaction.test.tsx` cases cover a same-size result
+  replacement and two rapid query changes ending with no results; the full
+  Mail suite passed on 2026-09-14 (102 files, 838 tests). This is local
+  regression proof, not account-backed or paired runtime evidence.
 - SEARCH-012 — Compare offline cache eligibility with synthetic messages that
   were received, opened, or searched within the last 30 days, plus older items.
   Include an attachment and more than 1,250 messages in a Split; record which
@@ -736,6 +746,7 @@ re-open them when the product changes:
 - [Keyboard shortcuts](https://help.superhuman.com/hc/en-us/articles/46005701270541-Keyboard-Shortcuts-in-Superhuman-Mail)
 - [Autocomplete](https://help.superhuman.com/hc/en-us/articles/46005685782669-Autocomplete)
 - [Search](https://help.superhuman.com/hc/en-us/articles/46005672652301-Search)
+- [Search in Seconds](https://help.superhuman.com/hc/en-us/articles/46005814266253-Search-in-Seconds)
 - [Offline Access](https://help.superhuman.com/hc/en-us/articles/46005499629325-Offline-Access)
 - [Undo](https://help.superhuman.com/hc/en-us/articles/46005666743309-Undo)
 - [Mark Done](https://help.superhuman.com/hc/en-us/articles/47439134613773-Mark-Done)
