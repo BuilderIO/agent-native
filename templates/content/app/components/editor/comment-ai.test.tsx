@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   refetch: vi.fn(),
   sendToAgentChat: vi.fn(),
   requests: [] as CommentAiRequest[],
+  toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -32,6 +33,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+vi.mock("sonner", () => ({
+  toast: { error: (...args: unknown[]) => api.toastError(...args) },
 }));
 
 function request(overrides: Partial<CommentAiRequest> = {}): CommentAiRequest {
@@ -249,6 +253,29 @@ describe("comment AI controls", () => {
     expect(api.callAction).toHaveBeenCalledOnce();
     expect(api.sendToAgentChat).not.toHaveBeenCalled();
     expect(api.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a failed request start and clears the starting state", async () => {
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    api.callAction.mockRejectedValue(new Error("The comment is stale"));
+    act(() => root.render(createElement(Probe)));
+
+    await act(async () => {
+      await controller!.start({
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        intent: "reply",
+      });
+    });
+
+    expect(api.toastError).toHaveBeenCalledWith("The comment is stale");
+    expect(api.refetch).toHaveBeenCalledOnce();
+    expect(controller!.startingThreadIds.size).toBe(0);
+    expect(api.sendToAgentChat).not.toHaveBeenCalled();
   });
 
   it("polls only while a saved request is queued or running", () => {

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { assertAccess } from "@agent-native/core/sharing";
 import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { and, eq } from "drizzle-orm";
@@ -256,6 +258,12 @@ export async function mutateDocumentBody(args: {
       const tx = transaction as unknown as Db;
       const concurrent = await readReplay(tx);
       if (concurrent) return concurrent;
+
+      await assertAccess("document", args.documentId, "editor", {
+        userEmail: args.ctx.userEmail,
+        orgId: args.ctx.orgId ?? undefined,
+        transaction: getDbExec(),
+      });
 
       const [document] = await tx
         .select()

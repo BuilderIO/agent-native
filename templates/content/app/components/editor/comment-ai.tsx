@@ -9,6 +9,7 @@ import type {
 import { IconSparkles } from "@tabler/icons-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -121,6 +122,13 @@ export function useCommentAiRequests(
           actionScope: started.actionScope,
         };
         if (started.dispatch) sendToAgentChat(message);
+        await query.refetch();
+      } catch (error) {
+        toast.error(
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : t("comments.aiFailed"),
+        );
         await query.refetch();
       } finally {
         startingRef.current.delete(threadId);

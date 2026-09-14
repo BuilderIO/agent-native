@@ -5,6 +5,7 @@ import {
   fail,
   type ActionRunContext,
 } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -223,6 +224,11 @@ export async function addCommentWithGuard(
       (await existingReceipt())
     )
       return false;
+    await assertAccess("document", documentId, "commenter", {
+      userEmail: email,
+      orgId: ctx?.orgId ?? undefined,
+      transaction: getDbExec(),
+    });
     if (args.threadId && args.parentId) {
       // Resolution takes the same root lock before its thread-wide update.
       const [root] = await tx
