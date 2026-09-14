@@ -375,6 +375,27 @@ describe("private preview document drafts", () => {
       createdDocumentId: result.createdDocumentId,
       urlPath: result.urlPath,
     });
+
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "save_separately",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Local recovery",
+      }),
+    );
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toBeNull();
   });
 
   it("preserves a matching leading H1 in a separate recovery page", async () => {
@@ -439,6 +460,48 @@ describe("private preview document drafts", () => {
       parentId: null,
       content: "Collaborator recovery",
     });
+    const sharedHistory = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    expect(sharedHistory).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ content: "Collaborator recovery" }),
+      ]),
+    );
+  });
+
+  it("rejects a different terminal recovery choice for an already claimed draft", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: payload("Terminal recovery"),
+      }),
+    );
+    await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "use_saved",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Terminal recovery",
+      }),
+    );
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "save_separately",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Terminal recovery",
+        }),
+      ),
+    ).rejects.toThrow("already resolved with another choice");
   });
 
   it("runs the additive migration and projects only the caller's draft fields", async () => {
