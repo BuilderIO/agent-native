@@ -1714,7 +1714,7 @@ export default function ShareRoute() {
             >
               <section
                 ref={commentsSectionRef}
-                className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"
+                className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"
               >
                 <CommentsPanel
                   recordingId={recording.id}
