@@ -7,7 +7,7 @@ import {
   IconFileText,
   IconFolderOpen,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
 import { useContentSpaces } from "@/hooks/use-content-spaces";
@@ -38,6 +38,34 @@ import { Skeleton } from "./ui/skeleton";
 // Sentinel scope value for searching every authorized space at once; the
 // request simply omits spaceId, and the server still scopes by access.
 const ALL_SPACES = "all";
+
+export type ModifiedDateFilter =
+  | { kind: "any" }
+  | { kind: "preset"; days: 7 | 30 }
+  | { kind: "custom"; day: string; modifiedAfter: string };
+
+type DatePreset = "all" | "7" | "30";
+
+export function presetForModifiedDate(
+  filter: ModifiedDateFilter,
+): DatePreset | undefined {
+  if (filter.kind === "any") return "all";
+  if (filter.kind === "preset") return String(filter.days) as "7" | "30";
+  return undefined;
+}
+
+export function modifiedAfterForFilter(
+  filter: ModifiedDateFilter,
+  now = new Date(),
+): string | undefined {
+  if (filter.kind === "any") return undefined;
+  if (filter.kind === "custom") return filter.modifiedAfter;
+
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - (filter.days - 1));
+  return date.toISOString();
+}
 
 function Highlight({ text, needles }: { text: string; needles: string[] }) {
   return searchHighlightParts(text, needles).map((part, index) =>
@@ -151,32 +179,14 @@ function DateSearchChoice({
 }: {
   label: string;
   triggerLabel: string;
-  presetValue: "all" | "7" | "30";
+  presetValue?: DatePreset;
   selectedDay?: Date;
-  onSelectPreset: (value: "all" | "7" | "30") => void;
+  onSelectPreset: (value: DatePreset) => void;
   onPickDay: (day: Date) => void;
   focusInput: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    // The picker's dialog dismisses on Escape via its own document-capture
-    // listener, registered before this popover exists, and Radix layer
-    // stacking does not protect it across dialog/popover package instances.
-    // Capture Escape on window — the only node ahead of document in the
-    // capture path — so the calendar dismisses and the picker stays open;
-    // Radix's own dismissal is bypassed by the same capture, hence the
-    // manual close.
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [open]);
   const presets = [
     { value: "all" as const, label: t("root.searchAnyDate") },
     { value: "7" as const, label: t("root.searchPastWeek") },
@@ -197,6 +207,11 @@ function DateSearchChoice({
       <PopoverContent
         className="w-auto p-2"
         align="start"
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           focusInput();
@@ -219,6 +234,8 @@ function DateSearchChoice({
         </div>
         <Calendar
           mode="single"
+          autoFocus
+          defaultMonth={selectedDay ?? new Date()}
           selected={selectedDay}
           onSelect={(day) => {
             if (day) {
@@ -240,6 +257,8 @@ function SearchPage({
   documentType,
   modifiedAfter,
   onOpenChange,
+  renderList,
+  staticItems,
 }: {
   query: string;
   needles: string[];
@@ -248,6 +267,8 @@ function SearchPage({
   documentType?: "page" | "database";
   modifiedAfter?: string;
   onOpenChange: (open: boolean) => void;
+  renderList: (results?: ReactNode) => ReactNode;
+  staticItems: ReactNode;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -266,96 +287,117 @@ function SearchPage({
     },
     { retry: false },
   );
-  if (results.isFetching) return <SearchLoading />;
-  if (results.error)
+  if (results.isFetching)
     return (
-      <div role="alert" className="p-3 text-sm">
-        {t("root.commandSearchError")}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(event) => {
-            focusSearchInput(event.currentTarget);
-            void results.refetch();
-          }}
-        >
-          {t("root.searchRetry")}
-        </Button>
-      </div>
+      <>
+        {renderList(staticItems)}
+        <SearchLoading />
+      </>
     );
-  if (!results.data) return <SearchLoading />;
+  if (results.error) {
+    return (
+      <>
+        {renderList(staticItems)}
+        <div role="alert" className="p-3 text-sm">
+          {t("root.commandSearchError")}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(event) => {
+              focusSearchInput(event.currentTarget);
+              void results.refetch();
+            }}
+          >
+            {t("root.searchRetry")}
+          </Button>
+        </div>
+      </>
+    );
+  }
+  if (!results.data)
+    return (
+      <>
+        {renderList(staticItems)}
+        <SearchLoading />
+      </>
+    );
   return (
     <>
-      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-        {results.data.documents.length === 0 ? (
-          <div role="status" className="p-3 text-sm text-muted-foreground">
-            {t("root.commandSearchEmpty")}
-          </div>
-        ) : null}
-        {results.data.documents.map((document) => {
-          const Icon =
-            document.documentType === "database"
-              ? IconDatabase
-              : isLocalFileSearchResult(document)
-                ? IconFolderOpen
-                : IconFileText;
-          const sourceUpdated = document.sourceUpdatedAt
-            ? normalizeTimestamp(document.sourceUpdatedAt)
-            : null;
-          return (
-            <CommandMenu.Item
-              key={document.id}
-              deferSelect={false}
-              className="group items-start py-2"
-              onSelect={() => {
-                onOpenChange(false);
-                void navigate(contentCommandDocumentPath(document.id));
-              }}
-            >
-              <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">
-                  <Highlight
-                    text={document.title || t("sidebar.untitled")}
-                    needles={needles}
-                  />
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {[
-                    document.parentTitle,
-                    document.sourceKind,
-                    t("root.searchModified", {
-                      date: formatDate(document.updatedAt),
-                    }),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-                {document.snippet ? (
-                  <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
-                    <Highlight text={document.snippet} needles={needles} />
+      {renderList(
+        <>
+          <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+            {results.data.documents.map((document) => {
+              const Icon =
+                document.documentType === "database"
+                  ? IconDatabase
+                  : isLocalFileSearchResult(document)
+                    ? IconFolderOpen
+                    : IconFileText;
+              const sourceUpdated = document.sourceUpdatedAt
+                ? normalizeTimestamp(document.sourceUpdatedAt)
+                : null;
+              return (
+                <CommandMenu.Item
+                  key={document.id}
+                  deferSelect={false}
+                  className="group items-start py-2"
+                  onSelect={() => {
+                    onOpenChange(false);
+                    void navigate(contentCommandDocumentPath(document.id));
+                  }}
+                >
+                  <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">
+                      <Highlight
+                        text={document.title || t("sidebar.untitled")}
+                        needles={needles}
+                      />
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[
+                        document.parentTitle,
+                        document.sourceKind,
+                        t("root.searchModified", {
+                          date: formatDate(document.updatedAt),
+                        }),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                    {document.snippet ? (
+                      <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
+                        <Highlight text={document.snippet} needles={needles} />
+                      </span>
+                    ) : null}
+                    {document.description ? (
+                      <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block">
+                        {document.description}
+                      </span>
+                    ) : null}
+                    {sourceUpdated ? (
+                      <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
+                        {t("root.searchSourceUpdated", {
+                          date: formatDate(sourceUpdated),
+                        })}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-                {document.description ? (
-                  <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block">
-                    {document.description}
-                  </span>
-                ) : null}
-                {sourceUpdated ? (
-                  <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
-                    {t("root.searchSourceUpdated", {
-                      date: formatDate(sourceUpdated),
-                    })}
-                  </span>
-                ) : null}
-              </span>
-            </CommandMenu.Item>
-          );
-        })}
-      </CommandMenu.Group>
+                </CommandMenu.Item>
+              );
+            })}
+          </CommandMenu.Group>
+          {staticItems}
+        </>,
+      )}
+      {results.data.documents.length === 0 ? (
+        <div role="status" className="p-3 text-sm text-muted-foreground">
+          {t("root.commandSearchEmpty")}
+        </div>
+      ) : null}
       {offset > 0 || results.data.pagination.hasMore ? (
         <div
-          className="flex justify-between gap-2 p-2"
+          className="flex justify-between gap-2 border-t p-2"
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ")
               event.stopPropagation();
@@ -392,9 +434,13 @@ function SearchPage({
 export function ContentCommandSearchResults({
   query,
   onOpenChange,
+  renderList,
+  staticItems,
 }: {
   query: string;
   onOpenChange: (open: boolean) => void;
+  renderList: (results?: ReactNode) => ReactNode;
+  staticItems: ReactNode;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -415,9 +461,9 @@ export function ContentCommandSearchResults({
     chosenScope && chosenScope !== ALL_SPACES ? chosenScope : selectedSpace?.id;
   const [searchFields, setSearchFields] = useState("all");
   const [documentType, setDocumentType] = useState("all");
-  const [modified, setModified] = useState("all");
-  const [pickedDay, setPickedDay] = useState<string | null>(null);
-  const [modifiedAfter, setModifiedAfter] = useState<string>();
+  const [modifiedDate, setModifiedDate] = useState<ModifiedDateFilter>({
+    kind: "any",
+  });
   const [debouncedQuery, setDebouncedQuery] = useState(query.trim());
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 200);
@@ -429,21 +475,27 @@ export function ContentCommandSearchResults({
   }, [debouncedQuery]);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const focusPickerInput = () => focusSearchInput(toolbarRef.current);
-  const dateTriggerLabel = pickedDay
-    ? formatDate(new Date(`${pickedDay}T00:00:00`))
-    : modified === "7"
+  const customDate =
+    modifiedDate.kind === "custom"
+      ? formatDate(new Date(`${modifiedDate.day}T00:00:00`))
+      : null;
+  const dateTriggerLabel = customDate
+    ? t("root.searchSince", { date: customDate })
+    : modifiedDate.kind === "preset" && modifiedDate.days === 7
       ? t("root.searchPastWeek")
-      : modified === "30"
+      : modifiedDate.kind === "preset" && modifiedDate.days === 30
         ? t("root.searchPastMonth")
         : t("root.searchAnyDate");
+  const dateAccessibleLabel = customDate
+    ? t("root.searchModifiedSince", { date: customDate })
+    : t("root.searchDate");
+  const modifiedAfter = modifiedAfterForFilter(modifiedDate);
 
   const applyPreset = (value: "all" | "7" | "30") => {
-    setPickedDay(null);
-    setModified(value);
-    setModifiedAfter(
+    setModifiedDate(
       value === "all"
-        ? undefined
-        : new Date(Date.now() - Number(value) * 86_400_000).toISOString(),
+        ? { kind: "any" }
+        : { kind: "preset", days: Number(value) as 7 | 30 },
     );
   };
 
@@ -492,35 +544,42 @@ export function ContentCommandSearchResults({
           focusInput={focusPickerInput}
         />
         <DateSearchChoice
-          label={t("root.searchDate")}
+          label={dateAccessibleLabel}
           triggerLabel={dateTriggerLabel}
-          presetValue={pickedDay ? "all" : (modified as "all" | "7" | "30")}
+          presetValue={presetForModifiedDate(modifiedDate)}
           selectedDay={
-            pickedDay ? new Date(`${pickedDay}T00:00:00`) : undefined
+            modifiedDate.kind === "custom"
+              ? new Date(`${modifiedDate.day}T00:00:00`)
+              : undefined
           }
           onSelectPreset={applyPreset}
           focusInput={focusPickerInput}
           onPickDay={(day) => {
-            setModified("all");
-            setPickedDay(
-              `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
+            const selected = new Date(
+              day.getFullYear(),
+              day.getMonth(),
+              day.getDate(),
             );
-            setModifiedAfter(
-              new Date(
-                day.getFullYear(),
-                day.getMonth(),
-                day.getDate(),
-              ).toISOString(),
-            );
+            setModifiedDate({
+              kind: "custom",
+              day: `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
+              modifiedAfter: selected.toISOString(),
+            });
           }}
         />
       </div>
       {!searchingAll && (spaces.error || (!spaces.isLoading && !scopeId)) ? (
-        <div role="alert" className="p-3 text-sm">
-          {t("root.searchScopeUnavailable")}
-        </div>
+        <>
+          {renderList(staticItems)}
+          <div role="alert" className="p-3 text-sm">
+            {t("root.searchScopeUnavailable")}
+          </div>
+        </>
       ) : (!searchingAll && !scopeId) || query.trim() !== debouncedQuery ? (
-        <SearchLoading />
+        <>
+          {renderList(staticItems)}
+          <SearchLoading />
+        </>
       ) : debouncedQuery ? (
         <SearchPage
           key={JSON.stringify([
@@ -541,8 +600,12 @@ export function ContentCommandSearchResults({
           }
           modifiedAfter={modifiedAfter}
           onOpenChange={onOpenChange}
+          renderList={renderList}
+          staticItems={staticItems}
         />
-      ) : null}
+      ) : (
+        renderList(staticItems)
+      )}
     </>
   );
 }

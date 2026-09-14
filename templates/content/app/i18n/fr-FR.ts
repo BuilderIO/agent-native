@@ -1129,6 +1129,8 @@ const overrides = {
   root: {
     commandContent: "Contenu",
     commandSearchDocuments: "Rechercher des documents",
+    searchSince: "Depuis le {{date}}",
+    searchModifiedSince: "Modifié depuis le {{date}}",
     commandSearchHeading: "Rechercher",
     searchScope: "Périmètre",
     searchAllWorkspaces: "Tous les espaces",

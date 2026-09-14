@@ -262,8 +262,18 @@ export interface CommandMenuProps {
   children: ReactNode;
   /** Render app-specific dynamic results from the current search value. */
   renderResults?: (search: string) => ReactNode;
+  /**
+   * Compose app controls around the listbox while retaining this menu's search
+   * and command state. `renderList` must be rendered exactly once.
+   */
+  renderContent?: (options: {
+    search: string;
+    renderList: (results?: ReactNode) => ReactNode;
+  }) => ReactNode;
   /** Placeholder text for the search input */
   placeholder?: string;
+  /** Accessible label for the search input. Defaults to the placeholder. */
+  inputLabel?: string;
   /** Text shown when no results match (before showing agent fallback) */
   emptyText?: string;
   /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
@@ -298,7 +308,9 @@ export function CommandMenu({
   onOpenChange,
   children,
   renderResults,
+  renderContent,
   placeholder = "Type a command or ask AI...",
+  inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
   className,
@@ -486,7 +498,81 @@ export function CommandMenu({
       (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
   const dynamicResults = open ? renderResults?.(search) : null;
-  const hasDynamicResults = Boolean(dynamicResults);
+
+  const renderList = (results: ReactNode = dynamicResults) => (
+    <CommandListPrimitive>
+      {results}
+      {hasResults && filteredChildren}
+
+      {showChangelogRow && (
+        <>
+          {hasResults && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openChangelog}
+            >
+              <IconHistory className="h-4 w-4 text-muted-foreground" />
+              <span>{changelogLabel}</span>
+              {changelogUnseen && (
+                <span
+                  className="ms-auto h-2 w-2 rounded-full bg-primary"
+                  aria-label="New updates available"
+                />
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAboutRow && (
+        <>
+          {(hasResults || showChangelogRow) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openAbout}
+            >
+              <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+              <span>{aboutLabel}</span>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAgentFallback && (
+        <>
+          {(hasResults ||
+            showChangelogRow ||
+            showAboutRow ||
+            Boolean(results)) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleSubmitToAgent}
+            >
+              <IconMessage className="h-4 w-4 text-muted-foreground" />
+              <span>
+                {search.trim() ? (
+                  <>
+                    Ask AI:{" "}
+                    <span className="text-muted-foreground">"{search}"</span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Ask AI anything...
+                  </span>
+                )}
+              </span>
+              {search.trim() && (
+                <span className="ms-auto text-xs text-muted-foreground">↵</span>
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+    </CommandListPrimitive>
+  );
 
   return (
     <>
@@ -526,88 +612,12 @@ export function CommandMenu({
                 value={search}
                 onValueChange={setSearch}
                 placeholder={placeholder}
+                aria-label={inputLabel}
               />
 
-              {/* Command list */}
-              <CommandListPrimitive>
-                {dynamicResults}
-                {hasResults && filteredChildren}
-
-                {/* What's new — built-in changelog entry */}
-                {showChangelogRow && (
-                  <>
-                    {hasResults && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openChangelog}
-                      >
-                        <IconHistory className="h-4 w-4 text-muted-foreground" />
-                        <span>{changelogLabel}</span>
-                        {changelogUnseen && (
-                          <span
-                            className="ms-auto h-2 w-2 rounded-full bg-primary"
-                            aria-label="New updates available"
-                          />
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* About Agent-Native — built-in framework diagnostics entry */}
-                {showAboutRow && (
-                  <>
-                    {(hasResults || showChangelogRow) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openAbout}
-                      >
-                        <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
-                        <span>{aboutLabel}</span>
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* Ask AI — always visible at the bottom */}
-                {showAgentFallback && (
-                  <>
-                    {(hasResults ||
-                      showChangelogRow ||
-                      showAboutRow ||
-                      hasDynamicResults) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={handleSubmitToAgent}
-                      >
-                        <IconMessage className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {search.trim() ? (
-                            <>
-                              Ask AI:{" "}
-                              <span className="text-muted-foreground">
-                                "{search}"
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">
-                              Ask AI anything...
-                            </span>
-                          )}
-                        </span>
-                        {search.trim() && (
-                          <span className="ms-auto text-xs text-muted-foreground">
-                            ↵
-                          </span>
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-              </CommandListPrimitive>
+              {open && renderContent
+                ? renderContent({ search, renderList })
+                : open && renderList()}
             </CommandMenuContext.Provider>
           </CommandPrimitive>
         </DialogContent>

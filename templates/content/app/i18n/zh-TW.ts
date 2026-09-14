@@ -184,6 +184,8 @@ const overrides = {
   root: {
     commandContent: "內容",
     commandSearchDocuments: "搜尋檔案",
+    searchSince: "自 {{date}} 起",
+    searchModifiedSince: "修改時間自 {{date}} 起",
     commandSearchHeading: "搜尋",
     searchScope: "範圍",
     searchAllWorkspaces: "全部工作區",

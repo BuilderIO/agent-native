@@ -130,7 +130,7 @@ export default defineAction({
         ...(!userEmail && activeOrgId ? [activeOrgId] : []),
       ]),
     ];
-    let snippetNeedle = args.exactTitle ?? "";
+    let bodyNeedles: string[] = [];
     const queryTermPredicate = (term: SearchQueryTerm): SQL => {
       const pattern = `%${escapeLike(term.text)}%`;
       const columns =
@@ -160,7 +160,17 @@ export default defineAction({
           matchPredicates.push(sql`NOT ${queryTermPredicate(negative)}`);
         }
       }
-      snippetNeedle = parsed.groups[0]?.terms[0]?.text ?? args.query;
+      if (!args.exactTitle && args.searchFields !== "title") {
+        bodyNeedles = [
+          ...new Set(
+            parsed.groups.flatMap((group) =>
+              group.terms
+                .filter((term) => !term.titleOnly)
+                .map((term) => term.text),
+            ),
+          ),
+        ];
+      }
     }
     const where = documentDiscoveryWhere({
       userEmail,
@@ -203,16 +213,28 @@ export default defineAction({
     // Project a bounded preview of `content` instead of the full column:
     // document bodies can be multi-MB, and this action only returns a short
     // snippet (use get-document for full content). In free-text mode the
-    // preview window is anchored at the first in-body occurrence of the first
-    // match needle, so a hit deeper than any fixed head window still shows
-    // its own context (`makeSnippet` re-locates the needle inside the
-    // window); title-only matches and exactTitle mode keep the head
-    // projection. The true length still comes from SQL `length()` rather than
-    // reading `.length` off a truncated string. Mirrors the
+    // preview window is anchored at the earliest in-body occurrence of an
+    // eligible positive term. The selected term is projected with the window
+    // so `makeSnippet` centers on the same match. Query order breaks ties;
+    // title-only matches and exactTitle mode keep the head projection. The
+    // true length still comes from SQL `length()` rather than reading `.length`
+    // off a truncated string. Mirrors the
     // `substr`/`length` projection style in list-documents.ts; `position`,
     // `substr`, and `length` all work in PostgreSQL and PGlite.
-    const matchWindow = snippetNeedle
-      ? sql<string>`case when position(lower(${snippetNeedle}) in lower(${schema.documents.content})) > 0 then substr(${schema.documents.content}, greatest(1, position(lower(${snippetNeedle}) in lower(${schema.documents.content})) - 120), 240 + length(${snippetNeedle})) else substr(${schema.documents.content}, 1, 5000) end`
+    const selectedBodyNeedle = bodyNeedles.length
+      ? sql<string>`(
+          select candidate.needle
+          from unnest(array[${sql.join(
+            bodyNeedles.map((needle) => sql`${needle}`),
+            sql`, `,
+          )}]::text[]) with ordinality as candidate(needle, query_order)
+          where position(lower(candidate.needle) in lower(${schema.documents.content})) > 0
+          order by position(lower(candidate.needle) in lower(${schema.documents.content})), candidate.query_order
+          limit 1
+        )`
+      : undefined;
+    const matchWindow = selectedBodyNeedle
+      ? sql<string>`case when ${selectedBodyNeedle} is not null then substr(${schema.documents.content}, greatest(1, position(lower(${selectedBodyNeedle}) in lower(${schema.documents.content})) - 120), 240 + length(${selectedBodyNeedle})) else substr(${schema.documents.content}, 1, 5000) end`
       : sql<string>`substr(${schema.documents.content}, 1, 5000)`;
     const docs = await db
       .select({
@@ -222,6 +244,7 @@ export default defineAction({
         description: schema.documents.description,
         icon: schema.documents.icon,
         contentPreview: matchWindow,
+        snippetNeedle: selectedBodyNeedle ?? sql<string>`''`,
         contentLength: sql<number>`length(${schema.documents.content})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
@@ -277,7 +300,7 @@ export default defineAction({
         title: doc.title,
         description: doc.description,
         icon: doc.icon,
-        snippet: makeSnippet(doc.contentPreview, snippetNeedle),
+        snippet: makeSnippet(doc.contentPreview, doc.snippetNeedle),
         contentLength: Number(doc.contentLength) || 0,
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         updatedAt: doc.updatedAt,

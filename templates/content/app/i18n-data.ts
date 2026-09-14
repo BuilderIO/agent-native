@@ -990,6 +990,8 @@ const enUS = {
   root: {
     commandContent: "Content",
     commandSearchDocuments: "Search documents",
+    searchSince: "Since {{date}}",
+    searchModifiedSince: "Modified since {{date}}",
     commandSearchHeading: "Search",
     searchScope: "Scope",
     searchAllWorkspaces: "All workspaces",

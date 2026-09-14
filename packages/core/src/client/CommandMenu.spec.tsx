@@ -319,6 +319,107 @@ describe("CommandMenu docs group", () => {
     expect(dialog?.querySelector("button")).toBeNull();
   });
 
+  it("labels the input", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          inputLabel="Search content"
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Results">
+            <CommandMenu.Item onSelect={() => undefined}>Page</CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+
+    expect(input?.getAttribute("aria-label")).toBe("Search content");
+    expect(list?.querySelector("[cmdk-item]")?.textContent).toBe("Page");
+  });
+
+  it("lets one custom layout owner compose around the shared listbox", () => {
+    let renderContentCalls = 0;
+    let renderListCalls = 0;
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderContent={({ renderList }) => {
+            renderContentCalls += 1;
+            const list = renderList(
+              <CommandMenu.Group heading="Results">
+                <CommandMenu.Item onSelect={() => undefined}>
+                  Result
+                </CommandMenu.Item>
+              </CommandMenu.Group>,
+            );
+            renderListCalls += 1;
+            return (
+              <section data-testid="owner">
+                <button>Toolbar</button>
+                {list}
+                <button>Pagination</button>
+              </section>
+            );
+          }}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    expect(document.querySelectorAll('[data-testid="owner"]')).toHaveLength(1);
+    expect(renderListCalls).toBe(renderContentCalls);
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+    expect(list?.textContent).toContain("Result");
+    expect(list?.textContent).toContain("Action");
+    expect(list?.textContent).not.toContain("Toolbar");
+    expect(list?.textContent).not.toContain("Pagination");
+  });
+
+  it("uses legacy renderResults when custom content renders the default list", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderResults={(query) => (
+            <CommandMenu.Group heading="Dynamic">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Result for {query || "empty search"}
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          )}
+          renderContent={({ renderList }) => (
+            <section data-testid="owner">{renderList()}</section>
+          )}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+    expect(list?.textContent).toContain("Result for empty search");
+    expect(list?.textContent).toContain("Static action");
+  });
+
   it("keeps arrow-key selection and Enter activation on shared command items", () => {
     const selectFirst = vi.fn();
     const selectSecond = vi.fn();

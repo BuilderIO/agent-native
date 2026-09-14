@@ -1081,6 +1081,8 @@ const overrides = {
   root: {
     commandContent: "कॉन्टेंट",
     commandSearchDocuments: "दस्तावेज़ खोजें",
+    searchSince: "{{date}} से",
+    searchModifiedSince: "{{date}} से संशोधित",
     commandSearchHeading: "खोजें",
     searchScope: "दायरा",
     searchAllWorkspaces: "सभी कार्यक्षेत्र",

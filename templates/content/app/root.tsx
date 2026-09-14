@@ -334,18 +334,18 @@ function ContentCommandMenu({
       open={open}
       onOpenChange={onOpenChange}
       placeholder={t("root.commandSearchPlaceholder")}
+      inputLabel={t("root.commandSearchDocuments")}
       className="w-[calc(100%-1rem)] max-w-xl"
       showAgentFallback={false}
       changelog={changelog}
       changelogKey="content"
-      renderResults={(search) => (
-        <>
-          <ContentCommandSearchResults
-            query={search}
-            onOpenChange={onOpenChange}
-          />
-          <ThemeToggleItem query={search} />
-        </>
+      renderContent={({ search, renderList }) => (
+        <ContentCommandSearchResults
+          query={search}
+          onOpenChange={onOpenChange}
+          renderList={renderList}
+          staticItems={<ThemeToggleItem query={search} />}
+        />
       )}
     >
       <CommandMenu.Group heading={t("root.commandContent")}>

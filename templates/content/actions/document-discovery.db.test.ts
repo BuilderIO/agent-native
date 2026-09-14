@@ -211,6 +211,132 @@ describe("bounded document discovery", () => {
     }
   });
 
+  it("selects the earliest present eligible body needle per result", async () => {
+    const filler = "filler ".repeat(1000);
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-body-needle-choice",
+          ownerEmail: OWNER,
+          title: "Needle choice title",
+          content: `STARK-HEAD ${filler}earlier-body then later-query`,
+        },
+        {
+          id: "search-body-negative",
+          ownerEmail: OWNER,
+          title: "Negative phrase candidate",
+          content: `${filler}positive phrase without the excluded wording`,
+        },
+        {
+          id: "search-body-title-fallback",
+          ownerEmail: OWNER,
+          title: "Title fallback marker",
+          content: `BOUNDED-HEAD ${filler}deep-tail-marker`,
+        },
+      ]);
+    const run = (query: string, extra?: Record<string, unknown>) =>
+      asUser(OWNER, () =>
+        searchDocuments.run({ query, limit: 20, offset: 0, ...extra }),
+      );
+
+    const missingLeftOr = await run(
+      "missing-left OR later-query OR earlier-body",
+    );
+    expect(missingLeftOr.documents).toHaveLength(1);
+    expect(missingLeftOr.documents[0]?.snippet).toContain("earlier-body");
+    expect(missingLeftOr.documents[0]?.snippet).toContain("later-query");
+    expect(missingLeftOr.documents[0]?.snippet).not.toContain("STARK-HEAD");
+
+    const intitleFirst = await run('intitle:"Needle choice" "later-query"');
+    expect(intitleFirst.documents).toHaveLength(1);
+    expect(intitleFirst.documents[0]?.snippet).toContain("later-query");
+    expect(intitleFirst.documents[0]?.snippet).not.toContain("STARK-HEAD");
+
+    const withNegativePhrase = await run(
+      '"positive phrase" -"never present negative"',
+    );
+    expect(withNegativePhrase.documents.map((doc) => doc.id)).toEqual([
+      "search-body-negative",
+    ]);
+    expect(withNegativePhrase.documents[0]?.snippet).toContain(
+      "positive phrase",
+    );
+
+    const titleOnly = await run("Title fallback marker", {
+      searchFields: "title",
+    });
+    expect(titleOnly.documents[0]?.snippet).toContain("BOUNDED-HEAD");
+    expect(titleOnly.documents[0]?.snippet).not.toContain("deep-tail-marker");
+    const exactTitle = await asUser(OWNER, () =>
+      searchDocuments.run({
+        exactTitle: "Title fallback marker",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    expect(exactTitle.documents[0]?.snippet).toContain("BOUNDED-HEAD");
+    expect(exactTitle.documents[0]?.snippet).not.toContain("deep-tail-marker");
+  });
+
+  it("handles many parameterized body needles without changing selection", async () => {
+    const absentTerms = Array.from(
+      { length: 100 },
+      (_, index) => `absent-${index}`,
+    );
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-many-body-needles",
+        ownerEmail: OWNER,
+        title: "Many body needles",
+        content: `STARK-HEAD ${"filler ".repeat(1000)}earliest-present then later-present`,
+      });
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: [...absentTerms, "later-present", "earliest-present"].join(
+          " OR ",
+        ),
+        limit: 20,
+        offset: 0,
+      }),
+    );
+
+    expect(result.documents.map((doc) => doc.id)).toEqual([
+      "search-many-body-needles",
+    ]);
+    expect(result.documents[0]?.snippet).toContain("earliest-present");
+    expect(result.documents[0]?.snippet).toContain("later-present");
+    expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
+  });
+
+  it("keeps SQL-looking, quoted, and backslash body needles parameterized", async () => {
+    const needle = String.raw`x'); DROP TABLE documents; -- \path_100%`;
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-sql-looking-needle",
+        ownerEmail: OWNER,
+        title: "Parameterized needle",
+        content: `STARK-HEAD ${"filler ".repeat(1000)}${needle} remains text`,
+      });
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: `"${needle}"`,
+        limit: 20,
+        offset: 0,
+      }),
+    );
+
+    expect(result.documents.map((doc) => doc.id)).toEqual([
+      "search-sql-looking-needle",
+    ]);
+    expect(result.documents[0]?.snippet).toContain(needle);
+    expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
+  });
+
   it("compares modified-date bounds as timestamps rather than text", async () => {
     await getDb().insert(schema.documents).values({
       id: "search-space-timestamp",

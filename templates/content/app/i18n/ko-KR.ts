@@ -1091,6 +1091,8 @@ const overrides = {
   root: {
     commandContent: "콘텐츠",
     commandSearchDocuments: "문서 검색",
+    searchSince: "{{date}} 이후",
+    searchModifiedSince: "{{date}} 이후 수정됨",
     commandSearchHeading: "검색",
     searchScope: "검색 범위",
     searchAllWorkspaces: "모든 워크스페이스",

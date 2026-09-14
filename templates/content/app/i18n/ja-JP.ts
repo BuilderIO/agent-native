@@ -1098,6 +1098,8 @@ const overrides = {
   root: {
     commandContent: "コンテンツ",
     commandSearchDocuments: "ドキュメントを検索",
+    searchSince: "{{date}}以降",
+    searchModifiedSince: "{{date}}以降に更新",
     commandSearchHeading: "検索",
     searchScope: "検索範囲",
     searchAllWorkspaces: "すべてのワークスペース",
