@@ -15,6 +15,7 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { prepareClonedHtmlLayer } from "@/pages/design-editor/clone-and-pen-edit";
 import type { EffectiveCodeLayerState } from "@/pages/design-editor/code-layer-state";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -76,6 +77,10 @@ export interface LayerMoveArgs {
   handleScreenLayerMove: (intent: LayersPanelMoveIntent) => void;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryEntry: (change: ContentHistoryChange) => void;
+  remapMotionTracksForClone: (
+    nodeIdMap: Map<string, string>,
+    targetFileId: string,
+  ) => void;
   runtimeStructureMoveRevisionRef: RefObject<number>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
@@ -93,6 +98,147 @@ export interface LayerMoveArgs {
   visualScreenFileIds: Set<string>;
 }
 
+/**
+ * Alt-drag-duplicate in the Layers panel (Figma parity: unique-paths.md #2).
+ * Clones the dragged node's markup in place — as a fresh-id same-parent
+ * sibling — then moves that CLONE to the intended drop position; the
+ * original is never touched. A pure string/projection transform so it can
+ * run ahead of runLayerMove's codeLayerOwnerByNodeId-keyed branches, which
+ * don't know about the freshly-minted clone until the next render.
+ *
+ * Clone generation reuses `prepareClonedHtmlLayer` — the same DOM-based
+ * remapping the canvas alt-drag/duplicate/paste paths use — so authored
+ * `id="…"` attributes are re-keyed (not just `data-agent-native-node-id`)
+ * and the returned `nodeIdMap` lets the caller carry motion tracks over to
+ * the clone, instead of a bespoke regex that only touched one attribute.
+ *
+ * Returns null when the drop doesn't fit this single-node, same-document
+ * fast path (target missing, no `document` to clone through, or the move
+ * step reports anything but "applied") — callers must refuse the gesture
+ * rather than fall back to a plain, non-duplicating move of the original.
+ */
+export function duplicateNodeForPanelDrop(
+  content: string,
+  draggedNodeId: string,
+  anchorNodeId: string,
+  placement: LayersPanelMoveIntent["placement"],
+): {
+  content: string;
+  duplicatedNodeId: string;
+  nodeIdMap: Map<string, string>;
+} | null {
+  if (typeof document === "undefined") return null;
+  const projection = buildCodeLayerProjection(content);
+  const source = projection.nodes.find((node) => node.id === draggedNodeId);
+  if (!source?.source) return null;
+  const fragment = content.slice(source.source.start, source.source.end);
+  const prepared = prepareClonedHtmlLayer(
+    document.implementation.createHTMLDocument(""),
+    fragment,
+  );
+  if (!prepared) return null;
+  const withClone =
+    content.slice(0, source.source.end) +
+    prepared.element.outerHTML +
+    content.slice(source.source.end);
+  const movePatch = applyVisualEdit(withClone, {
+    kind: "moveNode",
+    target: { nodeId: prepared.rootNodeId },
+    anchor: { nodeId: anchorNodeId },
+    placement,
+  });
+  if (movePatch.result.status !== "applied") return null;
+  return {
+    content: movePatch.content,
+    duplicatedNodeId: prepared.rootNodeId,
+    nodeIdMap: prepared.nodeIdMap,
+  };
+}
+
+type CodeLayerOwner = NonNullable<
+  ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>
+>;
+
+/**
+ * Attempts the alt-drag-duplicate fast path for a single-node panel drop;
+ * returns "handled" once it has applied the content update and selection
+ * itself, or "skip" when the shape isn't one this fast path supports (the
+ * caller then runs its normal, non-duplicating move).
+ */
+function tryDuplicateOnPanelDrop(
+  intent: LayersPanelMoveIntent,
+  targetOwner: CodeLayerOwner,
+  {
+    activeFile,
+    applyFileContentUpdate,
+    codeLayerOwnerByNodeId,
+    effectiveCodeLayerState,
+    files,
+    getFreshActiveContent,
+    remapMotionTracksForClone,
+    setSelectedElement,
+    setSelectedLayerIdsState,
+  }: Pick<
+    LayerMoveArgs,
+    | "activeFile"
+    | "applyFileContentUpdate"
+    | "codeLayerOwnerByNodeId"
+    | "effectiveCodeLayerState"
+    | "files"
+    | "getFreshActiveContent"
+    | "remapMotionTracksForClone"
+    | "setSelectedElement"
+    | "setSelectedLayerIdsState"
+  >,
+): "handled" | "skip" {
+  const draggedId = intent.draggedIds[0]!;
+  const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
+  if (
+    !draggedOwner ||
+    draggedOwner.runtimeOnly ||
+    targetOwner.runtimeOnly ||
+    draggedOwner.fileId !== targetOwner.fileId ||
+    effectiveCodeLayerState.lockedIds.has(draggedId)
+  ) {
+    return "skip";
+  }
+  const baseContent =
+    targetOwner.fileId === activeFile?.id
+      ? getFreshActiveContent()
+      : (files.find((file) => file.id === targetOwner.fileId)?.content ?? "");
+  if (!baseContent) return "skip";
+  const duplicated = duplicateNodeForPanelDrop(
+    baseContent,
+    draggedId,
+    intent.targetId,
+    intent.placement,
+  );
+  if (!duplicated) return "skip";
+  applyFileContentUpdate(targetOwner.fileId, duplicated.content, {
+    recordHistory: true,
+    refreshPreview: false,
+    // The clone lands as a fresh sibling elsewhere in the tree; the bridge's
+    // scoped single-selector morph only reconciles whatever is currently
+    // selected and returns early, so a structural insert outside that
+    // subtree would otherwise never reach the live iframe (see the same
+    // note on the plain-move persist calls below).
+    forcePreviewFullDocument: true,
+  });
+  remapMotionTracksForClone(duplicated.nodeIdMap, targetOwner.fileId);
+  const finalNode = buildCodeLayerProjection(duplicated.content).nodes.find(
+    (node) =>
+      node.dataAttributes["data-agent-native-node-id"] ===
+      duplicated.duplicatedNodeId,
+  );
+  if (finalNode) {
+    setSelectedLayerIdsState([finalNode.id]);
+    if (targetOwner.fileId === activeFile?.id) {
+      setSelectedElement(elementInfoFromCodeLayerNode(finalNode));
+    }
+  }
+  return "handled";
+}
+
 export function runLayerMove(
   {
     activeFile,
@@ -108,6 +254,7 @@ export function runLayerMove(
     handleScreenLayerMove,
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
+    remapMotionTracksForClone,
     runtimeStructureMoveRevisionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setExpandedLayerIds,
@@ -135,6 +282,29 @@ export function runLayerMove(
     if (targetFile) {
       handleLayerMoveToScreen(intent, targetFile.id);
     }
+    return;
+  }
+  if (intent.duplicate) {
+    const outcome =
+      intent.draggedIds.length === 1
+        ? tryDuplicateOnPanelDrop(intent, targetOwner, {
+            activeFile,
+            applyFileContentUpdate,
+            codeLayerOwnerByNodeId,
+            effectiveCodeLayerState,
+            files,
+            getFreshActiveContent,
+            remapMotionTracksForClone,
+            setSelectedElement,
+            setSelectedLayerIdsState,
+          })
+        : "skip";
+    if (outcome === "handled") return;
+    // A duplicate drop that can't be honoured (multi-selection, cross-file,
+    // runtime-only, or a locked source) must refuse rather than fall
+    // through to the plain move below, which would silently move — not
+    // copy — the original.
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
   }
   const runtimeDraggedOwner =
@@ -223,6 +393,20 @@ export function runLayerMove(
     ) {
       continue;
     }
+    if (draggedOwner.runtimeOnly) {
+      // The single-drag runtimeOnly branch above only fires when the WHOLE
+      // intent is one runtime-only id; a mixed multi-select drag reaches
+      // here with a runtime-only item still in the list. It has no
+      // sourceHtml counterpart, so applyVisualEdit/moveNodeBetweenDocuments
+      // below would fail with a raw "no code layer node exists"/"not found
+      // in sourceHtml" id string instead of moving anything — refuse with
+      // the same plain-language copy every other per-drag failure here
+      // uses, rather than let that technical message reach the user.
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      continue;
+    }
     // L15: mirror canMoveLayer's per-drag ancestor-of-target guard here.
     // canMoveLayer only gates the whole intent (true if ANY dragged id is
     // valid), so a mixed multi-drag where one id is an ancestor of the
@@ -295,14 +479,14 @@ export function runLayerMove(
       // instead of teleporting to (0,0)-relative-to-new-parent; mirror
       // that here for the panel/tree move path.
       const targetOwnerNode = codeLayerOwnerByNodeId.get(intent.targetId);
-      const newParentAttrId =
+      const newParentId =
         intent.placement === "inside"
           ? intent.targetId
           : (targetOwnerNode?.node.parentId ?? null);
       const isCrossParent = Boolean(
         draggedOwner &&
-        newParentAttrId &&
-        draggedOwner.node.parentId !== newParentAttrId,
+        newParentId &&
+        draggedOwner.node.parentId !== newParentId,
       );
       const prevContentForRebase = nextDestContent;
       const patch = applyVisualEdit(nextDestContent, {
@@ -322,16 +506,31 @@ export function runLayerMove(
         continue;
       }
       nextDestContent = patch.content;
-      if (isCrossParent && newParentAttrId) {
+      if (isCrossParent && newParentId) {
         const movedNodeAttrId =
           patch.projection.nodes.find(
             (n) =>
               n.dataAttributes["data-agent-native-node-id"] === draggedId ||
               n.id === draggedId,
           )?.dataAttributes["data-agent-native-node-id"] ?? draggedId;
+        // getAbsolutePositioningForNodeInHtml/setAbsolutePositioningForNodeInHtml
+        // select elements by their literal data-agent-native-node-id DOM
+        // attribute, not this internal projection id (nodeIdFor always
+        // derives a synthetic "html:<hash>" id, even for an element that
+        // already carries an explicit attribute) — resolve both ends
+        // through their owners first, or the lookups below silently miss
+        // and the rebase never happens, leaving the dragged node's old
+        // parent-relative left/top to render against the new parent.
+        const draggedAttrId =
+          draggedOwner?.node.dataAttributes["data-agent-native-node-id"] ??
+          draggedId;
+        const newParentAttrId =
+          codeLayerOwnerByNodeId.get(newParentId)?.node.dataAttributes[
+            "data-agent-native-node-id"
+          ] ?? newParentId;
         const sourcePosition = getAbsolutePositioningForNodeInHtml(
           prevContentForRebase,
-          draggedId,
+          draggedAttrId,
         );
         const targetPosition = getAbsolutePositioningForNodeInHtml(
           prevContentForRebase,
@@ -508,14 +707,23 @@ export function runLayerMove(
     applyFileContentUpdate(sourceFileId, newSourceContent, {
       recordHistory: !hasCrossFileMoves,
       refreshPreview: false,
+      forcePreviewFullDocument: true,
     });
   }
 
-  // Persist dest file (which may also be the active file).
+  // Persist dest file (which may also be the active file). A layer move can
+  // reorder or reparent a node relative to SIBLINGS outside its own subtree
+  // (e.g. two absolutely positioned cards swapping stacking order) — the
+  // bridge's non-forced replace only re-morphs whichever node the CURRENT
+  // selection resolves to and returns without ever touching the rest of the
+  // body, so a structural move must always force the whole-document (still
+  // in-place, keyed) morph or a sibling reorder outside that one subtree
+  // never reaches the live iframe.
   if (nextDestContent !== destContent) {
     applyFileContentUpdate(targetOwner.fileId, nextDestContent, {
       recordHistory: !hasCrossFileMoves,
       refreshPreview: false,
+      forcePreviewFullDocument: true,
     });
   }
 }

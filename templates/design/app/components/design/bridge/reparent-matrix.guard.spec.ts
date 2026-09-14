@@ -54,6 +54,36 @@ async function installBridge(page: Page): Promise<void> {
   });
 }
 
+// Selects `selector` directly via the bridge's `select-element` postMessage
+// instead of a plain click. Plain clicks resolve container-first (Figma
+// parity — containerFirstSelectionTarget): clicking a descendant nested more
+// than one level below the current container scope selects that scope's
+// direct child on the path to the pointer, not the descendant itself. Copied
+// from bridge.guard.spec.ts's selectElementDirect — see that file for the
+// full rationale.
+async function selectElementDirect(
+  page: Page,
+  selector: string,
+): Promise<void> {
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
+  await page.waitForFunction((sel) => {
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-agent-native-edit-overlay="selection"]',
+    );
+    const target = document.querySelector(sel);
+    if (!overlay || !target) return false;
+    if (window.getComputedStyle(overlay).display !== "block") return false;
+    const targetRect = target.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    return (
+      Math.abs(overlayRect.width - targetRect.width) < 2 &&
+      Math.abs(overlayRect.height - targetRect.height) < 2
+    );
+  }, selector);
+}
+
 async function dragCenterTo(
   page: Page,
   selector: string,
@@ -64,7 +94,11 @@ async function dragCenterTo(
   expect(box).not.toBeNull();
   const startX = box!.x + box!.width / 2;
   const startY = box!.y + box!.height / 2;
-  await page.mouse.click(startX, startY);
+  // A plain mouse.click() here would resolve container-first for a nested
+  // drag target, and dragTargetForPointerDown's selectedEl-contains-hit fast
+  // path would then drag that container instead of the intended descendant.
+  // Select the real target explicitly so the drag operates on it.
+  await selectElementDirect(page, selector);
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   if (modifier) await page.keyboard.down(modifier);

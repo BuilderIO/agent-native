@@ -1392,6 +1392,7 @@ const messages = {
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
       githubIndex:
         "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
+      nameConflict: "已存在同名設計系統。請更改名稱後再試一次。",
       chooseDesignMd: "請選取 Markdown（.md 或 .mdx）檔案。",
       readDesignMd: "無法讀取該 Markdown 檔案。",
       designMdTooLarge: "Markdown 檔案必須為 2 MB 或更小。",

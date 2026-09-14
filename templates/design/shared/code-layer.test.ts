@@ -1726,7 +1726,10 @@ describe("wrapNodes", () => {
     expect(patch.content).toBe(html);
   });
 
-  it("groups non-contiguous same-parent siblings by moving them adjacent to the topmost member first (L6)", () => {
+  it("groups non-contiguous same-parent siblings at the TOPMOST member's z-position, not the bottommost (L6)", () => {
+    // a (bottom), b (middle, unselected), c (top) — later source position
+    // paints on top for plain siblings. Figma places the resulting group at
+    // c's stacking position, so b ends up BELOW the group, not above it.
     const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
     const patch = applyVisualEdit(html, {
       kind: "wrapNodes",
@@ -1747,10 +1750,10 @@ describe("wrapNodes", () => {
     const bIdx = patch.content.indexOf(`data-agent-native-node-id="b"`);
     expect(wrapperIdx).toBeLessThan(aIdx);
     expect(aIdx).toBeLessThan(cIdx);
-    // b (not selected) is left behind in the original parent, outside the wrapper.
-    expect(bIdx).toBeGreaterThan(
-      patch.content.indexOf("</div>", cIdx) /* end of wrapper's C child */,
-    );
+    // b (not selected) is left behind in the original parent, BEFORE the
+    // wrapper — i.e. below the new group, matching Figma's topmost-child
+    // z-position placement.
+    expect(bIdx).toBeLessThan(wrapperIdx);
   });
 
   it("returns conflict when a target node id is not found", () => {

@@ -1,3 +1,4 @@
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -19,6 +20,7 @@ import {
   insertClonedHtmlLayers,
   prepareClonedHtmlLayersForLiveInsert,
 } from "@/pages/design-editor/clone-and-pen-edit";
+import { codeLayerSelectorAliases } from "@/pages/design-editor/code-layer-state";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
@@ -546,6 +548,25 @@ export async function runPasteSelection(
   );
   const sourceParentSelectors =
     sourceAnchor?.fileId === targetFileId ? sourceAnchor.parentSelectors : null;
+  // Figma parity: paste with nothing selected lands directly above the
+  // original (next sibling), not at the end of the parent's child list —
+  // that only differs from "inside the parent" when the parent already has
+  // a later sibling. Anchor on the original's own selector so the copy is
+  // inserted as its immediate next sibling; only reachable for a single
+  // copied layer, since a shared "after" anchor can't place several originals
+  // each directly above themselves.
+  const pasteAfterOriginalSelectors =
+    sourceParentSelectors && entries.length === 1 && entries[0]!.rootNodeId
+      ? (() => {
+          const rootNodeId = entries[0]!.rootNodeId!;
+          const originalNode = buildCodeLayerProjection(baseContent).nodes.find(
+            (node) =>
+              node.dataAttributes["data-agent-native-node-id"] === rootNodeId ||
+              node.id === rootNodeId,
+          );
+          return originalNode ? codeLayerSelectorAliases(originalNode) : null;
+        })()
+      : null;
   // The copy is going to the screen root because its parent is gone. Its
   // stored left/top belong to that parent, so reusing them can place it off
   // the screen entirely; a fixed inset is always somewhere the user can see.
@@ -633,9 +654,17 @@ export async function runPasteSelection(
     positions,
     styleSnapshots,
     managedStyleSnapshots,
-    ...(sourceParentSelectors
-      ? { targetSelectors: sourceParentSelectors, placement: "inside" as const }
-      : {}),
+    ...(pasteAfterOriginalSelectors?.length
+      ? {
+          targetSelectors: pasteAfterOriginalSelectors,
+          placement: "after" as const,
+        }
+      : sourceParentSelectors
+        ? {
+            targetSelectors: sourceParentSelectors,
+            placement: "inside" as const,
+          }
+        : {}),
   });
   if (!result) {
     trace("structure", "paste-refused", {

@@ -19,7 +19,7 @@ import {
 
 export default defineAction({
   description:
-    "Move one exact ordinary database to recoverable Trash using its fresh configuration revision and an idempotency key; preserve records for restoration and return a receipt.",
+    "Move one exact ordinary collection to recoverable Trash using its fresh configuration revision and an idempotency key; preserve records for restoration and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: setupLifecycleSchema,
@@ -27,7 +27,7 @@ export default defineAction({
     setupLifecycleSchema,
     z
       .object({
-        databaseId: z.string().describe("Content database ID"),
+        databaseId: z.string().describe("Content collection ID"),
       })
       .strict(),
   ]),

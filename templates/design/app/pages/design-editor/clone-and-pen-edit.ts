@@ -284,10 +284,19 @@ function transformOriginCoordinate(
   return cssLength(origin, size);
 }
 
-function transformedBoundsOffset(element: HTMLElement | SVGElement): {
-  x: number;
-  y: number;
-} {
+function inlineLength(value: string, reference: number): number | null {
+  if (!value || value === "auto") return null;
+  return cssLength(value, reference);
+}
+
+/**
+ * Null when the clone is sized by layout (no inline width/height): a
+ * detached clone has no box to measure, so the caller pastes without
+ * rotation compensation instead of refusing the paste.
+ */
+function transformedBoundsOffset(
+  element: HTMLElement | SVGElement,
+): { x: number; y: number } | null {
   const transform = element.style.transform;
   if (!transform || transform === "none") return { x: 0, y: 0 };
   if (typeof DOMMatrixReadOnly === "undefined") {
@@ -297,8 +306,9 @@ function transformedBoundsOffset(element: HTMLElement | SVGElement): {
   if (!matrix.is2D) {
     throw new Error(`Cannot resolve 3D transform placement: ${transform}`);
   }
-  const width = cssLength(element.style.width, 0);
-  const height = cssLength(element.style.height, 0);
+  const width = inlineLength(element.style.width, 0);
+  const height = inlineLength(element.style.height, 0);
+  if (width === null || height === null) return null;
   let [originX, originY] = element.style.transformOrigin
     .split(/\s+/)
     .slice(0, 2);
@@ -328,10 +338,12 @@ function transformedBoundsOffset(element: HTMLElement | SVGElement): {
 function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
   const host = styleHost(element);
   if (!host) return;
-  const offset =
-    position.space === "visual"
-      ? transformedBoundsOffset(host)
-      : { x: 0, y: 0 };
+  const offset = (position.space === "visual"
+    ? transformedBoundsOffset(host)
+    : null) ?? {
+    x: 0,
+    y: 0,
+  };
   // Use explicit style property assignments rather than prepending a raw
   // string. Prepending creates duplicate CSS properties in the same style
   // attribute, and in CSS the LAST occurrence wins, so existing left/top
@@ -359,7 +371,7 @@ function claimClonedNodeId(
   return previousId;
 }
 
-function prepareClonedHtmlLayer(
+export function prepareClonedHtmlLayer(
   doc: Document,
   layerHtml: string,
   styleSnapshot?: PortableStyleSnapshot,
@@ -412,12 +424,16 @@ function prepareClonedHtmlLayer(
     )
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
-    clone.setAttribute(
-      "data-agent-native-layer-name",
-      sourceNode?.layerNameSource === "tag"
-        ? "Copy"
-        : (sourceNode?.layerName ?? "Copy"),
-    );
+    // A "tag" source means the name was never authored — it's derived from
+    // the element's tag/paint (layerNameFor's fallback). The clone carries
+    // the same tag and styles, so leaving it unstamped re-derives the
+    // IDENTICAL name (Figma parity: a duplicate/paste never gets a literal
+    // "Copy" suffix). Only names sourced from an attribute that clone id
+    // reassignment below is about to change (id/class -> "selector") need
+    // stamping so the derivation survives that rewrite.
+    if (sourceNode && sourceNode.layerNameSource !== "tag") {
+      clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
+    }
   }
   const nodeIdMap = new Map<string, string>();
   const previousRootNodeId = clone.getAttribute("data-agent-native-node-id");
@@ -567,6 +583,18 @@ export function insertClonedHtmlLayers(
      * behind it lands on the node the clone was copied from.
      */
     preserveIncomingNodeIds?: boolean;
+    /**
+     * Extra ids to treat as already-claimed beyond what `content` itself
+     * contains. A same-document duplicate (Cmd+D) needs nothing here — the
+     * original's id is already in `content`, so claimClonedNodeId mints a
+     * fresh one automatically. A CROSS-document duplicate (alt-drag into a
+     * different screen/board) does NOT see the source doc here at all: its
+     * still-alive original keeps the incoming id, so without this the copy
+     * silently reuses it — two elements, two files, one
+     * data-agent-native-node-id, and every id-keyed lookup (selection,
+     * nudge, the cross-file code-layer owner map) can resolve to either one.
+     */
+    additionalReservedNodeIds?: Iterable<string>;
   } = {},
 ): {
   content: string;
@@ -588,11 +616,12 @@ export function insertClonedHtmlLayers(
     const rootNodeIds: string[] = [];
     const nodeIdMap = new Map<string, string>();
     const reservedNodeIds = options.preserveIncomingNodeIds
-      ? new Set(
-          Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
+      ? new Set([
+          ...Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
             .map((node) => node.getAttribute("data-agent-native-node-id"))
             .filter((value): value is string => Boolean(value)),
-        )
+          ...(options.additionalReservedNodeIds ?? []),
+        ])
       : null;
     layerHtmls.forEach((layerHtml, index) => {
       const prepared = prepareClonedHtmlLayer(

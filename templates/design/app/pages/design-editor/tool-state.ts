@@ -87,6 +87,34 @@ export function resolveToolAfterSelection(current: DesignTool): DesignTool {
   return current === "scale" ? "scale" : "move";
 }
 
+/**
+ * Space's meaning while an on-canvas object drag is running: forwarded into
+ * the preview iframes (so the bridge can suppress reparenting) instead of
+ * arming the temporary hand tool. Keyup and blur must undo exactly what
+ * keydown armed, which is why they read `armed` and never `dragActive` — a
+ * drag that ends on mouseup before Space is released clears `dragActive`
+ * first, and re-checking it there would skip the matching `held:false` and
+ * leave every iframe's `bridgeSpaceKeyPressed` stuck true for the NEXT
+ * gesture. `broadcast: null` means "not this path's key" — the caller falls
+ * through to its hand-tool handling.
+ *
+ * Exported for unit testing.
+ */
+export function resolveSpaceForwardTransition(
+  event: "keydown" | "keyup" | "blur",
+  armed: boolean,
+  dragActive: boolean,
+): { armed: boolean; broadcast: boolean | null } {
+  if (event === "keydown") {
+    return dragActive
+      ? { armed: true, broadcast: true }
+      : { armed, broadcast: null };
+  }
+  return armed
+    ? { armed: false, broadcast: false }
+    : { armed, broadcast: null };
+}
+
 export function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
   return tool === "draw" || tool === "comment";
 }

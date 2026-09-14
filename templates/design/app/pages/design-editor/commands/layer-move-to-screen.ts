@@ -179,6 +179,20 @@ export function runLayerMoveToScreen(
     if (!draggedOwner || effectiveCodeLayerState.lockedIds.has(draggedId)) {
       continue;
     }
+    if (draggedOwner.runtimeOnly) {
+      // A runtime-only node (an Alpine x-for clone, script-appended DOM, …)
+      // has no counterpart in this screen's saved sourceHtml, so the
+      // moveNodeBetweenDocuments/applyVisualEdit calls below can never
+      // resolve its id there — they'd fail with a raw "Node with
+      // data-agent-native-node-id=... not found in sourceHtml" error text
+      // instead of moving anything. Refuse with the same plain-language,
+      // already-localized copy every other move failure in this function
+      // uses, rather than let that technical message reach the user.
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      continue;
+    }
     movedNodeSnapshots.set(draggedId, draggedOwner.node);
     const nodeAttrId =
       draggedOwner.node.dataAttributes["data-agent-native-node-id"] ??

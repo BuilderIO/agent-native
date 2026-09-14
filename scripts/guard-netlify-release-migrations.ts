@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,10 +27,17 @@ const BETA_SCHEMA_OWNER_EXPORT =
   "export AGENT_NATIVE_BETA_SCHEMA_OWNER=production";
 const CLIPS_PREBUILT_MIGRATION_SKIP =
   /agentNativePrebuiltBuild:-\}.*!= \\\"true\\\".*migrate:production/;
+const RELEASE_MIGRATION_SCRIPT_GLOBS = [
+  "packages/**/scripts/migrate-production.ts",
+  "templates/**/scripts/migrate-production.ts",
+] as const;
 
 const FRAMEWORK_ONLY_RELEASE_SCRIPT = `
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { loadEnv } from "@agent-native/core/scripts";
 import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+
+loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
@@ -240,6 +247,19 @@ export function validateFrameworkOnlyReleaseScript(
   ];
 }
 
+export function validateReleaseMigrationLoadsEnv(
+  source: string,
+  file: string,
+): string[] {
+  if (
+    source.includes('import { loadEnv } from "@agent-native/core/scripts";') &&
+    /\bloadEnv\(\);/.test(executableSource(source))
+  ) {
+    return [];
+  }
+  return [`${file}: must load app and workspace environment before migrating`];
+}
+
 export function validateManagedDrizzleMigrationOwnership(
   repoRoot = REPO_ROOT,
 ): string[] {
@@ -313,6 +333,16 @@ export function findNetlifyReleaseMigrationIssues(
         readFileSync(file, "utf8"),
         relativeFile,
         sourceTemplate,
+      ),
+    );
+  }
+  for (const relativeFile of globSync(RELEASE_MIGRATION_SCRIPT_GLOBS, {
+    cwd: repoRoot,
+  })) {
+    issues.push(
+      ...validateReleaseMigrationLoadsEnv(
+        readFileSync(path.join(repoRoot, relativeFile), "utf8"),
+        relativeFile,
       ),
     );
   }

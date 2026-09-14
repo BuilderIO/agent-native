@@ -199,12 +199,12 @@ graph LR
 
 ## Access
 
-| Capability                                                               | State          | User promise                                                                                                       |
-| ------------------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [Page and Database access](capabilities/content.access.page-database.md) | Approved Shape | Page and Database roles separate reading, commenting, entry editing, and structure authority.                      |
-| [Row-level privacy](capabilities/content.access.row-private.md)          | Approved Shape | A Page or Database row can be shared more narrowly than its collection's ordinary visibility.                      |
-| [Access-safe computation](capabilities/content.access.safe-aggregate.md) | Exploring      | Counts, rollups, groups, and aggregates reveal only records the viewer may access.                                 |
-| [Visibility closure](capabilities/content.access.visibility-closure.md)  | Approved Shape | Ambient traversal and derived results omit inaccessible objects while known direct links receive an honest denial. |
+| Capability                                                                 | State          | User promise                                                                                                       |
+| -------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| [Page and Collection access](capabilities/content.access.page-database.md) | Approved Shape | Page and Collection roles separate reading, commenting, entry editing, and structure authority.                    |
+| [Row-level privacy](capabilities/content.access.row-private.md)            | Approved Shape | A Page or Collection row can be shared more narrowly than its collection's ordinary visibility.                    |
+| [Access-safe computation](capabilities/content.access.safe-aggregate.md)   | Exploring      | Counts, rollups, groups, and aggregates reveal only records the viewer may access.                                 |
+| [Visibility closure](capabilities/content.access.visibility-closure.md)    | Approved Shape | Ambient traversal and derived results omit inaccessible objects while known direct links receive an honest denial. |
 
 ## Action
 
@@ -249,9 +249,9 @@ graph LR
 
 ## Capture
 
-| Capability                                                       | State          | User promise                                                                           |
-| ---------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------- |
-| [Capture and enrichment](capabilities/content.capture.enrich.md) | Approved Shape | Send material to a chosen Database and let its own rules turn it into durable context. |
+| Capability                                                       | State          | User promise                                                                             |
+| ---------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------- |
+| [Capture and enrichment](capabilities/content.capture.enrich.md) | Approved Shape | Send material to a chosen Collection and let its own rules turn it into durable context. |
 
 ## Command
 
@@ -267,11 +267,11 @@ graph LR
 
 ## Diff
 
-| Capability                                                             | State          | User promise                                                                                                               |
-| ---------------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| [Agent-assisted review](capabilities/content.diff.ai-assist.md)        | Approved Shape | Agents can summarize and guide large review sets without bypassing the authority to decide them.                           |
-| [Filtered change review](capabilities/content.diff.filtered-review.md) | Approved Shape | A reviewer can accept or reject one change or an exact visible set without accidentally deciding newer or hidden changes.  |
-| [In-place typed review](capabilities/content.diff.in-place.md)         | Approved Shape | Changes are reviewed inside the ordinary Page, Database, Board, template, source, or code surface that gives them meaning. |
+| Capability                                                             | State          | User promise                                                                                                                 |
+| ---------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [Agent-assisted review](capabilities/content.diff.ai-assist.md)        | Approved Shape | Agents can summarize and guide large review sets without bypassing the authority to decide them.                             |
+| [Filtered change review](capabilities/content.diff.filtered-review.md) | Approved Shape | A reviewer can accept or reject one change or an exact visible set without accidentally deciding newer or hidden changes.    |
+| [In-place typed review](capabilities/content.diff.in-place.md)         | Approved Shape | Changes are reviewed inside the ordinary Page, Collection, Board, template, source, or code surface that gives them meaning. |
 
 ## Discussion
 
@@ -359,15 +359,15 @@ graph LR
 
 ## Object
 
-| Capability                                                                       | State          | User promise                                                                                                              |
-| -------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| [Blocks](capabilities/content.object.block.md)                                   | In Progress    | A Block is a stable addressable unit of rich content inside its owning field.                                             |
-| [Blocks fields](capabilities/content.object.blocks-field.md)                     | In Progress    | Every editable rich-content body uses one Blocks-field grammar and keeps its own stable revision boundary.                |
-| [Databases](capabilities/content.object.database.md)                             | Verified       | Database as a Page-backed typed collection                                                                                |
-| [Multiple Database memberships](capabilities/content.object.multi-membership.md) | In Progress    | One Page can belong to several Databases without copies or a hidden primary home.                                         |
-| [Pages](capabilities/content.object.page.md)                                     | Verified       | A durable Page keeps its identity, body, properties, access, discussion, and portable representation wherever it appears. |
-| [References](capabilities/content.object.reference.md)                           | Approved Shape | A compact reference points to a stable Page, Database, or Block without pretending to be computation.                     |
-| [Synced Blocks and live embeds](capabilities/content.object.transclusion.md)     | Approved Shape | A Page or Block can appear by reference in several places and authorized edits change the one canonical object.           |
+| Capability                                                                         | State          | User promise                                                                                                              |
+| ---------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [Blocks](capabilities/content.object.block.md)                                     | In Progress    | A Block is a stable addressable unit of rich content inside its owning field.                                             |
+| [Blocks fields](capabilities/content.object.blocks-field.md)                       | In Progress    | Every editable rich-content body uses one Blocks-field grammar and keeps its own stable revision boundary.                |
+| [Collections](capabilities/content.object.database.md)                             | Verified       | Collection: a Page-backed typed collection                                                                                |
+| [Multiple Collection memberships](capabilities/content.object.multi-membership.md) | In Progress    | One Page can belong to several Collections without copies or a hidden primary home.                                       |
+| [Pages](capabilities/content.object.page.md)                                       | Verified       | A durable Page keeps its identity, body, properties, access, discussion, and portable representation wherever it appears. |
+| [References](capabilities/content.object.reference.md)                             | Approved Shape | A compact reference points to a stable Page, Collection, or Block without pretending to be computation.                   |
+| [Synced Blocks and live embeds](capabilities/content.object.transclusion.md)       | Approved Shape | A Page or Block can appear by reference in several places and authorized edits change the one canonical object.           |
 
 ## Organization
 
@@ -377,13 +377,13 @@ graph LR
 
 ## Portability
 
-| Capability                                                                                  | State          | User promise                                                                                                                                    |
-| ------------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Bounded collection export](capabilities/content.portability.collection-export.md)          | Verified       | Export the authorized records in one Database or View to a readable file without changing what the View means or implying a whole-vault backup. |
-| [PDF export](capabilities/content.portability.pdf-export.md)                                | In Progress    | Create a readable PDF of an authorized Content representation without confusing it with the editable or lossless export.                        |
-| [Faithful round-tripping](capabilities/content.portability.roundtrip.md)                    | Approved Shape | Content preserves provider-owned meaning it cannot safely render or edit, so a supported change never silently destroys the rest of the work.   |
-| [Portable Source representation](capabilities/content.portability.source-representation.md) | Approved Shape | Connected and local material has a portable Content representation without pretending Content owns every original.                              |
-| [Portable vault export](capabilities/content.portability.vault-export.md)                   | Approved Shape | Take the authorized Content vault away in open files plus a lossless archive instead of remaining dependent on one service.                     |
+| Capability                                                                                  | State          | User promise                                                                                                                                      |
+| ------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Bounded collection export](capabilities/content.portability.collection-export.md)          | Verified       | Export the authorized records in one Collection or View to a readable file without changing what the View means or implying a whole-vault backup. |
+| [PDF export](capabilities/content.portability.pdf-export.md)                                | In Progress    | Create a readable PDF of an authorized Content representation without confusing it with the editable or lossless export.                          |
+| [Faithful round-tripping](capabilities/content.portability.roundtrip.md)                    | Approved Shape | Content preserves provider-owned meaning it cannot safely render or edit, so a supported change never silently destroys the rest of the work.     |
+| [Portable Source representation](capabilities/content.portability.source-representation.md) | Approved Shape | Connected and local material has a portable Content representation without pretending Content owns every original.                                |
+| [Portable vault export](capabilities/content.portability.vault-export.md)                   | Approved Shape | Take the authorized Content vault away in open files plus a lossless archive instead of remaining dependent on one service.                       |
 
 ## Presentation
 
@@ -417,9 +417,9 @@ graph LR
 
 ## Query
 
-| Capability                                                     | State          | User promise                                                                                                                                       |
-| -------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Reusable Query objects](capabilities/content.query.object.md) | Approved Shape | A one-off inline Query can be promoted into a named reusable Content object that behaves like a dynamic Database without owning its source records |
+| Capability                                                     | State          | User promise                                                                                                                                         |
+| -------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Reusable Query objects](capabilities/content.query.object.md) | Approved Shape | A one-off inline Query can be promoted into a named reusable Content object that behaves like a dynamic Collection without owning its source records |
 
 ## Reader
 
@@ -488,18 +488,18 @@ graph LR
 
 ## Source
 
-| Capability                                                                      | State          | User promise                                                                                                                                                 |
-| ------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Source adapters](capabilities/content.source.adapters.md)                      | In Progress    | Local, native, and provider Sources use one typed contract while each adapter proves only the operations it can safely perform.                              |
-| [Builder round-trip codec](capabilities/content.source.builder-codec.md)        | Approved Shape | Builder JSON blocks can pass through one typed codec without supported edits erasing unfamiliar provider content.                                            |
-| [Sources catalog](capabilities/content.source.catalog.md)                       | Approved Shape | One governed top-level Content Database makes approved local, provider, and native Sources discoverable without hiding their scope, authority, or freshness. |
-| [Files and folders as Sources](capabilities/content.source.file-folder.md)      | Exploring      | Open a selected file tree as a Source without forcing heterogeneous files into one Database schema.                                                          |
-| [Local Source bridge](capabilities/content.source.local-bridge.md)              | Approved Shape | A trusted device can synchronize explicitly selected local Sources while browsers remain useful without inheriting filesystem authority.                     |
-| [Local project mode](capabilities/content.source.local-project.md)              | Superseded     | The former local-project proposal remains lineage for file-truth work, not an active dual-truth product contract.                                            |
-| [Page-linked Sources](capabilities/content.source.page-link.md)                 | Exploring      | A Page can bind to one external item while keeping Content identity and the provider's ownership clear.                                                      |
-| [Materialized multi-source Databases](capabilities/content.source.row-union.md) | Superseded     | The former multi-source row-union model remains migration evidence, while active composition moves toward source Queries.                                    |
-| [Content spaces and Files](capabilities/content.source.spaces-files.md)         | Verified       | Personal and organization-backed Content spaces and Files views keep work navigable without becoming a second permission system.                             |
-| [Source sync policy](capabilities/content.source.sync-policy.md)                | Approved Shape | Each connected Source declares one plain-language policy for refresh and write-back: View only, Keep in sync, or Review before write-back.                   |
+| Capability                                                                        | State          | User promise                                                                                                                                                   |
+| --------------------------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Source adapters](capabilities/content.source.adapters.md)                        | In Progress    | Local, native, and provider Sources use one typed contract while each adapter proves only the operations it can safely perform.                                |
+| [Builder round-trip codec](capabilities/content.source.builder-codec.md)          | Approved Shape | Builder JSON blocks can pass through one typed codec without supported edits erasing unfamiliar provider content.                                              |
+| [Sources catalog](capabilities/content.source.catalog.md)                         | Approved Shape | One governed top-level Content Collection makes approved local, provider, and native Sources discoverable without hiding their scope, authority, or freshness. |
+| [Files and folders as Sources](capabilities/content.source.file-folder.md)        | Exploring      | Open a selected file tree as a Source without forcing heterogeneous files into one Collection schema.                                                          |
+| [Local Source bridge](capabilities/content.source.local-bridge.md)                | Approved Shape | A trusted device can synchronize explicitly selected local Sources while browsers remain useful without inheriting filesystem authority.                       |
+| [Local project mode](capabilities/content.source.local-project.md)                | Superseded     | The former local-project proposal remains lineage for file-truth work, not an active dual-truth product contract.                                              |
+| [Page-linked Sources](capabilities/content.source.page-link.md)                   | Exploring      | A Page can bind to one external item while keeping Content identity and the provider's ownership clear.                                                        |
+| [Materialized multi-source Collections](capabilities/content.source.row-union.md) | Superseded     | The former multi-source row-union model remains migration evidence, while active composition moves toward source Queries.                                      |
+| [Content spaces and Files](capabilities/content.source.spaces-files.md)           | Verified       | Personal and organization-backed Content spaces and Files views keep work navigable without becoming a second permission system.                               |
+| [Source sync policy](capabilities/content.source.sync-policy.md)                  | Approved Shape | Each connected Source declares one plain-language policy for refresh and write-back: View only, Keep in sync, or Review before write-back.                     |
 
 ## System
 
@@ -513,12 +513,12 @@ graph LR
 
 ## Template
 
-| Capability                                                            | State          | User promise                                                                                                                |
-| --------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| [Template governance](capabilities/content.template.governance.md)    | Approved Shape | Find and adopt a reusable working system with clear ownership, approval, version, provenance, and access.                   |
-| [Multi-object Templates](capabilities/content.template.graph.md)      | Approved Shape | Start from a reusable system of Pages, Databases, Views, Properties, Rules, expressions, and bodies, then own the result.   |
-| [Database item Templates](capabilities/content.template.item-body.md) | Approved Shape | Offer more than one useful starting body for a database record, including a clear default and context-aware embedded views. |
-| [Template updates](capabilities/content.template.update.md)           | Approved Shape | Review what changed in a template and selectively bring compatible improvements into my owned instance.                     |
+| Capability                                                              | State          | User promise                                                                                                                  |
+| ----------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| [Template governance](capabilities/content.template.governance.md)      | Approved Shape | Find and adopt a reusable working system with clear ownership, approval, version, provenance, and access.                     |
+| [Multi-object Templates](capabilities/content.template.graph.md)        | Approved Shape | Start from a reusable system of Pages, Collections, Views, Properties, Rules, expressions, and bodies, then own the result.   |
+| [Collection item Templates](capabilities/content.template.item-body.md) | Approved Shape | Offer more than one useful starting body for a collection record, including a clear default and context-aware embedded views. |
+| [Template updates](capabilities/content.template.update.md)             | Approved Shape | Review what changed in a template and selectively bring compatible improvements into my owned instance.                       |
 
 ## Time
 
@@ -546,10 +546,10 @@ graph LR
 | [Map View](capabilities/content.view.map.md)                                   | Approved Shape | Map renders typed locations with points, clustering, filtering, and record previews before adding richer geographic layers.                                                 |
 | [Personal View state](capabilities/content.view.personal-state.md)             | Approved Shape | A shared View remembers one private arrangement per person and supports named Only-me Views without copying records.                                                        |
 | [Pivot View](capabilities/content.view.pivot.md)                               | Approved Shape | Pivot places dimensions on rows and columns, typed aggregations in cells, and drills back to canonical records.                                                             |
-| [Database and Query Views](capabilities/content.view.query.md)                 | Approved Shape | A View is one stable presentation over exactly one Database or Query, with its own downstream filters, layout, and renderer                                                 |
+| [Collection and Query Views](capabilities/content.view.query.md)               | Approved Shape | A View is one stable presentation over exactly one Collection or Query, with its own downstream filters, layout, and renderer                                               |
 | [View renderer conformance](capabilities/content.view.renderer-conformance.md) | Approved Shape | Every View obeys the same permissions, Actions, agent context, accessibility, persistence, performance, and recovery contract.                                              |
-| [Large Database performance](capabilities/content.view.scale.md)               | Failing        | Databases stay responsive and incrementally queryable well beyond a few hundred rows                                                                                        |
-| [Cross-source Queries](capabilities/content.view.source-query.md)              | Approved Shape | One visual typed Query composes authorized Databases, Sources, and Queries without copying their records or hiding where values come from.                                  |
+| [Large Collection performance](capabilities/content.view.scale.md)             | Failing        | Collections stay responsive and incrementally queryable well beyond a few hundred rows                                                                                      |
+| [Cross-source Queries](capabilities/content.view.source-query.md)              | Approved Shape | One visual typed Query composes authorized Collections, Sources, and Queries without copying their records or hiding where values come from.                                |
 | [Timeline View](capabilities/content.view.timeline.md)                         | In Progress    | Timeline places and directly edits canonical records across typed dates and ranges while obeying the View conformance contract.                                             |
 | [Tree View](capabilities/content.view.tree.md)                                 | Approved Shape | Tree renders any suitable hierarchical Relationship without creating a parallel parent system.                                                                              |
 

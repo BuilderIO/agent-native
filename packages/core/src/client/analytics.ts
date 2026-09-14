@@ -26,6 +26,7 @@ import {
 } from "./analytics-session.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -222,6 +223,7 @@ let _pendingSentryCaptures: Array<{
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
+let _llmConnectionBootRefresh: Promise<void> | null = null;
 let _trackingIdentity: TrackingIdentity | null = null;
 let _trackingIdentityResolved = false;
 let _trackingSessionRefresh: Promise<void> | null = null;
@@ -396,7 +398,21 @@ function installLlmConnectionRefresh(): void {
   if (typeof window === "undefined" || _llmConnectionRefreshInstalled) return;
   _llmConnectionRefreshInstalled = true;
   _llmConnectionStatus = readCachedLlmConnectionStatus();
-  void refreshLlmConnectionStatus();
+  // Not visible during first paint; defer the boot refresh past the startup
+  // window. The composer gate shares this request through the client-status
+  // layer, so both stay a single post-paint call. The promise exists now so
+  // schedulePageview keeps waiting for the connection context it always has,
+  // and the enrichment budget starts when the deferred refresh actually
+  // begins — a fixed budget from pageview time would expire before a hidden
+  // or throttled tab even starts the refresh and emit without context.
+  _llmConnectionBootRefresh = new Promise<void>((resolve) => {
+    scheduleAfterPaint(() => {
+      void Promise.race([
+        refreshLlmConnectionStatus(),
+        new Promise<void>((resolve) => window.setTimeout(resolve, 250)),
+      ]).finally(resolve);
+    });
+  });
   window.addEventListener("focus", () => {
     void refreshLlmConnectionStatus();
   });
@@ -2120,6 +2136,14 @@ function schedulePageview(reason: string): void {
     void stopSessionReplay("local-plan-privacy");
   }
   const run = () => emitPageview(reason);
+  // The deferred boot refresh is self-bounded from its own start (see
+  // installLlmConnectionRefresh), so it waits directly instead of racing a
+  // budget that expires before the deferred refresh even begins; the other
+  // in-flight contexts keep the fixed budget.
+  const deferredBootRefresh =
+    _llmConnectionBootRefresh && !_llmConnectionStatus
+      ? _llmConnectionBootRefresh
+      : null;
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
     pendingStartupContext.push(_llmConnectionRefresh);
@@ -2127,14 +2151,18 @@ function schedulePageview(reason: string): void {
   if (_trackingSessionRefresh && !_trackingIdentityResolved) {
     pendingStartupContext.push(_trackingSessionRefresh);
   }
-  if (pendingStartupContext.length > 0) {
-    const timeout = new Promise<void>((resolve) =>
-      window.setTimeout(resolve, 250),
-    );
-    void Promise.race([
-      Promise.allSettled(pendingStartupContext),
-      timeout,
-    ]).finally(run);
+  if (deferredBootRefresh !== null) {
+    if (pendingStartupContext.length > 0) {
+      const timeout = new Promise<void>((resolve) =>
+        window.setTimeout(resolve, 250),
+      );
+      void Promise.all([
+        deferredBootRefresh,
+        Promise.race([Promise.allSettled(pendingStartupContext), timeout]),
+      ]).finally(run);
+      return;
+    }
+    void deferredBootRefresh.finally(run);
     return;
   }
   if (typeof queueMicrotask === "function") {

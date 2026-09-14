@@ -8,11 +8,9 @@
 import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getFusionDeploys } from "@agent-native/core/server";
-import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
@@ -36,26 +34,10 @@ export default defineAction({
       throw new Error("Full app building is not enabled");
     }
 
-    const db = getDb();
-    const [design] = await db
-      .select({ data: schema.designs.data })
-      .from(schema.designs)
-      .where(
-        and(
-          accessFilter(schema.designs, schema.designShares),
-          eq(schema.designs.id, designId),
-        ),
-      )
-      .limit(1);
-    if (!design) {
-      const err = new Error("Design not found") as Error & {
-        statusCode: number;
-      };
-      err.statusCode = 404;
-      throw err;
-    }
-
-    const fusionApp = readFusionApp(design.data);
+    const access = await assertAccess("design", designId, "editor");
+    const fusionApp = readFusionApp(
+      (access.resource as { data?: unknown }).data,
+    );
     if (!fusionApp) {
       throw new Error(
         "This design has no fusion app linkage. Call create-fusion-app first.",

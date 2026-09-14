@@ -64,7 +64,7 @@ describe("FactoryInboxView", () => {
     expect(source).not.toContain('t("factoryRoute.selectObservation")');
   });
 
-  it("separates identity, reason, evidence, and log into banded sections", () => {
+  it("surfaces the latest task summary before the reason, evidence, and log", () => {
     const source = readViewSource();
     // Both sources share one card shell so Slack and GitHub items read alike.
     expect(source).toContain("InboxMessageCard");
@@ -74,12 +74,18 @@ describe("FactoryInboxView", () => {
     expect(source).toContain("lg:border-s lg:border-border lg:ps-4");
     // The reason is the system's verdict, not source content.
     expect(source).toContain("border-s-2 border-primary/40 ps-3");
+    expect(source).toContain("events[events.length - 1]?.summary.trim()");
+    expect(source).toContain('t("triage.summary")');
     const headerAt = source.indexOf("<header");
+    const summaryAt = source.indexOf("{taskSummary ? (");
     const reasonAt = source.indexOf("{reason ? (");
     const evidenceAt = source.indexOf('t("triage.evidence")');
+    const actionsAt = source.indexOf('t("triage.actionsTaken")');
     expect(headerAt).toBeGreaterThan(-1);
-    expect(reasonAt).toBeGreaterThan(headerAt);
+    expect(summaryAt).toBeGreaterThan(headerAt);
+    expect(reasonAt).toBeGreaterThan(summaryAt);
     expect(evidenceAt).toBeGreaterThan(reasonAt);
+    expect(actionsAt).toBeGreaterThan(evidenceAt);
   });
 
   it("keeps explanatory subtitles out of the detail sections", () => {

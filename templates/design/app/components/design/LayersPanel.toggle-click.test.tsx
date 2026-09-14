@@ -44,7 +44,19 @@ function renderPanel() {
       (candidate) => candidate.getAttribute("aria-label") === label,
     );
     if (!button) throw new Error(`no button labelled ${label}`);
+    // A real pointer click fires mousedown before click — the toggle now
+    // lives on mousedown (see LayersPanel.tsx) so a click-drag onto a
+    // DIFFERENT row's icon, which never fires "click" on this one at all
+    // (mouseup lands elsewhere), still toggles it exactly once. click's own
+    // handler is a keyboard-only (detail===0) fallback, so it must stay
+    // silent here or this would count two invocations for one real click.
     await act(async () => {
+      button.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
+      );
+      button.dispatchEvent(
+        new MouseEvent("mouseup", { bubbles: true, detail: 1 }),
+      );
       button.dispatchEvent(
         new MouseEvent("click", { bubbles: true, detail: 1 }),
       );
@@ -70,6 +82,82 @@ describe("LayersPanel lock/hide toggles", () => {
     expect(panel.onToggleHidden.mock.calls).toEqual([["n1", true]]);
     expect(panel.onToggleLocked).not.toHaveBeenCalled();
     panel.root.unmount();
+  });
+
+  // Keyboard activation (Enter/Space on a focused button) fires "click"
+  // with no preceding mousedown — the icon's own toggle must still work
+  // through that path, not just through the mousedown a pointer click adds.
+  it("invokes onToggleHidden exactly once for a keyboard (detail 0) activation", async () => {
+    const panel = renderPanel();
+    await panel.mount();
+    const button = Array.from(panel.host.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.getAttribute("aria-label") === "layersPanel.hide",
+    )!;
+    await act(async () => {
+      button.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, detail: 0 }),
+      );
+    });
+    expect(panel.onToggleHidden.mock.calls).toEqual([["n1", true]]);
+    panel.root.unmount();
+  });
+
+  // The click-drag-across-a-run gesture (see beginIconToggleDrag in
+  // LayersPanel.tsx) only self-clears on mouseup: if the pointer leaves the
+  // browser window before release, mouseup never fires on this window, so a
+  // later unrelated hover must not still apply the armed toggle.
+  it("clears the click-drag toggle gesture on window blur instead of applying it to a later hover", async () => {
+    const onToggleHidden = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          layers={[
+            { id: "n1", name: "Box", type: "element" },
+            { id: "n2", name: "Circle", type: "element" },
+          ]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+          onToggleHidden={onToggleHidden}
+        />,
+      );
+    });
+    const hideButtons = Array.from(host.querySelectorAll("button")).filter(
+      (candidate) =>
+        candidate.getAttribute("aria-label") === "layersPanel.hide",
+    );
+    expect(hideButtons).toHaveLength(2);
+
+    await act(async () => {
+      hideButtons[0]!.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
+      );
+    });
+    expect(onToggleHidden.mock.calls).toHaveLength(1);
+    const [toggledId] = onToggleHidden.mock.calls[0]!;
+
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+    });
+
+    await act(async () => {
+      hideButtons[1]!.dispatchEvent(
+        new MouseEvent("mouseenter", { bubbles: true }),
+      );
+    });
+    // Only the first button's own mousedown toggle — the blur ended the
+    // gesture, so hovering the other row's icon never re-applied a stale
+    // "hidden: true" to it.
+    expect(onToggleHidden.mock.calls).toEqual([[toggledId, true]]);
+    root.unmount();
+    host.remove();
   });
 });
 

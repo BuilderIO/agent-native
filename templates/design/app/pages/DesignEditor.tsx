@@ -89,7 +89,11 @@ import {
   type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
-import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
+import {
+  getElementWorldBoundsForZoomFit,
+  getFrameGroupBounds,
+  type FrameBounds,
+} from "@shared/canvas-math";
 import { resolveSourceCapabilities } from "@shared/capability-resolver";
 import {
   applyVisualEdit,
@@ -558,7 +562,10 @@ import { runGetSelectedLayerSnapshots } from "./design-editor/commands/get-selec
 import { runGroupSelection } from "./design-editor/commands/group-selection";
 import { runIframeContextMenu } from "./design-editor/commands/iframe-context-menu";
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
-import { runLayerMarqueeSelectionChange } from "./design-editor/commands/layer-marquee-selection-change";
+import {
+  coalesceMarqueeSelectionHistory,
+  runLayerMarqueeSelectionChange,
+} from "./design-editor/commands/layer-marquee-selection-change";
 import { runLayerMove } from "./design-editor/commands/layer-move";
 import { runLayerMoveToScreen } from "./design-editor/commands/layer-move-to-screen";
 import { runLayerRename } from "./design-editor/commands/layer-rename";
@@ -719,15 +726,18 @@ import {
 import {
   type ContentHistoryChange,
   type ContentHistoryEntry,
+  type ContentHistorySelectionAfterMap,
   type FileCreationHistoryEntry,
   type FileDeletionHistoryEntry,
   finalizeTextCreationHistory,
   findLastContentHistoryChangeIndex,
   contentHistoryScopeForViewMode,
+  forwardYjsUndoStackItemMeta,
   getContentHistoryChanges,
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
   type PendingTextCreationHistory,
+  type SelectionHistoryEntry,
   MAX_DESIGN_UNDO_STACK,
   mergeLocalContentHistoryFallback,
   removeRecentUndoRedoOrderKinds,
@@ -781,8 +791,10 @@ import {
   resolveZoomUpdate,
   readOverviewZoomPercentFromTransform,
   resolveScreenDropPoint,
+  pinnedHeightScreenIds,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
+  withMeasuredFrameHeights,
 } from "./design-editor/overview-camera";
 import {
   applyInteractionStateStyleCommit,
@@ -840,9 +852,13 @@ import {
   getSelectedScreenIdsForEditorState,
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
+  isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   resolveAvailableActiveFileId,
+  resolveEffectiveSelectedLayerIds,
+  resolveMarqueeAdditive,
   sameStringIds,
+  selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldLimitEditorChromeUntilContentReady,
@@ -852,6 +868,7 @@ import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
+  resolveSpaceForwardTransition,
   resolveToolAfterSelection,
   shouldAskOnNewDesignArrival,
   shouldAutoEnableDrawOverlay,
@@ -887,6 +904,12 @@ type UpdateScreenSourceActionResult = {
 /* i18n-ignore */
 /* i18n-ignore */
 /* i18n-ignore */
+
+// Mirrors `--design-chrome-rail-width` in app/global.css (8 baseline units ×
+// 8px). The rail is always-on chrome (not measured via a ref) so the very
+// first overview camera render — before any layout effect could measure the
+// DOM — already accounts for it; see chromeInsetLeft below.
+const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
 function pageHasWebMcpHost(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -1168,6 +1191,23 @@ function DesignEditor() {
   // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
+  // Per-screen measured content height, reported by MultiScreenCanvas as
+  // inline iframes render (see onPrimaryContentHeightChange) — the same
+  // content-fit signal the canvas already draws frames at, but the persisted
+  // canvasFrames geometry never picks it up. Camera-fit math below reads
+  // this ref (not state) purely to widen its target bounds when they're
+  // taller than the stale default, so a fresh report never triggers a
+  // re-render on its own.
+  const measuredScreenHeightByIdRef = useRef<Record<string, number>>({});
+  const handlePrimaryContentHeightChange = useCallback(
+    (screenId: string, heightPx: number) => {
+      measuredScreenHeightByIdRef.current = {
+        ...measuredScreenHeightByIdRef.current,
+        [screenId]: heightPx,
+      };
+    },
+    [],
+  );
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
   // the LIVE working copy (path-local coordinates, matching pen-path.ts);
@@ -2141,6 +2181,13 @@ function DesignEditor() {
   const contentRedoSelectionStackRef = useRef<
     (GeometryHistorySelection | undefined)[]
   >([]);
+  // Figma-parity redo selection restore for this stack — see
+  // ContentHistorySelectionAfterMap's doc comment for why this is a WeakMap
+  // keyed by entry object rather than a second index-aligned array. Never
+  // cleared explicitly: entries fall out on their own once nothing in
+  // contentUndoStackRef/contentRedoStackRef references them any more.
+  const contentHistorySelectionAfterRef =
+    useRef<ContentHistorySelectionAfterMap>(new WeakMap());
   const localContentUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const localContentRedoStackRef = useRef<ContentHistoryChange[]>([]);
   const activeFileIdForUndoRef = useRef<string | null>(null);
@@ -2168,8 +2215,13 @@ function DesignEditor() {
   // Disable every history command while one of those mutations is in flight
   // so a rapid second Cmd+Z cannot race a create against the pending delete.
   const fileHistoryMutationPendingRef = useRef(false);
-  const historyOrderRef = useRef<UndoRedoOrderKind[]>([]);
-  const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
+  const historyOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
+  const redoOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
+  // Figma parity (ground-truth Round 4): a plain selection change (no
+  // document edit) is its own undo-stack entry — see SelectionHistoryEntry's
+  // doc comment (history.ts) for the full contract.
+  const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
+  const selectionRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const clearRedoStacks = useCallback(() => {
     contentRedoStackRef.current = [];
     contentRedoSelectionStackRef.current = [];
@@ -2180,6 +2232,7 @@ function DesignEditor() {
     pendingVisualStyleRedoStackRef.current = [];
     pendingLiveNonStyleRedoStackRef.current = [];
     pendingStructureRedoReplayRef.current = undefined;
+    selectionRedoStackRef.current = [];
     if (pendingStructureRedoReplayTimerRef.current !== undefined) {
       window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
       pendingStructureRedoReplayTimerRef.current = undefined;
@@ -2209,6 +2262,25 @@ function DesignEditor() {
     (selection: GeometryHistorySelection | undefined) => {
       if (!selection) return;
       if (viewModeRef.current !== "overview") return;
+      // Restoring a single in-screen element's selection re-selects it
+      // inside that screen's iframe, which echoes back through the bridge
+      // as an ordinary element-select a frame later (same echo a real
+      // layers-panel click produces — see shouldIgnoreOverviewLayerCreationEcho's
+      // doc comment). A panel click arms these refs before the echo can
+      // arrive so runScreenElementSelect ignores it; without arming them
+      // here too, that echo lands as a genuine (and spurious) selection
+      // change — always clearing overviewSelectedScreenIds regardless of
+      // what this restore just set it to — right after every undo/redo.
+      const restoredLayerId =
+        selection.selectedLayerIds.length === 1
+          ? selection.selectedLayerIds[0]
+          : undefined;
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current =
+        restoredLayerId &&
+        codeLayerOwnerByNodeIdRef.current.has(restoredLayerId)
+          ? restoredLayerId
+          : null;
       setOverviewSelectedScreenIds(selection.overviewSelectedScreenIds);
       setSelectedLayerIdsState(selection.selectedLayerIds);
       if (selection.activeFileId) {
@@ -2248,7 +2320,8 @@ function DesignEditor() {
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
             fileCreationUndoStackRef.current.length > 0 ||
-            fileDeletionUndoStackRef.current.length > 0)),
+            fileDeletionUndoStackRef.current.length > 0 ||
+            selectionUndoStackRef.current.length > 0)),
     );
     setCanRedo(
       pendingVisualStyleRedoStackRef.current.length > 0 ||
@@ -2260,9 +2333,94 @@ function DesignEditor() {
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
             fileCreationRedoStackRef.current.length > 0 ||
-            fileDeletionRedoStackRef.current.length > 0)),
+            fileDeletionRedoStackRef.current.length > 0 ||
+            selectionRedoStackRef.current.length > 0)),
     );
   }, []);
+  // Figma parity (ground-truth Round 4): wraps the five pure-selection
+  // command entry points (layers-panel click, canvas click, marquee,
+  // Escape-to-deselect, select-all) so a selection change with no document
+  // edit becomes its own undo-stack entry, exactly like a drag or a paste
+  // already does for content/geometry. `run` is forced through flushSync so
+  // the ref mirrors above (selectedLayerIdsStateRef/
+  // overviewSelectedScreenIdsRef, updated inline during render — see their
+  // own doc comment) already reflect the command's result the instant this
+  // returns; without it, captureCurrentSelection() right after `run()` would
+  // still read the PRE-command value, since React otherwise leaves the
+  // state updates a plain call makes for a later render.
+  //
+  // Deliberately NOT wired into any edit command (group/duplicate/paste/
+  // delete/drag/etc.) — those already carry their own selectionBefore/After
+  // on their own content/geometry history entry, and recording a second
+  // "selection" entry for the same gesture would make every such edit cost
+  // two undo steps instead of one.
+  //
+  const pushSelectionHistoryEntry = useCallback(
+    (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
+      if (selectionHistorySnapshotsEqual(before, after)) return;
+      selectionUndoStackRef.current = [
+        ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        { before, after },
+      ];
+      clearRedoStacks();
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "selection",
+      ];
+      syncUndoRedoState();
+    },
+    [clearRedoStacks, syncUndoRedoState],
+  );
+  const recordSelectionHistoryAroundChange = useCallback(
+    (run: () => void) => {
+      if (viewModeRef.current !== "overview") {
+        run();
+        return;
+      }
+      const before = captureCurrentSelection();
+      flushSync(run);
+      const after = captureCurrentSelection();
+      pushSelectionHistoryEntry(before, after);
+    },
+    [pushSelectionHistoryEntry],
+  );
+  // A live marquee drag reports a changed hit-set on every mousemove tick
+  // (see layer-marquee-selection-change.ts's PF10 dedup comment), so
+  // wrapping every one of those calls in recordSelectionHistoryAroundChange
+  // recorded one undo step per tick instead of Figma's "one drag = one undo
+  // step". MultiScreenCanvas.tsx's marquee now tags exactly one call per
+  // gesture `final: true` (the mouseup report); coalesceMarqueeSelectionHistory
+  // remembers the selection from the gesture's FIRST tick and only the final
+  // tick actually pushes a history entry, spanning the whole drag.
+  const marqueeSelectionHistoryBeforeRef =
+    useRef<GeometryHistorySelection | null>(null);
+  const recordMarqueeSelectionHistoryAroundChange = useCallback(
+    (run: () => void, intent: { source?: string; final?: boolean }) => {
+      // Only an actual marquee drag spans multiple calls needing
+      // coalescing (see coalesceMarqueeSelectionHistory's doc comment); a
+      // drill-in/pick click (source: "pointer") reported through this same
+      // handler is one complete change like any other selection command.
+      if (intent.source !== "marquee") {
+        recordSelectionHistoryAroundChange(run);
+        return;
+      }
+      if (viewModeRef.current !== "overview") {
+        run();
+        return;
+      }
+      const before = captureCurrentSelection();
+      flushSync(run);
+      const after = captureCurrentSelection();
+      const entry = coalesceMarqueeSelectionHistory(
+        marqueeSelectionHistoryBeforeRef,
+        intent.final === true,
+        before,
+        after,
+      );
+      if (entry) pushSelectionHistoryEntry(entry.before, entry.after);
+    },
+    [pushSelectionHistoryEntry, recordSelectionHistoryAroundChange],
+  );
   useEffect(() => {
     pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
     syncUndoRedoState();
@@ -2272,7 +2430,18 @@ function DesignEditor() {
     syncUndoRedoState();
   }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
-    (entry: ContentHistoryEntry) => {
+    (
+      entry: ContentHistoryEntry,
+      // Figma-parity undo selection restore: a gesture whose own content
+      // write ALSO moves live selection onto something new before this runs
+      // (alt-drag duplicate reselects the clone the instant the bridge
+      // creates it, at gesture start — well before this persist at gesture
+      // end) cannot rely on captureCurrentSelection() below, which only
+      // ever sees whatever is selected RIGHT NOW. Overrides just the layer
+      // ids captured for this entry with the gesture's own pre-write
+      // snapshot; overviewSelectedScreenIds/activeFileId still come live.
+      selectedLayerIdsOverride?: string[],
+    ) => {
       const changes = getContentHistoryChanges(entry).filter(
         (change) => change.before !== change.after,
       );
@@ -2305,12 +2474,21 @@ function DesignEditor() {
         changes.length === 1 ? changes[0] : { changes },
       ];
       // Figma-parity undo/redo selection restore: index-aligned with the push
-      // just above — see contentUndoSelectionStackRef's doc comment.
+      // just above — see contentUndoSelectionStackRef's doc comment. A
+      // gesture that knows its own result (group, frame, duplicate, paste)
+      // separately stamps contentHistorySelectionAfterRef for redo once this
+      // call returns — see ContentHistorySelectionAfterMap's doc comment for
+      // why that isn't a second slot right here.
       contentUndoSelectionStackRef.current = [
         ...contentUndoSelectionStackRef.current.slice(
           -(MAX_DESIGN_UNDO_STACK - 1),
         ),
-        captureCurrentSelection(),
+        selectedLayerIdsOverride
+          ? {
+              ...captureCurrentSelection(),
+              selectedLayerIds: selectedLayerIdsOverride,
+            }
+          : captureCurrentSelection(),
       ];
       clearRedoStacks();
       historyOrderRef.current = [
@@ -2427,6 +2605,8 @@ function DesignEditor() {
     fileDeletionUndoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
+    selectionUndoStackRef.current = [];
+    selectionRedoStackRef.current = [];
     clipboardPasteUndoStackRef.current = [];
     clipboardPasteRedoStackRef.current = [];
     latestClipboardMutationContentRef.current.clear();
@@ -4491,7 +4671,13 @@ function DesignEditor() {
           clearRedoStacks,
           designDataJsonRef,
           geometryUndoStackRef,
-          historyOrderRef,
+          // geometry-commit.ts only knows the base UndoRedoOrderKind union
+          // (it never pushes "selection") — narrow the shared ref's type
+          // for this one call site rather than widening that file's own
+          // (out-of-ownership) type.
+          historyOrderRef: historyOrderRef as React.RefObject<
+            UndoRedoOrderKind[]
+          >,
           id,
           lastGeometryCommitAtRef,
           locallyPinnedHeightIdsRef,
@@ -5665,9 +5851,28 @@ function DesignEditor() {
       clearRedoStacks();
       syncUndoRedoState();
     };
+    // Figma-parity redo selection restore: yjs never reuses a StackItem
+    // across a round trip — undoing pops one off undoStack and pushes a
+    // FRESH item (blank meta) onto redoStack for the inverse transaction,
+    // and vice versa on redo (see forwardYjsUndoStackItemMeta's doc
+    // comment). Without this, a selection stamped by stampYjsUndoSelection /
+    // stampYjsUndoSelectionAfter would work for exactly one undo and vanish
+    // on the matching redo. This fires after yjs has already pushed the new
+    // item, so it's on top of the opposite stack here.
+    const handleStackItemPopped = (event: {
+      stackItem: { meta: Map<unknown, unknown> };
+      type?: "undo" | "redo";
+    }) => {
+      const oppositeStack = event.type === "undo" ? um.redoStack : um.undoStack;
+      forwardYjsUndoStackItemMeta(
+        event.stackItem,
+        oppositeStack[oppositeStack.length - 1],
+      );
+      syncUndoRedoState();
+    };
     um.on("stack-item-added", handleStackItemAdded);
     um.on("stack-item-updated", syncState);
-    um.on("stack-item-popped", syncState);
+    um.on("stack-item-popped", handleStackItemPopped);
     um.on("stack-cleared", syncState);
 
     undoManagerRef.current = um;
@@ -5676,7 +5881,7 @@ function DesignEditor() {
     return () => {
       um.off("stack-item-added", handleStackItemAdded);
       um.off("stack-item-updated", syncState);
-      um.off("stack-item-popped", syncState);
+      um.off("stack-item-popped", handleStackItemPopped);
       um.off("stack-cleared", syncState);
       um.destroy();
       undoManagerRef.current = null;
@@ -5804,11 +6009,16 @@ function DesignEditor() {
     if (!activeEditorDragRef.current) return false;
     activeEditorDragRef.current = false;
     if (typeof document === "undefined") return true;
+    // Stamped here, at the real Escape keydown, not at message-delivery time:
+    // the bridge orders this against its own commit timestamp (both Date.now,
+    // a wall clock shared across documents) to tell "Escape predates the
+    // mouseup" from "Escape came after the drag already finished".
+    const pressedAt = Date.now();
     document
       .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
       .forEach((iframe) => {
         iframe.contentWindow?.postMessage(
-          { type: "agent-native:cancel-active-drag" },
+          { type: "agent-native:cancel-active-drag", pressedAt },
           "*",
         );
       });
@@ -8780,6 +8990,35 @@ function DesignEditor() {
   // gesture wiring doesn't have to infer "space-armed" from activeTool alone.
   const [spacePanActive, setSpacePanActive] = useState(false);
   const spacePanStashedToolRef = useRef<DesignTool | null>(null);
+  // Figma parity (unique-paths): a preview iframe's own document only gets
+  // Space's native keydown/keyup when IT holds keyboard focus — the pointer
+  // down that starts an on-canvas object drag does not always move focus
+  // there (e.g. a drag the host is also tracking for cross-screen drop, see
+  // editor-chrome.bridge.ts's postCrossScreenDrag), so Space landing on the
+  // HOST window mid-drag must not be swallowed into arming the hand/pan tool
+  // (that would hijack the gesture) — forward it into every preview iframe
+  // instead so the bridge's own reorder gesture can still suppress
+  // reparenting, exactly as if its own listener had seen the key.
+  const broadcastSpaceHeldToIframes = useCallback((held: boolean) => {
+    if (typeof document === "undefined") return;
+    document
+      .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+      .forEach((iframe) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:set-space-held", held },
+          "*",
+        );
+      });
+  }, []);
+  // Whether keydown armed iframe forwarding for THIS Space hold, tracked
+  // independently of activeEditorDragRef's CURRENT value — a drag that ends
+  // (mouseup) before Space is released clears activeEditorDragRef first, so
+  // checking it again at keyup would take the temporary-pan branch instead
+  // and never send the matching held:false, leaving every preview iframe's
+  // bridgeSpaceKeyPressed stuck true for the NEXT gesture. Keyup (and blur)
+  // must undo exactly what keydown did, regardless of what else changed
+  // mid-hold.
+  const spaceForwardArmedRef = useRef(false);
   useEffect(() => {
     if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
 
@@ -8789,6 +9028,24 @@ function DesignEditor() {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (!canEditDesignRef.current) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
+      const armKeydown = resolveSpaceForwardTransition(
+        "keydown",
+        spaceForwardArmedRef.current,
+        Boolean(activeEditorDragRef.current),
+      );
+      // `armed` (not just `broadcast !== null`) is the consumption signal: a
+      // duplicate keydown that arrives after mouseup while Space is still
+      // held down (dragActive now false) keeps `armed` true with no new
+      // broadcast to send — checking `broadcast` alone would miss that and
+      // fall through into arming the temporary hand tool mid-hold.
+      if (armKeydown.armed) {
+        event.preventDefault();
+        spaceForwardArmedRef.current = true;
+        if (armKeydown.broadcast !== null) {
+          broadcastSpaceHeldToIframes(armKeydown.broadcast);
+        }
+        return;
+      }
       if (spacePanStashedToolRef.current !== null) return;
       event.preventDefault();
       spacePanStashedToolRef.current = activeToolRef.current;
@@ -8798,6 +9055,17 @@ function DesignEditor() {
 
     const handleWindowKeyUp = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
+      const releaseKeyup = resolveSpaceForwardTransition(
+        "keyup",
+        spaceForwardArmedRef.current,
+        Boolean(activeEditorDragRef.current),
+      );
+      if (releaseKeyup.broadcast !== null) {
+        spaceForwardArmedRef.current = releaseKeyup.armed;
+        event.preventDefault();
+        broadcastSpaceHeldToIframes(releaseKeyup.broadcast);
+        return;
+      }
       const stashedTool = spacePanStashedToolRef.current;
       if (stashedTool === null) return;
       spacePanStashedToolRef.current = null;
@@ -8810,9 +9078,19 @@ function DesignEditor() {
       event.preventDefault();
     };
 
-    // Also release the temporary hand tool if the window loses focus mid-hold
-    // (e.g. Cmd+Tab away) so it never gets stuck armed with no matching keyup.
+    // Also release the temporary hand tool (or forwarded Space) if the
+    // window loses focus mid-hold (e.g. Cmd+Tab away) so neither gets stuck
+    // armed with no matching keyup.
     const handleWindowBlur = () => {
+      const releaseBlur = resolveSpaceForwardTransition(
+        "blur",
+        spaceForwardArmedRef.current,
+        Boolean(activeEditorDragRef.current),
+      );
+      if (releaseBlur.broadcast !== null) {
+        spaceForwardArmedRef.current = releaseBlur.armed;
+        broadcastSpaceHeldToIframes(releaseBlur.broadcast);
+      }
       const stashedTool = spacePanStashedToolRef.current;
       if (stashedTool === null) return;
       spacePanStashedToolRef.current = null;
@@ -8834,7 +9112,7 @@ function DesignEditor() {
       });
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [embedded, pendingQuestions]);
+  }, [embedded, pendingQuestions, broadcastSpaceHeldToIframes]);
 
   // PICK-RACE: a native (non-React-state) ref tracking whether Shift is
   // currently physically held, same pattern as spacePanStashedToolRef above.
@@ -9250,42 +9528,52 @@ function DesignEditor() {
         persistPendingNodeId?: boolean;
         breakpointWidthPx?: number;
       } = {},
-    ) =>
-      runScreenElementSelect(
-        {
-          activeBreakpointWidthStateRef,
-          applyFileContentUpdate,
-          clearPendingOverviewLayerSelectionTimer,
-          focusDesignInspectorForSelection,
-          getCodeLayerProjectionForScreen,
-          getScreenContent,
-          handleBreakpointBarSelect,
-          id,
-          pendingOverviewLayerSelectionRef,
-          pendingOverviewScreenSelectionRef,
-          selectedLayerIdsState,
-          setActiveFileId,
-          setActiveTool,
-          setCreatedOverviewLayerSelection,
-          setHoveredElement,
-          setHoveredElementScreenId,
-          setMode,
-          setOverviewSelectedScreenIds,
-          setSelectedElement,
-          setSelectedLayerIdsState,
-          shouldPreserveBlockedOverviewLayerSelectionRef,
-          t,
-          viewModeRef,
-        },
-        screenId,
-        info,
-        intent,
-        options,
-      ),
+    ) => {
+      const run = () =>
+        runScreenElementSelect(
+          {
+            activeBreakpointWidthStateRef,
+            applyFileContentUpdate,
+            clearPendingOverviewLayerSelectionTimer,
+            focusDesignInspectorForSelection,
+            getCodeLayerProjectionForScreen,
+            getScreenContent,
+            handleBreakpointBarSelect,
+            id,
+            pendingOverviewLayerSelectionRef,
+            pendingOverviewScreenSelectionRef,
+            selectedLayerIdsState,
+            setActiveFileId,
+            setActiveTool,
+            setCreatedOverviewLayerSelection,
+            setHoveredElement,
+            setHoveredElementScreenId,
+            setMode,
+            setOverviewSelectedScreenIds,
+            setSelectedElement,
+            setSelectedLayerIdsState,
+            shouldPreserveBlockedOverviewLayerSelectionRef,
+            t,
+            viewModeRef,
+          },
+          screenId,
+          info,
+          intent,
+          options,
+        );
+      // See isUserOriginatedSelectionIntent's doc comment: only a genuine
+      // user pick is its own undo step.
+      if (!isUserOriginatedSelectionIntent(intent)) {
+        run();
+        return;
+      }
+      recordSelectionHistoryAroundChange(run);
+    },
     [
       activeFile?.id,
       applyFileContentUpdate,
       clearPendingOverviewLayerSelectionTimer,
+      recordSelectionHistoryAroundChange,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       getScreenContent,
@@ -10398,9 +10686,12 @@ function DesignEditor() {
           applyLocalContentUpdate,
           canEditDesign,
           getFreshActiveContent,
+          selectedElement,
+          selectedLayerIdsState,
           setSelectedElement,
           setSelectedLayerIdsState,
           t,
+          undoManagerRef,
         },
         selector,
         cloneHtml,
@@ -10412,6 +10703,8 @@ function DesignEditor() {
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
+      selectedElement,
+      selectedLayerIdsState,
       t,
     ],
   );
@@ -11534,13 +11827,17 @@ function DesignEditor() {
         applyLocalContentUpdate,
         canEditDesign,
         codeLayerOwnerByNodeIdRef,
+        contentHistorySelectionAfterRef,
+        contentUndoStackRef,
         files,
         getFreshActiveContent,
+        overviewSelectedScreenIds,
         selectedLayerIdsState,
         sendRuntimeLayerSemanticHandoff,
         setSelectedElement,
         setSelectedLayerIdsState,
         t,
+        undoManagerRef,
       }),
     [
       activeFile,
@@ -11548,6 +11845,7 @@ function DesignEditor() {
       canEditDesign,
       files,
       getFreshActiveContent,
+      overviewSelectedScreenIds,
       selectedLayerIdsState,
       sendRuntimeLayerSemanticHandoff,
       t,
@@ -11567,22 +11865,31 @@ function DesignEditor() {
   const handleFrameSelection = useCallback(
     () =>
       runFrameSelection({
+        activeBreakpointWidthState,
         activeFile,
         applyLocalContentUpdate,
+        boardFileId,
         canEditDesign,
+        contentHistorySelectionAfterRef,
+        contentUndoStackRef,
         files,
         getFreshActiveContent,
+        overviewSelectedScreenIds,
         selectedLayerIdsState,
         setSelectedElement,
         setSelectedLayerIdsState,
         t,
+        undoManagerRef,
       }),
     [
+      activeBreakpointWidthState,
       activeFile,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
       files,
       getFreshActiveContent,
+      overviewSelectedScreenIds,
       selectedLayerIdsState,
       t,
     ],
@@ -12475,6 +12782,7 @@ function DesignEditor() {
       duplicate?: boolean;
       sourceCloneHtml?: string;
       styleSnapshot?: PortableStyleSnapshot;
+      styleSnapshotCaptureFailed?: boolean;
     }) =>
       runCrossScreenElementDrop(
         {
@@ -12593,13 +12901,19 @@ function DesignEditor() {
           files,
           geometryRedoStackRef,
           geometryUndoStackRef,
-          historyOrderRef,
+          // delete-files.ts only knows the base UndoRedoOrderKind union (it
+          // never pushes "selection") — narrow the shared refs' type for
+          // this one call site rather than widening that file's own
+          // (out-of-ownership) type.
+          historyOrderRef: historyOrderRef as React.RefObject<
+            UndoRedoOrderKind[]
+          >,
           id,
           latestClipboardMutationContentRef,
           localContentRedoStackRef,
           localContentUndoStackRef,
           queryClient,
-          redoOrderRef,
+          redoOrderRef: redoOrderRef as React.RefObject<UndoRedoOrderKind[]>,
           setActiveFileId,
           setSelectedElement,
           setSelectedLayerIdsState,
@@ -13030,6 +13344,7 @@ function DesignEditor() {
         canEditDesign,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
+        codeLayerOwnerByNodeIdRef,
         contentRedoSelectionStackRef,
         contentRedoStackRef,
         contentUndoSelectionStackRef,
@@ -13073,6 +13388,8 @@ function DesignEditor() {
         requestPendingLiveNonStyleRevert,
         requestPendingVisualStyleRevert,
         restoreSelectionSnapshot,
+        selectionRedoStackRef,
+        selectionUndoStackRef,
         setActiveFileId,
         setContentRenderRevision,
         setHoveredElement,
@@ -13132,6 +13449,8 @@ function DesignEditor() {
         canEditDesign,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
+        codeLayerOwnerByNodeIdRef,
+        contentHistorySelectionAfterRef,
         contentRedoSelectionStackRef,
         contentRedoStackRef,
         contentUndoSelectionStackRef,
@@ -13181,6 +13500,8 @@ function DesignEditor() {
         restoreSelectionSnapshot,
         runtimeStructureInsertRevisionRef,
         runtimeStructureMoveRevisionRef,
+        selectionRedoStackRef,
+        selectionUndoStackRef,
         setContentRenderRevision,
         setHoveredElement,
         setPendingLayerStateReplayRequest,
@@ -13259,12 +13580,16 @@ function DesignEditor() {
     viewModeRef.current = "overview";
     setViewMode("overview");
     setActiveTool("move");
-    const frames = getAllScreenFrameEntries({
-      overviewScreens,
-      canvasFrameGeometryById,
-      boardContentBounds,
-      boardFileId,
-    });
+    const frames = withMeasuredFrameHeights(
+      getAllScreenFrameEntries({
+        overviewScreens,
+        canvasFrameGeometryById,
+        boardContentBounds,
+        boardFileId,
+      }),
+      measuredScreenHeightByIdRef.current,
+      pinnedHeightScreenIds(overviewScreens),
+    );
     const bounds = getFrameGroupBounds(frames);
     if (!bounds) {
       setExplicitOverviewCanvasZoom(100);
@@ -13283,20 +13608,51 @@ function DesignEditor() {
   ]);
 
   const handleZoomToSelectionFit = useCallback(() => {
-    const allFrames = getAllScreenFrameEntries({
-      overviewScreens,
-      canvasFrameGeometryById,
-      boardContentBounds,
-      boardFileId,
-    });
+    const allFrames = withMeasuredFrameHeights(
+      getAllScreenFrameEntries({
+        overviewScreens,
+        canvasFrameGeometryById,
+        boardContentBounds,
+        boardFileId,
+      }),
+      measuredScreenHeightByIdRef.current,
+      pinnedHeightScreenIds(overviewScreens),
+    );
     const selectedIds = new Set(overviewSelectedScreenIds);
-    // No screen-level selection (e.g. only a layer selected within one
-    // screen, with no screen-frame selection): fall back to fitting all
-    // content. A true per-selected-layer canvas bounds fit would be a closer
-    // match to Figma here, but codeLayerOwnerByNodeId (needed to resolve the
-    // owning screen) is a useMemo declared later in this component than this
-    // callback can reference from its dependency array — see the report for
-    // this gap.
+    // No screen-level selection: an in-screen element may still be selected
+    // (e.g. a layer picked inside a screen with no screen-frame selection).
+    // Figma zooms tighter to just that element's own bounds in that case
+    // rather than falling back to fitting all content — resolve it via the
+    // codeLayerOwnerByNodeId ref (safe to read at call time; it is a ref
+    // precisely so earlier-declared callbacks like this one can use it).
+    if (selectedIds.size === 0) {
+      const selectedLayerId =
+        selectedLayerIdsState[selectedLayerIdsState.length - 1];
+      const owner = selectedLayerId
+        ? codeLayerOwnerByNodeIdRef.current.get(selectedLayerId)
+        : undefined;
+      const localRect = selectedElementRef.current?.boundingRect;
+      const ownerFrame = owner
+        ? allFrames.find((frame) => frame.id === owner.fileId)
+        : undefined;
+      if (
+        ownerFrame &&
+        localRect &&
+        localRect.width > 0 &&
+        localRect.height > 0
+      ) {
+        const elementBounds = getElementWorldBoundsForZoomFit(
+          ownerFrame.geometry,
+          localRect,
+        );
+        cameraCommandNonceRef.current += 1;
+        setCameraCommand({
+          fitBounds: elementBounds,
+          nonce: cameraCommandNonceRef.current,
+        });
+        return;
+      }
+    }
     const selectedFrames =
       selectedIds.size > 0
         ? allFrames.filter((frame) => selectedIds.has(frame.id))
@@ -13317,6 +13673,7 @@ function DesignEditor() {
     canvasFrameGeometryById,
     overviewScreens,
     overviewSelectedScreenIds,
+    selectedLayerIdsState,
     setZoom,
   ]);
 
@@ -13841,33 +14198,35 @@ function DesignEditor() {
   // ── Editor hotkeys ─────────────────────────────────────────────────────────
   const handleEscapeHotkey = useCallback(
     () =>
-      runEscapeHotkey({
-        activeBreakpointWidthStateRef,
-        activeTool,
-        cancelActiveEditorDrag,
-        drawMode,
-        enterOverviewFromZoom,
-        focusedAnnotationSending,
-        handleBreakpointBarSelect,
-        handleCloseKeyboardShortcuts,
-        handleExitFocusedDrawMode,
-        handleExitOverviewDrawMode,
-        keyboardShortcutsOpen,
-        mode,
-        overviewAnnotationSending,
-        pinMode,
-        selectedElement,
-        setActiveTool,
-        setDrawMode,
-        setHoveredElement,
-        setMode,
-        setOverviewClearSelectionRequest,
-        setOverviewSelectedScreenIds,
-        setPinMode,
-        setSelectedElement,
-        setSelectedLayerIdsState,
-        viewMode,
-      }),
+      recordSelectionHistoryAroundChange(() =>
+        runEscapeHotkey({
+          activeBreakpointWidthStateRef,
+          activeTool,
+          cancelActiveEditorDrag,
+          drawMode,
+          enterOverviewFromZoom,
+          focusedAnnotationSending,
+          handleBreakpointBarSelect,
+          handleCloseKeyboardShortcuts,
+          handleExitFocusedDrawMode,
+          handleExitOverviewDrawMode,
+          keyboardShortcutsOpen,
+          mode,
+          overviewAnnotationSending,
+          pinMode,
+          selectedElement,
+          setActiveTool,
+          setDrawMode,
+          setHoveredElement,
+          setMode,
+          setOverviewClearSelectionRequest,
+          setOverviewSelectedScreenIds,
+          setPinMode,
+          setSelectedElement,
+          setSelectedLayerIdsState,
+          viewMode,
+        }),
+      ),
     [
       activeTool,
       cancelActiveEditorDrag,
@@ -13882,6 +14241,7 @@ function DesignEditor() {
       mode,
       overviewAnnotationSending,
       pinMode,
+      recordSelectionHistoryAroundChange,
       selectedElement,
       viewMode,
     ],
@@ -14157,39 +14517,43 @@ function DesignEditor() {
   // editing one screen's layers. Overview-mode Cmd+A keeps its previous
   // "select all screens" behavior.
   const handleSelectAllFrames = useCallback(() => {
-    const projection = activeFile
-      ? buildCodeLayerProjection(getFreshActiveContent())
-      : null;
-    const decision = projection
-      ? runSelectAll({
-          tree: buildCodeLayerTree(projection),
-          selectedLayerIds: selectedLayerIdsState,
-          nonLayerIds: new Set(files.map((file) => file.id)),
-          fallback:
-            viewModeRef.current === "single" ? "top-level-layers" : "screens",
-        })
-      : ({ kind: "screens" } as const);
-    if (projection && decision.kind === "layers") {
-      setSelectedLayerIdsState(decision.layerIds);
-      const lastId = decision.layerIds[decision.layerIds.length - 1];
-      const lastNode = projection.nodes.find((n) => n.id === lastId);
-      if (lastNode) setSelectedElement(elementInfoFromCodeLayerNode(lastNode));
-      return;
-    }
-    if (!overviewScreens.length) return;
-    setDrawMode(false);
-    setPinMode(false);
-    setMode("edit");
-    setActiveTool("move");
-    viewModeRef.current = "overview";
-    setViewMode("overview");
-    setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id));
-    setOverviewSelectAllRequest((request) => request + 1);
+    recordSelectionHistoryAroundChange(() => {
+      const projection = activeFile
+        ? buildCodeLayerProjection(getFreshActiveContent())
+        : null;
+      const decision = projection
+        ? runSelectAll({
+            tree: buildCodeLayerTree(projection),
+            selectedLayerIds: selectedLayerIdsState,
+            nonLayerIds: new Set(files.map((file) => file.id)),
+            fallback:
+              viewModeRef.current === "single" ? "top-level-layers" : "screens",
+          })
+        : ({ kind: "screens" } as const);
+      if (projection && decision.kind === "layers") {
+        setSelectedLayerIdsState(decision.layerIds);
+        const lastId = decision.layerIds[decision.layerIds.length - 1];
+        const lastNode = projection.nodes.find((n) => n.id === lastId);
+        if (lastNode)
+          setSelectedElement(elementInfoFromCodeLayerNode(lastNode));
+        return;
+      }
+      if (!overviewScreens.length) return;
+      setDrawMode(false);
+      setPinMode(false);
+      setMode("edit");
+      setActiveTool("move");
+      viewModeRef.current = "overview";
+      setViewMode("overview");
+      setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id));
+      setOverviewSelectAllRequest((request) => request + 1);
+    });
   }, [
     activeFile,
     files,
     getFreshActiveContent,
     overviewScreens,
+    recordSelectionHistoryAroundChange,
     selectedLayerIdsState,
   ]);
 
@@ -16160,11 +16524,7 @@ function DesignEditor() {
             : selectedLayerIdsState
           : selectedLayerIdsState;
     const filtered = baseSelection.filter((layerId) => validIds.has(layerId));
-    if (selectedElementLayerId && !filtered.includes(selectedElementLayerId)) {
-      if (filtered.length > 1) return [...filtered, selectedElementLayerId];
-      return [selectedElementLayerId];
-    }
-    return filtered;
+    return resolveEffectiveSelectedLayerIds(filtered, selectedElementLayerId);
   }, [
     activeCodeLayerProjection.nodes,
     activeFile?.id,
@@ -17836,9 +18196,14 @@ function DesignEditor() {
       selectedRuntimeLayerOwners.every(
         (owner) => owner?.fileId === selectedRuntimeLayerOwners[0]?.fileId,
       ));
+  // Figma parity: grouping doesn't care which canvas mode you're looking at
+  // it from — Cmd+G (handleGroupSelection wired unconditionally at
+  // canEditDesign in useDesignHotkeys) already works from overview, so
+  // gating just the context-menu item to viewMode === "single" only made
+  // the two entry points disagree about the same command.
+  // runGroupSelection itself has no viewMode dependency either.
   const canGroup =
     canEditDesign &&
-    viewMode === "single" &&
     Boolean(activeFile) &&
     selectedDomLayerIds.length >= 1 &&
     selectedLayersUseCompatibleSourceBackend;
@@ -17975,6 +18340,7 @@ function DesignEditor() {
           handleScreenLayerMove,
           recordContentHistoryEntry,
           recordLocalContentHistoryEntry,
+          remapMotionTracksForClone,
           runtimeStructureMoveRevisionRef,
           sendRuntimeLayerMoveSemanticHandoff,
           setExpandedLayerIds,
@@ -18001,6 +18367,7 @@ function DesignEditor() {
       handleScreenLayerMove,
       recordContentHistoryEntry,
       recordLocalContentHistoryEntry,
+      remapMotionTracksForClone,
       sendRuntimeLayerMoveSemanticHandoff,
       t,
       visualScreenFileIds,
@@ -18036,29 +18403,31 @@ function DesignEditor() {
         range: boolean;
       },
     ) =>
-      runLayerSelectionChange(
-        {
-          activeFile,
-          clearPendingOverviewLayerSelectionTimer,
-          codeLayerOwnerByNodeId,
-          effectiveCodeLayerState,
-          files,
-          focusDesignInspectorForSelection,
-          overviewSelectedScreenIds,
-          pendingOverviewLayerSelectionRef,
-          pendingOverviewScreenSelectionRef,
-          setActiveFileId,
-          setActiveTool,
-          setCreatedOverviewLayerSelection,
-          setMode,
-          setOverviewSelectedScreenIds,
-          setSelectedElement,
-          setSelectedLayerIdsState,
-          setViewMode,
-          viewModeRef,
-        },
-        ids,
-        _intent,
+      recordSelectionHistoryAroundChange(() =>
+        runLayerSelectionChange(
+          {
+            activeFile,
+            clearPendingOverviewLayerSelectionTimer,
+            codeLayerOwnerByNodeId,
+            effectiveCodeLayerState,
+            files,
+            focusDesignInspectorForSelection,
+            overviewSelectedScreenIds,
+            pendingOverviewLayerSelectionRef,
+            pendingOverviewScreenSelectionRef,
+            setActiveFileId,
+            setActiveTool,
+            setCreatedOverviewLayerSelection,
+            setMode,
+            setOverviewSelectedScreenIds,
+            setSelectedElement,
+            setSelectedLayerIdsState,
+            setViewMode,
+            viewModeRef,
+          },
+          ids,
+          _intent,
+        ),
       ),
     [
       activeFile?.id,
@@ -18068,6 +18437,7 @@ function DesignEditor() {
       files,
       focusDesignInspectorForSelection,
       overviewSelectedScreenIds,
+      recordSelectionHistoryAroundChange,
     ],
   );
 
@@ -18076,32 +18446,42 @@ function DesignEditor() {
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
     ) =>
-      runLayerMarqueeSelectionChange(
-        {
-          clearPendingOverviewLayerSelectionTimer,
-          focusDesignInspectorForSelection,
-          getCodeLayerProjectionForScreen,
-          hasActiveSelectionRef,
-          lastMarqueeSelectionSignatureRef,
-          pendingOverviewLayerSelectionRef,
-          pendingOverviewScreenSelectionRef,
-          setActiveFileId,
-          setActiveTool,
-          setCreatedOverviewLayerSelection,
-          setMode,
-          setOverviewClearSelectionRequest,
-          setOverviewSelectedScreenIds,
-          setSelectedElement,
-          setSelectedLayerIdsState,
-          viewModeRef,
-        },
-        selection,
-        intent,
+      // A marquee gesture spans many calls (one per mousemove tick, plus one
+      // mouseup "final" report — see coalesceMarqueeSelectionHistory's doc
+      // comment); every other caller of this handler is a single, complete
+      // selection change. Route on `intent.final`, a marquee-only field the
+      // shared ElementSelectionIntent type doesn't declare.
+      recordMarqueeSelectionHistoryAroundChange(
+        () =>
+          runLayerMarqueeSelectionChange(
+            {
+              clearPendingOverviewLayerSelectionTimer,
+              focusDesignInspectorForSelection,
+              getCodeLayerProjectionForScreen,
+              hasActiveSelectionRef,
+              lastMarqueeSelectionSignatureRef,
+              pendingOverviewLayerSelectionRef,
+              pendingOverviewScreenSelectionRef,
+              setActiveFileId,
+              setActiveTool,
+              setCreatedOverviewLayerSelection,
+              setMode,
+              setOverviewClearSelectionRequest,
+              setOverviewSelectedScreenIds,
+              setSelectedElement,
+              setSelectedLayerIdsState,
+              viewModeRef,
+            },
+            selection,
+            intent,
+          ),
+        intent as { source?: string; final?: boolean },
       ),
     [
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
+      recordMarqueeSelectionHistoryAroundChange,
     ],
   );
 
@@ -18114,13 +18494,7 @@ function DesignEditor() {
       handleLayerMarqueeSelectionChange(
         infos.map((info) => ({ screenId, info })),
         {
-          additive: Boolean(
-            intent?.additive ||
-            intent?.range ||
-            intent?.shiftKey ||
-            intent?.metaKey ||
-            intent?.ctrlKey,
-          ),
+          additive: resolveMarqueeAdditive(intent),
           range: Boolean(intent?.range || intent?.shiftKey),
           source: "marquee",
           shiftKey: Boolean(intent?.shiftKey),
@@ -18940,9 +19314,15 @@ function DesignEditor() {
       React.ComponentProps<typeof MultiScreenCanvas>["onBoardVisualStyleChange"]
     >
   >(
-    (selector, styles, info) => {
+    (selector, styles, info, metadata) => {
       if (!boardFileId) return;
-      handleScreenVisualStyleChange(boardFileId, selector, styles, info);
+      handleScreenVisualStyleChange(
+        boardFileId,
+        selector,
+        styles,
+        info,
+        metadata,
+      );
     },
     [boardFileId, handleScreenVisualStyleChange],
   );
@@ -20321,6 +20701,16 @@ function DesignEditor() {
     !initialGenerationChromeLimited &&
     !responsiveInteractActive &&
     (!minimalUi || minimalInspectorHasSelection);
+  // Both shells are absolutely-positioned overlays on top of the canvas
+  // surface (see the `left-shell`/`right-panel` chrome regions below), not
+  // flex siblings, so MultiScreenCanvas's own measured rect never shrinks
+  // for them — feed their widths in so its overview camera/fit math can
+  // center content in the space actually free of this chrome instead of
+  // rendering the first screen (and its frame label) underneath it.
+  const chromeInsetLeft = leftSidebarVisible
+    ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
+    : 0;
+  const chromeInsetRight = rightSidebarVisible ? rightSidebarWidth : 0;
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -21260,6 +21650,8 @@ function DesignEditor() {
                         zoom={overviewCanvasZoom}
                         onZoomChange={setExplicitOverviewCanvasZoom}
                         cameraCommand={cameraCommand}
+                        chromeInsetLeft={chromeInsetLeft}
+                        chromeInsetRight={chromeInsetRight}
                         activeId={activeFileId}
                         selectedScreenIds={overviewSelectedScreenIds}
                         selectedElementScreenId={selectedElementScreenId}
@@ -21290,6 +21682,9 @@ function DesignEditor() {
                         onGeometryCommit={handleGeometryCommit}
                         onBreakpointContentHeightChange={
                           handleOverviewBreakpointContentHeightChange
+                        }
+                        onPrimaryContentHeightChange={
+                          handlePrimaryContentHeightChange
                         }
                         // Screen-frame-only partial implementation — see the
                         // gradientEditTarget derivation above for the BOARD/
