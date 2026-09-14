@@ -1,4 +1,7 @@
-import { mcpServerUrlMatchesProvider } from "../shared/mcp-provider-hosts.js";
+import {
+  hasMcpProviderMatchRules,
+  mcpServerUrlMatchesProvider,
+} from "../shared/mcp-provider-hosts.js";
 import { listRemoteServers, type RemoteMcpScope } from "./remote-store.js";
 
 export interface ConnectedMcpProviderServer {
@@ -33,6 +36,15 @@ export async function findConnectedMcpServersForProvider(options: {
   orgId?: string | null;
 }): Promise<ConnectedMcpProviderResult> {
   const { providerId } = options;
+  // Answering "no servers" for a provider this module has no rules for is the
+  // exact failure this helper exists to remove: it is indistinguishable from a
+  // real "not connected" and would be reported to a user as fact.
+  if (!hasMcpProviderMatchRules(providerId)) {
+    throw new Error(
+      `No MCP provider match rules for "${providerId}". Add it to MCP_PROVIDER_ENDPOINTS or MCP_LINK_HOSTS before querying its connection status.`,
+    );
+  }
+
   const scopes: Array<{ scope: RemoteMcpScope; scopeId: string }> = [];
   if (options.userEmail) {
     scopes.push({ scope: "user", scopeId: options.userEmail });

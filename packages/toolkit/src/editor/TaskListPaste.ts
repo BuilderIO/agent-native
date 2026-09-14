@@ -38,6 +38,15 @@ function findCheckboxMarker(item: Element): Element | null {
   return null;
 }
 
+function ownsCheckedSpan(item: Element): boolean {
+  for (const span of Array.from(
+    item.querySelectorAll(".to-do-children-checked"),
+  )) {
+    if (span.closest("li") === item) return true;
+  }
+  return false;
+}
+
 function readChecked(item: Element, marker: Element): boolean {
   if (marker.tagName === "INPUT") {
     if (marker.hasAttribute("checked")) return true;
@@ -47,8 +56,10 @@ function readChecked(item: Element, marker: Element): boolean {
     typeof marker.className === "string" ? marker.className.toLowerCase() : "";
   if (/\bcheckbox-on\b/.test(markerClass)) return true;
 
-  // Notion marks the checked state on the text span, not on the marker.
-  if (item.querySelector(".to-do-children-checked")) return true;
+  // Notion marks the checked state on the text span, not on the marker. Scope
+  // the lookup to this item's own row: `querySelector` walks the whole subtree,
+  // so a checked nested child would otherwise check its unchecked parent.
+  if (ownsCheckedSpan(item)) return true;
 
   const explicit = item.getAttribute("data-checked");
   if (explicit === "true") return true;
@@ -98,6 +109,11 @@ function wrapLeadingInlineContent(doc: Document, item: Element): void {
 }
 
 function convertList(doc: Document, list: Element): boolean {
+  // Tiptap parses task lists from `ul[data-type="taskList"]` only. Tagging an
+  // `<ol>` produces a doc that splits across an orderedList and a taskList and
+  // drops item text, so an ordered checklist is left exactly as it arrived.
+  if (list.tagName !== "UL") return false;
+
   const items = Array.from(list.children).filter(
     (child) => child.tagName === "LI",
   );
@@ -140,7 +156,7 @@ export function normalizePastedTaskListHtml(html: string): string {
 
   // Deepest lists first so a nested checklist is converted before its parent
   // wraps the parent item's leading content in a paragraph.
-  const lists = Array.from(doc.body.querySelectorAll("ul, ol")).reverse();
+  const lists = Array.from(doc.body.querySelectorAll("ul")).reverse();
   let changed = false;
   for (const list of lists) {
     if (convertList(doc, list)) changed = true;

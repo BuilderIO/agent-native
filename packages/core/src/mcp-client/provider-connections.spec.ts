@@ -102,6 +102,33 @@ describe("findConnectedMcpServersForProvider", () => {
     expect(result.servers).toEqual([]);
   });
 
+  it("matches an endpoint that sits outside the provider's link hosts", async () => {
+    mocks.listRemoteServers.mockResolvedValue([
+      {
+        id: "mcps_4",
+        name: "GitHub",
+        url: "https://api.githubcopilot.com/mcp/",
+      },
+    ]);
+
+    const result = await findConnectedMcpServersForProvider({
+      providerId: "github",
+      userEmail: "alice@example.com",
+    });
+
+    expect(result.servers).toHaveLength(1);
+  });
+
+  it("fails loudly for a provider it has no match rules for", async () => {
+    await expect(
+      findConnectedMcpServersForProvider({
+        providerId: "not-a-real-provider",
+        userEmail: "alice@example.com",
+      }),
+    ).rejects.toThrow(/No MCP provider match rules/);
+    expect(mocks.listRemoteServers).not.toHaveBeenCalled();
+  });
+
   it("does not read any scope when there is no user or org", async () => {
     const result = await findConnectedMcpServersForProvider({
       providerId: "notion",

@@ -45,6 +45,58 @@ export const MCP_LINK_HOSTS: Record<string, string[]> = {
   zapier: ["zapier.com"],
 };
 
+/**
+ * Canonical remote MCP endpoint per catalog provider.
+ *
+ * The client catalog matches a saved server against `integration.url` before it
+ * falls back to host matching, and several endpoints sit outside their
+ * provider's link hosts (`api.githubcopilot.com`, `mcp.semgrep.ai`,
+ * `netlify-mcp.netlify.app`). Host matching alone therefore reports those
+ * providers disconnected.
+ *
+ * These hosts are deliberately NOT folded into `MCP_LINK_HOSTS`: that table also
+ * resolves provider links found in prose, and `netlify.app` in particular serves
+ * arbitrary user sites. Kept in sync with the catalog by
+ * `mcp-provider-hosts.parity.spec.ts`.
+ */
+export const MCP_PROVIDER_ENDPOINTS: Record<string, string> = {
+  amplitude: "https://mcp.amplitude.com/mcp",
+  apollo: "https://mcp.apollo.io/mcp",
+  asana: "https://mcp.asana.com/v2/mcp",
+  atlassian: "https://mcp.atlassian.com/v1/mcp/authv2",
+  box: "https://mcp.box.com",
+  "builder-cms": "https://mcp.builder.io/mcp/publish",
+  canva: "https://mcp.canva.com/mcp",
+  cloudflare: "https://mcp.cloudflare.com/mcp",
+  "common-room": "https://mcp.commonroom.io/mcp",
+  context7: "https://mcp.context7.com/mcp",
+  exa: "https://mcp.exa.ai/mcp",
+  figma: "https://mcp.figma.com/mcp",
+  fullstory: "https://api.fullstory.com/mcp/fullstory",
+  github: "https://api.githubcopilot.com/mcp/",
+  gitlab: "https://gitlab.com/api/v4/mcp",
+  gong: "https://mcp.gong.io/mcp",
+  grafana: "https://mcp.grafana.com/mcp",
+  granola: "https://mcp.granola.ai/mcp",
+  hubspot: "https://mcp.hubspot.com",
+  intercom: "https://mcp.intercom.com/mcp",
+  linear: "https://mcp.linear.app/mcp",
+  monday: "https://mcp.monday.com/mcp",
+  neon: "https://mcp.neon.tech/sse",
+  netlify: "https://netlify-mcp.netlify.app/mcp",
+  notion: "https://mcp.notion.com/mcp",
+  paypal: "https://mcp.paypal.com/sse",
+  pylon: "https://mcp.usepylon.com/",
+  semgrep: "https://mcp.semgrep.ai/mcp",
+  sentry: "https://mcp.sentry.dev/mcp",
+  slack: "https://mcp.slack.com/mcp",
+  stripe: "https://mcp.stripe.com",
+  supabase: "https://mcp.supabase.com/mcp",
+  vercel: "https://mcp.vercel.com",
+  webflow: "https://mcp.webflow.com/mcp",
+  zapier: "https://mcp.zapier.com/api/v1/connect",
+};
+
 export function hostMatches(hostname: string, domain: string): boolean {
   return hostname === domain || hostname.endsWith(`.${domain}`);
 }
@@ -60,16 +112,30 @@ export function normalizeMcpUrl(value: string): string {
   }
 }
 
+/** True when this module has any rule that can answer for `providerId`. */
+export function hasMcpProviderMatchRules(providerId: string): boolean {
+  return Boolean(
+    MCP_PROVIDER_ENDPOINTS[providerId] || MCP_LINK_HOSTS[providerId]?.length,
+  );
+}
+
 /**
  * True when a saved remote MCP server URL belongs to `providerId`.
  *
- * Returns `null` — not `false` — when `serverUrl` cannot be parsed, so callers
- * can tell "this row is for another provider" apart from "this row is corrupt".
+ * Mirrors the client catalog's two tiers: the provider's canonical endpoint is
+ * compared first, then its link hosts. Returns `null` — not `false` — when
+ * `serverUrl` cannot be parsed, so callers can tell "this row is for another
+ * provider" apart from "this row is corrupt".
  */
 export function mcpServerUrlMatchesProvider(
   providerId: string,
   serverUrl: string,
 ): boolean | null {
+  const endpoint = MCP_PROVIDER_ENDPOINTS[providerId];
+  if (endpoint && normalizeMcpUrl(endpoint) === normalizeMcpUrl(serverUrl)) {
+    return true;
+  }
+
   const hosts = MCP_LINK_HOSTS[providerId];
   if (!hosts?.length) return false;
 

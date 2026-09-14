@@ -81,6 +81,68 @@ describe("normalizePastedTaskListHtml", () => {
     ).toBeNull();
   });
 
+  // Real Notion nested HTML puts the checked marker class on the text span, and
+  // `querySelector` walks the whole subtree — an unchecked parent holding a
+  // checked child was being marked checked.
+  it("does not let a checked nested child check its unchecked parent", () => {
+    const html = `<ul class="to-do-list">
+      <li><div class="checkbox checkbox-off"></div><span class="to-do-children-unchecked">parent unchecked</span>
+        <ul class="to-do-list">
+          <li><div class="checkbox checkbox-on"></div><span class="to-do-children-checked">child checked</span></li>
+        </ul>
+      </li>
+    </ul>`;
+
+    const items = Array.from(
+      parse(normalizePastedTaskListHtml(html)).querySelectorAll("li"),
+    );
+
+    expect(items.map((li) => li.getAttribute("data-checked"))).toEqual([
+      "false",
+      "true",
+    ]);
+  });
+
+  it("keeps a checked parent checked above an unchecked child", () => {
+    const html = `<ul class="to-do-list">
+      <li><div class="checkbox checkbox-on"></div><span class="to-do-children-checked">parent checked</span>
+        <ul class="to-do-list">
+          <li><div class="checkbox checkbox-off"></div><span class="to-do-children-unchecked">child unchecked</span></li>
+        </ul>
+      </li>
+    </ul>`;
+
+    const items = Array.from(
+      parse(normalizePastedTaskListHtml(html)).querySelectorAll("li"),
+    );
+
+    expect(items.map((li) => li.getAttribute("data-checked"))).toEqual([
+      "true",
+      "false",
+    ]);
+  });
+
+  // Tiptap only parses `ul[data-type="taskList"]`; tagging an `<ol>` produced a
+  // split orderedList/taskList doc that dropped item text.
+  it("leaves an ordered checkbox list untouched", () => {
+    const html =
+      '<ol><li><input type="checkbox"> a</li><li><input type="checkbox" checked> b</li></ol>';
+
+    expect(normalizePastedTaskListHtml(html)).toBe(html);
+  });
+
+  it("converts a ul checklist nested inside an ordered list", () => {
+    const html = `<ol><li>step
+      <ul class="to-do-list"><li><div class="checkbox checkbox-on"></div><span>done</span></li></ul>
+    </li></ol>`;
+
+    const body = parse(normalizePastedTaskListHtml(html));
+    expect(body.querySelector("ol")?.getAttribute("data-type")).toBeNull();
+    expect(body.querySelector("ul")?.getAttribute("data-type")).toBe(
+      "taskList",
+    );
+  });
+
   it("converts a nested checklist without flattening it into its parent", () => {
     const html = `<ul class="to-do-list">
       <li><div class="checkbox checkbox-off"></div><span>parent</span>
@@ -181,6 +243,49 @@ describe("TaskListPasteNormalization in a live editor", () => {
     const editor = mount();
     try {
       pasteHtml(editor, NOTION_CHECKLIST);
+
+      const checked: boolean[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "taskItem") checked.push(node.attrs.checked);
+        return true;
+      });
+      expect(checked).toEqual([false, true]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not mangle an ordered checkbox list into a split doc", () => {
+    const editor = mount();
+    try {
+      pasteHtml(
+        editor,
+        '<ol><li><input type="checkbox"> a</li><li><input type="checkbox" checked> b</li></ol>',
+      );
+
+      const names = nodeNames(editor);
+      expect(names).toContain("orderedList");
+      expect(names).not.toContain("taskList");
+      expect(editor.state.doc.textContent).toContain("a");
+      expect(editor.state.doc.textContent).toContain("b");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps nested checked state correct through the schema", () => {
+    const editor = mount();
+    try {
+      pasteHtml(
+        editor,
+        `<ul class="to-do-list">
+          <li><div class="checkbox checkbox-off"></div><span class="to-do-children-unchecked">parent</span>
+            <ul class="to-do-list">
+              <li><div class="checkbox checkbox-on"></div><span class="to-do-children-checked">child</span></li>
+            </ul>
+          </li>
+        </ul>`,
+      );
 
       const checked: boolean[] = [];
       editor.state.doc.descendants((node) => {
