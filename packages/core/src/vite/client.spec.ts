@@ -2671,6 +2671,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const UndoManager = stub;");
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
+    expect(code).toContain("export const DOMSerializer = stub;");
     expect(code).toContain("export const Slice = stub;");
     expect(code).toContain("export const Transform = stub;");
     expect(code).toContain("export const getSchema = stub;");
