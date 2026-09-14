@@ -5,6 +5,7 @@ export function useCommandPaletteFocus(
   setOpen: (open: boolean) => void,
 ) {
   const returnFocusTargetRef = useRef<HTMLElement | null>(null);
+  const returnFocusTargetIdRef = useRef<string | null>(null);
   const escapeDismissRef = useRef(false);
 
   const openPalette = useCallback(() => {
@@ -14,6 +15,10 @@ export function useCommandPaletteFocus(
     returnFocusTargetRef.current =
       activeElement instanceof HTMLElement && activeElement !== document.body
         ? activeElement
+        : null;
+    returnFocusTargetIdRef.current =
+      activeElement instanceof HTMLElement && activeElement !== document.body
+        ? activeElement.id || null
         : null;
     escapeDismissRef.current = false;
     setOpen(true);
@@ -29,6 +34,7 @@ export function useCommandPaletteFocus(
       setOpen(false);
       if (!escapeDismissRef.current) {
         returnFocusTargetRef.current = null;
+        returnFocusTargetIdRef.current = null;
       }
     },
     [openPalette, setOpen],
@@ -36,13 +42,20 @@ export function useCommandPaletteFocus(
 
   const restoreFocusAfterEscape = useCallback((event: Event) => {
     const returnFocusTarget = returnFocusTargetRef.current;
+    const returnFocusTargetId = returnFocusTargetIdRef.current;
     const shouldRestoreFocus = escapeDismissRef.current;
     escapeDismissRef.current = false;
     returnFocusTargetRef.current = null;
+    returnFocusTargetIdRef.current = null;
 
-    if (!shouldRestoreFocus || !returnFocusTarget?.isConnected) return;
+    const focusTarget = returnFocusTarget?.isConnected
+      ? returnFocusTarget
+      : returnFocusTargetId
+        ? document.getElementById(returnFocusTargetId)
+        : null;
+    if (!shouldRestoreFocus || !(focusTarget instanceof HTMLElement)) return;
     event.preventDefault();
-    returnFocusTarget.focus({ preventScroll: true });
+    focusTarget.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {

@@ -1,13 +1,20 @@
 // @vitest-environment happy-dom
 
+import { CommandMenu } from "@agent-native/core/client/navigation";
 import {
   act,
   cleanup,
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+
+import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
 const mocks = vi.hoisted(() => ({
   contacts: [
@@ -92,6 +99,46 @@ vi.mock("@/lib/threads", () => ({
 
 import { SearchBar } from "./SearchBar";
 
+function SearchPaletteHarness() {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [searchMounted, setSearchMounted] = useState(true);
+  const { openPalette, handleOpenChange, restoreFocusAfterEscape } =
+    useCommandPaletteFocus(paletteOpen, setPaletteOpen);
+
+  useKeyboardShortcuts([
+    { key: "k", meta: true, handler: openPalette, skipInInput: false },
+  ]);
+
+  return (
+    <>
+      {searchMounted ? (
+        <SearchBar autoFocus onClose={() => setSearchMounted(false)} />
+      ) : (
+        <input
+          id="mail-search"
+          className="sr-only"
+          tabIndex={-1}
+          onFocus={() => setSearchMounted(true)}
+        />
+      )}
+      <CommandMenu
+        open={paletteOpen}
+        onOpenChange={handleOpenChange}
+        onCloseAutoFocus={restoreFocusAfterEscape}
+        clearSearchOnEscape
+        placeholder="Search commands"
+        showAgentFallback={false}
+      >
+        <CommandMenu.Group heading="Actions">
+          <CommandMenu.Item onSelect={() => undefined} deferSelect={false}>
+            Archive
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      </CommandMenu>
+    </>
+  );
+}
+
 describe("SearchBar suggestion selection", () => {
   beforeEach(() => {
     mocks.getQueriesData.mockReturnValue([
@@ -106,6 +153,8 @@ describe("SearchBar suggestion selection", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("keeps Enter aligned with the visible selection after same-size results change", () => {
@@ -151,5 +200,90 @@ describe("SearchBar suggestion selection", () => {
     expect(input.getAttribute("aria-activedescendant")).toBeNull();
     fireEvent.keyDown(input, { key: "Enter" });
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("returns focus to Search when the command palette outlives its search input", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+
+    render(<SearchPaletteHarness />);
+    const search = screen.getByRole("combobox");
+    expect(document.activeElement).toBe(search);
+
+    const shortcutEvent = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => search.dispatchEvent(shortcutEvent));
+    expect(shortcutEvent.defaultPrevented).toBe(true);
+
+    const commandInput =
+      document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(commandInput).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(commandInput));
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+    expect(search.isConnected).toBe(false);
+    expect(document.getElementById("mail-search")).not.toBeNull();
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole("combobox"));
+    });
+  });
+
+  it("cancels the pending Search collapse when focus returns before the delay", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+
+    render(<SearchPaletteHarness />);
+    const search = screen.getByRole("combobox");
+    const shortcutEvent = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => search.dispatchEvent(shortcutEvent));
+
+    const commandInput =
+      document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(commandInput).toBeTruthy();
+    expect(document.activeElement).toBe(commandInput);
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    act(() => vi.advanceTimersByTime(120));
+
+    expect(search.isConnected).toBe(true);
+    expect(document.activeElement).toBe(search);
   });
 });

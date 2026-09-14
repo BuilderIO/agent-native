@@ -63,6 +63,9 @@ export function SearchBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const blurCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastSyncedQueryRef = useRef(initialQuery);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -71,6 +74,15 @@ export function SearchBar({
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
+
+  useEffect(
+    () => () => {
+      if (blurCloseTimeoutRef.current !== null) {
+        clearTimeout(blurCloseTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   // Sync from URL when it changes externally (e.g. browser back/forward).
   // Track the last prop we absorbed so user typing isn't clobbered when the
@@ -326,7 +338,13 @@ export function SearchBar({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => {
+            if (blurCloseTimeoutRef.current !== null) {
+              clearTimeout(blurCloseTimeoutRef.current);
+              blurCloseTimeoutRef.current = null;
+            }
+            setIsFocused(true);
+          }}
           onBlur={(e) => {
             // Don't close if clicking on a dropdown item
             if (
@@ -339,7 +357,10 @@ export function SearchBar({
             // Keep the bar mounted while a search is active — the user needs
             // to see what they searched. Only collapse when empty.
             if (hasActiveSearch || query.trim()) return;
-            setTimeout(onClose, 100);
+            blurCloseTimeoutRef.current = setTimeout(() => {
+              blurCloseTimeoutRef.current = null;
+              onClose();
+            }, 100);
           }}
           placeholder={t("mail.search.placeholder")}
           className={cn(
