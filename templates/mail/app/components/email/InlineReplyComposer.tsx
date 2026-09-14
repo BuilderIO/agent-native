@@ -61,6 +61,7 @@ import {
   type RecipientField,
 } from "./RecipientInput";
 
+const SEND_UNDO_WINDOW_MS = 10_000;
 export interface InlineReplyHandle {
   focusEditor: () => void;
 }
@@ -207,38 +208,33 @@ export const InlineReplyComposer = forwardRef<
     });
 
     let cancelled = false;
+    let dispatchStarted = false;
 
     const handleUndo = () => {
-      if (cancelled) return;
+      if (cancelled || dispatchStarted) return;
       cancelled = true;
       sendingRef.current = false;
       clearTimeout(sendTimer);
-      clearTimeout(transitionTimer);
       toast.dismiss(toastId);
       undoOptimistic?.();
       const { id: _id, ...reopenData } = draftSnapshot;
       onReopen(reopenData);
     };
 
-    const toastId = toast("Sending...", {
-      action: { label: "UNDO", onClick: handleUndo },
+    const toastId = toast(t("mail.compose.sending"), {
+      action: { label: t("mail.actions.undo"), onClick: handleUndo },
       duration: Infinity,
     });
 
-    const transitionTimer = setTimeout(() => {
-      if (cancelled) return;
-      toast("Message sent.", {
-        id: toastId,
-        action: { label: "UNDO", onClick: handleUndo },
-        duration: Infinity,
-      });
-    }, 1500);
-
     const sendTimer = setTimeout(() => {
       if (cancelled) return;
+      dispatchStarted = true;
       toast.dismiss(toastId);
-      sendEmail.mutate(
-        {
+      const sendingToastId = toast(t("mail.compose.sending"), {
+        duration: Infinity,
+      });
+      void sendEmail
+        .mutateAsync({
           to: expandAliasTokens(draftSnapshot.to, aliases),
           cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
           bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
@@ -248,19 +244,23 @@ export const InlineReplyComposer = forwardRef<
           replyToThreadId: draftSnapshot.replyToThreadId,
           accountEmail: draftSnapshot.accountEmail,
           attachments: draftSnapshot.attachments,
-        },
-        {
-          onError: () => {
-            toast.error(t("mail.toasts.failedToSendEmail"));
-            const { id: _id, ...reopenData } = draftSnapshot;
-            onReopen(reopenData);
-          },
-          onSettled: () => {
-            sendingRef.current = false;
-          },
-        },
-      );
-    }, 5000);
+        })
+        .then(() => {
+          toast(t("mail.toasts.messageSent"), {
+            id: sendingToastId,
+            duration: 3_000,
+          });
+        })
+        .catch(() => {
+          toast.dismiss(sendingToastId);
+          toast.error(t("mail.toasts.failedToSendEmail"));
+          const { id: _id, ...reopenData } = draftSnapshot;
+          onReopen(reopenData);
+        })
+        .finally(() => {
+          sendingRef.current = false;
+        });
+    }, SEND_UNDO_WINDOW_MS);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

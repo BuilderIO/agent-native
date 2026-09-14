@@ -10,7 +10,7 @@ import {
 import {
   useSession,
   callAction,
-  useChangeVersions,
+  useChangeVersion,
   useActionMutation,
   type AuthSession,
 } from "@agent-native/core/client/hooks";
@@ -755,15 +755,9 @@ function SqlDashboardPageContent({
         undoRevisionIndex < dashboardRevisions.length - 1));
   const canRedo = canEdit && !!dashboardId && redoRevisionIds.length > 0;
 
-  // Refetch the dashboard whenever the `dashboards` source bumps OR any
-  // agent action runs. We depend on both because:
-  // - `dashboards` covers same-process writes from upsertDashboard
-  // - `action` covers every successful agent action and is emitted by the
-  //   agent runner unconditionally, which makes the refresh resilient even
-  //   if the dashboards-store emit is missed (different process, etc.).
-  // Folding counters into the queryKey is the framework pattern for "agent
-  // writes show up without a manual refresh"; see `use-change-version.ts`.
-  const sync = useChangeVersions(["dashboards", "action"]);
+  // Dashboard writes emit their own change event; unrelated agent actions do
+  // not need to restart this query.
+  const sync = useChangeVersion("dashboards");
   const dashboardQuery = useQuery({
     queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope, sync],
     enabled: !!dashboardId,

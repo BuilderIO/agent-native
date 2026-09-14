@@ -66,7 +66,7 @@ SELECT
       WHERE pid <> pg_backend_pid()
         AND state = 'active'
         AND query <> ''
-      GROUP BY left(query, 60)
+      GROUP BY query
     ) q
   ), 0)::int AS max_same_query
 FROM pg_stat_activity

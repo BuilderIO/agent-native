@@ -129,6 +129,12 @@ pnpm action manage-draft --action=delete --id=draft1
 pnpm action manage-draft --action=delete-all
 ```
 
+When the compose state is already closed and only its saved mailbox copy remains,
+use `manage-draft` with `action: "delete-saved"`, the exact `savedDraftId`,
+`savedDraftBackend` when known (`gmail` or `local`), and `accountEmail` when known.
+Use `action: "delete"` when the compose draft itself still exists; that also
+removes its saved mailbox copy.
+
 ## Listing All Drafts
 
 ```bash

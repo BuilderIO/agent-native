@@ -67,6 +67,8 @@ const messages = {
     recordings: "Gravações",
     newFolder: "Nova pasta",
     noSpaces: "Ainda não há espaços",
+    noSpacesAdminCta:
+      "Peça a um administrador da organização para criar o primeiro espaço.",
     desktopCta: "Baixar app desktop",
     desktopTitle: "Baixe o app desktop do Clips.",
     desktopBody:
@@ -736,7 +738,8 @@ const messages = {
     labMeetingsDescription:
       "Experimente a captura e a transcrição automáticas de reuniões.",
     labWisprFlow: "Ditado por voz",
-    labWisprFlowDescription: "Experimente o novo recurso de ditado por voz.",
+    labWisprFlowDescription:
+      "Mostre ou oculte o ditado por voz no Clips Desktop.",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
     preferencesTitle: "Preferências",
     languageTitle: "Idioma",
@@ -973,6 +976,8 @@ const messages = {
     renameFailed: "Falha ao renomear clipe",
     renameClip: "Renomear clipe",
     clipTitle: "Título do clipe",
+    archiveAction: "Arquivar",
+    moveToTrashAction: "Mover para a lixeira",
     movedToTrash: "Movido para a lixeira",
     restoredFromArchive: "Restaurado do arquivo",
     archived: "Arquivado",

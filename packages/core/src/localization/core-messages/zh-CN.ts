@@ -162,6 +162,7 @@ const messages: AgentChatTranslation = {
   "composer.configureProviderKeys": "配置 Anthropic、OpenAI 或其他提供商",
   "composer.connectAbove": "请在上方连接 AI 以继续...",
   "composer.connectBuilder": "连接 Builder.io",
+  "composer.connectKeys": "连接密钥",
   "composer.connectingBuilder": "正在连接 Builder.io…",
   "composer.costHigher": "较高费用",
   "composer.costLower": "较低费用",

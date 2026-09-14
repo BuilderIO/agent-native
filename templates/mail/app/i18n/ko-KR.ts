@@ -89,6 +89,8 @@ const messages = {
       cancel: "취소",
       code: "코드",
       deleteDraft: "초안 삭제",
+      deleteDrafts: "초안 삭제",
+      reopenDraft: "다시 열기",
       discardDraft: "초안 버리기",
       enterLinkUrl: "링크 URL을 입력하세요.",
       forward: "Forward",
@@ -284,6 +286,9 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "이미지 업로드 실패",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "메시지가 전송되었습니다.",
+      failedToSaveDraft: "초안을 저장하지 못했습니다.",
+      failedToDeleteDraft: "초안을 삭제하지 못했습니다.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       pleaseAddRecipient: "Añade al menos un destinatario",
@@ -296,6 +301,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "초안을 닫았습니다.",
+      draftsClosed: "초안 {{count}}개를 닫았습니다.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",

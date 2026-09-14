@@ -1,10 +1,111 @@
+import { runInNewContext } from "node:vm";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import { SSR_BETA_REDIRECT_MARKER } from "../shared/ssr-beta-redirect.js";
 import {
   BETA_OPT_OUT_PERSISTENCE_MARKER,
   injectBetaOptOutPersistence,
 } from "./beta-opt-out-html.js";
+
+function renderEnvironmentSwitcherCopy(
+  documentLocale: string | null,
+  storedLocale: string | null,
+  browserLocales = ["en-US"],
+) {
+  const localeAttributes = documentLocale
+    ? ` lang="${documentLocale}" data-locale="${documentLocale}"`
+    : "";
+  const html = injectBetaOptOutPersistence(
+    `<html${localeAttributes}><head></head><body></body></html>`,
+  );
+  const script = html.match(
+    /<script data-agent-native-environment-switcher-script="1">([\s\S]*?)<\/script>/,
+  )?.[1];
+  if (!script) throw new Error("Environment switcher script was not injected");
+
+  const element = () => ({
+    hidden: true,
+    textContent: "",
+    href: "",
+    setAttribute() {},
+    addEventListener() {},
+    contains() {
+      return false;
+    },
+  });
+  const switcher = element();
+  const badge = element();
+  const popover = element();
+  const title = element();
+  const copy = element();
+  const productionLink = element();
+  const hideButton = element();
+  const elements: Record<string, ReturnType<typeof element>> = {
+    "environment-switcher": switcher,
+    "environment-badge": badge,
+    "environment-popover": popover,
+    "environment-popover-title": title,
+    "environment-production-link": productionLink,
+    "environment-hide-badge": hideButton,
+  };
+  const attributes = new Map([
+    ["data-locale", documentLocale],
+    ["lang", documentLocale],
+  ]);
+  const root = {
+    getAttribute: (name: string) => attributes.get(name) ?? null,
+  };
+  let updateCopy: (() => void) | undefined;
+  const document = {
+    documentElement: root,
+    getElementById: (id: string) => elements[id] ?? null,
+    querySelector: () => copy,
+    addEventListener() {},
+  };
+  const window = {
+    parent: undefined as unknown,
+    location: {
+      href: "https://beta.dispatch.agent-native.com/login",
+      hostname: "beta.dispatch.agent-native.com",
+    },
+    localStorage: { getItem: () => storedLocale },
+    sessionStorage: { setItem() {} },
+  };
+  window.parent = window;
+
+  runInNewContext(script, {
+    window,
+    document,
+    navigator: {
+      languages: browserLocales,
+      language: browserLocales[0] ?? "en-US",
+    },
+    MutationObserver: class {
+      constructor(callback: () => void) {
+        updateCopy = callback;
+      }
+      observe() {}
+    },
+    URL,
+  });
+
+  return {
+    get badgeText() {
+      return badge.textContent;
+    },
+    get copyText() {
+      return copy.textContent;
+    },
+    updateDocumentLocale(locale: string) {
+      attributes.set("data-locale", locale);
+      attributes.set("lang", locale);
+      updateCopy?.();
+    },
+  };
+}
 
 describe("injectBetaOptOutPersistence", () => {
   afterEach(() => {
@@ -30,12 +131,32 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("window.localStorage.setItem");
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-switcher"');
+    expect(html).toContain('id="environment-badge" aria-expanded="false"');
     expect(html).toContain('id="environment-production-link"');
     expect(html).toContain('id="environment-hide-badge"');
     expect(html).toContain("__anInitEnvironmentBadge");
     expect(html).toContain("agent-native:force-production");
     expect(html).toContain("switcher.hidden = true");
     expect(html).toContain("betaHosts");
+    expect(html).toContain("root.getAttribute('data-locale')");
+    expect(html).toContain(
+      `window.localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)})`,
+    );
+    expect(html).toContain("root.getAttribute('lang')");
+    expect(html).toContain("new MutationObserver(updateCopy).observe(root");
+    expect(html).toContain("attributeFilter: ['data-locale', 'lang']");
+    expect(html).toContain(
+      `var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};`,
+    );
+    expect(html).toContain("button.textContent = messages.betaLabel");
+    expect(html).toContain(
+      "titleNode.textContent = messages.betaTitle.replace(",
+    );
+    expect(html).toContain("copyNode.textContent = messages.continuePrompt");
+    expect(html).toContain(
+      "productionLink.textContent = messages.switchToProduction",
+    );
+    expect(html).toContain("hideButton.textContent = messages.hideBadge");
     expect(html).toContain("agent-native-environment-switcher-style");
     expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
     expect(html).toContain("left: 0;");
@@ -69,6 +190,48 @@ describe("injectBetaOptOutPersistence", () => {
     expect(stylesheet.trimStart()).toMatch(/^[.#a-zA-Z@:*]/);
     expect(stylesheet.trimStart()).not.toMatch(/^[a-z-]+\s*:/);
     expect(stylesheet).toContain(".environment-switcher {");
+  });
+
+  it("uses Traditional Chinese copy for script-and-region locale aliases", () => {
+    const { badgeText, copyText } = renderEnvironmentSwitcherCopy(
+      "zh-Hant-HK",
+      null,
+    );
+
+    expect(badgeText).toBe(ENVIRONMENT_BADGE_MESSAGES["zh-TW"].betaLabel);
+    expect(copyText).toBe(ENVIRONMENT_BADGE_MESSAGES["zh-TW"].continuePrompt);
+  });
+
+  it("refreshes the switcher copy when the auth page locale changes", () => {
+    const rendered = renderEnvironmentSwitcherCopy("en-US", null);
+
+    rendered.updateDocumentLocale("fr-FR");
+
+    expect(rendered.badgeText).toBe(
+      ENVIRONMENT_BADGE_MESSAGES["fr-FR"].betaLabel,
+    );
+    expect(rendered.copyText).toBe(
+      ENVIRONMENT_BADGE_MESSAGES["fr-FR"].continuePrompt,
+    );
+  });
+
+  it("uses the browser locale when custom auth HTML has no locale attributes", () => {
+    const { badgeText, copyText } = renderEnvironmentSwitcherCopy(null, null, [
+      "fr-FR",
+    ]);
+
+    expect(badgeText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].betaLabel);
+    expect(copyText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].continuePrompt);
+  });
+
+  it("prefers a persisted locale to the onboarding document default", () => {
+    const { badgeText, copyText } = renderEnvironmentSwitcherCopy(
+      "en-US",
+      "fr-FR",
+    );
+
+    expect(badgeText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].betaLabel);
+    expect(copyText).toBe(ENVIRONMENT_BADGE_MESSAGES["fr-FR"].continuePrompt);
   });
 
   it("does not duplicate the handoff on a second auth response pass", () => {

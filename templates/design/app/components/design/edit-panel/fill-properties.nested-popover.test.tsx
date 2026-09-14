@@ -324,9 +324,9 @@ describe("FillProperties — existing layer fill popover", () => {
     const removeButtons = document.querySelectorAll(
       '[aria-label="editPanel.labels.removeLayer"]',
     );
-    expect(removeButtons.length).toBe(2);
+    expect(removeButtons.length).toBe(3);
     act(() => {
-      (removeButtons[0] as HTMLButtonElement).click();
+      (removeButtons[1] as HTMLButtonElement).click();
     });
 
     act(() => {
@@ -347,5 +347,160 @@ describe("FillProperties — existing layer fill popover", () => {
       (survivorTrigger as HTMLButtonElement).click();
     });
     expect(gradientStopsBar()).not.toBeNull();
+  });
+
+  it("applies, preserves, and removes a text gradient across reselection", () => {
+    let styles: Record<string, string> = {
+      color: "#ff0000",
+      backgroundImage: "none",
+      backgroundClip: "border-box",
+    };
+    const onStyleChange = (property: string, value: string) => {
+      styles = { ...styles, [property]: value };
+    };
+    const onStylesChange = (patch: Record<string, string>) => {
+      styles = { ...styles, ...patch };
+    };
+    const renderText = () =>
+      act(() =>
+        root.render(
+          <FillProperties
+            element={element({ tagName: "span", computedStyles: styles })}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+          />,
+        ),
+      );
+
+    renderText();
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click();
+    });
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Linear"]')!
+        .click();
+    });
+
+    expect(styles.backgroundImage).toContain("linear-gradient(");
+    expect(styles.backgroundClip).toBe("text");
+    expect(styles.color).toBe("transparent");
+
+    renderText();
+    expect(gradientStopsBar()).not.toBeNull();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    renderText();
+
+    const layerTrigger = findButtonByText(container, "Linear gradient 1");
+    expect(layerTrigger).not.toBeNull();
+    act(() => layerTrigger!.click());
+    expect(gradientStopsBar()).not.toBeNull();
+
+    const removeButtons = container.querySelectorAll<HTMLButtonElement>(
+      '[aria-label="editPanel.labels.removeLayer"]',
+    );
+    expect(removeButtons).toHaveLength(2);
+    act(() => removeButtons[1]!.click());
+
+    expect(styles.backgroundImage).toBe("none");
+    expect(styles.backgroundClip).toBe("border-box");
+    expect(styles.color).toBe("#ff0000");
+  });
+
+  it("keeps the box gradient editor mounted through conversion and reselection", () => {
+    let styles: Record<string, string> = {
+      backgroundColor: "#ff0000",
+      backgroundImage: "none",
+    };
+    const onStyleChange = (property: string, value: string) => {
+      styles = { ...styles, [property]: value };
+    };
+    const onStylesChange = (patch: Record<string, string>) => {
+      styles = { ...styles, ...patch };
+    };
+    const renderBox = () =>
+      act(() =>
+        root.render(
+          <FillProperties
+            element={element({ tagName: "div", computedStyles: styles })}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+          />,
+        ),
+      );
+
+    renderBox();
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click();
+    });
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Linear"]')!
+        .click();
+    });
+
+    expect(styles.backgroundImage).toContain("linear-gradient(");
+    expect(styles.backgroundColor).toBe("transparent");
+
+    renderBox();
+    expect(gradientStopsBar()).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Open color picker"]'),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    renderBox();
+
+    const layerTrigger = findButtonByText(container, "Linear gradient 1");
+    expect(layerTrigger).not.toBeNull();
+    act(() => layerTrigger!.click());
+    expect(gradientStopsBar()).not.toBeNull();
+  });
+
+  it("keeps the mixed-text replacement instruction and action aligned", () => {
+    const onStylesChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <FillProperties
+          element={element({
+            tagName: "span",
+            computedStyles: {
+              color: "Mixed",
+              backgroundImage: "Mixed",
+              backgroundClip: "Mixed",
+            },
+          })}
+          onStyleChange={vi.fn()}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Click + to replace mixed content");
+    const replaceButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editPanel.labels.addFill"]',
+    );
+    expect(replaceButton).not.toBeNull();
+
+    act(() => replaceButton!.click());
+
+    expect(onStylesChange.mock.calls[0]?.[0]).toEqual({
+      color: "#000000",
+      backgroundImage: "none",
+      backgroundClip: "border-box",
+    });
+    expect(onStylesChange).toHaveBeenCalledOnce();
   });
 });

@@ -93,6 +93,57 @@ async function resolveAccountEmail(
   );
 }
 
+export async function findGmailDraftAccount(args: {
+  ownerEmail: string;
+  accountEmail?: string;
+  draftId: string;
+}): Promise<string | null> {
+  const accounts = (
+    await listOAuthAccountsByOwner("google", args.ownerEmail)
+  ).filter((account) => hasGmailScope(account.tokens));
+  const candidates = args.accountEmail
+    ? accounts.filter((account) => account.accountId === args.accountEmail)
+    : [
+        ...accounts.filter((account) => account.accountId === args.ownerEmail),
+        ...accounts.filter((account) => account.accountId !== args.ownerEmail),
+      ];
+
+  if (args.accountEmail && candidates.length === 0) {
+    throw new Error("Account not owned by current user");
+  }
+
+  let unavailableAccount: string | undefined;
+  for (const account of candidates) {
+    const accessToken = await getAccessToken(
+      account.accountId,
+      args.ownerEmail,
+    );
+    if (!accessToken) {
+      unavailableAccount = account.accountId;
+      continue;
+    }
+
+    try {
+      await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(args.draftId)}`,
+        accessToken,
+      );
+      return account.accountId;
+    } catch (error) {
+      if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+
+  if (unavailableAccount) {
+    throw new Error(
+      `Could not verify saved Gmail draft ownership for ${unavailableAccount}.`,
+    );
+  }
+  return null;
+}
+
 export async function saveGmailDraft(args: {
   ownerEmail: string;
   accountEmail?: string;

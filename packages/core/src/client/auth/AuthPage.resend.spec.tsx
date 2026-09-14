@@ -90,6 +90,32 @@ describe("AuthPage verification resend cooldown", () => {
     vi.unstubAllGlobals();
   });
 
+  it("updates document locale attributes when the auth locale picker changes", async () => {
+    act(() =>
+      root.render(
+        <AuthPage
+          {...propsFromHtml(getOnboardingHtml())}
+          identitySsoAuto={false}
+        />,
+      ),
+    );
+
+    await act(async () => {
+      (
+        container.querySelector("#auth-locale-trigger") as HTMLButtonElement
+      ).click();
+    });
+    const frenchOption = container.querySelector(
+      '[data-locale-value="fr-FR"]',
+    ) as HTMLButtonElement;
+    expect(frenchOption).toBeTruthy();
+
+    await act(async () => frenchOption.click());
+
+    expect(document.documentElement.lang).toBe("fr-FR");
+    expect(document.documentElement.dataset.locale).toBe("fr-FR");
+  });
+
   it("clears the cooldown when starting a different signup", async () => {
     act(() =>
       root.render(

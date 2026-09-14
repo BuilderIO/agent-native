@@ -117,6 +117,15 @@ describe("useMcpServers post-OAuth revalidation", () => {
     return container;
   }
 
+  function setVisibility(state: DocumentVisibilityState) {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: function () {
+        return state;
+      },
+    });
+  }
+
   async function settle() {
     await act(async () => {
       await Promise.resolve();
@@ -151,6 +160,7 @@ describe("useMcpServers post-OAuth revalidation", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     clearMcpConnectionPending();
+    setVisibility("visible");
   });
 
   it("shows an integration as connected after returning from the OAuth popup", async () => {
@@ -190,6 +200,9 @@ describe("useMcpServers post-OAuth revalidation", () => {
       role: null,
     };
 
+    // Stated rather than inherited from the environment default, so the test
+    // still exercises the visible branch if that default ever changes.
+    setVisibility("visible");
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
@@ -198,6 +211,21 @@ describe("useMcpServers post-OAuth revalidation", () => {
     expect(container.querySelector("[data-testid=urls]")?.textContent).toBe(
       "https://mcp.notion.com/mcp",
     );
+  });
+
+  it("ignores a visibilitychange that leaves the tab hidden", async () => {
+    renderList();
+    await settle();
+    const callsAfterMount = listCalls;
+
+    markMcpConnectionPending();
+    setVisibility("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await settle();
+
+    expect(listCalls).toBe(callsAfterMount);
   });
 
   it("revalidates when a connection completion is announced", async () => {
@@ -220,6 +248,49 @@ describe("useMcpServers post-OAuth revalidation", () => {
     expect(container.querySelector("[data-testid=urls]")?.textContent).toBe(
       "https://mcp.linear.app/mcp",
     );
+  });
+
+  it("stops revalidating once the new connection has been observed", async () => {
+    renderList();
+    await settle();
+
+    markMcpConnectionPending();
+    list = {
+      user: [connectedServer("https://mcp.sentry.dev/mcp")],
+      org: [],
+      orgId: null,
+      role: null,
+    };
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settle();
+    const callsAfterConnect = listCalls;
+
+    // The marker exists to catch an unseen connection; it has now been seen.
+    expect(hasPendingMcpConnection()).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settle();
+
+    expect(listCalls).toBe(callsAfterConnect);
+  });
+
+  it("keeps the marker while an abandoned flow shows no new connection", async () => {
+    renderList();
+    await settle();
+
+    markMcpConnectionPending();
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settle();
+
+    // Nothing landed, so the TTL stays the only bound on the retry window.
+    expect(hasPendingMcpConnection()).toBe(true);
   });
 
   it("does not refetch on focus when no authorization is pending", async () => {

@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { getText, hasCollabState } from "@agent-native/core/collab";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  roleSatisfies,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -445,6 +450,9 @@ export default defineAction({
     if (!access) {
       throw new Error("Design not found");
     }
+    if (includeReview) {
+      await assertAccess("design", designId, "editor");
+    }
 
     const db = getDb();
 
@@ -458,7 +466,9 @@ export default defineAction({
 
     // ── Resolve HTML file ────────────────────────────────────────────────────
     const fileConditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       fileId
         ? eq(schema.designFiles.id, fileId)
         : eq(schema.designFiles.designId, designId),
@@ -501,9 +511,12 @@ export default defineAction({
     };
 
     // ── Build sections in parallel ───────────────────────────────────────────
+    // Captured routes and preview refs are editor data even when the design is public.
     const [motionTimelines, designStates, review] = await Promise.all([
       fetchMotionTimelines(db, designId, file.id),
-      fetchDesignStates(db, designId),
+      roleSatisfies(access.role, "editor")
+        ? fetchDesignStates(db, designId)
+        : Promise.resolve([]),
       includeReview
         ? fetchLatestReview(db, designId)
         : Promise.resolve(undefined),

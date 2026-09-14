@@ -2303,7 +2303,7 @@ const hiIN = {
     content: "कॉन्टेंट",
     contentOverview: "अवलोकन",
     contentEditing: "लेखन और व्यवस्थापन",
-    contentDatabases: "डेटाबेस और फॉर्म",
+    contentDatabases: "संग्रह और फॉर्म",
     contentSync: "लोकल फ़ाइलें और सिंक",
     contentDevelopers: "डेवलपर गाइड",
     plans: "Plans",

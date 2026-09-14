@@ -4,6 +4,7 @@ import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { normalizeLocaleCode } from "../../localization/shared.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
   signInJourney,
@@ -129,20 +130,12 @@ function resolveLocale(
   defaultLocale: string,
 ): string {
   if (!value || value === "system") return defaultLocale;
-  const exact = localeOptions.find((option) => option.value === value);
-  if (exact) return exact.value;
-  try {
-    const canonical = Intl.getCanonicalLocales(value)[0]?.toLowerCase();
-    const match = localeOptions.find(
-      (option) =>
-        option.value.toLowerCase() === canonical ||
-        option.value.split("-")[0]?.toLowerCase() === canonical?.split("-")[0],
-    );
-    return match?.value ?? defaultLocale;
-  } catch {
-    // coercion-ok: malformed locale input falls back to the configured locale.
-    return defaultLocale;
-  }
+  return (
+    normalizeLocaleCode(
+      value,
+      localeOptions.map((option) => option.value),
+    ) ?? defaultLocale
+  );
 }
 
 function resolveSystemLocale(

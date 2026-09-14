@@ -2015,6 +2015,71 @@ describe("DesktopIdentityBroker", () => {
     );
   });
 
+  it("returns to sign-in-required when Google sign-in closes before completion", async () => {
+    vi.useFakeTimers();
+    try {
+      const authority = authorityFixture();
+      const identityCookies = cookieStore();
+      const identityFetch = vi.fn(async (input: string) => {
+        const path = new URL(input).pathname;
+        if (path === "/_agent-native/google/auth-url") {
+          return new Response(
+            JSON.stringify({
+              url: "https://accounts.google.com/o/oauth2/v2/auth?state=oauth-state",
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ pending: true }), {
+          status: 200,
+        });
+      });
+      let closedListener: (() => void) | undefined;
+      const identityWindow = {
+        webContents: {
+          on: vi.fn(),
+          setWindowOpenHandler: vi.fn(),
+        },
+        loadURL: vi.fn(async () => {}),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn((event: string, listener: () => void) => {
+          if (event === "closed") closedListener = listener;
+        }),
+      };
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: identityCookies,
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        listApps: () => [authority],
+        createWindow: () => identityWindow as never,
+        openExternal: vi.fn(async () => {}),
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+      broker.setStatusForSetting("sign-in-required");
+
+      const signIn = broker.signIn(authority.id);
+      for (let attempt = 0; attempt < 8 && !closedListener; attempt += 1) {
+        await Promise.resolve();
+      }
+      expect(identityWindow.loadURL).toHaveBeenCalledOnce();
+      expect(broker.getStatus()).toBe("signing-in");
+
+      closedListener?.();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(signIn).resolves.toBe(false);
+      expect(broker.getStatus()).toBe("sign-in-required");
+      expect(identityCookies.set).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps Google sign-in alive when its hosted callback closes the window", async () => {
     const authority = authorityFixture();
     const identityCookies = cookieStore();

@@ -29,6 +29,7 @@
     "./actions": "./dist/actions/index.js",
     "./client": "./dist/client/index.js",
     "./connectors": "./dist/connectors/index.js",
+    "./connectors/serverless-chromium": "./dist/connectors/serverless-chromium.js",
     "./messages": "./dist/client/messages.js",
     "./jobs": "./dist/jobs/index.js",
     "./embeddings": "./dist/embeddings/index.js",

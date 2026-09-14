@@ -556,7 +556,7 @@ export function RecordingCard({
                       ) : (
                         <DropdownMenuItem onSelect={() => onArchive(recording)}>
                           <IconArchive className="h-4 w-4 me-2" />{" "}
-                          {t("navigation.archive")}
+                          {t("libraryGrid.archiveAction")}
                         </DropdownMenuItem>
                       ))}
                     {onTrash && (
@@ -568,7 +568,7 @@ export function RecordingCard({
                         className="text-destructive focus:text-destructive"
                       >
                         <IconTrash className="h-4 w-4 me-2" />{" "}
-                        {t("navigation.trash")}
+                        {t("libraryGrid.moveToTrashAction")}
                       </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
@@ -717,7 +717,7 @@ export function RecordingCard({
           ) : (
             <ContextMenuItem onSelect={() => onArchive(recording)}>
               <IconArchive className="h-4 w-4 me-2" />
-              {t("navigation.archive")}
+              {t("libraryGrid.archiveAction")}
             </ContextMenuItem>
           ))}
         {onTrash && (
@@ -728,7 +728,7 @@ export function RecordingCard({
             className="text-destructive focus:text-destructive"
           >
             <IconTrash className="h-4 w-4 me-2" />
-            {t("navigation.trash")}
+            {t("libraryGrid.moveToTrashAction")}
           </ContextMenuItem>
         )}
       </ContextMenuContent>

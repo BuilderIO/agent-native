@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   type DesignClipboardPayload,
+  figmaHydrationErrorMessage,
   getFigmaClipboardContent,
   hasFigmaClipboardPayload,
   importResultNotification,
@@ -256,6 +257,7 @@ describe("design clipboard marker round-trip", () => {
       {
         html: "<div>Hello</div>",
         rootNodeId: "node-1",
+        sourceParentNodeId: "group-1",
         sourceFileId: "file-1",
         portableStyleSnapshot: {
           version: 1,
@@ -570,5 +572,54 @@ describe("readFigmaImportFailure", () => {
     const { result } = readFigmaImportFailure(error, "fallback");
     expect(result.quotaSource).toBe("figma");
     expect(result.rateLimitPlanTier).toBe("starter");
+  });
+});
+
+describe("figmaHydrationErrorMessage", () => {
+  const fallback = "common.genericError";
+  const forbidden = "figma token scope guidance";
+
+  it("uses the typed provider message for rate limits", () => {
+    const error = Object.assign(
+      new Error("Action hydrate-figma-paste-images failed: action error"),
+      {
+        actionMessage: "Figma image fills request failed: Rate limit exceeded",
+        errorCode: "figma_rate_limited",
+        details: { retryAfterSeconds: 60 },
+      },
+    );
+
+    expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
+      "Figma image fills request failed: Rate limit exceeded",
+    );
+  });
+
+  it("does not label an unrelated internal error as Figma rate limiting", () => {
+    const error = Object.assign(
+      new Error(
+        "Action hydrate-figma-paste-images failed: Internal server error",
+      ),
+      { errorCode: "action_failed" },
+    );
+
+    expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
+      fallback,
+    );
+  });
+
+  it("keeps actionable guidance for a typed Figma permission denial", () => {
+    const error = Object.assign(
+      new Error("Action hydrate-figma-paste-images failed: Access denied"),
+      {
+        actionMessage: "Figma image fills request failed: Access denied",
+        errorCode: "figma_request_failed",
+        statusCode: 403,
+        details: { figmaStatus: 403 },
+      },
+    );
+
+    expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
+      forbidden,
+    );
   });
 });

@@ -18,7 +18,11 @@ import {
 } from "react";
 
 import { agentNativePath } from "../api-path.js";
-import { hasPendingMcpConnection } from "./mcp-connection-refresh.js";
+import { useAfterPaint } from "../use-after-paint.js";
+import {
+  clearMcpConnectionPending,
+  hasPendingMcpConnection,
+} from "./mcp-connection-refresh.js";
 import { addMcpConnectionCompleteListener } from "./mcp-connection-resume.js";
 
 export type McpServerScope = "user" | "org";
@@ -174,8 +178,41 @@ const defaultMcpServersApi: McpServersApi = {
   testExisting: testExistingMcpServer,
 };
 
-export function useMcpServers() {
+function countMcpServers(list: McpServersList | undefined): number {
+  if (!list) return 0;
+  return list.user.length + list.org.length;
+}
+
+export interface UseMcpServersOptions {
+  /**
+   * Defer the first list read until after the first paint. Only for surfaces
+   * that are mounted during startup but not visible then (agent rail, settings
+   * panel) — navigable tabs, pages, and dialogs must stay eager so a direct
+   * render never inherits the deferral window.
+   */
+  defer?: boolean;
+}
+
+export type McpServersQuery = ReturnType<typeof useMcpServers>;
+
+/**
+ * True until a list read has settled (success or error). Deferred call sites
+ * must treat this as pending: hold empty states, permission derivation, and
+ * connect affordances until it clears instead of reading the undefined data
+ * as "no servers".
+ */
+export function isMcpServersPending(query: McpServersQuery): boolean {
+  return !query.isSuccess && !query.isError;
+}
+
+export function useMcpServers(options: UseMcpServersOptions = {}) {
   const api = useMcpServersApi();
+  // The list is never visible during first paint, but only surfaces that are
+  // mounted while invisible (agent rail, settings) may wait out the paint
+  // window; everything else fetches eagerly so a direct render shows a real
+  // pending state.
+  const defer = options.defer === true;
+  const afterPaint = useAfterPaint();
   const qc = useQueryClient();
   // An OAuth authorization finishes by redirecting the popup, so nothing in
   // this window ever learns the connection landed. Revalidate when the user
@@ -183,18 +220,25 @@ export function useMcpServers() {
   // QueryClient turns refetchOnWindowFocus off on purpose.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const revalidate = () => {
+    const revalidate = async () => {
       if (!hasPendingMcpConnection()) return;
-      void qc.invalidateQueries({ queryKey: LIST_KEY });
+      const before = countMcpServers(qc.getQueryData<McpServersList>(LIST_KEY));
+      await qc.invalidateQueries({ queryKey: LIST_KEY });
+      // The marker exists to catch a connection this window has not seen yet.
+      // Once one lands the job is done; the TTL is the backstop for a flow the
+      // user abandoned, which produces no observable change to stop on.
+      const after = countMcpServers(qc.getQueryData<McpServersList>(LIST_KEY));
+      if (after > before) clearMcpConnectionPending();
     };
+    const onFocus = () => void revalidate();
     const onVisibility = () => {
-      if (document.visibilityState === "visible") revalidate();
+      if (document.visibilityState === "visible") void revalidate();
     };
-    window.addEventListener("focus", revalidate);
+    window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
-    const removeCompleteListener = addMcpConnectionCompleteListener(revalidate);
+    const removeCompleteListener = addMcpConnectionCompleteListener(onFocus);
     return () => {
-      window.removeEventListener("focus", revalidate);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       removeCompleteListener();
     };
@@ -203,6 +247,7 @@ export function useMcpServers() {
     queryKey: LIST_KEY,
     queryFn: api.list,
     staleTime: 10_000,
+    enabled: defer ? afterPaint : true,
   });
 }
 
