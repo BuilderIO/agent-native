@@ -15,7 +15,9 @@ const mocks = vi.hoisted(() => ({
   hasA2A: vi.fn(),
   callA2A: vi.fn(),
   getRequestOrgId: vi.fn(),
+  getRequestUserEmail: vi.fn(() => "user@example.test"),
   createArtifactCapability: vi.fn(),
+  isCreativeContextLabAvailable: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -24,6 +26,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: mocks.getRequestOrgId,
+  getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
 vi.mock("../store/index.js", () => ({
@@ -60,6 +63,14 @@ vi.mock("./isolated-a2a.js", () => ({
   })),
 }));
 
+vi.mock("./labs.js", () => ({
+  isCreativeContextLabAvailable: mocks.isCreativeContextLabAvailable,
+}));
+
+vi.mock("./context.js", () => ({
+  getCreativeContext: () => ({ labKey: "creative-context.library" }),
+}));
+
 vi.mock("./generation-artifact-access.js", () => ({
   assertGenerationArtifactAccess: vi.fn(),
   createGenerationArtifactAccessCapability: mocks.createArtifactCapability,
@@ -88,6 +99,7 @@ describe("generation context isolated A2A routing", () => {
     mocks.createArtifactCapability.mockImplementation(
       async (_identity, _target, operation) => `cap-${operation}`,
     );
+    mocks.isCreativeContextLabAvailable.mockResolvedValue(true);
     mocks.callA2A.mockResolvedValue(emptyRemoteContext);
     mocks.listCreativeContexts.mockResolvedValue({ contexts: [] });
     mocks.getCreativeContextById.mockResolvedValue(null);

@@ -1,13 +1,26 @@
+import type { ActionEntry } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getUserLabs: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getUserLabs: vi.fn(),
+  getRequestUserEmail: vi.fn(),
+  getCreativeContext: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/labs/server", () => mocks);
+vi.mock("@agent-native/core/server/request-context", () => mocks);
+vi.mock("./context.js", () => mocks);
 
-import { isCreativeContextLabAvailable } from "./labs.js";
+import {
+  gateCreativeContextActions,
+  isCreativeContextLabAvailable,
+} from "./labs.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getCreativeContext.mockReturnValue({
+    labKey: "content.creative-context",
+  });
 });
 
 describe("isCreativeContextLabAvailable", () => {
@@ -42,5 +55,47 @@ describe("isCreativeContextLabAvailable", () => {
     await expect(
       isCreativeContextLabAvailable("user@example.com"),
     ).rejects.toThrow("settings unavailable");
+  });
+
+  it("gates package actions with the configured app Lab", async () => {
+    const run = vi.fn().mockResolvedValue({ ok: true });
+    const actions = gateCreativeContextActions({
+      "manage-creative-context": {
+        tool: {} as ActionEntry["tool"],
+        run,
+      },
+    });
+    const action = actions["manage-creative-context"];
+
+    mocks.getUserLabs.mockResolvedValue({ "content.creative-context": true });
+    await expect(
+      action.run({}, { caller: "tool", userEmail: "user@example.test" }),
+    ).resolves.toEqual({ ok: true });
+    expect(mocks.getUserLabs).toHaveBeenCalledWith("user@example.test");
+    expect(mocks.getCreativeContext).toHaveBeenCalled();
+    expect(run).toHaveBeenCalledOnce();
+
+    mocks.getUserLabs.mockResolvedValue({ "content.creative-context": false });
+    await expect(
+      action.run({}, { caller: "tool", userEmail: "user@example.test" }),
+    ).rejects.toThrow("Creative Context is disabled in Labs");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("keeps approved purge cleanup runnable after disabling the Lab", async () => {
+    const run = vi.fn().mockResolvedValue({ ok: true });
+    const actions = gateCreativeContextActions({
+      "process-context-purge": {
+        tool: {} as ActionEntry["tool"],
+        run,
+      },
+    });
+    mocks.getUserLabs.mockRejectedValue(new Error("settings unavailable"));
+
+    await expect(actions["process-context-purge"].run({})).resolves.toEqual({
+      ok: true,
+    });
+    expect(mocks.getUserLabs).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledOnce();
   });
 });

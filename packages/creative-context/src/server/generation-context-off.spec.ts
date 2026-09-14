@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   listAccessibleSearchDocuments: vi.fn(),
   performCreativeContextSearch: vi.fn(),
   callIsolatedCreativeContextA2A: vi.fn(),
+  isCreativeContextLabAvailable: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -29,6 +30,14 @@ vi.mock("./isolated-a2a.js", () => ({
   isolatedResolvePayload: vi.fn((input) => input),
 }));
 
+vi.mock("./labs.js", () => ({
+  isCreativeContextLabAvailable: mocks.isCreativeContextLabAvailable,
+}));
+
+vi.mock("./context.js", () => ({
+  getCreativeContext: () => ({ labKey: "creative-context.library" }),
+}));
+
 import {
   resolveGenerationCreativeContext,
   validateGenerationCreativeContext,
@@ -37,6 +46,7 @@ import {
 describe("creative context structural opt-out", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isCreativeContextLabAvailable.mockResolvedValue(true);
     mocks.readAppState.mockResolvedValue({ contextMode: "off" });
   });
 
@@ -50,6 +60,29 @@ describe("creative context structural opt-out", () => {
     expect(mocks.getContextPack).not.toHaveBeenCalled();
     expect(mocks.performCreativeContextSearch).not.toHaveBeenCalled();
     expect(mocks.callIsolatedCreativeContextA2A).not.toHaveBeenCalled();
+  });
+
+  it("does not resolve automatic context while its Lab is disabled", async () => {
+    mocks.isCreativeContextLabAvailable.mockResolvedValue(false);
+
+    await expect(
+      resolveGenerationCreativeContext({ role: "design", query: "dashboard" }),
+    ).resolves.toMatchObject({ contextMode: "off", results: [] });
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.callIsolatedCreativeContextA2A).not.toHaveBeenCalled();
+    expect(mocks.performCreativeContextSearch).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Labs state cannot be read", async () => {
+    mocks.isCreativeContextLabAvailable.mockRejectedValue(
+      new Error("settings unavailable"),
+    );
+
+    await expect(
+      resolveGenerationCreativeContext({ role: "design", query: "dashboard" }),
+    ).rejects.toThrow("settings unavailable");
+    expect(mocks.callIsolatedCreativeContextA2A).not.toHaveBeenCalled();
+    expect(mocks.performCreativeContextSearch).not.toHaveBeenCalled();
   });
 
   it("rejects an explicit pack before validating final-write provenance", async () => {

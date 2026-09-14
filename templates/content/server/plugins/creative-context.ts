@@ -42,4 +42,7 @@ registerOnboardingStep({
 
 registerNativeResourceCaptureAdapter(nativeDocumentCreativeContextAdapter);
 
-export default setupCreativeContext({ appId: "content" });
+export default setupCreativeContext({
+  appId: "content",
+  labKey: CONTENT_CREATIVE_CONTEXT.key,
+});

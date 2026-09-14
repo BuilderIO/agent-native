@@ -22374,6 +22374,11 @@ function DesignEditor() {
             return;
           }
           if (!canEditDesign) return;
+          if (!creativeContextLab.isSuccess) {
+            const issue = t("designEditor.generationStoppedRetry");
+            setGenerationIssue(issue);
+            throw new Error(issue);
+          }
           const designSystemId = selectedPromptDesignSystemId;
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);

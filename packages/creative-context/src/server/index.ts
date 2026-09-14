@@ -23,6 +23,7 @@ import {
   getCreativeContext,
   type CreativeContextServerContext,
 } from "./context.js";
+import { gateCreativeContextActions } from "./labs.js";
 import { createCreativeContextMediaPlugin } from "./media.js";
 import { registerCreativeContextPromptProvider } from "./prompt-provider.js";
 import { getCreativeContextResourcePath } from "./resource-paths.js";
@@ -37,7 +38,7 @@ export interface CreativeContextSetupOptions extends Partial<
   continuationDispatcher?: CreativeContextImportContinuationDispatcher;
 }
 
-registerPackageActions(creativeContextActions);
+registerPackageActions(gateCreativeContextActions(creativeContextActions));
 registerWorkspaceConnectionLifecycleListener(async (event) => {
   await handleWorkspaceConnectionLifecycle(event);
 });
@@ -105,6 +106,7 @@ export function setupCreativeContext(
   configureCreativeContext({
     getDb: options.getDb,
     schema: options.schema,
+    labKey: options.labKey,
     vectorAdapter: options.vectorAdapter,
     connectors: options.connectors,
     projections: options.projections,
