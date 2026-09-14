@@ -408,6 +408,17 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    if (
+      args.title !== undefined &&
+      args.content !== undefined &&
+      args.baseRevision !== undefined &&
+      args.baseTitle === undefined
+    ) {
+      throw new ActionContractError(
+        "Combined title and body saves require baseTitle with baseRevision.",
+        { errorCode: "BASE_TITLE_REQUIRED", statusCode: 400 },
+      );
+    }
 
     const isExternalCaller =
       ctx?.caller === "tool" ||

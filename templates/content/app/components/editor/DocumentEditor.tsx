@@ -3080,6 +3080,7 @@ function PageEditorSessionBody({
         }
         if (updates.content !== undefined) {
           lastSavedContentRef.current = {
+            ...lastSavedContentRef.current,
             content: pending.content,
             updatedAt: optimisticAt,
           };

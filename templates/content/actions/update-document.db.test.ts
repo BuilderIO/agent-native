@@ -300,6 +300,7 @@ describe("update-document compare-and-swap", () => {
         id: documentId,
         title: "Must not apply",
         content: "local body edit",
+        baseTitle: "Untitled",
         baseRevision: `body:${before.bodyRevision}:sha256:${"0".repeat(64)}`,
       }),
     );
@@ -309,6 +310,34 @@ describe("update-document compare-and-swap", () => {
       title: "Untitled",
       content: "original",
       bodyRevision: before.bodyRevision,
+    });
+  });
+
+  it("rejects a combined title and body CAS save without a title baseline", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    const before = await documentRow(documentId);
+    const { documentRevisionToken } =
+      await import("./_document-edit-mutation.js");
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          title: "Local title",
+          content: "local body",
+          baseRevision: documentRevisionToken(
+            before.bodyRevision,
+            before.content,
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "BASE_TITLE_REQUIRED" });
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Original title",
+      content: "original",
     });
   });
 

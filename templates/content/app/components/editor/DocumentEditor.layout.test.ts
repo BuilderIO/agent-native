@@ -1670,6 +1670,7 @@ describe("document editor layout", () => {
     expect(teardown).toContain("lastSavedContentRef.current.content");
     expect(teardown).toContain("documentRevisionRef.current !==");
     expect(teardown).toContain("lastSavedContentRef.current.revision");
+    expect(teardown).toContain("...lastSavedContentRef.current");
     expect(teardown).not.toContain(
       "serverUpdatedAt > lastSavedContentRef.current.updatedAt",
     );

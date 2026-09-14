@@ -112,6 +112,18 @@ describe("private preview document drafts", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     expect(current.content).toBe("Local recovery");
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: before.updatedAt,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
     const versions = await getDb()
       .select()
       .from(schema.documentVersions)
@@ -243,7 +255,7 @@ describe("private preview document drafts", () => {
       expect.arrayContaining([
         expect.objectContaining({
           content: "Claimed recovery",
-          operation: "restore-claimed-preview-draft",
+          operation: "claim-preview-draft-keep_mine",
           checkpointKind: "recovery",
         }),
       ]),
@@ -269,6 +281,17 @@ describe("private preview document drafts", () => {
         expectedDraftContent: "Local recovery",
       }),
     );
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "use_saved",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+        }),
+      ),
+    ).resolves.toEqual({ status: "resolved", choice: "use_saved" });
 
     expect(
       (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,

@@ -21,6 +21,15 @@ const exactDraft = {
   expectedDraftContent: z.string().max(500_000),
 };
 
+const durableClaimPayload = z.object({
+  draftId: z.string().min(1),
+  baseDocumentUpdatedAt: z.string().nullable(),
+  loadedContentWasEmpty: z.number().int(),
+  deferredReason: z.string().nullable(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
 function conflict(message: string, details?: Record<string, unknown>): never {
   throw new ActionContractError(message, {
     errorCode: "PREVIEW_DRAFT_RECOVERY_CONFLICT",
@@ -82,6 +91,12 @@ export default defineAction({
     const access = await assertAccess("document", args.documentId, "editor");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
+    const recoveryId = await recoveryDocumentId({
+      ...args,
+      ownerEmail: userEmail,
+      orgId,
+    });
+    const claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
     const draftFilter = and(
       eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
       eq(schema.documentPreviewDrafts.orgId, orgId),
@@ -91,12 +106,90 @@ export default defineAction({
       eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
     );
     const claimExactDraft = async () => {
-      const [draft] = await db
-        .delete(schema.documentPreviewDrafts)
-        .where(draftFilter)
-        .returning();
-      if (!draft) conflict("The saved draft changed during recovery.");
-      return draft;
+      return db.transaction(async (tx) => {
+        const [draft] = await tx
+          .select()
+          .from(schema.documentPreviewDrafts)
+          .where(draftFilter)
+          .for("update")
+          .limit(1);
+        if (!draft) {
+          const [claim] = await tx
+            .select()
+            .from(schema.documentVersions)
+            .where(
+              and(
+                eq(schema.documentVersions.id, claimId),
+                eq(schema.documentVersions.ownerEmail, ownerEmail),
+                eq(schema.documentVersions.documentId, args.documentId),
+              ),
+            )
+            .limit(1);
+          if (
+            !claim ||
+            claim.title !== args.expectedDraftTitle ||
+            claim.content !== args.expectedDraftContent ||
+            !claim.chatContext
+          ) {
+            conflict("The saved draft changed during recovery.");
+          }
+          const payload = durableClaimPayload.parse(
+            JSON.parse(claim.chatContext),
+          );
+          return {
+            id: payload.draftId,
+            ownerEmail: userEmail,
+            orgId,
+            documentId: args.documentId,
+            title: claim.title,
+            content: claim.content,
+            baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
+            loadedContentWasEmpty: payload.loadedContentWasEmpty,
+            deferredReason: payload.deferredReason,
+            version: args.expectedDraftVersion,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+          };
+        }
+        const now = new Date().toISOString();
+        await tx
+          .insert(schema.documentVersions)
+          .values({
+            id: claimId,
+            ownerEmail,
+            documentId: args.documentId,
+            title: draft.title,
+            content: draft.content,
+            chatContext: JSON.stringify({
+              draftId: draft.id,
+              baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
+              loadedContentWasEmpty: draft.loadedContentWasEmpty,
+              deferredReason: draft.deferredReason,
+              createdAt: draft.createdAt,
+              updatedAt: draft.updatedAt,
+            }),
+            actorEmail: userEmail,
+            actorKind: "human",
+            origin: ctx?.caller ?? "frontend",
+            groupKind: "operation",
+            groupId: `draft-recovery:${draft.id}`,
+            operation:
+              args.choice === "use_saved"
+                ? "use-saved-preview-draft"
+                : `claim-preview-draft-${args.choice}`,
+            checkpointKind: "recovery",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing();
+        const deleted = await tx
+          .delete(schema.documentPreviewDrafts)
+          .where(draftFilter)
+          .returning({ id: schema.documentPreviewDrafts.id });
+        if (deleted.length !== 1)
+          conflict("The saved draft changed during recovery.");
+        return draft;
+      });
     };
     const restoreClaimedDraft = async (
       draft: typeof schema.documentPreviewDrafts.$inferSelect,
@@ -108,35 +201,29 @@ export default defineAction({
         .returning({ id: schema.documentPreviewDrafts.id });
       if (restored.length === 1) return;
 
-      const now = new Date().toISOString();
-      const recoveryVersionId = `draft-restore-${draft.id}`;
-      await db
-        .insert(schema.documentVersions)
-        .values({
-          id: recoveryVersionId,
-          ownerEmail,
-          documentId: args.documentId,
-          title: draft.title,
-          content: draft.content,
-          actorEmail: userEmail,
-          actorKind: "human",
-          origin: ctx?.caller ?? "frontend",
-          groupKind: "operation",
-          groupId: `draft-recovery:${draft.id}`,
-          operation: "restore-claimed-preview-draft",
-          checkpointKind: "recovery",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing();
       conflict(
         "A newer draft replaced this recovery draft. The claimed version was preserved in Version History.",
-        { recoveryVersionId },
+        { recoveryVersionId: claimId },
       );
     };
     if (args.choice === "keep_mine") {
       const draft = await claimExactDraft();
       try {
+        const [current] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .limit(1);
+        if (
+          current?.title === draft.title &&
+          current.content === draft.content
+        ) {
+          return {
+            status: "resolved" as const,
+            choice: args.choice,
+            document: current,
+          };
+        }
         const saved = await updateDocument.run(
           {
             id: args.documentId,
@@ -170,46 +257,11 @@ export default defineAction({
     }
 
     if (args.choice === "use_saved") {
-      const now = new Date().toISOString();
-      await db.transaction(async (tx) => {
-        const [lockedDraft] = await tx
-          .select()
-          .from(schema.documentPreviewDrafts)
-          .where(draftFilter)
-          .for("update")
-          .limit(1);
-        if (!lockedDraft) conflict("The saved draft changed during recovery.");
-        await tx.insert(schema.documentVersions).values({
-          id: crypto.randomUUID(),
-          ownerEmail,
-          documentId: args.documentId,
-          title: lockedDraft.title,
-          content: lockedDraft.content,
-          actorEmail: userEmail,
-          actorKind: "human",
-          origin: ctx?.caller ?? "frontend",
-          groupKind: "operation",
-          groupId: `draft-recovery:${lockedDraft.id}`,
-          operation: "use-saved-preview-draft",
-          checkpointKind: "recovery",
-          createdAt: now,
-          updatedAt: now,
-        });
-        const deleted = await tx
-          .delete(schema.documentPreviewDrafts)
-          .where(draftFilter)
-          .returning({ id: schema.documentPreviewDrafts.id });
-        if (deleted.length !== 1)
-          conflict("The saved draft changed during recovery.");
-      });
+      await claimExactDraft();
       return { status: "resolved" as const, choice: args.choice };
     }
 
-    const destinationId = await recoveryDocumentId({
-      ...args,
-      ownerEmail: userEmail,
-      orgId,
-    });
+    const destinationId = recoveryId;
     const findExistingRecovery = async () => {
       const [existing] = await db
         .select()
