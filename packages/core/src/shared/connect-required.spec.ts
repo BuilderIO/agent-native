@@ -42,6 +42,31 @@ describe("connectRequiredResult", () => {
     expect(result.connectRequired.settingsPath).toBe("/settings");
   });
 
+  // Shape matching means a card can arrive from an MCP server or a remote A2A
+  // agent, and the href reaches the DOM. Only a same-origin path or an http(s)
+  // URL is a connect target.
+  it.each([
+    "javascript:alert(1)",
+    "JavaScript:alert(1)",
+    " javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "vbscript:msgbox(1)",
+    "//evil.test/connect",
+    "connect",
+  ])("drops the unsafe connect target %s", (connectUrl) => {
+    const result = connectRequiredResult({
+      provider: "acme",
+      providerLabel: "Acme",
+      reason: "Acme is not connected.",
+      connectUrl,
+      settingsPath: connectUrl,
+    });
+
+    expect(result.connectRequired).not.toHaveProperty("connectUrl");
+    expect(result.connectRequired).not.toHaveProperty("settingsPath");
+    expect(result.connectRequired.reason).toBe("Acme is not connected.");
+  });
+
   it("omits blank optional fields instead of emitting empty strings", () => {
     const result = connectRequiredResult({
       provider: "acme",
@@ -83,6 +108,39 @@ describe("normalizeConnectRequiredResult", () => {
         ...produced,
       })?.provider,
     ).toBe(BUILDER_CONNECT_PROVIDER);
+  });
+
+  it("strips an unsafe href that never went through the producer", () => {
+    const card = normalizeConnectRequiredResult({
+      connectRequired: {
+        provider: "acme",
+        providerLabel: "Acme",
+        reason: "Acme is not connected.",
+        message: "Acme is not connected. Connect Acme to continue.",
+        connectUrl: "javascript:alert(1)",
+        settingsPath: "//evil.test/settings",
+      },
+    });
+
+    expect(card).not.toBeNull();
+    expect(card).not.toHaveProperty("connectUrl");
+    expect(card).not.toHaveProperty("settingsPath");
+  });
+
+  it("keeps a same-origin path and an https url", () => {
+    const card = normalizeConnectRequiredResult({
+      connectRequired: {
+        provider: "acme",
+        providerLabel: "Acme",
+        reason: "Acme is not connected.",
+        message: "Acme is not connected. Connect Acme to continue.",
+        connectUrl: "https://example.test/connect",
+        settingsPath: "/settings",
+      },
+    });
+
+    expect(card?.connectUrl).toBe("https://example.test/connect");
+    expect(card?.settingsPath).toBe("/settings");
   });
 
   it("rejects results that are not a connect blocker", () => {

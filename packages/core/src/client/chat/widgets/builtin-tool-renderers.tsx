@@ -13,6 +13,7 @@ import { useT } from "../../i18n.js";
 import {
   registerReservedActionChatRenderer,
   registerReservedFallbackToolRenderer,
+  registerReservedToolRenderer,
   type ToolRendererContext,
   type ToolRendererComponent,
 } from "../tool-render-registry.js";
@@ -182,6 +183,15 @@ const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
   ) : null;
 };
 
+/** True when a result is a connect blocker, which the widget frames itself.
+ *  Callers pass this alongside `isBuiltinDataWidgetActionRenderer` so a gated
+ *  action that also declares a chatUI renderer does not get a second border. */
+export function isBuiltinConnectRequiredResult(
+  context: ToolRendererContext,
+): boolean {
+  return normalizeConnectRequiredResult(context.resultJson) !== null;
+}
+
 export function isBuiltinDataWidgetActionRenderer(
   context: ToolRendererContext,
 ): boolean {
@@ -208,6 +218,12 @@ export function isBuiltinWorkspaceFileResult(
 export function resolveBuiltinActionChatRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
+  // A blocked call did not produce the table/chart/extension the action
+  // advertises, so its declared renderer would draw an empty or blank widget
+  // over the Connect control. The blocker outranks the success renderer.
+  if (normalizeConnectRequiredResult(context.resultJson)) {
+    return BuiltinConnectRequiredRenderer;
+  }
   if (
     context.chatUI?.renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER &&
     normalizeInlineExtensionToolResult(context)
@@ -269,23 +285,24 @@ registerReservedFallbackToolRenderer({
   Component: BuiltinDataWidgetRenderer,
 });
 
-// Shape-based, not chatUI-based: any tool result — from show-workspace-file,
-// or any other action that spreads `{ file: toWorkspaceFileCard(meta) }` into
-// its own result — renders a download card without a second discretionary
-// call to show-workspace-file. Matching by shape (instead of statically
-// tagging every such action with `chatUI`) also keeps read/list-style calls
-// on the same multi-purpose action collapsible when they don't produce a file.
-// Shape-based for the same reason: a tool that stops because an integration is
-// not connected returns `connectRequiredResult(...)` and gets a Connect control
-// without chat having to know the tool. Prose naming the blocker leaves the
-// user hunting for Settings.
-registerReservedFallbackToolRenderer({
+// Shape-based like the workspace-file card below, but registered as a reserved
+// renderer rather than a fallback: reserved is the only tier `resolveToolRenderer`
+// checks before an action's declared `chatUI.renderer`. A gated action that also
+// advertises a table or chart did not produce one when it stopped, so leaving it
+// in the fallback tier would draw that empty widget over the Connect control.
+registerReservedToolRenderer({
   id: "core.connect-required",
   match: (context) =>
     normalizeConnectRequiredResult(context.resultJson) !== null,
   Component: BuiltinConnectRequiredRenderer,
 });
 
+// Shape-based, not chatUI-based: any tool result — from show-workspace-file,
+// or any other action that spreads `{ file: toWorkspaceFileCard(meta) }` into
+// its own result — renders a download card without a second discretionary
+// call to show-workspace-file. Matching by shape (instead of statically
+// tagging every such action with `chatUI`) also keeps read/list-style calls
+// on the same multi-purpose action collapsible when they don't produce a file.
 registerReservedFallbackToolRenderer({
   id: "core.workspace-file",
   match: (context) => normalizeWorkspaceFileResult(context.resultJson) !== null,

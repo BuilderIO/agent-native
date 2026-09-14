@@ -39,6 +39,23 @@ function optionalString(value: unknown): string | undefined {
 }
 
 /**
+ * A connect target reaches the DOM as an `href`, and shape matching means it
+ * can arrive from an MCP server or a remote A2A agent rather than from this
+ * repo. Only a root-relative path or an absolute http(s) URL is a connect
+ * target; anything else (`javascript:`, `data:`, or a protocol-relative
+ * `//host` that leaves the origin) is dropped. Dropping the href keeps the
+ * blocker text, so the user still reads what to connect and only loses a link
+ * that was never usable.
+ */
+function safeConnectHref(value: unknown): string | undefined {
+  const href = optionalString(value);
+  if (!href) return undefined;
+  if (href.startsWith("//")) return undefined;
+  if (href.startsWith("/")) return href;
+  return /^https?:\/\//i.test(href) ? href : undefined;
+}
+
+/**
  * Build the payload a gated tool spreads into its own result:
  * `{ ...ownFields, ...connectRequiredResult({ ... }) }`.
  */
@@ -51,8 +68,8 @@ export function connectRequiredResult(input: {
 }): ConnectRequiredResult {
   const reason = input.reason.trim();
   const providerLabel = input.providerLabel.trim();
-  const connectUrl = optionalString(input.connectUrl);
-  const settingsPath = optionalString(input.settingsPath);
+  const connectUrl = safeConnectHref(input.connectUrl);
+  const settingsPath = safeConnectHref(input.settingsPath);
   return {
     connectRequired: {
       provider: input.provider,
@@ -76,16 +93,14 @@ export function normalizeConnectRequiredResult(
   const reason = optionalString(card.reason);
   const message = optionalString(card.message);
   if (!provider || !providerLabel || !reason || !message) return null;
+  const connectUrl = safeConnectHref(card.connectUrl);
+  const settingsPath = safeConnectHref(card.settingsPath);
   return {
     provider,
     providerLabel,
     reason,
     message,
-    ...(optionalString(card.connectUrl)
-      ? { connectUrl: optionalString(card.connectUrl)! }
-      : {}),
-    ...(optionalString(card.settingsPath)
-      ? { settingsPath: optionalString(card.settingsPath)! }
-      : {}),
+    ...(connectUrl ? { connectUrl } : {}),
+    ...(settingsPath ? { settingsPath } : {}),
   };
 }

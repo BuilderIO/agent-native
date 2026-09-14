@@ -16,6 +16,7 @@ import remarkGfm from "remark-gfm";
 import { ActionChatUiSurface } from "../chat/action-chat-ui-surface.js";
 import { resolveToolRenderer } from "../chat/tool-render-registry.js";
 import {
+  isBuiltinConnectRequiredResult,
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
   isBuiltinDataWidgetActionRenderer,
@@ -419,9 +420,10 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     return (
       <ActionChatUiSurface
         context={nativeToolContext}
-        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
-          nativeToolContext,
-        )}
+        isBuiltinDataWidget={
+          isBuiltinDataWidgetActionRenderer(nativeToolContext) ||
+          isBuiltinConnectRequiredResult(nativeToolContext)
+        }
       >
         <NativeToolRenderer context={nativeToolContext} />
       </ActionChatUiSurface>

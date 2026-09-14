@@ -4,13 +4,17 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ACTION_CHAT_UI_DATA_TABLE_RENDERER } from "../../../action-ui.js";
 import {
   BUILDER_CONNECT_PROVIDER,
   BUILDER_CONNECT_PROVIDER_LABEL,
   connectRequiredResult,
 } from "../../../shared/connect-required.js";
 import { resolveToolRenderer } from "../tool-render-registry.js";
-import { resolveBuiltinFallbackToolRenderer } from "./builtin-tool-renderers.js";
+import {
+  resolveBuiltinActionChatRenderer,
+  resolveBuiltinFallbackToolRenderer,
+} from "./builtin-tool-renderers.js";
 
 describe("built-in connect-required renderer", () => {
   let container: HTMLDivElement;
@@ -98,6 +102,70 @@ describe("built-in connect-required renderer", () => {
     const link = container.querySelector("a");
     expect(link?.getAttribute("href")).toBe("https://example.test/connect");
     expect(link?.textContent).toContain("Acme");
+  });
+
+  // A gated action that also advertises a table did not produce one when it
+  // stopped, so its declared renderer would paint an empty widget over the
+  // Connect control. Both resolver entry points must prefer the blocker.
+  it("outranks the action's own chatUI renderer", async () => {
+    const context = {
+      toolName: "query-staged-dataset",
+      args: {},
+      resultJson: connectRequiredResult({
+        provider: "acme",
+        providerLabel: "Acme",
+        reason: "Acme is not connected for this workspace.",
+        connectUrl: "https://example.test/connect",
+      }),
+      isRunning: false,
+      chatUI: { renderer: ACTION_CHAT_UI_DATA_TABLE_RENDERER },
+    };
+
+    const Renderer = resolveBuiltinActionChatRenderer(context);
+    expect(Renderer).not.toBeNull();
+    expect(resolveToolRenderer(context)).toBe(Renderer);
+
+    act(() => {
+      root.render(Renderer ? <Renderer context={context} /> : null);
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(container.textContent).toContain(
+      "Acme is not connected for this workspace",
+    );
+  });
+
+  it("drops an unsafe connect target instead of rendering it", async () => {
+    const context = {
+      toolName: "some-remote-mcp-tool",
+      args: {},
+      resultJson: {
+        connectRequired: {
+          provider: "acme",
+          providerLabel: "Acme",
+          reason: "Acme is not connected.",
+          message: "Acme is not connected. Connect Acme to continue.",
+          connectUrl: "javascript:alert(1)",
+        },
+      },
+      isRunning: false,
+    };
+
+    const Renderer = resolveToolRenderer(context);
+    expect(Renderer).not.toBeNull();
+
+    act(() => {
+      root.render(Renderer ? <Renderer context={context} /> : null);
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(container.textContent).toContain("Acme is not connected.");
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.innerHTML).not.toContain("javascript:");
   });
 
   it("does not claim a successful result", () => {
