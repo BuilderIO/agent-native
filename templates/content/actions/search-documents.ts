@@ -245,7 +245,9 @@ export default defineAction({
         description: schema.documents.description,
         icon: schema.documents.icon,
         contentPreview: matchWindow,
-        snippetNeedle: selectedBodyNeedle ?? sql<string>`''`,
+        snippetNeedle: selectedBodyNeedle
+          ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
+          : sql<string>`''`,
         contentLength: sql<number>`length(${normalizedContent})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,

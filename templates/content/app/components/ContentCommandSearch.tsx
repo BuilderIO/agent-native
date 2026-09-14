@@ -151,6 +151,20 @@ function SearchLoading() {
   );
 }
 
+export function SearchEmptyOption() {
+  const t = useT();
+  return (
+    <div
+      role="option"
+      aria-disabled="true"
+      aria-live="polite"
+      className="p-3 text-sm text-muted-foreground"
+    >
+      {t("root.commandSearchEmpty")}
+    </div>
+  );
+}
+
 // Radix portals DropdownMenuContent to document.body, so focus restoration
 // from a filter menu's close event cannot walk up to the picker dialog from
 // that element; walk up from the filter toolbar (which lives inside the
@@ -341,76 +355,78 @@ function SearchPage({
     <>
       {renderList(
         <>
-          <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-            {results.data.documents.map((document) => {
-              const Icon =
-                document.documentType === "database"
-                  ? IconDatabase
-                  : isLocalFileSearchResult(document)
-                    ? IconFolderOpen
-                    : IconFileText;
-              const sourceUpdated = document.sourceUpdatedAt
-                ? normalizeTimestamp(document.sourceUpdatedAt)
-                : null;
-              return (
-                <CommandMenu.Item
-                  key={document.id}
-                  deferSelect={false}
-                  className="group items-start py-2"
-                  onSelect={() => {
-                    onOpenChange(false);
-                    void navigate(contentCommandDocumentPath(document.id));
-                  }}
-                >
-                  <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">
-                      <Highlight
-                        text={document.title || t("sidebar.untitled")}
-                        needles={needles}
-                      />
+          {results.data.documents.length > 0 ? (
+            <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+              {results.data.documents.map((document) => {
+                const Icon =
+                  document.documentType === "database"
+                    ? IconDatabase
+                    : isLocalFileSearchResult(document)
+                      ? IconFolderOpen
+                      : IconFileText;
+                const sourceUpdated = document.sourceUpdatedAt
+                  ? normalizeTimestamp(document.sourceUpdatedAt)
+                  : null;
+                return (
+                  <CommandMenu.Item
+                    key={document.id}
+                    deferSelect={false}
+                    className="group items-start py-2"
+                    onSelect={() => {
+                      onOpenChange(false);
+                      void navigate(contentCommandDocumentPath(document.id));
+                    }}
+                  >
+                    <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">
+                        <Highlight
+                          text={document.title || t("sidebar.untitled")}
+                          needles={needles}
+                        />
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[
+                          document.parentTitle,
+                          document.sourceKind,
+                          t("root.searchModified", {
+                            date: formatDate(document.updatedAt),
+                          }),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                      {document.snippet ? (
+                        <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
+                          <Highlight
+                            text={document.snippet}
+                            needles={needles}
+                          />
+                        </span>
+                      ) : null}
+                      {document.description ? (
+                        <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block">
+                          {document.description}
+                        </span>
+                      ) : null}
+                      {sourceUpdated ? (
+                        <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
+                          {t("root.searchSourceUpdated", {
+                            date: formatDate(sourceUpdated),
+                          })}
+                        </span>
+                      ) : null}
                     </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {[
-                        document.parentTitle,
-                        document.sourceKind,
-                        t("root.searchModified", {
-                          date: formatDate(document.updatedAt),
-                        }),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </span>
-                    {document.snippet ? (
-                      <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
-                        <Highlight text={document.snippet} needles={needles} />
-                      </span>
-                    ) : null}
-                    {document.description ? (
-                      <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block">
-                        {document.description}
-                      </span>
-                    ) : null}
-                    {sourceUpdated ? (
-                      <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
-                        {t("root.searchSourceUpdated", {
-                          date: formatDate(sourceUpdated),
-                        })}
-                      </span>
-                    ) : null}
-                  </span>
-                </CommandMenu.Item>
-              );
-            })}
-          </CommandMenu.Group>
+                  </CommandMenu.Item>
+                );
+              })}
+            </CommandMenu.Group>
+          ) : (
+            <SearchEmptyOption />
+          )}
           {staticItems}
         </>,
       )}
-      {results.data.documents.length === 0 ? (
-        <div role="status" className="p-3 text-sm text-muted-foreground">
-          {t("root.commandSearchEmpty")}
-        </div>
-      ) : null}
       {offset > 0 || results.data.pagination.hasMore ? (
         <div
           className="flex justify-between gap-2 border-t p-2"

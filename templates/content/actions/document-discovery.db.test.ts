@@ -212,19 +212,20 @@ describe("bounded document discovery", () => {
     }
   });
 
-  it("returns title matches with absent bodies alongside populated results", async () => {
+  it("maps a non-null snippet needle for title and body matches with a null body", async () => {
     await getDb().execute(
       sql`alter table ${schema.documents} alter column content drop not null`,
     );
     await getDb().execute(sql`
       insert into ${schema.documents} (id, owner_email, title, content) values
         ('search-null-body', ${OWNER}, 'Nullable body match', null),
-        ('search-populated-body', ${OWNER}, 'Nullable body match companion', 'bounded companion body')
+        ('search-populated-body', ${OWNER}, 'Companion page', 'prefix nullable body match suffix')
     `);
 
     const result = await asUser(OWNER, () =>
       searchDocuments.run({
         query: "Nullable body match",
+        searchFields: "all",
         limit: 20,
         offset: 0,
       }),
@@ -238,8 +239,8 @@ describe("bounded document discovery", () => {
       contentLength: 0,
     });
     expect(byId.get("search-populated-body")).toMatchObject({
-      snippet: "bounded companion body",
-      contentLength: 22,
+      snippet: "prefix nullable body match suffix",
+      contentLength: 33,
     });
   });
 

@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
+import { Command, CommandList } from "@agent-native/toolkit/ui/command";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DateSearchChoice } from "./ContentCommandSearch";
+import { DateSearchChoice, SearchEmptyOption } from "./ContentCommandSearch";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
@@ -66,7 +67,7 @@ describe("DateSearchChoice in a command dialog", () => {
   }
 
   it("keeps the calendar in the parent focus scope and labels its dialog", async () => {
-    await renderPicker();
+    const { trigger } = await renderPicker();
 
     const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
     const calendarDialog = Array.from(dialogs).find(
@@ -77,6 +78,8 @@ describe("DateSearchChoice in a command dialog", () => {
     )!;
 
     expect(commandDialog.contains(calendarDialog)).toBe(true);
+    expect(trigger.getAttribute("aria-controls")).toBe(calendarDialog.id);
+    expect(calendarDialog.getAttribute("aria-label")).toBe("Modified date");
     expect(calendarDialog.contains(document.activeElement)).toBe(true);
     expect(
       document.activeElement?.closest('[data-slot="calendar"]'),
@@ -106,5 +109,37 @@ describe("DateSearchChoice in a command dialog", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Search query",
     );
+  });
+});
+
+describe("SearchEmptyOption", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  afterEach(async () => {
+    await act(async () => root?.unmount());
+    container?.remove();
+  });
+
+  it("keeps the listbox valid without creating a selectable cmdk item", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () =>
+      root.render(
+        <Command shouldFilter={false}>
+          <CommandList>
+            <SearchEmptyOption />
+          </CommandList>
+        </Command>,
+      ),
+    );
+
+    const listbox = container.querySelector('[role="listbox"]')!;
+    const emptyOption = listbox.querySelector('[role="option"]')!;
+    expect(emptyOption.getAttribute("aria-disabled")).toBe("true");
+    expect(emptyOption.getAttribute("cmdk-item")).toBeNull();
+    expect(emptyOption.textContent).toBe("root.commandSearchEmpty");
   });
 });
