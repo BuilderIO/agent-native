@@ -859,21 +859,68 @@ const frFR = {
     },
     calendar: {
       faq: {
-        question1: "L'IA peut-elle planifier mes réunions ?",
+        question1: "Qu'est-ce qu'Agent-Native Calendar ?",
         answer1:
-          "Oui. Demandez à l'agent de trouver un créneau, de créer un événement, de vérifier les disponibilités ou de reprogrammer une réunion : il travaille dans votre véritable calendrier et respecte les événements existants.",
-        question2:
-          "Calendar propose-t-il des liens de réservation comme Calendly ?",
+          "Agent-Native Calendar est un assistant de planification IA gratuit et open source qui se connecte à Google Calendar. Utilisez un agent IA pour gérer vos événements et trouver des créneaux, ou partagez des liens de réservation pour que d'autres puissent planifier avec vous.",
+        question2: "Quels calendriers puis-je connecter ?",
         answer2:
-          "Oui : des pages de réservation personnalisables avec disponibilités par type, collecte des informations des visiteurs, confirmations et domaines personnalisés.",
-        question3: "Se synchronise-t-il avec Google Calendar ?",
+          "Connectez plusieurs comptes Google pour afficher leurs événements ensemble. Les événements nouveaux et modifiés sont écrits dans le calendrier principal du compte sélectionné. Vous pouvez aussi afficher des flux ICS ou webcal en lecture seule ; ce ne sont pas des intégrations bidirectionnelles avec Outlook ou Apple Calendar. Les calendriers Google partagés sont en lecture seule et ne bloquent pas la disponibilité de réservation.",
+        question3: "Que peut faire l'agent IA avec mon calendrier ?",
         answer3:
-          "Oui : synchronisation OAuth avec prise en charge de plusieurs comptes et actualisation automatique des jetons. Créez, modifiez et supprimez des événements directement dans Google.",
-        question4: "Calendar est-il gratuit ?",
+          "Votre agent IA peut consulter votre emploi du temps, trouver des créneaux disponibles et créer ou reprogrammer des événements. Lorsque vous lui demandez de trouver un créneau, il vérifie vos règles de disponibilité et vos événements existants, ainsi que les informations libre/occupé des participants nommés lorsqu'elles sont accessibles. Vous choisissez le créneau suggéré avant qu'il ne réserve la réunion.",
+        question4:
+          "Faut-il un compte pour réserver une réunion avec moi ?",
         answer4:
-          "Oui. Il est gratuit et open source, y compris les pages de réservation.",
+          "Non. Toute personne disposant de votre lien de réservation public peut choisir un créneau disponible et répondre à vos questions de réservation sans se connecter. Après la réservation, elle reçoit un lien privé pour reprogrammer ou annuler la réunion.",
+        question5:
+          "Un lien de réservation peut-il vérifier la disponibilité de plusieurs hôtes ?",
+        answer5:
+          "Oui. Ajoutez des co-hôtes obligatoires, et Calendar vérifie leurs informations libre/occupé avant de proposer un créneau. Pour respecter également les horaires de travail configurés de chaque co-hôte, vous et ce co-hôte devez ajouter mutuellement vos calendriers en superposition. Sans ce partage mutuel, Calendar ne vérifie que leurs informations libre/occupé.",
       },
       s001: "Capture d'écran du modèle Calendar",
+      // Copie V3 de la page de destination (10/09/2026) — du hero au CTA final.
+      heroEyebrow: "Calendar",
+      heroTitle: "Gérez votre emploi du temps avec votre agent IA",
+      heroDescription:
+        "Calendar est un assistant de planification IA gratuit et open source pour gérer les événements Google Calendar, trouver des créneaux et permettre aux autres de réserver avec vous.",
+      heroCta: "Ouvrir Calendar",
+      useCasesHeading: "Que pouvez-vous faire avec Calendar ?",
+      useCasesBody:
+        "Réservez un appel client, réunissez votre équipe ou ajustez votre journée quand les plans changent.",
+      useCase1Title: "Réservez des appels et démos clients",
+      useCase1Body:
+        "Donnez à vos prospects et clients un lien de réservation pour qu'ils choisissent un créneau. Recueillez les informations dont vous avez besoin avant l'appel.",
+      useCase2Title: "Trouvez un créneau pour les réunions d'équipe",
+      useCase2Body:
+        "Demandez à votre agent IA un créneau où vos coéquipiers sont disponibles. Choisissez un créneau suggéré pour réserver la réunion.",
+      useCase3Title: "Ajustez votre journée quand les plans changent",
+      useCase3Body:
+        "Demandez à votre agent IA de déplacer une réunion ou de trouver un autre créneau, en tenant compte de vos événements et horaires de travail existants.",
+      keyFeaturesEyebrow: "Fonctionnalités clés",
+      keyFeaturesHeading:
+        "Tout ce dont vous avez besoin pour planifier, réserver et reprogrammer",
+      feature1Title: "Planification par IA",
+      feature1Body:
+        "Demandez à votre agent IA de consulter votre emploi du temps, de trouver des créneaux disponibles et de créer ou reprogrammer des événements sur votre Google Calendar connecté.",
+      feature2Title: "Plusieurs comptes de calendrier",
+      feature2Body:
+        "Consultez vos comptes Google professionnels et personnels ensemble en vue jour, semaine ou mois. Ajoutez des flux de calendrier en lecture seule à côté de vos événements.",
+      feature3Title: "Liens de réservation personnalisables",
+      feature3Body:
+        "Créez des pages de réservation pour différents types de réunion. Définissez la durée et ajoutez des questions auxquelles les gens répondent en réservant.",
+      feature4Title: "Contrôles de disponibilité",
+      feature4Body:
+        "Définissez vos horaires de travail, votre fuseau horaire et des tampons entre les réunions. Choisissez le préavis nécessaire et jusqu'à quand les gens peuvent réserver à l'avance.",
+      feature5Title: "Planification avec co-hôtes",
+      feature5Body:
+        "Ajoutez des co-hôtes obligatoires à un lien de réservation. Proposez des créneaux où tout le monde est libre, puis invitez-les dès que quelqu'un réserve.",
+      feature6Title: "Liens de réunion vidéo",
+      feature6Body:
+        "Ajoutez Google Meet, connectez Zoom ou utilisez un lien de réunion personnalisé pour que les invités sachent où se joindre en réservant.",
+      finalCtaHeading: "Ajoutez votre prochaine réunion au calendrier",
+      finalCtaBody:
+        "Trouvez un créneau avec votre agent IA, ou envoyez un lien de réservation.",
+      finalCtaButton: "Ouvrir Calendar",
       s002: "Calendar vues",
       s003: "Actions des agents",
       s004: "Types de liens de réservation",
