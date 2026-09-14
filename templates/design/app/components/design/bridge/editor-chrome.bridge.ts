@@ -2633,33 +2633,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // in that transient state). Only a plain type/class/id/attribute selector
   // chain with descendant/child combinators is accepted; anything with a
   // `:`, sibling combinator, universal selector, or comma-list is rejected
-  // — excluded outright, same as before: never a candidate, never a masking
-  // competitor either. Quoted attribute-value contents (`[data-x="a:b,c"]`)
-  // are stripped before the check so a literal `:`/`,`/`*` INSIDE a value
-  // doesn't falsely reject an otherwise-plain selector.
+  // — never a candidate. It is still matched as a masking competitor inside
+  // a grouping construct, where nothing is ever trusted anyway (see the
+  // walk). Quoted attribute-value contents (`[data-x="a:b,c"]`)
+  // and escaped characters (`.md\:w-64` — every Tailwind variant class) are
+  // stripped before the check so a literal `:`/`,`/`*` INSIDE a value or an
+  // ident doesn't falsely reject an otherwise-plain selector.
   var PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS = /[:,+~*]/;
-  var PORTABLE_STYLE_QUOTED_STRING = /"[^"]*"|'[^']*'/g;
+  var PORTABLE_STYLE_OPAQUE_SELECTOR_TEXT = /"[^"]*"|'[^']*'|\\./g;
+  // `&` in a nested selector stands for the enclosing rule's whole selector
+  // list, but `el.matches` reads a bare `&` as `:scope` — `el` itself —
+  // so it is spelled out as `:is(<enclosing>)` before matching: exact in any
+  // position (`.a & .b`) and for a selector-list parent (`.card, .panel`),
+  // where splicing the text in would build a list the allowlist rejects.
+  var PORTABLE_STYLE_NESTING_SELECTOR = /"[^"]*"|'[^']*'|\\.|&/g;
 
   function isPortableStyleSimpleSelector(selector: string): boolean {
     if (typeof selector !== "string" || !selector) return false;
-    var withoutQuotedValues = selector.replace(
-      PORTABLE_STYLE_QUOTED_STRING,
+    var withoutOpaqueText = selector.replace(
+      PORTABLE_STYLE_OPAQUE_SELECTOR_TEXT,
       "",
     );
-    return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutQuotedValues);
+    return !PORTABLE_STYLE_UNSAFE_SELECTOR_CHARS.test(withoutOpaqueText);
   }
 
-  function isPortableStyleGroupingRule(rule: CSSRule): boolean {
-    return (
-      (typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule) ||
-      (typeof CSSSupportsRule !== "undefined" &&
-        rule instanceof CSSSupportsRule) ||
-      (typeof CSSLayerBlockRule !== "undefined" &&
-        rule instanceof CSSLayerBlockRule) ||
-      (typeof CSSContainerRule !== "undefined" &&
-        rule instanceof CSSContainerRule) ||
-      (typeof CSSScopeRule !== "undefined" && rule instanceof CSSScopeRule)
+  function resolveNestedSelector(selector: string, scope: string): string {
+    var explicit = false;
+    var resolved = selector.replace(
+      PORTABLE_STYLE_NESTING_SELECTOR,
+      function (m) {
+        if (m !== "&") return m;
+        explicit = true;
+        return ":is(" + scope + ")";
+      },
     );
+    // Engines serialize a nested selector with its implied `&` made explicit
+    // (`.child` → `& .child`); should one hand back the relative form, the
+    // implied `& ` prefix is restored rather than matching `.child` anywhere
+    // in the document.
+    return explicit ? resolved : ":is(" + scope + ") " + resolved;
   }
 
   type PortableStyleWalkState = {
@@ -2668,75 +2680,133 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     importantMatch: boolean;
   };
 
+  // Rule kind is duck-typed by shape, never by `instanceof` a global
+  // constructor: a grouping type this engine doesn't expose (older Safari/
+  // Firefox, or a future construct like @starting-style) or a rule from
+  // another realm would otherwise match no `instanceof` check and fall
+  // through as "harmless" — silently hiding a competing declaration instead
+  // of masking it. A rule with its own `cssRules` and no `selectorText` is
+  // a grouping rule (@media/@supports/@layer/@container/@scope/…); a rule
+  // with `selectorText` and `style` is a style rule, whether or not it also
+  // carries nested `cssRules` (CSS nesting). Inside a style rule's own
+  // `cssRules` (at any depth, through nested @media/@supports/…), a rule
+  // with `style` and no `selectorText` is CSS nesting's bare declaration
+  // block (CSSNestedDeclarations): it declares for the enclosing rule's
+  // selector, which `scope` carries down — `.card { @media (…) { width:
+  // 200px } }` is what Tailwind v4 emits for every responsive utility, and
+  // it exposes neither `selectorText` nor `cssRules`, so by shape alone it
+  // looked like @font-face.
   function walkPortableStyleRules(
     ruleList: CSSRuleList,
     el: Element,
     property: string,
     grouped: boolean,
     state: PortableStyleWalkState,
+    scope?: string,
   ): void {
     for (var r = 0; r < ruleList.length; r += 1) {
       var rule = ruleList[r];
-      if (isPortableStyleGroupingRule(rule)) {
-        var nested = (rule as any).cssRules as CSSRuleList | undefined;
-        if (nested) walkPortableStyleRules(nested, el, property, true, state);
-        continue;
+      // CSSRule.PAGE_RULE: @page exposes `selectorText` + `style` like a
+      // style rule, but a page selector names a page, not an element —
+      // `@page wide` would otherwise read as the type selector `wide`.
+      if (rule.type === 6) continue;
+      var nestedRules = (rule as any).cssRules as CSSRuleList | undefined;
+      var selectorText = (rule as any).selectorText;
+      if (scope !== undefined) {
+        selectorText =
+          typeof selectorText === "string"
+            ? resolveNestedSelector(selectorText, scope)
+            : (rule as any).style
+              ? scope
+              : selectorText;
       }
-      if (
-        typeof CSSImportRule !== "undefined" &&
-        rule instanceof CSSImportRule
-      ) {
-        var importedRules: CSSRuleList | undefined;
-        try {
-          importedRules = rule.styleSheet && rule.styleSheet.cssRules;
-        } catch (_err) {
-          state.masked = true; // cross-origin import: cannot rule out a competing declaration
+      var isStyleRule =
+        typeof selectorText === "string" && !!(rule as any).style;
+
+      if (!isStyleRule) {
+        if (nestedRules) {
+          walkPortableStyleRules(nestedRules, el, property, true, state, scope);
           continue;
         }
-        // A readable same-origin import (including a `data:` sheet) is
-        // walked exactly like the rules it inlines would be — an unresolved
-        // import (`styleSheet` present but not yet populated) is treated the
-        // same as unreadable, since its eventual rules can't be ruled out.
-        if (importedRules) {
-          walkPortableStyleRules(importedRules, el, property, grouped, state);
-        } else {
-          state.masked = true;
+        if ((rule as any).styleSheet !== undefined) {
+          var importedRules: CSSRuleList | undefined;
+          try {
+            importedRules =
+              (rule as any).styleSheet && (rule as any).styleSheet.cssRules;
+          } catch (_err) {
+            state.masked = true; // cross-origin import: cannot rule out a competing declaration
+            continue;
+          }
+          // A readable same-origin import (including a `data:` sheet) is
+          // walked exactly like the rules it inlines would be — an unresolved
+          // import (`styleSheet` present but not yet populated) is treated the
+          // same as unreadable, since its eventual rules can't be ruled out.
+          if (importedRules) {
+            walkPortableStyleRules(
+              importedRules,
+              el,
+              property,
+              grouped,
+              state,
+              scope,
+            );
+          } else {
+            state.masked = true;
+          }
+          continue;
         }
-        continue;
-      }
-      if (
-        typeof CSSStyleRule === "undefined" ||
-        !(rule instanceof CSSStyleRule)
-      ) {
         // A rule type that cannot declare a `width`/`height` matching an
-        // arbitrary element via a selector (@font-face, @keyframes, @page,
+        // arbitrary element via a selector (@font-face, @keyframes,
         // @counter-style, @property, …) is genuinely harmless — ignored,
         // not masked.
         continue;
       }
-      var raw = rule.style.getPropertyValue(property);
-      if (!raw) continue;
-      if (!isPortableStyleSimpleSelector(rule.selectorText || "")) {
-        continue;
+
+      var styleRule = rule as CSSStyleRule;
+      var raw = styleRule.style.getPropertyValue(property);
+      // The allowlist decides what may be TRUSTED as the winner. A grouped
+      // rule is never trusted, only lets it mask, so it is matched as
+      // written: a `.card, .panel` list or a `:hover` that currently applies
+      // is a real competitor, not a selector to skip.
+      if (raw && (grouped || isPortableStyleSimpleSelector(selectorText))) {
+        var matched = false;
+        try {
+          matched = el.matches(selectorText);
+        } catch (_err) {
+          state.masked = true; // selector this engine can't evaluate: a match can't be ruled out
+        }
+        if (matched) {
+          if (styleRule.style.getPropertyPriority(property) === "important") {
+            state.importantMatch = true;
+          }
+          // A match inside ANY grouping construct (@media/@supports/@layer/
+          // @container/@scope) is never trusted as the winner — its condition
+          // may or may not be currently active, and layer/container ordering
+          // isn't replayed — but its mere existence means a competing
+          // declaration might apply, so it masks the top-level match instead of
+          // being ignored outright.
+          if (grouped) {
+            state.masked = true;
+          } else {
+            state.values.push(raw.trim());
+          }
+        }
       }
-      try {
-        if (!el.matches(rule.selectorText)) continue;
-      } catch (_err) {
-        continue; // selector this engine can't evaluate
-      }
-      if (rule.style.getPropertyPriority(property) === "important") {
-        state.importantMatch = true;
-      }
-      // A match inside ANY grouping construct (@media/@supports/@layer/
-      // @container/@scope) is never trusted as the winner — its condition
-      // may or may not be currently active, and layer/container ordering
-      // isn't replayed — but its mere existence means a competing
-      // declaration might apply, so it masks the top-level match instead of
-      // being ignored outright.
-      if (grouped) {
-        state.masked = true;
-      } else {
-        state.values.push(raw.trim());
+
+      // CSS nesting (`.card { width: 320px; .row & { width: auto } }`): the
+      // rule's own declaration was already evaluated above like any
+      // top-level match; its nested rules are walked as grouped, since
+      // their selectors are relative to the nesting context, not a plain
+      // top-level match.
+      if (nestedRules && nestedRules.length) {
+        walkPortableStyleRules(
+          nestedRules,
+          el,
+          property,
+          true,
+          state,
+          selectorText,
+        );
       }
     }
   }

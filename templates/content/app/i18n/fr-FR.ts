@@ -152,6 +152,8 @@ const database = {
     "Les lignes et propriétés locales ont été conservées.",
   failedToAttachSource: "Échec de la connexion de la source",
   failedToCreateRow: "Échec de la création de la ligne",
+  pageCreatedCollectionRefreshFailed:
+    "La page a été créée, mais cette collection n'a pas pu être actualisée. Rechargez pour la voir.",
   failedToDeleteRow: "Échec de la suppression de la ligne",
   failedToDeleteSelectedRows:
     "Échec de la suppression des lignes sélectionnées",

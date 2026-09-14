@@ -599,4 +599,61 @@ describe("auditItemSubject", () => {
       ).endsWith("…"),
     ).toBe(true);
   });
+
+  it("prefers babysit because over the terse decision summary", () => {
+    const report = projectFactoryAuditReport(
+      [
+        {
+          id: "e1",
+          itemId: "pr-1",
+          source: "github",
+          sourceUrl: "https://github.com/o/r/pull/1",
+          action: "propose-pr-babysit-status",
+          kind: "read",
+          status: "success",
+          summary: "#4683 briefing: recommend ping — 3 open bot threads.",
+          details: {
+            recommendation: "ping",
+            because: "Unresolved review feedback remains (3 open bot threads).",
+            openBotThreads: 3,
+          },
+          createdAt: "2026-09-11T12:00:00.000Z",
+        },
+        {
+          id: "e2",
+          itemId: "pr-1",
+          source: "github",
+          sourceUrl: "https://github.com/o/r/pull/1",
+          action: "babysit-factory-pull-request",
+          kind: "decision",
+          status: "success",
+          summary: "#4683 waiting; held the request because duplicate-comment.",
+          details: {
+            recommendation: "ping",
+            because: "Unresolved review feedback remains (3 open bot threads).",
+            decision: "already_asked",
+            agentMatchedRecommendation: false,
+            veto: "duplicate-comment",
+            openBotThreads: 3,
+          },
+          createdAt: "2026-09-11T12:00:01.000Z",
+        },
+      ],
+      [
+        {
+          id: "pr-1",
+          title: "Fix thing",
+          summary: null,
+          source: "github",
+          sourceUrl: "https://github.com/o/r/pull/1",
+        },
+      ],
+      [],
+    );
+
+    expect(report.items[0]?.babysitBecause).toContain("open bot threads");
+    expect(report.items[0]?.babysitDecision).toBe("already_asked");
+    expect(report.items[0]?.babysitAgentMatched).toBe(false);
+    expect(report.items[0]?.rationale).toContain("open bot threads");
+  });
 });

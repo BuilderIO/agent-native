@@ -769,26 +769,107 @@ const messages = {
       s062: "從範本開始，連線資料，開始建置儀表板。",
       s063: "閱讀檔案",
       s064: "檢視所有範本",
+      // V3 到達頁文案（2026-09-14）—— 以下為 hero 到最終 CTA。
+      heroEyebrow: "Analytics",
+      heroTitle: "用你的 AI 代理分析資料",
+      heroDescription:
+        "Analytics 是一款免費開源的 AI 分析工具，可用來查詢你連線的資料、建立儀表板，並調查使用者工作階段。",
+      heroCta: "探索你的資料",
+      useCasesHeading: "用 Analytics 能做什麼？",
+      useCasesBody:
+        "追蹤產品成長、回報業務表現，或調查有人在你的應用程式中遇到的問題。",
+      useCase1Title: "追蹤產品成長",
+      useCase1Body:
+        "詢問註冊數、活躍使用者或轉換率有何變化。比較不同期間，並依管道、方案或客戶區隔拆解結果。",
+      useCase2Title: "回報業務表現",
+      useCase2Body:
+        "把營收、業務管道或使用量指標整理進一個儀表板，供你的團隊使用。設定日期篩選器，並在下次檢視前再次查看。",
+      useCase3Title: "調查使用者問題",
+      useCase3Body:
+        "找到一段錄製的工作階段，重播發生的事。檢查主控台錯誤和網路請求，然後把診斷資訊分享給你的 AI 代理。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "查詢、視覺化與探索所需的一切",
+      feature1Title: "自然語言查詢",
+      feature1Body:
+        "向你的 AI 代理提出關於資料的問題。取得圖表、表格或指標，再以不同的拆解方式繼續追問。",
+      feature2Title: "可重複使用的儀表板",
+      feature2Body:
+        "與你的 AI 代理一起建立儀表板，或自行編輯。排列面板、新增篩選器、儲存檢視畫面，並與團隊共用存取權限。",
+      feature3Title: "SQL 查詢瀏覽器",
+      feature3Body:
+        "執行 BigQuery 查詢並檢視其結果與歷史紀錄。檢查儀表板面板背後的 SQL，核對計算方式與篩選條件。",
+      feature4Title: "資料來源連線",
+      feature4Body:
+        "連線 BigQuery、GA4、HubSpot 和 Stripe 等來源。在同一個應用程式中查詢倉儲資料、產品事件、客戶紀錄和營收。",
+      feature5Title: "資料字典",
+      feature5Body:
+        "記錄指標定義、資料表和查詢範例。你的 AI 代理在撰寫查詢和處理資料時會運用這些內容。",
+      feature6Title: "工作階段重播",
+      feature6Body:
+        "重播錄製的工作階段，同時檢視主控台與網路活動。直接跳到錯誤發生處，並複製一個臨時診斷連結給你的 AI 代理。",
+      finalCtaHeading: "從一個關於資料的問題開始",
+      finalCtaBody: "連線一個資料來源，請你的 AI 代理產生第一張圖表。",
+      finalCtaButton: "探索你的資料",
       faq: {
-        question1: "我可以用自然語言詢問分析問題嗎？",
+        question1: "什麼是 Agent-Native Analytics？",
         answer1:
-          "可以。提出問題後，代理會撰寫 SQL，在 BigQuery 中執行查詢並建立圖表。查詢會保留歷史紀錄、資料列數和可分享的 URL。",
-        question2: "Analytics 與 Amplitude 或 Mixpanel 有什麼不同？",
+          "Agent-Native Analytics 是一款免費開源的 AI 分析工具。向 AI 代理詢問已連線資料的相關問題、檢查查詢，並建立可重複使用的儀表板。它還包含工作階段重播、錯誤追蹤和正常運行時間監控。",
+        question2: "使用 Analytics 需要懂 SQL 嗎？",
         answer2:
-          "Amplitude 和 Mixpanel 按席次和事件計費，而且介面由它們決定。Analytics 免費且開放原始碼，代理還能依需求擴充應用本身，例如新增圖表和連接器。",
-        question3: "可以連接哪些資料來源？",
+          "你可以用一般語言提問，讓你的 AI 代理撰寫查詢。對於 BigQuery，你也可以在 Explorer 中選取資料表、指標和篩選條件來建立圖表。SQL 一律可供檢視，熟悉你資料的人可能需要協助連接來源和定義指標。",
+        question3: "我可以連線哪些資料來源？",
         answer3:
-          "內建十多種連接器，包括 HubSpot、Stripe、GitHub、Jira、Sentry、Slack、Gong、Notion、Google Cloud 等。如果缺少你需要的連接器，代理可以建立它。",
-        question4: "我需要懂 SQL 嗎？",
+          "支援的來源包括 BigQuery、Google Analytics 4、Amplitude、Mixpanel、PostHog、HubSpot 和 Stripe。每個來源都需要適當的憑證，或授予 Analytics 的共用工作區連線。可取得的答案取決於你連線的資料和權限。",
+        question4: "我可以使用自己的指標定義嗎？",
         answer4:
-          "不需要，自然語言就是操作介面。不過，當你需要時，SQL 探索器就在旁邊，可直接存取 BigQuery 並查看完整查詢歷史。",
-        question5: "Analytics 免費嗎？",
+          "可以。使用資料字典記錄定義、資料表與欄位名稱、查詢範例，以及例外狀況，例如排除內部帳戶。你的 AI 代理在撰寫查詢時可以運用這些定義。核對商業指標時，請檢視 SQL 與結果。",
+        question5: "我可以共用儀表板並排程報告嗎？",
         answer5:
-          "免費且開放原始碼，不按事件計費。你的資料會留在自己的資料倉儲中。",
+          "可以。以檢視者、編輯者或管理員權限與團隊成員或組織共用儀表板。你也可以排程包含目前儀表板結果的電子郵件報告，或為想追蹤的條件設定提醒。",
       },
     },
     calendar: {
       s001: "Calendar 範本螢幕截圖",
+      // V3 到達頁文案(2026年9月10日)—— 從 hero 到最終 CTA。
+      heroEyebrow: "Calendar",
+      heroTitle: "用你的 AI 代理管理行程",
+      heroDescription:
+        "Calendar 是一款免費開放原始碼的 AI 排程助理，用於管理 Google Calendar 活動、尋找會議時間，並讓其他人可以與你預約。",
+      heroCta: "開始安排行程",
+      useCasesHeading: "用 Calendar 能做什麼？",
+      useCasesBody: "預約客戶通話、召集你的團隊，或在計畫變動時調整你的一天。",
+      useCase1Title: "預約客戶通話與展示",
+      useCase1Body:
+        "給潛在客戶與現有客戶一個預約連結，讓他們自行選擇時間。在通話前收集你需要的資訊。",
+      useCase2Title: "為團隊會議找到合適時間",
+      useCase2Body:
+        "請你的 AI 代理找出團隊成員都有空的時間。選擇一個建議的時段來預約會議。",
+      useCase3Title: "計畫變動時調整你的一天",
+      useCase3Body:
+        "請你的 AI 代理搬移會議或另找時間，同時會參考你現有的活動與工作時間。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "排程、預約與改期所需的一切",
+      feature1Title: "AI 排程",
+      feature1Body:
+        "請你的 AI 代理查看你的行程、尋找可用時間，並在已連線的 Google Calendar 上建立或改期活動。",
+      feature2Title: "多個行事曆帳戶",
+      feature2Body:
+        "在日、週或月檢視中同時查看工作與個人 Google 帳戶。還可在你的活動旁加入唯讀行事曆訂閱。",
+      feature3Title: "可自訂的預約連結",
+      feature3Body:
+        "為不同類型的會議建立預約頁面。設定時長，並加入問題讓對方在預約時回答。",
+      feature4Title: "可用性控制",
+      feature4Body:
+        "設定你的工作時間、時區以及會議之間的緩衝時間。選擇你需要多少提前通知，以及他人可以提前多久預約。",
+      feature5Title: "共同主持人排程",
+      feature5Body:
+        "在預約連結中加入必要的共同主持人。提供所有人都有空的時間，一旦有人預約就邀請他們。",
+      feature6Title: "視訊會議連結",
+      feature6Body:
+        "加入 Google Meet、連線 Zoom，或使用自訂會議連結，讓參與者在預約時就知道從哪裡加入。",
+      finalCtaHeading: "把你的下一場會議加入行事曆",
+      finalCtaBody: "用你的 AI 代理找到時間，或傳送一個預約連結。",
+      finalCtaButton: "開始安排行程",
       s002: "Calendar 觀看次數",
       s003: "代理動作",
       s004: "預訂連結型別",
@@ -848,34 +929,82 @@ const messages = {
       s057: "託管示範說明",
       s058: "雙向同步",
       faq: {
-        question1: "AI 能幫我安排會議嗎？",
+        question1: "Agent-Native Calendar 是什麼？",
         answer1:
-          "可以。請代理尋找時段、建立活動、檢查空檔或重新排程；它會在你的實際行事曆中操作，並尊重現有活動。",
-        question2: "Calendar 能像 Calendly 一樣提供預約連結嗎？",
+          "Agent-Native Calendar 是一款免費開放原始碼的 AI 排程助理，可連線至 Google Calendar。使用 AI 代理管理活動、尋找會議時間，或分享預約連結讓其他人可以與你預約。",
+        question2: "我可以連線哪些行事曆？",
         answer2:
-          "可以。它提供可自訂的預約頁面，支援依類型設定可用時間、收集訪客資訊、傳送確認通知及使用自訂網域。",
-        question3: "它能與 Google Calendar 同步嗎？",
+          "連線多個 Google 帳戶，即可一起檢視它們的活動。新建與更新的活動會寫入所選帳戶的主要行事曆。你也可以顯示唯讀的 ICS 或 webcal 訂閱；這些並非與 Outlook 或 Apple 行事曆的雙向整合。共用的 Google 行事曆僅供檢視，不會阻擋預約的可用性。",
+        question3: "AI 代理能對我的行事曆做什麼？",
         answer3:
-          "可以。它透過 OAuth 同步，支援多個帳戶和自動重新整理權杖，並可直接在 Google 上建立、更新和刪除活動。",
-        question4: "Calendar 免費嗎？",
-        answer4: "免費且開放原始碼，預約頁面也包含在內。",
+          "你的 AI 代理可以查看你的行程、尋找可用的會議時間，並建立或改期活動。當你請它尋找時間時，會檢查你的可用性規則與現有活動，在可存取的情況下還會檢查指定與會者的忙碌/空閒資訊。會議被預約前，由你選擇建議的時間。",
+        question4: "其他人預約與我的會議需要帳戶嗎？",
+        answer4:
+          "不需要。任何擁有你公開預約連結的人，都能在不登入的情況下選擇可用時間並回答你的預約問題。預約完成後，對方會收到一個私人連結，用於改期或取消會議。",
+        question5: "預約連結能檢查多位主持人的可用性嗎？",
+        answer5:
+          "可以。加入必要的共同主持人後，Calendar 會在提供時間之前檢查他們的忙碌/空閒資訊。若要同時遵守每位共同主持人設定的工作時間，你與該共同主持人須將彼此的行事曆加入為疊加層。若沒有這種相互共用，Calendar 只會檢查他們的忙碌/空閒資訊。",
       },
     },
     assets: {
       faq: {
-        question1: "AI 能產生符合品牌的圖片嗎？",
+        question1: "什麼是 Agent-Native Assets？",
         answer1:
-          "可以。生成會以你上傳的品牌素材庫和參考資料為依據，而不是依賴通用模型的審美。代理會實際讀取規則，據此生成符合品牌的圖片和影片。",
-        question2: "Assets 與 DAM 有什麼不同？",
+          "Agent-Native Assets 是一款免費開源的品牌素材庫，具備 AI 圖片與影片生成能力。你可以整理現有媒體、提供品牌參考資料，並與 AI 代理協作，在多個專案中生成、編輯與重複使用素材。",
+        question2: "Assets 如何運用我的品牌規範？",
         answer2:
-          "DAM 儲存經過核准的檔案，供人搜尋。Assets 不僅能做到這點，還會讓品牌資訊變得機器可讀，使代理預設就能生成並選擇符合品牌的媒體。",
-        question3: "我的其他應用可以使用它嗎？",
+          "把你的標誌、參考圖片、色彩和風格說明加入品牌套件。可重複使用的範本會針對特定內容類型提供生成指示。你的 AI 代理會依據這些脈絡來引導生成過程，你也可以在儲存前檢視並完善結果。",
+        question3: "我可以上傳並整理現有的圖片和影片嗎？",
         answer3:
-          "可以。任何 Agent-Native 應用都能透過 A2A 呼叫 Assets，或將它嵌入為選取器，因此 Slides、Design 等應用可使用同一個經過核准的素材庫。",
-        question4: "Assets 免費嗎？",
+          "可以。上傳現有媒體，或透過 URL 匯入素材，然後將其與生成內容一起歸入素材庫和資料夾中。你可以瀏覽、搜尋素材庫，將素材當作參考再次使用，或將其匯出用於其他專案。",
+        question4: "我的 AI 代理可以從其他應用程式呼叫 Assets 嗎？",
         answer4:
-          "免費且開放原始碼。執行 `npx @agent-native/core@latest create my-assets-app --template assets`，它就屬於你。",
+          "可以。透過 Assets 的 MCP 整合連接受支援的代理，即可在聊天中搜尋、生成與選擇媒體。Agent-Native 應用程式也可以請求素材或嵌入選擇器。實際可用的體驗取決於主應用程式及其與 Assets 的連接方式。",
+        question5: "Assets 能在生成的圖片中使用我的真實標誌嗎？",
+        answer5:
+          "可以。在品牌套件中設定一個標準標誌，並在生成時啟用標誌合成。Assets 會在生成完成後把原始標誌置入圖片，因此影像模型不會重新繪製它。使用前請檢查標誌的位置以及周圍圖像的效果。",
       },
+      s001: "Assets 應用程式截圖",
+      heroEyebrow: "Assets",
+      heroTitle: "用你的 AI 代理建立與管理品牌素材",
+      heroDescription:
+        "Assets 是一款免費開源的品牌素材庫，用於整理你的圖片、影片和品牌參考資料，並配有 AI 代理，能運用你的品牌套件生成與編輯媒體。",
+      heroCta: "產生一張圖片",
+      useCasesHeading: "用 Assets 能做什麼？",
+      useCasesBody:
+        "建立行銷活動圖片，為新專案調整素材，或為團隊和 AI 代理提供共用的品牌素材庫。",
+      useCase1Title: "建立行銷活動素材",
+      useCase1Body:
+        "請你的 AI 代理根據品牌參考資料產生部落格配圖、社群圖片或上市宣傳素材。比較不同選項，再完善你選中的那一個。",
+      useCase2Title: "為新專案調整圖片",
+      useCase2Body:
+        "把一張現有圖片交給你的 AI 代理，說明你需要的改動，例如更換背景，或為標題預留空間。",
+      useCase3Title: "在各項工作中共用品牌素材",
+      useCase3Body:
+        "把標誌、產品圖片和品牌參考資料集中存放，讓團隊成員和已連接的 AI 代理都能找到用於簡報、網站和其他專案的媒體。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "生成、完善與重複使用所需的一切",
+      feature1Title: "品牌素材庫",
+      feature1Body:
+        "在素材庫和資料夾中整理上傳與生成的媒體。新增標誌、參考圖片和風格說明，供你的 AI 代理使用。",
+      feature2Title: "AI 圖片與影片生成",
+      feature2Body:
+        "描述你需要的媒體，選擇你的品牌參考資料。產生多個圖片方案或短影片，儲存前先檢視結果。",
+      feature3Title: "圖片編輯",
+      feature3Body:
+        "請你的 AI 代理編輯或重新設計一張圖片。以現有素材為參考，透過回饋持續完善。",
+      feature4Title: "可重複使用的範本",
+      feature4Body:
+        "為部落格封面、社群圖片等常見工作儲存生成指示。將範本關聯到品牌套件，以重複使用其參考資料。",
+      feature5Title: "原始標誌置入",
+      feature5Body:
+        "在品牌套件中設定你的標誌，並將其加入生成的圖片中。標誌合成會直接置入原始檔案，而不是重新生成一份。",
+      feature6Title: "代理存取",
+      feature6Body:
+        "連接你的 AI 代理即可搜尋素材庫、生成媒體，並在聊天中選擇素材。受支援的應用程式還可以嵌入素材選擇器。",
+      finalCtaHeading: "建立你的下一份品牌素材",
+      finalCtaBody: "選好參考資料，告訴你的 AI 代理你需要什麼。",
+      finalCtaButton: "產生一張圖片",
     },
     clips: {
       s001: "Clips 範本螢幕截圖",
@@ -925,7 +1054,7 @@ const messages = {
       watchClipLabel: "觀看這段 Clip",
       finalCtaHeading: "讓你的下一段 Clip 發揮作用",
       finalCtaBody: "錄製一段說明,或把一段分享的 Clip 交給你的 AI 代理。",
-      finalCtaButton: "開啟 Clips",
+      finalCtaButton: "錄製一段 Clip",
       s002: "螢幕錄製",
       s003: "瀏覽器偵錯記錄",
       s004: "口授",
@@ -1024,6 +1153,47 @@ const messages = {
     },
     content: {
       s001: "Content 範本螢幕截圖",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Content",
+      heroTitle: "和你的 AI 代理一起建立和整理工作",
+      heroDescription:
+        "Content 是一款免費開放原始碼的工作空間，用於文件、任務清單和資料庫，你和你的 AI 代理可以一起閱讀和更新。",
+      heroCta: "整理你的工作",
+      useCasesHeading: "用 Content 能做什麼？",
+      useCasesBody:
+        "處理一份草稿，追蹤待辦事項，或收集一項新請求所需的詳細資訊。",
+      useCase1Title: "撰寫和審閱內容",
+      useCase1Body:
+        "請你的 AI 代理起草一個頁面、修改一段文字，或在你的寫作上留下評論。你可以選擇希望它如何幫忙。",
+      useCase2Title: "和代理一起追蹤工作",
+      useCase2Body:
+        "把任務、狀態和下一步都記錄在一張共用表格裡。在推進專案的過程中，請連接的 AI 代理幫你更新它。",
+      useCase3Title: "收集專案請求",
+      useCase3Body:
+        "為設計需求或其他團隊工作建立一張表格。為每個欄位寫明說明，這樣你的 AI 代理就能詢問缺少的細節。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "寫作、整理和協作所需的一切",
+      feature1Title: "AI 寫作與審閱",
+      feature1Body:
+        "取得初稿，為選取的文字要求修改，或要求評論。你的 AI 代理直接在文件中工作。",
+      feature2Title: "文件與巢狀頁面",
+      feature2Body:
+        "用標題、表格、圖片和程式碼區塊撰寫頁面。把相關文件歸入同一個專案，並透過標題和內容進行搜尋來尋找它們。",
+      feature3Title: "資料庫與檢視",
+      feature3Body:
+        "以表格、看板或行事曆的方式整理工作。為負責人、日期和狀態新增欄位，每一列背後都是一份完整的文件。",
+      feature4Title: "頁面與欄位說明",
+      feature4Body:
+        "描述一個頁面或資料庫欄位應該包含什麼內容，為你的 AI 代理提供關於所需資訊和格式的指引。",
+      feature5Title: "連接的 AI 代理",
+      feature5Body:
+        "連接來自 Claude Code、Codex 或 Cursor 等工具的代理，讓它們與內建代理一起讀取和更新你的文件與資料庫。",
+      feature6Title: "團隊協作",
+      feature6Body:
+        "一起編輯頁面，在段落上留下評論，並在討論串中回覆。與特定的人或你的組織共用，並選擇他們的存取權限。",
+      finalCtaHeading: "把你的下一個專案帶進 Content",
+      finalCtaBody: "從一份文件、一個任務清單，或你團隊已經在用的表格開始。",
+      finalCtaButton: "整理你的工作",
       s002: "所有範本",
       s003: "為 MDX 開放原始碼 Obsidian",
       s004: "編輯本機 Markdown/MDX 檔案（如 Obsidian），生成豐富的互動式自訂塊，並使用了解您檔案的 AI 代理進行編寫。",
@@ -1086,25 +1256,66 @@ const messages = {
       s061: "閱讀檔案",
       s062: "檢視所有範本",
       faq: {
-        question1: "AI 代理不需匯出或 API 就能編輯我的文件嗎？",
+        question1: "什麼是 Agent-Native Content？",
         answer1:
-          "可以。Content 直接處理本機 Markdown/MDX 檔案，也就是儲存庫中的同一批檔案。代理已經可以在磁碟上存取它們，不需要 API、同步或匯出步驟。",
-        question2: "Content 與 Notion 或 Obsidian 有什麼不同？",
+          "Agent-Native Content 是一款免費開放原始碼的文件、任務和資料庫工作空間。它將 AI 文件編輯器與結構化表格和共用頁面結合在一起，讓你和連接的 AI 代理可以一起閱讀和更新內容。",
+        question2: "我可以在 Content 中使用自己的 AI 代理嗎？",
         answer2:
-          "Notion 將文件保存在自己的資料庫中，並透過 API 存取。Content 像 Obsidian 一樣使用本機檔案，同時提供富文字編輯器，以及能按你的風格起草、重寫和發布的代理。",
-        question3: "AI 能用我的風格寫作嗎？",
+          "可以。Content 為 Claude Code、Codex、Cursor 等支援的工具提供 MCP 連線。連線並授權存取後，你的代理就能處理它能存取的文件和資料庫。你也可以使用 Content 內建的代理。",
+        question3: "我可以請 AI 審閱我的文字而不重寫它嗎？",
         answer3:
-          "可以。代理會學習你的表達方式、風格指南和語氣，讓草稿聽起來像你；你也可以對任何選取範圍執行重寫、擴寫、摘要或改變語氣。",
-        question4: "我可以發布到自己的 CMS 嗎？",
+          "可以。請你的 AI 代理在文件或段落上留下評論。你可以閱讀回饋並自己修改，也可以請代理來編輯文字。只要求評論並不需要把寫作工作交出去。",
+        question4: "Content 能追蹤任務並收集團隊請求嗎？",
         answer4:
-          "可以。透過指令碼連接任何無頭 CMS。支援 WordPress、Contentful 和 Builder，Notion 可雙向同步，代理還能自主執行發布指令碼。",
-        question5: "Content 免費嗎？",
+          "可以。建立一個資料庫，加入負責人、狀態、交付日期、下一步等欄位，並為每個欄位寫明應填寫的內容。這些說明會在建立或更新項目時指導你的 AI 代理，包括讓它詢問缺少的資訊。",
+        question5: "我可以控制誰能編輯我的內容，並還原到較早的版本嗎？",
         answer5:
-          "免費且開放原始碼。由於文件就是一般的本機檔案，即使以後離開，也沒有任何內容需要匯出。",
+          "可以。新文件預設是私人的。你可以以檢視者、編輯者或管理員權限進行共用，並使用頁面版本記錄還原到較早的快照。還原快照會取代頁面目前的內容。",
       },
     },
     design: {
       s001: "Design 範本螢幕截圖",
+      // V4 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Design",
+      heroTitle: "用你的 AI 代理設計互動式原型",
+      heroDescription:
+        "Design 是一款免費開源的 AI 設計與原型工具，能建立符合品牌風格的頁面與產品介面，且你可以自己編輯設計。",
+      heroCta: "免費設計",
+      useCasesHeading: "用 Design 能做什麼？",
+      useCasesBody:
+        "在動手打造之前，先探索新的頁面、產品流程或介面。把簡報說明和重要細節告訴你的 AI 代理。",
+      useCase1Title: "探索到達頁構想",
+      useCase1Body:
+        "把行銷活動或產品簡報變成到達頁原型。與團隊一起檢視訊息、版面與行動呼籲。",
+      useCase2Title: "梳理產品流程",
+      useCase2Body:
+        "建立引導流程、註冊流程或結帳流程的原型。逐步檢視每個步驟，在投入實作前完善體驗。",
+      useCase3Title: "設計儀表板與內部工具",
+      useCase3Body:
+        "把工作流程需求變成儀表板或管理介面。探索使用者將如何找到資訊並完成日常任務。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "設計、製作原型與分享所需的一切",
+      feature1Title: "互動式原型",
+      feature1Body:
+        "描述你需要的頁面或流程。你的 AI 代理會建立含互動效果的 HTML 原型，讓你在預覽中試用。",
+      feature2Title: "AI 與視覺化編輯",
+      feature2Body:
+        "使用視覺化控制項調整文字、間距與樣式，或請你的 AI 代理修改版面與互動效果。",
+      feature3Title: "並列比較的設計變體",
+      feature3Body:
+        "請你的 AI 代理提供不同的設計方向。在畫布上比較它們，選定一個方向並持續完善。",
+      feature4Title: "可重複使用的品牌樣式",
+      feature4Body:
+        "連結包含你的顏色、字體排印與樣式的設計系統。用它來指引整個專案中的新設計與修訂。",
+      feature5Title: "設計審閱留言",
+      feature5Body:
+        "把意見回饋釘選在特定元素上，讓背景脈絡保持清楚。傳送留言給你的 AI 代理，一起處理這項變更。",
+      feature6Title: "HTML 匯出與程式碼交接",
+      feature6Body:
+        "匯出設計檔案的 HTML 或 ZIP。把原型和背景脈絡交給開發人員或程式開發代理，讓他們接續實作。",
+      finalCtaHeading: "開始你的下一個設計",
+      finalCtaBody: "帶來一份簡報說明。探索各種可能性。完善細節。",
+      finalCtaButton: "免費設計",
       s002: "描述",
       s003: "生成",
       s004: "精煉",
@@ -1166,25 +1377,66 @@ const messages = {
       s060: "檢視所有範本",
       s061: "100% 免費、開放原始碼且可自訂。",
       faq: {
-        question1: "AI 能產生真正的程式碼設計，而不只是模型圖嗎？",
+        question1: "什麼是 Agent-Native Design？",
         answer1:
-          "可以。Design 會輸出完整、獨立的 HTML，使用 Tailwind 設定樣式並以 Alpine 實作互動。原型本身就是實作，不必再交接給別人重建。",
-        question2: "Design 與 Figma 有什麼不同？",
+          "Agent-Native Design 是一款免費開源的 AI 設計與原型工具。用 AI 代理建立互動式 HTML 原型，套用你的品牌風格，並透過視覺化控制項或聊天來完善設計。分享成果以取得意見回饋，或匯出供開發使用。",
+        question2: "AI 產生設計之後，我可以編輯嗎？",
         answer2:
-          "Figma 面向在像素層面工作的設計團隊，輸出的是需要他人重新實作的畫面。Design 從提示開始，以可直接發布或繼續迭代的 HTML/CSS/JS 結束。",
-        question3: "它能遵循我的設計系統嗎？",
+          "可以。使用視覺化控制項調整文字、間距與樣式，或請 AI 代理修改設計。你可以比較不同方向，並持續完善你選定的方案。",
+        question3: "我能使用自己的設計系統嗎？",
         answer3:
-          "可以。儲存可重複使用的設計系統偏好，然後以視覺方式調整常用變數，同時讓代理處理結構和文案變更，例如「使用更溫暖的配色」或「讓標題更醒目」。",
-        question4: "匯出時會得到什麼？",
+          "可以。連結一個設計系統來指引顏色、字體排印、樣式與品牌規範。你可以在多個設計中重複使用它，並作為 AI 代理進行修改時的參考背景。",
+        question4: "我能處理來自 Figma 的設計嗎？",
         answer4:
-          "得到的是真正的成品：可匯出為檔案、ZIP 或 PDF 的完整 HTML/CSS/JS。內容完全獨立，不使用專有格式，可以發布到任何地方。",
-        question5: "Design 免費嗎？",
+          "可以。Design 支援 Figma 匯入流程，並提供專用的 Figma 適用 SVG 匯出功能。轉移設計後，請檢查字型、版面與可編輯元素，因為相容性取決於來源與匯出格式。",
+        question5: "我能匯出什麼，這是一個完成的應用程式嗎？",
         answer5:
-          "免費且開放原始碼；相較之下，許多設計工具按席次每月收費，或按點數計量。",
+          "可以匯出設計檔案的 HTML 或 ZIP，或為程式開發代理準備交接內容。原型提供了開發的起點；應用程式邏輯、整合、測試與部署仍需要實作與審查。HTML 匯出檔可能會使用外部執行階段資源。",
       },
     },
     dispatch: {
       s001: "Dispatch 範本螢幕截圖",
+      // V3 landing page copy (2026-09-12) — hero through final CTA below.
+      heroEyebrow: "Dispatch",
+      heroTitle: "在同一個地方協調你的 AI 代理",
+      heroDescription:
+        "Dispatch 是一款免費的開源 AI 代理協調應用程式，用於將工作委派給已連線的 Agent-Native 應用程式、排程週期性工作，並管理共用連線。",
+      heroCta: "委派一項任務",
+      useCasesHeading: "你能用 Dispatch 做什麼？",
+      useCasesBody:
+        "向已連線的應用程式尋求協助、設定定期更新，或調查需要留意的代理執行狀況。",
+      useCase1Title: "在單一對話中委派工作",
+      useCase1Body:
+        "要求取得指標摘要或草擬回覆。Dispatch 會將請求轉交給已連線的 Analytics 或 Mail 代理，並傳回結果。",
+      useCase2Title: "設定週期性團隊更新",
+      useCase2Body:
+        "為已連線的應用程式排程每日指標摘要或每週彙整。選擇結果應送達的已設定頻道或收件匣。",
+      useCase3Title: "調查代理活動",
+      useCase3Body:
+        "查看某項工作的上次執行狀況及任何錯誤。運用可用的對話串與監控詳情，調查工作流程需要留意時發生了什麼事。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "委派、排程與監控所需的一切",
+      feature1Title: "跨應用程式委派",
+      feature1Body:
+        "將請求傳送給能處理該工作的已連線應用程式。每個應用程式都使用自己的代理、操作與資料來回應。",
+      feature2Title: "訊息連線",
+      feature2Body:
+        "連接 Slack 或 Telegram 等頻道以傳送請求及接收回覆。連結身分，讓 Dispatch 知道是哪位工作區使用者在詢問。",
+      feature3Title: "排程工作",
+      feature3Body:
+        "為週期性工作設定排程。查看工作是否已啟用、上次執行時間、下次執行時間，以及任何記錄的錯誤。",
+      feature4Title: "已儲存的傳送目的地",
+      feature4Body:
+        "將 Slack 頻道、Telegram 對話或電子郵件地址儲存為傳送目標。可重複用於排程結果，並檢查傳送狀態。",
+      feature5Title: "共用整合",
+      feature5Body:
+        "設定一次服務供應商連線，並授予需要它的應用程式存取權限。在 Dispatch 中管理共用連線與應用程式存取權限。",
+      feature6Title: "工作區變更核准",
+      feature6Body:
+        "要求另一位管理員審核 Dispatch 對共用資源與設定所做的變更。在團隊工作區中審核待處理請求並核准或拒絕。",
+      finalCtaHeading: "從一項已連線的工作開始",
+      finalCtaBody: "選擇你需要的應用程式，讓 Dispatch 協調這項工作。",
+      finalCtaButton: "委派一項任務",
       s002: "+ Telegram 支援",
       s003: "代理間",
       s004: "記憶",
@@ -1239,27 +1491,65 @@ const messages = {
       s053: "閱讀檔案",
       s054: "檢視所有範本",
       faq: {
-        question1: "如何同時執行多個 AI 代理，而不必逐一盯著它們？",
+        question1: "什麼是 Agent-Native Dispatch？",
         answer1:
-          "Dispatch 是統一控制中心：從 Slack 或 Telegram 傳訊息給它，它會透過 A2A 將工作路由到 Mail、Slides、Design 等其他代理，並在同一處管理核准和排程。",
-        question2: "我可以從 Slack 與代理對話嗎？",
+          "Agent-Native Dispatch 是一款專為 Agent-Native 工作區設計的免費開源 AI 代理協調應用程式。它能協調跨已連線應用程式的請求、接收來自受支援頻道的訊息、排程週期性工作，並管理共用整合。",
+        question2: "Dispatch 可以搭配哪些應用程式使用？",
         answer2:
-          "可以。Slack 和 Telegram 都支援帶有對話串脈絡和行內核准的雙向訊息，代理的結果會回到同一段對話中。",
-        question3: "代理可以按排程執行嗎？",
+          "Dispatch 會將工作委派給已連線且在你的工作區中可用的應用程式，例如 Analytics 或 Mail。每個應用程式各自處理自己的工作與資料。在請 Dispatch 使用這些應用程式之前，請先設定好相關連線與授權。",
+        question3: "我可以透過 Slack 或 Telegram 使用 Dispatch 嗎？",
         answer3:
-          "可以。它支援以 cron 為基礎的工作，例如每日站會、每週摘要和每小時檢查。結果會傳送到你的訊息工具，而不是留在一個需要你記得開啟的儀表板中。",
-        question4: "它會記住以前的對話嗎？",
+          "可以。視需要設定訊息頻道，並將你的身分連結到工作區帳戶。Dispatch 可以透過該頻道接收請求並傳回結果。連結某個頻道並不會自動讓每位傳送者都取得每個應用程式的存取權限。",
+        question4: "代理可以按排程執行工作嗎？",
         answer4:
-          "會。每次對話中的經驗都會自動擷取，並可按使用者、組織或全域限定範圍。記憶可檢查、可編輯，不是黑箱。",
-        question5: "如果我不希望它自行採取行動怎麼辦？",
+          "可以。設定一項週期性工作，並視需要為其結果設定傳送目的地。Dispatch 會顯示工作的上次執行、下次執行與錯誤狀態，方便你檢查工作是否成功執行。",
+        question5: "Dispatch 的核准是否涵蓋代理所做的一切？",
         answer5:
-          "內建核准工作流程：傳送電子郵件、發布更新或執行自動化等敏感操作，會等待 Slack 中的一鍵核准。你可以設定哪些操作需要簽核。",
-        question6: "Dispatch 免費嗎？",
-        answer6: "免費且開放原始碼；相較之下，許多代理平台按席次每月收費。",
+          "不是。在團隊工作區中，Dispatch 可以要求審核其對共用資源與設定所做的變更。已連線應用程式內部的操作（例如傳送電子郵件）遵循這些應用程式自身的控管機制。Dispatch 的核准佇列並非針對每一次代理操作的通用關卡。",
       },
     },
     forms: {
       s001: "Forms 範本螢幕截圖",
+      heroEyebrow: "Forms",
+      heroTitle: "用你的 AI 代理建立表單",
+      heroDescription:
+        "Forms 是一款免費開放原始碼的 AI 表單建立工具，可用來建立問卷、報名表和申請表，問題可以自己編輯，回覆也能請 AI 代理幫忙分析。",
+      heroCta: "建立表單",
+      useCasesHeading: "用 Forms 能做什麼？",
+      useCasesBody:
+        "收集顧客意見、為活動登記參加者，或收集團隊處理請求所需的資訊。",
+      useCase1Title: "收集顧客意見",
+      useCase1Body:
+        "用評分、單選/複選題和文字回答了解顧客體驗，讓 AI 代理幫你彙整收到的意見。",
+      useCase2Title: "收集報名與註冊資訊",
+      useCase2Body:
+        "為網路研討會、活動或產品候補名單建立表單，收集聯絡方式和偏好，之後檢視或匯出提交內容。",
+      useCase3Title: "收集專案需求",
+      useCase3Body:
+        "為設計需求、專案簡述或內部支援提供表單，詢問截止日期、需求等團隊所需的細節。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "建立、分享與審閱所需的一切",
+      feature1Title: "AI 表單產生",
+      feature1Body:
+        "描述你想收集的內容，AI 代理就會建立表單。也可以請它新增問題或修改現有欄位。",
+      feature2Title: "視覺化欄位編輯",
+      feature2Body:
+        "自行編輯標籤、選項、必填欄位和問題順序，選擇文字、電子郵件、複選、日期、評分、量表等欄位類型。",
+      feature3Title: "條件式問題",
+      feature3Body:
+        "當先前的回答符合某條規則時顯示後續問題，例如有人選擇「其他」時詢問更多細節。",
+      feature4Title: "公開表單連結",
+      feature4Body:
+        "發布表單並分享連結。設定完成訊息或跳轉網址，在停止接受回覆時關閉表單。",
+      feature5Title: "回覆洞察與匯出",
+      feature5Body:
+        "在表格中檢視提交內容，或讓 AI 代理彙整趨勢。也可以將回覆表格下載為 CSV。",
+      feature6Title: "提交整合",
+      feature6Body:
+        "設定將結果傳送到 Slack、Discord、Google Sheets 或 Webhook。新回覆會送到你為該表單設定的目的地。",
+      finalCtaHeading: "建立你的下一份表單",
+      finalCtaBody: "告訴你的 AI 代理你想收集什麼。",
+      finalCtaButton: "建立表單",
       s002: "描述",
       s003: "生成",
       s004: "路由",
@@ -1320,25 +1610,82 @@ const messages = {
       s058: "閱讀檔案",
       s059: "檢視所有範本",
       faq: {
-        question1: "AI 能幫我建立表單嗎？",
+        question1: "什麼是 Agent-Native Forms？",
         answer1:
-          "可以。描述需求後，完整表單就會出現；你可以用對話繼續調整，例如「新增必填的經驗層級下拉選單」，也可以在具備即時預覽和復原功能的視覺化編輯器中拖曳欄位。",
-        question2: "有人提交表單後會發生什麼？",
+          "Agent-Native Forms 是一款免費開放原始碼的 AI 表單建立工具。用 AI 代理建立表單和問卷，以視覺化方式編輯欄位，發布公開連結，並在同一個應用程式中檢視或分析回覆。",
+        question2: "AI 建立表單後我還能編輯嗎？",
         answer2:
-          "提交內容會以結構化形式進入你自己的 SQL 資料庫，並在到達時路由到 Slack、Discord、Google Sheets 或 Webhook。提交會進入代理可以採取行動的地方，而不是無人查看的匯出檔案。",
-        question3: "Forms 與 Typeform 有什麼不同？",
+          "可以。你可以在視覺化編輯器中修改問題、標籤、選項、必填欄位和欄位順序，也可以請 AI 代理幫你修改。兩種方式更新的都是同一份表單。你還可以根據先前的回答新增條件問題。",
+        question3: "填寫我的表單需要帳號嗎？",
         answer3:
-          "Typeform 專注於美化填寫體驗。Forms 更關注提交之後：回覆保存在你自己的資料庫中並路由到你的工具，不按回覆計費，表單本身也能透過提示持續迭代。",
-        question4: "Forms 免費嗎？有回覆數量限制嗎？",
+          "不需要。任何擁有已發布表單公開連結的人都可以在沒有帳號的情況下送出回覆。草稿狀態的表單不會公開，已關閉的表單不再接受新回覆。",
+        question4: "我可以收集匿名意見嗎？",
         answer4:
-          "免費且開放原始碼，不按回覆收費，也沒有數量上限。資料在你的資料庫中，因此限制取決於你的資料庫。",
-        question5: "我可以把表單放在自己的網站上嗎？",
+          "可以。開啟匿名模式後會省略提交者身分和來源中繼資料。如果希望回覆完全匿名，也可以不設定詢問姓名、電子郵件等可識別身分資訊的問題。",
+        question5: "我可以把回覆傳送到 Google Sheets 或 Slack 嗎？",
         answer5:
-          "可以。可嵌入任何網站，也可託管在自訂網域上。每個表單還會取得自己的 SEO 友善公開 URL。",
+          "可以，為表單設定好目的地後即可。Slack 和 Discord 使用 Webhook URL。Google Sheets 需要一個已部署、能接收提交內容的 Google Apps Script 端點；只有試算表連結是無法運作的。你也可以使用 Webhook，或將回覆匯出為 CSV。代理匯出所有回覆為 CSV 或 JSON 需要已連接的檔案儲存空間。",
       },
     },
     mail: {
+      faq: {
+        question1: "什麼是 Agent-Native Mail？",
+        answer1:
+          "Agent-Native Mail 是一款針對 Gmail 的免費開放原始碼郵件用戶端，內建 AI 郵件助理。你可以閱讀和搜尋郵件、彙整對話、草擬回覆，並透過收件匣或你的 AI 代理整理郵件。",
+        question2: "Mail 能配合我現有的 Gmail 帳號使用嗎？",
+        answer2:
+          "可以。連接你現有的 Gmail 帳號，即可透過 Mail 收發郵件。你可以連接多個 Gmail 帳號並同時搜尋所有帳號。Mail 不會提供新的電子郵件地址，目前也只支援 Gmail，暫不支援 Outlook 或其他郵件服務商。",
+        question3: "AI 代理會在未經我同意的情況下寄送郵件嗎？",
+        answer3:
+          "當你在對話中要求 AI 代理寄送郵件時，需要你的核准。由自動化觸發的寄送同樣需要核准，除非你在 Mail 設定中明確啟用自動寄送。寄送前你都可以檢視並編輯草稿。",
+        question4: "AI 能自動整理我的收件匣嗎？",
+        answer4:
+          "可以。用自然語言建立規則，為收到的郵件加上標籤、封存、加星號或標示為已讀。Mail 也支援依寄件者或主旨等條件運作的原生 Gmail 篩選器。Gmail 篩選器在 Gmail 中執行，即使關閉 Mail 也會持續生效。",
+        question5: "同事能替我準備一封郵件供我審核嗎？",
+        answer5:
+          "可以。同事可以請求產生一份草稿，出現在你的審核佇列中。開啟它、編輯內容，準備好後再寄送。提出請求的人無法代替你寄送；由草稿的擁有者或組織管理員來控制寄送。",
+      },
       s001: "Mail 範本螢幕截圖",
+      // V3 landing page copy (2026-09-10) — hero through final CTA below.
+      heroEyebrow: "Mail",
+      heroTitle: "用你的 AI 代理管理收件匣",
+      heroDescription:
+        "Mail 是一款針對 Gmail 的免費開放原始碼郵件用戶端，AI 代理能查找郵件、彙整對話、草擬回覆，並整理你的收件匣。",
+      heroCta: "管理你的收件匣",
+      useCasesHeading: "用 Mail 能做什麼？",
+      useCasesBody: "跟上對話進度、回覆客戶和同事，或整理積壓的郵件。",
+      useCase1Title: "跟上對話進度",
+      useCase1Body:
+        "讓你的 AI 代理告訴你一段長對話裡發生了什麼、達成了什麼共識，以及哪些問題仍需要回答。",
+      useCase2Title: "回覆客戶和同事",
+      useCase2Body:
+        "把你想表達的重點告訴你的 AI 代理。寄送前，在撰寫面板中檢視並編輯它的回覆。",
+      useCase3Title: "整理你的收件匣",
+      useCase3Body:
+        "請你的 AI 代理為發票加上標籤、封存電子報，或為某位客戶的郵件加上星號。套用規則，讓抵達的類似郵件自動處理。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "閱讀、撰寫與整理郵件所需的一切",
+      feature1Title: "AI 對話摘要",
+      feature1Body:
+        "針對你開啟的對話提問。你的 AI 代理會讀取整個對話串，彙整討論內容並找出尚未解決的問題。",
+      feature2Title: "AI 郵件撰寫",
+      feature2Body:
+        "與你的 AI 代理一起草擬回覆，或修改選取的文字。設定寫作偏好、加入簽名檔，草稿也能自行編輯。",
+      feature3Title: "多帳號搜尋",
+      feature3Body:
+        "連接你的工作與個人 Gmail 帳號，透過搜尋欄或直接詢問你的 AI 代理，在同一個收件匣中搜尋所有帳號。",
+      feature4Title: "收件匣自動化",
+      feature4Body:
+        "描述規則，為收到的郵件加上標籤、封存、加星號或標示為已讀。可以使用 AI 規則，也可以設定原生 Gmail 篩選器。",
+      feature5Title: "鍵盤快速鍵",
+      feature5Body:
+        "用鍵盤瀏覽郵件、撰寫回覆、封存對話、搜尋收件匣。開啟指令選單可以找到更多動作。",
+      feature6Title: "排程寄送與稍後提醒",
+      feature6Body:
+        "選擇郵件的寄送時間，或讓某則訊息稍後再提醒你。檢視已排程的項目，計畫變動時可以取消。",
+      finalCtaHeading: "從下一封郵件開始",
+      finalCtaBody: "開啟一段對話，讓你的 AI 代理給你一份摘要或回覆草稿。",
+      finalCtaButton: "管理你的收件匣",
       s002: "鍵盤優先",
       s003: "收件箱分類",
       s004: "意見",
@@ -1399,118 +1746,67 @@ const messages = {
       s058: "閱讀檔案",
       s059: "檢視所有範本",
       s060: "託管示範說明",
-      faq: {
-        question1: "AI 能幫我整理收件匣嗎？",
-        answer1:
-          "可以。代理會讀取收件匣、突顯優先事項、加上標籤並分類、起草回覆、設定自動封存規則，還會摘要未讀郵件並提取待辦事項。",
-        question2: "Mail 與 Superhuman 有什麼不同？",
-        answer2:
-          "鍵盤優先的速度只是基礎：撰寫、封存和回覆都支援快速鍵。不同之處在於，這裡有一個真正處理收件匣的代理，沒有訂閱費，而且程式碼歸你所有。",
-        question3: "Mail 支援 Gmail 嗎？",
-        answer3: "支援 Gmail，並支援多個帳戶。",
-        question4: "我的電子郵件是私密的嗎？",
-        answer4:
-          "Mail 採用開放原始碼並在本機執行，因此郵件留在你的基礎設施中，你可以查看處理郵件的每一行程式碼。",
-        question5: "Mail 免費嗎？",
-        answer5: "免費且開放原始碼，沒有訂閱費，也不會被供應商綁定。",
-      },
     },
     plan: {
-      s001: "計畫範本截圖",
-      s002: "塊型別",
-      s003: "代理整合",
-      s004: "可分享的連結",
-      s005: "原型執行器",
-      s006: "新增技能",
-      s007: "一個指令可將計畫技能安裝到 Claude Code、Codex、Pi、Cursor、OpenCode、GitHub Copilot / VS Code 和類似代理專案中。無需部署單獨的應用程式。",
-      s008: "代理開啟計畫",
-      s009: "請您的代理規劃一項功能。它呼叫 /visual-plan 並在瀏覽器或 VS Code 中開啟該計畫 - 結構化塊，而不是 Markdown 牆。",
-      s010: "評論與評論",
-      s011: "Pin 對任何塊的註解。提出問題、標記疑慮或核准部分 - 代理可以看到所有意見回饋。",
-      s012: "代理迭代",
-      s013: "代理會閱讀您的評論並就地更新計畫。差異準確地顯示了發生了什麼變化以及原因。",
-      s014: "所有範本",
-      s015Primary: "Codex、",
-      s015Secondary: "Claude Code 和編碼代理的視覺計畫",
-      s016: "透過一個指令進行安裝。您的代理使用線框圖、圖表、帶註解的程式碼和可共用的審閱連結開啟結構化計畫，而不是在終端中傾倒大量的降價內容。",
-      s017: "試用",
-      s018: "代理可以做什麼",
-      s019: "每個塊型別都是一等公民 - 結構化資料，而不是原始 HTML，因此代理可以隨著工作的進展讀取和更新計畫。",
-      s020: "線框圖",
-      s021: "粗略的 UI 模型基於您的真實產品 - 而不是通用的桌面預留位置。",
-      s022: "圖表",
-      s023: "內嵌呈現的架構流程圖、資料模型和序列圖。",
-      s024: "帶註解的程式碼",
-      s025: "帶有每行註解、差異和更改理由的真實來源檔案——而不是原始程式碼轉儲。",
-      s026: "可分享的連結",
-      s027: "每個計畫都有一個公開 URL。與團隊成員共用以進行非同步審閱、評論和核准。",
-      s028: "桌面檔案同步",
-      s029: "將託管計畫從 Agent-Native Desktop 鏡像到本機 MDX 檔案，無需克隆應用程式或執行 CLI。",
-      s030: "，因此審查位於程式碼旁邊。",
-      s031: "它是如何運作的",
-      s032: "規劃存在於共用應用程式中 - 您和代理都可以在功能的整個生命週期中讀取和更新它。",
-      s033: "豐富的塊庫",
-      s034: "計畫由結構化塊組成，而不是自由格式的 HTML。代理知道每個塊的模式，並且可以精確地建立、更新和推理它們。",
-      s035: "帶註解的程式碼",
-      s036: "插入前驗證所有者",
-      s037: "發出自動化事件",
-      s038: "新增",
-      s039: "比較如何",
-      s040: "終端中的 Markdown",
-      s041: "視覺渲染",
-      s042: "No",
-      s043: "基礎",
-      s044: "豐富的塊、線框圖、圖表",
-      s045: "代理可以讀取和更新",
-      s046: "是的，原始文字",
-      s047: "有限公司",
-      s048: "是的，結構化模式",
-      s049: "可分享的連結",
-      s050: "是",
-      s051: "是的，有評論",
-      s052: "即時 Alpine.js 沙箱",
-      s053: "適用於 Codex / Claude Code / Pi",
-      s054: "是的，一指令安裝",
-      s055: "開放原始碼",
-      s056: "是的，MIT 已獲得授權",
-      s057: "幾秒鐘內即可開始",
-      s058: "一個指令可為 Claude Code、Codex、Pi、Cursor、OpenCode、GitHub Copilot / VS Code 和類似代理專案新增視覺規劃。無需單獨部署。",
-      s059: "閱讀檔案",
-      s060: "檢視所有範本",
-      s061: "VS Code 交接",
-      s062: "使用以下擴充功能在 VS Code 側邊面板中開啟計畫連結：",
-      s063: "Agent-Native Plans 擴充功能",
-      s064: "線框圖 — 帶元件插槽的草圖式 UI 模型",
-      s065: "帶註解的程式碼 — 帶逐行註解的來源檔案",
-      s066: "圖表 — 流程圖、序列圖或架構圖",
-      s067: "原型 — iframe 中的即時 Alpine.js 沙箱",
-      s068: "決策 — 帶理由的已確定選取",
-      s069: "API 端點 — 方法、路徑和請求/回應型別",
-      s070: "資料模型 — 帶欄位註解的架構",
-      s071: "檔案樹 — 帶路徑註解的專案結構",
-      s072: "// 範例計畫塊",
-      s073: "ChatGPT Canvas 與 Notion",
-      s074: "不適用",
       faq: {
-        question1: "我可以在 AI 編碼代理寫程式碼前審閱它的計畫嗎？",
+        question1: "什麼是 Agent-Native Plans？",
         answer1:
-          "可以。Plans 會把代理的意圖轉成線框圖、圖表和帶註解的程式碼，並產生可分享的 URL。團隊留下評論，代理據此修訂，然後才開始寫程式碼；審閱發生在程式碼出現之前，而不是之後。",
-        question2: "Plans 支援 Claude Code、Codex 和 Cursor 嗎？",
+          "Agent-Native Plans 是一款專為 AI 編碼代理打造的免費開源視覺規劃工具。你可以透過圖表、線框圖、帶註解的程式碼和留言審閱實作計畫，也可以為已完成的變更產生視覺化回顧。",
+        question2: "如何在我的編碼代理中使用 Plans？",
         answer2:
-          "支援，還包括 GitHub Copilot、OpenCode 和其他編碼代理。只需一條指令即可將它加入為技能：`npx @agent-native/core@latest skills add visual-plan`。不需部署個別應用。",
-        question3: "整個團隊都能審閱計畫，而不只是我一個人嗎？",
+          "使用 `npx @agent-native/core@latest skills add visual-plan` 安裝規劃技能與連接器，然後完成你所用用戶端的驗證步驟。安裝指南涵蓋 Claude Code、Codex 等用戶端。使用 `/visual-plan` 請你的代理提供視覺化實作計畫。",
+        question3: "我的代理可以根據我的留言修訂計畫嗎？",
         answer3:
-          "每份計畫都會取得一個內建評論功能的公開 URL。團隊成員可以非同步審閱線框圖和帶註解的差異，不需使用終端；代理會讀取回饋並修訂計畫。",
-        question4: "這與 Claude Code 的 plan mode 有什麼不同？",
+          "可以。在文字上留言，或將留言釘選到視覺元素上，然後請你的代理閱讀並處理這些意見回饋。它可以更新計畫並回覆審閱討論串。這能輔助你的審閱流程，但不會自動阻止代理修改程式碼。",
+        question4: "我可以用 Plans 審閱已經寫好的程式碼嗎？",
         answer4:
-          "plan mode 是終端中的文字，只對一個人可見，核准後就會消失。Plans 是視覺化的，包含線框圖、圖表和帶註解的差異；它可分享、可持久保存，代理能在功能的整個生命週期中建立、讀取和更新計畫。",
-        question5: "我可以在程式碼旁邊查看計畫嗎？",
+          "可以。對 pull request、commit、分支或差異使用 `/visual-recap`，即可取得該變更的視覺化說明。你可以依據這份回顧，進一步審閱實際的程式碼和測試。",
+        question5: "計畫儲存在哪裡？我可以分享嗎？",
         answer5:
-          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent-Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
-        question6: "Plans 免費嗎？",
-        answer6:
-          "免費、開放原始碼，並採用 MIT 授權。Plans 提供託管的分享連結，你也可以把所有內容鏡像到本機檔案。",
+          "預設安裝會將你的代理連接到託管的 Plans 應用程式。新建立的託管計畫在你分享之前都是私人的。團隊成員可以在瀏覽器中審閱已分享的計畫；留言則需要帳號。你也可以依照設定指南改用本機工作流程。",
       },
+      s001: "Plans 應用程式截圖",
+      heroEyebrow: "Plans",
+      heroTitle: "看看你的 AI 編碼代理打算建置什麼",
+      heroDescription:
+        "Plans 是一款免費開源的視覺規劃工具，讓你透過圖表、線框圖和帶註解的程式碼，審閱編碼代理的做法、提供意見回饋，並理解程式碼變更。",
+      heroCta: "視覺化規劃",
+      heroSecondaryCta: "開啟 Plans",
+      useCasesHeading: "用 Plans 能做什麼？",
+      useCasesBody:
+        "與你的 AI 編碼代理一起審閱實作方式、討論介面設計，或理解已完成的變更。",
+      useCase1Title: "在實作前審閱架構",
+      useCase1Body:
+        "請你的編碼代理為提議的功能或重構繪製圖表。在它開始修改程式碼前，先確認資料流、相依關係和失敗路徑。",
+      useCase2Title: "討論介面變更",
+      useCase2Body:
+        "與你的編碼代理一起審閱提議的畫面和使用者流程。指出缺少的狀態或互動，並請它修訂計畫。",
+      useCase3Title: "理解已完成的程式碼變更",
+      useCase3Body:
+        "請你的編碼代理針對 pull request、commit 或分支產生視覺化回顧。審閱行為變更和受影響的檔案。",
+      keyFeaturesEyebrow: "主要功能",
+      keyFeaturesHeading: "視覺化、審閱與討論所需的一切",
+      feature1Title: "架構圖表",
+      feature1Body:
+        "在計畫中呈現請求流程、系統關係和資料模型。當做法改變時，請你的 AI 編碼代理更新圖表。",
+      feature2Title: "線框圖與原型",
+      feature2Body:
+        "在實作計畫旁審閱畫面版面配置和互動式原型選項。在請代理開始建置前，先針對提議的介面提供意見回饋。",
+      feature3Title: "帶註解的程式碼導覽",
+      feature3Body:
+        "閱讀附有逐行註解和變更說明的原始檔案。透過檔案樹了解提議的工作在程式碼庫中的位置。",
+      feature4Title: "留言與註解",
+      feature4Body:
+        "在文字上留言，或將意見回饋釘選到視覺元素中的特定位置。把問題直接提給你的代理或團隊成員。",
+      feature5Title: "視覺化程式碼回顧",
+      feature5Body:
+        "使用 `/visual-recap` 把現有的 pull request、commit、分支或差異，轉換成附有圖表和變更說明的導覽。",
+      feature6Title: "分享與匯出",
+      feature6Body:
+        "分享計畫讓團隊成員在瀏覽器中審閱。需要獨立副本時，可匯出為 HTML、Markdown、JSON 或 MDX。",
+      finalCtaHeading: "以視覺化方式審閱你的下一項編碼任務",
+      finalCtaBody: "請你的代理提供計畫，然後一起討論細節。",
+      finalCtaButton: "視覺化規劃",
     },
     slides: {
       s001: "Slides 範本螢幕截圖",
@@ -1554,7 +1850,7 @@ const messages = {
         "全螢幕簡報並顯示演講者備忘稿，分享檢視連結，或將簡報匯出為 PowerPoint 檔案。",
       finalCtaHeading: "開始你的下一份簡報",
       finalCtaBody: "帶來一個想法、一份簡報說明，或一份現有的簡報。",
-      finalCtaButton: "開啟 Slides",
+      finalCtaButton: "建立一份 PPT",
       s002: "描述",
       s003: "生成",
       s004: "精煉",
@@ -1709,16 +2005,65 @@ const messages = {
     },
     chat: {
       faq: {
-        question1: "Chat 範本是什麼？",
+        question1: "Agent-Native Chat 是什麼？",
         answer1:
-          "這是一個面向自有代理的極簡 ChatGPT 風格鷹架，提供持久對話串、驗證、actions、即時同步和標準側邊欄，並能清楚地擴充新頁面或接入你的後端。",
-        question2: "它與 ChatGPT 有什麼不同？",
+          "Agent-Native Chat 是一款面向開發者的免費開源 AI 聊天應用鷹架，提供已儲存的對話串、agent 聊天介面、驗證、共用 actions 和即時同步。你可以為自己的應用新增特定領域的資料和行為。",
+        question2: "Chat 是一個成品 AI 助理嗎？",
         answer2:
-          "ChatGPT 是 OpenAI 圍繞自家模型打造的應用。這個範本屬於你：使用你的代理後端、你的資料和你的畫面；它是可擴充的起點，而不是租用的產品。",
-        question3: "它可以直接用於正式環境嗎？",
+          "Chat 提供一個可運作的對話介面以及背後的框架。它包含一個範例 action，但業務工作流程和第三方服務整合需要你自行實作與設定。",
+        question3: "我可以在聊天介面之外新增畫面嗎？",
         answer3:
-          "它是一個刻意保持極簡的鷹架，是聊天應用誠實的起點，而不是完整成品。如果需要完成度更高的產品，請從其他應用之一開始。",
+          "可以。為你工作流程所需的清單、佇列、編輯器或其他檢視新增路由和元件，並將它們連接到 agent 使用的同一組 actions 和應用資料上。",
+        question4: "Chat 是否包含與我業務工具的連線？",
+        answer4:
+          "這個極簡範本不包含特定領域的服務整合。請為你的應用新增所需的連線和存取規則。如果已有某個 Agent-Native 應用正好符合你的工作流程，它的範本可能是更合適的起點。",
+        question5: "我可以自訂並部署自己的版本嗎？",
+        answer5:
+          "可以。用 CLI 建立一份副本，新增你的 actions、資料和介面，然後部署你的應用。為你的環境設定驗證和服務存取權限，並在與使用者分享之前測試你新增的工作流程。",
       },
+      s001: "Chat 應用截圖",
+      // V3 landing page copy (2026-09-14) — hero through final CTA below.
+      heroEyebrow: "Chat",
+      heroTitle: "打造屬於你自己的 AI 聊天應用",
+      heroDescription:
+        "Chat 是一款免費開源的 AI 聊天應用鷹架，提供已儲存的對話、驗證，以及一個可用你自己的 actions、資料和畫面來擴充的 agent。",
+      heroCta: "打造你的聊天應用",
+      heroSecondaryCta: "開啟 Chat",
+      useCasesHeading: "用 Chat 能建構什麼？",
+      useCasesBody:
+        "先從這個聊天應用開始，再為你的使用情境新增資料和 actions。這些工作流程都屬於你，可以在這個鷹架之上自由建構。",
+      useCase1Title: "建構內部助理",
+      useCase1Body:
+        "新增能查詢資訊或處理團隊請求的 actions。使用內建的登入和對話紀錄作為起點。",
+      useCase2Title: "為 agent 工作流程製作原型",
+      useCase2Body:
+        "實作一個有用的 action，透過聊天試用它。在新增更多工具或畫面之前，先打磨 agent 的指示和行為。",
+      useCase3Title: "為 agent 的工作新增介面",
+      useCase3Body:
+        "當使用者需要以視覺化方式審查工作時，建構一個佇列、清單或編輯器，並將其連接到與你的 agent 相同的 actions 和資料上。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "為你的 agent 及其介面提供的起點",
+      feature1Title: "已儲存的對話",
+      feature1Body:
+        "讓使用者擁有可以隨時返回的對話串。透過內建的側邊欄建立、重新開啟、重新命名、釘選和封存對話。",
+      feature2Title: "內建的 agent 聊天",
+      feature2Body:
+        "從一個全頁對話和框架自帶的 agent 執行環境開始。為你的應用需要處理的任務新增指示和工具。",
+      feature3Title: "驗證與工作階段",
+      feature3Body:
+        "登入、註冊、工作階段和組織支援均已內建。為你應用的資料和工作流程新增所需的存取規則。",
+      feature4Title: "共用 actions",
+      feature4Body:
+        "定義一次操作，即可同時供 agent 和介面使用。在新增自己的能力時，可參考內建的範例 action。",
+      feature5Title: "即時資料同步",
+      feature5Body:
+        "當 agent 修改應用資料時，讓你的介面保持最新。圍繞共用狀態和框架自帶的資料庫同步來建構畫面。",
+      feature6Title: "資料庫與執行檢查",
+      feature6Body:
+        "在建構和除錯應用時，使用內建的資料庫管理和可觀測性畫面來檢查已儲存的資料和 agent 的執行紀錄。",
+      finalCtaHeading: "建構你的第一個 agent 工作流程",
+      finalCtaBody: "建立你的副本，並新增使用者需要的第一個 action。",
+      finalCtaButton: "打造你的聊天應用",
     },
   },
   skillsPage: {

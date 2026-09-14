@@ -661,7 +661,7 @@ describe("buildUserContentWithAttachments", () => {
       type: "image",
       name: "huge.png",
       contentType: "image/png",
-      data: `data:image/png;base64,${"A".repeat(1_000_001)}`,
+      data: `data:image/png;base64,${"A".repeat(5_000_001)}`,
       url: "https://cdn.example.com/huge.png",
     };
     const parts = buildUserContentWithAttachments({
@@ -671,7 +671,49 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "image")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("https://cdn.example.com/huge.png");
-    expect(text).toContain("too large to send inline");
+    expect(text).toContain("per-image limit");
+  });
+
+  // The file_url cap is an OpenAI limit on a different field. Applying it to
+  // images made an ordinary phone photo unreadable: the user was told the
+  // image was too large AND that storage had to be connected, neither of which
+  // was actionable. A photo this size is vision input and needs no storage.
+  it("inlines a multi-megabyte photo with no upload URL and no storage configured", () => {
+    const att: any = {
+      type: "image",
+      name: "camera_photo.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(2_500_000)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "add these places to Wednesday",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(true);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).not.toMatch(/too large/i);
+    expect(text).not.toMatch(/smaller/i);
+  });
+
+  // Over the real image ceiling the model must get the number, or it invents
+  // one and then contradicts itself when the user asks what the limit is.
+  it("quotes the actual image limit and rules out storage as the cause", () => {
+    const att: any = {
+      type: "image",
+      name: "enormous.jpg",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${"A".repeat(5_000_001)}`,
+      storageRequired: true,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "read this",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("3.6 MB");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("still inlines an image that fits", () => {
@@ -705,7 +747,8 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "file")).toBe(false);
     const text = parts.map((p: any) => p.text ?? "").join("\n");
     expect(text).toContain("huge.pdf");
-    expect(text).toContain("no upload URL");
+    expect(text).toContain("per-file limit");
+    expect(text).toContain("not a storage-configuration problem");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
