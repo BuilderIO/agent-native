@@ -65,9 +65,12 @@ describe("parseDesignSystemIndexingStatus", () => {
     ).toBe("indexing");
   });
 
-  it("falls back to ready for missing or malformed data", () => {
+  it("falls back to ready for missing data (a legacy row predating this column)", () => {
     expect(parseDesignSystemIndexingStatus(null)).toBe("ready");
     expect(parseDesignSystemIndexingStatus(undefined)).toBe("ready");
-    expect(parseDesignSystemIndexingStatus("not json")).toBe("ready");
+  });
+
+  it("fails closed to unavailable for malformed, non-empty data", () => {
+    expect(parseDesignSystemIndexingStatus("not json")).toBe("unavailable");
   });
 });

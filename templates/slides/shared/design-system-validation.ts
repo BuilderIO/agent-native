@@ -96,7 +96,14 @@ export function getDesignSystemIndexingStatus(
   return "indexing";
 }
 
-/** Same as `getDesignSystemIndexingStatus`, for callers that only have the raw `data` JSON string (e.g. `list-design-systems`' row). */
+/**
+ * Same as `getDesignSystemIndexingStatus`, for callers that only have the raw
+ * `data` JSON string (e.g. `list-design-systems`' row). Empty/missing data has
+ * never been written by create/update-design-system, so it reads as a legacy
+ * row predating that column rather than a corrupted one. A non-empty string
+ * that fails to parse is corrupted — its `source`/`builderStatus` can't be
+ * read, so it fails closed to `unavailable` instead of the ready default.
+ */
 export function parseDesignSystemIndexingStatus(
   data: string | null | undefined,
 ): DesignSystemIndexingStatus {
@@ -104,6 +111,6 @@ export function parseDesignSystemIndexingStatus(
   try {
     return getDesignSystemIndexingStatus(JSON.parse(data));
   } catch {
-    return "ready";
+    return "unavailable";
   }
 }

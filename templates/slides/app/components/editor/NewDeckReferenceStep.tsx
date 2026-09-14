@@ -11,7 +11,7 @@ import {
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
@@ -44,8 +44,8 @@ import {
   resolveSelectableDesignSystemId,
 } from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
-import type { DesignSystemIndexingStatus } from "../../../shared/design-system-validation";
 
+import type { DesignSystemIndexingStatus } from "../../../shared/design-system-validation";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
@@ -129,7 +129,9 @@ export function NewDeckReferenceStep({
   const t = useT();
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
-  >(() => resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId));
+  >(() =>
+    resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+  );
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -146,6 +148,12 @@ export function NewDeckReferenceStep({
     useState<FileImportSource | null>(null);
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
+
+  // Read inside the open-transition effect below without making it a
+  // dependency — a background list refresh must not re-seed the picker and
+  // discard a selection the user already made explicitly.
+  const designSystemsRef = useRef(designSystems);
+  designSystemsRef.current = designSystems;
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
   const sortedDecks = sortDecksByRecency(decks);
@@ -164,14 +172,17 @@ export function NewDeckReferenceStep({
   useEffect(() => {
     if (!open) return;
     setSelectedDesignSystemId(
-      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+      resolveSelectableDesignSystemId(
+        designSystemsRef.current,
+        defaultDesignSystemId,
+      ),
     );
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
-  }, [open, designSystems, defaultDesignSystemId, defaultReferenceDeckId]);
+  }, [open, defaultDesignSystemId, defaultReferenceDeckId]);
 
   useEffect(() => {
     if (open) setContinuing(false);

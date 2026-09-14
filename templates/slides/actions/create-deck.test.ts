@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock dependencies BEFORE importing the action ---
 
-const mockAssertAccess = vi.fn();
+// Locally authored (no `source: "builder"`) reads as indexingStatus "ready",
+// matching every existing test's expectation that a resolved design system
+// id is always usable. Tests exercising the readiness guard override this.
+const mockAssertAccess = vi.fn(async () => ({
+  role: "owner" as const,
+  resource: { data: JSON.stringify({ colors: {} }) },
+}));
 const mockWriteAppState = vi.fn();
 const mockGetRequestRunContext = vi.fn(() => ({
   browserTabId: "slides-tab-1",
@@ -299,6 +305,51 @@ describe("create-deck — aspectRatio", () => {
     expect(titleWhereFn).not.toHaveBeenCalled();
     expect(insertedRow!.designSystemId).toBe("ds-explicit");
     expect(result.designSystemId).toBe("ds-explicit");
+  });
+
+  it("rejects an explicit design system that is still indexing", async () => {
+    mockAssertAccess.mockResolvedValueOnce({
+      role: "owner" as const,
+      resource: {
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+        }),
+      },
+    });
+
+    await expect(
+      action.run({
+        title: "T",
+        slides: [],
+        designSystemId: "ds-indexing",
+      }),
+    ).rejects.toThrow(/still indexing/);
+    expect(insertedRow).toBeUndefined();
+  });
+
+  it("rejects replacing an existing deck's design system with an unavailable one", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+    mockAssertAccess.mockResolvedValueOnce({
+      role: "owner" as const,
+      resource: {
+        data: JSON.stringify({ source: "builder", builderStatus: "error" }),
+      },
+    });
+
+    await expect(
+      action.run({
+        title: "T",
+        slides: [],
+        deckId: "deck-1",
+        designSystemId: "ds-broken",
+      }),
+    ).rejects.toThrow(/unavailable/);
+    expect(updatedFields).toBeUndefined();
   });
 
   it("returns a workspace-scoped deck URL when the app is mounted under a base path", async () => {
