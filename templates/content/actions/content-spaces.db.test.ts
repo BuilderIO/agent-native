@@ -531,7 +531,7 @@ describe("Content space provisioning", () => {
           title: "Not a workspace",
         }),
       ).rejects.toThrow(
-        "Reliable row mutations are supported only for ordinary Content databases",
+        "This is the Workspaces catalog, which only lists workspaces",
       );
     });
   });

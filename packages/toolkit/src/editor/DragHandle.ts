@@ -798,6 +798,28 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       resolved.view.focus();
     };
 
+    /**
+     * Pick the rect the menu anchors to.
+     *
+     * `getBoundingClientRect()` answers an all-zero rect for an element that is
+     * detached, `display: none`, or not yet laid out — it does not answer null.
+     * A plain `handle ?? block` fallback therefore never fires for the case that
+     * actually happens (the shared grip is hidden or re-homed by a React
+     * re-render between mousedown and mouseup), and the zero rect clamps the
+     * menu into the top-left corner of the viewport.
+     */
+    const resolveMenuAnchorRect = (
+      ...candidates: Array<Element | null | undefined>
+    ): DOMRect | null => {
+      for (const candidate of candidates) {
+        if (!candidate || !candidate.isConnected) continue;
+        const rect = candidate.getBoundingClientRect();
+        if (rect.width <= 0 && rect.height <= 0) continue;
+        return rect;
+      }
+      return null;
+    };
+
     const positionMenu = (anchorRect: DOMRect) => {
       if (!menu) return;
 
@@ -1295,16 +1317,22 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           }
         }
       } else if (commit && !session.dragging && event) {
-        openMenu(
-          {
-            view: session.view,
-            sourceBlock: session.sourceBlock,
-            sourcePos: session.sourcePos,
-            sourceNodeSize: session.sourceNodeSize,
-          },
-          handle?.getBoundingClientRect() ??
-            session.sourceBlock.getBoundingClientRect(),
+        const anchorRect = resolveMenuAnchorRect(
+          handle,
+          session.sourceBlock,
+          session.view.dom,
         );
+        if (anchorRect) {
+          openMenu(
+            {
+              view: session.view,
+              sourceBlock: session.sourceBlock,
+              sourcePos: session.sourcePos,
+              sourceNodeSize: session.sourceNodeSize,
+            },
+            anchorRect,
+          );
+        }
       }
 
       cleanupDragVisuals();
@@ -1379,7 +1407,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             hideHover: () => hideHandle(),
             gripRect: () =>
               handle && handle.style.display !== "none"
-                ? handle.getBoundingClientRect()
+                ? resolveMenuAnchorRect(handle)
                 : null,
           };
           currentRegistration = registration;
@@ -1441,6 +1469,13 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             const sourceNode = editorView.state.doc.nodeAt(dragStartPos);
             if (!sourceNode) return;
 
+            const anchorRect = resolveMenuAnchorRect(
+              handle,
+              currentBlock,
+              editorView.dom,
+            );
+            if (!anchorRect) return;
+
             openMenu(
               {
                 view: editorView,
@@ -1448,8 +1483,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                 sourcePos: dragStartPos,
                 sourceNodeSize: sourceNode.nodeSize,
               },
-              handle?.getBoundingClientRect() ??
-                currentBlock.getBoundingClientRect(),
+              anchorRect,
             );
           });
 
