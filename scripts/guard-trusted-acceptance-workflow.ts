@@ -364,14 +364,73 @@ export function validateTrustedAcceptanceReaper(
     issues.push("reaper must use the generic protected profile mapping");
   if (!source.includes("controller.ts reap"))
     issues.push("reaper must invoke the trusted runtime-authority controller");
+
+  let workflow: unknown;
+  try {
+    workflow = parse(source);
+  } catch {
+    issues.push("reaper must be valid YAML");
+    return { ok: false, issues };
+  }
+  if (!isRecord(workflow) || !isRecord(workflow.jobs)) {
+    issues.push("reaper must define plan and reap jobs");
+    return { ok: false, issues };
+  }
+
+  const plan = workflow.jobs.plan;
+  const reap = workflow.jobs.reap;
+  if (!isRecord(plan) || !isRecord(reap)) {
+    issues.push("reaper must define plan and reap jobs");
+    return { ok: false, issues };
+  }
+
+  const workspaceStep = Array.isArray(plan.steps)
+    ? plan.steps.find((step) => isRecord(step) && step.id === "workspaces")
+    : undefined;
+  const selector =
+    isRecord(workspaceStep) && typeof workspaceStep.run === "string"
+      ? workspaceStep.run
+      : "";
   if (
-    !source.includes("workspace.enabled === true") ||
-    !source.includes("selected.length > 0") ||
-    !source.includes("needs.plan.outputs.has_workspaces == 'true'")
-  )
+    !/^\s*const configured = config\.workspaces\.filter\(workspace => workspace\.enabled === true && workspace\.runtimeAuthority\?\.provisioner\?\.kind === ["']trusted-lease-v1["']\);?\s*$/m.test(
+      selector,
+    )
+  ) {
+    issues.push("reaper must select only enabled trusted-lease workspaces");
+  }
+  if (
+    !/^\s*fs\.appendFileSync\(process\.env\.GITHUB_OUTPUT, `has_workspaces=\$\{selected\.length > 0\}\\n`\);\s*$/m.test(
+      selector,
+    )
+  ) {
     issues.push(
-      "reaper must skip disabled workspaces and an empty schedule matrix",
+      "reaper must derive the empty-matrix output from selected workspaces",
     );
+  }
+  if (
+    !isRecord(plan.outputs) ||
+    plan.outputs.has_workspaces !==
+      "${{ steps.workspaces.outputs.has_workspaces }}"
+  ) {
+    issues.push(
+      "reaper plan must expose the workspace step's empty-matrix output",
+    );
+  }
+
+  const reapNeedsPlan =
+    reap.needs === "plan" ||
+    (Array.isArray(reap.needs) && reap.needs.includes("plan"));
+  if (
+    !reapNeedsPlan ||
+    typeof reap.if !== "string" ||
+    !/^\s*(?:\$\{\{\s*)?needs\.plan\.outputs\.has_workspaces\s*==\s*'true'(?:\s*\}\})?\s*$/.test(
+      reap.if,
+    )
+  ) {
+    issues.push(
+      "reaper job must depend on plan and skip when no workspaces were selected",
+    );
+  }
   return { ok: issues.length === 0, issues };
 }
 

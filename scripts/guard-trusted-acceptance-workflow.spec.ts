@@ -322,6 +322,25 @@ describe("trusted acceptance reaper boundary", () => {
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("serialize")));
   });
+
+  it("ties enabled selection and empty-matrix skipping to active workflow wiring", () => {
+    const mutations = [
+      reaper.replace("workspace.enabled === true && ", ""),
+      reaper.replace("selected.length > 0", "selected.length >= 0"),
+      reaper.replace(
+        "has_workspaces: ${{ steps.workspaces.outputs.has_workspaces }}",
+        "has_workspaces: 'true'",
+      ),
+      reaper.replace(
+        "if: needs.plan.outputs.has_workspaces == 'true'",
+        "if: always()",
+      ),
+    ];
+
+    for (const unsafe of mutations) {
+      assert.equal(validateTrustedAcceptanceReaper(unsafe).ok, false);
+    }
+  });
 });
 
 describe("trusted acceptance runtime authority boundary", () => {
