@@ -160,6 +160,7 @@ import {
   appendBuilderConnectToken,
   appendBuilderConnectStateCookie,
   builderConnectTrackingProperties,
+  BUILDER_UPSTREAM_FAILURE_STATUS,
   createBuilderConnectState,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
@@ -180,6 +181,7 @@ import {
   resolveBuilderPreviewRelayParentOrigin,
   removeBuilderConnectStateCookie,
   runBuilderAgent,
+  sendBuilderPopupErrorPage,
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderConnectTokenAndGetOwner,
@@ -1746,6 +1748,28 @@ export function matchesSavedHostedAgentProbe(
   );
 }
 
+type PublicAgentDiscovery = (
+  selfAppId?: string,
+) => Promise<import("./agent-discovery.js").DiscoveredAgent[]>;
+
+export function createPublicRemoteAgentsHandler(
+  discover: PublicAgentDiscovery = async (selfAppId) => {
+    const { discoverAgents } = await import("./agent-discovery.js");
+    return discoverAgents(selfAppId);
+  },
+) {
+  return defineEventHandler(async (event) => {
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const selfAppId =
+      getRequestURL(event).searchParams.get("selfAppId") ?? undefined;
+    const agents = await discover(selfAppId);
+    return { agents: agents.map(stripRemoteAgentAuth) };
+  });
+}
+
 export function getBuilderConnectErrorDisposition(
   error: unknown,
   connectAttemptId: string | null,
@@ -2674,21 +2698,7 @@ export function createCoreRoutesPlugin(
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
       // the chat route namespace.
-      getH3App(nitroApp).use(
-        `${P}/agents`,
-        defineEventHandler(async (event) => {
-          const method = getMethod(event);
-          if (method !== "GET") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-          const query = getRequestURL(event).searchParams;
-          const selfAppId = query.get("selfAppId") ?? undefined;
-          const { discoverAgents } = await import("./agent-discovery.js");
-          const agents = await discoverAgents(selfAppId);
-          return { agents: agents.map(stripRemoteAgentAuth) };
-        }),
-      );
+      getH3App(nitroApp).use(`${P}/agents`, createPublicRemoteAgentsHandler());
 
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
@@ -3386,13 +3396,7 @@ export function createCoreRoutesPlugin(
                   stage: "provision",
                 },
               );
-              setResponseStatus(event, status);
-              setResponseHeader(
-                event,
-                "Content-Type",
-                "text/html; charset=utf-8",
-              );
-              return createBuilderBrowserCallbackErrorPage(message, {
+              return sendBuilderPopupErrorPage(event, status, message, {
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
                 ...(code ? { code } : {}),
@@ -3490,7 +3494,7 @@ export function createCoreRoutesPlugin(
                 );
               }
               return failProvisioning(
-                502,
+                BUILDER_UPSTREAM_FAILURE_STATUS,
                 "Couldn't create your Builder account. Try again or connect an existing account.",
                 "provision_failed",
               );
@@ -3825,7 +3829,7 @@ export function createCoreRoutesPlugin(
                 useCase: waitlistUseCase,
               },
             );
-            setResponseStatus(event, 502);
+            setResponseStatus(event, BUILDER_UPSTREAM_FAILURE_STATUS);
             return {
               error:
                 "Couldn't join the waitlist. Please try again in a moment.",
@@ -4011,18 +4015,17 @@ export function createCoreRoutesPlugin(
                   : "Builder preview relay failed.";
               // Never log the first-hop URL or relay body: both contain
               // credentials. The popup gets a bounded, credential-free error.
-              setResponseStatus(event, 502);
-              setResponseHeader(
+              return sendBuilderPopupErrorPage(
                 event,
-                "Content-Type",
-                "text/html; charset=utf-8",
+                BUILDER_UPSTREAM_FAILURE_STATUS,
+                message,
+                {
+                  parentOrigin: relayParentOrigin,
+                  ...(requestConnectAttemptId
+                    ? { attemptId: requestConnectAttemptId }
+                    : {}),
+                },
               );
-              return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayParentOrigin,
-                ...(requestConnectAttemptId
-                  ? { attemptId: requestConnectAttemptId }
-                  : {}),
-              });
             }
 
             setResponseHeader(
@@ -4119,13 +4122,7 @@ export function createCoreRoutesPlugin(
                 },
               );
             }
-            setResponseStatus(event, status);
-            setResponseHeader(
-              event,
-              "Content-Type",
-              "text/html; charset=utf-8",
-            );
-            return createBuilderBrowserCallbackErrorPage(message, {
+            return sendBuilderPopupErrorPage(event, status, message, {
               parentOrigin,
               ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
             });
@@ -4237,7 +4234,7 @@ export function createCoreRoutesPlugin(
             });
           } catch {
             return fail(
-              502,
+              BUILDER_UPSTREAM_FAILURE_STATUS,
               "Builder could not exchange the authorization code. Restart the connection.",
               ownerEmail,
               "code_exchange_failed",
