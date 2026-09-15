@@ -219,6 +219,16 @@ describe("shouldRequeueOpenFromRecheck", () => {
   });
 });
 
+describe("recheck terminal routing", () => {
+  it("routes draft GitHub summaries through terminal recheck handling", async () => {
+    const { closedPullRequestKind } =
+      await import("../server/triage/babysit-pr-terminal.js");
+    expect(
+      closedPullRequestKind({ state: "open", draft: true, merged: false }),
+    ).toBe("draft");
+  });
+});
+
 describe("selectOpenPrRowsForRecheck", () => {
   it("includes in-review rows and skips parked ones", async () => {
     const { selectOpenPrRowsForRecheck } =

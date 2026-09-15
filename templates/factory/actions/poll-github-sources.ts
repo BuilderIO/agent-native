@@ -739,7 +739,8 @@ export default defineAction({
             repository,
             number,
           );
-          if (summary.state !== "open") {
+          const terminalKind = closedPullRequestKind(summary);
+          if (terminalKind) {
             closedRecheckUpdates.set(number, { row, summary });
             return;
           }
@@ -1121,6 +1122,7 @@ export default defineAction({
         const number = row.pullRequestNumber;
         if (typeof number !== "number" || listedOpenPrNumbers.has(number))
           continue;
+        if (closedRecheckUpdates.has(number)) continue;
         const parkedRecheck = parkedRechecks.get(number);
         if (!parkedRecheck) continue;
         const current = (
