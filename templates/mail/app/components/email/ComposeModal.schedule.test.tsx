@@ -115,10 +115,12 @@ vi.mock("./RecipientInput", () => ({
     field,
     value = "",
     onChange,
+    autoFocus,
   }: {
     field: string;
     value?: string;
     onChange?: (value: string) => void;
+    autoFocus?: boolean;
   }) => (
     <>
       <input
@@ -128,8 +130,10 @@ vi.mock("./RecipientInput", () => ({
       />
       <input
         data-mail-recipient-input
+        data-recipient-field={field}
         data-pending-recipient-field={field}
         defaultValue=""
+        autoFocus={autoFocus}
       />
     </>
   ),
@@ -235,6 +239,48 @@ describe("ComposeModal scheduling", () => {
         name: "mail.compose.fullScreenCompose",
       }).getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  it("focuses the To field after a new draft is added", async () => {
+    const secondDraft: ComposeState = {
+      ...draft,
+      id: "draft-2",
+      to: "",
+      subject: "",
+      body: "",
+    };
+    const props = {
+      drafts: [draft],
+      activeId: draft.id,
+      activeDraft: draft,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard: vi.fn(),
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { container, rerender } = render(<ComposeModal {...props} />);
+
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[draft, secondDraft]}
+        activeId={secondDraft.id}
+        activeDraft={secondDraft}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector(
+          '[data-mail-recipient-input][data-recipient-field="to"]',
+        ),
+      );
+    });
   });
 
   it("honors an explicit fullscreen compose request", () => {

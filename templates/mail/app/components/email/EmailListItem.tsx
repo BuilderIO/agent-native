@@ -654,7 +654,9 @@ export const EmailListItem = memo(function EmailListItem({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {isUnread ? "Mark read" : "Mark unread"}
+                  {isUnread
+                    ? t("mail.actions.markRead")
+                    : t("mail.actions.markUnread")}
                 </TooltipContent>
               </Tooltip>
             )}
