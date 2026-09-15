@@ -2021,6 +2021,25 @@ describe("protocol continuation scope wiring", () => {
   });
 });
 
+describe("plan implementation handoff", () => {
+  it("starts a fresh Act turn instead of replaying the completed Plan turn", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const handleImplementPlan = useCallback");
+    const end = source.indexOf("const handleSwitchToAct", start);
+    const implementationSource = source.slice(start, end);
+
+    expect(implementationSource).toContain('onExecModeChange?.("build")');
+    expect(implementationSource).toContain('"act"');
+    expect(implementationSource).not.toContain(
+      "latestProtocolContinuationContext",
+    );
+    expect(implementationSource).not.toContain("continuation.turnId");
+    expect(implementationSource).not.toContain("continuation.actionScope");
+  });
+});
+
 describe("chat connection suggestion alignment", () => {
   it("does not promote integrations from composer text", () => {
     const chatSource = readFileSync("src/client/AssistantChat.tsx", {

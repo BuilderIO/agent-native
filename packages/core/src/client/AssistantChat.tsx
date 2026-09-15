@@ -6001,7 +6001,8 @@ const AssistantChatInner = forwardRef<
   const handleImplementPlan = useCallback(() => {
     if (!canImplementPlan) return false;
     onExecModeChange?.("build");
-    const continuation = latestProtocolContinuationContext(messagesRef.current);
+    // Plan approval starts a new turn. Reusing the completed Plan turn ID
+    // makes the run store replay the Plan response instead of running Act.
     void addToQueue(
       "Implement the plan.",
       undefined,
@@ -6016,9 +6017,6 @@ const AssistantChatInner = forwardRef<
       false,
       undefined,
       undefined,
-      continuation.turnId,
-      undefined,
-      continuation.actionScope,
     );
     return true;
   }, [addToQueue, canImplementPlan, onExecModeChange]);
