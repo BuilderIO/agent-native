@@ -1,8 +1,12 @@
 {
   "pr": 5010,
   "ownerThreadId": "01a0a21e-a10c-7682-b156-9cd9b10336f0",
-  "version": 47,
-  "expiresAt": "2026-09-15T01:34:38Z",
+  "version": 48,
+  "expiresAt": "2026-09-15T01:26:02Z",
   "observedLegacyHeartbeatVersion": null,
-  "legacy_retired": true
+  "legacy_retired": true,
+  "released": true,
+  "status": "released",
+  "releasedAt": "2026-09-15T01:26:02Z",
+  "reason": "pr_merged"
 }
