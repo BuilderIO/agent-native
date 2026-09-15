@@ -232,6 +232,16 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     !builderCreditsPaused &&
     isTranscriptionSetupNeeded(failureReason);
 
+  if (status === "failed" && audience === "viewer") {
+    return (
+      <div className="p-4">
+        <p className="text-sm text-muted-foreground">
+          {t("transcriptPanel.noTranscriptCaptured")}
+        </p>
+      </div>
+    );
+  }
+
   if (status === "failed" && builderCreditsPaused) {
     return (
       <div className="p-4">
@@ -268,9 +278,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             {t("transcriptPanel.noSpeechDetected")}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {audience === "viewer"
-              ? t("transcriptPanel.noTranscriptCaptured")
-              : t("transcriptPanel.noSpeechDescription")}
+            {t("transcriptPanel.noSpeechDescription")}
           </p>
         </div>
         {onRetry ? (

@@ -66,14 +66,47 @@ describe("TranscriptPanel no-audio failures", () => {
       );
     });
 
-    expect(container.textContent).toContain("transcriptPanel.noSpeechDetected");
     expect(container.textContent).toContain(
       "transcriptPanel.noTranscriptCaptured",
+    );
+    expect(container.textContent).not.toContain(
+      "transcriptPanel.noSpeechDetected",
     );
     expect(container.textContent).not.toContain(
       "transcriptPanel.noSpeechDescription",
     );
     expect(container.querySelector(".text-destructive")).toBeNull();
+  });
+
+  it("keeps every viewer transcript failure neutral", () => {
+    for (const failureReason of [
+      "No transcription provider configured.",
+      "Builder credits exhausted.",
+      "The media decoder returned malformed input.",
+    ]) {
+      act(() => {
+        root.render(
+          <TranscriptPanel
+            segments={[]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="failed"
+            failureReason={failureReason}
+            audience="viewer"
+            onRetry={vi.fn()}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain(
+        "transcriptPanel.noTranscriptCaptured",
+      );
+      expect(container.textContent).not.toContain(failureReason);
+      expect(container.textContent).not.toContain(
+        "transcriptPanel.enableTranscriptionTitle",
+      );
+      expect(container.textContent).not.toContain("builderCredits.pausedTitle");
+    }
   });
 
   it("keeps provider failures styled as errors", () => {
