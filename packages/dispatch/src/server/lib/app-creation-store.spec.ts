@@ -604,7 +604,7 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
-  it("keeps healthy filesystem apps discoverable when one config cannot load", async () => {
+  it("keeps healthy filesystem apps discoverable when config or routes cannot load", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "dispatch-workspace-"),
     );
@@ -617,19 +617,29 @@ describe("listWorkspaceApps", () => {
           "agent-native": { workspaceCore: "workspace-core" },
         }),
       );
-      for (const app of ["dispatch", "healthy", "broken"]) {
+      for (const app of [
+        "dispatch",
+        "healthy",
+        "config-broken",
+        "routes-broken",
+      ]) {
         const appDir = path.join(workspaceRoot, "apps", app);
         fs.mkdirSync(appDir, { recursive: true });
         fs.writeFileSync(
           path.join(appDir, "package.json"),
           JSON.stringify({ name: app, displayName: app }),
         );
+        if (app === "routes-broken") {
+          const brokenRoutes = path.join(appDir, "app", "routes");
+          fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+          fs.writeFileSync(brokenRoutes, "not a directory");
+        }
       }
       stubNoPendingContext();
       vi.stubEnv("NODE_ENV", "test");
       mocks.readConfiguredWorkspaceAppHomePath.mockImplementation(
         async (appDir: string) => {
-          if (appDir.endsWith(path.join("apps", "broken"))) {
+          if (appDir.endsWith(path.join("apps", "config-broken"))) {
             throw new Error("missing app-only dependency");
           }
           return undefined;
@@ -642,7 +652,7 @@ describe("listWorkspaceApps", () => {
       );
 
       expect(apps.map((app) => app.id)).toEqual(["dispatch", "healthy"]);
-      expect(mocks.readConfiguredWorkspaceAppHomePath).toHaveBeenCalledTimes(3);
+      expect(mocks.readConfiguredWorkspaceAppHomePath).toHaveBeenCalledTimes(4);
     } finally {
       cwdSpy.mockRestore();
       fs.rmSync(workspaceRoot, { recursive: true, force: true });

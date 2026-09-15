@@ -1812,13 +1812,17 @@ async function readWorkspaceAppsFromFilesystem(
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
     const metadata = workspaceAppMetadataFromRecord(pkg);
     let configuredHomePath: string | undefined;
+    let inferredHomePath: "/" | undefined;
     try {
       configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+      if (configuredHomePath === undefined) {
+        inferredHomePath = inferWorkspaceAppRootHomePath(appDir);
+      }
     } catch (error) {
-      // A broken app-only dependency must not hide healthy sibling apps from
-      // Dispatch. The next discovery pass can recover after the app is fixed.
+      // A broken app or route tree must not hide healthy sibling apps from
+      // Dispatch. The next discovery pass can recover after it is fixed.
       console.warn(
-        `[dispatch] Could not load configuration for workspace app ${entry.name}; skipping app`,
+        `[dispatch] Could not discover workspace app ${entry.name}; skipping app`,
         error,
       );
       continue;
@@ -1829,7 +1833,7 @@ async function readWorkspaceAppsFromFilesystem(
       description: pkg.description || "",
       path: `/${entry.name}`,
       homePath: normalizeWorkspaceAppHomePath(
-        configuredHomePath ?? inferWorkspaceAppRootHomePath(appDir),
+        configuredHomePath ?? inferredHomePath,
       ),
       url: workspaceAppUrl(`/${entry.name}`),
       isDispatch: entry.name === "dispatch",

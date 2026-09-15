@@ -225,6 +225,9 @@ describe("present-design-variants", () => {
       "@media (max-width: 900px) { body { width: 100%; max-width: 390px; overflow-x: hidden; overflow-y: auto; } .shell { grid-template-columns: 1fr;",
     );
     expect(inserted.content).toContain(
+      ".shell { box-sizing: border-box; width: 100%; max-width: 390px;",
+    );
+    expect(inserted.content).toContain(
       ".board { grid-template-columns: 1fr; }",
     );
   });

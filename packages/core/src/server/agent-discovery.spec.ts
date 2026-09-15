@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
@@ -7,6 +11,7 @@ import {
   discoverOrgDirectoryAgents,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
@@ -1005,6 +1010,48 @@ describe("agent discovery", () => {
         reason: "workspace-metadata",
       });
     });
+  });
+
+  it("skips filesystem apps with unreadable route trees in best-effort discovery", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      for (const app of ["dispatch", "healthy", "broken"]) {
+        const appDir = path.join(workspaceRoot, "apps", app);
+        fs.mkdirSync(appDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(appDir, "package.json"),
+          JSON.stringify({ name: app, displayName: app }),
+        );
+      }
+      const brokenRoutes = path.join(
+        workspaceRoot,
+        "apps",
+        "broken",
+        "app",
+        "routes",
+      );
+      fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+      fs.writeFileSync(brokenRoutes, "not a directory");
+
+      await expect(loadWorkspaceAppsManifest()).resolves.toEqual([
+        expect.objectContaining({ id: "dispatch" }),
+        expect.objectContaining({ id: "healthy" }),
+      ]);
+      await expect(loadWorkspaceAppsManifest(true)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("starts remote manifests and workspace metadata concurrently", async () => {

@@ -889,13 +889,17 @@ async function readWorkspaceAppsFromFilesystem(
     }
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
     let configuredHomePath: string | undefined;
+    let inferredHomePath: "/" | undefined;
     try {
       configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+      if (configuredHomePath === undefined) {
+        inferredHomePath = inferWorkspaceAppRootHomePath(appDir);
+      }
     } catch (error) {
       if (strict) throw error;
-      // A broken app-only dependency must not hide healthy sibling agents.
+      // A broken app or route tree must not hide healthy sibling agents.
       console.warn(
-        `[agent-discovery] Could not load configuration for workspace app ${entry.name}; skipping app`,
+        `[agent-discovery] Could not discover workspace app ${entry.name}; skipping app`,
         error,
       );
       continue;
@@ -906,7 +910,7 @@ async function readWorkspaceAppsFromFilesystem(
       description: pkg.description || "",
       path: `/${entry.name}`,
       homePath: normalizeWorkspaceAppHomePath(
-        configuredHomePath ?? inferWorkspaceAppRootHomePath(appDir),
+        configuredHomePath ?? inferredHomePath,
       ),
       isDispatch: normalizeAgentId(entry.name) === "dispatch",
       audience:
