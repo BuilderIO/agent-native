@@ -1,9 +1,14 @@
+import type { DesignSystemColorModeResult } from "./design-system-color-mode.js";
+
 export interface AgentDesignSystemContextAvailable {
   status: "available";
   scope: "summary" | "full";
   id: string;
   title: string;
   agentContext: string;
+  /** The canvas a slide/screen inherits when it declares none of its own.
+   *  Absent when the system's tokens do not resolve to a readable color. */
+  colorMode?: DesignSystemColorModeResult;
   /** Present when scope is "summary": the one call that returns the full context. */
   next?: string;
 }
@@ -68,12 +73,16 @@ export async function loadAgentDesignSystemContext(
     ) {
       return { status: "unavailable", id, message: UNAVAILABLE_MESSAGE };
     }
+    const colorMode = isRecord(value.colorMode)
+      ? (value.colorMode as unknown as DesignSystemColorModeResult)
+      : undefined;
     return {
       status: "available",
       scope: full ? "full" : "summary",
       id,
       title: value.title,
       agentContext: value.agentContext,
+      ...(colorMode ? { colorMode } : {}),
       ...(full
         ? {}
         : {

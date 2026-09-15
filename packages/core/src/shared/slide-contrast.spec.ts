@@ -99,6 +99,31 @@ describe("findUnreadableTextColors", () => {
     expect(findUnreadableTextColors({ html }).unreadable).toHaveLength(1);
   });
 
+  it("checks every declared text color, past any summary truncation", () => {
+    const many = Array.from(
+      { length: 30 },
+      (_, index) =>
+        `<p style="color: #1D1B${index.toString(16).padStart(2, "0")};">row ${index}</p>`,
+    ).join("");
+    const html = `<div class="fmd-slide" style="background: #1D1B20;">${many}<p style="color: #FFFBFE;">readable</p></div>`;
+
+    // Every near-#1D1B20 text color is unreadable on that canvas; a capped
+    // audit dropped the ones past its limit.
+    expect(
+      findUnreadableTextColors({ html }).unreadable.length,
+    ).toBeGreaterThan(24);
+  });
+
+  it("catches translucent hsla text the same way it catches rgba", () => {
+    const html = `<div class="fmd-slide" style="background: #FFFFFF;"><p style="color: hsla(0, 0%, 0%, 0.07);">x</p></div>`;
+    expect(findUnreadableTextColors({ html }).unreadable).toHaveLength(1);
+  });
+
+  it("catches an unreadable named color", () => {
+    const html = `<div class="fmd-slide" style="background: white;"><p style="color: lightgray;">x</p></div>`;
+    expect(findUnreadableTextColors({ html }).unreadable).toHaveLength(1);
+  });
+
   it("reports nothing when no background is readable", () => {
     const html = `
       <div class="fmd-slide" style="background: var(--ds-bg);">

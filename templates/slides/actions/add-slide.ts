@@ -6,10 +6,6 @@ import {
   fail,
 } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import {
-  findUnreadableTextColors,
-  formatSlideContrastWarning,
-} from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -31,6 +27,7 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
@@ -43,6 +40,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { slideContrastWarning } from "./_slide-contrast.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -522,11 +520,11 @@ export default defineAction({
         ctx,
       );
 
-      const contrastWarning = formatSlideContrastWarning(
-        findUnreadableTextColors({
-          html: newSlide.content,
-        }),
-      );
+      const contrastWarning = await slideContrastWarning({
+        html: newSlide.content,
+        background: newSlide.background,
+        designSystemId: resolveDeckDesignSystemId(row, deck),
+      });
 
       const base = {
         deckId,

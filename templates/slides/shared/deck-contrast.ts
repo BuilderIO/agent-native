@@ -32,6 +32,10 @@ export interface DeckContrastCoverage {
  */
 export function deckContrastCoverage(
   slides: ContrastCheckedSlide[],
+  /** Canvas a slide inherits from the linked design system when it declares
+   *  none of its own. Without it, a slide that relies on the system's canvas
+   *  is invisible to the audit and an unreadable pairing goes unreported. */
+  inheritedBackground?: string | null,
 ): DeckContrastCoverage | null {
   const unreadableSlideIds: string[] = [];
   const unreadableSlideNumbers: number[] = [];
@@ -43,7 +47,7 @@ export function deckContrastCoverage(
       html,
       slideBackground: slide.background
         ? backgroundCssValue(slide.background)
-        : null,
+        : (inheritedBackground ?? null),
     });
     if (unreadable.length > 0) {
       unreadableSlideIds.push(slide.id);

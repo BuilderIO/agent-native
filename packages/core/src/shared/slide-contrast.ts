@@ -111,8 +111,11 @@ export function findUnreadableTextColors({
   slideBackground?: string | null;
   minRatio?: number;
 }): SlideContrastReport {
+  // Unbounded on purpose. summarizeHtmlStyles exists to show an agent the
+  // common vocabulary, so it truncates; this is an audit and a capped list
+  // silently drops the one unreadable color past the cut.
   const summary = summarizeHtmlStyles([{ label: "slide", html }], {
-    limit: 24,
+    limit: Number.MAX_SAFE_INTEGER,
   });
 
   const candidateBackgrounds = [

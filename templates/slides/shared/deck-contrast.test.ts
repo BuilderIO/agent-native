@@ -77,6 +77,32 @@ describe("deckContrastCoverage", () => {
     ).toBeNull();
   });
 
+  it("checks a slide that inherits the linked design system's canvas", () => {
+    // No background anywhere in the slide: the renderer paints it on the
+    // system's canvas, so the audit has to use that or the slide is invisible.
+    const html = `<div class="fmd-slide"><h1 style="color: #FFFBFE;">Moon</h1></div>`;
+
+    expect(deckContrastCoverage([{ id: "s1", content: html }])).toBeNull();
+    expect(
+      deckContrastCoverage([{ id: "s1", content: html }], "#FEF7FF")!
+        .unreadableSlideIds,
+    ).toEqual(["s1"]);
+    expect(
+      deckContrastCoverage([{ id: "s1", content: html }], "#0B0E14"),
+    ).toBeNull();
+  });
+
+  it("lets an explicit slide background win over the inherited canvas", () => {
+    const html = `<div class="fmd-slide"><h1 style="color: #FFFBFE;">Moon</h1></div>`;
+
+    expect(
+      deckContrastCoverage(
+        [{ id: "s1", content: html, background: "bg-[#0B0E14]" }],
+        "#FEF7FF",
+      ),
+    ).toBeNull();
+  });
+
   it("skips empty slides instead of reporting them as unreadable", () => {
     expect(deckContrastCoverage([{ id: "blank", content: "" }])).toBeNull();
   });

@@ -1,9 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import {
-  findUnreadableTextColors,
-  formatSlideContrastWarning,
-} from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -37,7 +33,7 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
-import { backgroundCssValue } from "../shared/slide-background.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
@@ -49,6 +45,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { slideContrastWarning } from "./_slide-contrast.js";
 import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -886,6 +883,7 @@ export default defineAction({
           slideIndex,
           contentHash: hashSlideContent(String(slide.content ?? "")),
           layoutFitRevision: slide.layoutFitRevision,
+          designSystemId: resolveDeckDesignSystemId(row, deck),
           ...(creativeContext
             ? {
                 contextMode: creativeContext.contextMode,
@@ -904,6 +902,7 @@ export default defineAction({
         slideIndex,
         contentHash: hashSlideContent(String(slide.content ?? "")),
         layoutFitRevision: slide.layoutFitRevision,
+        designSystemId: resolveDeckDesignSystemId(row, deck),
       };
     });
 
@@ -978,18 +977,12 @@ export default defineAction({
       `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : objectId !== undefined ? `objectId="${objectId}"` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
     );
 
-    const contrastWarning = formatSlideContrastWarning(
-      findUnreadableTextColors({
-        html: String(rmw.slide.content ?? ""),
-        // A stored background can be a Tailwind arbitrary class the renderer
-        // unwraps; passing it raw leaves the check with no canvas and lets a
-        // write report success that get-deck then contradicts.
-        slideBackground:
-          typeof rmw.slide.background === "string"
-            ? backgroundCssValue(rmw.slide.background)
-            : null,
-      }),
-    );
+    const contrastWarning = await slideContrastWarning({
+      html: String(rmw.slide.content ?? ""),
+      background:
+        typeof rmw.slide.background === "string" ? rmw.slide.background : null,
+      designSystemId: rmw.designSystemId,
+    });
 
     const base = {
       ok: true,

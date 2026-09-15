@@ -264,7 +264,12 @@ export default defineAction({
       slides as any,
       selectedSlideIndex,
     );
-    const contrastCoverage = deckContrastCoverage(slides as any);
+    const contrastCoverage = deckContrastCoverage(
+      slides as any,
+      designSystem?.status === "available"
+        ? designSystem.colorMode?.background
+        : null,
+    );
 
     if (compact) {
       return {

@@ -27,6 +27,10 @@ import {
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
+  deckContrastCoverage,
+  type ContrastCheckedSlide,
+} from "../shared/deck-contrast.js";
+import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
@@ -496,16 +500,24 @@ export default defineAction({
       },
       ctx,
     );
+    const linkedDesignSystem = await loadAgentDesignSystemContext(
+      resolvedDesignSystemId,
+      getDesignSystem,
+      { full: true },
+    );
+    const contrastCoverage = deckContrastCoverage(
+      slides as ContrastCheckedSlide[],
+      linkedDesignSystem?.status === "available"
+        ? linkedDesignSystem.colorMode?.background
+        : null,
+    );
     return {
       id,
       title: resolvedTitle,
       slideCount: slides.length,
       designSystemId: resolvedDesignSystemId ?? null,
-      designSystem: await loadAgentDesignSystemContext(
-        resolvedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      ),
+      designSystem: linkedDesignSystem,
+      ...(contrastCoverage ? { contrastCoverage } : {}),
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
       deepLink: deckDeepLink(id),

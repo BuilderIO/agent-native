@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cssColorChannels,
   designSystemColorMode,
   designSystemColorModeFromData,
   formatDesignSystemColorModeDirective,
@@ -24,6 +25,16 @@ describe("isDarkColorValue", () => {
     expect(isDarkColorValue("oklch(0.97 0.01 90)")).toBe(false);
   });
 
+  it("keeps alpha from hsla and the lightness-first spaces", () => {
+    expect(cssColorChannels("hsla(0, 0%, 0%, 0.1)")![3]).toBeCloseTo(0.1, 5);
+    expect(cssColorChannels("hsl(0 0% 0%)")![3]).toBe(1);
+    expect(cssColorChannels("oklch(0.2 0.02 260 / 0.25)")![3]).toBeCloseTo(
+      0.25,
+      5,
+    );
+    expect(cssColorChannels("rgba(0, 0, 0, 40%)")![3]).toBeCloseTo(0.4, 5);
+  });
+
   it("reads the tailwind background utilities a slide can be set to", () => {
     expect(isDarkColorValue("bg-black")).toBe(true);
     expect(isDarkColorValue("bg-slate-950")).toBe(true);
@@ -38,6 +49,15 @@ describe("isDarkColorValue", () => {
     expect(
       isDarkColorValue("linear-gradient(135deg, #0b0e14 0%, #f5f2ea 100%)"),
     ).toBe(false);
+  });
+
+  it("reads the full CSS named-color table, not a hand-picked subset", () => {
+    expect(isDarkColorValue("black")).toBe(true);
+    expect(isDarkColorValue("navy")).toBe(true);
+    expect(isDarkColorValue("rebeccapurple")).toBe(true);
+    expect(isDarkColorValue("white")).toBe(false);
+    expect(isDarkColorValue("lightgray")).toBe(false);
+    expect(isDarkColorValue("whitesmoke")).toBe(false);
   });
 
   it("returns null rather than light for an unreadable value", () => {

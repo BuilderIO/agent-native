@@ -40,6 +40,11 @@ import {
 } from "../server/lib/source-import.js";
 import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  deckContrastCoverage,
+  type ContrastCheckedSlide,
+} from "../shared/deck-contrast.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -55,6 +60,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import getDesignSystem from "./get-design-system.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -1211,6 +1217,10 @@ export default defineAction({
         content?: unknown;
         layoutFitRevision?: unknown;
       }> = Array.isArray(deck.slides) ? deck.slides : [];
+      const contrastCoverage = deckContrastCoverage(
+        finalSlides as ContrastCheckedSlide[],
+        await inheritedDeckCanvas(resolveDeckDesignSystemId(row, deck)),
+      );
       const base = {
         ok: true,
         deckId,
@@ -1238,8 +1248,29 @@ export default defineAction({
               },
             }
           : {}),
+        ...(contrastCoverage ? { contrastCoverage } : {}),
       };
       return base;
     });
   },
 });
+
+/** The canvas patched slides inherit when they declare none of their own. */
+async function inheritedDeckCanvas(
+  designSystemId: string | null,
+): Promise<string | null> {
+  if (!designSystemId) return null;
+  try {
+    const system = (await getDesignSystem.run({
+      id: designSystemId,
+      compact: "true",
+    })) as { colorMode?: { background?: unknown } } | undefined;
+    const background = system?.colorMode?.background;
+    return typeof background === "string" && background ? background : null;
+  } catch {
+    // coercion-ok: null means "no inherited canvas to check against", which
+    // leaves the markup-only audit standing. It never turns an unreadable
+    // slide into a readable one, and must not fail the write.
+    return null;
+  }
+}
