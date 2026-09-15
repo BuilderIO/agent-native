@@ -832,10 +832,14 @@ export function useCreativeContextSources(
   );
 }
 
-export function useCreativeContexts(params: ListCreativeContextsParams = {}) {
+export function useCreativeContexts(
+  params: ListCreativeContextsParams = {},
+  options?: { enabled?: boolean },
+) {
   return useActionQuery<ListCreativeContextsResult>(
     CREATIVE_CONTEXT_ACTIONS.listContexts,
     { limit: 50, ...params },
+    options,
   );
 }
 

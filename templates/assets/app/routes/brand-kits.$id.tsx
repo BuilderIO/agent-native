@@ -13,7 +13,10 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareSheet,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import {
   IconCheck,
   IconClipboard,
@@ -2159,6 +2162,7 @@ function AssetSwimlaneBoard({
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const [bulkContextOpen, setBulkContextOpen] = useState(false);
   const [previewAsset, setPreviewAsset] = useState<any>(null);
   const deleteAsset = useActionMutation("delete-asset");
@@ -2713,17 +2717,19 @@ function AssetSwimlaneBoard({
                   {t("brandKitDetail.removeFromReferences")}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setBulkContextOpen(true)}
-                disabled={deleting || changingReference}
-              >
-                <IconLink className="h-4 w-4" />
-                Add to context
-                {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
-              </Button>
+              {creativeContextEnabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBulkContextOpen(true)}
+                  disabled={deleting || changingReference}
+                >
+                  <IconLink className="h-4 w-4" />
+                  Add to context
+                  {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -2752,18 +2758,20 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
       )}
-      <CreativeContextShareSheet
-        open={bulkContextOpen}
-        onOpenChange={setBulkContextOpen}
-        resources={selectedAssets.map((asset) => ({
-          appId: "assets",
-          resourceType: "asset",
-          resourceId: asset.id,
-          title: assetDisplayTitle(asset),
-          updatedAt: asset.updatedAt,
-          preview: { kind: "document" as const, label: "Asset" },
-        }))}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={bulkContextOpen}
+          onOpenChange={setBulkContextOpen}
+          resources={selectedAssets.map((asset) => ({
+            appId: "assets",
+            resourceType: "asset",
+            resourceId: asset.id,
+            title: assetDisplayTitle(asset),
+            updatedAt: asset.updatedAt,
+            preview: { kind: "document" as const, label: "Asset" },
+          }))}
+        />
+      ) : null}
 
       {viewMode === "cards" ? (
         <AssetCardsView items={visibleGalleryItems} />
@@ -3404,6 +3412,7 @@ function AssetActionsMenu({
   onOpenPreview?: () => void;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const [contextOpen, setContextOpen] = useState(false);
   return (
     <>
@@ -3439,16 +3448,18 @@ function AssetActionsMenu({
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              setContextOpen(true);
-            }}
-          >
-            <IconLink className="mr-2 h-4 w-4 shrink-0" />
-            Add to context
-            {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
-          </DropdownMenuItem>
+          {creativeContextEnabled ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setContextOpen(true);
+              }}
+            >
+              <IconLink className="mr-2 h-4 w-4 shrink-0" />
+              Add to context
+              {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+            </DropdownMenuItem>
+          ) : null}
           {onMoveToReferences ? (
             <DropdownMenuItem
               onSelect={(event) => {
@@ -3512,18 +3523,20 @@ function AssetActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <CreativeContextShareSheet
-        open={contextOpen}
-        onOpenChange={setContextOpen}
-        resource={{
-          appId: "assets",
-          resourceType: "asset",
-          resourceId: asset.id,
-          title: assetDisplayTitle(asset),
-          updatedAt: asset.updatedAt,
-          preview: { kind: "document", label: "Asset" },
-        }}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextOpen}
+          onOpenChange={setContextOpen}
+          resource={{
+            appId: "assets",
+            resourceType: "asset",
+            resourceId: asset.id,
+            title: assetDisplayTitle(asset),
+            updatedAt: asset.updatedAt,
+            preview: { kind: "document", label: "Asset" },
+          }}
+        />
+      ) : null}
     </>
   );
 }
