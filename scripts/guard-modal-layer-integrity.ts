@@ -11,6 +11,11 @@
  *    its open-layer Set in module scope. Two resolved copies cannot see each
  *    other, so an overlapping menu and dialog restore
  *    `document.body { pointer-events: none }` on close and kill the page.
+ * 3. Overlay primitives pin themselves with `fixed`, and merge the caller's
+ *    `className` through tailwind-merge. A caller that passes any position
+ *    utility wins that merge, so the primitive's `fixed` is dropped, the
+ *    content falls back into document flow below the page, and the page grows
+ *    a scrollbar instead of reporting anything.
  */
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -99,6 +104,95 @@ export function checkTemplateStyleSources(
   return { checked, errors };
 }
 
+/** Overlay primitives whose own class string starts with `fixed`. */
+const PINNED_OVERLAY_COMPONENTS = [
+  "DialogContent",
+  "DialogOverlay",
+  "AlertDialogContent",
+  "AlertDialogOverlay",
+  "SheetContent",
+  "SheetOverlay",
+  "DrawerContent",
+  "DrawerOverlay",
+];
+
+const POSITION_UTILITIES = ["static", "relative", "absolute", "sticky"];
+
+const OVERRIDE_OPT_OUT = "overlay-position-ok";
+
+const OVERLAY_SCAN_ROOTS = ["templates", "packages", "apps"];
+
+function hasPositionUtility(classValue: string): string | null {
+  for (const token of classValue.split(/\s+/)) {
+    // Keep variant prefixes: `sm:relative` drops `fixed` just as hard.
+    const utility = token.slice(token.lastIndexOf(":") + 1);
+    if (POSITION_UTILITIES.includes(utility)) return token;
+  }
+  return null;
+}
+
+/**
+ * Reads the opening tag of every pinned overlay element and reports a caller
+ * className that carries a position utility. Only string literals are
+ * inspected; a computed className is not worth a parser here, and the literal
+ * form is what every current caller uses.
+ */
+export function findOverlayPositionOverrides(
+  source: string,
+  relativePath: string,
+): string[] {
+  const findings: string[] = [];
+  const opening = new RegExp(
+    `<(${PINNED_OVERLAY_COMPONENTS.join("|")})(\\s[^>]*?)?/?>`,
+    "gs",
+  );
+
+  for (const tag of source.matchAll(opening)) {
+    const [whole, component, attributes = ""] = tag;
+    if (attributes.includes(OVERRIDE_OPT_OUT)) continue;
+    for (const literal of attributes.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+      const offending = hasPositionUtility(literal[1] ?? literal[2] ?? "");
+      if (!offending) continue;
+      const line = source.slice(0, tag.index).split("\n").length;
+      findings.push(
+        `${relativePath}:${line} <${component}> receives "${offending}". ` +
+          `cn() merges that over the primitive's "fixed", so the overlay leaves the ` +
+          `viewport and renders below the page content. Remove the position utility, ` +
+          `or add an "${OVERRIDE_OPT_OUT}:" note explaining why this one is safe.`,
+      );
+      break;
+    }
+    void whole;
+  }
+
+  return findings;
+}
+
+export function checkOverlayPositionOverrides(
+  repoRoot: string,
+  roots: string[] = OVERLAY_SCAN_ROOTS,
+): { checked: number; errors: string[] } {
+  const errors: string[] = [];
+  let checked = 0;
+
+  for (const root of roots) {
+    for (const file of walk(path.join(repoRoot, root))) {
+      if (!file.endsWith(".tsx")) continue;
+      const relativePath = path.relative(repoRoot, file);
+      // The corpus is a build artifact copy of the templates already scanned.
+      if (relativePath.includes(`${path.sep}corpus${path.sep}`)) continue;
+      const source = readFileSync(file, "utf8");
+      if (!PINNED_OVERLAY_COMPONENTS.some((name) => source.includes(name))) {
+        continue;
+      }
+      checked += 1;
+      errors.push(...findOverlayPositionOverrides(source, relativePath));
+    }
+  }
+
+  return { checked, errors };
+}
+
 /**
  * pnpm keys each installed instance by its full `snapshots:` locator, peer
  * suffix included. Two entries of the same published version resolved against
@@ -152,8 +246,10 @@ function main() {
   }
 
   const styleResult = checkTemplateStyleSources(repoRoot);
+  const overrideResult = checkOverlayPositionOverrides(repoRoot);
   const errors = [
     ...styleResult.errors,
+    ...overrideResult.errors,
     ...checkLayerSingleton(readFileSync(lockfilePath, "utf8")),
   ];
 
@@ -168,7 +264,8 @@ function main() {
   }
 
   console.log(
-    `[guard:modal-layer-integrity] clean (${styleResult.checked} template/package style contract(s); one dismissable-layer resolution)`,
+    `[guard:modal-layer-integrity] clean (${styleResult.checked} template/package style contract(s); ` +
+      `${overrideResult.checked} overlay call site file(s); one dismissable-layer resolution)`,
   );
 }
 
