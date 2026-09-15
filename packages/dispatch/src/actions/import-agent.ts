@@ -87,6 +87,7 @@ export default defineAction({
       failAgentImport(
         `An agent already exists at ${path}. Rename the source before importing it.`,
         AGENT_IMPORT_ERROR_CODES.duplicate,
+        { statusCode: 409 },
       );
     }
 

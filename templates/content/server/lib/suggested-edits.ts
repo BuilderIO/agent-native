@@ -212,6 +212,44 @@ type SuggestionDocumentJson = {
   content?: SuggestionDocumentJson[];
 };
 
+const SUPPORTED_SUGGESTION_INLINE_NODES = new Set(["hardBreak"]);
+
+function unsupportedNotionSpanAttrs(
+  attrs: Record<string, unknown> | undefined,
+) {
+  const { underline: _underline, ...remaining } = attrs ?? {};
+  const unsupported = Object.fromEntries(
+    Object.entries(remaining).filter(
+      ([name, value]) =>
+        value !== null && (name !== "attrsJson" || value !== "{}"),
+    ),
+  );
+  return Object.keys(unsupported).length ? unsupported : null;
+}
+
+function unsupportedRawNotionSpanAttrs(markdown: string) {
+  return Array.from(markdown.matchAll(/<span\b([^>]*)>/gi)).flatMap(
+    ([, source]) => {
+      const attrs = Object.fromEntries(
+        Array.from(
+          source!.matchAll(
+            /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g,
+          ),
+        )
+          .map(([, name, doubleQuoted, singleQuoted, unquoted]) => [
+            name!.toLowerCase(),
+            doubleQuoted ?? singleQuoted ?? unquoted ?? "",
+          ])
+          .filter(
+            ([name]) =>
+              !["color", "bg_color", "underline", "href"].includes(name),
+          ),
+      );
+      return Object.keys(attrs).length ? [attrs] : [];
+    },
+  );
+}
+
 function parseSuggestionMarkdown(markdown: string) {
   contentEditorSchema ??= createContentEditorStructuralSchema();
   return contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
@@ -224,6 +262,11 @@ function unsupportedSuggestionStructure(
 ): unknown[] {
   if (node.type === "text") {
     for (const mark of node.marks ?? []) {
+      if (mark.type === "notionSpan") {
+        const attrs = unsupportedNotionSpanAttrs(mark.attrs);
+        if (attrs) result.push({ path, mark: { type: mark.type, attrs } });
+        continue;
+      }
       if (
         !SUPPORTED_SUGGESTION_MARKS.has(
           mark.type as Parameters<typeof SUPPORTED_SUGGESTION_MARKS.has>[0],
@@ -236,6 +279,7 @@ function unsupportedSuggestionStructure(
   }
   if (
     node.type !== "doc" &&
+    !SUPPORTED_SUGGESTION_INLINE_NODES.has(node.type ?? "") &&
     !SUPPORTED_SUGGESTION_BLOCKS.has(node.type ?? "")
   ) {
     result.push({ path, node });
@@ -293,6 +337,14 @@ function validateSuggestionStructure(
   if (
     unsupportedStructureKey(beforeMarkdown) !== surround ||
     unsupportedStructureKey(afterMarkdown) !== surround
+  ) {
+    throw new Error(
+      "Content v1 suggestions cannot add or change unsupported structures",
+    );
+  }
+  if (
+    JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
+    JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
     throw new Error(
       "Content v1 suggestions cannot add or change unsupported structures",

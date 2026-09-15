@@ -18,6 +18,48 @@ export const AGENT_PACK_MAX_FILES = 80;
 export const AGENT_PACK_MAX_FILE_BYTES = 200_000;
 export const AGENT_PACK_MAX_TOTAL_BYTES = 2_000_000;
 
+/** Extensions a single-file agent profile import can parse. */
+export const AGENT_PROFILE_FILE_EXTENSIONS = [
+  ".md",
+  ".markdown",
+  ".json",
+  ".txt",
+] as const;
+
+/** Extensions an agent pack keeps; everything else in a folder is skipped. */
+export const AGENT_PACK_FILE_EXTENSIONS = [
+  ...AGENT_PROFILE_FILE_EXTENSIONS,
+  ".yaml",
+  ".yml",
+  ".csv",
+  ".html",
+  ".xml",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".mjs",
+  ".py",
+  ".sh",
+] as const;
+
+export const AGENT_PROFILE_FILE_ACCEPT =
+  AGENT_PROFILE_FILE_EXTENSIONS.join(",");
+export const AGENT_PACK_FILE_ACCEPT = AGENT_PACK_FILE_EXTENSIONS.join(",");
+
+function hasExtension(path: string, extensions: readonly string[]): boolean {
+  const name = path.replaceAll("\\", "/").split("/").pop()?.toLowerCase() ?? "";
+  return extensions.some((extension) => name.endsWith(extension));
+}
+
+export function isImportableAgentProfileFile(path: string): boolean {
+  return hasExtension(path, AGENT_PROFILE_FILE_EXTENSIONS);
+}
+
+export function isImportableAgentPackFile(path: string): boolean {
+  return hasExtension(path, AGENT_PACK_FILE_EXTENSIONS);
+}
+
 const IGNORED_PACK_FILES = new Set([
   ".ds_store",
   ".git",
@@ -162,6 +204,12 @@ export function normalizeAgentPack(
       if (typeof file.content !== "string") {
         failAgentImport(
           `Agent pack file is not text: ${path}`,
+          AGENT_IMPORT_ERROR_CODES.inputInvalid,
+        );
+      }
+      if (!isImportableAgentPackFile(path)) {
+        failAgentImport(
+          `Agent packs only accept text files (${AGENT_PACK_FILE_EXTENSIONS.join(", ")}). Remove ${path}.`,
           AGENT_IMPORT_ERROR_CODES.inputInvalid,
         );
       }

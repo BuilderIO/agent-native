@@ -80,7 +80,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { localizeKnownChatErrorText } from "../error-format.js";
+import {
+  isCreditsLimitErrorCode,
+  localizeKnownChatErrorText,
+} from "../error-format.js";
 import {
   DEFAULT_LOCALE,
   useFormatters,
@@ -1539,7 +1542,10 @@ export function isMissingFinalResponseWarningText(text: string): boolean {
   }
   return (
     normalized.includes("stopped before sending a final message") ||
-    normalized.includes("stopped without sending a final message")
+    normalized.includes("stopped without sending a final message") ||
+    // "stopped after <action> failed, without sending a final message."
+    (normalized.startsWith("The agent stopped after ") &&
+      normalized.includes("without sending a final message"))
   );
 }
 
@@ -2116,7 +2122,7 @@ export function shouldShowInlineRunError({
   runError: RunErrorInfo | null;
   bannerRunErrorKey: string | null | undefined;
 }): boolean {
-  if (!runError) return false;
+  if (!runError || isCreditsLimitErrorCode(runError.errorCode)) return false;
   return runErrorKey(runError) !== bannerRunErrorKey;
 }
 

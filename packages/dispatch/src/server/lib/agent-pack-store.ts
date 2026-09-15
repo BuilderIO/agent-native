@@ -1,4 +1,8 @@
 import {
+  AGENT_IMPORT_ERROR_CODES,
+  failAgentImport,
+} from "../../lib/agent-import-errors.js";
+import {
   applyWorkspaceResourceCreate,
   getWorkspaceResourceByPath,
   requireWorkspaceResourceCtx,
@@ -21,8 +25,10 @@ export async function applyAgentPackCreate(
   );
   const duplicate = existing.find(Boolean);
   if (duplicate) {
-    throw new Error(
+    failAgentImport(
       `An agent pack resource already exists at ${duplicate.path}. Rename the source before importing it.`,
+      AGENT_IMPORT_ERROR_CODES.duplicate,
+      { statusCode: 409 },
     );
   }
 

@@ -29,6 +29,10 @@
   --input: 0 0% 90%;
   --ring: 0 0% 40%;
   --radius: 0.5rem;
+  --comment-input-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --comment-input-border: 0 0% 83.14%;
+  --comment-toolbar-divider: 210 11% 90%;
+  --comment-widget-shadow: 0 -2px 3px rgb(0 0 0 / 0.04);
   --recorder-mode-option-radius: 1.125rem;
   --recorder-mode-toggle-inset: 0.3125rem;
   --recorder-mode-toggle-radius: calc(
@@ -46,6 +50,10 @@
   --highlight-foreground: 0 0% 10%;
   --player-control: 0 0% 0%;
   --player-control-foreground: 0 0% 100%;
+}
+
+.comment-widget-shadow {
+  filter: drop-shadow(var(--comment-widget-shadow));
 }
 
 .dark {
