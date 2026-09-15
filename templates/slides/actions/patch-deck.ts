@@ -610,7 +610,11 @@ export function slideSignatures(deck: any): Map<string, string> {
   const signatures = new Map<string, string>();
   for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
     if (typeof slide?.id === "string") {
-      signatures.set(slide.id, deckVersionContentSignature(slide));
+      // layoutFitRevision is derived bookkeeping, re-minted by every
+      // intermediate edit. Counting it makes an ordered round-trip
+      // (A to B, then back to A) look like an edit the user can see.
+      const { layoutFitRevision: _layoutFitRevision, ...material } = slide;
+      signatures.set(slide.id, deckVersionContentSignature(material));
     }
   }
   return signatures;
@@ -1339,8 +1343,13 @@ export default defineAction({
         deckId,
         updatedAt: now,
         updatedSlideIds,
+        // Deleted means it was in the deck before this batch and is gone
+        // now. A slide added and removed within one batch was never in the
+        // persisted deck, so reporting it as deleted invents a phantom.
         deletedSlideIds: [...deletedSlideIds].filter(
-          (slideId) => !signaturesAfterOperations.has(slideId),
+          (slideId) =>
+            signaturesBeforeOperations.has(slideId) &&
+            !signaturesAfterOperations.has(slideId),
         ),
         ...(unchangedSlideIds.length
           ? {

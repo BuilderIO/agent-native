@@ -1927,7 +1927,7 @@ describe("run() — slides absent from the final deck are only reported deleted"
 
     expect(result.updatedSlideIds).toEqual(["slide-1"]);
     expect(result.unchangedSlideIds).toBeUndefined();
-    expect(result.deletedSlideIds).toEqual(["slide-3"]);
+    expect(result.deletedSlideIds).toEqual([]);
   });
 });
 
@@ -2123,5 +2123,56 @@ describe("run() — a deleted-then-readded slide is not reported deleted", () =>
     expect(
       persisted.slides.find((s: { id: string }) => s.id === "slide-1").content,
     ).toBe("<div>One replaced</div>");
+  });
+});
+
+describe("run() — a content round-trip is not an edit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("does not report a slide patched away and back as updated", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Interim</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-2"]);
+    expect(result.unchangedSlideIds).toEqual(["slide-1"]);
   });
 });
