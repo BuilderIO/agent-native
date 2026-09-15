@@ -46,6 +46,11 @@ actions, and local folders that sync into the same collection model.
   page you pass into the collection's own backing page. Creating a collection is
   not the same as filling it, so verify membership in the action's receipt
   before telling the user the page was added.
+- A page is a row of at most one ordinary collection. To move a row from one
+  collection to another, call `remove-database-items` on the old one first;
+  adopting it directly is refused rather than leaving the old collection
+  listing a row whose page now lives somewhere else. Files, Pinned, and
+  Workspaces memberships are separate and are kept automatically.
 - Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.

@@ -385,18 +385,21 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.rows",
     surface: "database",
-    label: "Add, duplicate, move, open, edit, and remove database rows",
+    label: "Add, adopt, duplicate, move, open, edit, and remove database rows",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/database/DatabaseView.tsx",
+      "app/components/editor/database/sidebar.tsx",
+      "app/components/sidebar/DocumentSidebar.tsx",
     ],
     durableEffect:
-      "Database row memberships and ordering are created, duplicated, moved, edited, and removed without deleting the backing page; bounded migrations atomically update row bodies and properties through the same canonical data model.",
+      "Database row memberships and ordering are created, duplicated, moved, edited, and removed without deleting the backing page; an existing page can be adopted as a row, which reparents it and writes its membership in one transaction; bounded migrations atomically update row bodies and properties through the same canonical data model.",
     uiImplementation:
-      "Row controls call row actions; the editor and agent share stable Blocks identities for one-block edits; selected-row duplicate/removal call bounded batch actions, while bounded whole-database schema-and-body migrations use one validated, receipt-backed action instead of many partial writes.",
+      "Row controls call row actions; dragging a page onto a collection in the sidebar calls the same adoption action the agent calls; the editor and agent share stable Blocks identities for one-block edits; selected-row duplicate/removal call bounded batch actions, while bounded whole-database schema-and-body migrations use one validated, receipt-backed action instead of many partial writes.",
     status: "action-backed",
     actions: [
       "add-database-item",
+      "add-document-to-content-database",
       "update-database-item",
       "upsert-database-item-by-key",
       "list-content-database-blocks",
@@ -417,9 +420,11 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
+      "actions/add-document-to-content-database.db.test.ts",
       "actions/upsert-database-item-by-key.db.test.ts",
       "actions/migrate-content-database-rows.db.test.ts",
       "actions/content-database-block-actions.db.test.ts",
+      "app/components/editor/database/sidebar.test.tsx",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],
     evalScenarioIds: ["database-bulk-row-reliability"],

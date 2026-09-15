@@ -82,7 +82,9 @@ export interface ContentFilesSidebarManualReorder {
 
 /**
  * Only a collection row can adopt a dropped page, and only when the dropped row
- * is an ordinary page. Anything else stays a no-op rather than guessing.
+ * is an ordinary page that is not already inside it. Everything else returns
+ * null so the drop falls through to ordinary reordering, which is how a row
+ * still gets reordered past a collection at the same level.
  */
 export function resolveSidebarCollectionDrop(
   items: ContentDatabaseItem[],
@@ -626,7 +628,9 @@ export function DatabaseSidebarView({
                 activeItemId,
                 overItemId,
               );
-              if (drop) onAddPageToCollection(drop.page, drop.collection);
+              if (!drop) return false;
+              onAddPageToCollection(drop.page, drop.collection);
+              return true;
             }
           : undefined
       }

@@ -252,6 +252,69 @@ describe("add-document-to-content-database", () => {
     expect(await membership(collection.databaseId, documentId)).toBeTruthy();
   });
 
+  it("refuses a page that is already a row of another collection", async () => {
+    const space = await createSpace("twocollections");
+    const source = await createCollection("twosource", space.spaceId);
+    const target = await createCollection("twotarget", space.spaceId);
+    const documentId = await createPage("twocollections", space.spaceId);
+
+    await asOwner(() =>
+      addDocumentToContentDatabase.run(
+        { databaseId: source.databaseId, documentId },
+        {} as any,
+      ),
+    );
+
+    await expect(
+      asOwner(() =>
+        addDocumentToContentDatabase.run(
+          { databaseId: target.databaseId, documentId },
+          {} as any,
+        ),
+      ),
+    ).rejects.toThrow(/already a row of the collection/);
+
+    // The refusal must leave the source collection intact rather than half
+    // moving the page.
+    expect(await membership(source.databaseId, documentId)).toBeTruthy();
+    expect(await membership(target.databaseId, documentId)).toBeUndefined();
+    expect(await parentOf(documentId)).toBe(source.databaseDocumentId);
+  });
+
+  it("concurrent adoptions of one page settle on a single membership", async () => {
+    const space = await createSpace("concurrent");
+    const collection = await createCollection("concurrent", space.spaceId);
+    const documentId = await createPage("concurrent", space.spaceId);
+
+    const results = await Promise.all([
+      asOwner(() =>
+        addDocumentToContentDatabase.run(
+          { databaseId: collection.databaseId, documentId },
+          {} as any,
+        ),
+      ),
+      asOwner(() =>
+        addDocumentToContentDatabase.run(
+          { databaseId: collection.databaseId, documentId },
+          {} as any,
+        ),
+      ),
+    ]);
+
+    const itemIds = new Set(results.map((result) => result.receipt.itemId));
+    expect(itemIds.size).toBe(1);
+    const rows = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, collection.databaseId),
+          eq(schema.contentDatabaseItems.documentId, documentId),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+  });
+
   it("refuses a page from a different Content space", async () => {
     const spaceA = await createSpace("crossa");
     const spaceB = await createSpace("crossb");

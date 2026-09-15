@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   constrainedSidebarTransform,
-  crossParentSidebarDropTarget,
   isSidebarDragReleaseClick,
   isPointerSidebarDrag,
   reorderedSidebarItemIds,
+  resolveSidebarDrop,
   sidebarReorderAnnouncement,
 } from "./sidebar-reorder";
 
@@ -107,20 +107,36 @@ describe("reorderedSidebarItemIds", () => {
   });
 });
 
-describe("crossParentSidebarDropTarget", () => {
-  it("surfaces the drop reordering refuses", () => {
-    expect(crossParentSidebarDropTarget(items, "two", "child-a")).toBe(
-      "child-a",
-    );
-    expect(reorderedSidebarItemIds(items, "two", "child-a")).toEqual(
+describe("resolveSidebarDrop", () => {
+  it("lets a claim win over an available sibling reorder", () => {
+    // "one" and "two" are root siblings, so reordering can express this drop.
+    // Dropping a page onto a collection looks exactly like this, which is why
+    // the claim has to be offered first.
+    expect(reorderedSidebarItemIds(items, "one", "two")).not.toEqual(
       items.map((entry) => entry.id),
     );
+    expect(resolveSidebarDrop(items, "one", "two", () => true)).toEqual({
+      kind: "claimed",
+    });
   });
 
-  it("stays null for same-parent, self, unknown, and own-child drops", () => {
-    expect(crossParentSidebarDropTarget(items, "one", "two")).toBeNull();
-    expect(crossParentSidebarDropTarget(items, "one", "one")).toBeNull();
-    expect(crossParentSidebarDropTarget(items, "one", "missing")).toBeNull();
-    expect(crossParentSidebarDropTarget(items, "one", "child-a")).toBeNull();
+  it("reorders when the claim declines", () => {
+    expect(resolveSidebarDrop(items, "one", "two", () => false)).toEqual({
+      kind: "reorder",
+      itemIds: ["two", "child-a", "one", "child-b"],
+      position: 2,
+    });
+  });
+
+  it("reorders when no claim handler is wired at all", () => {
+    expect(resolveSidebarDrop(items, "one", "two")).toMatchObject({
+      kind: "reorder",
+    });
+  });
+
+  it("reports nothing to do for a drop reordering cannot express", () => {
+    expect(resolveSidebarDrop(items, "two", "child-a", () => false)).toEqual({
+      kind: "none",
+    });
   });
 });

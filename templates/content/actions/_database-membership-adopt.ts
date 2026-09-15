@@ -1,5 +1,5 @@
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -179,29 +179,7 @@ export async function adoptDocumentIntoDatabase(
     database.documentId,
   );
 
-  const [existingMembership] = await db
-    .select()
-    .from(schema.contentDatabaseItems)
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.databaseId, database.id),
-        eq(schema.contentDatabaseItems.documentId, documentId),
-      ),
-    );
-  if (existingMembership && document.parentId === database.documentId) {
-    return {
-      databaseId: database.id,
-      databaseDocumentId: database.documentId,
-      documentId,
-      itemId: existingMembership.id,
-      position: existingMembership.position,
-      previousParentId: document.parentId ?? null,
-      alreadyMember: true,
-    };
-  }
-
   const now = new Date().toISOString();
-  const itemId = existingMembership?.id ?? nanoid();
 
   const written = await withPositionLock(
     documentsPositionScope(database.ownerEmail, database.documentId),
@@ -209,6 +187,70 @@ export async function adoptDocumentIntoDatabase(
       withPositionLock(databaseItemsPositionScope(database.id), () =>
         db.transaction(async (tx: Db) => {
           await lockContentDatabaseMutation(tx, database.id);
+
+          // Membership and parent are re-read under the collection's write
+          // lock. Reading them before the lock lets two concurrent adopts of
+          // one page both see "not a member", so the loser hits the unique
+          // (databaseId, documentId) constraint instead of returning the
+          // receipt the winner already made true.
+          const [existingMembership] = await tx
+            .select()
+            .from(schema.contentDatabaseItems)
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, database.id),
+                eq(schema.contentDatabaseItems.documentId, documentId),
+              ),
+            );
+          const [currentDocument] = await tx
+            .select({ parentId: schema.documents.parentId })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, documentId));
+          if (
+            existingMembership &&
+            currentDocument?.parentId === database.documentId
+          ) {
+            return {
+              itemId: existingMembership.id,
+              itemPosition: existingMembership.position,
+              alreadyMember: true,
+            };
+          }
+
+          // A page is a row of at most one ordinary collection. Adopting it
+          // into a second one without removing the first leaves the old
+          // collection listing a row whose page now lives elsewhere, so this
+          // refuses rather than half-moving it. System memberships (Files,
+          // Pinned, Workspaces) are deliberately parallel and stay.
+          const otherMemberships = await tx
+            .select({
+              databaseId: schema.contentDatabases.id,
+              title: schema.contentDatabases.title,
+            })
+            .from(schema.contentDatabaseItems)
+            .innerJoin(
+              schema.contentDatabases,
+              eq(
+                schema.contentDatabases.id,
+                schema.contentDatabaseItems.databaseId,
+              ),
+            )
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.documentId, documentId),
+                ne(schema.contentDatabaseItems.databaseId, database.id),
+                isNull(schema.contentDatabases.systemRole),
+                isNull(schema.contentDatabases.deletedAt),
+              ),
+            )
+            .limit(1);
+          if (otherMemberships.length > 0) {
+            throw new Error(
+              `The page is already a row of the collection "${otherMemberships[0].title}". Remove it from that collection first with remove-database-items.`,
+            );
+          }
+
+          const itemId = existingMembership?.id ?? nanoid();
 
           const [maxDoc] = await tx
             .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
@@ -295,7 +337,7 @@ export async function adoptDocumentIntoDatabase(
           await ensureDocumentFilesMembership(tx, documentId, now);
           await touchContentDatabase(tx, database.id, now);
 
-          return { documentPosition, itemPosition };
+          return { itemId, itemPosition, alreadyMember: false };
         }),
       ),
   );
@@ -331,6 +373,6 @@ export async function adoptDocumentIntoDatabase(
     itemId: persistedItem.id,
     position: written.itemPosition,
     previousParentId: document.parentId ?? null,
-    alreadyMember: false,
+    alreadyMember: written.alreadyMember,
   };
 }

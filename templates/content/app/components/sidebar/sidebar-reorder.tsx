@@ -79,26 +79,6 @@ export function isPointerSidebarDrag(activatorEvent: Event) {
   );
 }
 
-/**
- * The drop `reorderedSidebarItemIds` refuses: two rows in different sibling
- * sets. Reordering cannot express it, so unless a caller opts in through
- * `onDropInto` the gesture ends as a silent no-op, which is what dragging a
- * page onto a collection used to do.
- */
-export function crossParentSidebarDropTarget(
-  items: SidebarReorderItem[],
-  activeId: string,
-  overId: string,
-): string | null {
-  if (activeId === overId) return null;
-  const active = items.find((item) => item.id === activeId);
-  const over = items.find((item) => item.id === overId);
-  if (!active || !over) return null;
-  if (active.parentId === over.parentId) return null;
-  if (over.parentId === active.id) return null;
-  return over.id;
-}
-
 export function reorderedSidebarItemIds(
   items: SidebarReorderItem[],
   activeId: string,
@@ -127,6 +107,31 @@ export function reorderedSidebarItemIds(
     nextItems[index] = reorderedSiblings[siblingIndex];
   });
   return nextItems.map((item) => item.id);
+}
+
+export type SidebarDropOutcome =
+  | { kind: "claimed" }
+  | { kind: "reorder"; itemIds: string[]; position: number }
+  | { kind: "none" };
+
+/**
+ * `claimDrop` is asked first, before reordering is even computed. A page and a
+ * collection are frequently siblings, so a reorder-first order resolves that
+ * drop as an ordinary sibling swap and the page is never adopted.
+ */
+export function resolveSidebarDrop(
+  items: SidebarReorderItem[],
+  activeId: string,
+  overId: string,
+  claimDrop?: (activeId: string, overId: string) => boolean,
+): SidebarDropOutcome {
+  if (claimDrop?.(activeId, overId)) return { kind: "claimed" };
+  const currentIds = items.map((item) => item.id);
+  const itemIds = reorderedSidebarItemIds(items, activeId, overId);
+  if (!itemIds.some((id, index) => id !== currentIds[index])) {
+    return { kind: "none" };
+  }
+  return { kind: "reorder", itemIds, position: itemIds.indexOf(activeId) };
 }
 
 export function sidebarReorderAnnouncement(
@@ -175,7 +180,12 @@ export function SidebarReorderProvider({
     itemIds: string[],
     moved: { itemId: string; position: number },
   ) => void;
-  onDropInto?: (activeItemId: string, overItemId: string) => void;
+  /**
+   * Offered every drop before reordering. Return true to claim it. A page and
+   * a collection are often siblings, so a reorder-first check would resolve
+   * that drop as a valid sibling swap and the page would never be adopted.
+   */
+  onDropInto?: (activeItemId: string, overItemId: string) => boolean;
   children: ReactNode;
 }) {
   const itemNodes = useRef(new Map<string, HTMLElement>());
@@ -296,17 +306,14 @@ export function SidebarReorderProvider({
     }
     const overId = event.over?.id;
     if (overId) {
-      const currentIds = items.map((item) => item.id);
-      const nextIds = reorderedSidebarItemIds(items, itemId, String(overId));
-      if (nextIds.some((id, index) => id !== currentIds[index])) {
-        onReorder(nextIds, { itemId, position: nextIds.indexOf(itemId) });
-      } else if (onDropInto) {
-        const dropTargetId = crossParentSidebarDropTarget(
-          items,
-          itemId,
-          String(overId),
-        );
-        if (dropTargetId) onDropInto(itemId, dropTargetId);
+      const outcome = resolveSidebarDrop(
+        items,
+        itemId,
+        String(overId),
+        onDropInto,
+      );
+      if (outcome.kind === "reorder") {
+        onReorder(outcome.itemIds, { itemId, position: outcome.position });
       }
     }
     clearDragState();
