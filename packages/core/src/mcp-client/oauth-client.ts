@@ -572,6 +572,13 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     state: McpOAuthDiscoveryState,
     clientMetadataUrl: string | undefined,
   ) => void;
+  /**
+   * Part of the SDK's provider contract, deliberately unset: this app hosts no
+   * client metadata document, so the SDK's SEP-991 path stays out of reach and
+   * every start still needs a registered client. Setting this must also make
+   * `assertRegisterableClient` stop refusing CIMD-only servers.
+   */
+  readonly clientMetadataUrl?: string;
 
   constructor(options: McpOAuthProviderOptions) {
     this.redirectUrlValue = options.redirectUrl;
@@ -670,10 +677,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }): void {
     validateDiscoveryUrls(state);
     this.savedDiscovery = state;
-    this.onDiscoveryState?.(
-      state,
-      (this as OAuthClientProvider).clientMetadataUrl,
-    );
+    this.onDiscoveryState?.(state, this.clientMetadataUrl);
   }
 
   discoveryState(): McpOAuthDiscoveryState | undefined {
