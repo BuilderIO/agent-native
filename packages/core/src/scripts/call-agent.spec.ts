@@ -630,6 +630,66 @@ describe("call-agent action", () => {
     }
   });
 
+  it("fails loudly when the delegation target cannot be resolved", async () => {
+    const discovery = await import("../server/agent-discovery.js");
+    vi.mocked(discovery.findAgent).mockResolvedValueOnce(undefined);
+    vi.mocked(discovery.discoverAgents).mockResolvedValueOnce([
+      { id: "plan", name: "Plan", description: "", url: "", color: "" },
+    ]);
+    const logged: string[] = [];
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        logged.push(args.join(" "));
+      });
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-a2a-not-found",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    try {
+      const { run } = await import("./call-agent.js");
+      // A returned "Error: ..." string is scored as a SUCCESSFUL tool call,
+      // which is what let the model retell an unresolved target as downtime.
+      const outcome = await run(
+        { agent: "nosuchapp", message: "Create the rollout plan" },
+        { send: vi.fn(), threadId: "t", runId: "r", turnId: "u" } as any,
+        "brain",
+      ).then(
+        (resolved) => ({ resolved }) as const,
+        (error) => ({ error }) as const,
+      );
+
+      expect("error" in outcome).toBe(true);
+      const error = (outcome as { error: any }).error;
+      expect(error.name).toBe("A2AInvocationError");
+      expect(error.errorCode).toBe("agent_not_found");
+      expect(error.message).toContain("nosuchapp");
+      expect(error.message).toContain("plan");
+      // The reported production failure: the model narrated a resolution
+      // failure as "The Plans app is temporarily unavailable."
+      expect(error.message).toMatch(/not an outage/i);
+
+      expect(
+        logged.some((line) => line.includes("Unresolvable delegation target")),
+      ).toBe(true);
+      expect(
+        tracked.find((event) => event.name === "$a2a_invocation")?.properties,
+      ).toMatchObject({
+        caller_app: "brain",
+        target_app: "nosuchapp",
+        status: "error",
+        terminal_code: "agent_not_found",
+      });
+    } finally {
+      unregisterTrackingProvider("qa-a2a-not-found");
+      consoleError.mockRestore();
+    }
+  });
+
   it("does not report an empty delegated response as success", async () => {
     callAgentMock.mockResolvedValueOnce("");
     const { run } = await import("./call-agent.js");
