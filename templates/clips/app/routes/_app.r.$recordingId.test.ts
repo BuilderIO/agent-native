@@ -232,6 +232,7 @@ describe("direct recording route shell cue", () => {
 
     expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
     expect(route).not.toContain("<AgentPanel");
+    expect(route).toContain("focusAgentChat");
     expect(route).toContain("requestAgentSidebarOpen");
     expect(route).toContain("SIDEBAR_STATE_CHANGE_EVENT");
     expect(route).toContain("useGlobalAgentSidebarOpen");
