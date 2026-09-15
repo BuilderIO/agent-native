@@ -356,6 +356,100 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## ホスト型エージェント接続 {#hosted-agent-connections}
+
+ホスト型エージェントは、互換性のある A2A エンドポイントを公開すれば
+A2A に参加できます。モデルプロバイダーやエージェント SDK だけでは
+A2A ピアにはなりません。アプリの UI、アクション、データベースは通常
+のアプリホストに置き、アダプターまたはエージェント自身の A2A エンド
+ポイントでランタイムに接続します。
+
+ホスト型接続には、エンドポイントのメタデータと認証記述子があります。
+このメタデータは remote-agent リソースまたは接続レコードと一緒に管理
+します。マニフェストにトークンやクライアントシークレットを入れない
+でください。
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` は呼び出しエンドポイントまたはベース URL です。検出に
+`/.well-known/agent-card.json` を使う場合、`cardUrl` は省略できます。
+プロバイダーが別の場所でカードを公開する場合に指定します。クライアント
+はエージェントカードからプロトコルバージョンを読み取ります。カードに
+バージョンがない場合は、`protocolVersion` を `A2AClient` に直接渡します。
+`auth` はサーバー側コードが bearer トークンを取得する方法を示します。
+対応する記述子は、Vault に保存した `credentialRef` を
+使う `bearer`、または `tokenUrl`、`clientId`、`clientSecretRef`、`scope`
+を持つ `oauth-client-credentials` です。`credentialRef` と
+`clientSecretRef` はシークレットへの参照であり、値そのものではありま
+せん。
+
+### 汎用 bearer A2A {#generic-bearer-a2a}
+
+ピアが `Authorization: Bearer ...` を受け入れ、互換性のあるカードを提供
+し、Agent-Native JSON-RPC を受け入れる場合は標準クライアントを使います。
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+`token` はワークスペース接続または Vault からサーバー側で解決します。
+ブラウザーコードから送信したり、マニフェストやプロンプトに書き込ん
+だりしないでください。静的 API キーはリモートサービスの転送用認証
+情報にすぎず、Agent-Native の呼び出し元 ID や `approvedActions` を運び
+ません。
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Azure AI Foundry のホスト型エージェント](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+は、エージェントコードまたはコンテナーを、管理されたエンドポイント、
+ID、スケーリング、セッション状態、可観測性の背後で実行します。これは
+エージェントランタイムのホスティングモデルです。Agent-Native の UI、
+アクション、PostgreSQL のデプロイはアプリホストに置き、サーバー側
+コードから Foundry エンドポイントを呼び出します。
+
+Foundry は [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint)
+を通じて A2A エンドポイントを公開できます。Microsoft Entra 認証が
+必要で、呼び出し元には Foundry Agent Consumer 権限が必要です。エンド
+ポイントが Agent-Native JSON-RPC を話す場合は、プロバイダーの v0.3
+カードとエンドポイントに `cardUrl` と `protocolVersion` を指定します。
+トークンプロバイダーは Entra アクセストークンを取得して更新する必要
+があります。`A2A_SECRET` や静的 API キーでは Foundry の認証を満たせ
+ません。
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise は外部 A2A エージェントを登録できます](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent)。
+Agent Registry はプロキシエンドポイントも公開できます。その HTTP+JSON
+バインディングはプロバイダー固有で、検出は `GET {url}/v1/card`、呼び
+出しは `POST {url}/v1/message:send`、ストリーミングは
+`POST {url}/v1/message:stream` を使います。リクエストには Google OAuth
+または ADC bearer トークンと Google Cloud IAM 権限が必要です。詳しくは
+[Registry A2A エンドポイントでエージェントを呼び出す](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+を参照してください。
+
+これらのパスは Agent-Native JSON-RPC のパス
+(`/.well-known/agent-card.json` と `/_agent-native/a2a`) とは異なります。
+ワイヤー形式を変換し、Google の認証情報を取得して更新するサーバー側
+アダプターを追加してからエンドポイントを登録してください。ターゲット
+が標準 A2A エンドポイントを別に公開している場合は、汎用 bearer の案内
+を使います。Gemini Enterprise の登録トラフィックは Agent Gateway の
+ポリシーを通らないため、ターゲット独自の認証と認可ポリシーを適用して
+ください。
+
 ## プログラムによるワークスペースの呼び出し {#programmatic-invoke}
 
 エージェント ネイティブ ワークスペースの場合、コードを記述するときは `agentNative` ヘルパーを優先します。

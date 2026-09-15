@@ -1,0 +1,38 @@
+---
+title: 관리형 배포
+description: 하나의 조직을 위한 초대 전용 Agent-Native 워크스페이스를 구성합니다.
+---
+
+# 관리형 배포
+
+한 조직이 내부 앱을 운영한다면 워크스페이스를 사용하세요. 조직은 멤버십과 데이터 경계입니다. 워크스페이스는 하나 이상의 앱에 대한 배포 설정을 묶습니다.
+
+## 가입 및 조직 생성 닫기
+
+```dotenv
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+`AUTH_SIGNUP=invited`에서는 새 계정에 대기 중인 초대, 확인된 허용 이메일 도메인, 또는 `AUTH_BOOTSTRAP_ADMINS`의 주소가 필요합니다. 비밀번호, 매직 링크, 소셜 가입에 모두 적용됩니다. 도메인 가입은 초대가 아니며 앱 역할을 할당하지 않습니다.
+
+처음 로그인한 부트스트랩 관리자가 기본 조직을 만들고 소유자가 됩니다. 조직이 하나만 있으면 해당 조직의 소유자가 됩니다. 여러 조직이 있으면 자동으로 선택하지 않습니다. 이후 Team settings에서 허용 도메인을 설정하고 팀을 초대하세요.
+
+`ORG_CREATION=closed`일 때는 `AUTH_BOOTSTRAP_ADMINS`에 확인된 관리자가 한 명 이상 등록될 때까지 조직 생성이 거부되며, 해당 관리자가 첫 로그인 시 정규 조직을 생성합니다.
+
+## 회사 키와 역할
+
+소유자나 관리자는 조직용 LLM 키를 저장할 수 있습니다. 개인 키는 멤버가 조직 키를 선택하기 전까지 우선합니다. 앱 역할은 앱 하나에 적용되며 한 멤버가 여러 역할을 가질 수 있습니다. 관리자는 코드에 선언된 권한을 역할에 연결하고 배포 없이 매핑을 바꿀 수 있습니다.
+
+## 이메일 및 ID 변경
+
+사용자는 검증 후 계정 설정에서 로그인 이메일을 변경할 수 있습니다. 관리자 마이그레이션은 앱마다 `agent-native identity rekey --from old@example.com --to new@example.com`을 실행하세요. `--yes` 전에 테이블과 행 수를 확인합니다. 기존 감사 기록은 수정하지 않습니다. 변경 불가능한 principal ID로의 전환은 1.0 이후 계획입니다.
+
+## 조직 SSO 및 디렉터리 프로비저닝
+
+조직 SSO와 SCIM은 선택 기능입니다. `AUTH_SSO=1` 및 `AUTH_SCIM=1`을 설정하면 Team settings에 관리 항목이 표시됩니다. 이 플래그는 빌드 환경과 런타임 환경 모두에 설정하세요. 배포 후 변경하면 다시 빌드해야 합니다. 먼저 조직의 이메일 도메인을 설정하세요. OIDC에는 issuer, client ID, client secret을 입력합니다. SAML에는 IdP entry point와 entity ID를 입력하고 metadata XML을 붙여넣습니다. 설정에는 redirect URI와 SP metadata가 표시됩니다. 표시된 값으로 `_better-auth-token-<provider-id>.<organization-domain>` DNS TXT 레코드를 만들고, DNS 전파 후 도메인을 확인하세요. 이후 관리자는 Google 또는 확인된 SSO 제공자를 필수로 지정할 수 있습니다. SCIM 연결을 만들고 한 번 표시되는 token과 endpoint를 ID 제공자에 설정하세요. Okta 또는 Microsoft Entra ID에서 OIDC나 SAML enterprise app을 만들고, SCIM client를 구성한 다음 소규모 그룹으로 사용자 생성, 업데이트, 비활성화를 테스트하세요. 이는 앱 간 ID 페더레이션과 별개입니다.
+
+서버 작업에는 `accessFilter()`와 `assertAccess()`를 사용하세요. 에이전트 SQL은 임시 필터 뷰를 사용합니다. `pnpm guards`에 범위 없는 쿼리 검사가 포함됩니다. RLS는 현재 활성 계층이 아니며 1.0 이후 강화 항목으로 계획되어 있습니다. 여러 내부 앱에는 워크스페이스를, 독립 도구나 프로토타입에는 독립 앱을 선택하세요. [독립 앱 또는 워크스페이스](/docs/multi-app-workspace#standalone-or-workspace)와 [버전 관리 및 안정성](/docs/versioning-and-stability)을 참조하세요.

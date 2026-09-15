@@ -15,7 +15,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { differenceInMinutes, format } from "date-fns";
-import { useId, useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -34,6 +34,7 @@ import {
   RepeatPicker,
   TimePickerPopover,
 } from "@/components/calendar/InlineEventPickers";
+import { LocationAutocomplete } from "@/components/calendar/LocationAutocomplete";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import {
@@ -288,7 +289,6 @@ export function CreateEventPopover({
   const [startTime, setStartTime] = useState(defaultStart || fallbackStart);
   const [endTime, setEndTime] = useState(defaultEnd || fallbackEnd);
   const [location, setLocation] = useState("");
-  const locationSuggestionsId = useId();
   const [allDay, setAllDay] = useState(false);
   const [eventType, setEventType] = useState<EventType>("default");
   const [autoDeclineMode, setAutoDeclineMode] = useState<AutoDeclineMode>(
@@ -924,6 +924,7 @@ export function CreateEventPopover({
               delEvent.mutate(
                 buildDeleteEventMutationInput(
                   {
+                    ...result,
                     id: eventId,
                     accountEmail: result.accountEmail ?? accountEmail,
                   },
@@ -962,6 +963,7 @@ export function CreateEventPopover({
           const target = event.target as HTMLElement;
           if (
             target.closest("[data-attendee-autocomplete]") ||
+            target.closest("[data-location-autocomplete]") ||
             target.closest("[data-time-picker-popover]")
           ) {
             event.preventDefault();
@@ -1118,26 +1120,15 @@ export function CreateEventPopover({
 
                 <div className="flex items-center gap-2 py-1">
                   <IconMapPin className="size-[18px] shrink-0 text-muted-foreground" />
-                  <Input
+                  <LocationAutocomplete
                     id="event-location"
                     value={location}
-                    onChange={(e) => setLocation(e.target.value)}
+                    onChange={setLocation}
+                    suggestions={locationSuggestions}
                     placeholder={t("eventForm.optionalLocation")}
-                    aria-label={t("eventForm.location")}
+                    label={t("eventForm.location")}
                     className="h-[30px] border-0 bg-transparent px-0 shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
-                    list={
-                      locationSuggestions.length > 0
-                        ? locationSuggestionsId
-                        : undefined
-                    }
                   />
-                  {locationSuggestions.length > 0 && (
-                    <datalist id={locationSuggestionsId}>
-                      {locationSuggestions.map((suggestion) => (
-                        <option key={suggestion} value={suggestion} />
-                      ))}
-                    </datalist>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-2 py-1">

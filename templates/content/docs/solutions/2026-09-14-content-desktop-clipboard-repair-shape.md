@@ -55,6 +55,7 @@ pnpm test:content-product-impact
 pnpm guard:i18n-catalogs
 pnpm guard:i18n-changed-copy
 ```
+
 Real-interface final pass:
 
 1. On the final build, use a disposable ordinary Page and database Board in web and Agent-Native Desktop.

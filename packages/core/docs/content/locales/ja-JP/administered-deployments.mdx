@@ -1,0 +1,38 @@
+---
+title: 管理デプロイ
+description: 1 つの組織向けに招待制の Agent-Native ワークスペースを構成します。
+---
+
+# 管理デプロイ
+
+1 つの組織が社内アプリを運用する場合はワークスペースを使用します。組織がメンバーとデータの境界です。ワークスペースは 1 つ以上のアプリのデプロイ設定をまとめます。
+
+## サインアップと組織作成を制限する
+
+```dotenv
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+`AUTH_SIGNUP=invited` では、新しいアカウントに保留中の招待、検証済みの許可ドメイン、または `AUTH_BOOTSTRAP_ADMINS` のメールアドレスが必要です。パスワード、マジックリンク、ソーシャルサインアップに適用されます。ドメイン参加は招待ではなく、アプリロールも割り当てません。
+
+最初にサインインしたブートストラップ管理者が正規の組織を作成してオーナーになります。組織が 1 つだけ存在する場合は、そのオーナーになります。複数ある場合は自動選択しません。その後、Team settings で許可ドメインを設定し、チームを招待してください。
+
+`ORG_CREATION=closed` の場合、`AUTH_BOOTSTRAP_ADMINS` に検証済みの管理者が少なくとも 1 人登録されるまで組織の作成は拒否され、その管理者が初回サインイン時に正規の組織を作成します。
+
+## 会社のキーとロール
+
+オーナーまたは管理者は組織用の LLM キーを保存できます。個人キーは、メンバーが組織キーを選ぶまで優先されます。アプリロールはアプリ単位で、1 人が複数持てます。管理者はコードで宣言された権限をロールに割り当て、再デプロイせずに変更できます。
+
+## メールと ID の変更
+
+ユーザーは検証後にアカウント設定からサインインメールを変更できます。管理者による移行では、各アプリで `agent-native identity rekey --from old@example.com --to new@example.com` を実行します。`--yes` の前に対象テーブルと行数を確認します。既存の監査レコードは変更されません。不変のプリンシパル ID への移行は 1.0 以降の計画です。
+
+## 組織 SSO とディレクトリプロビジョニング
+
+組織 SSO と SCIM はオプトイン機能です。`AUTH_SSO=1` と `AUTH_SCIM=1` を設定すると、Team settings に管理項目が表示されます。これらのフラグはビルド環境と実行環境の両方に設定してください。デプロイ後に変更する場合は再ビルドが必要です。まず組織のメールドメインを設定します。OIDC では issuer、client ID、client secret を指定します。SAML では IdP の entry point、entity ID を指定し、metadata XML を貼り付けます。設定画面には redirect URI と SP metadata が表示されます。`_better-auth-token-<provider-id>.<organization-domain>` の DNS TXT レコードを表示値で作成し、DNS の反映を待ってドメインを検証します。その後、管理者は Google または検証済み SSO プロバイダーを必須にできます。SCIM 接続を作成し、一度だけ表示される token と endpoint を ID プロバイダーに設定します。Okta または Microsoft Entra ID では OIDC または SAML の enterprise app を作成します。Provisioning では SCIM client を構成し、小規模なグループでユーザーの作成、更新、無効化を確認してから広げます。これはアプリ間 ID フェデレーションとは別の機能です。
+
+サーバー操作には `accessFilter()` と `assertAccess()` を使用します。エージェント SQL は一時的なフィルター付きビューを使用します。`pnpm guards` にスコープ漏れクエリの検査が含まれます。RLS は現在有効ではなく、1.0 以降の強化項目です。複数の社内アプリにはワークスペース、独立ツールやプロトタイプにはスタンドアロンアプリを選択します。[スタンドアロンかワークスペースか](/docs/multi-app-workspace#standalone-or-workspace) と [バージョンと安定性](/docs/versioning-and-stability) を参照してください。

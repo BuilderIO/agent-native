@@ -25,8 +25,6 @@ import {
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 
-const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
-
 /**
  * Deep link that reopens a compose draft in the Mail compose panel.
  *
@@ -42,7 +40,7 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    to: `/inbox?${COMPOSE_FULLSCREEN_PARAM}=1`,
+    to: "/inbox",
     params: { composeDraftId: draft.id },
   });
 }

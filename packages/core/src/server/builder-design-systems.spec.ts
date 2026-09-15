@@ -1,23 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const resolveBuilderRequestAuthorizationMock = vi.hoisted(() => vi.fn());
+const resolveBuilderLegacyRequestAuthorizationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./builder-api-auth.js", () => ({
   resolveBuilderRequestAuthorization: resolveBuilderRequestAuthorizationMock,
+  resolveBuilderLegacyRequestAuthorization:
+    resolveBuilderLegacyRequestAuthorizationMock,
 }));
 
+function legacyBuilderAuthorization() {
+  const privateKey = process.env.BUILDER_PRIVATE_KEY;
+  if (!privateKey) return null;
+  const publicKey = process.env.BUILDER_PUBLIC_KEY;
+  return {
+    token: privateKey,
+    authorization: `Bearer ${privateKey}`,
+    source: "legacy",
+    ...(publicKey ? { legacyPublicKey: publicKey } : {}),
+  };
+}
+
 function useLegacyBuilderAuthorizationMock() {
-  resolveBuilderRequestAuthorizationMock.mockImplementation(async () => {
-    const privateKey = process.env.BUILDER_PRIVATE_KEY;
-    if (!privateKey) return null;
-    const publicKey = process.env.BUILDER_PUBLIC_KEY;
-    return {
-      token: privateKey,
-      authorization: `Bearer ${privateKey}`,
-      source: "legacy",
-      ...(publicKey ? { legacyPublicKey: publicKey } : {}),
-    };
-  });
+  resolveBuilderRequestAuthorizationMock.mockImplementation(async () =>
+    legacyBuilderAuthorization(),
+  );
+  resolveBuilderLegacyRequestAuthorizationMock.mockImplementation(async () =>
+    legacyBuilderAuthorization(),
+  );
 }
 
 useLegacyBuilderAuthorizationMock();
@@ -53,6 +63,7 @@ describe("Builder design-system helpers", () => {
     }
     vi.unstubAllGlobals();
     resolveBuilderRequestAuthorizationMock.mockReset();
+    resolveBuilderLegacyRequestAuthorizationMock.mockReset();
     useLegacyBuilderAuthorizationMock();
   });
 
@@ -121,6 +132,131 @@ describe("Builder design-system helpers", () => {
     expect(headers.get("Authorization")).toBe("Bearer <OAUTH_TOKEN_EXAMPLE>");
     expect(headers.has("x-builder-api-key")).toBe(false);
     expect(headers.has("x-builder-user-id")).toBe(false);
+  });
+
+  it("retries indexing with the legacy key when Builder closes the route to OAuth", async () => {
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    process.env.BUILDER_PRIVATE_KEY = "bpk-test-private-key";
+    process.env.BUILDER_PUBLIC_KEY = "test-public-key";
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get("Authorization");
+      if (authorization !== "Bearer bpk-test-private-key") {
+        return new Response(JSON.stringify({ error: "route_not_enabled" }), {
+          status: 403,
+        });
+      }
+      return new Response(JSON.stringify({ designSystemId: "ds-1" }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).resolves.toMatchObject({ designSystemId: "ds-1" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://builder.example.test/design-systems/v1/index?apiKey=test-public-key",
+    );
+    const retryHeaders = new Headers(
+      (fetchMock.mock.calls[1]?.[1] as RequestInit | undefined)?.headers,
+    );
+    expect(retryHeaders.get("x-builder-api-key")).toBe("test-public-key");
+  });
+
+  it("reports an actionable failure when OAuth is the only Builder credential", async () => {
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    delete process.env.BUILDER_PRIVATE_KEY;
+    delete process.env.BUILDER_PUBLIC_KEY;
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "route_not_enabled" }), {
+          status: 403,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "builder_design_system_oauth_unsupported",
+      message: expect.stringContaining("create-design-system"),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a private-key-only fallback the primary path would also reject", async () => {
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    process.env.BUILDER_PRIVATE_KEY = "bpk-test-private-key";
+    delete process.env.BUILDER_PUBLIC_KEY;
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "route_not_enabled" }), {
+          status: 403,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "builder_design_system_oauth_unsupported",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a genuine permission failure as itself instead of downgrading", async () => {
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    process.env.BUILDER_PRIVATE_KEY = "bpk-test-private-key";
+    process.env.BUILDER_PUBLIC_KEY = "test-public-key";
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "forbidden" }), { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      }),
+    ).rejects.toThrow(/Builder design-system indexing failed \(403\)/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(resolveBuilderLegacyRequestAuthorizationMock).not.toHaveBeenCalled();
   });
 
   it("builds Builder DSI upload files from design.md and code inputs", () => {

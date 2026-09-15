@@ -46,6 +46,35 @@ describe("app config store", () => {
     expect(app.healthStrictSchema).toBe(true);
   });
 
+  it("resolves organization access policy from declared environment aliases", () => {
+    expect(getAppConfig().access).toMatchObject({
+      signup: "open",
+      orgCreation: "open",
+      autoCreateDefaultOrg: true,
+      bootstrapAdmins: [],
+      sso: { enabled: false },
+      scim: { enabled: false },
+    });
+
+    Object.assign(process.env, {
+      AUTH_SIGNUP: "invited",
+      ORG_CREATION: "closed",
+      AUTO_CREATE_DEFAULT_ORG: "0",
+      AUTH_BOOTSTRAP_ADMINS: "Admin@example.com, owner@example.com,",
+      AUTH_SSO: "1",
+      AUTH_SCIM: "true",
+    });
+
+    expect(getAppConfig().access).toEqual({
+      signup: "invited",
+      orgCreation: "closed",
+      autoCreateDefaultOrg: false,
+      bootstrapAdmins: ["Admin@example.com", "owner@example.com"],
+      sso: { enabled: true },
+      scim: { enabled: true },
+    });
+  });
+
   it("declares the development Desktop SSO fallback control", () => {
     expect(getAppConfig().auth.disableDesktopSsoFallbackInDevelopment).toBe(
       false,
@@ -57,6 +86,18 @@ describe("app config store", () => {
     expect(getAppConfig().auth.disableDesktopSsoFallbackInDevelopment).toBe(
       true,
     );
+  });
+
+  it("reads the password signup verification policy from its declared alias", () => {
+    expect(getAppConfig().auth.requireEmailVerification).toBeUndefined();
+
+    process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = "0";
+    resetAppConfigForTests();
+    expect(getAppConfig().auth.requireEmailVerification).toBe(false);
+
+    process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = "1";
+    resetAppConfigForTests();
+    expect(getAppConfig().auth.requireEmailVerification).toBe(true);
   });
 
   it("lets an explicit value win over the environment alias", () => {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -8,6 +9,13 @@ import type { TrackingEvent } from "../tracking/types.js";
 
 const callAgentMock = vi.hoisted(() => vi.fn());
 const invokeActionMock = vi.hoisted(() => vi.fn());
+const findAgentMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    name: "Slides",
+    url: "https://slides.agent-native.test",
+  })),
+);
+const resolveRemoteAgentTokenMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationsMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
@@ -30,11 +38,13 @@ const slackIntegrationContext = {
 };
 
 vi.mock("../server/agent-discovery.js", () => ({
-  findAgent: vi.fn(async () => ({
-    name: "Slides",
-    url: "https://slides.agent-native.test",
-  })),
+  findAgent: findAgentMock,
   discoverAgents: vi.fn(async () => []),
+}));
+
+vi.mock("../a2a/remote-agent-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../a2a/remote-agent-auth.js")>()),
+  resolveRemoteAgentToken: resolveRemoteAgentTokenMock,
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -138,6 +148,11 @@ vi.mock("../agent/run-store.js", () => ({
 describe("call-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    findAgentMock.mockResolvedValue({
+      name: "Slides",
+      url: "https://slides.agent-native.test",
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
     delete process.env.NETLIFY;
     delete process.env.NETLIFY_LOCAL;
     delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
@@ -188,6 +203,51 @@ describe("call-agent action", () => {
     );
     expect(callAgentMock.mock.calls[0]?.[1]).toContain("<a2a-caller-hint>");
     expect(callAgentMock.mock.calls[0]?.[1]).toContain("</a2a-caller-hint>");
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("cardUrl");
+  });
+
+  it("labels an ordinary peer's rejected A2A credentials clearly", async () => {
+    callAgentMock.mockRejectedValueOnce(
+      new RemoteAgentCredentialRejectedError({ status: 401 }),
+    );
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({ agent: "slides", message: "make a deck" }),
+    ).rejects.toMatchObject({
+      errorCode: "a2a_auth_rejected",
+      message: expect.stringContaining("HTTP 401"),
+    });
+  });
+
+  it("uses the resolved token and lets the client derive the hosted card root", async () => {
+    findAgentMock.mockResolvedValueOnce({
+      name: "Hosted Slides",
+      url: "https://slides.agent-native.test/_agent-native/a2a",
+      auth: { type: "bearer", credentialRef: "slides-token" },
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValueOnce("resolved-token");
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+
+    await run({ agent: "hosted-slides", message: "make a deck" });
+
+    expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
+      { type: "bearer", credentialRef: "slides-token" },
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-qa",
+      }),
+    );
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test/_agent-native/a2a",
+      expect.any(String),
+      expect.objectContaining({
+        apiKey: "resolved-token",
+      }),
+    );
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("cardUrl");
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("orgSecret");
   });
 
   it("forwards Slack source context as structured A2A data", async () => {

@@ -35,6 +35,7 @@ vi.mock("h3", () => ({
 vi.mock("drizzle-orm", () => ({
   asc: vi.fn(),
   eq: vi.fn(),
+  sql: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({

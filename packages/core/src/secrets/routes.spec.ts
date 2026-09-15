@@ -601,6 +601,7 @@ describe("secrets routes", () => {
         key: "GOOGLE_API_KEY",
         status: "set",
         source: "vault",
+        effectiveScope: "org",
         managedHere: false,
         last4: "vaul",
       }),
@@ -670,8 +671,10 @@ describe("secrets routes", () => {
         key: "GOOGLE_API_KEY",
         status: "set",
         source: "personal",
+        effectiveScope: "user",
         managedHere: true,
         overrides: "vault",
+        overriddenScope: "org",
       }),
     ]);
     expect(mockResolveSecretDetailed).toHaveBeenCalledWith("GOOGLE_API_KEY", {
@@ -703,6 +706,7 @@ describe("secrets routes", () => {
         key: "OPENAI_API_KEY",
         status: "set",
         source: "env",
+        effectiveScope: "env",
         managedHere: false,
         last4: "1234",
       }),

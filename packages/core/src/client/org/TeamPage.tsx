@@ -17,6 +17,13 @@ import {
 } from "@agent-native/toolkit/ui/avatar";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@agent-native/toolkit/ui/command";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Pagination,
@@ -32,7 +39,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   IconUserPlus,
   IconTrash,
@@ -121,7 +127,14 @@ import {
   useSyncA2ASecret,
   useJoinByDomain,
   useAppRoles,
-  useSetAppMemberRole,
+  useSetAppMemberRoles,
+  useOrgSsoProviders,
+  useCreateOrgSsoProvider,
+  useVerifyOrgSsoProvider,
+  useDeleteOrgSsoProvider,
+  useOrgScim,
+  useCreateOrgScimConnection,
+  useDeleteOrgScimConnection,
   ORG_MEMBER_PAGE_SIZE,
   type InviteRole,
   type SyncA2ASecretResult,
@@ -926,7 +939,8 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               visibility={org.workspaceAppDefaultVisibility ?? "org"}
             />
             <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
-            <AuthProviderSettingsSection
+            <OrgIdentitySettings
+              org={org}
               requiredAuthProvider={org.requiredAuthProvider}
             />
             {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
@@ -1072,7 +1086,7 @@ export function MembersTableCard({
   const appRoleByEmail = new Map(
     (appRoleData?.assignments ?? []).map((a) => [
       a.email.toLowerCase(),
-      a.role,
+      a.roles,
     ]),
   );
   const selectedCount = selectedEmails.size;
@@ -1130,9 +1144,6 @@ export function MembersTableCard({
           {totalMembers !== undefined && (
             <p className="text-xs text-muted-foreground" aria-live="polite">
               {t("org.memberCount", { count: totalMembers })}
-              {appRoles
-                ? ` · ${appRoles.label ?? appRoles.appId} can be assigned here`
-                : ""}
             </p>
           )}
         </div>
@@ -1176,6 +1187,7 @@ export function MembersTableCard({
         <div className="rounded-lg bg-card p-4">
           <BulkInviteForm
             currentUserRole={currentUserRole}
+            appRoles={appRoles}
             onClose={() => setShowInviteForm(false)}
           />
         </div>
@@ -1328,7 +1340,7 @@ export function MembersTableCard({
                 isCurrentUser={m.email === currentUserEmail}
                 currentUserRole={currentUserRole}
                 appRoles={appRoles}
-                appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
+                appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? []}
                 canManageAppRoles={Boolean(appRoleData?.canManage)}
                 canSelect={canManageGroups}
                 selected={selectedEmails.has(m.email)}
@@ -1341,6 +1353,12 @@ export function MembersTableCard({
           </>
         )}
       </div>
+      {appRoles && Object.keys(appRoles.permissions ?? {}).length > 0 && (
+        <AppPermissionsPanel
+          appRoles={appRoles}
+          canManage={Boolean(appRoleData?.canManage)}
+        />
+      )}
       {totalMembers !== undefined && (memberOffset > 0 || hasNextPage) && (
         <MemberPagination
           memberOffset={memberOffset}
@@ -1574,89 +1592,160 @@ function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
   );
 }
 
-/** Sentinel for "clear the assignment" — Select cannot carry an empty value. */
-const UNASSIGNED = "__unassigned__";
-
 function AppRoleControl({
   email,
   appRoles,
-  appRole,
+  assignedRoles,
   canManage,
 }: {
   email: string;
   appRoles: AppRolesDescriptor;
-  appRole: string | null;
+  assignedRoles: string[];
   canManage: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const setAppRole = useSetAppMemberRole(appRoles.appId);
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const setAppRoles = useSetAppMemberRoles();
   const labelFor = (r: string) => appRoles.roleLabels?.[r] ?? r;
-
-  if (editing) {
-    return (
-      <Select
-        defaultOpen
-        value={appRole ?? UNASSIGNED}
-        onOpenChange={(open) => {
-          if (!open) setEditing(false);
-        }}
-        onValueChange={(value) => {
-          const next = value === UNASSIGNED ? null : value;
-          if (next === appRole) {
-            setEditing(false);
-            return;
-          }
-          setAppRole.mutate(
-            { email, role: next },
-            { onSuccess: () => setEditing(false) },
-          );
-        }}
-        disabled={setAppRole.isPending}
-      >
-        <SelectTrigger
-          autoFocus
-          className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={UNASSIGNED}>
-            {appRoles.defaultRole
-              ? labelFor(appRoles.defaultRole)
-              : "Not assigned"}
-          </SelectItem>
-          {appRoles.roles.map((r) => (
-            <SelectItem key={r} value={r}>
-              {labelFor(r)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    );
-  }
 
   // An unassigned member shows the app's default only as a hint. The default
   // never satisfies a server guard, so it must not read as a granted role.
-  const display = appRole ? (
+  const display = assignedRoles.length ? (
     <span className="inline-flex items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-      {labelFor(appRole)}
+      {assignedRoles.map(labelFor).join(", ")}
     </span>
   ) : (
     <span className="text-xs text-muted-foreground/70">
-      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "Not assigned"}
+      {appRoles.defaultRole
+        ? labelFor(appRoles.defaultRole)
+        : t("org.notAssigned")}
     </span>
   );
 
   return canManage ? (
-    <Button
-      type="button"
-      onClick={() => setEditing(true)}
-      className="cursor-pointer rounded hover:opacity-80"
-    >
-      {display}
-    </Button>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          className="cursor-pointer rounded hover:opacity-80"
+        >
+          {display}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 p-0">
+        <Command>
+          <CommandList>
+            <CommandEmpty>{t("org.noAppRolesFound")}</CommandEmpty>
+            <CommandGroup>
+              {appRoles.roles.map((role) => {
+                const selected = assignedRoles.includes(role);
+                return (
+                  <CommandItem
+                    key={role}
+                    value={role}
+                    onSelect={() => {
+                      const roles = selected
+                        ? assignedRoles.filter((item) => item !== role)
+                        : [...assignedRoles, role];
+                      setAppRoles.mutate({
+                        appId: appRoles.appId,
+                        email,
+                        roles,
+                      });
+                    }}
+                  >
+                    <Checkbox checked={selected} aria-label={labelFor(role)} />
+                    <span>{labelFor(role)}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   ) : (
     display
+  );
+}
+
+function AppPermissionsPanel({
+  appRoles,
+  canManage,
+}: {
+  appRoles: AppRolesDescriptor;
+  canManage: boolean;
+}) {
+  const t = useT();
+  const query = useActionQuery(
+    "list-app-permissions",
+    { appId: appRoles.appId },
+    { enabled: canManage },
+  );
+  const setPermission = useActionMutation("set-app-permission-roles");
+  const data = query.data as
+    | {
+        permissions?: Record<
+          string,
+          { defaults: string[]; roles: string[]; overridden: boolean }
+        >;
+      }
+    | undefined;
+  if (!canManage || !data?.permissions) return null;
+  return (
+    <section className="mt-3 rounded-lg border border-border bg-card px-4 py-3">
+      <h3 className="mb-2 text-sm font-medium">{t("org.appPermissions")}</h3>
+      <div className="space-y-3">
+        {Object.entries(data.permissions).map(([permission, grant]) => (
+          <div
+            key={permission}
+            className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2"
+          >
+            <span className="text-sm">{permission}</span>
+            <div className="flex flex-wrap items-center gap-3">
+              {appRoles.roles.map((role) => (
+                <label
+                  key={role}
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <Checkbox
+                    checked={grant.roles.includes(role)}
+                    disabled={setPermission.isPending}
+                    onCheckedChange={(checked) => {
+                      const roles = checked
+                        ? [...grant.roles, role]
+                        : grant.roles.filter((item) => item !== role);
+                      setPermission.mutate({
+                        appId: appRoles.appId,
+                        permission,
+                        roles,
+                      });
+                    }}
+                  />
+                  {appRoles.roleLabels?.[role] ?? role}
+                </label>
+              ))}
+              {grant.overridden && (
+                <Button
+                  type="button"
+                  disabled={setPermission.isPending}
+                  onClick={() =>
+                    setPermission.mutate({
+                      appId: appRoles.appId,
+                      permission,
+                      reset: true,
+                    })
+                  }
+                  className="text-xs text-muted-foreground"
+                >
+                  {t("org.resetToDefaults")}
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1681,7 +1770,7 @@ export function MemberRow({
   isCurrentUser: boolean;
   currentUserRole: OrgRole | null;
   appRoles?: AppRolesDescriptor;
-  appRole?: string | null;
+  appRole?: string[];
   canManageAppRoles?: boolean;
   canSelect?: boolean;
   selected?: boolean;
@@ -1738,7 +1827,7 @@ export function MemberRow({
           <AppRoleControl
             email={email}
             appRoles={appRoles}
-            appRole={appRole ?? null}
+            assignedRoles={appRole ?? []}
             canManage={Boolean(canManageAppRoles)}
           />
         )}
@@ -1844,6 +1933,7 @@ export function MemberRow({
 interface DraftInvite {
   email: string;
   role: InviteRole;
+  appRoles?: string[];
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1875,11 +1965,69 @@ function parseCsvEmails(text: string): string[] {
   );
 }
 
+function InviteAppRolePicker({
+  appRoles,
+  selected,
+  onChange,
+}: {
+  appRoles: AppRolesDescriptor;
+  selected: string[];
+  onChange: (roles: string[]) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const labelFor = (role: string) => appRoles.roleLabels?.[role] ?? role;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          className="h-auto max-w-40 truncate rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+        >
+          {selected.length
+            ? selected.map(labelFor).join(", ")
+            : t("org.appRolesOptional")}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 p-0">
+        <Command>
+          <CommandList>
+            <CommandEmpty>{t("org.noAppRolesFound")}</CommandEmpty>
+            <CommandGroup>
+              {appRoles.roles.map((role) => {
+                const checked = selected.includes(role);
+                return (
+                  <CommandItem
+                    key={role}
+                    value={role}
+                    onSelect={() =>
+                      onChange(
+                        checked
+                          ? selected.filter((item) => item !== role)
+                          : [...selected, role],
+                      )
+                    }
+                  >
+                    <Checkbox checked={checked} aria-label={labelFor(role)} />
+                    <span>{labelFor(role)}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function BulkInviteForm({
   currentUserRole,
+  appRoles,
   onClose,
 }: {
   currentUserRole: string | null;
+  appRoles?: AppRolesDescriptor;
   onClose: () => void;
 }) {
   const bulkInvite = useBulkInviteMembers();
@@ -1956,7 +2104,11 @@ function BulkInviteForm({
       const role = canSetAdmin ? d.role : "member";
       dedup.set(d.email, { ...d, role });
     }
-    const invites = Array.from(dedup.values());
+    const invites = Array.from(dedup.values()).map((invite) => ({
+      ...invite,
+      appId: appRoles?.appId,
+      appRoles: invite.appRoles?.length ? invite.appRoles : undefined,
+    }));
     if (invites.length === 0) return;
 
     const result = await bulkInvite.mutateAsync(invites);
@@ -2018,6 +2170,13 @@ function BulkInviteForm({
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
             </Select>
+            {appRoles && (
+              <InviteAppRolePicker
+                appRoles={appRoles}
+                selected={draft.appRoles ?? []}
+                onChange={(next) => setDraft(i, { appRoles: next })}
+              />
+            )}
             {drafts.length > 1 && (
               <Button
                 type="button"
@@ -2478,52 +2637,150 @@ function WorkspaceUrlSettingsSection({
   );
 }
 
-function AuthProviderSettingsSection({
+export function OrgIdentitySettings({
+  org,
   requiredAuthProvider,
 }: {
-  requiredAuthProvider: "google" | null | undefined;
+  org: { orgId: string | null; allowedDomain: string | null; access?: unknown };
+  requiredAuthProvider: string | null | undefined;
 }) {
+  const t = useT();
+  const access = org.access as
+    | { sso?: { enabled?: boolean }; scim?: { enabled?: boolean } }
+    | undefined;
+  const ssoEnabled = Boolean(access?.sso?.enabled);
+  const scimEnabled = Boolean(access?.scim?.enabled);
+  const [pendingAuthProvider, setPendingAuthProvider] = useState<
+    "google" | `sso:${string}` | null
+  >(null);
   const setAuthProvider = useSetOrgAuthProvider();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const enabled = requiredAuthProvider === "google";
+  const ssoQuery = useOrgSsoProviders(ssoEnabled);
+  const createSso = useCreateOrgSsoProvider();
+  const verifySso = useVerifyOrgSsoProvider();
+  const deleteSso = useDeleteOrgSsoProvider();
+  const scimQuery = useOrgScim(scimEnabled);
+  const createScim = useCreateOrgScimConnection();
+  const deleteScim = useDeleteOrgScimConnection();
+  const [providerType, setProviderType] = useState<"oidc" | "saml">("oidc");
+  const [providerId, setProviderId] = useState("");
+  const [issuer, setIssuer] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [discoveryEndpoint, setDiscoveryEndpoint] = useState("");
+  const [entryPoint, setEntryPoint] = useState("");
+  const [cert, setCert] = useState("");
+  const [entityId, setEntityId] = useState("");
+  const [metadata, setMetadata] = useState("");
+  const [showProviderForm, setShowProviderForm] = useState(false);
+  const [domainVerificationTokens, setDomainVerificationTokens] = useState<
+    Record<string, string>
+  >({});
+  const [oneTimeScimToken, setOneTimeScimToken] = useState<string | null>(null);
+  useEffect(() => {
+    setOneTimeScimToken(null);
+    setClientSecret("");
+    setMetadata("");
+    setCert("");
+    setDomainVerificationTokens({});
+  }, [org.orgId]);
+  const providers = ssoQuery.data?.providers ?? [];
 
-  function changeProvider(nextEnabled: boolean) {
-    if (nextEnabled) {
-      setConfirmOpen(true);
-      return;
-    }
-    setAuthProvider.mutate(null);
+  function submitProvider(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const base = {
+      providerId: providerId.trim(),
+      issuer: issuer.trim(),
+      domain: org.allowedDomain ?? "",
+      type: providerType,
+    };
+    const oidcConfig =
+      providerType === "oidc"
+        ? {
+            clientId: clientId.trim(),
+            clientSecret,
+            ...(discoveryEndpoint.trim()
+              ? { discoveryEndpoint: discoveryEndpoint.trim() }
+              : {}),
+          }
+        : undefined;
+    const samlConfig =
+      providerType === "saml"
+        ? {
+            entryPoint: entryPoint.trim(),
+            ...(cert.trim() ? { cert: cert.trim() } : {}),
+            idpMetadata: { entityID: entityId.trim(), metadata },
+          }
+        : undefined;
+    createSso.mutate(
+      {
+        ...base,
+        ...(oidcConfig ? { oidcConfig } : {}),
+        ...(samlConfig ? { samlConfig } : {}),
+      },
+      {
+        onSuccess: (result) => {
+          setClientSecret("");
+          setMetadata("");
+          setCert("");
+          if (result.domainVerificationToken) {
+            setDomainVerificationTokens((current) => ({
+              ...current,
+              [result.provider.providerId]: result.domainVerificationToken!,
+            }));
+          }
+          setShowProviderForm(false);
+        },
+      },
+    );
   }
 
   return (
     <>
       <SettingsRow
         id="organization-sign-in"
-        label="Organization sign-in"
-        description={
-          <OrganizationDescription
-            help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins."
-            docsUrl={docsUrl("authentication", {
-              campaign: "organization_settings",
-              content: "organization_sign_in",
-              hash: "social-providers",
-            })}
-          >
-            Choose how members sign in.
-          </OrganizationDescription>
-        }
+        label={t("org.sso.signIn")}
+        description={t("org.sso.signInHelp")}
         control={
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium">
-              {enabled ? "Google required" : "Google optional"}
-            </span>
-            <Switch
-              checked={enabled}
-              disabled={setAuthProvider.isPending}
-              onCheckedChange={changeProvider}
-              aria-label="Require Google sign-in"
-            />
-          </div>
+          <Select
+            value={requiredAuthProvider ?? "optional"}
+            onValueChange={(value) => {
+              const next =
+                value === "optional"
+                  ? null
+                  : (value as "google" | `sso:${string}`);
+              if (next) setPendingAuthProvider(next);
+              else setAuthProvider.mutate(null);
+            }}
+            disabled={
+              setAuthProvider.isPending ||
+              (requiredAuthProvider?.startsWith("sso:") &&
+                !providers.some(
+                  (provider) =>
+                    `sso:${provider.providerId}` === requiredAuthProvider,
+                ))
+            }
+          >
+            <SelectTrigger
+              className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
+              aria-label={t("org.sso.requiredProvider")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="optional">{t("org.sso.optional")}</SelectItem>
+              <SelectItem value="google">{t("org.sso.google")}</SelectItem>
+              {providers
+                .filter((provider) => provider.domainVerified)
+                .map((provider) => (
+                  <SelectItem
+                    key={provider.providerId}
+                    value={`sso:${provider.providerId}`}
+                  >
+                    {provider.domain} ({provider.type.toUpperCase()})
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
         }
       >
         {setAuthProvider.error ? (
@@ -2531,32 +2788,299 @@ function AuthProviderSettingsSection({
         ) : null}
       </SettingsRow>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      {ssoEnabled && (
+        <SettingsRow
+          id="organization-sso"
+          label={t("org.sso.title")}
+          description={t("org.sso.description")}
+        >
+          {ssoQuery.error ? <ErrorText error={ssoQuery.error} /> : null}
+          {providers.map((provider) => (
+            <div
+              key={provider.providerId}
+              className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
+            >
+              <span>
+                {provider.domain} · {provider.type.toUpperCase()} ·{" "}
+                {provider.domainVerified
+                  ? t("org.sso.verified")
+                  : t("org.sso.verifyRequired")}
+              </span>
+              <span className="flex gap-2">
+                {!provider.domainVerified && (
+                  <ToolkitButton
+                    size="sm"
+                    variant="outline"
+                    disabled={verifySso.isPending}
+                    onClick={() => verifySso.mutate(provider.providerId)}
+                  >
+                    {t("org.sso.verify")}
+                  </ToolkitButton>
+                )}
+                <ToolkitButton
+                  size="sm"
+                  variant="ghost"
+                  disabled={deleteSso.isPending}
+                  onClick={() => deleteSso.mutate(provider.providerId)}
+                >
+                  {t("org.sso.remove")}
+                </ToolkitButton>
+              </span>
+              <details className="w-full text-xs text-muted-foreground">
+                <summary className="cursor-pointer">
+                  {t("org.ssoSetup.idpSetup")}
+                </summary>
+                <dl className="mt-2 grid gap-1">
+                  <dt>{t("org.ssoSetup.redirectUri")}</dt>
+                  <dd className="break-all font-mono">
+                    {provider.redirectURI}
+                  </dd>
+                  {provider.spMetadataUrl ? (
+                    <>
+                      <dt>{t("org.ssoSetup.spMetadataUrl")}</dt>
+                      <dd className="break-all font-mono">
+                        {provider.spMetadataUrl}
+                      </dd>
+                    </>
+                  ) : null}
+                  {domainVerificationTokens[provider.providerId] ? (
+                    <>
+                      <dt>{t("org.ssoSetup.dnsRecordName")}</dt>
+                      <dd className="break-all font-mono">
+                        _better-auth-token-{provider.providerId}.
+                        {provider.domain}
+                      </dd>
+                      <dt>{t("org.ssoSetup.dnsRecordValue")}</dt>
+                      <dd className="break-all font-mono">
+                        {domainVerificationTokens[provider.providerId]}
+                      </dd>
+                      <p>{t("org.ssoSetup.dnsPropagation")}</p>
+                    </>
+                  ) : null}
+                </dl>
+              </details>
+            </div>
+          ))}
+          {verifySso.error ? <ErrorText error={verifySso.error} /> : null}
+          {deleteSso.error ? <ErrorText error={deleteSso.error} /> : null}
+          {showProviderForm ? (
+            <form
+              onSubmit={submitProvider}
+              className="grid gap-2 border-t pt-3"
+            >
+              <Select
+                value={providerType}
+                onValueChange={(value) =>
+                  setProviderType(value as "oidc" | "saml")
+                }
+              >
+                <SelectTrigger aria-label={t("org.sso.type")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="oidc">OIDC</SelectItem>
+                  <SelectItem value="saml">SAML</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                aria-label={t("org.sso.providerId")}
+                placeholder={t("org.sso.providerId")}
+                value={providerId}
+                onChange={(event) => setProviderId(event.target.value)}
+                required
+              />
+              <Input
+                aria-label={t("org.sso.issuer")}
+                placeholder={t("org.sso.issuer")}
+                value={issuer}
+                onChange={(event) => setIssuer(event.target.value)}
+                required
+              />
+              <Input
+                aria-label={t("org.sso.domain")}
+                value={org.allowedDomain ?? t("org.sso.noDomain")}
+                readOnly
+              />
+              {providerType === "oidc" ? (
+                <>
+                  <Input
+                    aria-label={t("org.sso.clientId")}
+                    placeholder={t("org.sso.clientId")}
+                    value={clientId}
+                    onChange={(event) => setClientId(event.target.value)}
+                    required
+                  />
+                  <Input
+                    aria-label={t("org.sso.clientSecret")}
+                    placeholder={t("org.sso.clientSecret")}
+                    type="password"
+                    value={clientSecret}
+                    onChange={(event) => setClientSecret(event.target.value)}
+                    required
+                  />
+                  <Input
+                    aria-label={t("org.sso.discoveryEndpoint")}
+                    placeholder={t("org.sso.discoveryEndpoint")}
+                    value={discoveryEndpoint}
+                    onChange={(event) =>
+                      setDiscoveryEndpoint(event.target.value)
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <Input
+                    aria-label={t("org.sso.entryPoint")}
+                    placeholder={t("org.sso.entryPoint")}
+                    value={entryPoint}
+                    onChange={(event) => setEntryPoint(event.target.value)}
+                    required
+                  />
+                  <Input
+                    aria-label={t("org.sso.entityId")}
+                    placeholder={t("org.sso.entityId")}
+                    value={entityId}
+                    onChange={(event) => setEntityId(event.target.value)}
+                    required
+                  />
+                  <textarea
+                    aria-label={t("org.sso.metadata")}
+                    className="min-h-28 rounded-md border bg-background p-2 text-sm"
+                    placeholder={t("org.sso.metadata")}
+                    value={metadata}
+                    onChange={(event) => setMetadata(event.target.value)}
+                    required
+                  />
+                  <textarea
+                    aria-label={t("org.sso.certificate")}
+                    className="min-h-20 rounded-md border bg-background p-2 text-sm"
+                    placeholder={t("org.sso.certificate")}
+                    value={cert}
+                    onChange={(event) => setCert(event.target.value)}
+                  />
+                </>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {t("org.sso.domainHelp")}
+              </p>
+              {createSso.error ? <ErrorText error={createSso.error} /> : null}
+              <div className="flex gap-2">
+                <ToolkitButton
+                  type="submit"
+                  size="sm"
+                  disabled={createSso.isPending || !org.allowedDomain}
+                >
+                  {t("org.sso.saveProvider")}
+                </ToolkitButton>
+                <ToolkitButton
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setShowProviderForm(false);
+                    setClientSecret("");
+                    setMetadata("");
+                    setCert("");
+                  }}
+                >
+                  {t("org.sso.cancel")}
+                </ToolkitButton>
+              </div>
+            </form>
+          ) : (
+            <ToolkitButton
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => setShowProviderForm(true)}
+            >
+              {t("org.sso.addProvider")}
+            </ToolkitButton>
+          )}
+        </SettingsRow>
+      )}
+
+      {scimEnabled && (
+        <SettingsRow
+          id="organization-scim"
+          label={t("org.scim.title")}
+          description={t("org.scim.description")}
+        >
+          {scimQuery.error ? <ErrorText error={scimQuery.error} /> : null}
+          {scimQuery.data?.connections.map((connection) => (
+            <div
+              key={connection.connectionId}
+              className="flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
+            >
+              <span>{connection.status}</span>
+              <ToolkitButton
+                size="sm"
+                variant="ghost"
+                disabled={deleteScim.isPending}
+                onClick={() => deleteScim.mutate(connection.connectionId)}
+              >
+                {t("org.scim.revoke")}
+              </ToolkitButton>
+            </div>
+          ))}
+          {deleteScim.error ? <ErrorText error={deleteScim.error} /> : null}
+          {oneTimeScimToken ? (
+            <div className="grid gap-2 rounded-md border p-3 text-sm">
+              <p>{t("org.scim.copyTokenOnce")}</p>
+              <code className="break-all">{oneTimeScimToken}</code>
+              <code className="break-all">{scimQuery.data?.endpoint}</code>
+              <ToolkitButton
+                size="sm"
+                variant="outline"
+                onClick={() => setOneTimeScimToken(null)}
+              >
+                {t("org.scim.dismissToken")}
+              </ToolkitButton>
+            </div>
+          ) : (
+            <ToolkitButton
+              size="sm"
+              variant="outline"
+              disabled={createScim.isPending}
+              onClick={() =>
+                createScim.mutate(undefined, {
+                  onSuccess: (result) => setOneTimeScimToken(result.token),
+                })
+              }
+            >
+              {t("org.scim.createConnection")}
+            </ToolkitButton>
+          )}
+          {createScim.error ? <ErrorText error={createScim.error} /> : null}
+        </SettingsRow>
+      )}
+      <AlertDialog
+        open={pendingAuthProvider !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingAuthProvider(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Require Google sign-in?</AlertDialogTitle>
+            <AlertDialogTitle>{t("org.ssoConfirm.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Every current session in this organization will be revoked.
-              Members must use their Google Workspace account the next time they
-              sign in. Continue only after Google sign-in is configured for this
-              app.
+              {t("org.ssoConfirm.description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={setAuthProvider.isPending}>
-              Cancel
+              {t("org.sso.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={setAuthProvider.isPending}
               onClick={() => {
-                setAuthProvider.mutate("google", {
-                  onSuccess: () => setConfirmOpen(false),
+                if (!pendingAuthProvider) return;
+                setAuthProvider.mutate(pendingAuthProvider, {
+                  onSuccess: () => setPendingAuthProvider(null),
                 });
               }}
             >
-              {setAuthProvider.isPending
-                ? "Enabling…"
-                : "Require Google sign-in"}
+              {t("org.ssoConfirm.confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

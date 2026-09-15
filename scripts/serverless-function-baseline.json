@@ -1,7 +1,7 @@
 {
   "@agent-native/docs": {
     "agent-native-recurring-jobs": 1758,
-    "server": 30828134,
+    "server": 31247564,
     "server-agent-background": 20656947
   },
   "analytics": {
@@ -24,15 +24,15 @@
   },
   "assets": {
     "agent-native-recurring-jobs": 1758,
-    "server": 53372518,
-    "server-agent-background": 46556774
+    "server": 53687091,
+    "server-agent-background": 46871347
   },
   "brain": {
     "agent-native-recurring-jobs": 1758,
     "brain-queue-cron": 800,
     "brain-queue-sweep-background": 30408704,
-    "server": 30408704,
-    "server-agent-background": 17511219
+    "server": 30723277,
+    "server-agent-background": 22858957
   },
   "calendar": {
     "agent-native-recurring-jobs": 1758,
