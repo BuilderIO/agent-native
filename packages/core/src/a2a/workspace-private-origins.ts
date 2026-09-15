@@ -36,8 +36,8 @@ export function workspacePrivateOrigins(): string[] {
           origins.push(`http://127.0.0.1:${port}`);
         }
       }
-    } catch {
-      // A malformed manifest must not disable the SSRF guard.
+    } catch (cause) {
+      throw new Error("Invalid workspace app manifest", { cause });
     }
   }
   return origins;
