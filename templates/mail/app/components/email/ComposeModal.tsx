@@ -204,6 +204,12 @@ interface ComposeModalProps {
   onInitialExpandedConsumed?: () => void;
 }
 
+function shouldStartComposeExpanded(initialExpanded: boolean) {
+  // Superhuman opens both new and reopened drafts in the workspace card. Keep
+  // fullscreen an explicit request so a draft never changes size by identity.
+  return initialExpanded;
+}
+
 export function ComposeModal({
   drafts,
   activeId,
@@ -226,7 +232,7 @@ export function ComposeModal({
   const isMobile = useIsMobile();
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(
-    initialExpanded || activeDraft?.mode === "compose",
+    shouldStartComposeExpanded(initialExpanded),
   );
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -319,8 +325,8 @@ export function ComposeModal({
       return;
     }
     setMinimized(false);
-    setIsExpanded(activeDraft.mode === "compose");
-  }, [activeDraft?.id, drafts]);
+    setIsExpanded(shouldStartComposeExpanded(initialExpanded));
+  }, [activeDraft?.id, drafts, initialExpanded]);
 
   // Focus editor when reply/forward opens
   useEffect(() => {

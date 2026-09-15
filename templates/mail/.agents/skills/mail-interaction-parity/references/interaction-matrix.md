@@ -446,6 +446,16 @@ traffic to any one path.
   Escape. No email was sent. No screenshot/layout or latency comparison was
   performed, and remaining compose actions and aligned-state replay are still
   open.
+  Follow-up paired visual check on 2026-09-14 (Superhuman 1041.0.54; local Mail
+  working tree; 1280×720) found that both Superhuman's reopened approved draft
+  and a fresh blank compose use a compact card by default. Mail now matches that
+  default for both saved/reopened and fresh drafts; fullscreen remains an
+  explicit, reversible toggle. The local replay opened a fresh blank compose
+  from the Compose email button, confirmed `Full screen compose` was off, then
+  closed it with Escape and verified the approved draft's recipient, subject,
+  and empty body were unchanged. Mail's card is still fixed bottom-right and
+  taller than Superhuman's main-workspace card, so placement and geometry are
+  a concrete remaining difference; no global parity claim is made.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
@@ -465,8 +475,11 @@ traffic to any one path.
   draft was discarded and the pre-existing draft restored/minimized; the blank
   Superhuman compose was closed with Escape. Neither draft's contents were
   changed and no message was sent.
-  Close/close-all recovery, outside click, browser navigation, and other
-  platform/focus variants remain unverified.
+  A follow-up compact-default replay confirmed Escape closes a fresh blank Mail
+  compose and restores the approved draft without changing it; the fullscreen
+  toggle remains reversible in both directions. Close/close-all recovery,
+  outside click, browser navigation, and other platform/focus variants remain
+  unverified.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
   commas, semicolons, newline paste, drag between fields, duplicate casing,
   invalid address, display name, whitespace, Backspace, Delete, Enter, Tab,
@@ -481,7 +494,7 @@ traffic to any one path.
   account was connected and no provider call occurred. `RecipientInput` tests
   also verify that comma commits a typed address, empty commas add no chip, and
   Backspace removes the last chip only when the input is empty. The focused
-  recipient interaction suite passes 15 tests. Superhuman behavior and a
+  recipient interaction suite passes 16 tests. Superhuman behavior and a
   connected-provider round trip remain unverified.
 - COMPOSE-004 — Navigate recipient suggestions with arrows, Enter, Tab, hover,
   click, scroll, and no-match/error/slow contact data. Confirm selected option,
@@ -511,8 +524,11 @@ traffic to any one path.
   interaction proof, not a confirmed Superhuman discrepancy. Further isolated
   regressions verify that combined alias/contact options keep keyboard indexes
   and `aria-activedescendant` aligned, and Enter accepts an alias and resets the
-  query. The recipient interaction suite passes 15 tests; Superhuman's
-  alias-ranking and selection behavior remains unobserved.
+  query. The recipient interaction suite passes 16 tests; Superhuman's
+  alias-ranking and selection behavior remains unobserved. A follow-up Mail-only
+  regression changes the query after ArrowDown and verifies that the active
+  suggestion resets to the first result with a matching `aria-activedescendant`;
+  this closes a stale-selection discrepancy without claiming Superhuman parity.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,

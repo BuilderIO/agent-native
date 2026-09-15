@@ -206,7 +206,7 @@ describe("ComposeModal scheduling", () => {
     cleanup();
   });
 
-  it("opens a new-message draft expanded in the main workspace", () => {
+  it("opens a new-message draft in the compact workspace card", () => {
     const { getByRole } = render(
       <ComposeModal
         drafts={[draft]}
@@ -226,9 +226,64 @@ describe("ComposeModal scheduling", () => {
 
     expect(
       getByRole("button", {
+        name: "mail.compose.fullScreenCompose",
+      }).getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("honors an explicit fullscreen compose request", () => {
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        initialExpanded
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    expect(
+      getByRole("button", {
         name: "mail.compose.restoreComposeSize",
       }).getAttribute("aria-pressed"),
     ).toBe("true");
+  });
+
+  it("reopens a saved new-message draft in compact mode", () => {
+    const savedDraft: ComposeState = {
+      ...draft,
+      savedDraftId: "gmail-draft-1",
+    };
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[savedDraft]}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    expect(
+      getByRole("button", {
+        name: "mail.compose.fullScreenCompose",
+      }).getAttribute("aria-pressed"),
+    ).toBe("false");
   });
 
   it("validates an empty recipient through enabled send and schedule controls", () => {
@@ -566,9 +621,9 @@ describe("ComposeModal scheduling", () => {
     await waitFor(() => {
       expect(
         getByRole("button", {
-          name: "mail.compose.restoreComposeSize",
+          name: "mail.compose.fullScreenCompose",
         }).getAttribute("aria-pressed"),
-      ).toBe("true");
+      ).toBe("false");
       expect(
         container.querySelector<HTMLInputElement>('[data-recipient-field="to"]')
           ?.value,
@@ -591,6 +646,55 @@ describe("ComposeModal scheduling", () => {
       getByRole("button", { name: "mail.compose.restoreCompose" }),
     ).toBeTruthy();
     expect(container.querySelector('[data-recipient-field="to"]')).toBeNull();
+  });
+
+  it("returns to compact mode when switching from a new draft to a saved draft", async () => {
+    const savedDraft: ComposeState = {
+      ...draft,
+      id: "saved-draft",
+      savedDraftId: "gmail-draft-1",
+    };
+    const newDraft: ComposeState = {
+      ...draft,
+      id: "new-draft",
+    };
+    const props = {
+      drafts: [newDraft, savedDraft],
+      activeId: newDraft.id,
+      activeDraft: newDraft,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard: vi.fn(),
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { getByRole, rerender } = render(<ComposeModal {...props} />);
+
+    expect(
+      getByRole("button", {
+        name: "mail.compose.fullScreenCompose",
+      }).getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    rerender(
+      <ComposeModal
+        {...props}
+        activeId={savedDraft.id}
+        activeDraft={savedDraft}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        getByRole("button", {
+          name: "mail.compose.fullScreenCompose",
+        }).getAttribute("aria-pressed"),
+      ).toBe("false"),
+    );
   });
 
   it("reveals and focuses Bcc with the compose keyboard shortcut", async () => {
