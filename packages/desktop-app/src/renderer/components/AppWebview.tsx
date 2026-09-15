@@ -1299,7 +1299,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           try {
             wv.reloadIgnoringCache();
           } catch {
-            wv.reload();
+            try {
+              wv.reload();
+            } catch {
+              // The guest can detach between the two reload attempts.
+            }
           }
         },
         toggleAgentSidebar() {
