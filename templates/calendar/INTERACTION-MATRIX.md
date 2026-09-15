@@ -20,7 +20,7 @@ The current events guide says matching event IDs across calendars are merged;
 to RSVP or edit from one specific calendar, hide the other calendars. Treat this
 as a live comparison point, not proof that the current UI matches.
 
-Current baseline on 2026-09-12:
+Historical baseline on 2026-09-12:
 
 - Local Calendar shell, month picker, event-composer open/cancel, and settings
   were exercised in the browser. Settings report Google Calendar is not
@@ -38,6 +38,31 @@ Current baseline on 2026-09-12:
   the task prompt, record each test event ID privately, and delete/verify it on
   both accounts before ending the run. Never use unrelated attendees or send a
   test invite to anyone else.
+
+Current live run on 2026-09-15:
+
+- Main Chrome was used for the local Calendar app and the signed-in Notion
+  Calendar reference. Google consent was isolated to identity plus Calendar
+  permissions; only `steve@builder.io` and `sewell.steve@gmail.com` were
+  connected. No other account was selected and no unrelated recipient was
+  written.
+- The live safe-path fixture created one clearly labeled 30-minute event from
+  `steve@builder.io` to `sewell.steve@gmail.com`, sent the cancellation to that
+  approved attendee, removed the stale attendee copy, and reloaded Calendar.
+  The exact title was absent after reload. The provider returned a 410 for the
+  already-deleted attendee resource during cleanup; the delete action now
+  treats both 404 and 410 as an idempotent already-absent result.
+- Notion's live Week menu exposed Day, Week, Month, Number of days, and View
+  settings. Calendar exposed Day, Week, Month, and Hide weekends. This remains
+  a tracked parity discrepancy; no claim of full view-menu parity is made.
+- Calendar's composer matched the core reference path for title, 15-minute
+  time choices, explicit end time, date, attendee chip, and one-recipient
+  invitation feedback. Changing the start time did not preserve the original
+  30-minute duration until the end time was explicitly reset; this remains an
+  interaction discrepancy to fix separately.
+- With the connected calendars and real event set loaded, live list-events
+  requests were observed in the roughly 3.3–4.1 second range. This is recorded
+  as performance evidence, not as a claim that Calendar is as fast as Notion.
 
 ## Visual fidelity protocol
 
@@ -227,6 +252,7 @@ as passed based on code inspection alone.
 | 2026-09-13 · docs/source review / awaiting serial slot | CAL-08, BULK-01–02 | Official guide documents same-ID event merging and Shift-based bulk color/blocking and group drag. | Source review finds calendar-scoped event IDs and no multi-select handler. These are likely parity gaps, not live-confirmed; no events were changed. |
 | 2026-09-13 · live UI inspection · Sep 13 · PDT · Chrome 100% / Notion Actual Size | NAV-05 | Signed-in Notion desktop was observed in Day for Sun, Sep 13, 2026; view switching was not run there. Notion web in Chrome is signed out. | PARTIAL local check: Month → Week → Day → Week preserves Sep 13, and sidebar collapse works. Visual parity is not verified: local workspace is empty, Calendar labels its zone PT, and captured viewport sizes differ (Calendar 1200×960; Notion 1225×768); no paired screenshots were saved. |
 | 2026-09-13 · live provider gate | CAL-01, CREATE-02, EDIT-02, DEL-01, SYNC-01 | Not exercised against an app-connected provider. | BLOCKED outside the repo: the app uses the request origin plus `/_agent-native/google/callback`; its read-only health probe reports the managed OAuth pair present but `redirectUriStatus: mismatched` for the configured `http://localhost:3000/_agent-native/google/callback`. Running Calendar at that configured origin generates the same URI and Google returns `redirect_uri_mismatch`. The earlier 8081 run generated a different unregistered URI. Hosted Calendar opens sign-in. No provider-backed list/search/read, event writes, invites, or deletes were performed. |
+| 2026-09-15 · live provider + reference · desktop · main Chrome · PT · approved accounts only | CAL-01, NAV-01, KEY-01, CREATE-02, CREATE-09, CREATE-17, DEL-05, SYNC-01 | Signed-in Notion Calendar was inspected read-only in Week view. Its view menu included Day, Week, Month, Number of days, and View settings; its composer exposed title, dates/times, participants, conferencing, notes, location, links/attachments, description, calendar, Busy/visibility, and reminders. No Notion data was changed. | PARTIAL: OAuth consent was Calendar-only; both approved accounts loaded; the core composer path and the exact create → cancel/delete → reload cleanup path were exercised. The labeled fixture was absent after reload. Local lacks Notion's Number of days and View settings menu entries, did not preserve duration when only the start time changed, and observed list-events latency around 3.3–4.1s. Full 100-row parity remains unverified. |
 
 ## Visual discrepancy ledger
 
