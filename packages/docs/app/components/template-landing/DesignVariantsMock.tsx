@@ -27,6 +27,10 @@
  * `aria-hidden`, so no assistive tech ever reads these strings; they are the
  * pixels of a product screenshot (a fake brand's fake landing page).
  */
+import {
+  DESIGN_CANVAS_TOOLBAR_CSS,
+  DesignCanvasToolbar,
+} from "./DesignCanvasToolbar";
 
 /** Logical width of each variant board, before `--dv-scale`. */
 const BOARD_WIDTH = 600;
@@ -222,10 +226,10 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   // Builder brand blue, the same bright value in both themes: it marks what the
   // editor has selected, against design colours that do not follow the docs
   // theme.
-  ".design-variants-mock { --dv-scale: 0.4; --dv-frame-bg: hsl(0 0% 13%); --dv-canvas-bg: hsl(0 0% 10%); --dv-border: hsl(0 0% 24%); --dv-fg: hsl(0 0% 90%); --dv-fg-muted: hsl(0 0% 60%); --dv-selection: #01c8f1; --dv-selection-contrast: #0a0a0a; }",
+  ".design-variants-mock { --dv-scale: 0.4; --dv-frame-bg: hsl(0 0% 13%); --dv-canvas-bg: hsl(0 0% 10%); --dv-border: hsl(0 0% 24%); --dv-fg: hsl(0 0% 90%); --dv-fg-muted: hsl(0 0% 60%); --dv-selection: #01c8f1; }",
   "html.light .design-variants-mock { --dv-frame-bg: hsl(0 0% 100%); --dv-canvas-bg: hsl(0 0% 92%); --dv-border: hsl(0 0% 90%); --dv-fg: hsl(0 0% 10%); --dv-fg-muted: hsl(0 0% 45%); }",
 
-  ".design-variants-mock-frame { overflow: hidden; border: 1px solid var(--dv-border); border-radius: 12px; background: var(--dv-frame-bg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+  ".design-variants-mock-frame { position: relative; overflow: hidden; border: 1px solid var(--dv-border); border-radius: 12px; background: var(--dv-frame-bg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
   `.design-variants-mock-canvas { display: flex; height: ${canvasHeight(CANVAS_TOP_PAD)}px; justify-content: center; gap: 24px; overflow: hidden; padding: ${CANVAS_TOP_PAD}px 20px 0; background: var(--dv-canvas-bg); }`,
 
   // Board frames. Square corners on the body are intentional: the editor avoids
@@ -236,7 +240,6 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   `.design-variants-mock .dv-board { position: relative; width: calc(${BOARD_WIDTH}px * var(--dv-scale)); flex-shrink: 0; align-self: flex-start; }`,
   ".design-variants-mock .dv-board-label { display: flex; height: 22px; align-items: center; gap: 5px; padding-left: 2px; color: var(--dv-fg-muted); font-size: 11px; font-weight: 500; }",
   ".design-variants-mock .dv-board.is-selected .dv-board-label { color: var(--dv-selection); }",
-  ".design-variants-mock .dv-board-chosen { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 4px; background: var(--dv-selection); color: var(--dv-selection-contrast); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }",
   `.design-variants-mock .dv-board-body { position: relative; height: ${BOARD_BODY_HEIGHT}px; overflow: hidden; background: var(--kt-bg); box-shadow: inset 0 0 0 1px var(--dv-border); }`,
   `.design-variants-mock .dv-artboard { width: ${BOARD_WIDTH}px; min-height: calc(${BOARD_BODY_HEIGHT}px / var(--dv-scale)); transform: scale(var(--dv-scale)); transform-origin: top left; }`,
 
@@ -299,6 +302,8 @@ const DESIGN_VARIANTS_MOCK_CSS = [
   ".design-variants-mock .kt-quote-text { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; }",
   ".design-variants-mock .kt-quote-by { color: var(--kt-fg-soft); font-size: 14px; font-weight: 500; }",
 
+  DESIGN_CANVAS_TOOLBAR_CSS,
+
   // The boards are a fixed logical size, so their zoom steps down with the
   // card: the use-case row narrows its media cell long before the page is
   // anywhere near mobile. Stays last so it wins on source order.
@@ -320,10 +325,7 @@ function Board({
 }) {
   return (
     <div className={selected ? "dv-board is-selected" : "dv-board"}>
-      <div className="dv-board-label">
-        <span>{label}</span>
-        {selected ? <span className="dv-board-chosen">Chosen</span> : null}
-      </div>
+      <div className="dv-board-label">{label}</div>
       <div className="dv-board-body">
         <div className="dv-artboard">{children}</div>
       </div>
@@ -363,6 +365,7 @@ export function DesignVariantsMock({
             <VariantBBoard />
           </Board>
         </div>
+        <DesignCanvasToolbar />
       </div>
     </div>
   );
