@@ -26,7 +26,7 @@ import {
   remapHistoryChange,
   resolveHistorySelection,
 } from "@/pages/design-editor/history-identity";
-import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
+import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 
 const ref = <T>(current: T) => ({ current });
 const applySetter = <T>(
@@ -352,9 +352,10 @@ describe("history identity integration", () => {
       { [sourceId]: sourceHtml, [targetId]: targetHtml },
     );
     const applyAcceptedContent = (fileId: string, content: string) => {
-      const prepared = prepareCanonicalSourceContent(content, {
+      const prepared = prepareAcceptedSourceContent(content, {
         fileId,
         fileType: "html",
+        previousContent: currentContent.get(fileId)!,
       });
       currentContent.set(fileId, prepared.content);
       return {

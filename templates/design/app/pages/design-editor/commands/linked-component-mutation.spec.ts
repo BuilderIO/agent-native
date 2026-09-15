@@ -602,9 +602,19 @@ describe("linked component mutation queue", () => {
         activeFile: { id: "file-copy" },
         applyFileContentUpdate: vi.fn((fileId: string, content: string) => {
           setup.content.set(fileId, content);
+          return {
+            status: "accepted" as const,
+            content,
+            nodeIdMap: new Map(),
+          };
         }),
         applyLocalContentUpdate: vi.fn((content: string) => {
           setup.content.set("file-copy", content);
+          return {
+            status: "accepted" as const,
+            content,
+            nodeIdMap: new Map(),
+          };
         }),
         canEditDesign: true,
         clipboardPasteRedoStackRef: { current: [] },

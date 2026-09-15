@@ -610,9 +610,19 @@ describe("screen deletion history identity", () => {
         activeFile,
         applyFileContentUpdate: (fileId: string, content: string) => {
           currentContentByFile.set(fileId, content);
+          return {
+            status: "accepted" as const,
+            content,
+            nodeIdMap: new Map(),
+          };
         },
         applyLocalContentUpdate: (content: string) => {
           currentContentByFile.set(activeFile.id, content);
+          return {
+            status: "accepted" as const,
+            content,
+            nodeIdMap: new Map(),
+          };
         },
         canEditDesign: true,
         clipboardPasteRedoStackRef: ref([]),
@@ -640,6 +650,8 @@ describe("screen deletion history identity", () => {
         files,
         geometryRedoStackRef,
         geometryUndoStackRef,
+        getFreshActiveContent: () =>
+          currentContentByFile.get(activeFile.id) ?? "",
         getScreenContent: (screenId: string) =>
           currentContentByFile.get(screenId) ?? "",
         historyOrderRef,

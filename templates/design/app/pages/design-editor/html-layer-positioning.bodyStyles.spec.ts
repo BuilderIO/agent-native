@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   removeAbsolutePositioningFromNodeInHtml,
   rawAbsoluteContainerOffsetFromDrop,
+  setAbsolutePositioningForNodeInHtml,
   setFlowPositioningOverrideForNodeInHtml,
   setBodyInlineStyles,
   setScreenRootDefaultHeightMode,
@@ -276,6 +277,87 @@ describe("flow-insert positioning for code-backed Frames", () => {
     expect(forcedPlainElement.style.getPropertyPriority("position")).toBe(
       "important",
     );
+  });
+});
+
+describe("node positioning source shape", () => {
+  const withoutTargetStyleAttribute = (html: string) =>
+    html.replace(
+      /<[^>]*data-agent-native-node-id="moving-node"[^>]*>/gi,
+      (openTag) => {
+        const withoutStyle = openTag.replace(
+          /\sstyle=(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
+          "",
+        );
+        return withoutStyle === openTag
+          ? withoutStyle.replace(/\s+>/, ">")
+          : withoutStyle;
+      },
+    );
+
+  const writers = [
+    (html: string) =>
+      removeAbsolutePositioningFromNodeInHtml(html, "moving-node"),
+    (html: string) =>
+      setFlowPositioningOverrideForNodeInHtml(html, "moving-node"),
+    (html: string) =>
+      setAbsolutePositioningForNodeInHtml(html, "moving-node", {
+        x: 31,
+        y: 47,
+      }),
+  ];
+
+  it("changes only the target style attribute in fragments and documents", () => {
+    const fragment =
+      '<main data-note="preserve > and spacing">\n<!-- keep -->\n<div data-agent-native-node-id="styled-sibling" style="color: purple; margin: 4px">Sibling</div>\n<div data-agent-native-node-id="moving-node" data-keep="yes" style="position:absolute;left:1px;top:2px">Text</div>\n</main>';
+    const document =
+      '<!DOCTYPE html>\n<html><head><title>Keep</title></head><body>\n<!-- keep -->\n<div data-agent-native-node-id="styled-sibling" style="color: purple; margin: 4px">Sibling</div>\n<div data-agent-native-node-id="moving-node" data-keep="yes" style="position:absolute;left:1px;top:2px">Text</div>\n</body></html>';
+
+    for (const content of [fragment, document]) {
+      for (const writePositioning of writers) {
+        const next = writePositioning(content);
+        expect(withoutTargetStyleAttribute(next)).toBe(
+          withoutTargetStyleAttribute(content),
+        );
+        expect(next).toContain('data-keep="yes"');
+        expect(next).toContain("<!-- keep -->");
+        expect(next).toContain('style="color: purple; margin: 4px"');
+      }
+    }
+
+    const [removed, flow, absolute] = writers.map((writePositioning) =>
+      writePositioning(fragment),
+    );
+    const removedTarget = new DOMParser()
+      .parseFromString(removed!, "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="moving-node"]');
+    const flowTarget = new DOMParser()
+      .parseFromString(flow!, "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="moving-node"]');
+    const absoluteTarget = new DOMParser()
+      .parseFromString(absolute!, "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="moving-node"]');
+    expect(removedTarget?.style.position).toBe("");
+    expect(flowTarget?.style.position).toBe("static");
+    expect(flowTarget?.style.getPropertyPriority("position")).toBe("important");
+    expect(absoluteTarget?.style.position).toBe("absolute");
+    expect(absoluteTarget?.style.left).toBe("31px");
+    expect(absoluteTarget?.style.top).toBe("47px");
+    expect(removed).not.toMatch(/^<!DOCTYPE html>/i);
+    expect(flow).not.toMatch(/^<!DOCTYPE html>/i);
+    expect(absolute).not.toMatch(/^<!DOCTYPE html>/i);
+    expect(writers[0]!(document)).toMatch(/^<!DOCTYPE html>/i);
+    expect(writers[1]!(document)).toMatch(/^<!DOCTYPE html>/i);
+    expect(writers[2]!(document)).toMatch(/^<!DOCTYPE html>/i);
+  });
+
+  it("refuses every positioning write when the stable id is ambiguous", () => {
+    const ambiguous =
+      '<main><div data-agent-native-node-id="moving-node" style="position:absolute;left:1px;top:2px"></div><span data-agent-native-node-id="moving-node" style="position:absolute;left:3px;top:4px"></span></main>';
+
+    for (const writePositioning of writers) {
+      expect(writePositioning(ambiguous)).toBe(ambiguous);
+    }
   });
 });
 

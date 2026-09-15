@@ -1,9 +1,13 @@
 import { normalizePoisonedBoardNestedCoords } from "@shared/board-file";
-import type { CodeLayerNode } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  patchCodeLayerNodeAttributes,
+  type CodeLayerNode,
+} from "@shared/code-layer";
 
 import { authoredElementPosition } from "@/components/design/multi-screen/primitive-drop-target";
 
-import { escapeHtmlAttributeValue } from "./dom-utils";
+import { escapeHtmlAttributeValue, queryUniqueSelector } from "./dom-utils";
 
 const ABS_POSITION_PROPS = [
   "position",
@@ -39,6 +43,48 @@ function isCodeBackedFrame(element: HTMLElement): boolean {
 }
 
 /**
+ * Apply a CSS mutation through the DOM API, then patch only that element's
+ * style attribute back into the authored source. DOMParser adds an implicit
+ * document wrapper around fragments; returning its outerHTML would promote a
+ * valid fragment to a complete document during a positioning edit.
+ */
+function patchNodeStyleInHtml(
+  content: string,
+  nodeAttrId: string,
+  mutate: (element: HTMLElement) => void,
+): string {
+  if (typeof window === "undefined" || !nodeAttrId) return content;
+  const targetNodes = buildCodeLayerProjection(content).nodes.filter(
+    (node) => node.dataAttributes["data-agent-native-node-id"] === nodeAttrId,
+  );
+  if (targetNodes.length !== 1) return content;
+  const [targetNode] = targetNodes;
+  if (!targetNode?.source) return content;
+
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  const element = queryUniqueSelector(
+    doc,
+    `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+  ) as HTMLElement | null;
+  if (!element) return content;
+
+  const previousStyle = element.getAttribute("style");
+  mutate(element);
+  const nextStyle = element.getAttribute("style");
+  if (nextStyle === previousStyle) return content;
+
+  const patched = patchCodeLayerNodeAttributes(content, [
+    {
+      node: targetNode,
+      attributes: {
+        style: nextStyle || null,
+      },
+    },
+  ]);
+  return patched ?? content;
+}
+
+/**
  * Remove absolute-positioning style properties from the element identified by
  * `data-agent-native-node-id` so that it becomes a flow child after being
  * reparented into a container. Returns the updated HTML, or the original HTML
@@ -52,13 +98,7 @@ export function removeAbsolutePositioningFromNodeInHtml(
   content: string,
   nodeAttrId: string,
 ): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    ) as HTMLElement | null;
-    if (!element) return content;
+  return patchNodeStyleInHtml(content, nodeAttrId, (element) => {
     const keepsContainingBlock = isCodeBackedFrame(element);
     for (const prop of ABS_POSITION_PROPS) {
       element.style.removeProperty(prop);
@@ -69,10 +109,7 @@ export function removeAbsolutePositioningFromNodeInHtml(
         element.style.setProperty(prop, "auto");
       }
     }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
+  });
 }
 
 /** Root-absolute authored left/top by walking positioned ancestors.
@@ -179,13 +216,7 @@ export function setFlowPositioningOverrideForNodeInHtml(
   content: string,
   nodeAttrId: string,
 ): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    ) as HTMLElement | null;
-    if (!element) return content;
+  return patchNodeStyleInHtml(content, nodeAttrId, (element) => {
     const keepsContainingBlock = isCodeBackedFrame(element);
     for (const prop of ABS_POSITION_PROPS) {
       element.style.removeProperty(prop);
@@ -200,10 +231,7 @@ export function setFlowPositioningOverrideForNodeInHtml(
         element.style.setProperty(prop, "auto", "important");
       }
     }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
+  });
 }
 
 function parseInlinePx(value: string | undefined): number | null {
@@ -257,13 +285,7 @@ export function setAbsolutePositioningForNodeInHtml(
   point: { x: number; y: number },
   pointerOffset?: { x: number; y: number },
 ): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    ) as HTMLElement | null;
-    if (!element) return content;
+  return patchNodeStyleInHtml(content, nodeAttrId, (element) => {
     element.style.position = "absolute";
     element.style.left = `${Math.round(point.x - (pointerOffset?.x ?? 0))}px`;
     element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
@@ -272,10 +294,7 @@ export function setAbsolutePositioningForNodeInHtml(
     for (const prop of FLEX_ITEM_PROPS) {
       element.style.removeProperty(prop);
     }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
+  });
 }
 
 export function getAbsolutePositioningForNodeInHtml(
