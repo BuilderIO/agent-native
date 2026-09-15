@@ -110,6 +110,14 @@ vi.mock("./google-oauth.js", () => ({
 }));
 vi.mock("../org/auth-policy.js", () => ({
   GOOGLE_AUTH_REQUIRED_MESSAGE: "Google sign-in is required.",
+  authProviderRequiredMessage: (provider: string) =>
+    provider.startsWith("sso:")
+      ? "Single sign-on is required."
+      : "Google sign-in is required.",
+  getRequiredAuthProviderForEmail: (...args: any[]) =>
+    googleAuthRequiredMock(...args).then((required) =>
+      required ? "google" : null,
+    ),
   isGoogleSignInRequiredForEmail: (...args: any[]) =>
     googleAuthRequiredMock(...args),
 }));

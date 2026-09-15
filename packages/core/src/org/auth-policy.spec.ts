@@ -36,6 +36,14 @@ describe("organization auth policy", () => {
     ).resolves.toBe(false);
   });
 
+  it("resolves an organization-specific SSO provider requirement", async () => {
+    execute.mockResolvedValueOnce({ rows: [{ provider: "sso:okta" }] });
+
+    await expect(
+      getRequiredAuthProviderForEmail("person@example.com"),
+    ).resolves.toBe("sso:okta");
+  });
+
   it("revokes both auth stores when Google sign-in is enabled", async () => {
     execute
       .mockResolvedValueOnce({ rowsAffected: 1 })

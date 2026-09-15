@@ -1399,7 +1399,7 @@ async function requireWorkspaceProviderOAuthAccess(
         userEmail: context.email,
         orgId: context.orgId,
       });
-      if (role.status === "assigned" && role.role === "admin") {
+      if (role.status === "assigned" && role.roles.includes("admin")) {
         return { ...context, oauthScope: "app" };
       }
     }

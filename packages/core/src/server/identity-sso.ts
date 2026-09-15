@@ -25,7 +25,9 @@ import { canonicalA2AAudience, signA2AToken } from "../a2a/index.js";
 import { getAppConfig } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
+  authProviderRequiredMessage,
   GOOGLE_AUTH_REQUIRED_MESSAGE,
+  getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
@@ -1017,11 +1019,23 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-    if (
-      (await isGoogleSignInRequiredForEmail(identity.email)) &&
-      identity.authProvider !== "google"
-    ) {
-      return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
+    const requiredAuthProvider =
+      typeof getRequiredAuthProviderForEmail === "function"
+        ? await getRequiredAuthProviderForEmail(identity.email)
+        : (await isGoogleSignInRequiredForEmail(identity.email))
+          ? "google"
+          : null;
+    if (requiredAuthProvider) {
+      const identityProvider =
+        identity.authProvider === "google" ? "google" : null;
+      if (identityProvider !== requiredAuthProvider) {
+        return errorPage(
+          authProviderRequiredMessage
+            ? authProviderRequiredMessage(requiredAuthProvider)
+            : GOOGLE_AUTH_REQUIRED_MESSAGE,
+          loginPath,
+        );
+      }
     }
 
     try {

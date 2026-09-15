@@ -4,6 +4,8 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 
+export const AUTH_SIGNUP_INVITE_ONLY_CODE = "INVITE_ONLY";
+
 /**
  * The native sign-in surfaces use the same copy keys as the hosted onboarding
  * form. Keep this browser-safe subset here so Electron and mobile do not load
@@ -11,6 +13,9 @@ import {
  */
 export interface NativeAuthCopy {
   googleButton: string;
+  ssoButton: string;
+  ssoEmailPlaceholder: string;
+  ssoFailed: string;
   dividerOr: string;
   welcomeTitle: string;
   welcomeSubtitle: string;
@@ -29,6 +34,7 @@ export interface NativeAuthCopy {
   magicLinkSent: string;
   magicLinkSentCopy: string;
   magicLinkFailed: string;
+  signupInviteOnly: string;
   usePasswordInstead: string;
   backToMagicLink: string;
   signIn: string;
@@ -46,6 +52,9 @@ export interface NativeAuthCopy {
 export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "en-US": {
     googleButton: "Sign in with Google",
+    ssoButton: "Continue with SSO",
+    ssoEmailPlaceholder: "Work email",
+    ssoFailed: "No SSO provider was found for that email.",
     dividerOr: "or",
     welcomeTitle: "Welcome",
     welcomeSubtitle: "Create an account or sign in",
@@ -65,6 +74,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSentCopy: "We sent a secure sign-in link to",
     magicLinkFailed:
       "We couldn't send a sign-in link. Check your email and try again.",
+    signupInviteOnly:
+      "This workspace is invite-only. Ask an administrator for an invitation.",
     usePasswordInstead: "Use a password instead",
     backToMagicLink: "Use a sign-in link instead",
     signIn: "Sign in",
@@ -81,6 +92,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "zh-CN": {
     googleButton: "使用 Google 登录",
+    ssoButton: "使用 SSO 继续",
+    ssoEmailPlaceholder: "工作邮箱",
+    ssoFailed: "未找到该邮箱对应的 SSO 提供商。",
     dividerOr: "或",
     welcomeTitle: "欢迎",
     welcomeSubtitle: "创建账户或登录",
@@ -99,6 +113,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "检查你的邮箱",
     magicLinkSentCopy: "我们已向以下邮箱发送安全登录链接：",
     magicLinkFailed: "无法发送登录链接。",
+    signupInviteOnly: "此工作区仅限受邀用户访问。请联系管理员获取邀请。",
     usePasswordInstead: "改用密码",
     backToMagicLink: "改用登录链接",
     signIn: "登录",
@@ -115,6 +130,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "zh-TW": {
     googleButton: "使用 Google 登入",
+    ssoButton: "使用 SSO 繼續",
+    ssoEmailPlaceholder: "工作電子郵件",
+    ssoFailed: "找不到該電子郵件對應的 SSO 提供者。",
     dividerOr: "或",
     welcomeTitle: "歡迎",
     welcomeSubtitle: "建立帳戶或登入",
@@ -133,6 +151,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "檢查你的電子郵件",
     magicLinkSentCopy: "我們已向以下電子郵件寄送安全登入連結：",
     magicLinkFailed: "無法寄送登入連結。",
+    signupInviteOnly: "此工作區僅限受邀使用者存取。請聯絡管理員取得邀請。",
     usePasswordInstead: "改用密碼",
     backToMagicLink: "改用登入連結",
     signIn: "登入",
@@ -149,6 +168,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "es-ES": {
     googleButton: "Iniciar sesión con Google",
+    ssoButton: "Continuar con SSO",
+    ssoEmailPlaceholder: "Correo de trabajo",
+    ssoFailed: "No se encontró un proveedor SSO para ese correo.",
     dividerOr: "o",
     welcomeTitle: "Bienvenido",
     welcomeSubtitle: "Crea una cuenta o inicia sesión",
@@ -167,6 +189,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "Revisa tu email",
     magicLinkSentCopy: "Enviamos un enlace seguro a",
     magicLinkFailed: "No se pudo enviar el enlace de inicio de sesión.",
+    signupInviteOnly:
+      "Este espacio de trabajo es solo por invitación. Pide una invitación a un administrador.",
     usePasswordInstead: "Usar una contraseña",
     backToMagicLink: "Usar un enlace de inicio de sesión",
     signIn: "Iniciar sesión",
@@ -183,6 +207,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "fr-FR": {
     googleButton: "Se connecter avec Google",
+    ssoButton: "Continuer avec SSO",
+    ssoEmailPlaceholder: "E-mail professionnel",
+    ssoFailed: "Aucun fournisseur SSO n'a été trouvé pour cet e-mail.",
     dividerOr: "ou",
     welcomeTitle: "Bienvenue",
     welcomeSubtitle: "Créez un compte ou connectez-vous",
@@ -201,6 +228,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "Vérifiez votre e-mail",
     magicLinkSentCopy: "Nous avons envoyé un lien sécurisé à",
     magicLinkFailed: "Impossible d'envoyer le lien de connexion.",
+    signupInviteOnly:
+      "Cet espace de travail est accessible uniquement sur invitation. Demandez une invitation à un administrateur.",
     usePasswordInstead: "Utiliser un mot de passe",
     backToMagicLink: "Utiliser un lien de connexion",
     signIn: "Connexion",
@@ -217,6 +246,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "de-DE": {
     googleButton: "Mit Google anmelden",
+    ssoButton: "Mit SSO fortfahren",
+    ssoEmailPlaceholder: "Arbeits-E-Mail",
+    ssoFailed: "Für diese E-Mail wurde kein SSO-Anbieter gefunden.",
     dividerOr: "oder",
     welcomeTitle: "Willkommen",
     welcomeSubtitle: "Konto erstellen oder anmelden",
@@ -235,6 +267,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "Prüfe deine E-Mail",
     magicLinkSentCopy: "Wir haben einen sicheren Anmeldelink gesendet an",
     magicLinkFailed: "Anmeldelink konnte nicht gesendet werden.",
+    signupInviteOnly:
+      "Dieser Arbeitsbereich ist nur auf Einladung zugänglich. Bitte einen Administrator um eine Einladung.",
     usePasswordInstead: "Stattdessen Passwort verwenden",
     backToMagicLink: "Stattdessen Anmeldelink verwenden",
     signIn: "Anmelden",
@@ -251,6 +285,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "ja-JP": {
     googleButton: "Google でサインイン",
+    ssoButton: "SSO で続行",
+    ssoEmailPlaceholder: "仕事用メールアドレス",
+    ssoFailed:
+      "このメールアドレスに対応する SSO プロバイダーが見つかりません。",
     dividerOr: "または",
     welcomeTitle: "ようこそ",
     welcomeSubtitle: "アカウントを作成するかサインインしてください",
@@ -269,6 +307,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "メールを確認してください",
     magicLinkSentCopy: "安全なサインインリンクを送信しました：",
     magicLinkFailed: "サインインリンクを送信できませんでした。",
+    signupInviteOnly:
+      "このワークスペースは招待制です。管理者に招待を依頼してください。",
     usePasswordInstead: "パスワードを使用する",
     backToMagicLink: "サインインリンクを使用する",
     signIn: "サインイン",
@@ -286,6 +326,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "ko-KR": {
     googleButton: "Google로 로그인",
+    ssoButton: "SSO로 계속",
+    ssoEmailPlaceholder: "회사 이메일",
+    ssoFailed: "해당 이메일에 대한 SSO 제공업체를 찾을 수 없습니다.",
     dividerOr: "또는",
     welcomeTitle: "환영합니다",
     welcomeSubtitle: "계정을 만들거나 로그인하세요",
@@ -304,6 +347,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "이메일을 확인하세요",
     magicLinkSentCopy: "안전한 로그인 링크를 보냈습니다:",
     magicLinkFailed: "로그인 링크를 보낼 수 없습니다.",
+    signupInviteOnly:
+      "이 워크스페이스는 초대받은 사용자만 이용할 수 있습니다. 관리자에게 초대를 요청하세요.",
     usePasswordInstead: "비밀번호 사용",
     backToMagicLink: "로그인 링크 사용",
     signIn: "로그인",
@@ -320,6 +365,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "pt-BR": {
     googleButton: "Entrar com Google",
+    ssoButton: "Continuar com SSO",
+    ssoEmailPlaceholder: "E-mail de trabalho",
+    ssoFailed: "Nenhum provedor SSO foi encontrado para esse e-mail.",
     dividerOr: "ou",
     welcomeTitle: "Bem-vindo",
     welcomeSubtitle: "Crie uma conta ou entre",
@@ -338,6 +386,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "Confira seu email",
     magicLinkSentCopy: "Enviamos um link seguro para",
     magicLinkFailed: "Não foi possível enviar o link de acesso.",
+    signupInviteOnly:
+      "Este espaço de trabalho é somente para convidados. Peça um convite a um administrador.",
     usePasswordInstead: "Usar uma senha",
     backToMagicLink: "Usar um link de acesso",
     signIn: "Entrar",
@@ -354,6 +404,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "hi-IN": {
     googleButton: "Google से साइन इन करें",
+    ssoButton: "SSO के साथ जारी रखें",
+    ssoEmailPlaceholder: "कार्य ईमेल",
+    ssoFailed: "इस ईमेल के लिए कोई SSO प्रदाता नहीं मिला।",
     dividerOr: "या",
     welcomeTitle: "स्वागत है",
     welcomeSubtitle: "खाता बनाएं या साइन इन करें",
@@ -372,6 +425,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "अपना ईमेल देखें",
     magicLinkSentCopy: "हमने सुरक्षित साइन-इन लिंक यहां भेजा है:",
     magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
+    signupInviteOnly:
+      "यह वर्कस्पेस केवल आमंत्रण से उपलब्ध है। आमंत्रण के लिए किसी व्यवस्थापक से संपर्क करें।",
     usePasswordInstead: "पासवर्ड का उपयोग करें",
     backToMagicLink: "साइन-इन लिंक का उपयोग करें",
     signIn: "साइन इन",
@@ -388,6 +443,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   },
   "ar-SA": {
     googleButton: "تسجيل الدخول باستخدام Google",
+    ssoButton: "المتابعة باستخدام SSO",
+    ssoEmailPlaceholder: "البريد الإلكتروني للعمل",
+    ssoFailed: "لم يتم العثور على موفر SSO لهذا البريد الإلكتروني.",
     dividerOr: "أو",
     welcomeTitle: "مرحبًا",
     welcomeSubtitle: "أنشئ حسابًا أو سجّل الدخول",
@@ -406,6 +464,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     magicLinkSent: "تحقق من بريدك الإلكتروني",
     magicLinkSentCopy: "أرسلنا رابط تسجيل دخول آمنًا إلى",
     magicLinkFailed: "تعذر إرسال رابط تسجيل الدخول.",
+    signupInviteOnly:
+      "مساحة العمل هذه متاحة بالدعوة فقط. اطلب دعوة من أحد المسؤولين.",
     usePasswordInstead: "استخدام كلمة مرور بدلًا من ذلك",
     backToMagicLink: "استخدام رابط تسجيل الدخول بدلًا من ذلك",
     signIn: "تسجيل الدخول",
