@@ -2549,6 +2549,64 @@ describe("server/auth", () => {
       );
     });
 
+    it("relays preview Google callbacks server-side and forwards the session cookie", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("BETTER_AUTH_SECRET", "preview-relay-state-secret");
+      const { autoMountAuth } = await import("./auth.js");
+      const { encodeOAuthState, encodeNetlifyPreviewGoogleOAuthRelayState } =
+        await import("./google-oauth.js");
+      const callbackUri =
+        "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
+      const innerState = encodeOAuthState({
+        redirectUri:
+          "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+        relayTarget: callbackUri,
+      });
+      const outerState = encodeNetlifyPreviewGoogleOAuthRelayState(
+        innerState,
+        callbackUri,
+      );
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, {
+          status: 302,
+          headers: {
+            location: "/home",
+            "set-cookie": "an_session=preview-session; Path=/; Secure",
+          },
+        }),
+      );
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "google-code", state: outerState },
+          headers: {
+            host: "beta.dispatch.agent-native.com",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const requestedUrl = String(fetchSpy.mock.calls[0]?.[0]);
+      expect(requestedUrl).toContain(`${callbackUri}?code=google-code`);
+      expect(requestedUrl).toContain(`state=${encodeURIComponent(innerState)}`);
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get("location")).toBe(
+        `${new URL(callbackUri).origin}/home`,
+      );
+      expect((result as Response).headers.get("set-cookie")).toContain(
+        "an_session=preview-session",
+      );
+    });
+
     it("relays mounted-app callbacks when only the workspace app id survives", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -3417,6 +3475,56 @@ describe("server/auth", () => {
       expect(handoff).toBeLessThan(firstHtml.indexOf("</HEAD>"));
       expect(firstHtml).not.toContain("first.example");
       expect(firstHtml).not.toContain("second.example");
+    });
+
+    it("renders the preview SSO flag in the request-scoped root login document", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_NAME", "calendar");
+      vi.stubEnv("SITE_NAME", "agent-native-calendar");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        googleOnly: true,
+        marketing: {
+          appName: "Calendar",
+          tagline: "Coordinate your calendar.",
+        },
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(
+        createMockEvent({
+          path: "/",
+          headers: {
+            host: `${"a".repeat(24)}--agent-native-calendar.netlify.app`,
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect(readAuthPageData(await (result as Response).text())).toMatchObject(
+        { googleViaIdentitySso: true },
+      );
     });
 
     it("keeps the cached login document independent of workspace mount", async () => {
@@ -8633,6 +8741,51 @@ describe("server/auth", () => {
   });
 
   describe("resolveOAuthRedirectUri", () => {
+    it("uses the fixed beta callback for immutable Netlify preview OAuth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("SITE_NAME", "agent-native-mail");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        headers: {
+          host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      );
+      expect(
+        resolveOAuthRedirectUri(
+          createMockEvent({
+            path: "/_agent-native/google/auth-url",
+            query: {
+              redirect_uri: `https://${"a".repeat(24)}--agent-native-mail.netlify.app/_agent-native/google/callback`,
+            },
+            headers: {
+              host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+              "x-forwarded-proto": "https",
+            },
+          }),
+        ),
+      ).toBe(
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      );
+      expect(
+        resolveOAuthRedirectUri(
+          createMockEvent({
+            path: "/_agent-native/google/auth-url",
+            query: { redirect_uri: "https://evil.example/callback" },
+            headers: {
+              host: `${"a".repeat(24)}--agent-native-mail.netlify.app`,
+              "x-forwarded-proto": "https",
+            },
+          }),
+        ),
+      ).toBeNull();
+    });
+
     it("defaults root workspace framework-route requests to the root callback", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");

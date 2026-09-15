@@ -1,6 +1,7 @@
 import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
+  saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { getOAuthAccounts } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createOAuth2Client,
   gmailBatchGetThreads,
+  gmailGetProfile,
   gmailGetThread,
   gmailListMessages as gmailListMessagesApi,
   gmailListThreads,
@@ -1025,6 +1027,68 @@ describe("Google OAuth URL construction", () => {
     );
     await expect(exchangeCode("oauth-code")).rejects.toThrow(
       "Google OAuth redirect URI is required.",
+    );
+  });
+
+  it("requests Gmail scopes and persists the first preview sign-in account", async () => {
+    vi.clearAllMocks();
+    const callbackUri =
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback";
+    const generateAuthUrl = vi
+      .fn()
+      .mockReturnValue("https://accounts.google.com/oauth");
+    vi.mocked(createOAuth2Client).mockReturnValue({
+      generateAuthUrl,
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "gmail-access-token",
+        refresh_token: "gmail-refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "https://www.googleapis.com/auth/gmail.readonly",
+      }),
+    } as any);
+    vi.mocked(gmailGetProfile).mockResolvedValue({
+      emailAddress: "owner@example.com",
+    } as any);
+
+    await expect(
+      getAuthUrl(
+        undefined,
+        callbackUri,
+        "preview-relay-state",
+        "owner@example.com",
+      ),
+    ).resolves.toBe("https://accounts.google.com/oauth");
+    expect(generateAuthUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access_type: "offline",
+        prompt: "consent",
+        state: "preview-relay-state",
+        scope: expect.arrayContaining([
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/gmail.send",
+          "https://www.googleapis.com/auth/calendar.events",
+        ]),
+      }),
+    );
+
+    await expect(
+      exchangeCode(
+        "preview-google-code",
+        undefined,
+        callbackUri,
+        "owner@example.com",
+      ),
+    ).resolves.toBe("owner@example.com");
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "google",
+      "owner@example.com",
+      expect.objectContaining({
+        access_token: "gmail-access-token",
+        refresh_token: "gmail-refresh-token",
+        scope: "https://www.googleapis.com/auth/gmail.readonly",
+      }),
+      "owner@example.com",
     );
   });
 });

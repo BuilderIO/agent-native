@@ -1105,6 +1105,8 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /** Additional provider scopes require the direct OAuth flow to persist tokens. */
+  googleScopes?: string[];
   /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
   /** Render the quiet, centered auth surface used when the app has an initial prompt. */
@@ -1274,10 +1276,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
   const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
-  const googleViaIdentitySso = isNetlifyDeployPermalinkIdentitySsoClientRequest(
-    identitySsoRequestHost,
-    identitySsoRequestProtocol,
-  );
+  const googleViaIdentitySso =
+    !opts.googleScopes?.length &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    );
   const identitySsoEnabled = isIdentitySsoAvailableForRequest({
     requestHost: identitySsoRequestHost,
     requestProtocol: identitySsoRequestProtocol,

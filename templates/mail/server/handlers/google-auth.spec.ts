@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   getAppUrl: vi.fn(),
   getAuthStatus: vi.fn(),
   getAuthUrl: vi.fn(),
+  getNetlifyPreviewGoogleOAuthCallbackUrl: vi.fn(),
+  encodeNetlifyPreviewGoogleOAuthRelayState: vi.fn(),
   getClient: vi.fn(),
   getOAuth2Credentials: vi.fn(),
   getSession: vi.fn(),
@@ -49,6 +51,10 @@ vi.mock("@agent-native/core/server", () => ({
   encodeOAuthState: mocks.encodeOAuthState,
   ensureGoogleAuthIdentity: mocks.ensureGoogleAuthIdentity,
   getAppUrl: mocks.getAppUrl,
+  getNetlifyPreviewGoogleOAuthCallbackUrl:
+    mocks.getNetlifyPreviewGoogleOAuthCallbackUrl,
+  encodeNetlifyPreviewGoogleOAuthRelayState:
+    mocks.encodeNetlifyPreviewGoogleOAuthRelayState,
   getSession: mocks.getSession,
   isElectron: mocks.isElectron,
   logOAuthStateDecodeFailure: mocks.logOAuthStateDecodeFailure,
@@ -127,6 +133,9 @@ describe("Mail Google auth-url handlers", () => {
       "https://mail.agent-native.com/_agent-native/google/callback",
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.encodeNetlifyPreviewGoogleOAuthRelayState.mockReturnValue(
+      "relay-state",
+    );
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
     mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
@@ -149,6 +158,73 @@ describe("Mail Google auth-url handlers", () => {
     expect(response).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
     });
+  });
+
+  it("keeps Gmail-scoped OAuth on the preview relay", async () => {
+    const callbackUri =
+      "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
+    mocks.getNetlifyPreviewGoogleOAuthCallbackUrl.mockReturnValue(callbackUri);
+    mocks.resolveOAuthRedirectUri.mockReturnValue(
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+    );
+
+    await getGoogleAuthUrl(
+      createEvent({ return: "/inbox", redirect: "1" }) as any,
+    );
+
+    expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri:
+          "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+        relayTarget: callbackUri,
+      }),
+    );
+    expect(
+      mocks.encodeNetlifyPreviewGoogleOAuthRelayState,
+    ).toHaveBeenCalledWith("encoded-state", callbackUri);
+    expect(mocks.getAuthUrl).toHaveBeenCalledWith(
+      undefined,
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      "relay-state",
+      "owner@example.com",
+    );
+  });
+
+  it("exchanges the first preview sign-in into a Gmail-scoped account", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      owner: undefined,
+      addAccount: false,
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.exchangeCode.mockResolvedValue("owner@example.com");
+    mocks.createOAuthSession.mockResolvedValue({ sessionToken: "session" });
+    mocks.getClient.mockResolvedValue({
+      email: "owner@example.com",
+      accessToken: "gmail-access-token",
+    });
+    mocks.googleFetch.mockResolvedValue({ id: "google-user-id" });
+    mocks.oauthCallbackResponse.mockReturnValue("signed-in");
+
+    await expect(
+      handleGoogleCallback(
+        createEvent({ code: "google-code", state: "inner-state" }) as any,
+      ),
+    ).resolves.toBe("signed-in");
+
+    expect(mocks.exchangeCode).toHaveBeenCalledWith(
+      "google-code",
+      undefined,
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      undefined,
+    );
+    expect(mocks.createOAuthSession).toHaveBeenCalled();
+    expect(mocks.getClient).toHaveBeenCalledWith("owner@example.com");
   });
 
   it("returns a JSON auth URL for verifier-bound add-account sign-in", async () => {

@@ -124,6 +124,14 @@ describe("AuthPage", () => {
       expect(deployProps.googleViaIdentitySso).toBe(true);
       expect(aliasProps.googleViaIdentitySso).toBe(false);
       expect(deployProps.identitySsoEnabled).toBe(false);
+
+      const mailProps = propsFromHtml(
+        getOnboardingHtml({
+          requestHost: deployHost,
+          googleScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        }),
+      );
+      expect(mailProps.googleViaIdentitySso).toBe(false);
     } finally {
       if (previousSiteName === undefined) delete process.env.SITE_NAME;
       else process.env.SITE_NAME = previousSiteName;

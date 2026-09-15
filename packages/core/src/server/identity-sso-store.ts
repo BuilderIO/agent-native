@@ -212,9 +212,42 @@ export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
   ) {
     return false;
   }
-  return new RegExp(`^[a-f0-9]{24}--${siteName}\\.netlify\\.app$`).test(
-    host.toLowerCase(),
+  return isNetlifyDeployPermalinkIdentitySsoClientHost(host, siteName);
+}
+
+function isNetlifyDeployPermalinkIdentitySsoClientHost(
+  host: string,
+  siteName?: string,
+): boolean {
+  const normalizedHost = host.toLowerCase();
+  const siteNames = siteName
+    ? [siteName]
+    : [...NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES];
+  return siteNames.some((name) =>
+    new RegExp(`^[a-f0-9]{24}--${name}\\.netlify\\.app$`).test(normalizedHost),
   );
+}
+
+export function isNetlifyDeployPermalinkIdentitySsoClientOrigin(
+  origin: string | undefined,
+): boolean {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    return (
+      url.origin === origin &&
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      isNetlifyDeployPermalinkIdentitySsoClientHost(url.hostname)
+    );
+  } catch {
+    // coercion-ok: malformed origins are rejected as invalid input.
+    return false;
+  }
 }
 
 /** Silent federation and post-login bootstrap remain limited to canonical or explicitly configured clients. */

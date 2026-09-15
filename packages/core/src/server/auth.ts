@@ -96,6 +96,7 @@ import {
 import {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
+  extractOAuthStateRelayTarget,
 } from "../shared/oauth-state.js";
 import {
   PASSWORD_MIN_LENGTH,
@@ -193,6 +194,9 @@ import {
   oauthErrorPage,
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
+  decodeNetlifyPreviewGoogleOAuthRelayState,
+  isNetlifyPreviewGoogleOAuthCallbackUrl,
+  isNetlifyPreviewGoogleOAuthRelayState,
 } from "./google-oauth.js";
 import { clearIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import {
@@ -2001,6 +2005,7 @@ function getOnboardingHtmlOptions(
   return {
     authMode,
     googleOnly: options.googleOnly,
+    googleScopes: options.googleScopes,
     marketing: options.marketing,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
@@ -2773,6 +2778,94 @@ function getRequestPathAndSearch(event: H3Event): {
   };
 }
 
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_HOST =
+  "beta.dispatch.agent-native.com";
+
+function previewGoogleOAuthRelayError(status: number): Response {
+  return new Response("Preview Google sign-in could not be completed.", {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
+async function netlifyPreviewGoogleOAuthCallbackRelayResponse(
+  event: H3Event,
+): Promise<Response | undefined> {
+  const { rawPath, search } = getRequestPathAndSearch(event);
+  const normalizedPath = stripAppBasePath(rawPath);
+  if (
+    getHeader(event, "host")?.trim().toLowerCase() !==
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_HOST ||
+    getHeader(event, "x-forwarded-proto") !== "https" ||
+    normalizedPath !== "/_agent-native/google/callback"
+  ) {
+    return undefined;
+  }
+
+  const params = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  );
+  const outerState = params.get("state");
+  if (!isNetlifyPreviewGoogleOAuthRelayState(outerState)) return undefined;
+
+  const relay = decodeNetlifyPreviewGoogleOAuthRelayState(outerState);
+  if (
+    !relay ||
+    !isNetlifyPreviewGoogleOAuthCallbackUrl(relay.callbackUri) ||
+    extractOAuthStateRelayTarget(relay.state) !== relay.callbackUri
+  ) {
+    return previewGoogleOAuthRelayError(400);
+  }
+
+  params.set("state", relay.state);
+  const target = new URL(relay.callbackUri);
+  target.search = params.toString();
+
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      redirect: "manual",
+      headers: { accept: "text/html, application/xhtml+xml" },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    return previewGoogleOAuthRelayError(502);
+  }
+
+  const headers = new Headers();
+  for (const name of ["cache-control", "content-type", "referrer-policy"]) {
+    const value = response.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  for (const cookie of getSetCookieHeaders(response.headers)) {
+    headers.append("set-cookie", cookie);
+  }
+
+  const location = response.headers.get("location");
+  if (location) {
+    let resolvedLocation: URL;
+    try {
+      resolvedLocation = new URL(location, target.origin);
+    } catch {
+      return previewGoogleOAuthRelayError(502);
+    }
+    if (resolvedLocation.origin !== target.origin) {
+      return previewGoogleOAuthRelayError(502);
+    }
+    headers.set("location", resolvedLocation.href);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function workspaceOAuthCallbackRelayResponse(
   event: H3Event,
 ): Response | undefined {
@@ -3408,6 +3501,9 @@ function createAuthGuardFn(
     const requestPath = queryStart >= 0 ? url : rawPath;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
+    const previewCallbackRelay =
+      await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
+    if (previewCallbackRelay) return previewCallbackRelay;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
     if (callbackRelay) return callbackRelay;
 
@@ -3694,20 +3790,20 @@ function createAuthGuardFn(
     // (never the session) keeps this decision request-independent, so "/" falls
     // through to the anonymous app shell and the client session gate owns
     // sign-in.
+    const loginHtml =
+      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
+
     if (
       config.rootAuth &&
       p === "/" &&
       resolveAppHomePath(getAppConfig().app) !== "/" &&
       isHtmlDocumentRequest(event, p)
     ) {
-      return loginHtmlResponse(config.loginHtml, event, {
+      return loginHtmlResponse(loginHtml, event, {
         includeRootAuthRedirect: true,
         requestIndependent: true,
       });
     }
-
-    const loginHtml =
-      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query. The clean
@@ -4906,6 +5002,9 @@ async function mountBetterAuthRoutes(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const previewCallbackRelay =
+          await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
+        if (previewCallbackRelay) return previewCallbackRelay;
         const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
         if (callbackRelay) return callbackRelay;
         let callbackFlowId: string | undefined;

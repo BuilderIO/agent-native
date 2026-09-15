@@ -4,8 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   decodeOAuthState,
+  decodeNetlifyPreviewGoogleOAuthRelayState,
   encodeOAuthState,
+  encodeNetlifyPreviewGoogleOAuthRelayState,
   getOAuthStateSigningKey,
+  isNetlifyPreviewGoogleOAuthCallbackUrl,
   logOAuthStateDecodeFailure,
 } from "./google-oauth.js";
 
@@ -44,6 +47,20 @@ describe("decodeOAuthState", () => {
       desktop: true,
       flowId: "flow-1",
     });
+  });
+
+  it("round-trips the signed preview relay target", () => {
+    const callbackUri =
+      "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
+    const signed = encodeOAuthState({
+      redirectUri:
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      relayTarget: callbackUri,
+    });
+
+    const result = decodeOAuthState(signed, FALLBACK_URI);
+
+    expect(result).toMatchObject({ ok: true, relayTarget: callbackUri });
   });
 
   it("rejects a state param with no HMAC delimiter", () => {
@@ -159,6 +176,48 @@ describe("decodeOAuthState", () => {
       expect((result as Record<string, unknown>).desktop).toBeUndefined();
       expect((result as Record<string, unknown>).orgId).toBeUndefined();
     }
+  });
+});
+
+describe("Netlify preview Google OAuth relay state", () => {
+  const callbackUri =
+    "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
+
+  it("wraps a signed app state for the fixed beta callback", () => {
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      callbackUri,
+      1_000,
+    );
+
+    expect(decodeNetlifyPreviewGoogleOAuthRelayState(state, 1_000)).toEqual({
+      callbackUri,
+      state: "signed-preview-state",
+    });
+  });
+
+  it("rejects expired, mutable, and unregistered callback targets", () => {
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(
+        encodeNetlifyPreviewGoogleOAuthRelayState(
+          "signed-preview-state",
+          callbackUri,
+          1_000,
+        ),
+        601_001,
+      ),
+    ).toBeNull();
+    expect(
+      isNetlifyPreviewGoogleOAuthCallbackUrl(
+        "https://deploy-preview-42--agent-native-mail.netlify.app/_agent-native/google/callback",
+      ),
+    ).toBe(false);
+    expect(() =>
+      encodeNetlifyPreviewGoogleOAuthRelayState(
+        "signed-preview-state",
+        "https://example.com/_agent-native/google/callback",
+      ),
+    ).toThrow("Invalid Netlify preview Google OAuth relay state");
   });
 });
 
