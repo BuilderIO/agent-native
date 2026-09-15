@@ -44,6 +44,7 @@ const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://crm.agent-native.com",
   "https://design.agent-native.com",
   "https://dispatch.agent-native.com",
+  "https://factory.agent-native.com",
   "https://forms.agent-native.com",
   "https://macros.agent-native.com",
   "https://mail.agent-native.com",
@@ -67,6 +68,12 @@ const CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS = new Set(
   [...CANONICAL_IDENTITY_SSO_APP_ORIGINS].filter(
     (origin) => origin !== CANONICAL_IDENTITY_SSO_HUB_URL,
   ),
+);
+const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
+  [...CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS].map((origin) => {
+    const appId = new URL(origin).hostname.split(".")[0];
+    return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -201,7 +208,7 @@ export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
     !host ||
     forwardedProtocol !== "https" ||
     !siteName ||
-    !/^agent-native-[a-z0-9-]+$/.test(siteName)
+    !NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES.has(siteName)
   ) {
     return false;
   }

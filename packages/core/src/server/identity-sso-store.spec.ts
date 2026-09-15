@@ -212,6 +212,28 @@ describe("identity SSO feature switch and request classifiers", () => {
         "http",
       ),
     ).toBe(false);
+
+    process.env.SITE_NAME = "agent-native-factory";
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        `${"b".repeat(24)}--agent-native-factory.netlify.app`,
+        "https",
+      ),
+    ).toBe(true);
+    process.env.SITE_NAME = "agent-native-starter";
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        `${"c".repeat(24)}--agent-native-starter.netlify.app`,
+        "https",
+      ),
+    ).toBe(true);
+    process.env.SITE_NAME = "agent-native-unregistered";
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        `${"d".repeat(24)}--agent-native-unregistered.netlify.app`,
+        "https",
+      ),
+    ).toBe(false);
   });
 
   it("keeps silent federation available for explicitly configured self-hosted apps", () => {

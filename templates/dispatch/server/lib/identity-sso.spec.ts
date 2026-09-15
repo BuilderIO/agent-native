@@ -257,6 +257,7 @@ describe("strict identity app registration", () => {
   it("accepts exact immutable Netlify preview callbacks for the matching app", () => {
     const deployCallback = `https://${"a".repeat(24)}--agent-native-mail.netlify.app/_agent-native/identity/callback`;
     const starterCallback = `https://${"b".repeat(24)}--agent-native-starter.netlify.app/_agent-native/identity/callback`;
+    const factoryCallback = `https://${"c".repeat(24)}--agent-native-factory.netlify.app/_agent-native/identity/callback`;
 
     expect(mod.isAllowedRedirectUri(deployCallback)).toBe(true);
     expect(
@@ -268,6 +269,13 @@ describe("strict identity app registration", () => {
     expect(
       mod.resolveIdentitySsoApp("chat", "chat", starterCallback),
     ).not.toBeNull();
+    expect(
+      mod.resolveIdentitySsoApp("factory", "factory", factoryCallback),
+    ).toMatchObject({
+      appId: "factory",
+      clientId: "factory",
+      origin: new URL(factoryCallback).origin,
+    });
     expect(
       mod.resolveIdentitySsoApp(
         "mail",
