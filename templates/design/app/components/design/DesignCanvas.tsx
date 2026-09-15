@@ -1945,6 +1945,11 @@ export function DesignCanvas({
       if (!response.ok) {
         throw new Error(`Bridge registration failed (${response.status})`);
       }
+      // coercion-ok: response.ok already confirmed the registration itself
+      // succeeded above; bridgeInstanceId is supplementary metadata for the
+      // restart-detection heuristic only (see classifyLiveEditHealthProbe),
+      // and the null/missing case below is checked explicitly, not treated
+      // as equivalent to a present value.
       const payload = (await response.json().catch(() => null)) as {
         bridgeInstanceId?: string;
       } | null;
