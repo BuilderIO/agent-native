@@ -9705,6 +9705,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(num) ? num : 0;
   }
 
+  function resolveCornerRadiusPx(value, width, height) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed.charAt(trimmed.length - 1) === "%") {
+      var pct = parseFloat(trimmed) || 0;
+      return (pct / 100) * Math.min(width, height);
+    }
+    return readPx(value);
+  }
+
+  var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
+    nw: "borderTopLeftRadius",
+    ne: "borderTopRightRadius",
+    se: "borderBottomRightRadius",
+    sw: "borderBottomLeftRadius",
+  };
+
   function readFinitePx(value) {
     if (!value || value === "auto") return null;
     var num = parseFloat(value);
@@ -10244,11 +10260,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   // Scale counterpart to mergeAbsoluteRotation: rewrites `transform`'s
   // scaleX()/scaleY() flip components to match `flipX`/`flipY`, preserving
-  // rotate() and any other function untouched. A matrix() transform is
-  // discarded and rebuilt fresh, same as mergeAbsoluteRotation's matrix case.
+  // rotate() and any other function untouched. A matrix() transform (the
+  // computed form of a class-authored rule) is reduced to its decomposed
+  // rotation via rotationFromTransform — same extraction mergeAbsoluteRotation
+  // uses — instead of being discarded outright, so a class-authored rotation
+  // isn't silently lost the moment a resize crosses zero and needs to write a
+  // flip inline.
   function mergeFlipIntoTransform(transform, flipX, flipY) {
     var base = transform && transform !== "none" ? transform : "";
-    if (/^matrix(?:3d)?\(/i.test(base.trim())) base = "";
+    if (/^matrix(?:3d)?\(/i.test(base.trim())) {
+      var angle = rotationFromTransform(base);
+      base = angle ? "rotate(" + angle + "deg)" : "";
+    }
     base = base
       .replace(/\s*scaleX\(\s*-?1\s*\)/gi, "")
       .replace(/\s*scaleY\(\s*-?1\s*\)/gi, "")
@@ -17087,20 +17110,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var radiusEl = selectedEl;
     var cs = window.getComputedStyle(radiusEl);
-    var originRadius = readPx(
-      radiusEl.style.borderTopLeftRadius || cs.borderTopLeftRadius,
+    // Each handle owns exactly one corner — Figma adjusts only the dragged
+    // corner, not all four, so 4 independent handles stay meaningful instead
+    // of behaving like a single uniform-radius control.
+    var cornerProperty =
+      CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
+    var elWidthPx = readPx(cs.width);
+    var elHeightPx = readPx(cs.height);
+    // getComputedStyle returns the COMPUTED value, so a percentage-authored
+    // radius (e.g. `border-radius: 50%` on a circular/pill element) comes
+    // back as a literal "50%" string. readPx's parseFloat would read that as
+    // the number 50 and misinterpret it as 50px, snapping the shape the
+    // instant the drag starts. Resolve it against the box's own dimensions
+    // first, same convention as CSS's own circle/pill radius authoring.
+    var originRadius = resolveCornerRadiusPx(
+      radiusEl.style[cornerProperty] || cs[cornerProperty],
+      elWidthPx,
+      elHeightPx,
     );
-    var maxRadius = Math.max(
-      0,
-      Math.min(readPx(cs.width), readPx(cs.height)) / 2,
-    );
-    var originalRadiusStyles = {
-      borderRadius: radiusEl.style.borderRadius,
-      borderTopLeftRadius: radiusEl.style.borderTopLeftRadius,
-      borderTopRightRadius: radiusEl.style.borderTopRightRadius,
-      borderBottomRightRadius: radiusEl.style.borderBottomRightRadius,
-      borderBottomLeftRadius: radiusEl.style.borderBottomLeftRadius,
-    };
+    var maxRadius = Math.max(0, Math.min(elWidthPx, elHeightPx) / 2);
+    var originalRadiusValue = radiusEl.style[cornerProperty];
     var startX = e.clientX;
     var startY = e.clientY;
     // Undo the element's own rotation so dragging toward its center always
@@ -17112,11 +17141,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var signY = corner.indexOf("n") !== -1 ? 1 : -1;
     function applyRadius(value) {
       var next = Math.max(0, Math.min(maxRadius, Math.round(value))) + "px";
-      radiusEl.style.borderRadius = next;
-      radiusEl.style.borderTopLeftRadius = next;
-      radiusEl.style.borderTopRightRadius = next;
-      radiusEl.style.borderBottomRightRadius = next;
-      radiusEl.style.borderBottomLeftRadius = next;
+      radiusEl.style[cornerProperty] = next;
     }
     function onMove(ev) {
       if (!radiusEl) return;
@@ -17138,15 +17163,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function cancelRadiusDrag() {
       cleanupRadiusDrag();
       if (radiusEl && document.documentElement.contains(radiusEl)) {
-        radiusEl.style.borderRadius = originalRadiusStyles.borderRadius;
-        radiusEl.style.borderTopLeftRadius =
-          originalRadiusStyles.borderTopLeftRadius;
-        radiusEl.style.borderTopRightRadius =
-          originalRadiusStyles.borderTopRightRadius;
-        radiusEl.style.borderBottomRightRadius =
-          originalRadiusStyles.borderBottomRightRadius;
-        radiusEl.style.borderBottomLeftRadius =
-          originalRadiusStyles.borderBottomLeftRadius;
+        radiusEl.style[cornerProperty] = originalRadiusValue;
         selectedEl = radiusEl;
         applySelectionHandleHitGeometry(radiusEl);
         refreshOverlays();
@@ -17162,13 +17179,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function onUp() {
       cleanupRadiusDrag();
       if (!radiusEl) return;
-      var styles = {
-        borderRadius: radiusEl.style.borderRadius,
-        borderTopLeftRadius: radiusEl.style.borderTopLeftRadius,
-        borderTopRightRadius: radiusEl.style.borderTopRightRadius,
-        borderBottomRightRadius: radiusEl.style.borderBottomRightRadius,
-        borderBottomLeftRadius: radiusEl.style.borderBottomLeftRadius,
-      };
+      var styles = {};
+      styles[cornerProperty] = radiusEl.style[cornerProperty];
       (window.parent as Window).postMessage(
         {
           type: "visual-style-change",

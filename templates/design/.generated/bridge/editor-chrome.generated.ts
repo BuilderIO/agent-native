@@ -7329,6 +7329,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       var num = parseFloat(value);
       return Number.isFinite(num) ? num : 0;
     }
+    function resolveCornerRadiusPx(value, width, height) {
+      var trimmed = typeof value === "string" ? value.trim() : "";
+      if (trimmed.charAt(trimmed.length - 1) === "%") {
+        var pct = parseFloat(trimmed) || 0;
+        return pct / 100 * Math.min(width, height);
+      }
+      return readPx(value);
+    }
+    var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
+      nw: "borderTopLeftRadius",
+      ne: "borderTopRightRadius",
+      se: "borderBottomRightRadius",
+      sw: "borderBottomLeftRadius"
+    };
     function readFinitePx(value) {
       if (!value || value === "auto") return null;
       var num = parseFloat(value);
@@ -7698,7 +7712,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function mergeFlipIntoTransform(transform, flipX, flipY) {
       var base = transform && transform !== "none" ? transform : "";
-      if (/^matrix(?:3d)?\\(/i.test(base.trim())) base = "";
+      if (/^matrix(?:3d)?\\(/i.test(base.trim())) {
+        var angle = rotationFromTransform(base);
+        base = angle ? "rotate(" + angle + "deg)" : "";
+      }
       base = base.replace(/\\s*scaleX\\(\\s*-?1\\s*\\)/gi, "").replace(/\\s*scaleY\\(\\s*-?1\\s*\\)/gi, "").trim();
       var suffix = (flipX ? " scaleX(-1)" : "") + (flipY ? " scaleY(-1)" : "");
       return (base + suffix).trim();
@@ -12249,20 +12266,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var radiusEl = selectedEl;
       var cs = window.getComputedStyle(radiusEl);
-      var originRadius = readPx(
-        radiusEl.style.borderTopLeftRadius || cs.borderTopLeftRadius
+      var cornerProperty = CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
+      var elWidthPx = readPx(cs.width);
+      var elHeightPx = readPx(cs.height);
+      var originRadius = resolveCornerRadiusPx(
+        radiusEl.style[cornerProperty] || cs[cornerProperty],
+        elWidthPx,
+        elHeightPx
       );
-      var maxRadius = Math.max(
-        0,
-        Math.min(readPx(cs.width), readPx(cs.height)) / 2
-      );
-      var originalRadiusStyles = {
-        borderRadius: radiusEl.style.borderRadius,
-        borderTopLeftRadius: radiusEl.style.borderTopLeftRadius,
-        borderTopRightRadius: radiusEl.style.borderTopRightRadius,
-        borderBottomRightRadius: radiusEl.style.borderBottomRightRadius,
-        borderBottomLeftRadius: radiusEl.style.borderBottomLeftRadius
-      };
+      var maxRadius = Math.max(0, Math.min(elWidthPx, elHeightPx) / 2);
+      var originalRadiusValue = radiusEl.style[cornerProperty];
       var startX = e.clientX;
       var startY = e.clientY;
       var theta = currentRotation(radiusEl) * Math.PI / 180;
@@ -12272,11 +12285,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var signY = corner.indexOf("n") !== -1 ? 1 : -1;
       function applyRadius(value) {
         var next = Math.max(0, Math.min(maxRadius, Math.round(value))) + "px";
-        radiusEl.style.borderRadius = next;
-        radiusEl.style.borderTopLeftRadius = next;
-        radiusEl.style.borderTopRightRadius = next;
-        radiusEl.style.borderBottomRightRadius = next;
-        radiusEl.style.borderBottomLeftRadius = next;
+        radiusEl.style[cornerProperty] = next;
       }
       function onMove(ev) {
         if (!radiusEl) return;
@@ -12298,11 +12307,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function cancelRadiusDrag() {
         cleanupRadiusDrag();
         if (radiusEl && document.documentElement.contains(radiusEl)) {
-          radiusEl.style.borderRadius = originalRadiusStyles.borderRadius;
-          radiusEl.style.borderTopLeftRadius = originalRadiusStyles.borderTopLeftRadius;
-          radiusEl.style.borderTopRightRadius = originalRadiusStyles.borderTopRightRadius;
-          radiusEl.style.borderBottomRightRadius = originalRadiusStyles.borderBottomRightRadius;
-          radiusEl.style.borderBottomLeftRadius = originalRadiusStyles.borderBottomLeftRadius;
+          radiusEl.style[cornerProperty] = originalRadiusValue;
           selectedEl = radiusEl;
           applySelectionHandleHitGeometry(radiusEl);
           refreshOverlays();
@@ -12318,13 +12323,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onUp() {
         cleanupRadiusDrag();
         if (!radiusEl) return;
-        var styles = {
-          borderRadius: radiusEl.style.borderRadius,
-          borderTopLeftRadius: radiusEl.style.borderTopLeftRadius,
-          borderTopRightRadius: radiusEl.style.borderTopRightRadius,
-          borderBottomRightRadius: radiusEl.style.borderBottomRightRadius,
-          borderBottomLeftRadius: radiusEl.style.borderBottomLeftRadius
-        };
+        var styles = {};
+        styles[cornerProperty] = radiusEl.style[cornerProperty];
         window.parent.postMessage(
           {
             type: "visual-style-change",
