@@ -8318,6 +8318,7 @@ describe("server/auth", () => {
           getAuthSecret: vi.fn(() => "test-auth-secret"),
           getBetterAuth: vi.fn(),
           getBetterAuthSync: vi.fn(),
+          getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
           hasBetterAuthUserEmail: vi.fn(async () => false),
           trackSignupEvent: vi.fn(async () => {}),
         }));
@@ -8422,11 +8423,15 @@ describe("server/auth", () => {
       }));
 
       const trackSignupEvent = vi.fn(async () => {});
+      const getBetterAuthUserIdForEmail = vi.fn(
+        async () => "better-auth-user-id",
+      );
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
         getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail,
         hasBetterAuthUserEmail,
         trackSignupEvent,
       }));
@@ -8458,11 +8463,14 @@ describe("server/auth", () => {
       });
 
       expect(hasBetterAuthUserEmail).toHaveBeenCalledWith("user@gmail.com");
+      expect(getBetterAuthUserIdForEmail).toHaveBeenCalledWith(
+        "user@gmail.com",
+      );
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
         origin: "google_oauth",
         signupMethod: "google",
-        authUserId: "google-user-1",
+        authUserId: "better-auth-user-id",
         email: "user@gmail.com",
         name: "Google User",
         attribution: {
@@ -8499,6 +8507,7 @@ describe("server/auth", () => {
         getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
         hasBetterAuthUserEmail,
         trackSignupEvent,
       }));
@@ -8529,7 +8538,7 @@ describe("server/auth", () => {
         authProvider: "google",
         origin: "google_oauth",
         signupMethod: "google",
-        authUserId: "google-user-1",
+        authUserId: "better-auth-user-id",
         email: "user@gmail.com",
         name: "Google User",
         attribution: {
@@ -8564,6 +8573,7 @@ describe("server/auth", () => {
         getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
         hasBetterAuthUserEmail,
         trackSignupEvent,
       }));

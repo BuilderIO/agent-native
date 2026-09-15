@@ -685,23 +685,27 @@ export async function trackFirstRunMcpOAuthEvent(
   userId: string,
 ): Promise<void> {
   if (flow.trackingFlow !== "first_run") return;
-  const { track } = await import("../tracking/registry.js");
-  track(
-    eventName,
-    {
-      flow: "first_run",
-      step_id: "tools",
-      integration_name: flow.name,
-      connection_mode: "oauth",
-      auth_mode: "oauth",
-      scope: flow.scope,
-      ...(flow.trackingIntegrationId
-        ? { integration_id: flow.trackingIntegrationId }
-        : {}),
-      ...properties,
-    },
-    { userId },
-  );
+  try {
+    const { track } = await import("../tracking/registry.js");
+    track(
+      eventName,
+      {
+        flow: "first_run",
+        step_id: "tools",
+        integration_name: flow.name,
+        connection_mode: "oauth",
+        auth_mode: "oauth",
+        scope: flow.scope,
+        ...(flow.trackingIntegrationId
+          ? { integration_id: flow.trackingIntegrationId }
+          : {}),
+        ...properties,
+      },
+      { userId },
+    );
+  } catch (error) {
+    console.warn("[mcp-oauth] first-run telemetry failed", error);
+  }
 }
 
 export function setMcpOAuthFlowCookie(

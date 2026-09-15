@@ -85,8 +85,21 @@ import {
   trackFirstRunMcpOAuthEvent,
 } from "./oauth-routes.js";
 
-const trackMock = vi.hoisted(() => vi.fn());
-vi.mock("../tracking/registry.js", () => ({ track: trackMock }));
+const trackingModuleMock = vi.hoisted(() => ({
+  shouldReject: false,
+  track: vi.fn(() => {
+    if (trackingModuleMock.shouldReject) {
+      throw new Error("tracking registry unavailable");
+    }
+  }),
+}));
+const trackMock = trackingModuleMock.track;
+vi.mock("../tracking/registry.js", () => {
+  if (trackingModuleMock.shouldReject) {
+    throw new Error("tracking registry unavailable");
+  }
+  return { track: trackingModuleMock.track };
+});
 
 describe("trusted MCP OAuth authorization scopes", () => {
   it("pins Builder Publish to its read-only scope", () => {
@@ -213,6 +226,56 @@ describe("MCP OAuth callback flow validation", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("keeps OAuth responses alive when first-run telemetry fails", async () => {
+    trackingModuleMock.shouldReject = true;
+    const warnMock = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const startRoutes: Array<{
+        handler: (event: H3Event) => unknown;
+      }> = [];
+      callbackMocks.getH3App.mockReturnValue({
+        use: (_base: string, handler: (event: H3Event) => unknown) => {
+          startRoutes.push({ handler });
+        },
+      });
+      mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+      const startEvent = mockEvent(
+        new Request(
+          "https://app.example.com/start?tracking_flow=first_run&tracking_integration_id=linear",
+        ),
+      );
+      const startResult = await startRoutes[0]!.handler(startEvent);
+
+      expect(startResult).toEqual({
+        error: "MCP OAuth requires a server name and URL.",
+      });
+      expect(startEvent.res.status).toBe(400);
+
+      const callback = await invokeCallback(
+        {
+          ...baseFlow,
+          trackingFlow: "first_run",
+          trackingIntegrationId: "linear",
+        },
+        {},
+        vi.fn().mockResolvedValue(true),
+      );
+
+      expect(callback.result).toBeInstanceOf(Response);
+      expect((callback.result as Response).status).toBe(302);
+      expect(warnMock).toHaveBeenCalledWith(
+        "[mcp-oauth] first-run telemetry failed",
+        expect.any(Error),
+      );
+    } finally {
+      warnMock.mockRestore();
+      trackingModuleMock.shouldReject = false;
+      vi.resetModules();
+    }
   });
 
   it("records first-run OAuth completion once with safe metadata", async () => {

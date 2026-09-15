@@ -34,6 +34,7 @@ import {
   setFrameworkSessionCookie,
 } from "./auth.js";
 import {
+  getBetterAuthUserIdForEmail,
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
@@ -1015,11 +1016,14 @@ export async function createOAuthSession(
       const anonymousId =
         opts.trackSignup.signupAnonymousId ??
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
+      const authUserId =
+        (await getBetterAuthUserIdForEmail(email)) ??
+        opts.trackSignup.authUserId;
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         origin: "google_oauth",
         signupMethod: "google",
-        authUserId: opts.trackSignup.authUserId,
+        authUserId,
         email,
         name: opts.trackSignup.name,
         attribution,
