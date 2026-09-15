@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { BrowserRouter, MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
 import { useSettingsPanelController } from "./useSettingsPanelController.js";
 
@@ -128,6 +129,38 @@ describe("SettingsTabsPage", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
       ),
     ).toBe(true);
+  });
+
+  it("finds the account tab for every sign-out search alias", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            account={<div>Account content</div>}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(searchInput).not.toBeNull();
+
+    for (const term of SIGN_OUT_SEARCH_TERMS) {
+      await act(async () => {
+        const valueSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        valueSetter?.call(searchInput, term);
+        searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(
+        container.querySelector('[role="listbox"]')?.textContent,
+      ).toContain("Account");
+    }
   });
 
   it("centers the content panel while keeping the navigation rail compact", () => {

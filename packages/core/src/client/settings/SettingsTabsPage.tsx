@@ -27,6 +27,7 @@ import {
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
 import { LabsSettings } from "../labs/LabsSettings.js";
+import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
@@ -376,7 +377,10 @@ function SettingsTabsPageContent({
         label: accountLabel,
         icon: IconUserCircle,
         content: account,
-        keywords: "profile photo avatar identity signed in email name",
+        keywords: [
+          "profile photo avatar identity signed in email name",
+          ...SIGN_OUT_SEARCH_TERMS,
+        ].join(" "),
       });
     }
     next.push(...inlineTabs);
