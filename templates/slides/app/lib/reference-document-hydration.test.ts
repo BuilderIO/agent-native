@@ -418,4 +418,45 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).toContain("filled the reference budget");
     expect(result.measuredDesignCount).toBe(0);
   });
+
+  it("keeps a small reference that still fits the remaining budget", async () => {
+    // Leaves a remainder under the partial-block floor but above this
+    // reference's own size.
+    const filler = "x".repeat(11_750);
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_action: string, input: { filePath: string }) =>
+          input.filePath.includes("tiny")
+            ? {
+                format: "docx",
+                sections: [{ heading: "Scope", textPreview: "One line" }],
+                textLength: 40,
+              }
+            : {
+                format: "pdf",
+                pageCount: 1,
+                textPageCount: 1,
+                pages: [{ pageNum: 1, text: filler }],
+              },
+      );
+
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("filler-0.pdf"),
+        uploaded("filler-1.pdf"),
+        uploaded("filler-2.pdf"),
+        uploaded("tiny.docx"),
+      ],
+      { callActionImpl },
+    );
+
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated") return;
+    // The remainder is under the partial-block floor, but this block needs no
+    // truncation at all, so dropping it would discard content that fit.
+    expect(result.context).toContain("Scope: One line");
+    expect(result.context).not.toContain("### tiny.docx\nRead successfully");
+    expect(result.context).not.toContain("[truncated]");
+  });
 });

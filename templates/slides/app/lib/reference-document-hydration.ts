@@ -356,13 +356,13 @@ export async function hydrateReferenceDocuments(
   let measuredDesignCount = 0;
   for (const outcome of outcomes) {
     if (outcome.status !== "read") continue;
-    if (budget.remaining < MIN_PARTIAL_REFERENCE_CHARS) {
+    const fitsWhole = outcome.block.length <= budget.remaining;
+    if (!fitsWhole && budget.remaining < MIN_PARTIAL_REFERENCE_CHARS) {
       blocks.push(
         `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
       );
       continue;
     }
-    const fitsWhole = outcome.block.length <= budget.remaining;
     const block = truncate(outcome.block, budget.remaining);
     budget.remaining -= block.length;
     // A clipped block has to say so in the same words as a dropped one, or
