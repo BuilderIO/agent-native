@@ -2,11 +2,11 @@
   "pr": 5028,
   "owner_thread": "01a0a1ec-3c45-7600-91b5-d98e550b00f5",
   "owner_host": "local",
-  "version": 68,
+  "version": 69,
   "created_at": "2026-09-15T06:47:11.000Z",
-  "expires_at": "2026-09-15T10:58:33.974Z",
+  "expires_at": "2026-09-15T11:05:14.393Z",
   "observed_legacy_heartbeat_version": "absent",
   "legacy_retired": true,
   "released": false,
-  "renewed_at": "2026-09-15T10:48:33.973Z"
+  "renewed_at": "2026-09-15T10:55:14.392Z"
 }
