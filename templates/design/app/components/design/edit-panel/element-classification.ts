@@ -470,10 +470,13 @@ export function inferElementSizing(
   const styles = element.computedStyles;
   const property = axis === "horizontal" ? "width" : "height";
   // Computed width/height are always pixels, including for `auto`,
-  // `fit-content`, and percentage values. Prefer the authored inline value
-  // when available so the Inspector preserves the user's sizing intent
-  // instead of relabeling a Hug/Fill layer as Fixed after layout resolves.
-  const authoredSize = element.inlineStyles?.[property]?.trim().toLowerCase();
+  // `fit-content`, and percentage values. Prefer the bridge's winning CSS
+  // Typed OM value so a stylesheet `!important` declaration cannot be hidden
+  // by stale inline intent; inline styles remain the fallback for older
+  // payloads and the only writeable source.
+  const authoredSize =
+    element.authoredSizeStyles?.[property]?.trim().toLowerCase() ||
+    element.inlineStyles?.[property]?.trim().toLowerCase();
   const hasAuthoredSize = Boolean(authoredSize);
   const size = authoredSize || styles[property];
   const parentDirection = parentFlexDirection(element);
@@ -490,13 +493,14 @@ export function inferElementSizing(
   ) {
     return "fill";
   }
-  // A selection payload with inlineStyles has a source-level answer for the
-  // property even when the property is absent. An auto-layout container with
-  // no authored dimension hugs its contents; its computed px measurement is
-  // only the browser's resolved result. Older/hover payloads omit
-  // inlineStyles, so keep their conservative computed-style fallback.
+  // A supported native size snapshot answers the authored sizing question even
+  // when the browser resolved the value to px. If that API is unavailable, an
+  // absent inline declaration is not evidence of Hug: a class or inherited
+  // rule may have supplied a fixed size. Only use this fallback when a
+  // supported snapshot exists but omitted this property.
   if (
     !hasAuthoredSize &&
+    element.authoredSizeStyles !== undefined &&
     element.inlineStyles !== undefined &&
     (element.isFlexContainer || element.isGridContainer)
   ) {

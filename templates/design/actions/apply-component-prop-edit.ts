@@ -65,13 +65,12 @@ import type {
   WrapNodesEditIntent,
 } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
-import {
-  componentDeletionGeometrySchema,
-  type ComponentDeletionGeometry,
-} from "../shared/component-archive.js";
+import { componentDeletionGeometrySchema } from "../shared/component-archive.js";
 import {
   applyComponentStructureEdit,
+  applyComponentStructureIntent,
   applyComponentPropertyEdit,
+  applyComponentStyleTargetsEdit,
   linkedComponentRootForNode,
   resetComponentInstanceOverrides,
   type ComponentPropertyEdit,
@@ -107,25 +106,6 @@ type ComponentStructureEdit =
       selectionNodeIds?: string[];
     }
   | { kind: "structure"; intents: SupportedStructureIntent[] };
-
-type ComponentArchiveEdit =
-  | { kind: "deleteMain"; deletionGeometry?: ComponentDeletionGeometry }
-  | { kind: "restoreMain" };
-
-type LinkedComponentEdit =
-  | ComponentPropertyEdit
-  | { kind: "styleBatch"; values: Record<string, string> }
-  | {
-      kind: "styleTargetsBatch";
-      targets: Array<{
-        fileId: string;
-        nodeId: string;
-        styles: Record<string, string>;
-      }>;
-    }
-  | { kind: "resetOverrides" }
-  | ComponentStructureEdit
-  | ComponentArchiveEdit;
 
 interface LinkedComponentSelection {
   fileId: string;
@@ -515,6 +495,7 @@ async function persistLinkedComponentEdit(args: {
     args.expectedFiles.map(({ fileId, versionHash }) => [fileId, versionHash]),
   );
   if (
+    expected.size !== args.expectedFiles.length ||
     expected.size !== files.length ||
     files.some((file) => !expected.has(file.id))
   ) {
@@ -611,115 +592,10 @@ async function persistLinkedComponentEdit(args: {
       };
     }
   } else if (args.edit.kind === "styleTargetsBatch") {
-    let currentDocuments = documents;
-    let componentId = "";
-    for (const target of args.edit.targets) {
-      const targetDocument = currentDocuments.find(
-        (document) => document.source.fileId === target.fileId,
-      );
-      if (!targetDocument) {
-        transformed = { status: "missing-file", fileId: target.fileId };
-        break;
-      }
-      const projection = buildCodeLayerProjection(targetDocument.content, {
-        source: targetDocument.source,
-      });
-      const node = projection.nodes.find((candidate) =>
-        componentNodeIdMatches(candidate, target.nodeId),
-      );
-      if (!node) {
-        transformed = {
-          status: "missing-node",
-          fileId: target.fileId,
-          nodeId: target.nodeId,
-        };
-        break;
-      }
-      const linked = linkedComponentRootForNode(node, projection) !== null;
-      for (const [property, value] of Object.entries(target.styles)) {
-        if (linked) {
-          const next = applyComponentPropertyEdit({
-            documents: currentDocuments,
-            target: { fileId: target.fileId, nodeId: target.nodeId },
-            edit: { kind: "style", property, value },
-          });
-          if (next.status !== "updated") {
-            transformed = next;
-            break;
-          }
-          componentId = next.componentId;
-          const changesByFileId = new Map(
-            next.changes.map((change) => [change.fileId, change.after]),
-          );
-          currentDocuments = currentDocuments.map((document) => ({
-            ...document,
-            content:
-              changesByFileId.get(document.source.fileId ?? "") ??
-              document.content,
-          }));
-        } else {
-          const targetSource = currentDocuments.find(
-            (document) => document.source.fileId === target.fileId,
-          )!;
-          const patch = applyVisualEdit(
-            targetSource.content,
-            {
-              kind: "style",
-              target: { nodeId: target.nodeId },
-              property,
-              value,
-            },
-            { source: targetSource.source },
-          );
-          if (patch.result.status !== "applied") {
-            transformed = {
-              status: "edit-refused",
-              fileId: target.fileId,
-              nodeId: target.nodeId,
-              message: patch.result.message,
-            };
-            break;
-          }
-          currentDocuments = currentDocuments.map((document) =>
-            document.source.fileId === target.fileId
-              ? { ...document, content: patch.content }
-              : document,
-          );
-        }
-      }
-      if (transformed) break;
-    }
-    if (!transformed && !componentId) {
-      const firstTarget = args.edit.targets[0];
-      transformed = {
-        status: "not-linked",
-        fileId: firstTarget?.fileId,
-        nodeId: firstTarget?.nodeId,
-      };
-    }
-    if (!transformed) {
-      const originalByFileId = new Map(
-        documents.map((document) => [document.source.fileId!, document]),
-      );
-      transformed = {
-        status: "updated",
-        componentId,
-        changes: currentDocuments.flatMap((document) => {
-          const fileId = document.source.fileId ?? "";
-          const before = originalByFileId.get(fileId)?.content;
-          return before === undefined || before === document.content
-            ? []
-            : [
-                {
-                  fileId,
-                  source: document.source,
-                  before,
-                  after: document.content,
-                },
-              ];
-        }),
-      };
-    }
+    transformed = applyComponentStyleTargetsEdit({
+      documents,
+      targets: args.edit.targets,
+    });
   } else if (args.edit.kind === "structure") {
     const targetDocument = documents.find(
       (document) => document.source.fileId === args.fileId,
@@ -736,26 +612,10 @@ async function persistLinkedComponentEdit(args: {
         const beforeProjection = buildCodeLayerProjection(mainAfter, {
           source: targetDocument.source,
         });
-        const patchIntent: EditIntent =
-          intent.kind === "style" && (intent.operation ?? "set") === "remove"
-            ? {
-                kind: "style",
-                operation: "remove",
-                target: intent.target,
-                property: intent.property,
-              }
-            : intent.kind === "style"
-              ? {
-                  kind: "style",
-                  operation: "set",
-                  target: intent.target,
-                  property: intent.property,
-                  value: "value" in intent ? intent.value : "",
-                }
-              : intent;
-        const patch = applyVisualEdit(mainAfter, patchIntent, {
+        const patch = applyComponentStructureIntent({
+          content: mainAfter,
+          intent,
           source: targetDocument.source,
-          allowMainComponentStructure: true,
         });
         if (patch.result.status !== "applied") {
           transformed = {

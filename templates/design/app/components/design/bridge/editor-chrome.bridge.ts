@@ -2022,6 +2022,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
+  // Portable clone styling retains its marker after persistence. The marker
+  // alone therefore means "clone-shaped", not "runtime-only": a source
+  // document reload stamps its nodes with __anSource, while an optimistic
+  // board insertion remains unclaimed until that source round trip completes.
+  function isRuntimeOnlyClone(el: Element): boolean {
+    return (
+      el.getAttribute("data-agent-native-clone-root") === "true" &&
+      !isSourceOwned(el)
+    );
+  }
+
   // Alpine inserts x-for and x-if instances as direct siblings of their
   // template. Use Alpine's own ownership references rather than guessing from
   // copied IDs, tag shape, or sibling position: any of those can also describe
@@ -3034,6 +3045,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return styles;
   }
 
+  // CSS Typed OM keeps sizing keywords and authored units intact where
+  // getComputedStyle() resolves them to pixels: `auto`, `fit-content`, and
+  // `100%` remain distinguishable from an explicit pixel dimension. This is a
+  // read-only hint for the Inspector; stylesheet values are never write
+  // targets.
+  function collectAuthoredSizeStyles(
+    el: Element,
+  ): Record<string, string> | undefined {
+    var computedStyleMap = (
+      el as Element & {
+        computedStyleMap?: () => { get(property: string): unknown };
+      }
+    ).computedStyleMap;
+    if (typeof computedStyleMap !== "function") return undefined;
+    var map = computedStyleMap.call(el);
+    var styles: Record<string, string> = {};
+    ["width", "height"].forEach(function (property) {
+      var value = map.get(property);
+      if (value == null) return;
+      var cssText = String(value).trim();
+      if (cssText) styles[property] = cssText;
+    });
+    return styles;
+  }
+
   var liveVisualEditOriginalInlineStyles =
     typeof WeakMap !== "undefined"
       ? new WeakMap<Element, Record<string, string>>()
@@ -3454,11 +3490,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var parentStyles = designParent
       ? window.getComputedStyle(designParent)
       : null;
+    var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
+    // A board copy has a fresh live id so selection can target it, but that
+    // id is not source ownership until the host projects/persists the copy.
+    // Keep those identities separate: sourceId remains write-safe while the
+    // runtime pair lets host chrome match this exact live clone.
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     // Id-on-demand (empty-node-id fix, bridge side): AI-generated screens
     // frequently ship with NO data-agent-native-node-id anywhere, which
     // breaks every id-keyed operation host-side ("Could not move that
@@ -3550,6 +3595,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
       repeat: repeatInstanceInfo(el) || undefined,
       hasOwnText: hasOwnTextContent(el),
       wholeTextStyleRoot: isWholeTextStyleRoot(el),
@@ -3558,6 +3605,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       classes: Array.from(el.classList),
       computedStyles: collectElementComputedStyles(el, cs, paintCs),
       inlineStyles: collectElementInlineStyles(el),
+      authoredSizeStyles: authoredSizeStyles,
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
       isGroup: el.getAttribute("data-agent-native-group") === "true",
       vectorStrokeCanAlign: vectorStrokeCanAlign(el),
@@ -3636,10 +3684,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): unknown {
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     var parentStyles = el.parentElement
       ? window.getComputedStyle(el.parentElement)
       : null;
@@ -3666,6 +3718,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
       pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
@@ -4395,6 +4449,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
+    candidateBounds?: ReturnType<typeof selectableBounds>[];
+    lastReportedElements?: Element[];
     move: string;
     up: string;
     onMove: (ev: MouseEvent) => void;
@@ -8947,12 +9003,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e,
     final?: boolean,
   ): void {
+    var primaryIndex = elements.length - 1;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
-        payload: elements.map(function (el) {
-          return getElementInfo(el);
+        // Multi-selection consumers need identity for every hit, but only the
+        // primary (last) item drives the inspector. Avoid building computed
+        // styles and portable snapshots for every sibling on every drag tick.
+        payload: elements.map(function (el, index) {
+          return index === primaryIndex
+            ? getElementInfo(el)
+            : getLightElementInfo(el, true);
         }),
         intent: {
           additive: additive,
@@ -8988,13 +9050,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     // Collected once per gesture: this runs on every pointermove, and a
     // generated screen can hold thousands of nodes.
-    if (!activeMarqueeSelection.candidates) {
-      activeMarqueeSelection.candidates = collectSelectableElements(
-        activeMarqueeSelection.deep,
-      );
+    var candidates = activeMarqueeSelection.candidates;
+    if (!candidates) {
+      candidates = collectSelectableElements(activeMarqueeSelection.deep);
+      activeMarqueeSelection.candidates = candidates;
+      // ponytail: snapshot bounds for this gesture; recompute per frame if
+      // animated or scrolling targets ever need live marquee tracking.
+      activeMarqueeSelection.candidateBounds = candidates.map(selectableBounds);
     }
-    var hitElements = activeMarqueeSelection.candidates.filter(function (el) {
-      var bounds = selectableBounds(el);
+    var candidateBounds = activeMarqueeSelection.candidateBounds!;
+    var hitElements = candidates.filter(function (_el, index) {
+      var bounds = candidateBounds[index];
       // A candidate that encloses the band is the container being banded
       // inside, not something aimed at: sweeping it in selects the whole
       // screen and every later drag moves everything.
@@ -9022,6 +9088,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
+    // The host also dedupes unchanged hit sets, but doing it after postMessage
+    // still pays to serialize every selection payload. Skip identical live
+    // ticks here; mouseup must always send the final packet for undo history.
+    var lastReported = activeMarqueeSelection.lastReportedElements;
+    var sameHitSet =
+      !!lastReported &&
+      lastReported.length === hitElements.length &&
+      hitElements.every(function (el, index) {
+        return lastReported![index] === el;
+      });
+    if (!final && sameHitSet) return;
+    activeMarqueeSelection.lastReportedElements = hitElements;
     postElementMarqueeSelect(
       hitElements,
       activeMarqueeSelection.additive,

@@ -1,5 +1,14 @@
 import type { EditIntent } from "@shared/code-layer";
 import type { ComponentDeletionGeometry } from "@shared/component-archive";
+import {
+  applyComponentPropertyEdit,
+  applyComponentStructureIntent,
+  applyComponentStructureEdit,
+  applyComponentStyleTargetsEdit,
+  resetComponentInstanceOverrides,
+  type ComponentPropertyEdit,
+  type ComponentSourceDocument,
+} from "@shared/component-links";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { RefObject } from "react";
 
@@ -86,9 +95,16 @@ export interface LinkedComponentMutationQueueArgs {
   fileIds: () => string[];
   getContent: (fileId: string) => string;
   getSourceBaseContent: (fileId: string) => string;
+  projectEdit?: (
+    fileId: string,
+    nodeId: string,
+    edit: LinkedComponentEdit,
+    contentByFileId: ReadonlyMap<string, string>,
+  ) => ReadonlyMap<string, string> | null;
   canonicalizeSourceContent: (fileId: string, content: string) => string;
   flushPendingSaves: () => void;
   hasPendingSave: (fileId: string) => boolean;
+  getPendingSave: (fileId: string) => FileContentSaveRequest | undefined;
   fileSaveChainsRef: RefObject<Record<string, Promise<void>>>;
   pendingFileSavesRef: RefObject<Record<string, FileContentSaveRequest>>;
   invokeAction: (
@@ -108,6 +124,7 @@ export interface LinkedComponentMutationQueueArgs {
   applySelection?: (
     selection: NonNullable<LinkedComponentActionResult["selection"]>,
   ) => GeometryHistorySelection | void;
+  getCurrentSelection: () => GeometryHistorySelection;
   reserveContentHistory: (
     selectionBefore?: GeometryHistorySelection,
   ) => ContentHistoryReservation;
@@ -115,6 +132,106 @@ export interface LinkedComponentMutationQueueArgs {
   syncUndoRedoState: () => void;
   refreshAfterConflict: () => void | Promise<unknown>;
   reportFailure: (message: string) => void;
+}
+
+export function projectLinkedComponentPropertyEdit(args: {
+  documents: readonly ComponentSourceDocument[];
+  fileId: string;
+  nodeId: string;
+  edit: LinkedComponentEdit;
+}): ReadonlyMap<string, string> | null {
+  const projectChanges = (
+    changes: readonly { fileId: string; after: string }[],
+  ) => {
+    const changed = new Map(
+      changes.map((change) => [change.fileId, change.after]),
+    );
+    return new Map(
+      args.documents.map((document) => [
+        document.source.fileId ?? "",
+        changed.get(document.source.fileId ?? "") ?? document.content,
+      ]),
+    );
+  };
+  if (args.edit.kind === "styleTargetsBatch") {
+    const result = applyComponentStyleTargetsEdit({
+      documents: args.documents,
+      targets: args.edit.targets,
+    });
+    if (result.status !== "updated") return null;
+    return projectChanges(result.changes);
+  }
+  if (args.edit.kind === "resetOverrides") {
+    const result = resetComponentInstanceOverrides({
+      documents: args.documents,
+      instance: { fileId: args.fileId, nodeId: args.nodeId },
+    });
+    return result.status === "updated" ? projectChanges(result.changes) : null;
+  }
+  if (args.edit.kind === "structure") {
+    const targetDocument = args.documents.find(
+      (document) => document.source.fileId === args.fileId,
+    );
+    if (!targetDocument) return null;
+    const mainBefore =
+      "before" in args.edit ? args.edit.before : targetDocument.content;
+    let mainAfter =
+      "after" in args.edit ? args.edit.after : targetDocument.content;
+    if ("intents" in args.edit) {
+      for (const intent of args.edit.intents) {
+        const patch = applyComponentStructureIntent({
+          content: mainAfter,
+          intent,
+          source: targetDocument.source,
+        });
+        if (patch.result.status !== "applied") return null;
+        mainAfter = patch.content;
+      }
+    }
+    const result = applyComponentStructureEdit({
+      documents: args.documents,
+      target: { fileId: args.fileId, nodeId: args.nodeId },
+      mainBefore,
+      mainAfter,
+    });
+    return result.status === "updated" ? projectChanges(result.changes) : null;
+  }
+  const edits: ComponentPropertyEdit[] =
+    args.edit.kind === "styleBatch"
+      ? Object.entries(args.edit.values).map(([property, value]) => ({
+          kind: "style" as const,
+          property,
+          value,
+        }))
+      : args.edit.kind === "style" ||
+          args.edit.kind === "textContent" ||
+          args.edit.kind === "layerName"
+        ? [args.edit]
+        : [];
+  if (edits.length === 0) return null;
+
+  let documents = [...args.documents];
+  for (const edit of edits) {
+    const result = applyComponentPropertyEdit({
+      documents,
+      target: { fileId: args.fileId, nodeId: args.nodeId },
+      edit,
+    });
+    if (result.status !== "updated") return null;
+    const changed = new Map(
+      result.changes.map((change) => [change.fileId, change.after]),
+    );
+    documents = documents.map((document) => ({
+      ...document,
+      content: changed.get(document.source.fileId ?? "") ?? document.content,
+    }));
+  }
+  return new Map(
+    documents.map((document) => [
+      document.source.fileId ?? "",
+      document.content,
+    ]),
+  );
 }
 
 export interface LinkedComponentSourceMutationRequest<
@@ -295,10 +412,31 @@ function validateActionSelection(
   };
 }
 
+function assertResponseMatchesProjection(
+  batch: QueueBatch,
+  changes: readonly LinkedComponentActionChange[],
+  projected?: ReadonlyMap<string, string> | null,
+): void {
+  if (!projected) return;
+  const changedById = new Map(changes.map((change) => [change.fileId, change]));
+  if (
+    batch.fileIds.some(
+      (fileId) =>
+        projected.get(fileId) !==
+        (changedById.get(fileId)?.after ?? batch.content.get(fileId)),
+    )
+  ) {
+    throw new Error(
+      "The linked component action did not match its projected source update.",
+    );
+  }
+}
+
 function assertEditorSourceUnchanged(
   args: LinkedComponentMutationQueueArgs,
   batch: QueueBatch,
   allowedResponseChanges: readonly LinkedComponentActionChange[] = [],
+  projectedContent?: ReadonlyMap<string, string> | null,
 ): void {
   const allowedSourceContent = new Map<string, Set<string>>();
   for (const fileId of batch.fileIds) {
@@ -315,6 +453,18 @@ function assertEditorSourceUnchanged(
   }
   if (
     batch.fileIds.some((fileId) => {
+      const pendingSave = args.getPendingSave(fileId);
+      const projected = projectedContent?.get(fileId);
+      const projectedHash =
+        projected === undefined ? undefined : sourceContentHash(projected);
+      const causallyComposedPendingSave = Boolean(
+        pendingSave &&
+        projected !== undefined &&
+        pendingSave.expectedVersionHash === projectedHash &&
+        args.getContent(fileId) ===
+          args.canonicalizeSourceContent(fileId, pendingSave.content),
+      );
+      if (causallyComposedPendingSave) return false;
       const acceptedSource = allowedSourceContent.get(fileId)!;
       const sourceContent = args.getSourceBaseContent(fileId);
       const sourceAccepted = acceptedSource.has(sourceContent);
@@ -338,6 +488,58 @@ function assertEditorSourceUnchanged(
       "A newer editor change arrived during the linked component edit. Refresh the design and retry.",
     );
   }
+}
+
+function selectionRecordEquals(
+  left?: Record<string, string>,
+  right?: Record<string, string>,
+): boolean {
+  if (!left || !right) return left === right;
+  return Object.entries(right).every(([key, value]) => left[key] === value);
+}
+
+function selectionEquals(
+  left: GeometryHistorySelection,
+  right: GeometryHistorySelection,
+): boolean {
+  return (
+    left.activeFileId === right.activeFileId &&
+    left.selectedLayerIds.length === right.selectedLayerIds.length &&
+    left.selectedLayerIds.every(
+      (nodeId, index) => nodeId === right.selectedLayerIds[index],
+    ) &&
+    left.overviewSelectedScreenIds.length ===
+      right.overviewSelectedScreenIds.length &&
+    left.overviewSelectedScreenIds.every(
+      (fileId, index) => fileId === right.overviewSelectedScreenIds[index],
+    ) &&
+    selectionRecordEquals(
+      left.sourceContentByFileId,
+      right.sourceContentByFileId,
+    ) &&
+    selectionRecordEquals(left.sourceFileIdByFileId, right.sourceFileIdByFileId)
+  );
+}
+
+function selectionAfterChanges(
+  selection: GeometryHistorySelection,
+  changes: readonly LinkedComponentActionChange[],
+  canonicalize: (fileId: string, content: string) => string,
+): GeometryHistorySelection {
+  if (!selection.sourceContentByFileId) return selection;
+  const changedByFileId = new Map(
+    changes.map((change) => [change.fileId, change.after]),
+  );
+  const sourceContentByFileId = Object.fromEntries(
+    Object.entries(selection.sourceContentByFileId).map(([fileId, content]) => {
+      const changed = changedByFileId.get(fileId);
+      return [
+        fileId,
+        changed === undefined ? content : canonicalize(fileId, changed),
+      ];
+    }),
+  );
+  return { ...selection, sourceContentByFileId };
 }
 
 function createBatch(
@@ -380,15 +582,18 @@ export function createLinkedComponentMutationQueue(
   let batch: QueueBatch | null = null;
   let failure: Error | null = null;
   let observing = false;
+  let unprojected = 0;
   let externalCheckpoints: Array<{
     change: ContentHistoryChange;
     record: () => void;
   }> = [];
   const acknowledgedContent = new Map<string, string>();
+  const projectedContent = new Map<string, string>();
 
   const releaseBatch = () => {
     batch?.gates.release();
     batch = null;
+    projectedContent.clear();
   };
   const startBatch = async (): Promise<QueueBatch> => {
     const fileIds = [...new Set(args.fileIds())].sort();
@@ -458,10 +663,11 @@ export function createLinkedComponentMutationQueue(
     >;
   };
   const runQueuedMutation = async <TResult extends LinkedComponentActionResult>(
-    selectionBefore: GeometryHistorySelection | undefined,
+    selectionBefore: GeometryHistorySelection,
     reservationRef: { current: ContentHistoryReservation | undefined },
     prepare: (activeBatch: QueueBatch) => Promise<MutationPreparation<TResult>>,
-    onApplied?: () => void,
+    onApplied?: () => void, // i18n-ignore TypeScript callback signature, not UI copy
+    projected?: ReadonlyMap<string, string> | null,
   ): Promise<LinkedComponentSourceMutationOutcome<TResult>> => {
     let changes: LinkedComponentActionChange[] = [];
     let confirmed = false;
@@ -469,7 +675,7 @@ export function createLinkedComponentMutationQueue(
       if (failure) throw failure;
       reservationRef.current ??= args.reserveContentHistory(selectionBefore);
       const activeBatch = (batch ??= await startBatch());
-      assertEditorSourceUnchanged(args, activeBatch);
+      assertEditorSourceUnchanged(args, activeBatch, [], projectedContent);
       observing = true;
       const preparation = await prepare(activeBatch);
       changes = preparation.changes;
@@ -487,6 +693,7 @@ export function createLinkedComponentMutationQueue(
           change.fileId,
           args.canonicalizeSourceContent(change.fileId, change.after),
         );
+      assertResponseMatchesProjection(activeBatch, changes, projected);
       const historyChanges = changes.map(({ fileId, before, after }) => ({
         fileId,
         before: args.canonicalizeSourceContent(fileId, before),
@@ -499,11 +706,24 @@ export function createLinkedComponentMutationQueue(
         activeBatch,
         preparation.result.selection,
       );
-      assertEditorSourceUnchanged(args, activeBatch, changes);
+      assertEditorSourceUnchanged(args, activeBatch, changes, projectedContent);
       await args.waitForHostWrites(activeBatch.fileIds);
-      assertEditorSourceUnchanged(args, activeBatch, changes);
+      assertEditorSourceUnchanged(args, activeBatch, changes, projectedContent);
       let hostSync: "accepted" | "deferred" = "accepted";
       for (const change of changes) {
+        const pendingSave = args.getPendingSave(change.fileId);
+        const latestProjected = projectedContent.get(change.fileId);
+        if (
+          pendingSave &&
+          latestProjected !== undefined &&
+          pendingSave.expectedVersionHash ===
+            sourceContentHash(latestProjected) &&
+          args.getContent(change.fileId) ===
+            args.canonicalizeSourceContent(change.fileId, pendingSave.content)
+        ) {
+          activeBatch.content.set(change.fileId, change.after);
+          continue;
+        }
         const applied = args.applyFileContentUpdate(
           change.fileId,
           change.after,
@@ -534,7 +754,18 @@ export function createLinkedComponentMutationQueue(
         activeBatch.content.set(change.fileId, change.after);
       }
       activeBatch.sourceBases = preparation.nextSourceBases;
-      if (selection && args.applySelection) {
+      if (
+        selection &&
+        args.applySelection &&
+        selectionEquals(
+          args.getCurrentSelection(),
+          selectionAfterChanges(
+            selectionBefore,
+            changes,
+            args.canonicalizeSourceContent,
+          ),
+        )
+      ) {
         const selectionAfter = args.applySelection(selection);
         if (selectionAfter) {
           // Keep the reservation's pre-action selection for Undo while
@@ -581,6 +812,8 @@ export function createLinkedComponentMutationQueue(
   };
   return {
     hasPending: () => queued > 0,
+    blocksLocalContentEdits: () => unprojected > 0,
+    getProjectedContent: (fileId: string) => projectedContent.get(fileId),
     interceptExternalCheckpoint: (
       change: ContentHistoryChange,
       record: () => void,
@@ -598,17 +831,40 @@ export function createLinkedComponentMutationQueue(
       selectionBefore?: GeometryHistorySelection,
       onApplied?: () => void,
     ): Promise<void> => {
+      const selectionAtEnqueue = selectionBefore ?? args.getCurrentSelection();
+      const fileIds = [...new Set(args.fileIds())].sort();
+      const projected =
+        unprojected > 0
+          ? null
+          : args.projectEdit?.(
+              fileId,
+              nodeId,
+              edit,
+              new Map(
+                fileIds.map((id) => [
+                  id,
+                  projectedContent.get(id) ?? args.getContent(id),
+                ]),
+              ),
+            );
+      if (projected) {
+        for (const [id, content] of projected) {
+          if (fileIds.includes(id)) projectedContent.set(id, content);
+        }
+      } else {
+        unprojected += 1;
+      }
       // Edits after an Undo barrier reserve only after that Undo has consumed its entry.
       const reservationRef = {
         current:
           barriers === 0
-            ? args.reserveContentHistory(selectionBefore)
+            ? args.reserveContentHistory(selectionAtEnqueue)
             : undefined,
       };
       if (queued === 0) failure = null;
       return schedule(() =>
         runQueuedMutation(
-          selectionBefore,
+          selectionAtEnqueue,
           reservationRef,
           async (activeBatch) => {
             const result = await args.invokeAction({
@@ -632,22 +888,29 @@ export function createLinkedComponentMutationQueue(
             };
           },
           onApplied,
+          projected,
         ),
-      ).then(() => undefined);
+      )
+        .finally(() => {
+          if (!projected) unprojected -= 1;
+        })
+        .then(() => undefined);
     },
     enqueueSourceMutation: <TResult extends LinkedComponentActionResult>(
       request: LinkedComponentSourceMutationRequest<TResult>,
     ): Promise<LinkedComponentSourceMutationOutcome<TResult>> => {
+      const selectionAtEnqueue =
+        request.selectionBefore ?? args.getCurrentSelection();
       const reservationRef = {
         current:
           barriers === 0
-            ? args.reserveContentHistory(request.selectionBefore)
+            ? args.reserveContentHistory(selectionAtEnqueue)
             : undefined,
       };
       if (queued === 0) failure = null;
       return schedule(() =>
         runQueuedMutation(
-          request.selectionBefore,
+          selectionAtEnqueue,
           reservationRef,
           async (activeBatch) => {
             const before = activeBatch.content.get(request.fileId);

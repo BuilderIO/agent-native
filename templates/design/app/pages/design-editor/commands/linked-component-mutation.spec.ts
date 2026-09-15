@@ -7,6 +7,7 @@ import { reserveLinkedComponentContentHistory } from "@/pages/design-editor/hist
 
 import {
   createLinkedComponentMutationQueue,
+  projectLinkedComponentPropertyEdit,
   type LinkedComponentActionResult,
   type LinkedComponentEditPayload,
   type LinkedComponentMutationQueueArgs,
@@ -72,10 +73,17 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
     canonicalizeSourceContent: (_fileId, source) => source,
     flushPendingSaves: vi.fn(),
     hasPendingSave: () => false,
+    getPendingSave: (fileId) => pendingFileSavesRef.current[fileId],
     fileSaveChainsRef,
     pendingFileSavesRef,
     invokeAction: vi.fn(async () => ({ persisted: false })),
     applyFileContentUpdate,
+    getCurrentSelection: () => ({
+      activeFileId: "file-copy",
+      selectedLayerIds: ["copy-root"],
+      overviewSelectedScreenIds: [],
+      sourceContentByFileId: Object.fromEntries(content),
+    }),
     reserveContentHistory: () => ({
       commit: (changes, selectionAfter) =>
         recordContentHistoryEntry({
@@ -101,6 +109,166 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
 }
 
 describe("linked component mutation queue", () => {
+  it("projects a mixed linked and plain target batch with the server transform", () => {
+    const mainContent =
+      '<section data-agent-native-node-id="main-root" data-agent-native-component="Button" data-agent-native-component-id="button"><span data-agent-native-node-id="main-label" style="color: blue">Play</span></section><div data-agent-native-node-id="plain-target" style="color: black">Plain</div>';
+    const copyContent =
+      '<section data-agent-native-node-id="copy-root" data-agent-native-component-ref="button"><span data-agent-native-node-id="copy-label" data-agent-native-component-source-node-id="main-label" style="color: blue">Play</span></section>';
+    const projected = projectLinkedComponentPropertyEdit({
+      documents: [
+        {
+          source: {
+            kind: "design-file",
+            designId: "design-1",
+            fileId: "main-file",
+            filename: "main.html",
+          },
+          content: mainContent,
+        },
+        {
+          source: {
+            kind: "design-file",
+            designId: "design-1",
+            fileId: "copy-file",
+            filename: "copy.html",
+          },
+          content: copyContent,
+        },
+      ],
+      fileId: "main-file",
+      nodeId: "main-label",
+      edit: {
+        kind: "styleTargetsBatch",
+        targets: [
+          {
+            fileId: "main-file",
+            nodeId: "main-label",
+            styles: { color: "orange" },
+          },
+          {
+            fileId: "main-file",
+            nodeId: "plain-target",
+            styles: { opacity: "0.5" },
+          },
+        ],
+      },
+    });
+
+    expect(projected?.get("main-file")).toContain(
+      'style="color: black; opacity: 0.5"',
+    );
+    expect(projected?.get("copy-file")).toContain('style="color: orange"');
+  });
+
+  it("projects component structure through the shared structure transform", () => {
+    const main =
+      '<section data-agent-native-node-id="main-root" data-agent-native-component="Button" data-agent-native-component-id="button"><span data-agent-native-node-id="main-label">Play</span></section>';
+    const copy =
+      '<section data-agent-native-node-id="copy-root" data-agent-native-component-ref="button"><span data-agent-native-node-id="copy-label" data-agent-native-component-source-node-id="main-label">Play</span></section>';
+    const after = main.replace(
+      "</section>",
+      '<em data-agent-native-node-id="main-badge">New</em></section>',
+    );
+    const projected = projectLinkedComponentPropertyEdit({
+      documents: [
+        {
+          source: {
+            kind: "design-file",
+            designId: "design-1",
+            fileId: "main-file",
+            filename: "main.html",
+          },
+          content: main,
+        },
+        {
+          source: {
+            kind: "design-file",
+            designId: "design-1",
+            fileId: "copy-file",
+            filename: "copy.html",
+          },
+          content: copy,
+        },
+      ],
+      fileId: "main-file",
+      nodeId: "main-root",
+      edit: { kind: "structure", before: main, after },
+    });
+
+    expect(projected?.get("main-file")).toContain("main-badge");
+    expect(projected?.get("copy-file")).toContain("New");
+    expect(projected?.get("copy-file")).toContain(
+      'data-agent-native-component-source-node-id="main-badge"',
+    );
+  });
+
+  it("projects a main-component structure intent through the server dispatcher", () => {
+    const main =
+      '<section data-agent-native-node-id="main-root" data-agent-native-component="Button" data-agent-native-component-id="button"><span data-agent-native-node-id="main-label">Play</span></section>';
+    const copy =
+      '<section data-agent-native-node-id="copy-root" data-agent-native-component-ref="button"><span data-agent-native-node-id="copy-label" data-agent-native-component-source-node-id="main-label">Play</span></section>';
+    const source = (fileId: string, filename: string) => ({
+      kind: "design-file" as const,
+      designId: "design-1",
+      fileId,
+      filename,
+    });
+    const projected = projectLinkedComponentPropertyEdit({
+      documents: [
+        { source: source("main-file", "main.html"), content: main },
+        { source: source("copy-file", "copy.html"), content: copy },
+      ],
+      fileId: "main-file",
+      nodeId: "main-root",
+      edit: {
+        kind: "structure",
+        intents: [{ kind: "deleteNode", target: { nodeId: "main-label" } }],
+      },
+    });
+
+    expect(projected?.get("main-file")).not.toContain("main-label");
+    expect(projected?.get("copy-file")).not.toContain("copy-label");
+  });
+
+  it("projects reset overrides through the shared reset transform", () => {
+    const overrides = encodeURIComponent(
+      JSON.stringify([{ sourceNodeId: "main-label", property: "textContent" }]),
+    );
+    const main =
+      '<section data-agent-native-node-id="main-root" data-agent-native-component="Button" data-agent-native-component-id="button"><span data-agent-native-node-id="main-label">Play</span></section>';
+    const copy = `<section data-agent-native-node-id="copy-root" data-agent-native-component-ref="button"><span data-agent-native-node-id="copy-label" data-agent-native-component-source-node-id="main-label" data-agent-native-component-overrides="${overrides}">Pause</span></section>`;
+    const projected = projectLinkedComponentPropertyEdit({
+      documents: [
+        {
+          source: {
+            kind: "design-file",
+            designId: "design-1",
+            fileId: "main-file",
+            filename: "main.html",
+          },
+          content: main,
+        },
+        {
+          source: {
+            kind: "design-file",
+            designId: "design-1",
+            fileId: "copy-file",
+            filename: "copy.html",
+          },
+          content: copy,
+        },
+      ],
+      fileId: "copy-file",
+      nodeId: "copy-root",
+      edit: { kind: "resetOverrides" },
+    });
+
+    expect(projected?.get("copy-file")).toContain(">Play</span>");
+    expect(projected?.get("copy-file")).not.toContain(
+      "data-agent-native-component-overrides",
+    );
+  });
+
   it("runs a one-file source mutation through the shared save gate", async () => {
     const before = "main-v0";
     const after = `${before}-created`;
@@ -349,6 +517,305 @@ describe("linked component mutation queue", () => {
     expect(redoSecond).toEqual(afterSecond);
     expect(setup.refreshAfterConflict).not.toHaveBeenCalled();
     expect(setup.reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("keeps a local edit composed from two projected linked actions", async () => {
+    const firstResponse = deferred<LinkedComponentActionResult>();
+    const secondResponse = deferred<LinkedComponentActionResult>();
+    const firstCall = deferred<LinkedComponentEditPayload>();
+    const secondCall = deferred<LinkedComponentEditPayload>();
+    const initial = new Map([
+      ["file-main", "main-v0"],
+      ["file-copy", "copy-v0"],
+    ]);
+    const afterFirst = new Map([
+      ["file-main", "main-v1"],
+      ["file-copy", "copy-v1"],
+    ]);
+    const afterSecond = new Map([
+      ["file-main", "main-v2"],
+      ["file-copy", "copy-v2"],
+    ]);
+    const setup = queueArgs({
+      projectEdit: (_fileId, _nodeId, edit) =>
+        edit.kind === "textContent" ? afterFirst : afterSecond,
+      invokeAction: vi.fn((payload: LinkedComponentEditPayload) => {
+        if (payload.edit.kind === "textContent") {
+          firstCall.resolve(payload);
+          return firstResponse.promise;
+        }
+        secondCall.resolve(payload);
+        return secondResponse.promise;
+      }),
+    });
+    let pendingSave: FileContentSaveRequest | undefined;
+    setup.args.getPendingSave = (fileId) =>
+      pendingSave?.id === fileId ? pendingSave : undefined;
+    setup.args.hasPendingSave = (fileId) => pendingSave?.id === fileId;
+    const queue = createLinkedComponentMutationQueue(setup.args);
+
+    const first = queue.enqueue("file-copy", "copy-root", {
+      kind: "textContent",
+      value: "First edit",
+    });
+    const second = queue.enqueue("file-copy", "copy-root", {
+      kind: "style",
+      property: "inset-inline-end",
+      value: "10px",
+    });
+    await firstCall.promise;
+    expect(queue.getProjectedContent("file-copy")).toBe("copy-v2");
+    setup.content.set("file-copy", "copy-v2+Metadata");
+    pendingSave = {
+      id: "file-copy",
+      content: "copy-v2+Metadata",
+      syncCollab: true,
+      operationSource: "tab-1",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash("copy-v2"),
+    };
+    firstResponse.resolve(resultFor(initial, afterFirst, "saved-v1"));
+    await secondCall.promise;
+    secondResponse.resolve(resultFor(afterFirst, afterSecond, "saved-v2"));
+    await Promise.all([first, second]);
+
+    expect(setup.content.get("file-copy")).toBe("copy-v2+Metadata");
+    expect(setup.content.get("file-main")).toBe("main-v2");
+    expect(
+      setup.applyFileContentUpdate.mock.calls.filter(
+        ([fileId]) => fileId === "file-copy",
+      ),
+    ).toHaveLength(0);
+    expect(queue.getProjectedContent("file-copy")).toBeUndefined();
+    expect(setup.reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("retains an unchanged file projection until every queued action settles", async () => {
+    const firstResponse = deferred<LinkedComponentActionResult>();
+    const secondResponse = deferred<LinkedComponentActionResult>();
+    const firstCall = deferred<LinkedComponentEditPayload>();
+    const secondCall = deferred<LinkedComponentEditPayload>();
+    const initial = new Map([
+      ["file-main", "main-v0"],
+      ["file-copy", "copy-v0"],
+    ]);
+    const afterFirst = new Map([
+      ["file-main", "main-v0"],
+      ["file-copy", "copy-v1"],
+    ]);
+    const afterSecond = new Map([
+      ["file-main", "main-v2"],
+      ["file-copy", "copy-v1"],
+    ]);
+    const setup = queueArgs({
+      projectEdit: (_fileId, _nodeId, edit) =>
+        edit.kind === "textContent" ? afterFirst : afterSecond,
+      invokeAction: vi.fn((payload: LinkedComponentEditPayload) => {
+        if (payload.edit.kind === "textContent") {
+          firstCall.resolve(payload);
+          return firstResponse.promise;
+        }
+        secondCall.resolve(payload);
+        return secondResponse.promise;
+      }),
+    });
+    let pendingSave: FileContentSaveRequest | undefined;
+    setup.args.getPendingSave = (fileId) =>
+      pendingSave?.id === fileId ? pendingSave : undefined;
+    setup.args.hasPendingSave = (fileId) => pendingSave?.id === fileId;
+    const queue = createLinkedComponentMutationQueue(setup.args);
+
+    const first = queue.enqueue("file-copy", "copy-root", {
+      kind: "textContent",
+      value: "First edit",
+    });
+    const second = queue.enqueue("file-main", "main-root", {
+      kind: "style",
+      property: "color",
+      value: "red",
+    });
+    await firstCall.promise;
+    setup.content.set("file-copy", "copy-v1+Metadata");
+    pendingSave = {
+      id: "file-copy",
+      content: "copy-v1+Metadata",
+      syncCollab: true,
+      operationSource: "tab-1",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash("copy-v1"),
+    };
+    const firstResult = resultFor(initial, afterFirst, "saved-v1");
+    firstResult.changes = firstResult.changes?.filter(
+      ({ fileId }) => fileId === "file-copy",
+    );
+    firstResponse.resolve(firstResult);
+    await secondCall.promise;
+    expect(queue.getProjectedContent("file-copy")).toBe("copy-v1");
+    const secondResult = resultFor(afterFirst, afterSecond, "saved-v2");
+    secondResult.changes = secondResult.changes?.filter(
+      ({ fileId }) => fileId === "file-main",
+    );
+    secondResponse.resolve(secondResult);
+    await Promise.all([first, second]);
+
+    expect(setup.content.get("file-copy")).toBe("copy-v1+Metadata");
+    expect(setup.content.get("file-main")).toBe("main-v2");
+    expect(setup.reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("refuses a local edit that was not based on the projected linked action", async () => {
+    const response = deferred<LinkedComponentActionResult>();
+    const actionCall = deferred<LinkedComponentEditPayload>();
+    const initial = new Map([
+      ["file-main", "main-v0"],
+      ["file-copy", "copy-v0"],
+    ]);
+    const after = new Map([
+      ["file-main", "main-v1"],
+      ["file-copy", "copy-v1"],
+    ]);
+    const setup = queueArgs({
+      projectEdit: () => after,
+      invokeAction: vi.fn((payload: LinkedComponentEditPayload) => {
+        actionCall.resolve(payload);
+        return response.promise;
+      }),
+    });
+    let pendingSave: FileContentSaveRequest | undefined;
+    setup.args.getPendingSave = (fileId) =>
+      pendingSave?.id === fileId ? pendingSave : undefined;
+    setup.args.hasPendingSave = (fileId) => pendingSave?.id === fileId;
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    const operation = queue.enqueue("file-copy", "copy-root", {
+      kind: "style",
+      property: "color",
+      value: "red",
+    });
+    await actionCall.promise;
+    setup.content.set("file-copy", "stale+Metadata");
+    pendingSave = {
+      id: "file-copy",
+      content: "stale+Metadata",
+      syncCollab: true,
+      operationSource: "tab-1",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash("copy-v0"),
+    };
+    response.resolve(resultFor(initial, after, "saved-v1"));
+
+    await expect(operation).rejects.toThrow("newer editor change");
+    expect(queue.getProjectedContent("file-copy")).toBeUndefined();
+    expect(setup.reportFailure).toHaveBeenCalledOnce();
+  });
+
+  it("clears projected content when the linked action refuses", async () => {
+    const setup = queueArgs({
+      projectEdit: () =>
+        new Map([
+          ["file-main", "main-projected"],
+          ["file-copy", "copy-projected"],
+        ]),
+      invokeAction: vi.fn(async () => ({
+        persisted: false,
+        conflict: true,
+        error: "stale source",
+      })),
+    });
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    const operation = queue.enqueue("file-copy", "copy-root", {
+      kind: "style",
+      property: "color",
+      value: "red",
+    });
+    expect(queue.getProjectedContent("file-copy")).toBe("copy-projected");
+
+    await expect(operation).rejects.toThrow("stale source");
+    expect(queue.getProjectedContent("file-copy")).toBeUndefined();
+  });
+
+  it("blocks dependent local source writes while a server-only edit is pending", async () => {
+    const response = deferred<LinkedComponentActionResult>();
+    const actionCall = deferred<LinkedComponentEditPayload>();
+    const setup = queueArgs({
+      invokeAction: vi.fn((payload: LinkedComponentEditPayload) => {
+        actionCall.resolve(payload);
+        return response.promise;
+      }),
+    });
+    const initial = new Map(setup.content);
+    const after = new Map([
+      ["file-main", "main-restored"],
+      ["file-copy", "copy-restored"],
+    ]);
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    const operation = queue.enqueue("file-copy", "copy-root", {
+      kind: "restoreMain",
+    });
+
+    expect(queue.blocksLocalContentEdits()).toBe(true);
+    await actionCall.promise;
+    response.resolve(resultFor(initial, after, "saved-restore"));
+    await operation;
+    expect(queue.blocksLocalContentEdits()).toBe(false);
+  });
+
+  it("keeps later linked actions unprojected behind a server-only archive edit", async () => {
+    const archiveResponse = deferred<LinkedComponentActionResult>();
+    const propertyResponse = deferred<LinkedComponentActionResult>();
+    const archiveCall = deferred<LinkedComponentEditPayload>();
+    const propertyCall = deferred<LinkedComponentEditPayload>();
+    const initial = new Map([
+      ["file-main", "main-v0"],
+      ["file-copy", "copy-v0"],
+    ]);
+    const afterArchive = new Map([
+      ["file-main", "main-restored"],
+      ["file-copy", "copy-restored"],
+    ]);
+    const afterProperty = new Map([
+      ["file-main", "main-styled"],
+      ["file-copy", "copy-styled"],
+    ]);
+    const projectEdit = vi.fn((_fileId, _nodeId, edit) =>
+      edit.kind === "restoreMain" ? null : afterProperty,
+    );
+    const setup = queueArgs({
+      projectEdit,
+      invokeAction: vi.fn((payload: LinkedComponentEditPayload) => {
+        if (payload.edit.kind === "restoreMain") {
+          archiveCall.resolve(payload);
+          return archiveResponse.promise;
+        }
+        propertyCall.resolve(payload);
+        return propertyResponse.promise;
+      }),
+    });
+    const queue = createLinkedComponentMutationQueue(setup.args);
+
+    const archive = queue.enqueue("file-copy", "copy-root", {
+      kind: "restoreMain",
+    });
+    const property = queue.enqueue("file-copy", "copy-root", {
+      kind: "style",
+      property: "color",
+      value: "red",
+    });
+
+    expect(queue.blocksLocalContentEdits()).toBe(true);
+    expect(queue.getProjectedContent("file-copy")).toBeUndefined();
+    expect(projectEdit).toHaveBeenCalledOnce();
+    await archiveCall.promise;
+    archiveResponse.resolve(resultFor(initial, afterArchive, "saved-restore"));
+    await propertyCall.promise;
+    propertyResponse.resolve(
+      resultFor(afterArchive, afterProperty, "saved-property"),
+    );
+    await Promise.all([archive, property]);
+
+    expect(setup.content).toEqual(afterProperty);
+    expect(setup.recordContentHistoryEntry).toHaveBeenCalledTimes(2);
+    expect(setup.reportFailure).not.toHaveBeenCalled();
+    expect(queue.blocksLocalContentEdits()).toBe(false);
   });
 
   it("publishes an earlier confirmed success when a later queued edit fails", async () => {
@@ -662,6 +1129,134 @@ describe("linked component mutation queue", () => {
       ],
       selectionAfter,
     );
+  });
+
+  it("applies a durable selection when its snapshot captures only the selected owner", async () => {
+    const initial = new Map([
+      ["file-main", "main-v0"],
+      ["file-copy", "copy-v0"],
+    ]);
+    const after = new Map([
+      ["file-main", "main-v1"],
+      ["file-copy", "copy-v1"],
+    ]);
+    const selectionBefore = {
+      activeFileId: "file-copy",
+      selectedLayerIds: ["copy-root"],
+      overviewSelectedScreenIds: [],
+      sourceContentByFileId: { "file-main": "main-v0" },
+    };
+    const selectionAfter = {
+      ...selectionBefore,
+      selectedLayerIds: ["wrapper-durable"],
+      sourceContentByFileId: { "file-main": "main-v1" },
+    };
+    const setup = queueArgs({
+      projectEdit: () => after,
+      invokeAction: vi.fn(async () => ({
+        ...resultFor(initial, after, "saved-structure"),
+        selection: { fileId: "file-main", nodeIds: ["wrapper-durable"] },
+      })),
+      applySelection: vi.fn(() => selectionAfter),
+    });
+    setup.args.getCurrentSelection = () => ({
+      ...selectionBefore,
+      sourceContentByFileId: {
+        "file-main": setup.content.get("file-main")!,
+      },
+    });
+    const queue = createLinkedComponentMutationQueue(setup.args);
+
+    await queue.enqueue(
+      "file-main",
+      "main-root",
+      { kind: "structure", before: "main-v0", after: "main-v1" },
+      selectionBefore,
+    );
+
+    expect(setup.args.applySelection).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a newer user selection made during the host-write barrier", async () => {
+    const response = deferred<LinkedComponentActionResult>();
+    const actionCall = deferred<LinkedComponentEditPayload>();
+    const hostWriteStarted = deferred<void>();
+    const releaseHostWrite = deferred<void>();
+    let hostWriteCalls = 0;
+    const initial = new Map([
+      ["file-main", "main-v0"],
+      ["file-copy", "copy-v0"],
+    ]);
+    const after = new Map([
+      ["file-main", "main-v1"],
+      ["file-copy", "copy-v1"],
+    ]);
+    let currentSelection = {
+      activeFileId: "file-copy",
+      selectedLayerIds: ["copy-root"],
+      overviewSelectedScreenIds: [] as string[],
+      sourceContentByFileId: Object.fromEntries(initial),
+    };
+    let pendingSave: FileContentSaveRequest | undefined;
+    const commit = vi.fn();
+    const applySelection = vi.fn();
+    const setup = queueArgs({
+      projectEdit: () => after,
+      getCurrentSelection: () => currentSelection,
+      getPendingSave: (fileId) =>
+        pendingSave?.id === fileId ? pendingSave : undefined,
+      hasPendingSave: (fileId) => pendingSave?.id === fileId,
+      reserveContentHistory: () => ({ commit, cancel: vi.fn() }),
+      applySelection,
+      waitForHostWrites: async () => {
+        hostWriteCalls += 1;
+        if (hostWriteCalls !== 2) return;
+        hostWriteStarted.resolve();
+        await releaseHostWrite.promise;
+      },
+      invokeAction: vi.fn((payload: LinkedComponentEditPayload) => {
+        actionCall.resolve(payload);
+        return response.promise;
+      }),
+    });
+    const queue = createLinkedComponentMutationQueue(setup.args);
+    const operation = queue.enqueue("file-main", "main-root", {
+      kind: "structure",
+      before: "main-v0",
+      after: "main-v1",
+    });
+    await actionCall.promise;
+
+    response.resolve({
+      ...resultFor(initial, after, "saved-structure"),
+      selection: { fileId: "file-main", nodeIds: ["wrapper-durable"] },
+    });
+    await hostWriteStarted.promise;
+    setup.content.set("file-copy", "copy-v1+Metadata");
+    pendingSave = {
+      id: "file-copy",
+      content: "copy-v1+Metadata",
+      syncCollab: true,
+      operationSource: "tab-1",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash("copy-v1"),
+    };
+    currentSelection = {
+      activeFileId: "file-copy",
+      selectedLayerIds: ["user-selected-e"],
+      overviewSelectedScreenIds: [],
+      sourceContentByFileId: {
+        "file-main": "main-v0",
+        "file-copy": "copy-v1+Metadata",
+      },
+    };
+    releaseHostWrite.resolve();
+    await operation;
+
+    expect(applySelection).not.toHaveBeenCalled();
+    expect(setup.content.get("file-copy")).toBe("copy-v1+Metadata");
+    expect(commit).toHaveBeenCalledOnce();
+    expect(setup.reportFailure).not.toHaveBeenCalled();
   });
 
   it("keeps confirmed history when the action returns malformed selection metadata", async () => {

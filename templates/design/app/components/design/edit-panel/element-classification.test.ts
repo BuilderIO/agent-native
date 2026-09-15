@@ -469,6 +469,36 @@ describe("inferElementSizing — authored vs resolved size", () => {
     expect(inferElementSizing(element, "horizontal")).toBe("fixed");
   });
 
+  it("prefers the winning stylesheet value over stale inline intent", () => {
+    const element = makeElement({
+      isFlexContainer: true,
+      computedStyles: { width: "240px" },
+      inlineStyles: { width: "auto" },
+      authoredSizeStyles: { width: "240px" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+  });
+
+  it("distinguishes stylesheet-authored dimensions from flex/grid auto sizing", () => {
+    const explicitFlex = makeElement({
+      isFlexContainer: true,
+      computedStyles: { width: "240px", height: "100px" },
+      inlineStyles: {},
+      authoredSizeStyles: { width: "240px", height: "100px" },
+    });
+    expect(inferElementSizing(explicitFlex, "horizontal")).toBe("fixed");
+    expect(inferElementSizing(explicitFlex, "vertical")).toBe("fixed");
+
+    const autoGrid = makeElement({
+      isGridContainer: true,
+      computedStyles: { width: "780px", height: "38px" },
+      inlineStyles: {},
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    expect(inferElementSizing(autoGrid, "horizontal")).toBe("hug");
+    expect(inferElementSizing(autoGrid, "vertical")).toBe("hug");
+  });
+
   it("reads Hug from an auto-layout container with no authored height", () => {
     // The bridge reports the resolved pixel height even when the source has
     // no height declaration. For a flex container that is the source's
@@ -481,8 +511,18 @@ describe("inferElementSizing — authored vs resolved size", () => {
         height: "38.8px",
       },
       inlineStyles: { width: "fit-content" },
+      authoredSizeStyles: { width: "fit-content", height: "auto" },
     });
     expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+
+  it("does not infer Hug from a resolved px size when native evidence is absent", () => {
+    const element = makeElement({
+      isFlexContainer: true,
+      computedStyles: { height: "38.8px" },
+      inlineStyles: {},
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("fixed");
   });
 
   it("keeps a non-container with no authored height conservative", () => {

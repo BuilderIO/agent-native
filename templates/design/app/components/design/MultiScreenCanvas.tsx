@@ -533,6 +533,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   activeTool,
   toolProps,
   onActiveToolChange,
+  onCommentPin,
   onPick,
   onEdit,
   metadataById,
@@ -7704,6 +7705,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         beginPan(e);
         return;
       }
+      if (e.button === 0 && tool === "comment") {
+        const canvasPoint = getCanvasPoint(e.clientX, e.clientY);
+        const frameAtPoint = getFrameEntryAtPoint(canvasPoint);
+        if (!onFrame && !frameAtPoint) {
+          e.preventDefault();
+          e.stopPropagation();
+          onCommentPin?.(canvasPoint);
+        }
+        return;
+      }
       if (vectorEdit) {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -7808,7 +7819,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardSurfaceRenderGeometry,
       claimKeyboardFocus,
       getCanvasPoint,
+      getFrameEntryAtPoint,
       localActiveTool,
+      onCommentPin,
       setAltHoverMeasurement,
       showBoardStaticPreview,
       toggleVectorNodeType,
@@ -9274,6 +9287,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   return (
     <div
       ref={surfaceRef}
+      data-multi-screen-canvas-surface
       tabIndex={-1}
       className="relative h-full w-full select-none overflow-clip outline-none"
       onMouseDownCapture={handleMouseDown}

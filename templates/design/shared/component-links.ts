@@ -9,8 +9,10 @@ import {
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerSource,
+  type EditIntent,
 } from "./code-layer";
 import {
+  componentNodeIdMatches,
   linkedComponentRootForNode as nearestComponentRoot,
   COMPONENT_ID_ATTR,
   COMPONENT_NAME_ATTR,
@@ -3341,6 +3343,150 @@ export function applyComponentPropertyEdit(args: {
     status: "updated",
     componentId,
     changes: resultChanges(prepared.values, original, updated),
+  };
+}
+
+export interface ComponentStyleTarget {
+  fileId: string;
+  nodeId: string;
+  styles: Record<string, string>;
+}
+
+export function applyComponentStructureIntent(args: {
+  content: string;
+  intent: EditIntent;
+  source: CodeLayerSource;
+}) {
+  const intent =
+    args.intent.kind === "style" &&
+    (args.intent.operation ?? "set") === "remove"
+      ? {
+          kind: "style" as const,
+          operation: "remove" as const,
+          target: args.intent.target,
+          property: args.intent.property,
+        }
+      : args.intent.kind === "style"
+        ? {
+            kind: "style" as const,
+            operation: "set" as const,
+            target: args.intent.target,
+            property: args.intent.property,
+            value: "value" in args.intent ? args.intent.value : "",
+          }
+        : args.intent;
+  return applyVisualEdit(args.content, intent, {
+    source: args.source,
+    allowMainComponentStructure: true,
+  });
+}
+
+/** Apply one inspector commit across linked and ordinary selected targets. */
+export function applyComponentStyleTargetsEdit(args: {
+  documents: readonly ComponentSourceDocument[];
+  targets: readonly ComponentStyleTarget[];
+}): ComponentPropertyTransformResult {
+  let currentDocuments = [...args.documents];
+  let componentId = "";
+  for (const target of args.targets) {
+    const targetDocument = currentDocuments.find(
+      (document) => document.source.fileId === target.fileId,
+    );
+    if (!targetDocument) {
+      return { status: "missing-file", fileId: target.fileId };
+    }
+    const projection = buildCodeLayerProjection(targetDocument.content, {
+      source: targetDocument.source,
+    });
+    const node = projection.nodes.find((candidate) =>
+      componentNodeIdMatches(candidate, target.nodeId),
+    );
+    if (!node) {
+      return {
+        status: "missing-node",
+        fileId: target.fileId,
+        nodeId: target.nodeId,
+      };
+    }
+    const linked = nearestComponentRoot(node, projection) !== null;
+    for (const [property, value] of Object.entries(target.styles)) {
+      if (linked) {
+        const next = applyComponentPropertyEdit({
+          documents: currentDocuments,
+          target: { fileId: target.fileId, nodeId: target.nodeId },
+          edit: { kind: "style", property, value },
+        });
+        if (next.status !== "updated") return next;
+        componentId = next.componentId;
+        const changesByFileId = new Map(
+          next.changes.map((change) => [change.fileId, change.after]),
+        );
+        currentDocuments = currentDocuments.map((document) => ({
+          ...document,
+          content:
+            changesByFileId.get(document.source.fileId ?? "") ??
+            document.content,
+        }));
+        continue;
+      }
+      const targetSource = currentDocuments.find(
+        (document) => document.source.fileId === target.fileId,
+      )!;
+      const patch = applyVisualEdit(
+        targetSource.content,
+        {
+          kind: "style",
+          target: { nodeId: target.nodeId },
+          property,
+          value,
+        },
+        { source: targetSource.source },
+      );
+      if (patch.result.status !== "applied") {
+        return {
+          status: "edit-refused",
+          fileId: target.fileId,
+          nodeId: target.nodeId,
+          message: patch.result.message,
+        };
+      }
+      currentDocuments = currentDocuments.map((document) =>
+        document.source.fileId === target.fileId
+          ? { ...document, content: patch.content }
+          : document,
+      );
+    }
+  }
+  if (!componentId) {
+    return {
+      status: "not-linked",
+      fileId: args.targets[0]?.fileId,
+      nodeId: args.targets[0]?.nodeId,
+    };
+  }
+  const original = new Map(
+    args.documents.map((document) => [
+      document.source.fileId ?? "",
+      document.content,
+    ]),
+  );
+  return {
+    status: "updated",
+    componentId,
+    changes: currentDocuments.flatMap((document) => {
+      const fileId = document.source.fileId ?? "";
+      const before = original.get(fileId);
+      return before === undefined || before === document.content
+        ? []
+        : [
+            {
+              fileId,
+              source: document.source,
+              before,
+              after: document.content,
+            },
+          ];
+    }),
   };
 }
 

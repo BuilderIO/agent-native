@@ -2178,6 +2178,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     function hasStableOwnSource(el) {
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
     }
+    function isRuntimeOnlyClone(el) {
+      return el.getAttribute("data-agent-native-clone-root") === "true" && !isSourceOwned(el);
+    }
     function repeatTemplateOwning(node) {
       var parent = node.parentElement;
       if (!parent) return null;
@@ -2881,6 +2884,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return styles;
     }
+    function collectAuthoredSizeStyles(el) {
+      var computedStyleMap = el.computedStyleMap;
+      if (typeof computedStyleMap !== "function") return void 0;
+      var map = computedStyleMap.call(el);
+      var styles = {};
+      ["width", "height"].forEach(function(property) {
+        var value = map.get(property);
+        if (value == null) return;
+        var cssText = String(value).trim();
+        if (cssText) styles[property] = cssText;
+      });
+      return styles;
+    }
     var liveVisualEditOriginalInlineStyles = typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : null;
     function rememberLiveVisualEditOriginalStyles(el) {
       if (!el || !liveVisualEditOriginalInlineStyles) return;
@@ -3218,9 +3234,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentAutoLayout = autoLayoutParentInfo(el);
       var designParent = designParentForElement(el);
       var parentStyles = designParent ? window.getComputedStyle(designParent) : null;
+      var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var pendingNodeId = "";
       if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
       // a template clone has no counterpart in source HTML, so no host
@@ -3286,6 +3306,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
         repeat: repeatInstanceInfo(el) || void 0,
         hasOwnText: hasOwnTextContent(el),
         wholeTextStyleRoot: isWholeTextStyleRoot(el),
@@ -3294,6 +3316,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         classes: Array.from(el.classList),
         computedStyles: collectElementComputedStyles(el, cs, paintCs),
         inlineStyles: collectElementInlineStyles(el),
+        authoredSizeStyles,
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
         isGroup: el.getAttribute("data-agent-native-group") === "true",
         vectorStrokeCanAlign: vectorStrokeCanAlign(el),
@@ -3346,8 +3369,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     function getLightElementInfo(el, includePendingNodeId = false) {
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
-      var sourceBacked = hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el);
+      var runtimeOnlyClone = isRuntimeOnlyClone(el);
+      var sourceBacked = !runtimeOnlyClone && (hasStableOwnSource(el) || !isTemplateCloneElement(el) && !!closestStableSourceElement(el));
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+      var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var parentStyles = el.parentElement ? window.getComputedStyle(el.parentElement) : null;
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var cs = window.getComputedStyle(el);
@@ -3364,6 +3390,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        runtimeSelector: runtimeSelector || void 0,
+        runtimeSourceId: runtimeSourceId || void 0,
         pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
@@ -6744,12 +6772,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
     function postElementMarqueeSelect(elements, additive, e, final) {
+      var primaryIndex = elements.length - 1;
       window.parent.postMessage(
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
-          payload: elements.map(function(el) {
-            return getElementInfo(el);
+          // Multi-selection consumers need identity for every hit, but only the
+          // primary (last) item drives the inspector. Avoid building computed
+          // styles and portable snapshots for every sibling on every drag tick.
+          payload: elements.map(function(el, index) {
+            return index === primaryIndex ? getElementInfo(el) : getLightElementInfo(el, true);
           }),
           intent: {
             additive,
@@ -6781,13 +6813,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.top = rect.top + "px";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
-      if (!activeMarqueeSelection.candidates) {
-        activeMarqueeSelection.candidates = collectSelectableElements(
-          activeMarqueeSelection.deep
-        );
+      var candidates = activeMarqueeSelection.candidates;
+      if (!candidates) {
+        candidates = collectSelectableElements(activeMarqueeSelection.deep);
+        activeMarqueeSelection.candidates = candidates;
+        activeMarqueeSelection.candidateBounds = candidates.map(selectableBounds);
       }
-      var hitElements = activeMarqueeSelection.candidates.filter(function(el) {
-        var bounds = selectableBounds(el);
+      var candidateBounds = activeMarqueeSelection.candidateBounds;
+      var hitElements = candidates.filter(function(_el, index) {
+        var bounds = candidateBounds[index];
         if (bounds.left <= rect.left && bounds.top <= rect.top && bounds.right >= rect.right && bounds.bottom >= rect.bottom) {
           return false;
         }
@@ -6807,6 +6841,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSelectionOverlay();
       }
       setPassiveSelectionElements(hitElements);
+      var lastReported = activeMarqueeSelection.lastReportedElements;
+      var sameHitSet = !!lastReported && lastReported.length === hitElements.length && hitElements.every(function(el, index) {
+        return lastReported[index] === el;
+      });
+      if (!final && sameHitSet) return;
+      activeMarqueeSelection.lastReportedElements = hitElements;
       postElementMarqueeSelect(
         hitElements,
         activeMarqueeSelection.additive,

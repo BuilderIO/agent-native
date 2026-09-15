@@ -518,6 +518,28 @@ describe("apply-component-prop-edit linked path", () => {
     expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
   });
 
+  it("rejects duplicate expected source file IDs before reading or writing", async () => {
+    const expected = expectedFiles();
+    const result = await action.run({
+      designId,
+      fileId: "main-file",
+      nodeId: "main-label",
+      edit: { kind: "style", property: "color", value: "orange" },
+      source: {
+        expectedFiles: [
+          { ...expected[0]!, versionHash: "stale-but-shadowed" },
+          expected[0]!,
+          expected[1]!,
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({ persisted: false, conflict: true });
+    expect(result.error).toContain("source file set changed");
+    expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
+  });
+
   it("applies semantic structure intents atomically and returns the new wrapper selection", async () => {
     const files = structureLiveFiles();
     mocks.resolveSourceWorkspace.mockResolvedValue({

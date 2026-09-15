@@ -6365,6 +6365,244 @@ function computeAbsoluteUnionBounds(
   };
 }
 
+interface SelectionBackgroundRectangle {
+  element: ParsedElement;
+  node: CodeLayerNode;
+  bounds: AbsoluteUnionBounds;
+  padding: { top: number; right: number; bottom: number; left: number };
+}
+
+/**
+ * A painted rectangle can be the visual background of a Shift+A selection.
+ * Figma turns that layer into the frame itself, but only when it is the
+ * bottom-most selected sibling and fully contains every other selected layer.
+ * Partial overlaps stay ordinary auto-layout children so selecting two
+ * arbitrary shapes never changes their identity or stacking semantics.
+ */
+function findSelectionBackgroundRectangle(
+  targetElements: ParsedElement[],
+  nodeByElement: ReadonlyMap<ParsedElement, CodeLayerNode>,
+  sizeHintsByElement: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
+): SelectionBackgroundRectangle | null {
+  if (targetElements.length < 2) return null;
+
+  const background = targetElements[0]!;
+  const backgroundNode = nodeByElement.get(background);
+  if (
+    !backgroundNode ||
+    background.tag !== "div" ||
+    attributeValue(background, "data-an-primitive") !== "rectangle" ||
+    background.childIndexes.length > 0 ||
+    backgroundNode.paintsOwnText ||
+    backgroundNode.componentInstance ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component-id",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component-ref",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-group-wrapper",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-group",
+    )
+  ) {
+    return null;
+  }
+  const backgroundStyle = parseStyle(attributeValue(background, "style"));
+  const fill =
+    backgroundStyle["background-color"] ?? backgroundStyle.background;
+  const parsedFill = fill ? parseCssColorExtended(fill) : null;
+  if (!parsedFill || parsedFill.a <= 0) return null;
+  if (backgroundStyle.transform && backgroundStyle.transform !== "none") {
+    return null;
+  }
+  if (
+    backgroundStyle.rotate &&
+    backgroundStyle.rotate !== "none" &&
+    backgroundStyle.rotate !== "0deg" &&
+    backgroundStyle.rotate !== "0"
+  ) {
+    return null;
+  }
+  if (
+    backgroundStyle.scale &&
+    backgroundStyle.scale !== "none" &&
+    backgroundStyle.scale !== "1"
+  ) {
+    return null;
+  }
+
+  const origin = {
+    left: parsePixelLength(backgroundStyle.left),
+    top: parsePixelLength(backgroundStyle.top),
+  };
+  const backgroundHint = sizeHintsByElement.get(background);
+  const left = origin.left ?? backgroundHint?.left ?? null;
+  const top = origin.top ?? backgroundHint?.top ?? null;
+  const width =
+    parsePixelLength(backgroundStyle.width) ?? backgroundHint?.width ?? null;
+  const height =
+    parsePixelLength(backgroundStyle.height) ?? backgroundHint?.height ?? null;
+  if (
+    backgroundStyle.position !== "absolute" ||
+    left === null ||
+    top === null ||
+    width === null ||
+    height === null ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  const bounds = { left, top, width, height };
+
+  const childBounds = targetElements.slice(1).map((element) => {
+    const style = parseStyle(attributeValue(element, "style"));
+    const hint = sizeHintsByElement.get(element);
+    const childLeft = parsePixelLength(style.left) ?? hint?.left ?? null;
+    const childTop = parsePixelLength(style.top) ?? hint?.top ?? null;
+    const childWidth = parsePixelLength(style.width) ?? hint?.width ?? null;
+    const childHeight = parsePixelLength(style.height) ?? hint?.height ?? null;
+    return childLeft === null ||
+      childTop === null ||
+      childWidth === null ||
+      childHeight === null ||
+      childWidth <= 0 ||
+      childHeight <= 0
+      ? null
+      : {
+          left: childLeft,
+          top: childTop,
+          width: childWidth,
+          height: childHeight,
+        };
+  });
+  if (
+    childBounds.some(
+      (child) =>
+        child === null ||
+        child.left < bounds.left ||
+        child.top < bounds.top ||
+        child.left + child.width > bounds.left + bounds.width ||
+        child.top + child.height > bounds.top + bounds.height,
+    )
+  ) {
+    return null;
+  }
+
+  const minLeft = Math.min(...childBounds.map((child) => child!.left));
+  const minTop = Math.min(...childBounds.map((child) => child!.top));
+  const maxRight = Math.max(
+    ...childBounds.map((child) => child!.left + child!.width),
+  );
+  const maxBottom = Math.max(
+    ...childBounds.map((child) => child!.top + child!.height),
+  );
+  return {
+    element: background,
+    node: backgroundNode,
+    bounds,
+    padding: {
+      left: minLeft - bounds.left,
+      top: minTop - bounds.top,
+      right: bounds.left + bounds.width - maxRight,
+      bottom: bounds.top + bounds.height - maxBottom,
+    },
+  };
+}
+
+function promoteSelectionBackgroundRectangle(
+  html: string,
+  promotion: SelectionBackgroundRectangle,
+  targetElements: ParsedElement[],
+  wrapperNodeId: string,
+  wrapperLayerName: string,
+): string {
+  const backgroundMarkup = html.slice(
+    promotion.element.start,
+    promotion.element.end,
+  );
+  const backgroundRoot = parseHtmlElements(backgroundMarkup).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!backgroundRoot) return html;
+
+  const centered =
+    Math.abs(promotion.padding.left - promotion.padding.right) <= 8 &&
+    Math.abs(promotion.padding.top - promotion.padding.bottom) <= 8;
+  let style = attributeValue(backgroundRoot, "style") ?? "";
+  for (const [property, value] of [
+    ["display", "flex"],
+    ["flex-direction", centered ? "row" : "column"],
+    ["gap", "10px"],
+    ["align-items", centered ? "center" : "flex-start"],
+    ["justify-content", centered ? "center" : "flex-start"],
+    ["box-sizing", "border-box"],
+    [
+      "padding",
+      `${formatMeasuredPixel(promotion.padding.top)} ${formatMeasuredPixel(promotion.padding.right)} ${formatMeasuredPixel(promotion.padding.bottom)} ${formatMeasuredPixel(promotion.padding.left)}`,
+    ],
+  ] as const) {
+    style = setStyleValue(style, property, value);
+  }
+
+  let promoted = patchElementAttributes(backgroundMarkup, [
+    {
+      element: backgroundRoot,
+      attributes: {
+        "data-agent-native-node-id": wrapperNodeId,
+        "data-agent-native-layer-name": wrapperLayerName,
+        "data-an-primitive": "frame",
+        "data-agent-native-group-wrapper": "true",
+        "data-agent-native-preserve-styles": "true",
+        style,
+      },
+    },
+  ]);
+
+  const promotedRoot = parseHtmlElements(promoted).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!promotedRoot) return html;
+  const childFragments = targetElements.slice(1).map((element) => {
+    const fragment = html.slice(element.start, element.end);
+    const root = parseHtmlElements(fragment).find(
+      (candidate) => candidate.parentIndex === undefined,
+    );
+    return root ? stripAbsolutePositioningFromChild(fragment, root) : fragment;
+  });
+  const children = childFragments.join("");
+  if (promotedRoot.selfClosing) {
+    const opening = promoted.slice(promotedRoot.start, promotedRoot.openEnd);
+    promoted = `${opening.replace(/\/\>\s*$/, ">")}${children}</${promotedRoot.tag}>`;
+  } else {
+    promoted = `${promoted.slice(0, promotedRoot.contentStart)}${children}${promoted.slice(promotedRoot.contentEnd)}`;
+  }
+
+  const topmostStart = targetElements[targetElements.length - 1]!.start;
+  let removedBefore = 0;
+  let result = html;
+  for (const element of [...targetElements].sort(
+    (left, right) => right.start - left.start,
+  )) {
+    result = `${result.slice(0, element.start)}${result.slice(element.end)}`;
+    if (element.start < topmostStart)
+      removedBefore += element.end - element.start;
+  }
+  const insertAt = topmostStart - removedBefore;
+  return `${result.slice(0, insertAt)}${promoted}${result.slice(insertAt)}`;
+}
+
 /**
  * Compute a measured union for targets that currently participate in their
  * parent's flow. The wrapper stays in that flow slot, so its parent-relative
@@ -6465,6 +6703,7 @@ function applyWrapNodes(
   // Resolve selected projection identities exactly; the authored ID fallback
   // is only for legacy callers whose ID is unique in this projection.
   const targetElements: ParsedElement[] = [];
+  const nodeByElement = new Map<ParsedElement, CodeLayerNode>();
   const sizeHintsByElement = new Map<ParsedElement, WrapNodeSizeHint>();
   const authoredNodeIdCounts = new Map<string, number>();
   for (const node of build.projection.nodes) {
@@ -6488,6 +6727,7 @@ function applyWrapNodes(
     const el = build.elementByNodeId.get(node.id);
     if (!el) return "conflict";
     targetElements.push(el);
+    nodeByElement.set(el, node);
     const authoredNodeId = node.dataAttributes["data-agent-native-node-id"];
     const hint =
       intent.sizeHints?.[node.id] ??
@@ -6515,6 +6755,55 @@ function applyWrapNodes(
   // and the targets end up adjacent to each other inside the new wrapper.
   // This matches Figma's group behavior: the group lands at the z-position
   // of its topmost selected child, not its bottommost.
+
+  // Shift+A treats a painted rectangle that contains the rest of the
+  // selection as the frame's background. Reuse that source element so the
+  // promoted frame keeps the rectangle's identity and fill. Frame selection
+  // and ordinary grouping remain on the generic wrapper path.
+  const backgroundPromotion = autoLayout
+    ? findSelectionBackgroundRectangle(
+        targetElements,
+        nodeByElement,
+        sizeHintsByElement,
+      )
+    : null;
+  if (backgroundPromotion) {
+    const usedIds = new Set(
+      build.projection.nodes.flatMap((node) => {
+        const id = node.dataAttributes["data-agent-native-node-id"];
+        return id ? [id] : [];
+      }),
+    );
+    const authoredNodeId =
+      backgroundPromotion.node.dataAttributes["data-agent-native-node-id"];
+    const wrapperNodeId =
+      authoredNodeId && authoredNodeIdCounts.get(authoredNodeId) === 1
+        ? authoredNodeId
+        : freshNodeId(usedIds, `promote:${backgroundPromotion.element.start}`);
+    const wrapperLayerName = nextSequentialFrameName(
+      build.projection.nodes.filter(
+        (node) => node.id !== backgroundPromotion.node.id,
+      ),
+    );
+    const content = promoteSelectionBackgroundRectangle(
+      html,
+      backgroundPromotion,
+      targetElements,
+      wrapperNodeId,
+      wrapperLayerName,
+    );
+    if (content !== html) {
+      return {
+        content,
+        capability: {
+          kind: "structure",
+          operations: ["moveNode"],
+          confidence: 0.92,
+        },
+        wrapperNodeId,
+      };
+    }
+  }
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(

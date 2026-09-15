@@ -275,6 +275,36 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
+  it("routes an empty overview click to comment placement", async () => {
+    const onCommentPin = vi.fn();
+    const onLayerMarqueeSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={200}
+          activeTool="comment"
+          onCommentPin={onCommentPin}
+          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+
+    await act(async () => {
+      dispatchMouse(surface!, "mousedown", 160, 180);
+      dispatchMouse(window, "mouseup", 160, 180);
+    });
+
+    expect(onCommentPin).toHaveBeenCalledWith({
+      x: -160,
+      y: -150,
+    });
+    expect(onLayerMarqueeSelectionChange).not.toHaveBeenCalled();
+  });
+
   it("dedupes an unchanged empty layer marquee selection across ticks, then always sends one final report at mouseup", async () => {
     const onLayerMarqueeSelectionChange = vi.fn();
     await act(async () => {

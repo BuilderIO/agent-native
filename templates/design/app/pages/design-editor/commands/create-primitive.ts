@@ -1,10 +1,6 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
-import { shouldUseLiveFileContent } from "@shared/html-content";
-import { sourceContentHash } from "@shared/source-workspace";
-import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
-import * as Y from "yjs";
 
 import type {
   CanvasPrimitiveInsert,
@@ -24,10 +20,7 @@ import { setPenNodesAttributeOnElement } from "@/pages/design-editor/clone-and-p
 import { prepareLayerNodeIdentities } from "@/pages/design-editor/commands/layer-node-identity";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
-import type {
-  ContentHistoryEntry,
-  PendingTextCreationHistory,
-} from "@/pages/design-editor/history";
+import type { PendingTextCreationHistory } from "@/pages/design-editor/history";
 import {
   getLivePreviewDocument,
   isFlowDisplay,
@@ -35,6 +28,7 @@ import {
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import {
   mapAcceptedSelectionNode,
@@ -43,8 +37,15 @@ import {
 
 export interface CreatePrimitiveArgs {
   activeBreakpointWidthState?: number;
-  activeContent: string;
   activeFile: DesignFile;
+  applyFileContentUpdate: (
+    fileId: string,
+    nextContent: string,
+    options?: {
+      forcePreviewFullDocument?: boolean;
+      historyBeforeContent?: string;
+    },
+  ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -63,36 +64,11 @@ export interface CreatePrimitiveArgs {
   /** Effective canvas colour, stored or themed — the board's visible surface. */
   canvasBackground: string | null | undefined;
   canEditDesign: boolean;
-  collabContentFileIdRef: RefObject<string | null>;
-  collabContentRef: RefObject<string | null>;
-  queueFileContentSave: (
-    fileId: string,
-    content: string,
-    options: {
-      expectedVersionHash: string;
-      syncCollab?: boolean;
-      immediate?: boolean;
-    },
-  ) => void;
   files: DesignFile[];
-  id: string | undefined;
-  isSynced: boolean;
-  markPendingLocalFileContent: (
-    fileId: string,
-    content: string,
-    baseUpdatedAt?: string | null,
-  ) => void;
-  pendingLocalFileContentsRef: RefObject<
-    Map<
-      string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
-    >
-  >;
+  getScreenContent: (fileId: string) => string;
   pendingTextCreationHistoryRef: RefObject<PendingTextCreationHistory | null>;
   pendingTextEditNodeIdRef: RefObject<string | null>;
   overviewScreens?: readonly OverviewScreen[];
-  queryClient: QueryClient;
-  recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   setRuntimeStructureInsertRequest: Dispatch<
     SetStateAction<
@@ -101,7 +77,6 @@ export interface CreatePrimitiveArgs {
   >;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
-  ydoc: Y.Doc | null;
 }
 
 type PrimitiveCreationHostLayout =
@@ -174,30 +149,21 @@ function resolvePrimitiveCreationHostLayout(args: {
 export function runCreatePrimitive(
   {
     activeBreakpointWidthState,
-    activeContent,
     activeFile,
+    applyFileContentUpdate,
     applyLocalContentUpdate,
     boardFileId,
     canvasBackground,
     canEditDesign,
-    collabContentFileIdRef,
-    collabContentRef,
     files,
-    id,
-    isSynced,
-    markPendingLocalFileContent,
-    pendingLocalFileContentsRef,
+    getScreenContent,
     pendingTextCreationHistoryRef,
     pendingTextEditNodeIdRef,
     overviewScreens,
-    queryClient,
-    queueFileContentSave,
-    recordContentHistoryEntry,
     runtimeStructureInsertRevisionRef,
     setRuntimeStructureInsertRequest,
     t,
     viewModeRef,
-    ydoc,
   }: CreatePrimitiveArgs,
   screenId: string,
   primitive: CanvasPrimitiveInsert,
@@ -206,29 +172,7 @@ export function runCreatePrimitive(
   if (!canEditDesign) return false;
   const targetFile = files.find((file) => file.id === screenId);
   if (!targetFile) return false;
-  const pendingContent = pendingLocalFileContentsRef.current.get(
-    targetFile.id,
-  )?.content;
-  const storedContent = targetFile.content ?? "";
-  const baseContent =
-    pendingContent ??
-    (targetFile.id === activeFile?.id
-      ? (() => {
-          const liveContent =
-            ydoc && isSynced
-              ? ydoc.getText("content").toJSON()
-              : ((collabContentFileIdRef.current === activeFile.id
-                  ? collabContentRef.current
-                  : null) ?? activeContent);
-          return shouldUseLiveFileContent({
-            liveContent,
-            storedContent,
-            fileType: targetFile.fileType,
-          })
-            ? liveContent
-            : storedContent;
-        })()
-      : storedContent);
+  const baseContent = getScreenContent(targetFile.id);
   const reparentTargetIdentity = options?.reparentTargetIdentity;
   let insertionBaseContent = baseContent;
   let preparedTargetNodeId: string | undefined;
@@ -438,39 +382,12 @@ export function runCreatePrimitive(
     if (publication.status !== "accepted") return false;
     acceptedPublication = publication;
   } else {
-    recordContentHistoryEntry({
-      fileId: targetFile.id,
-      before: baseContent,
-      after: nextContent,
+    const publication = applyFileContentUpdate(targetFile.id, nextContent, {
+      forcePreviewFullDocument: true,
+      historyBeforeContent: baseContent,
     });
-    // Stamp the server-clock base the same way applyFileContentUpdate
-    // does. Without it the reconcile effect reads the optimistic cache
-    // write below as a server acknowledgement and retires the pending
-    // entry immediately, leaving that cache the only carrier of the
-    // insert — so any get-design response already in flight (the board
-    // file's own lazy migration invalidates on success, so one usually
-    // is) overwrites it with pre-insert content and the primitive
-    // disappears from the canvas until a reload.
-    markPendingLocalFileContent(
-      targetFile.id,
-      nextContent,
-      targetFile.updatedAt,
-    );
-    queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-      if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
-        return old;
-      }
-      return {
-        ...old,
-        files: old.files.map((file: DesignFile) =>
-          file.id === targetFile.id ? { ...file, content: nextContent } : file,
-        ),
-      };
-    });
-    queueFileContentSave(targetFile.id, nextContent, {
-      expectedVersionHash: sourceContentHash(baseContent),
-      immediate: true,
-    });
+    if (publication.status !== "accepted") return false;
+    acceptedPublication = publication;
   }
 
   const acceptedProjection = projectAcceptedSource(

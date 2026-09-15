@@ -241,9 +241,6 @@ async function persistTransform(args: {
   checkpointId: string;
   selection: ComponentArchiveSelection;
 }): Promise<ComponentArchiveMutationResult> {
-  const liveById = new Map(
-    args.liveFiles.map((entry) => [entry.file.id, entry]),
-  );
   const changesByFile = new Map(
     args.result.changes.map((change) => [change.fileId, change.after]),
   );
