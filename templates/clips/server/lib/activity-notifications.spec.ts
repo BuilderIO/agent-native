@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (left: unknown, right: unknown) => ({ type: "eq", left, right }),
+  sql: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
