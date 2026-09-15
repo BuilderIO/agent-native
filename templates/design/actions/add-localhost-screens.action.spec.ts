@@ -225,7 +225,7 @@ describe("add-localhost-screens refresh behavior", () => {
         designId: "design_1",
         filename: "localhost-settings.html",
         fileType: "html",
-        content: "http://localhost:5173/settings?old=1",
+        content: "http://localhost:5173/settings",
       },
     ];
     mocks.state.designData = {
@@ -239,7 +239,7 @@ describe("add-localhost-screens refresh behavior", () => {
           connectionId: "conn_1",
           routeId: "route-settings",
           path: "/settings",
-          url: "http://localhost:5173/settings?old=1",
+          url: "http://localhost:5173/settings",
           stateRef: "state-selected-tab",
           routeMetadata: { stateName: "selected-tab" },
         },
@@ -301,7 +301,7 @@ describe("add-localhost-screens refresh behavior", () => {
         designId: "design_1",
         filename: "localhost-settings.html",
         fileType: "html",
-        content: "http://localhost:5173/settings?old=1",
+        content: "http://localhost:5173/settings",
       },
     ];
     mocks.state.designData = {
@@ -322,6 +322,43 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(mocks.state.insertedFile).toBeNull();
     expect(mocks.state.updatedFiles).toHaveLength(1);
     expect(result.screens[0]?.id).toBe("legacy_file");
+  });
+
+  it("keeps query-backed routes distinct from the same pathname", async () => {
+    mocks.state.files = [
+      {
+        id: "base_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        base_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings?onboarding=preview"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("base_file");
+    expect(mocks.state.insertedFile).toMatchObject({
+      content: "http://localhost:5173/settings?onboarding=preview",
+    });
   });
 
   it("never overwrites an unrelated inline file that uses the generated localhost filename", async () => {
@@ -822,7 +859,7 @@ describe("add-localhost-screens refresh behavior", () => {
       designId: "design_1",
       filename: "localhost-settings.html",
       fileType: "html",
-      content: "http://localhost:5173/settings?winner=1",
+      content: "http://localhost:5173/settings",
     };
 
     const result = await action.run({

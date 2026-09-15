@@ -203,6 +203,45 @@ describe("LayersPanel search affordance", () => {
     root.unmount();
     host.remove();
   });
+
+  it("caps the screens section and exposes a keyboard-resizable divider", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          screens={Array.from({ length: 8 }, (_, index) => ({
+            id: `screen-${index}`,
+            name: `Screen ${index}`,
+            type: "file" as const,
+          }))}
+          layers={[{ id: "layer-1", name: "Hero", type: "element" }]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+        />,
+      );
+    });
+
+    const screenSection = host.querySelector<HTMLElement>(
+      "[data-screen-section]",
+    );
+    const resizer = host.querySelector<HTMLElement>(
+      "[data-screen-section-resizer]",
+    );
+    expect(screenSection?.style.maxHeight).toBe("30%");
+    expect(resizer?.getAttribute("role")).toBe("separator");
+    expect(resizer?.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(resizer?.tabIndex).toBe(0);
+
+    root.unmount();
+    host.remove();
+  });
 });
 
 describe("LayersPanel row hierarchy", () => {

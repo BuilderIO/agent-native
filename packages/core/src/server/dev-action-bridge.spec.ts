@@ -275,6 +275,30 @@ describe("mountDevActionForwardRoute", () => {
     });
   });
 
+  it("forwards a hidden browser handoff without making it enumerable in the result", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    const result = { openUrl: "/visual-edit/design_1" };
+    Object.defineProperty(result, "embedStartUrl", {
+      value: "/_agent-native/embed/start?ticket=private",
+      enumerable: false,
+    });
+    const handler = mountedHandler({
+      "open-visual-edit": { run: vi.fn(async () => result) } as any,
+    });
+
+    const response = await handler({
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: { name: "open-visual-edit" },
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      devHandoffUrl: "/_agent-native/embed/start?ticket=private",
+    });
+    expect(Object.keys(response.result)).toEqual(["openUrl"]);
+  });
+
   it("falls back to resolveDevUserEmail when no user header is sent", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const token = getDevActionToken()!;

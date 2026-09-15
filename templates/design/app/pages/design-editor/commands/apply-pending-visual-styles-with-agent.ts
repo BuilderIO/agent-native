@@ -12,6 +12,7 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   HOST_TURN_START_TIMEOUT_MS,
+  PENDING_STRUCTURE_HARD_TIMEOUT_MS,
   PENDING_STRUCTURE_RUNTIME_POLL_MS,
   PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
   PENDING_STRUCTURE_SOURCE_POLL_MS,
@@ -26,7 +27,7 @@ import {
   buildPendingVisualStyleRevertPatches,
   pendingStructureEditSourcePaths,
 } from "@/pages/design-editor/pending-edits";
-import { verifyPendingStructuresRuntime } from "@/pages/design-editor/pending-structure-verification";
+import { partitionPendingStructuresRuntime } from "@/pages/design-editor/pending-structure-verification";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface ApplyPendingVisualStylesWithAgentArgs {
@@ -44,6 +45,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingStructureVerificationSessionRef: RefObject<
     PendingStructureVerificationSession | undefined
   >;
+  pendingLiveNonStyleEditsRef: RefObject<PendingLiveNonStyleEdit[]>;
   pendingStructureVerificationSnapshotsRef: RefObject<
     Map<number, Record<string, RuntimeLayerSnapshot>>
   >;
@@ -53,6 +55,9 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
+  setPendingLiveNonStyleEdits: Dispatch<
+    SetStateAction<PendingLiveNonStyleEdit[]>
+  >;
   setPendingStructureAckRequest: Dispatch<
     SetStateAction<{
       requestId: number;
@@ -88,6 +93,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   stagedSourceHandoffRef,
   pendingStructureVerificationRevisionRef,
   pendingStructureVerificationSessionRef,
+  pendingLiveNonStyleEditsRef,
   pendingStructureVerificationSnapshotsRef,
   pendingStructureVerificationStatus,
   pendingVisualStyleEdits,
@@ -95,6 +101,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   setActiveLeftPanel,
   setApplyingViaHost,
   setPendingAgentHandoffBusy,
+  setPendingLiveNonStyleEdits,
   setPendingStructureAckRequest,
   setPendingStructureVerificationStatus,
   setPendingVisualStyleBaselineResetRequest,
@@ -133,14 +140,6 @@ export async function runApplyPendingVisualStylesWithAgent({
     const structureEdits = pendingLiveNonStyleEdits.filter(
       (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
     );
-    const structureAcks = structureEdits
-      .filter((edit) => Boolean(edit.requestId))
-      .map((edit) => ({
-        screenId: edit.screenId,
-        requestId: edit.requestId!,
-        applied: true,
-      }));
-
     const finalizeWithoutStructureVerification = () => {
       clearPendingLiveEditState();
       const previewRequestId = Date.now() + Math.random();
@@ -276,27 +275,51 @@ export async function runApplyPendingVisualStylesWithAgent({
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
 
       let deadline = Date.now() + PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS;
+      const hardDeadline = Date.now() + PENDING_STRUCTURE_HARD_TIMEOUT_MS;
       let nextSourcePollAt = 0;
-      let sourceChanged = false;
       let verificationRuntimeMounted = false;
-      while (!session.cancelled && Date.now() < deadline) {
+      let observedVersionHashes = session.sources.map(
+        (source) => source.baselineVersionHash,
+      );
+      while (
+        !session.cancelled &&
+        Date.now() < hardDeadline &&
+        (Date.now() < deadline || stagedSourceHandoffRef.current === "running")
+      ) {
         const runtimeSnapshots =
           pendingStructureVerificationSnapshotsRef.current.get(requestId) ?? {};
-        if (
-          verificationRuntimeMounted &&
-          screenIds.every((screenId) => runtimeSnapshots[screenId])
-        ) {
-          const runtimeResult = verifyPendingStructuresRuntime(
+        if (verificationRuntimeMounted && session.edits.length > 0) {
+          const runtimeResult = partitionPendingStructuresRuntime(
             runtimeSnapshots,
-            structureEdits,
+            session.edits,
           );
-          if (runtimeResult.ok) {
+          if (runtimeResult.verified.length > 0) {
+            session.edits = runtimeResult.remaining;
+            const verifiedSet = new Set(runtimeResult.verified);
+            pendingLiveNonStyleEditsRef.current =
+              pendingLiveNonStyleEditsRef.current.filter(
+                (edit) => edit.kind !== "structure" || !verifiedSet.has(edit),
+              );
+            setPendingLiveNonStyleEdits((current) =>
+              current.filter(
+                (edit) => edit.kind !== "structure" || !verifiedSet.has(edit),
+              ),
+            );
+            const structureAcks = runtimeResult.verified
+              .filter((edit) => Boolean(edit.requestId))
+              .map((edit) => ({
+                screenId: edit.screenId,
+                requestId: edit.requestId!,
+                applied: true,
+              }));
             if (structureAcks.length > 0) {
               setPendingStructureAckRequest({
                 requestId: Date.now() + Math.random(),
                 acks: structureAcks,
               });
             }
+          }
+          if (session.edits.length === 0) {
             clearPendingLiveEditState();
             toast.success(t("designEditor.pendingVisualStyles.verifiedToast"));
             return;
@@ -321,27 +344,31 @@ export async function runApplyPendingVisualStylesWithAgent({
               }),
             );
             if (session.cancelled) return;
-            sourceChanged = currentVersions.some(
+            const versionChanged = currentVersions.some(
               (versionHash, index) =>
                 Boolean(versionHash) &&
-                versionHash !== session.sources[index]?.baselineVersionHash,
+                versionHash !== observedVersionHashes[index],
             );
-            if (sourceChanged) {
+            if (versionChanged) {
+              observedVersionHashes = currentVersions.map(
+                (versionHash, index) =>
+                  versionHash ?? observedVersionHashes[index]!,
+              );
+              // Each source write gets its own HMR/runtime window. A single
+              // fixed 15s window makes a correct multi-file agent run look
+              // like a conflict while the agent is still writing later files.
+              deadline = Date.now() + PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS;
               if (!verificationRuntimeMounted) {
                 verificationRuntimeMounted = true;
-                deadline = Math.min(
-                  deadline,
-                  Date.now() + PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
-                );
-                pendingStructureVerificationSnapshotsRef.current.set(
-                  requestId,
-                  {},
-                );
-                setRuntimeStructureVerificationRequest({
-                  requestId,
-                  screenIds,
-                });
               }
+              pendingStructureVerificationSnapshotsRef.current.set(
+                requestId,
+                {},
+              );
+              setRuntimeStructureVerificationRequest({
+                requestId,
+                screenIds,
+              });
               setPendingStructureVerificationStatus("awaiting-runtime");
             }
             // coercion-ok: moved verbatim; a failed optional probe here is indistinguishable from "not applicable" by design.

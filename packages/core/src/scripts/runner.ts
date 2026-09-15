@@ -31,6 +31,7 @@ import {
   DEV_ACTION_ROUTE,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
+  devActionHandoffUrl,
   hashDatabaseKey,
   readDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
@@ -56,20 +57,6 @@ function withoutCliHandoffText(value: unknown): string {
     CLI_HANDOFF_URL_PATTERN,
     "[redacted embed handoff]",
   );
-}
-
-function cliHandoffUrl(result: unknown): string | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  for (const key of CLI_HANDOFF_KEYS) {
-    const value = (result as Record<string, unknown>)[key];
-    if (
-      typeof value === "string" &&
-      value.includes("/_agent-native/embed/start?")
-    ) {
-      return value;
-    }
-  }
-  return undefined;
 }
 
 function withoutCliHandoffSecrets(
@@ -203,7 +190,7 @@ export function openCliHandoff(
 }
 
 function printActionResult(result: unknown): CliHandoffLaunchOutcome | null {
-  const handoffUrl = cliHandoffUrl(result);
+  const handoffUrl = devActionHandoffUrl(result);
   const handoff = handoffUrl ? openCliHandoff(handoffUrl) : null;
   console.log(withoutCliHandoffSecrets(result));
   return handoff;
@@ -413,7 +400,12 @@ export async function tryForwardToDevServer(
   const body = (await response.json().catch(() => ({
     ok: false,
     error: "Invalid response from dev server.",
-  }))) as { ok: boolean; result?: unknown; error?: string };
+  }))) as {
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+    devHandoffUrl?: unknown;
+  };
   if (!body.ok) {
     console.error(
       `Action "${actionName}" failed:`,
@@ -421,9 +413,14 @@ export async function tryForwardToDevServer(
     );
     process.exit(1);
   }
+  const handoffUrl =
+    typeof body.devHandoffUrl === "string"
+      ? body.devHandoffUrl
+      : devActionHandoffUrl(body.result);
   if (body.result !== undefined) {
-    assertCliHandoffLaunched(printActionResult(body.result));
+    console.log(withoutCliHandoffSecrets(body.result));
   }
+  assertCliHandoffLaunched(handoffUrl ? openCliHandoff(handoffUrl) : null);
   process.exit(0);
 }
 

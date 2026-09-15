@@ -102,6 +102,18 @@ describe("new deck generation flow", () => {
     expect(onboardingSource).toContain("...referenceFilePaths,");
   });
 
+  it("only seeds the reference step from an explicit onboarding preview URL", () => {
+    expect(onboardingSource).toContain(
+      "isOnboardingPreviewQuery(location.search)",
+    );
+    expect(onboardingSource).toContain(
+      'searchParams.get("step") === "references"',
+    );
+    expect(onboardingSource).toContain(
+      "isOnboardingPreviewQuery(location.search) &&",
+    );
+  });
+
   it("requires a generated title before the first slide", () => {
     const titleInstructionIndex = flow.indexOf(
       "After reading any requested or attached reference material, but before adding the first slide",

@@ -377,8 +377,14 @@ function metadataMatchesRoute(
     (value) => typeof value === "string" && routeUrlsMatch(value, args.url),
   );
   const storedContentMatches =
-    typeof args.content === "string" &&
-    routeUrlsMatch(args.content, args.url, { includeSearch: false });
+    typeof args.content === "string" && routeUrlsMatch(args.content, args.url);
+  const hasStoredRouteHint =
+    typeof metadata.url === "string" ||
+    typeof metadata.previewUrl === "string" ||
+    typeof args.content === "string";
+  if (hasStoredRouteHint && !storedUrlMatches && !storedContentMatches) {
+    return false;
+  }
   const hasRouteIdentity =
     storedConnectionId === args.connectionId ||
     storedUrlMatches ||
@@ -1041,7 +1047,7 @@ export default defineAction({
             if (!winner) throw err;
             if (
               typeof winner.content === "string" &&
-              routeUrlsMatch(winner.content, url, { includeSearch: false })
+              routeUrlsMatch(winner.content, url)
             ) {
               fileId = winner.id;
               await db

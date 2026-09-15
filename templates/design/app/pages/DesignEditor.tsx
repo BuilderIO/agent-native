@@ -975,6 +975,7 @@ import {
 } from "./design-editor/types";
 import {
   VisualEditWebMcp,
+  hasNativeWebMcpHost,
   type VisualEditPromptResult,
 } from "./design-editor/VisualEditWebMcp";
 
@@ -1001,18 +1002,7 @@ type UpdateScreenSourceActionResult = {
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
 function pageHasWebMcpHost(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const navigatorWithModelContext = navigator as Navigator & {
-    modelContext?: unknown;
-  };
-  // The app installs the WebMCP polyfill on both document and navigator so
-  // ordinary browser copy still receives the detailed prompt. A native host
-  // owns the Navigator property through its prototype; an app-installed
-  // polyfill creates an own property.
-  return Boolean(
-    navigatorWithModelContext.modelContext &&
-    !Object.prototype.hasOwnProperty.call(navigator, "modelContext"),
-  );
+  return hasNativeWebMcpHost();
 }
 
 // ── Route wrapper — remounts editor state per design id ──────────────────────
@@ -16551,12 +16541,14 @@ function DesignEditor() {
         pendingStructureVerificationRevisionRef,
         pendingStructureVerificationSessionRef,
         pendingStructureVerificationSnapshotsRef,
+        pendingLiveNonStyleEditsRef,
         pendingStructureVerificationStatus,
         pendingVisualStyleEdits,
         pendingVisualStylePrompt,
         setActiveLeftPanel,
         setApplyingViaHost,
         setPendingAgentHandoffBusy,
+        setPendingLiveNonStyleEdits,
         setPendingStructureAckRequest,
         setPendingStructureVerificationStatus,
         setPendingVisualStyleBaselineResetRequest,

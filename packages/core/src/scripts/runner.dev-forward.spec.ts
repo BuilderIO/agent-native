@@ -23,6 +23,12 @@ vi.mock("../server/dev-action-bridge.js", () => ({
   DEV_ACTION_ROUTE: "/_agent-native/dev/action",
   DEV_ACTION_TOKEN_HEADER: "x-agent-native-dev-token",
   DEV_ACTION_USER_HEADER: "x-agent-native-dev-user",
+  devActionHandoffUrl: (result: Record<string, unknown>) =>
+    typeof result?.embedStartUrl === "string"
+      ? result.embedStartUrl
+      : typeof result?.startUrl === "string"
+        ? result.startUrl
+        : undefined,
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
   readDevActionDiscoveryFile: (...args: unknown[]) =>
     mockReadDevActionDiscoveryFile(...args),
@@ -191,6 +197,26 @@ describe("tryForwardToDevServer", () => {
     );
     expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
     expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it("opens a private handoff returned beside the forwarded result", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    process.env.AGENT_NATIVE_NO_OPEN = "1";
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        ok: true,
+        result: "forwarded-ok",
+        devHandoffUrl: "/_agent-native/embed/start?ticket=private",
+      }),
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(tryForwardToDevServer("open-visual-edit", [])).rejects.toThrow(
+      "Secure browser handoff is disabled",
+    );
+    expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
   });
 
   it("exits 1 when the forwarded action itself failed", async () => {

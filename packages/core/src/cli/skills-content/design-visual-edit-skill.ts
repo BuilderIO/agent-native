@@ -102,9 +102,12 @@ The same action is available from Design's empty-canvas context menu.
 
 ## Useful Canvas Sets
 
-Use the smallest useful set: one ordered frame per requested route/query state,
-repeat routes at requested desktop/tablet/mobile viewports, and include
-URL-addressable empty, loading, error, modal-open, or selected-item states.
+Use a focused batch of 3-7 frames by default: one ordered frame per requested
+route/query state, repeat routes at requested desktop/tablet/mobile viewports,
+and include URL-addressable empty, loading, error, modal-open, or selected-item
+states. Keep the Screens section readable so Layers remains useful while
+editing. Do not expand beyond 7 frames unless the user explicitly asks for an
+exhaustive audit or a complete route inventory.
 
 Do not expand every discovered route or every viewport unless the user asks for
 an exhaustive audit. Preserve the user's labels and sequence so the canvas reads

@@ -60,6 +60,23 @@ export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
 }
 
+const DEV_ACTION_HANDOFF_KEYS = ["embedStartUrl", "startUrl"] as const;
+
+/** Read the private browser handoff without making it part of action output. */
+export function devActionHandoffUrl(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  for (const key of DEV_ACTION_HANDOFF_KEYS) {
+    const value = (result as Record<string, unknown>)[key];
+    if (
+      typeof value === "string" &&
+      value.includes("/_agent-native/embed/start?")
+    ) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 // Module-level state must survive independent instances of this module: the
 // Vite plugin that writes the token and the Nitro dev route that checks it
 // run inside the same process but can load through different module
@@ -208,6 +225,9 @@ export interface MountDevActionForwardRouteOptions {
  * 404 when `name` isn't in this server's action registry (the CLI falls
  * back to running in-process — e.g. a core script like `db-query` that was
  * never mounted here), and 401 for every auth/production/loopback failure.
+ * A private `devHandoffUrl` may accompany a successful result so the CLI can
+ * open a one-time browser handoff that the action intentionally hides from
+ * enumerable/MCP output.
  */
 export function mountDevActionForwardRoute(
   nitroApp: any,
@@ -286,7 +306,12 @@ export function mountDevActionForwardRoute(
           if (!actionCallIsReadOnly(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
-          return { ok: true, result };
+          const devHandoffUrl = devActionHandoffUrl(result);
+          return {
+            ok: true,
+            result,
+            ...(devHandoffUrl ? { devHandoffUrl } : {}),
+          };
         } catch (error: any) {
           setResponseStatus(event, 500);
           return { ok: false, error: error?.message ?? String(error) };

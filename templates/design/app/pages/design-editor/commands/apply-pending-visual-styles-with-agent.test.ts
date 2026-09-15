@@ -1,0 +1,194 @@
+import type { Dispatch, SetStateAction } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const callActionMock = vi.hoisted(() => vi.fn());
+const sendDesignSourceHandoffAndConfirmMock = vi.hoisted(() =>
+  vi.fn(() => Promise.resolve({ target: "local", delivered: true })),
+);
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: callActionMock,
+}));
+vi.mock("@/lib/agent-chat", () => ({
+  sendDesignSourceHandoffAndConfirm: sendDesignSourceHandoffAndConfirmMock,
+}));
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
+
+import type { PendingLiveStructureEdit } from "@/pages/design-editor/pending-edits";
+
+import {
+  PENDING_STRUCTURE_HARD_TIMEOUT_MS,
+  PENDING_STRUCTURE_RUNTIME_POLL_MS,
+} from "../editor-constants";
+import { runApplyPendingVisualStylesWithAgent } from "./apply-pending-visual-styles-with-agent";
+
+function structureEdit(index: number): PendingLiveStructureEdit {
+  return {
+    kind: "structure",
+    screenId: `screen-${index}`,
+    filename: `screen-${index}.html`,
+    screenName: `Screen ${index}`,
+    selector: `[data-node="subject-${index}"]`,
+    sourceId: `subject-${index}`,
+    sourceAnchor: { relPath: `screen-${index}.html` },
+    anchorSelector: "",
+    anchorSourceId: null,
+    placement: "inside",
+    removed: true,
+    updatedAt: index,
+    requestId: `request-${index}`,
+  };
+}
+
+function argsFor(
+  edits: PendingLiveStructureEdit[],
+  snapshots: Map<number, Record<string, { html: string; nodeCount: number }>>,
+) {
+  const sessionRef = { current: undefined };
+  const pendingEditsRef = { current: edits };
+  const stagedSourceHandoffRef = { current: "running" as const };
+  const sourceVersions = new Map(
+    edits.map((edit) => [edit.sourceAnchor!.relPath, "v0"]),
+  );
+  const runtimeRequests: number[] = [];
+  const ackRequests: Array<{
+    requestId: number;
+    acks: Array<{ screenId: string; requestId: string; applied: boolean }>;
+  }> = [];
+  type AckState = (typeof ackRequests)[number] | null;
+  const setPendingStructureAckRequest: Dispatch<SetStateAction<AckState>> = (
+    value,
+  ) => {
+    const next = typeof value === "function" ? value(null) : value;
+    if (next) ackRequests.push(next);
+  };
+  type RuntimeRequest = { requestId: number; screenIds: string[] };
+  const setRuntimeStructureVerificationRequest: Dispatch<
+    SetStateAction<RuntimeRequest | null>
+  > = (value) => {
+    const next = typeof value === "function" ? value(null) : value;
+    if (!next) return;
+    runtimeRequests.push(next.requestId);
+    const edit = edits[runtimeRequests.length - 1];
+    if (edit) {
+      snapshots.set(next.requestId, {
+        [edit.screenId]: { html: "<body></body>", nodeCount: 1 },
+      });
+    }
+  };
+  const clearPendingLiveEditState = vi.fn();
+  const cancelPendingStructureVerification = vi.fn();
+
+  callActionMock.mockImplementation(async (_action, input) => {
+    const path = (input as { path: string }).path;
+    const index = Number(path.match(/screen-(\d+)/)?.[1]);
+    const writeAt = index === 1 ? 5_000 : index === 2 ? 40_000 : 95_000;
+    if (Date.now() >= writeAt) sourceVersions.set(path, "v1");
+    return { versionHash: sourceVersions.get(path) };
+  });
+
+  return {
+    args: {
+      cancelPendingStructureVerification,
+      clearPendingLiveEditState,
+      id: "design",
+      overviewScreens: edits.map((edit) => ({
+        id: edit.screenId,
+        filename: edit.filename,
+        content: "",
+        updatedAt: "1",
+        connectionId: `connection-${edit.screenId}`,
+        heightPinned: false,
+      })),
+      pendingAgentHandoffBusyRef: { current: false },
+      pendingLiveNonStyleEdits: edits,
+      stagedHandoffStartTimerRef: { current: undefined },
+      stagedSourceHandoffRef,
+      pendingStructureVerificationRevisionRef: { current: 0 },
+      pendingStructureVerificationSessionRef: sessionRef,
+      pendingLiveNonStyleEditsRef: pendingEditsRef,
+      pendingStructureVerificationSnapshotsRef: { current: snapshots },
+      pendingStructureVerificationStatus: "idle" as const,
+      pendingVisualStyleEdits: [],
+      pendingVisualStylePrompt: "Apply the pending structure edits.",
+      setActiveLeftPanel: vi.fn(),
+      setApplyingViaHost: vi.fn(),
+      setPendingAgentHandoffBusy: vi.fn(),
+      setPendingLiveNonStyleEdits: vi.fn(),
+      setPendingStructureAckRequest,
+      setPendingStructureVerificationStatus: vi.fn(),
+      setPendingVisualStyleBaselineResetRequest: vi.fn(),
+      setPendingVisualStyleRevertRequest: vi.fn(),
+      setRuntimeStructureVerificationRequest,
+      t: (key: string) => key,
+    },
+    ackRequests,
+    cancelPendingStructureVerification,
+    clearPendingLiveEditState,
+    runtimeRequests,
+  };
+}
+
+describe("runApplyPendingVisualStylesWithAgent", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    Object.assign(globalThis, {
+      window: { setTimeout: globalThis.setTimeout },
+    });
+    callActionMock.mockReset();
+    sendDesignSourceHandoffAndConfirmMock.mockClear();
+  });
+
+  it("resets the runtime window for each source write and drains each edit", async () => {
+    const edits = [structureEdit(1), structureEdit(2), structureEdit(3)];
+    const snapshots = new Map();
+    const setup = argsFor(edits, snapshots);
+    const applyPromise = runApplyPendingVisualStylesWithAgent(setup.args);
+
+    const wakeAt = async (time: number) => {
+      vi.setSystemTime(time);
+      await vi.advanceTimersByTimeAsync(PENDING_STRUCTURE_RUNTIME_POLL_MS);
+    };
+    await vi.advanceTimersByTimeAsync(0);
+    await wakeAt(5_000);
+    await wakeAt(5_150);
+    await wakeAt(40_000);
+    await wakeAt(40_150);
+    await wakeAt(95_000);
+    await wakeAt(95_150);
+    await expect(applyPromise).resolves.toBeUndefined();
+
+    expect(setup.cancelPendingStructureVerification).not.toHaveBeenCalled();
+    expect(setup.clearPendingLiveEditState).toHaveBeenCalledTimes(1);
+    expect(setup.runtimeRequests).toHaveLength(3);
+    expect(setup.ackRequests).toHaveLength(3);
+    expect(setup.ackRequests.flatMap((request) => request.acks)).toEqual(
+      edits.map((edit) => ({
+        screenId: edit.screenId,
+        requestId: edit.requestId,
+        applied: true,
+      })),
+    );
+  });
+
+  it("keeps a running host turn bounded by the hard deadline", async () => {
+    const edits = [structureEdit(1)];
+    const snapshots = new Map();
+    const setup = argsFor(edits, snapshots);
+    const applyPromise = runApplyPendingVisualStylesWithAgent(setup.args);
+
+    await vi.advanceTimersByTimeAsync(0);
+    vi.setSystemTime(PENDING_STRUCTURE_HARD_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(PENDING_STRUCTURE_RUNTIME_POLL_MS);
+    await expect(applyPromise).resolves.toBeUndefined();
+
+    expect(setup.cancelPendingStructureVerification).toHaveBeenCalledWith(
+      "conflict",
+    );
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+  });
+});
