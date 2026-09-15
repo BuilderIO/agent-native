@@ -160,6 +160,7 @@ async function main() {
       candResizedPath,
       diffPath,
       "-bordercolor",
+      // guard:allow-raw-color — separator between tiles in a generated PNG, not themed UI
       "#808080",
       "-border",
       "4x0",
