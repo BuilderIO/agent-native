@@ -1769,13 +1769,9 @@ export function matchesSavedHostedAgentProbe(
 }
 
 function isAnthropicManagedAgentsApiUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "api.anthropic.com";
-  } catch {
-    // coercion-ok: an invalid URL cannot be the fixed Anthropic API host.
-    return false;
-  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname === "api.anthropic.com";
 }
 
 type PublicAgentDiscovery = (
