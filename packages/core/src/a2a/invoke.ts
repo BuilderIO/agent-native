@@ -1,13 +1,25 @@
-import type { RemoteAgentAuth } from "../resources/metadata.js";
+import { randomUUID } from "node:crypto";
+
+import type {
+  RemoteAgentAuth,
+  RemoteAgentKind,
+} from "../resources/metadata.js";
 import {
   discoverAgents as defaultDiscoverAgents,
   findAgent as defaultFindAgent,
   type DiscoveredAgent,
 } from "../server/agent-discovery.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
+  runWithRequestContext,
 } from "../server/request-context.js";
+import {
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
+  createAnthropicManagedAgentsHandler,
+  type AnthropicManagedAgentContinuation,
+} from "./anthropic-managed-agents.js";
 import {
   callAction as defaultCallAction,
   callAgent as defaultCallAgent,
@@ -15,6 +27,7 @@ import {
 import { resolveRemoteAgentToken } from "./remote-agent-auth.js";
 import type {
   A2ACorrelationMetadata,
+  A2AHandlerResult,
   A2AReadOnlyActionResult,
 } from "./types.js";
 
@@ -24,6 +37,8 @@ export type AgentInvocationErrorCode =
   | "missing-action"
   | "invalid-input"
   | "invalid-url"
+  | "invalid-response"
+  | "unsupported-action"
   | "self-call"
   | "not-found";
 
@@ -59,11 +74,17 @@ const invocationAuthByTarget = new WeakMap<
   ResolvedAgentInvocationTarget,
   RemoteAgentAuth
 >();
+const invocationProviderKindByTarget = new WeakMap<
+  ResolvedAgentInvocationTarget,
+  RemoteAgentKind
+>();
 
 export interface AgentInvocationResult {
   target: ResolvedAgentInvocationTarget;
   prompt: string;
   responseText: string;
+  taskState?: "input-required";
+  continuation?: AnthropicManagedAgentContinuation;
 }
 
 export interface AgentActionInvocationResult {
@@ -91,6 +112,7 @@ export interface InvokeAgentOptions extends ResolveAgentInvocationTargetOptions 
   apiKey?: string;
   contextId?: string;
   userEmail?: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   async?: boolean;
@@ -180,6 +202,8 @@ export async function resolveAgentInvocationTarget(
     ...(agent.cardUrl ? { cardUrl: agent.cardUrl } : {}),
   };
   if (agent.auth) invocationAuthByTarget.set(resolvedTarget, agent.auth);
+  if (agent.kind)
+    invocationProviderKindByTarget.set(resolvedTarget, agent.kind);
   return resolvedTarget;
 }
 
@@ -211,6 +235,75 @@ export async function invokeAgent(
       : buildAgentInvocationPrompt(prompt, target.url);
 
   const auth = invocationAuthByTarget.get(target);
+  const providerKind = invocationProviderKindByTarget.get(target);
+  if (providerKind?.provider === "anthropic-managed-agents") {
+    const handler = createAnthropicManagedAgentsHandler({
+      agentId: providerKind.agentId,
+      environmentId: providerKind.environmentId,
+      credentialRef: providerKind.credentialRef,
+      apiBaseUrl: target.url,
+      resolveApiKey: async (credentialRef, context) =>
+        resolveRemoteAgentToken(
+          { type: "bearer", credentialRef },
+          {
+            userEmail: options.userEmail ?? context.userEmail,
+            orgId: options.orgId ?? getRequestOrgId(),
+          },
+        ),
+    });
+    const invokeHandler = async (): Promise<A2AHandlerResult> =>
+      (await handler(
+        {
+          role: "user",
+          parts: [{ type: "text", text: prompt }],
+        },
+        {
+          taskId: options.contextId ?? randomUUID(),
+          contextId: options.contextId,
+          writeArtifact: (name) => name,
+        },
+      )) as A2AHandlerResult;
+    const requestContext = getRequestContext();
+    const result = (await (requestContext ||
+    options.userEmail !== undefined ||
+    options.orgId !== undefined
+      ? runWithRequestContext(
+          {
+            ...(requestContext ?? {}),
+            ...(options.userEmail !== undefined
+              ? { userEmail: options.userEmail }
+              : {}),
+            ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
+          },
+          invokeHandler,
+        )
+      : invokeHandler())) as A2AHandlerResult;
+    const responseText = result.message.parts
+      .filter((part): part is { type: "text"; text: string } => {
+        return part.type === "text";
+      })
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    const resultMetadata =
+      result.message.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY];
+    const continuation = readManagedAgentContinuation(resultMetadata);
+    const taskState = result.taskState;
+    if (!responseText) {
+      throw new AgentInvocationError(
+        "invalid-response",
+        "Error: The managed agent returned no text response.",
+        { target: options.target },
+      );
+    }
+    return {
+      target,
+      prompt,
+      responseText,
+      ...(taskState ? { taskState } : {}),
+      ...(continuation ? { continuation } : {}),
+    };
+  }
   const authOptions = await resolveInvocationAuth(target, options.userEmail);
   const callAgent = options.runtime?.callAgent ?? defaultCallAgent;
   const responseText = await callAgent(target.url, promptToSend, {
@@ -270,6 +363,14 @@ export async function invokeAgentAction(
     selfUrl: options.selfUrl,
     runtime: options.runtime,
   });
+  const providerKind = invocationProviderKindByTarget.get(target);
+  if (providerKind?.provider === "anthropic-managed-agents") {
+    throw new AgentInvocationError(
+      "unsupported-action",
+      "Error: Anthropic Managed Agents targets accept messages only; direct action invocation is unavailable.",
+      { target: options.target },
+    );
+  }
   const callAction = options.runtime?.callAction ?? defaultCallAction;
   const auth = invocationAuthByTarget.get(target);
   const authOptions = await resolveInvocationAuth(target, options.userEmail);
@@ -395,4 +496,28 @@ function normalizeAgentHandle(value: string): string {
 
 function formatSelfCallError(selfAppId: string): string {
   return `Error: You cannot use A2A invocation to call yourself (${selfAppId}). Use your own registered actions/tools instead. A2A invocation is only for communicating with OTHER separately-deployed apps.`;
+}
+
+function readManagedAgentContinuation(
+  value: unknown,
+): AnthropicManagedAgentContinuation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const continuationToken =
+    typeof candidate.continuationToken === "string"
+      ? candidate.continuationToken.trim()
+      : "";
+  if (!continuationToken) return undefined;
+  const pendingToolUseIds = Array.isArray(candidate.pendingToolUseIds)
+    ? candidate.pendingToolUseIds.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim() !== "",
+      )
+    : [];
+  return {
+    continuationToken,
+    ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
+  };
 }

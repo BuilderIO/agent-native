@@ -75,7 +75,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "../../shared/labs";
+import {
+  CLIPS_MEETINGS,
+  CLIPS_WISPRFLOW,
+  isLabEnabled,
+} from "../../shared/labs";
 import {
   CamIcon,
   GoogleIcon,
@@ -1354,8 +1358,10 @@ export function App({
     setCameraError,
     setRecError,
   });
-  const meetingsLabEnabled = labValues[CLIPS_MEETINGS.key] === true;
-  const wisprFlowLabEnabled = labValues[CLIPS_WISPRFLOW.key] === true;
+  const meetingsLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_MEETINGS);
+  const wisprFlowLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_WISPRFLOW);
   const voiceDictationEnabled =
     wisprFlowLabEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =

@@ -188,6 +188,21 @@ describe("calendar timezone helpers", () => {
     });
   });
 
+  it("returns exactly the configured number of displayed days", () => {
+    expect(
+      getViewDateRange(
+        "week",
+        dateKeyToDate("2026-08-13"),
+        "America/Los_Angeles",
+        1,
+        5,
+      ),
+    ).toEqual({
+      from: "2026-08-13T07:00:00.000Z",
+      to: "2026-08-18T07:00:00.000Z",
+    });
+  });
+
   it("falls back to the browser timezone when a saved zone is invalid", () => {
     expect(normalizeTimezone("Not/AZone")).toBe(
       Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",

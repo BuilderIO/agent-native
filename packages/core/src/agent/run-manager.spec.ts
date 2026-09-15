@@ -22,9 +22,11 @@ vi.mock("./run-store.js", () => ({
     Promise.resolve({ claimed: true, activeRunId: null }),
   ),
   markRunAborted: vi.fn(() => Promise.resolve()),
+  markTurnAborted: vi.fn(() => Promise.resolve()),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
+  getCurrentTurnEventsForThread: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   isContinuationTerminalReason: (reason: unknown) =>
     reason === "auto_continue" ||
@@ -140,6 +142,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   engineRequestShapeTags,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
@@ -153,6 +156,7 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  replayCompletedTurn,
   nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
   resolveSqlSubscriptionRetryMs,
@@ -175,7 +179,9 @@ import {
   getRunById,
   getRunByThread,
   getRunEventsSince,
+  getCurrentTurnEventsForThread,
   markRunAborted,
+  markTurnAborted,
   updateRunStatus,
   updateRunStatusIfRunning,
   ensureTerminalRunEvent,
@@ -1151,6 +1157,75 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
+  });
+
+  it("aborts the in-process run before a turn-reference abort resolves", async () => {
+    let observedAbortReason: unknown;
+    const run = startRun(
+      "run-turn-ref-abort",
+      "thread-turn-ref-abort",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              observedAbortReason = signal.reason;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId: "turn-ref-abort" },
+    );
+
+    await abortTurnByRefDurably(
+      "thread-turn-ref-abort",
+      "turn-ref-abort",
+      "dismissed",
+    );
+
+    expect(observedAbortReason).toBe("dismissed");
+    expect(run.status).toBe("aborted");
+    expect(markTurnAborted).toHaveBeenCalledWith(
+      "thread-turn-ref-abort",
+      "turn-ref-abort",
+      "dismissed",
+    );
+  });
+
+  it("replays every chunk of a completed logical turn as one stream", async () => {
+    vi.mocked(getCurrentTurnEventsForThread).mockResolvedValueOnce([
+      { type: "text", text: "first chunk" },
+      { type: "auto_continue", reason: "run_timeout" },
+      { type: "text", text: "second chunk" },
+      { type: "done" },
+    ]);
+
+    const stream = await replayCompletedTurn("thread-turn", "turn-1");
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      'data: {"type":"text","text":"first chunk","seq":0}',
+    );
+    expect(output).toContain(
+      'data: {"type":"text","text":"second chunk","seq":1}',
+    );
+    expect(output).toContain('data: {"type":"done","seq":2}');
+    expect(output).not.toContain("auto_continue");
+    expect(getCurrentTurnEventsForThread).toHaveBeenCalledWith(
+      "thread-turn",
+      "turn-1",
+    );
   });
 
   it("keeps an in-memory abort successful when durable cleanup fails", async () => {

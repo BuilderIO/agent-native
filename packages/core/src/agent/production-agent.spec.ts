@@ -89,6 +89,7 @@ import {
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
+  type AgentActionSurfaceDetails,
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopOutcome,
 } from "./production-agent.js";
@@ -1945,6 +1946,37 @@ describe("createProductionAgentHandler", () => {
     expect(getRequestRunContext()).toBeUndefined();
   });
 
+  it("passes normalized requested turn and queued message ids to the action-surface resolver", async () => {
+    const resolver = vi.fn(async (details: AgentActionSurfaceDetails) => {
+      expect(details.requestedTurnId).toBe("turn-requested");
+      expect(details.queuedMessageId).toBe("queued-requested");
+      throw new Error("resolver observed request identity");
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      actions: { allowed: actionEntry({}) },
+      resolveActionSurface: resolver,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          turnId: "  turn-requested  ",
+          queuedMessageId: "  queued-requested  ",
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com", run: {} }, () =>
+        handler(event),
+      ),
+    ).rejects.toThrow("resolver observed request identity");
+    expect(resolver).toHaveBeenCalledOnce();
+  });
+
   it("rejects invalid action scopes before invoking the resolver", async () => {
     const resolver = vi.fn(async () => ({
       allowedActionNames: ["allowed"],
@@ -2111,7 +2143,10 @@ describe("createProductionAgentHandler", () => {
         "tool-search": actionEntry({}),
       },
       initialToolNames: ["alpha"],
-      resolveActionSurface: async ({ threadId, internalContinuation }) => {
+      resolveActionSurface: async (details) => {
+        const { threadId, internalContinuation } = details;
+        expect(details).not.toHaveProperty("requestedTurnId");
+        expect(details).not.toHaveProperty("queuedMessageId");
         seenContinuations.push([threadId, internalContinuation]);
         if (threadId === "thread-alpha") {
           await new Promise((resolve) => setTimeout(resolve, 10));
