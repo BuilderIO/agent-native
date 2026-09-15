@@ -868,11 +868,19 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String(betaResolveStep?.with?.script),
-      /context\.eventName === 'workflow_dispatch'/,
+      /context\.eventName === 'push'/,
     );
     assert.match(
       String(betaResolveStep?.with?.script),
+      /const comparison = await github\.rest\.repos\.compareCommits\(/,
+    );
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
       /sourceSha\.toLowerCase\(\) !== mainSha\.toLowerCase\(\)/,
+    );
+    assert.doesNotMatch(
+      String(betaResolveStep?.with?.script),
+      /Manual beta source_ref must equal current main/,
     );
     const confirmCurrentSourceStep = (
       (
@@ -894,10 +902,6 @@ describe("production Netlify site concurrency guard", () => {
     assert.doesNotMatch(
       confirmCurrentSourceScript,
       /process\.env\.SOURCE_SHA\.toLowerCase\(\) === mainSha\.toLowerCase\(\)/,
-    );
-    assert.match(
-      String(betaResolveStep?.with?.script),
-      /Manual beta source_ref must equal current main/,
     );
     assert.match(
       reusableSource,

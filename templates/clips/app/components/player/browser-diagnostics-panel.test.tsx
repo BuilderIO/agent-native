@@ -35,6 +35,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "browserDiagnostics.message": "Message",
       "browserDiagnostics.networkCount": "Network {{count}}",
       "browserDiagnostics.networkSource": "Network",
+      "browserDiagnostics.timeline": "Timeline",
+      "browserDiagnostics.navigation": "Navigation",
+      "browserDiagnostics.click": "Click",
+      "browserDiagnostics.input": "Input",
+      "browserDiagnostics.scroll": "Scroll",
+      "browserDiagnostics.requestStarted": "Request started",
+      "browserDiagnostics.responseReceived": "Response received",
       "browserDiagnostics.noConsoleTitle": "No console events",
       "browserDiagnostics.noFailures": "No failures detected",
       "browserDiagnostics.noIssuesTitle": "No browser issues detected",
@@ -243,5 +250,48 @@ describe("BrowserDiagnosticsPanel", () => {
 
     expect(consoleSection?.getAttribute("data-state")).toBe("open");
     expect(consoleSection?.textContent).toContain("No console events");
+  });
+
+  it("renders the structured timeline before the diagnostic streams", () => {
+    const onSeek = vi.fn();
+    const diagnostics = {
+      ...VIEWER_PREVIEW_BROWSER_DIAGNOSTICS,
+      timeline: [
+        {
+          timestampMs: 1_234,
+          elapsedMs: 1_234,
+          kind: "click" as const,
+          target: "button#submit",
+        },
+        {
+          timestampMs: 1_500,
+          elapsedMs: 1_500,
+          kind: "network" as const,
+          phase: "response" as const,
+          type: "fetch" as const,
+          method: "POST",
+          url: "/api/items",
+          status: 500,
+          durationMs: 120,
+        },
+      ],
+    };
+    act(() => {
+      root.render(
+        <BrowserDiagnosticsPanel
+          diagnostics={diagnostics}
+          durationMs={VIEWER_PREVIEW_DIAGNOSTICS_DURATION_MS}
+          onSeek={onSeek}
+        />,
+      );
+    });
+
+    const timeline = container.querySelector(
+      '[data-browser-diagnostics-section="timeline"]',
+    );
+    expect(timeline?.getAttribute("data-state")).toBe("open");
+    expect(timeline?.textContent).toContain("Click");
+    expect(timeline?.textContent).toContain("button#submit");
+    expect(timeline?.textContent).toContain("500");
   });
 });

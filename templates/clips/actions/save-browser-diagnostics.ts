@@ -2,8 +2,8 @@
  * Save redacted browser diagnostics captured during a recording session.
  *
  * Called by the recorder UI after stop/finalize. Diagnostics are intentionally
- * bounded and body/header-free: console text plus method/path/status/duration
- * for fetch/XHR requests.
+ * bounded and body/header-free: interaction markers, console text, plus
+ * method/path/status/duration for fetch/XHR requests.
  */
 
 import { defineAction } from "@agent-native/core/action";
@@ -16,15 +16,18 @@ import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
 import {
   MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS,
+  MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS,
   MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS,
+  MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_URL_LENGTH,
   redactBrowserDiagnosticString,
+  sanitizeBrowserDiagnosticNavigationUrl,
   summarizeBrowserDiagnostics,
   type BrowserDiagnosticConsoleLevel,
 } from "../shared/browser-diagnostics.js";
 
-const REDACTION_VERSION = 2;
+const REDACTION_VERSION = 3;
 
 const consoleLevelSchema = z.enum(["debug", "log", "info", "warn", "error"]);
 
@@ -47,6 +50,14 @@ const networkRequestSchema = z.object({
   ok: z.boolean().optional(),
   durationMs: z.number().finite().nonnegative(),
   error: z.string().max(20_000).optional(),
+});
+
+const interactionEventSchema = z.object({
+  timestampMs: z.number().finite().nonnegative(),
+  elapsedMs: z.number().finite().nonnegative(),
+  kind: z.enum(["navigation", "click", "input", "scroll"]),
+  target: z.string().max(MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH).optional(),
+  url: z.string().max(8_000).optional(),
 });
 
 function truncate(value: string, maxLength: number): string {
@@ -141,9 +152,29 @@ function sanitizeNetworkRequest(entry: z.infer<typeof networkRequestSchema>) {
   };
 }
 
+function sanitizeInteractionEvent(
+  entry: z.infer<typeof interactionEventSchema>,
+) {
+  const target = entry.target
+    ? truncate(
+        redactString(entry.target, { redactQueryValues: true }),
+        MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH,
+      )
+    : "";
+  return {
+    timestampMs: Math.round(entry.timestampMs),
+    elapsedMs: Math.round(entry.elapsedMs),
+    kind: entry.kind,
+    ...(target ? { target } : {}),
+    ...(entry.url
+      ? { url: sanitizeBrowserDiagnosticNavigationUrl(entry.url) }
+      : {}),
+  };
+}
+
 export default defineAction({
   description:
-    "Save redacted console and network diagnostics captured during a Clips recording session. UI/internal use only.",
+    "Save redacted browser timeline, console, and network diagnostics captured during a Clips recording session. UI/internal use only.",
   agentTool: false,
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
@@ -164,6 +195,10 @@ export default defineAction({
       .array(networkRequestSchema)
       .max(MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS)
       .default([]),
+    interactionEvents: z
+      .array(interactionEventSchema)
+      .max(MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS)
+      .default([]),
   }),
   run: async (args) => {
     const access = await assertAccess("recording", args.recordingId, "editor");
@@ -178,6 +213,9 @@ export default defineAction({
     const networkRequests = args.networkRequests
       .slice(-MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS)
       .map(sanitizeNetworkRequest);
+    const interactionEvents = args.interactionEvents
+      .slice(-MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS)
+      .map(sanitizeInteractionEvent);
     const summary = summarizeBrowserDiagnostics({
       consoleLogs,
       networkRequests,
@@ -199,6 +237,7 @@ export default defineAction({
       endedAt,
       consoleLogsJson: JSON.stringify(consoleLogs),
       networkRequestsJson: JSON.stringify(networkRequests),
+      interactionEventsJson: JSON.stringify(interactionEvents),
       redactionVersion: REDACTION_VERSION,
       updatedAt: now,
     };
