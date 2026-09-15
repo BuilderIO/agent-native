@@ -299,7 +299,9 @@ describe("session replay ingest quota (HTTP 429)", () => {
 
   it("unparks when the recorder restarts against a different ingest key", async () => {
     const browser = installBrowser();
-    browser.setResponder((call) => (call === 1 ? quotaExceeded() : new Response("{}")));
+    browser.setResponder((call) =>
+      call === 1 ? quotaExceeded() : new Response("{}"),
+    );
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
