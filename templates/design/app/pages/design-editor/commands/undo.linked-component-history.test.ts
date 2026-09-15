@@ -33,6 +33,7 @@ import { runUndo, type UndoArgs } from "@/pages/design-editor/commands/undo";
 import {
   type ContentHistoryChange,
   contentHistoryEntryFromChanges,
+  type GeometryHistoryEntry,
   reserveLinkedComponentContentHistory,
 } from "@/pages/design-editor/history";
 import {
@@ -269,12 +270,19 @@ describe("single-screen linked component history", () => {
 
     expect(state.applyLocalContentUpdate).toHaveBeenCalledWith(
       '<main><div data-agent-native-node-id="layer-a">before A</div></main>',
-      expect.objectContaining({ recordHistory: false }),
+      expect.objectContaining({
+        recordHistory: false,
+        historyBeforeContent:
+          '<main><div data-agent-native-node-id="layer-a">after A</div></main>',
+      }),
     );
     expect(state.applyFileContentUpdate).toHaveBeenCalledWith(
       "file-b",
       "<main>before B</main>",
-      expect.objectContaining({ recordHistory: false }),
+      expect.objectContaining({
+        recordHistory: false,
+        historyBeforeContent: "<main>after B</main>",
+      }),
     );
     expect(state.setSelectedLayerIdsState).toHaveBeenLastCalledWith([
       state.layerId,
@@ -303,12 +311,19 @@ describe("single-screen linked component history", () => {
     runRedo(state.args as unknown as Parameters<typeof runRedo>[0]);
     expect(state.applyLocalContentUpdate).toHaveBeenLastCalledWith(
       '<main><div data-agent-native-node-id="layer-a">after A</div></main>',
-      expect.objectContaining({ recordHistory: false }),
+      expect.objectContaining({
+        recordHistory: false,
+        historyBeforeContent:
+          '<main><div data-agent-native-node-id="layer-a">before A</div></main>',
+      }),
     );
     expect(state.applyFileContentUpdate).toHaveBeenLastCalledWith(
       "file-b",
       "<main>after B</main>",
-      expect.objectContaining({ recordHistory: false }),
+      expect.objectContaining({
+        recordHistory: false,
+        historyBeforeContent: "<main>before B</main>",
+      }),
     );
     expect(state.setSelectedLayerIdsState).toHaveBeenLastCalledWith([
       state.layerId,
@@ -632,6 +647,120 @@ describe("single-screen linked component history", () => {
       }
     },
   );
+
+  it.each(["undo", "redo"] as const)(
+    "keeps a global %s intact when one target is shader-locked",
+    (direction) => {
+      const state = commandArgs();
+      const entry = state.contentUndoStackRef.current[0]!;
+      const geometryEntry = {
+        before: {},
+        after: {},
+      } satisfies GeometryHistoryEntry;
+      state.args.viewModeRef.current = "overview";
+      state.historyOrderRef.current = ["geometry", "file-content"];
+      if (direction === "undo") {
+        (
+          state.args.geometryUndoStackRef as { current: GeometryHistoryEntry[] }
+        ).current = [geometryEntry];
+      } else {
+        state.content.set(
+          "file-a",
+          '<main><div data-agent-native-node-id="layer-a">before A</div></main>',
+        );
+        state.content.set("file-b", "<main>before B</main>");
+        state.contentUndoStackRef.current = [];
+        state.args.contentUndoSelectionStackRef.current = [];
+        state.contentRedoStackRef.current = [entry];
+        state.args.contentRedoSelectionStackRef.current = [undefined];
+        state.redoOrderRef.current = ["geometry", "file-content"];
+        (
+          state.args.geometryRedoStackRef as { current: GeometryHistoryEntry[] }
+        ).current = [geometryEntry];
+      }
+
+      const sourceBefore = new Map(state.content);
+      shaderWrites.add("file-b");
+      try {
+        if (direction === "undo") {
+          runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+          expect(state.contentUndoStackRef.current).toHaveLength(1);
+          expect(state.contentRedoStackRef.current).toHaveLength(0);
+          expect(state.historyOrderRef.current).toEqual([
+            "geometry",
+            "file-content",
+          ]);
+          expect(state.redoOrderRef.current).toEqual([]);
+          expect(state.args.geometryUndoStackRef.current).toEqual([
+            geometryEntry,
+          ]);
+        } else {
+          runRedo(state.args as unknown as Parameters<typeof runRedo>[0]);
+          expect(state.contentRedoStackRef.current).toHaveLength(1);
+          expect(state.contentUndoStackRef.current).toHaveLength(0);
+          expect(state.redoOrderRef.current).toEqual([
+            "geometry",
+            "file-content",
+          ]);
+          expect(state.historyOrderRef.current).toEqual([
+            "geometry",
+            "file-content",
+          ]);
+          expect(state.args.geometryRedoStackRef.current).toEqual([
+            geometryEntry,
+          ]);
+        }
+
+        expect(state.content).toEqual(sourceBefore);
+        expect(state.applyLocalContentUpdate).not.toHaveBeenCalled();
+        expect(state.applyFileContentUpdate).not.toHaveBeenCalled();
+        expect(state.args.writeFrameGeometrySnapshot).not.toHaveBeenCalled();
+      } finally {
+        shaderWrites.delete("file-b");
+      }
+    },
+  );
+
+  it("keeps global undo intact when a historical source fails integrity preflight", () => {
+    const state = commandArgs();
+    const beforeA =
+      '<main><div data-agent-native-node-id="layer-a">before A</div></main>';
+    const afterA =
+      '<main><div data-agent-native-node-id="layer-a">after A</div></main>';
+    const beforeB =
+      '<!doctype html><html><head></head><body><button data-agent-native-node-id="moving" x-data="{ open: true }" x-show="open">Move me</button></body></html>';
+    const afterB =
+      '<!doctype html><html><head></head><body><button data-agent-native-node-id="moving">Move me</button></body></html>';
+    const entry = contentHistoryEntryFromChanges(
+      [
+        { fileId: "file-a", before: beforeA, after: afterA },
+        { fileId: "file-b", before: beforeB, after: afterB },
+      ],
+      true,
+    )!;
+    state.content.set("file-a", afterA);
+    state.content.set("file-b", afterB);
+    state.contentUndoStackRef.current = [entry];
+    state.args.contentUndoSelectionStackRef.current = [undefined];
+    state.args.viewModeRef.current = "overview";
+    state.historyOrderRef.current = ["geometry", "file-content"];
+    const geometryEntry = { before: {}, after: {} };
+    (
+      state.args.geometryUndoStackRef as { current: GeometryHistoryEntry[] }
+    ).current = [geometryEntry];
+    const sourceBefore = new Map(state.content);
+
+    runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+    expect(state.content).toEqual(sourceBefore);
+    expect(state.applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(state.applyFileContentUpdate).not.toHaveBeenCalled();
+    expect(state.contentUndoStackRef.current).toEqual([entry]);
+    expect(state.contentRedoStackRef.current).toEqual([]);
+    expect(state.historyOrderRef.current).toEqual(["geometry", "file-content"]);
+    expect(state.args.geometryUndoStackRef.current).toEqual([geometryEntry]);
+    expect(state.args.writeFrameGeometrySnapshot).not.toHaveBeenCalled();
+  });
 
   it("does not replay an unmarked global content entry", () => {
     const state = commandArgs();

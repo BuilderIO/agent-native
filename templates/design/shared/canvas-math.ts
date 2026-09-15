@@ -2409,34 +2409,6 @@ function getFlippedAxisStart(
   return start;
 }
 
-function getGroupMinimumBounds(
-  frames: FrameEntry[],
-  originBounds: FrameGeometry,
-  options: ResizeFrameOptions,
-): CanvasSize {
-  const minimumFrameWidth = options.minWidth ?? MIN_CANVAS_FRAME_WIDTH;
-  const minimumFrameHeight = options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT;
-  const minimumWidth = frames.reduce(
-    (best, frame) =>
-      Math.max(
-        best,
-        originBounds.width *
-          (minimumFrameWidth / Math.max(1, frame.geometry.width)),
-      ),
-    minimumFrameWidth,
-  );
-  const minimumHeight = frames.reduce(
-    (best, frame) =>
-      Math.max(
-        best,
-        originBounds.height *
-          (minimumFrameHeight / Math.max(1, frame.geometry.height)),
-      ),
-    minimumFrameHeight,
-  );
-  return { width: minimumWidth, height: minimumHeight };
-}
-
 function getCanvasSnapThreshold({
   thresholdScreenPx = DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
   zoom,

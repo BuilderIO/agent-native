@@ -5,7 +5,7 @@ import {
   buildCodeLayerTree,
   moveNodeBetweenDocuments,
 } from "@shared/code-layer";
-import { describe, expect, it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import { runApplyFileContentUpdate } from "@/pages/design-editor/commands/apply-file-content-update";
 import {
@@ -224,3 +224,128 @@ it.each(["layers-panel move", "move-to-screen", "overview reparent"] as const)(
     ).toBe(target);
   },
 );
+
+it("does not record a move-to-screen when a real writer rejects a stale permission callback", () => {
+  const source = prepareCanonicalSourceContent(
+    `<html><body><button data-agent-native-node-id="moving">Move me</button></body></html>`,
+    { fileId: SOURCE_ID, fileType: "html" },
+  ).content;
+  const target = prepareCanonicalSourceContent(
+    `<html><body><main data-agent-native-node-id="target"></main></body></html>`,
+    { fileId: TARGET_ID, fileType: "html" },
+  ).content;
+  const sourceFile = file(SOURCE_ID, source);
+  const targetFile = file(TARGET_ID, target);
+  const activeFile = file(ACTIVE_ID, activeContent);
+  const files = [sourceFile, targetFile, activeFile];
+  const writerCalls: Array<{ fileId: string; status: string }> = [];
+  const history: unknown[] = [];
+  const queuedSaves: string[] = [];
+  let queryWrites = 0;
+  const queryClient = {
+    setQueryData: () => {
+      queryWrites += 1;
+    },
+  };
+  const writerArgs = {
+    acknowledgeAuthoritativeClipboardMutation: vi.fn(),
+    activeFile,
+    applyFileContentUpdate: () => {},
+    applyLocalContentUpdate: vi.fn(() => ({ status: "refused" as const })),
+    canEditDesignRef: { current: false },
+    cancelQueuedFileContentSave: vi.fn(),
+    clearPendingLocalFileContent: vi.fn(),
+    files,
+    getScreenContent: (fileId: string) =>
+      files.find((candidate) => candidate.id === fileId)?.content ?? "",
+    id: "design",
+    markPendingLocalFileContent: vi.fn(),
+    overviewIsSynced: false,
+    overviewPresenceFileId: null,
+    overviewYdoc: null,
+    queryClient,
+    queueFileContentSave: (fileId: string) => queuedSaves.push(fileId),
+    recordContentHistoryEntry: (entry: unknown) => history.push(entry),
+    suppressContentHistoryRef: { current: false },
+    t: (key: string) => key,
+  };
+  const publish = (fileId: string, content: string, options?: object) => {
+    const result = runApplyFileContentUpdate(
+      { ...writerArgs, applyFileContentUpdate: publish } as never,
+      fileId,
+      content,
+      options as never,
+    );
+    writerCalls.push({ fileId, status: result.status });
+    return result;
+  };
+  const sourceProjection = buildCodeLayerProjection(source, {
+    source: { kind: "design-file", fileId: SOURCE_ID },
+  });
+  const targetProjection = buildCodeLayerProjection(target, {
+    source: { kind: "design-file", fileId: TARGET_ID },
+  });
+  const moving = nodeById(sourceProjection.nodes, "moving");
+  const targetNode = nodeById(targetProjection.nodes, "target");
+  const owners: LayerMoveArgs["codeLayerOwnerByNodeId"] = new Map();
+  for (const [fileId, projection] of [
+    [SOURCE_ID, sourceProjection],
+    [TARGET_ID, targetProjection],
+  ] as const) {
+    const tree = buildCodeLayerTree(projection);
+    for (const node of projection.nodes) {
+      owners.set(node.id, {
+        fileId,
+        node,
+        sourceProjection: projection,
+        tree,
+        runtimeOnly: false,
+      });
+    }
+  }
+  const setSelectedElement = vi.fn();
+  const setSelectedLayerIdsState = vi.fn();
+  const applyFileContentUpdate = vi.fn(publish);
+
+  runLayerMoveToScreen(
+    {
+      activeFile,
+      applyFileContentUpdate,
+      boardFileId: undefined,
+      codeLayerOwnerByNodeId: owners,
+      effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
+      files,
+      getFreshActiveContent: () => activeContent,
+      getScreenContent: (fileId: string) =>
+        files.find((candidate) => candidate.id === fileId)?.content ?? "",
+      recordContentHistoryEntry: (entry: unknown) => history.push(entry),
+      recordLocalContentHistoryEntry: (entry: unknown) => history.push(entry),
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      setExpandedLayerIds: vi.fn(),
+      setRuntimeStructureInsertRequest: vi.fn(),
+      setSelectedElement,
+      setSelectedLayerIdsState,
+      t: (key: string) => key,
+      viewModeRef: { current: "overview" },
+    } as never,
+    {
+      draggedIds: [moving.id],
+      targetId: targetNode.id,
+      placement: "inside",
+    },
+    TARGET_ID,
+  );
+
+  expect(writerCalls).toEqual([{ fileId: SOURCE_ID, status: "refused" }]);
+  expect(applyFileContentUpdate).toHaveBeenCalledTimes(1);
+  expect(queuedSaves).toEqual([]);
+  expect(queryWrites).toBe(0);
+  expect(history).toEqual([]);
+  expect(setSelectedElement).not.toHaveBeenCalled();
+  expect(setSelectedLayerIdsState).not.toHaveBeenCalled();
+  expect(files.map((candidate) => candidate.content)).toEqual([
+    source,
+    target,
+    activeContent,
+  ]);
+});

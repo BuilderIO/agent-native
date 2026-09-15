@@ -7,7 +7,6 @@ import {
   removeBaseFillPatch,
 } from "./edit-panel/fill-gradient-helpers";
 import {
-  defaultGradientStops,
   joinCssLayers,
   parseGradientLayer,
   removeFillLayerAtIndex,

@@ -9,7 +9,6 @@ import type {
   ContentHistorySelectionAfterMap,
 } from "@/pages/design-editor/history";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
-import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runOverviewPrimitiveReparent } from "./overview-primitive-reparent";
 
@@ -24,17 +23,6 @@ function mountPreview(content: string, fileId: string): void {
   preview.open();
   preview.write(content);
   preview.close();
-}
-
-function file(id: string, content: string): DesignFile {
-  return {
-    id,
-    filename: id,
-    fileType: "html",
-    content,
-    createdAt: "",
-    updatedAt: "",
-  };
 }
 
 function publishFixture(fileId: string, content: string): string {

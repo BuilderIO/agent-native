@@ -57,9 +57,13 @@ function runStoredCrossScreenDrop(args: {
   sourceContent: string;
   destinationContent: string;
   drop: Parameters<typeof runCrossScreenElementDrop>[1];
+  publish?: Parameters<
+    typeof runCrossScreenElementDrop
+  >[0]["applyFileContentUpdate"];
 }) {
   const writes = new Map<string, string>();
   const historyEntries: unknown[] = [];
+  const selectionEvents: string[] = [];
   let activeFileId: string | null = null;
   let createdOverviewLayerSelection: {
     screenId: string;
@@ -69,11 +73,13 @@ function runStoredCrossScreenDrop(args: {
   let selectedElement: unknown = null;
   runCrossScreenElementDrop(
     {
-      applyFileContentUpdate: (fileId, content) => {
-        const publication = acceptFixture(fileId, content);
-        writes.set(fileId, publication.content);
-        return publication;
-      },
+      applyFileContentUpdate:
+        args.publish ??
+        ((fileId, content) => {
+          const publication = acceptFixture(fileId, content);
+          writes.set(fileId, publication.content);
+          return publication;
+        }),
       boardFileId: undefined,
       canEditDesign: true,
       clearPendingOverviewLayerSelectionTimer: () => {},
@@ -98,10 +104,12 @@ function runStoredCrossScreenDrop(args: {
       runtimeStructureInsertRevisionRef: { current: 0 },
       sendRuntimeLayerMoveSemanticHandoff: () => false,
       setActiveFileId: (value) => {
+        selectionEvents.push("active-file");
         activeFileId =
           typeof value === "function" ? value(activeFileId) : value;
       },
       setCreatedOverviewLayerSelection: (value) => {
+        selectionEvents.push("created-layer");
         createdOverviewLayerSelection =
           typeof value === "function"
             ? value(createdOverviewLayerSelection)
@@ -110,10 +118,12 @@ function runStoredCrossScreenDrop(args: {
       setOverviewSelectedScreenIds: () => {},
       setRuntimeStructureInsertRequest: () => {},
       setSelectedElement: (value) => {
+        selectionEvents.push("element");
         selectedElement =
           typeof value === "function" ? value(selectedElement as never) : value;
       },
       setSelectedLayerIdsState: (value) => {
+        selectionEvents.push("layers");
         selectedLayerIds =
           typeof value === "function" ? value(selectedLayerIds) : value;
       },
@@ -126,9 +136,114 @@ function runStoredCrossScreenDrop(args: {
     activeFileId,
     createdOverviewLayerSelection,
     historyEntries,
+    selectionEvents,
     selectedElement,
     selectedLayerIds,
     writes,
+  };
+}
+
+function createRealWriterHarness(
+  sourceContent: string,
+  destinationContent: string,
+  canEdit = true,
+) {
+  const activeContent =
+    "<!doctype html><html><head></head><body></body></html>";
+  const files = [
+    {
+      id: "source",
+      filename: "source.html",
+      fileType: "html",
+      content: sourceContent,
+      updatedAt: "1",
+    },
+    {
+      id: "target",
+      filename: "target.html",
+      fileType: "html",
+      content: destinationContent,
+      updatedAt: "1",
+    },
+    {
+      id: "active",
+      filename: "active.html",
+      fileType: "html",
+      content: activeContent,
+      updatedAt: "1",
+    },
+  ];
+  const contentByFile = new Map(files.map((file) => [file.id, file.content]));
+  const calls: Array<{
+    fileId: string;
+    status: string;
+    historyBeforeContent?: string;
+  }> = [];
+  const history: unknown[] = [];
+  const queuedSaves: string[] = [];
+  let queryWrites = 0;
+  const queryClient = {
+    setQueryData: (_key: unknown, update: any) => {
+      queryWrites += 1;
+      const previous = {
+        files: files.map((file) => ({
+          ...file,
+          content: contentByFile.get(file.id),
+        })),
+      };
+      const next = typeof update === "function" ? update(previous) : update;
+      for (const file of next?.files ?? []) {
+        contentByFile.set(file.id, file.content);
+      }
+    },
+  };
+  const writerArgs = {
+    acknowledgeAuthoritativeClipboardMutation: () => {},
+    activeFile: files[2],
+    applyFileContentUpdate: () => {},
+    applyLocalContentUpdate: () => ({ status: "refused" as const }),
+    canEditDesignRef: { current: canEdit },
+    cancelQueuedFileContentSave: () => {},
+    clearPendingLocalFileContent: () => {},
+    files,
+    getScreenContent: (fileId: string) => contentByFile.get(fileId) ?? "",
+    id: "design",
+    markPendingLocalFileContent: () => {},
+    overviewIsSynced: false,
+    overviewPresenceFileId: null,
+    overviewYdoc: null,
+    queryClient,
+    queueFileContentSave: (fileId: string) => queuedSaves.push(fileId),
+    recordContentHistoryEntry: (entry: unknown) => history.push(entry),
+    suppressContentHistoryRef: { current: false },
+    t: (key: string) => key,
+  };
+  const publish: Parameters<
+    typeof runCrossScreenElementDrop
+  >[0]["applyFileContentUpdate"] = (fileId, content, options) => {
+    const result = runApplyFileContentUpdate(
+      { ...writerArgs, applyFileContentUpdate: publish } as never,
+      fileId,
+      content,
+      options,
+    );
+    calls.push({
+      fileId,
+      status: result.status,
+      historyBeforeContent: options?.historyBeforeContent,
+    });
+    return result;
+  };
+
+  return {
+    calls,
+    contentByFile,
+    history,
+    publish,
+    queuedSaves,
+    get queryWrites() {
+      return queryWrites;
+    },
   };
 }
 
@@ -902,6 +1017,106 @@ describe("runCrossScreenElementDrop shader publication preflight", () => {
 
     expect(writes.size).toBe(0);
     expect(historyEntries).toHaveLength(0);
+  });
+});
+
+describe("runCrossScreenElementDrop real publication refusal", () => {
+  it("records no duplicate history or selection when the real writer rejects Alpine content", () => {
+    const sourceInput = `<!doctype html><html><head>
+      <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
+    </head><body><div data-agent-native-node-id="alpine-owner" x-data="{ open: true }"><span data-agent-native-node-id="alpine-child" x-text="open"></span></div></body></html>`;
+    const destinationInput = `<!doctype html><html><head></head><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    const sourceContent = prepareCanonicalSourceContent(sourceInput, {
+      fileId: "source",
+      fileType: "html",
+    }).content;
+    const destinationContent = prepareCanonicalSourceContent(destinationInput, {
+      fileId: "target",
+      fileType: "html",
+    }).content;
+    const writer = createRealWriterHarness(sourceContent, destinationContent);
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: writer.publish,
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="alpine-owner"]',
+        sourceNodeId: "alpine-owner",
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+        duplicate: true,
+        sourceCloneHtml:
+          '<div data-agent-native-node-id="alpine-owner" x-data="{ open: true }"><span data-agent-native-node-id="alpine-child" x-text="open"></span></div>',
+      },
+    });
+
+    expect(writer.calls).toEqual([
+      {
+        fileId: "target",
+        status: "refused",
+        historyBeforeContent: destinationContent,
+      },
+    ]);
+    expect(writer.history).toEqual([]);
+    expect(writer.queuedSaves).toEqual([]);
+    expect(writer.queryWrites).toBe(0);
+    expect(result.writes.size).toBe(0);
+    expect(result.historyEntries).toEqual([]);
+    expect(result.selectionEvents).toEqual([]);
+    expect(result.selectedLayerIds).toEqual([]);
+    expect(result.selectedElement).toBeNull();
+    expect(result.activeFileId).toBeNull();
+    expect(writer.contentByFile.get("source")).toBe(sourceContent);
+    expect(writer.contentByFile.get("target")).toBe(destinationContent);
+  });
+
+  it("records no history or selection when a stale canvas drag reaches a denied writer", () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    const writer = createRealWriterHarness(
+      sourceContent,
+      destinationContent,
+      false,
+    );
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: writer.publish,
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    expect(writer.calls).toEqual([
+      {
+        fileId: "source",
+        status: "refused",
+        historyBeforeContent: sourceContent,
+      },
+    ]);
+    expect(writer.history).toEqual([]);
+    expect(writer.queuedSaves).toEqual([]);
+    expect(writer.queryWrites).toBe(0);
+    expect(result.writes.size).toBe(0);
+    expect(result.historyEntries).toEqual([]);
+    expect(result.selectionEvents).toEqual([]);
+    expect(result.selectedLayerIds).toEqual([]);
+    expect(result.selectedElement).toBeNull();
+    expect(result.activeFileId).toBeNull();
+    expect(writer.contentByFile.get("source")).toBe(sourceContent);
+    expect(writer.contentByFile.get("target")).toBe(destinationContent);
   });
 });
 

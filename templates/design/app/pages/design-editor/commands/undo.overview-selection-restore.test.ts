@@ -39,8 +39,16 @@ function overviewArgs(overrides: Record<string, unknown> = {}) {
   return {
     activeEditorDragRef: { current: false },
     activeFile: { id: "file-1" },
-    applyFileContentUpdate: vi.fn(),
-    applyLocalContentUpdate: vi.fn(),
+    applyFileContentUpdate: vi.fn((fileId: string, content: string) => ({
+      status: "accepted" as const,
+      content,
+      nodeIdMap: new Map(),
+    })),
+    applyLocalContentUpdate: vi.fn((content: string) => ({
+      status: "accepted" as const,
+      content,
+      nodeIdMap: new Map(),
+    })),
     canEditDesign: true,
     clipboardPasteRedoStackRef: { current: [] },
     clipboardPasteUndoStackRef: { current: [] },

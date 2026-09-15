@@ -22,6 +22,7 @@ import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import {
   getCanvasFrameGeometry,
@@ -363,6 +364,7 @@ export interface UndoArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -857,6 +859,7 @@ export function runUndo({
   const um = undoManagerRef.current;
   const canUseOverviewHistory = viewModeRef.current === "overview";
   let prunedUndoHistory = 0;
+  let contentReplayRefused = false;
   const undoContent = (scope: "any" | "local" | "global" = "any") => {
     if (scope !== "global" && um?.canUndo()) {
       const beforeUndoContent = ydoc?.getText("content").toJSON() ?? null;
@@ -1061,6 +1064,82 @@ export function runUndo({
       prunedUndoHistory += 1;
       return false;
     }
+    const preparedReplay = prepareContentHistoryReplay({
+      activeFile,
+      changes,
+      direction: "undo",
+      files,
+      getFreshActiveContent,
+      getScreenContent,
+      liveScreenSnapshotsById,
+      t,
+    });
+    if (!preparedReplay) {
+      contentReplayRefused = true;
+      return false;
+    }
+    const acceptedContents = new Map<string, string>();
+    let replayAccepted = true;
+    suppressContentHistoryRef.current = true;
+    try {
+      for (const change of changes) {
+        if (change.before === change.after) continue;
+        // U20: a live-snapshot (URL-backed/localhost) screen's visible
+        // content lives in liveScreenSnapshotsById, not DesignFile.content
+        // — route replay there instead of the regular content path, which
+        // that screen's edits never actually write to.
+        if (liveScreenSnapshotsById[change.fileId]) {
+          acceptedContents.set(change.fileId, change.before);
+          updateLiveScreenSnapshotContent(change.fileId, change.before, {
+            recordHistory: false,
+          });
+          syncLiveScreenSnapshotPreview(change.fileId, change.before);
+        } else {
+          const prepared = preparedReplay.get(change.fileId);
+          if (!prepared) {
+            replayAccepted = false;
+            break;
+          }
+          const result =
+            change.fileId === activeFile?.id
+              ? applyLocalContentUpdate(change.before, {
+                  historyBeforeContent: prepared.historyBeforeContent,
+                  refreshPreview: false,
+                  forcePreviewFullDocument: true,
+                  immediateSave: true,
+                  recordHistory: false,
+                })
+              : applyFileContentUpdate(change.fileId, change.before, {
+                  historyBeforeContent: prepared.historyBeforeContent,
+                  recordHistory: false,
+                  refreshPreview: false,
+                });
+          if (result.status !== "accepted") {
+            replayAccepted = false;
+            break;
+          }
+          acceptedContents.set(change.fileId, result.content);
+        }
+      }
+    } finally {
+      suppressContentHistoryRef.current = false;
+    }
+    if (!replayAccepted) {
+      contentReplayRefused = true;
+      return false;
+    }
+    const replayedChanges = changes.map((change) => {
+      const prepared = preparedReplay.get(change.fileId);
+      const acceptedContent = acceptedContents.get(change.fileId);
+      return prepared && acceptedContent !== undefined
+        ? {
+            ...change,
+            before: acceptedContent,
+            after: prepared.historyBeforeContent,
+          }
+        : change;
+    });
+
     contentUndoStackRef.current.pop();
     contentUndoSelectionStackRef.current.pop();
     const remainderEntry = contentHistoryEntryFromChanges(
@@ -1073,7 +1152,7 @@ export function runUndo({
       restoreFileContentHistoryOrderToken(historyOrderRef.current, true);
     }
     const appliedEntry = contentHistoryEntryFromChanges(
-      changes,
+      replayedChanges,
       linkedComponent,
     )!;
     const stampedAfter = contentHistorySelectionAfterRef.current.get(entry);
@@ -1093,38 +1172,8 @@ export function runUndo({
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       "file-content",
     ];
-    suppressContentHistoryRef.current = true;
-    try {
-      for (const change of changes) {
-        if (change.before === change.after) continue;
-        // U20: a live-snapshot (URL-backed/localhost) screen's visible
-        // content lives in liveScreenSnapshotsById, not DesignFile.content
-        // — route replay there instead of the regular content path, which
-        // that screen's edits never actually write to.
-        if (liveScreenSnapshotsById[change.fileId]) {
-          updateLiveScreenSnapshotContent(change.fileId, change.before, {
-            recordHistory: false,
-          });
-          syncLiveScreenSnapshotPreview(change.fileId, change.before);
-        } else if (change.fileId === activeFile?.id) {
-          applyLocalContentUpdate(change.before, {
-            refreshPreview: false,
-            forcePreviewFullDocument: true,
-            immediateSave: true,
-            recordHistory: false,
-          });
-        } else {
-          applyFileContentUpdate(change.fileId, change.before, {
-            recordHistory: false,
-            refreshPreview: false,
-          });
-        }
-      }
-    } finally {
-      suppressContentHistoryRef.current = false;
-    }
     applyDesignDataHistoryChanges?.(changes, "undo");
-    const activeChange = changes.find(
+    const activeChange = replayedChanges.find(
       (change) =>
         change.fileId === activeFile?.id && change.before !== change.after,
     );
@@ -1154,7 +1203,7 @@ export function runUndo({
     restoreHistorySelection(
       entrySelection,
       Object.fromEntries(
-        changes.map((change) => [change.fileId, change.before]),
+        replayedChanges.map((change) => [change.fileId, change.before]),
       ),
     );
     return true;
@@ -1606,42 +1655,52 @@ export function runUndo({
     return true;
   };
 
+  const tryUndoActions = (...actions: Array<() => boolean>) => {
+    for (const action of actions) {
+      if (action()) return true;
+      if (contentReplayRefused) return false;
+    }
+    return false;
+  };
   const undoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
     if (preferred === "clipboard-paste") return undoClipboardPaste();
     if (preferred === "selection") {
-      return undoSelection() || undoContent() || undoGeometry();
+      return tryUndoActions(undoSelection, undoContent, undoGeometry);
     }
     if (preferred === "file-deleted") {
-      return (
-        undoFileDeletion() ||
-        undoFileCreation() ||
-        undoContent() ||
-        undoGeometry()
+      return tryUndoActions(
+        undoFileDeletion,
+        undoFileCreation,
+        undoContent,
+        undoGeometry,
       );
     }
     if (preferred === "file-created")
-      return (
-        undoFileCreation() ||
-        undoFileDeletion() ||
-        undoContent() ||
-        undoGeometry()
+      return tryUndoActions(
+        undoFileCreation,
+        undoFileDeletion,
+        undoContent,
+        undoGeometry,
       );
-    if (preferred === "geometry") return undoGeometry() || undoContent();
+    if (preferred === "geometry")
+      return tryUndoActions(undoGeometry, undoContent);
     if (preferred === "file-content") {
       const prunedBefore = prunedUndoHistory;
       if (undoContent("global")) return true;
-      if (prunedUndoHistory > prunedBefore) return false;
+      if (contentReplayRefused || prunedUndoHistory > prunedBefore)
+        return false;
       return undoGeometry();
     }
     if (preferred === "content") {
       const prunedBefore = prunedUndoHistory;
-      return (
-        undoContent("local") ||
-        undoContent("global") ||
-        (prunedUndoHistory > prunedBefore ? false : undoGeometry())
-      );
+      if (undoContent("local")) return true;
+      if (contentReplayRefused) return false;
+      if (undoContent("global")) return true;
+      if (contentReplayRefused || prunedUndoHistory > prunedBefore)
+        return false;
+      return undoGeometry();
     }
-    return undoFileDeletion() || undoContent() || undoGeometry();
+    return tryUndoActions(undoFileDeletion, undoContent, undoGeometry);
   };
   let didUndo = false;
   if (canUseOverviewHistory) {
@@ -1654,6 +1713,10 @@ export function runUndo({
       }
       historyOrderRef.current.pop();
       didUndo = undoByOrder(preferred);
+      if (contentReplayRefused) {
+        if (preferred !== undefined) historyOrderRef.current.push(preferred);
+        break;
+      }
       if (didUndo || preferred === undefined) break;
     }
   } else {

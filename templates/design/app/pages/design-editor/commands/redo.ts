@@ -28,6 +28,7 @@ import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getCanvasFrameGeometry,
@@ -97,6 +98,7 @@ export interface RedoArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -719,6 +721,7 @@ export function runRedo({
   const um = undoManagerRef.current;
   const canUseOverviewHistory = viewModeRef.current === "overview";
   let prunedRedoHistory = 0;
+  let contentReplayRefused = false;
   const redoContent = (scope: "any" | "local" | "global" = "any") => {
     if (scope !== "global" && um?.canRedo()) {
       const beforeRedoContent = ydoc?.getText("content").toJSON();
@@ -910,6 +913,81 @@ export function runRedo({
       prunedRedoHistory += 1;
       return false;
     }
+    const preparedReplay = prepareContentHistoryReplay({
+      activeFile,
+      changes,
+      direction: "redo",
+      files,
+      getFreshActiveContent,
+      getScreenContent,
+      liveScreenSnapshotsById,
+      t,
+    });
+    if (!preparedReplay) {
+      contentReplayRefused = true;
+      return false;
+    }
+    const acceptedContents = new Map<string, string>();
+    let replayAccepted = true;
+    suppressContentHistoryRef.current = true;
+    try {
+      for (const change of changes) {
+        if (change.before === change.after) continue;
+        // U20: see the matching note in handleUndo — route a live-snapshot
+        // screen's replay through updateLiveScreenSnapshotContent instead
+        // of the regular content path.
+        if (liveScreenSnapshotsById[change.fileId]) {
+          acceptedContents.set(change.fileId, change.after);
+          updateLiveScreenSnapshotContent(change.fileId, change.after, {
+            recordHistory: false,
+          });
+          syncLiveScreenSnapshotPreview(change.fileId, change.after);
+        } else {
+          const prepared = preparedReplay.get(change.fileId);
+          if (!prepared) {
+            replayAccepted = false;
+            break;
+          }
+          const result =
+            change.fileId === activeFile?.id
+              ? applyLocalContentUpdate(change.after, {
+                  historyBeforeContent: prepared.historyBeforeContent,
+                  refreshPreview: false,
+                  forcePreviewFullDocument: true,
+                  immediateSave: true,
+                  recordHistory: false,
+                })
+              : applyFileContentUpdate(change.fileId, change.after, {
+                  historyBeforeContent: prepared.historyBeforeContent,
+                  recordHistory: false,
+                  refreshPreview: false,
+                });
+          if (result.status !== "accepted") {
+            replayAccepted = false;
+            break;
+          }
+          acceptedContents.set(change.fileId, result.content);
+        }
+      }
+    } finally {
+      suppressContentHistoryRef.current = false;
+    }
+    if (!replayAccepted) {
+      contentReplayRefused = true;
+      return false;
+    }
+    const replayedChanges = changes.map((change) => {
+      const prepared = preparedReplay.get(change.fileId);
+      const acceptedContent = acceptedContents.get(change.fileId);
+      return prepared && acceptedContent !== undefined
+        ? {
+            ...change,
+            before: prepared.historyBeforeContent,
+            after: acceptedContent,
+          }
+        : change;
+    });
+
     contentRedoStackRef.current.pop();
     contentRedoSelectionStackRef.current.pop();
     const remainderEntry = contentHistoryEntryFromChanges(
@@ -922,7 +1000,7 @@ export function runRedo({
       restoreFileContentHistoryOrderToken(redoOrderRef.current, true);
     }
     const appliedEntry = contentHistoryEntryFromChanges(
-      changes,
+      replayedChanges,
       linkedComponent,
     )!;
     const stampedAfter = contentHistorySelectionAfterRef.current.get(entry);
@@ -942,37 +1020,8 @@ export function runRedo({
       ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       "file-content",
     ];
-    suppressContentHistoryRef.current = true;
-    try {
-      for (const change of changes) {
-        if (change.before === change.after) continue;
-        // U20: see the matching note in handleUndo — route a live-snapshot
-        // screen's replay through updateLiveScreenSnapshotContent instead
-        // of the regular content path.
-        if (liveScreenSnapshotsById[change.fileId]) {
-          updateLiveScreenSnapshotContent(change.fileId, change.after, {
-            recordHistory: false,
-          });
-          syncLiveScreenSnapshotPreview(change.fileId, change.after);
-        } else if (change.fileId === activeFile?.id) {
-          applyLocalContentUpdate(change.after, {
-            refreshPreview: false,
-            forcePreviewFullDocument: true,
-            immediateSave: true,
-            recordHistory: false,
-          });
-        } else {
-          applyFileContentUpdate(change.fileId, change.after, {
-            recordHistory: false,
-            refreshPreview: false,
-          });
-        }
-      }
-    } finally {
-      suppressContentHistoryRef.current = false;
-    }
     applyDesignDataHistoryChanges?.(changes, "redo");
-    const activeChange = changes.find(
+    const activeChange = replayedChanges.find(
       (change) =>
         change.fileId === activeFile?.id && change.before !== change.after,
     );
@@ -1002,7 +1051,7 @@ export function runRedo({
     restoreHistorySelection(
       entrySelectionAfter,
       Object.fromEntries(
-        changes.map((change) => [change.fileId, change.after]),
+        replayedChanges.map((change) => [change.fileId, change.after]),
       ),
     );
     return true;
@@ -1231,42 +1280,52 @@ export function runRedo({
     return true;
   };
 
+  const tryRedoActions = (...actions: Array<() => boolean>) => {
+    for (const action of actions) {
+      if (action()) return true;
+      if (contentReplayRefused) return false;
+    }
+    return false;
+  };
   const redoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
     if (preferred === "clipboard-paste") return redoClipboardPaste();
     if (preferred === "selection") {
-      return redoSelection() || redoContent() || redoGeometry();
+      return tryRedoActions(redoSelection, redoContent, redoGeometry);
     }
     if (preferred === "file-deleted") {
-      return (
-        redoFileDeletion() ||
-        redoFileCreation() ||
-        redoContent() ||
-        redoGeometry()
+      return tryRedoActions(
+        redoFileDeletion,
+        redoFileCreation,
+        redoContent,
+        redoGeometry,
       );
     }
     if (preferred === "file-created")
-      return (
-        redoFileCreation() ||
-        redoFileDeletion() ||
-        redoContent() ||
-        redoGeometry()
+      return tryRedoActions(
+        redoFileCreation,
+        redoFileDeletion,
+        redoContent,
+        redoGeometry,
       );
-    if (preferred === "geometry") return redoGeometry() || redoContent();
+    if (preferred === "geometry")
+      return tryRedoActions(redoGeometry, redoContent);
     if (preferred === "file-content") {
       const prunedBefore = prunedRedoHistory;
       if (redoContent("global")) return true;
-      if (prunedRedoHistory > prunedBefore) return false;
+      if (contentReplayRefused || prunedRedoHistory > prunedBefore)
+        return false;
       return redoGeometry();
     }
     if (preferred === "content") {
       const prunedBefore = prunedRedoHistory;
-      return (
-        redoContent("local") ||
-        redoContent("global") ||
-        (prunedRedoHistory > prunedBefore ? false : redoGeometry())
-      );
+      if (redoContent("local")) return true;
+      if (contentReplayRefused) return false;
+      if (redoContent("global")) return true;
+      if (contentReplayRefused || prunedRedoHistory > prunedBefore)
+        return false;
+      return redoGeometry();
     }
-    return redoFileDeletion() || redoContent() || redoGeometry();
+    return tryRedoActions(redoFileDeletion, redoContent, redoGeometry);
   };
   let didRedo = false;
   if (canUseOverviewHistory) {
@@ -1274,6 +1333,11 @@ export function runRedo({
       const preferred = redoOrderRef.current[redoOrderRef.current.length - 1];
       if (preferred !== "clipboard-paste") redoOrderRef.current.pop();
       didRedo = redoByOrder(preferred);
+      if (contentReplayRefused) {
+        if (preferred !== undefined && preferred !== "clipboard-paste")
+          redoOrderRef.current.push(preferred);
+        break;
+      }
       if (didRedo) {
         // Figma parity (ground-truth Round 4, Part B): redoing a real edit
         // consumes any selection-only step still sitting above it on the

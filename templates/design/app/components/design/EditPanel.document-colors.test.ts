@@ -707,7 +707,6 @@ describe("selectionColorValues", () => {
     const initial =
       '<div data-agent-native-node-id="root" style="color:#f97316"></div>';
     const previousCommit = initial.replace("#f97316", "#3b82f6");
-    const preview = previousCommit.replace("#3b82f6", "#22c55e");
     const scopes = [{ fileId: "screen", content: initial, sourceId: "root" }];
     const updates: Array<{
       content: string;

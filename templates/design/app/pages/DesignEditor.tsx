@@ -536,12 +536,10 @@ import {
 } from "./design-editor/clone-and-pen-edit";
 import {
   bridgeSourceIdForCodeLayerNode,
-  canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
   codeLayerPatchMessage,
   codeLayerSourceNodeIdAttrs,
   codeLayerNodeLooksLikeComponent,
-  codeLayerNodeMatchesBridgeTarget,
   codeLayerSelectorAliases,
   codeLayerTreeToPanelNodes,
   collectCodeLayerAncestors,

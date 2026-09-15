@@ -11230,30 +11230,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keydown", onMoveKeyDown, true);
       setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
     }
-    function collectScaleFontTargets(root) {
-      var targets = [];
-      var nodes = root.querySelectorAll("*");
-      for (var i = 0; i < nodes.length; i += 1) {
-        var el = nodes[i];
-        if (isOverlayElement(el)) continue;
-        var inlineFontSize = el.style.fontSize || "";
-        if (inlineFontSize && !/px\\s*$/i.test(inlineFontSize)) continue;
-        var parent = el.parentElement;
-        var cs = window.getComputedStyle(el);
-        if (!inlineFontSize && parent && window.getComputedStyle(parent).fontSize === cs.fontSize) {
-          continue;
-        }
-        var originFontSize = readPx(inlineFontSize || cs.fontSize);
-        if (!(originFontSize > 0)) continue;
-        rememberLiveVisualEditOriginalStyles(el);
-        targets.push({
-          el,
-          originFontSize,
-          originalInlineFontSize: el.style.fontSize
-        });
-      }
-      return targets;
-    }
     var KSCALE_LENGTH_PROPERTIES = [
       "width",
       "height",

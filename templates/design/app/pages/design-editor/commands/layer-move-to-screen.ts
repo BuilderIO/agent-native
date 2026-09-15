@@ -599,16 +599,8 @@ export function runLayerMoveToScreen(
         : []),
     ];
     crossFileHistoryChanges = crossFileChanges;
-    if (viewModeRef.current === "overview") {
-      recordContentHistoryEntry({ changes: crossFileChanges });
-    } else {
-      crossFileChanges.forEach((change) =>
-        recordLocalContentHistoryEntry(change),
-      );
-    }
   }
 
-  let allSourcePublicationsAccepted = true;
   for (const [sourceFileId, newSourceContent] of sourceContentMap) {
     const publication = applyFileContentUpdate(sourceFileId, newSourceContent, {
       recordHistory: !hasCrossFileMoves,
@@ -618,14 +610,11 @@ export function runLayerMoveToScreen(
         "",
       refreshPreview: false,
     });
-    if (publication.status !== "accepted") {
-      allSourcePublicationsAccepted = false;
-    } else {
-      const historyChange = crossFileHistoryChanges?.find(
-        (change) => change.fileId === sourceFileId,
-      );
-      if (historyChange) historyChange.after = publication.content;
-    }
+    if (publication.status !== "accepted") return;
+    const historyChange = crossFileHistoryChanges?.find(
+      (change) => change.fileId === sourceFileId,
+    );
+    if (historyChange) historyChange.after = publication.content;
   }
   let destinationPublication: ApplyFileContentUpdateResult | null = null;
   if (nextDestContent !== destContent) {
@@ -658,6 +647,15 @@ export function runLayerMoveToScreen(
         : undefined;
     if (change) change.after = destinationPublication.content;
   }
+  if (crossFileHistoryChanges) {
+    if (viewModeRef.current === "overview") {
+      recordContentHistoryEntry({ changes: crossFileHistoryChanges });
+    } else {
+      crossFileHistoryChanges.forEach((change) =>
+        recordLocalContentHistoryEntry(change),
+      );
+    }
+  }
   const acceptedProjection = projectAcceptedSource(destinationPublication, {
     kind: "design-file",
     fileId: targetFileId,
@@ -671,7 +669,7 @@ export function runLayerMoveToScreen(
       ),
     )
     .filter((node): node is CodeLayerNode => Boolean(node));
-  if (allSourcePublicationsAccepted && acceptedMovedNodes.length > 0) {
+  if (acceptedMovedNodes.length > 0) {
     setSelectedLayerIdsState(acceptedMovedNodes.map((node) => node.id));
     const lastMovedNode = acceptedMovedNodes[acceptedMovedNodes.length - 1];
     if (lastMovedNode && targetFileId === activeFile?.id) {
@@ -687,11 +685,7 @@ export function runLayerMoveToScreen(
       movedAncestorIds.forEach((ancestorId) => next.add(ancestorId));
       return next.size === current.length ? current : Array.from(next);
     });
-    if (
-      allSourcePublicationsAccepted &&
-      contentUndoStackRef &&
-      contentHistorySelectionAfterRef
-    ) {
+    if (contentUndoStackRef && contentHistorySelectionAfterRef) {
       stampContentHistorySelectionAfter(
         contentUndoStackRef.current,
         contentHistorySelectionAfterRef.current,

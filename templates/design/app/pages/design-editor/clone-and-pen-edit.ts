@@ -1,7 +1,6 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
-  type CodeLayerNode,
   type CodeLayerSource,
 } from "@shared/code-layer";
 import {
@@ -14,7 +13,6 @@ import {
 import {
   COMPONENT_ID_ATTR,
   COMPONENT_REF_ATTR,
-  COMPONENT_SOURCE_NODE_ID_ATTR,
   linkedComponentRootForNode,
 } from "@shared/component-model";
 import {

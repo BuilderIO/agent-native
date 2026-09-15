@@ -9,10 +9,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { EffectiveCodeLayerState } from "@/pages/design-editor/code-layer-state";
-import {
-  elementInfoForOwnedCodeLayerNode,
-  elementInfoFromCodeLayerNode,
-} from "@/pages/design-editor/code-layer-state";
+import { elementInfoForOwnedCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 import {
   getOverviewScreenIdsFromLayerSelection,
   getSidebarCodeLayerSelectionState,

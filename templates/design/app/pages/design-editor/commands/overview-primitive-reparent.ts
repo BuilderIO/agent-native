@@ -189,7 +189,6 @@ export function runOverviewPrimitiveReparent(
   if (sourceScreenId === targetScreenId) {
     // --- Same-screen reparent ---
     const source = destinationSource;
-    const baseContent = destinationContent;
     const moveBaseContent = moveDestinationContent;
     const durableTargetNodeId = destinationAnchorNodeId;
     const baseProjection = destinationProjection;
@@ -346,7 +345,6 @@ export function runOverviewPrimitiveReparent(
   });
   const destContent = destinationContent;
   const moveDestContent = moveDestinationContent;
-  const destSource = destinationSource;
   const anchorAttrId = destinationAnchorNodeId;
   const sourceNode = sourceProjection.nodes.find(
     (n) =>

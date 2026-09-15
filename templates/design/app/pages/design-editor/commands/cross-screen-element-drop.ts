@@ -535,15 +535,6 @@ export function runCrossScreenElementDrop(
       toast.error(t("designEditor.toasts.saveConflict"));
       return;
     }
-    recordContentHistoryEntry({
-      changes: [
-        {
-          fileId: targetScreenId,
-          before: rawDestContent,
-          after: nextDestContent,
-        },
-      ],
-    });
     const publication = applyFileContentUpdate(
       targetScreenId,
       nextDestContent,
@@ -551,9 +542,19 @@ export function runCrossScreenElementDrop(
         recordHistory: false,
         refreshPreview: false,
         forcePreviewFullDocument: true,
+        historyBeforeContent: rawDestContent,
       },
     );
     if (publication.status !== "accepted") return;
+    recordContentHistoryEntry({
+      changes: [
+        {
+          fileId: targetScreenId,
+          before: rawDestContent,
+          after: publication.content,
+        },
+      ],
+    });
     pendingOverviewScreenSelectionRef.current =
       targetScreenId === boardFileId ? null : targetScreenId;
     pendingOverviewLayerSelectionRef.current =
@@ -1037,10 +1038,6 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
-  recordContentHistoryEntry({
-    changes: crossScreenHistoryChanges,
-  });
-
   const sourcePublication = applyFileContentUpdate(
     sourceScreenId,
     result.sourceHtml,
@@ -1051,6 +1048,7 @@ export function runCrossScreenElementDrop(
       historyBeforeContent: sourceContent,
     },
   );
+  if (sourcePublication.status !== "accepted") return;
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1061,18 +1059,14 @@ export function runCrossScreenElementDrop(
       historyBeforeContent: rawDestContent,
     },
   );
-  if (
-    sourcePublication.status !== "accepted" ||
-    targetPublication.status !== "accepted"
-  ) {
-    return;
-  }
+  if (targetPublication.status !== "accepted") return;
 
   // History must replay the bytes the publisher accepted. Canonical identity
   // publication may stamp IDs into submitted HTML, and the post-action
   // selection snapshot must resolve against those same final documents.
   crossScreenHistoryChanges[0].after = sourcePublication.content;
   crossScreenHistoryChanges[1].after = targetPublication.content;
+  recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
 
   // Switch active screen to the target and select the moved node; viewMode
   // stays "overview" (no setViewMode call).

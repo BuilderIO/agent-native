@@ -15751,39 +15751,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
   }
 
-  function collectScaleFontTargets(root: Element) {
-    var targets: Array<{
-      el: HTMLElement;
-      originFontSize: number;
-      originalInlineFontSize: string;
-    }> = [];
-    var nodes = root.querySelectorAll("*");
-    for (var i = 0; i < nodes.length; i += 1) {
-      var el = nodes[i] as HTMLElement;
-      if (isOverlayElement(el)) continue;
-      var inlineFontSize = el.style.fontSize || "";
-      if (inlineFontSize && !/px\s*$/i.test(inlineFontSize)) continue;
-      var parent = el.parentElement;
-      var cs = window.getComputedStyle(el);
-      if (
-        !inlineFontSize &&
-        parent &&
-        window.getComputedStyle(parent).fontSize === cs.fontSize
-      ) {
-        continue;
-      }
-      var originFontSize = readPx(inlineFontSize || cs.fontSize);
-      if (!(originFontSize > 0)) continue;
-      rememberLiveVisualEditOriginalStyles(el);
-      targets.push({
-        el: el,
-        originFontSize: originFontSize,
-        originalInlineFontSize: el.style.fontSize,
-      });
-    }
-    return targets;
-  }
-
   var KSCALE_LENGTH_PROPERTIES = [
     "width",
     "height",
