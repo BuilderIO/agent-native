@@ -25,6 +25,11 @@ vi.mock("../labs/LabsSettings.js", () => ({
   ),
 }));
 
+vi.mock("../i18n.js", () => ({
+  useT: () => (key: string) =>
+    key === "agentChat.auth.logOut" ? "Cerrar sesión" : key,
+}));
+
 function stubMobileViewport(isMobile: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -131,7 +136,7 @@ describe("SettingsTabsPage", () => {
     ).toBe(true);
   });
 
-  it("finds the account tab for every sign-out search alias", async () => {
+  it("finds the account tab for sign-out aliases and localized labels", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -148,7 +153,7 @@ describe("SettingsTabsPage", () => {
     );
     expect(searchInput).not.toBeNull();
 
-    for (const term of SIGN_OUT_SEARCH_TERMS) {
+    for (const term of [...SIGN_OUT_SEARCH_TERMS, "Cerrar sesión"]) {
       await act(async () => {
         const valueSetter = Object.getOwnPropertyDescriptor(
           HTMLInputElement.prototype,

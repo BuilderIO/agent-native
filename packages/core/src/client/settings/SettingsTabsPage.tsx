@@ -26,6 +26,7 @@ import {
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
+import { useT } from "../i18n.js";
 import { LabsSettings } from "../labs/LabsSettings.js";
 import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import { cn } from "../utils.js";
@@ -356,6 +357,7 @@ function SettingsTabsPageContent({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
+  const t = useT();
   const tabs = useMemo<SettingsTabItem[]>(() => {
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
@@ -380,6 +382,7 @@ function SettingsTabsPageContent({
         keywords: [
           "profile photo avatar identity signed in email name",
           ...SIGN_OUT_SEARCH_TERMS,
+          t("agentChat.auth.logOut"),
         ].join(" "),
       });
     }
@@ -436,6 +439,7 @@ function SettingsTabsPageContent({
     teamLabel,
     whatsNew,
     whatsNewLabel,
+    t,
   ]);
 
   const fallbackTab = tabs.some((tab) => tab.id === defaultTab)
