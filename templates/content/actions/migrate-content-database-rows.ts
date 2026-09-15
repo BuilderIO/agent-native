@@ -18,6 +18,7 @@ import {
   deterministicId,
   digest,
   migrationPlanSchema,
+  snapshotBodyRevisionDigest,
   snapshotDigest,
   snapshotMigration,
   serializeMigrationValue,
@@ -77,6 +78,19 @@ function parseJson(text: string) {
   } catch {
     throw new Error("Migration receipt is corrupt.");
   }
+}
+
+function migrationStateMatches(
+  snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
+  receipt: { postDigest: string; resultJson: string },
+) {
+  const result = parseJson(receipt.resultJson);
+  if (typeof result.bodyRevisionDigest !== "string")
+    throw new Error("Migration receipt lacks its body revision guard.");
+  return (
+    snapshotDigest(snapshot) === receipt.postDigest &&
+    snapshotBodyRevisionDigest(snapshot) === result.bodyRevisionDigest
+  );
 }
 function receiptResult(receipt: any, replayed: boolean) {
   const {
@@ -179,9 +193,10 @@ export async function runMigration(args: MigrationInput) {
           if (existing.state !== "applied" && existing.state !== "verified")
             throw new Error(`Migration receipt is already ${existing.state}.`);
           if (
-            snapshotDigest(
+            !migrationStateMatches(
               await snapshotMigration(tx, args.plan.databaseId),
-            ) !== existing.postDigest
+              existing,
+            )
           )
             throw new Error(
               "Applied migration has drifted; replay is refused.",
@@ -227,7 +242,7 @@ export async function runMigration(args: MigrationInput) {
         if (receipt.state === "rolled_back") {
           if (
             result.transitionExpectedPostDigest !== args.expectedPostDigest ||
-            snapshotDigest(current) !== receipt.postDigest
+            !migrationStateMatches(current, receipt)
           )
             throw new Error(
               "Terminal migration result has drifted; replay is refused.",
@@ -238,7 +253,7 @@ export async function runMigration(args: MigrationInput) {
           throw new Error(`Migration receipt is already ${receipt.state}.`);
         if (
           receipt.postDigest !== args.expectedPostDigest ||
-          snapshotDigest(current) !== receipt.postDigest
+          !migrationStateMatches(current, receipt)
         )
           throw new Error(
             "Migration has drifted; guarded operation is refused.",
@@ -319,8 +334,10 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
+          !migrationStateMatches(
+            await snapshotMigration(tx, args.databaseId),
+            receipt,
+          )
         )
           throw new Error(
             args.phase === "verify"
@@ -368,7 +385,7 @@ export async function runMigration(args: MigrationInput) {
                 `Migration receipt is already ${existing.state}.`,
               );
             const current = await snapshotMigration(tx, args.plan.databaseId);
-            if (snapshotDigest(current) !== existing.postDigest)
+            if (!migrationStateMatches(current, existing))
               throw new Error(
                 "Applied migration has drifted; replay is refused.",
               );
@@ -448,6 +465,7 @@ export async function runMigration(args: MigrationInput) {
           orderedIds,
           written: args.plan.rows.length,
           verified: false,
+          bodyRevisionDigest: snapshotBodyRevisionDigest(current),
           plan: args.plan,
         };
         const claimed = await tx
@@ -507,8 +525,10 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
+          !migrationStateMatches(
+            await snapshotMigration(tx, args.databaseId),
+            receipt,
+          )
         )
           throw new Error("Migration has drifted; verification is refused.");
         return receiptResult(receipt, true);
@@ -524,8 +544,10 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
+          !migrationStateMatches(
+            await snapshotMigration(tx, args.databaseId),
+            receipt,
+          )
         )
           throw new Error(
             "Terminal migration result has drifted; replay is refused.",
@@ -540,7 +562,7 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         const current = await snapshotMigration(tx, args.databaseId);
-        if (snapshotDigest(current) !== receipt.postDigest)
+        if (!migrationStateMatches(current, receipt))
           throw new Error("Migration has drifted; verification is refused.");
         const plan = parseJson(receipt.resultJson).plan;
         if (!plan)
@@ -671,7 +693,7 @@ export async function runMigration(args: MigrationInput) {
         );
       }
       const current = await snapshotMigration(tx, args.databaseId);
-      if (snapshotDigest(current) !== receipt.postDigest)
+      if (!migrationStateMatches(current, receipt))
         throw new Error("Migration has drifted; guarded operation is refused.");
       const rollback = parseJson(receipt.rollbackJson);
       const now = new Date().toISOString();
@@ -722,6 +744,7 @@ export async function runMigration(args: MigrationInput) {
         const resultJson = {
           phase: "rollback",
           transitionExpectedPostDigest: receipt.postDigest,
+          bodyRevisionDigest: snapshotBodyRevisionDigest(restored),
           counts: {
             rows: (rollback.versions ?? []).length,
             properties: ids.length,
@@ -803,6 +826,7 @@ export async function runMigration(args: MigrationInput) {
       const resultJson = {
         phase: "finalize",
         transitionExpectedPostDigest: receipt.postDigest,
+        bodyRevisionDigest: snapshotBodyRevisionDigest(finalized),
         counts: { rows: 0, properties: legacyIds.length },
         verified: true,
       };

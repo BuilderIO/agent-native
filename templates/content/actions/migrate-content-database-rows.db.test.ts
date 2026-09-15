@@ -1111,6 +1111,45 @@ describe("migrate-content-database-rows", () => {
     ).rejects.toThrow("drifted");
   });
 
+  it("detects an edit-away/edit-back body revision during verification", async () => {
+    const db = getDb();
+    const seed = await fixture();
+    const input = plan(seed);
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    const documentId = seed.rows[0].documentId;
+    const migratedContent = input.rows[0].content;
+
+    await db
+      .update(schema.documents)
+      .set({
+        content: "# Temporary editor change",
+        bodyRevision: sql`${schema.documents.bodyRevision} + 1`,
+        updatedAt: now(),
+      })
+      .where(eq(schema.documents.id, documentId));
+    await db
+      .update(schema.documents)
+      .set({
+        content: migratedContent,
+        bodyRevision: sql`${schema.documents.bodyRevision} + 1`,
+        updatedAt: now(),
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({
+          phase: "verify",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+    ).rejects.toThrow("drifted");
+  });
+
   it("requires current editor access to every row before legacy cleanup", async () => {
     const seed = await fixture();
     const input = plan(seed);

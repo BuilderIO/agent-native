@@ -478,6 +478,21 @@ export function snapshotDigest(
   });
 }
 
+export function snapshotBodyRevisionDigest(
+  snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
+) {
+  return digest([
+    {
+      documentId: snapshot.databaseDocument.id,
+      bodyRevision: snapshot.databaseDocument.bodyRevision,
+    },
+    ...snapshot.rows.map((row: any) => ({
+      documentId: row.document.id,
+      bodyRevision: row.document.bodyRevision,
+    })),
+  ]);
+}
+
 export async function applyMigration(
   tx: any,
   plan: MigrationPlan,
