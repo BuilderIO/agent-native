@@ -33,11 +33,7 @@ import { Fragment } from "react";
 /** Logical width of each screen, before `--df-scale`. The real 390 breakpoint. */
 const SCREEN_WIDTH = 390;
 
-/**
- * On-screen height of a screen body. Shorter than the design inside it so each
- * step runs off the bottom edge and gets cut there, the way the canvas clips a
- * real page.
- */
+/** On-screen height of a screen body. */
 const SCREEN_BODY_HEIGHT = 250;
 
 const SCREEN_ROWS = [
@@ -233,7 +229,10 @@ const DESIGN_FLOW_MOCK_CSS = [
   // which are the only thing in the picture that has to be noticed.
   ".design-flow-mock { --at-bg: #0c0c0e; --at-elevated: #16161a; --at-fg: #a9a9af; --at-fg-soft: rgba(169, 169, 175, 0.62); --at-line: rgba(169, 169, 175, 0.12); --at-line-strong: rgba(169, 169, 175, 0.26); --at-accent: #cdcdd1; --at-accent-on: #0c0c0e; }",
   "html.light .design-flow-mock { --at-bg: #f4f4f5; --at-elevated: #ffffff; --at-fg: #55555e; --at-fg-soft: rgba(85, 85, 94, 0.62); --at-line: rgba(85, 85, 94, 0.14); --at-line-strong: rgba(85, 85, 94, 0.28); --at-accent: #26262b; --at-accent-on: #f4f4f5; }",
-  ".design-flow-mock .at { display: flex; min-height: 100%; flex-direction: column; background: var(--at-bg); color: var(--at-fg); }",
+  // The design fills the whole visible board and its footer sits on the bottom
+  // edge the way it would on a phone, rather than ending part-way up and leaving
+  // an empty outlined strip under it.
+  `.design-flow-mock .at { display: flex; min-height: calc(${SCREEN_BODY_HEIGHT}px / var(--df-scale)); flex-direction: column; background: var(--at-bg); color: var(--at-fg); }`,
 
   ".design-flow-mock .at-status { display: flex; height: 44px; flex-shrink: 0; align-items: center; justify-content: space-between; padding: 0 26px; color: var(--at-fg-soft); font-size: 15px; font-weight: 600; }",
   ".design-flow-mock .at-status-dots { display: flex; align-items: center; gap: 5px; }",
@@ -275,7 +274,7 @@ const DESIGN_FLOW_MOCK_CSS = [
   ".design-flow-mock .at-detail { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 12px 4px; border-bottom: 2px solid var(--at-line); font-size: 16px; }",
   ".design-flow-mock .at-detail-label { color: var(--at-fg-soft); font-weight: 600; }",
   ".design-flow-mock .at-detail-value { font-weight: 700; }",
-  ".design-flow-mock .at-footer { display: flex; flex-shrink: 0; flex-direction: column; align-items: center; gap: 12px; padding: 26px; }",
+  ".design-flow-mock .at-footer { display: flex; flex-shrink: 0; flex-direction: column; align-items: center; gap: 12px; margin-top: auto; padding: 26px; }",
   ".design-flow-mock .at-primary { display: flex; width: 100%; height: 54px; align-items: center; justify-content: center; border-radius: 999px; background: var(--at-accent); color: var(--at-accent-on); font-size: 18px; font-weight: 700; }",
   ".design-flow-mock .at-secondary { color: var(--at-fg-soft); font-size: 16px; font-weight: 600; }",
 
