@@ -697,8 +697,7 @@ jobs:
               if (
                 !relay?.is_secret ||
                 !relay.scopes?.includes("runtime") ||
-                typeof value?.value !== "string" ||
-                value.value.length === 0
+                !value
               ) {
                 throw new Error(
                   "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET is not provisioned as a runtime secret for " +
@@ -706,8 +705,17 @@ jobs:
                     ".",
                 );
               }
-              console.log("Verified Google OAuth relay secret for " + context + ".");
             ' "$relay_context"
+          if ! netlify env:get AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET \
+            --site "$NETLIFY_SITE_ID" \
+            --context "$relay_context" \
+            --scope runtime \
+            --auth "$NETLIFY_AUTH_TOKEN" \
+            --json >/dev/null 2>/dev/null; then
+            echo "::error::AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET does not resolve for $relay_context."
+            exit 1
+          fi
+          echo "Verified Google OAuth relay secret for $relay_context."
 
       - name: Package the prebuilt artifact
         if: inputs.artifact_upload && inputs.migration_only != true

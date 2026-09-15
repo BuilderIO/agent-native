@@ -120,6 +120,11 @@ describe("Google callback deploy verification guard", () => {
       /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
     );
     assert.match(step, /relay_context=production/);
+    assert.match(step, /!value/);
+    assert.match(
+      step,
+      /netlify env:get AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET[\s\S]*--scope runtime[\s\S]*--json >\/dev\/null/,
+    );
     assert.match(
       step,
       /node -e[\s\S]*process\.argv\[1\][\s\S]*' \"\$relay_context\"/,
