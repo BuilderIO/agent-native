@@ -1401,11 +1401,16 @@ export default function Index() {
       // selection no longer says which upload it was built from. Without this
       // the retry re-reads that file, duplicating it alongside the reference
       // deck and turning any read hiccup into a second hard stop.
+      const carriedImportedReference = pending.importedReference;
       const importedReferenceFilePath =
         selection.importedReferenceFilePath ??
-        (pending.importedReference &&
-        selection.referenceDeckId === pending.importedReference.deckId
-          ? pending.importedReference.filePath
+        (carriedImportedReference &&
+        selection.referenceDeckId === carriedImportedReference.deckId &&
+        // The reference deck can be deleted between the failed attempt and
+        // the retry. Excluding its source then leaves the run with neither
+        // the deck nor the file it was built from.
+        decks.some((deck) => deck.id === carriedImportedReference.deckId)
+          ? carriedImportedReference.filePath
           : undefined);
       const generation = runPendingDeckGeneration(
         pending.prompt,
@@ -1423,7 +1428,13 @@ export default function Index() {
       setPendingDeck(null);
       await generation;
     },
-    [forgetReference, pendingDeck, rememberReference, runPendingDeckGeneration],
+    [
+      decks,
+      forgetReference,
+      pendingDeck,
+      rememberReference,
+      runPendingDeckGeneration,
+    ],
   );
 
   const handleReferenceImport = useCallback(

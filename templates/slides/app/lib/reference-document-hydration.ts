@@ -355,7 +355,13 @@ export async function hydrateReferenceDocuments(
     const fitsWhole = outcome.block.length <= budget.remaining;
     const block = truncate(outcome.block, budget.remaining);
     budget.remaining -= block.length;
-    blocks.push(block);
+    // A clipped block has to say so in the same words as a dropped one, or
+    // the no-reread rule leaves the missing remainder with no way back.
+    blocks.push(
+      fitsWhole
+        ? block
+        : `${block}\nThe rest of this reference was omitted for space; call \`import-file\` for this file if you need the remainder.`,
+    );
     // Counted only when the whole block survives the budget. A digest the
     // budget clipped — wholly or partly — cannot be matched, and counting it
     // would suppress the styling fallback while leaving the agent nothing to

@@ -53,7 +53,12 @@ describe("new deck generation flow", () => {
       "setNewDeckRetryImportedReference(state.retryImportedReference)",
     );
     expect(source).toContain(
-      "selection.referenceDeckId === pending.importedReference.deckId",
+      "selection.referenceDeckId === carriedImportedReference.deckId",
+    );
+    // A deleted reference deck must not keep its source excluded, or the run
+    // has neither the deck nor the file it was built from.
+    expect(source).toContain(
+      "decks.some((deck) => deck.id === carriedImportedReference.deckId)",
     );
   });
 
