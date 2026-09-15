@@ -201,9 +201,11 @@ export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,
 ): boolean {
-  // Netlify exposes SITE_NAME at runtime; accept the immutable deploy URL, not
-  // DEPLOY_PRIME_URL's movable Deploy Preview alias.
-  const siteName = process.env.SITE_NAME?.trim().toLowerCase();
+  // Netlify exposes the site identity under either name at runtime; accept the
+  // immutable deploy URL, not DEPLOY_PRIME_URL's movable Deploy Preview alias.
+  const siteName = (
+    process.env.SITE_NAME?.trim() || process.env.NETLIFY_SITE_NAME?.trim()
+  )?.toLowerCase();
   if (
     !host ||
     forwardedProtocol !== "https" ||

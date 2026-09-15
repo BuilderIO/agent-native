@@ -139,6 +139,7 @@ afterEach(() => {
   delete process.env.DEPLOY_PRIME_URL;
   delete process.env.DEPLOY_URL;
   delete process.env.SITE_NAME;
+  delete process.env.NETLIFY_SITE_NAME;
 });
 
 describe("identity SSO feature switch and request classifiers", () => {
@@ -224,6 +225,14 @@ describe("identity SSO feature switch and request classifiers", () => {
     expect(
       store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
         `${"c".repeat(24)}--agent-native-starter.netlify.app`,
+        "https",
+      ),
+    ).toBe(true);
+    delete process.env.SITE_NAME;
+    process.env.NETLIFY_SITE_NAME = "agent-native-mail";
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        deployHost,
         "https",
       ),
     ).toBe(true);
