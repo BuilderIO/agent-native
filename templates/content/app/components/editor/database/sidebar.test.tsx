@@ -82,7 +82,10 @@ describe("resolveSidebarCollectionDrop", () => {
     ).toBeNull();
   });
 
-  it("ignores a page that is already a row of that collection", () => {
+  it("still resolves a page already nested under the collection", () => {
+    // `remove-database-items` leaves the page parented under the collection it
+    // was removed from, so nesting does not mean membership. Declining here is
+    // what made dragging such a page back onto the collection do nothing.
     const collection = collectionItem("collection", "Collection");
     const base = item("page", "Page");
     const page = {
@@ -92,7 +95,7 @@ describe("resolveSidebarCollectionDrop", () => {
 
     expect(
       resolveSidebarCollectionDrop([page, collection], page.id, collection.id),
-    ).toBeNull();
+    ).toEqual({ page, collection });
   });
 
   it("ignores read-only and local-file rows", () => {

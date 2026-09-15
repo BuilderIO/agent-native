@@ -933,8 +933,8 @@ export function DocumentSidebar({
     workspaceCatalogDocumentId ?? "",
   );
   const addPageToCollection = useActionMutation<
-    { databaseId: string; documentId: string },
-    unknown
+    { receipt?: { alreadyMember?: boolean } },
+    { databaseId: string; documentId: string }
   >("add-document-to-content-database");
   const attemptedSpaceReconciliationKeyRef = useRef<string | null>(null);
   const spaceReconciliationRetryTimerRef = useRef<ReturnType<
@@ -1777,7 +1777,10 @@ export function DocumentSidebar({
       addPageToCollection.mutate(
         { databaseId: collectionId, documentId: page.document.id },
         {
-          onSuccess: () => {
+          onSuccess: (result) => {
+            // Dropping a page onto the collection it is already a row of is a
+            // no-op, so it gets no toast claiming the page moved.
+            if (result?.receipt?.alreadyMember) return;
             toast.success(
               t("sidebar.addedPageToCollection", {
                 page: page.document.title || t("sidebar.untitled"),

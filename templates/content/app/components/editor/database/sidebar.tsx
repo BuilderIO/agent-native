@@ -82,9 +82,16 @@ export interface ContentFilesSidebarManualReorder {
 
 /**
  * Only a collection row can adopt a dropped page, and only when the dropped row
- * is an ordinary page that is not already inside it. Everything else returns
- * null so the drop falls through to ordinary reordering, which is how a row
- * still gets reordered past a collection at the same level.
+ * is an ordinary page. Everything else returns null so the drop falls through
+ * to ordinary reordering, which is how a row still gets reordered past a
+ * collection at the same level.
+ *
+ * Being nested under the collection is deliberately NOT a reason to decline:
+ * `remove-database-items` drops the membership row but leaves the page parented
+ * there, so a removed row looks nested while the collection no longer lists it.
+ * Declining that drop is what left the reporter dragging a page onto a
+ * collection and watching nothing happen. Adoption is idempotent, so a page
+ * that really is a member just reports that back.
  */
 export function resolveSidebarCollectionDrop(
   items: ContentDatabaseItem[],
@@ -100,7 +107,6 @@ export function resolveSidebarCollectionDrop(
   if (collection.document.canEdit === false) return null;
   if (page.document.source?.mode === "local-files") return null;
   if (collection.document.source?.mode === "local-files") return null;
-  if (page.document.parentId === collection.document.id) return null;
   return { page, collection };
 }
 

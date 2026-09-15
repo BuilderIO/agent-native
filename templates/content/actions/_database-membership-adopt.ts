@@ -228,8 +228,57 @@ export async function adoptDocumentIntoDatabase(
           // about the page, so it needs the page's own row lock: without it
           // two adopts of one page into different collections each see no
           // other membership, both insert, and the page ends up a row of two
-          // collections.
-          await lockDocumentRow(tx, documentId, database.ownerEmail);
+          // collections. The collection's backing page is locked too so a
+          // concurrent move of it cannot slip under the cycle check below.
+          // Lowest id first: two adopts touching the same pair must take them
+          // in the same order or they deadlock.
+          for (const id of [documentId, database.documentId].sort()) {
+            await lockDocumentRow(tx, id, database.ownerEmail);
+          }
+
+          // Every check above ran before any lock existed, so a concurrent
+          // delete, source attach, collection conversion, or move could have
+          // invalidated it. Re-run the ones that decide whether this write is
+          // legal at all, now that the collection row and both pages are
+          // pinned for the rest of the transaction.
+          const [liveDatabase] = await tx
+            .select({ deletedAt: schema.contentDatabases.deletedAt })
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.id, database.id));
+          if (!liveDatabase || liveDatabase.deletedAt) {
+            throw new Error("Content collection not found.");
+          }
+          const [liveSource] = await tx
+            .select({ id: schema.contentDatabaseSources.id })
+            .from(schema.contentDatabaseSources)
+            .where(eq(schema.contentDatabaseSources.databaseId, database.id))
+            .limit(1);
+          if (liveSource) {
+            throw new Error(
+              "Source-backed collections cannot adopt pages; add the row in the source instead.",
+            );
+          }
+          const [liveDocumentBackedDatabase] = await tx
+            .select({ id: schema.contentDatabases.id })
+            .from(schema.contentDatabases)
+            .where(
+              and(
+                eq(schema.contentDatabases.documentId, documentId),
+                isNull(schema.contentDatabases.deletedAt),
+              ),
+            )
+            .limit(1);
+          if (liveDocumentBackedDatabase) {
+            throw new Error(
+              "A collection page cannot become a row of another collection.",
+            );
+          }
+          await assertNotAncestorOfDatabase(
+            tx,
+            database.ownerEmail,
+            documentId,
+            database.documentId,
+          );
 
           // Membership and parent are re-read under those locks. Reading them
           // earlier lets two concurrent adopts of one page both see "not a
@@ -246,9 +295,15 @@ export async function adoptDocumentIntoDatabase(
               ),
             );
           const [currentDocument] = await tx
-            .select({ parentId: schema.documents.parentId })
+            .select({
+              parentId: schema.documents.parentId,
+              trashedAt: schema.documents.trashedAt,
+            })
             .from(schema.documents)
             .where(eq(schema.documents.id, documentId));
+          if (currentDocument?.trashedAt) {
+            throw new Error("A trashed page cannot be added to a collection.");
+          }
           if (
             existingMembership &&
             currentDocument?.parentId === database.documentId
@@ -353,6 +408,10 @@ export async function adoptDocumentIntoDatabase(
             .select()
             .from(schema.documentShares)
             .where(eq(schema.documentShares.resourceId, documentId));
+          // Deduped by principal, not by role: an explicit grant already on
+          // the page wins over the collection's grant in BOTH directions.
+          // Adoption is a filing gesture and must not silently widen who can
+          // edit a page whose owner deliberately shared it more narrowly.
           const existingShareKeys = new Set(
             existingShares.map(
               (share) => `${share.principalType}:${share.principalId}`,
