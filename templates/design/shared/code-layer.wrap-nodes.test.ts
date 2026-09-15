@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyVisualEdit } from "./code-layer";
+import { applyVisualEdit, buildCodeLayerProjection } from "./code-layer";
 
 /**
  * Three siblings stacked in DOM order back->front: red (bottom), green
@@ -150,5 +150,71 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
     expect(patch.content).toContain("width: 100px");
     expect(patch.content).toContain("height: 80px");
     expect(patch.content).not.toContain("9999");
+  });
+
+  it("maps size hints by exact projection identity when authored ids repeat", () => {
+    const duplicated = `<body>
+  <div data-agent-native-node-id="label" style="position:absolute;left:20px;top:40px">First</div>
+  <div data-agent-native-node-id="label" style="position:absolute;left:80px;top:100px">Second</div>
+</body>`;
+    const targets = buildCodeLayerProjection(duplicated).nodes.filter(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "label",
+    );
+    expect(targets).toHaveLength(2);
+    expect(targets[0]?.id).not.toBe(targets[1]?.id);
+
+    const patch = applyVisualEdit(duplicated, {
+      kind: "wrapNodes",
+      targetIds: targets.map((node) => node.id),
+      wrapperKind: "frame",
+      sizeHints: {
+        [targets[0]!.id]: { width: 35, height: 19 },
+        [targets[1]!.id]: { width: 90, height: 45 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperId = (patch.result as { wrapperNodeId?: string })
+      .wrapperNodeId;
+    const wrapperOpenTagEnd = patch.content.indexOf(
+      ">",
+      patch.content.indexOf(`data-agent-native-node-id="${wrapperId}"`),
+    );
+    const wrapperOpenTag = patch.content.slice(0, wrapperOpenTagEnd);
+    expect(wrapperOpenTag).toContain("left: 20px");
+    expect(wrapperOpenTag).toContain("top: 40px");
+    expect(wrapperOpenTag).toContain("width: 150px");
+    expect(wrapperOpenTag).toContain("height: 105px");
+  });
+
+  it("ignores an ambiguous raw authored-id hint instead of sizing a duplicate", () => {
+    const duplicated = `<body>
+  <div data-agent-native-node-id="label" style="position:absolute;left:20px;top:40px">First</div>
+  <div data-agent-native-node-id="label" style="position:absolute;left:80px;top:100px">Second</div>
+</body>`;
+    const duplicateTargets = buildCodeLayerProjection(duplicated).nodes.filter(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "label",
+    );
+    const secondTarget = duplicateTargets[1];
+    expect(duplicateTargets).toHaveLength(2);
+    expect(secondTarget).toBeDefined();
+
+    const patch = applyVisualEdit(duplicated, {
+      kind: "wrapNodes",
+      targetIds: [secondTarget!.id],
+      wrapperKind: "frame",
+      sizeHints: { label: { width: 999, height: 999 } },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperId = (patch.result as { wrapperNodeId?: string })
+      .wrapperNodeId;
+    const wrapperStart = patch.content.indexOf(
+      `data-agent-native-node-id="${wrapperId}"`,
+    );
+    const wrapperOpenTagEnd = patch.content.indexOf(">", wrapperStart);
+    const wrapperOpenTag = patch.content.slice(wrapperStart, wrapperOpenTagEnd);
+    expect(wrapperOpenTag).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("999px");
   });
 });

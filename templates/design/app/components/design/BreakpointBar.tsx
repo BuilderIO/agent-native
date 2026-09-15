@@ -93,8 +93,9 @@ export function parseBreakpointWidthInput(
   raw: string,
   existingWidths: readonly number[],
 ): number | null {
-  const widthPx = Number.parseInt(raw, 10);
-  if (!Number.isFinite(widthPx) || widthPx < 320 || widthPx > 3840) return null;
+  const widthPx = Number(raw);
+  if (!Number.isInteger(widthPx) || widthPx < 320 || widthPx > 3840)
+    return null;
   if (existingWidths.includes(widthPx)) return null;
   return widthPx;
 }
@@ -169,9 +170,9 @@ export function BreakpointDeviceControl({
   const submitCustomWidth = () => {
     if (mutationPending) return;
     const widthPx = parseBreakpointWidthInput(customWidth, existingWidths);
+    if (widthPx === null) return;
     setAddOpen(false);
     setCustomWidth("");
-    if (widthPx === null) return;
     onAdd?.(widthPx, breakpointLabelForWidth(widthPx));
   };
 
@@ -296,15 +297,21 @@ export function BreakpointDeviceControl({
                                 (width) => width !== breakpoint.widthPx,
                               ),
                             );
+                            if (widthPx === null) return;
                             setMenuOpenFor(null);
-                            if (
-                              widthPx !== null &&
-                              widthPx !== breakpoint.widthPx
-                            ) {
+                            if (widthPx !== breakpoint.widthPx) {
                               onChangeWidth(breakpoint.id, widthPx);
                             }
                           }}
-                          className="h-6 px-1.5 !text-[11px] tabular-nums"
+                          aria-invalid={
+                            parseBreakpointWidthInput(
+                              widthDraft,
+                              existingWidths.filter(
+                                (width) => width !== breakpoint.widthPx,
+                              ),
+                            ) === null
+                          }
+                          className="h-6 px-1.5 !text-[11px] tabular-nums aria-invalid:border-destructive"
                           aria-label={t(
                             "designEditor.breakpointBar.changeWidth",
                           )}
@@ -420,7 +427,12 @@ export function BreakpointDeviceControl({
                   value={customWidth}
                   onChange={(event) => setCustomWidth(event.target.value)}
                   placeholder={t("designEditor.breakpointBar.customWidth")}
-                  className="h-7 !text-[12px]"
+                  aria-invalid={
+                    customWidth !== "" &&
+                    parseBreakpointWidthInput(customWidth, existingWidths) ===
+                      null
+                  }
+                  className="h-7 !text-[12px] aria-invalid:border-destructive"
                 />
                 <Button
                   type="submit"

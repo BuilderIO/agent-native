@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+
 import type { H3Event } from "h3";
 
 import { warnAgent } from "../agent/action-warnings.js";
+import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
@@ -20,6 +23,7 @@ import {
   requestMemberOrgIds,
 } from "./request-org-cache.js";
 import { implicitServiceOrgRole } from "./service-identity.js";
+import { isBootstrapAdmin } from "./signup-admission.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
 const EMPTY_CONTEXT: OrgContext = {
@@ -93,9 +97,8 @@ async function isSoloOwnedWorkspace(
 }
 
 function autoCreateDefaultOrgEnabled(): boolean {
-  const raw = process.env.AUTO_CREATE_DEFAULT_ORG;
-  if (raw === undefined || raw.trim() === "") return true;
-  return !["0", "false", "no", "off"].includes(raw.trim().toLowerCase());
+  const access = getAppConfig().access;
+  return access.orgCreation === "open" && access.autoCreateDefaultOrg;
 }
 
 const nanoid = (): string =>
@@ -722,6 +725,60 @@ export async function createOrganization(
   await setActiveOrgId(email, id, `created organization "${trimmedName}"`);
 
   return { id, name: trimmedName, role, a2aSecret, createdAt };
+}
+
+/** Give a configured bootstrap admin ownership of the sole org, or create the canonical org. */
+export async function bootstrapAdminOrganization(
+  rawEmail: string,
+): Promise<boolean> {
+  const email = rawEmail.trim().toLowerCase();
+  if (!email || !isBootstrapAdmin(email)) return false;
+
+  const exec = getDbExec();
+  const orgs = await exec.execute({
+    sql: `SELECT id FROM organizations
+          ORDER BY created_at ASC, id ASC
+          LIMIT 2`,
+    args: [],
+  });
+  if (orgs.rows.length > 1) {
+    console.warn(
+      "[org] bootstrap admin could not choose among multiple organizations",
+    );
+    return false;
+  }
+
+  if (orgs.rows.length === 0) {
+    const config = getAppConfig();
+    const name = config.app.name ?? config.app.id ?? "Agent-Native";
+    const identity = config.app.workspaceId ?? config.app.id ?? name;
+    const id = `bootstrap-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
+    try {
+      await createOrganization(name, email, "owner", { id });
+      return true;
+    } catch (error) {
+      // Concurrent bootstrap sign-ins can both observe zero orgs. The stable
+      // id lets the loser recover only if the canonical org was actually made.
+      const existing = await exec.execute({
+        sql: `SELECT id FROM organizations WHERE id = ? LIMIT 1`,
+        args: [id],
+      });
+      if (existing.rows.length === 0) throw error;
+      orgs.rows.push(existing.rows[0]);
+    }
+  }
+
+  const orgId = String((orgs.rows[0] as any).id);
+  const now = Date.now();
+  await exec.execute({
+    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+          VALUES (?, ?, ?, 'owner', ?)
+          ON CONFLICT (org_id, LOWER(email)) DO UPDATE SET role = 'owner'`,
+    args: [nanoid(), orgId, email, now],
+  });
+  invalidateMemberOrgCaches();
+  await setActiveOrgId(email, orgId, "bootstrap admin organization access");
+  return true;
 }
 
 /**

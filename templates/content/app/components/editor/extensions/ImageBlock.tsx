@@ -1,4 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedApp,
@@ -303,10 +304,9 @@ async function copyImage(
     ]);
     toast.success(copy.copied);
   } catch {
-    try {
-      await navigator.clipboard.writeText(src);
+    if (await writeClipboardText(src)) {
       toast.info(copy.urlCopied);
-    } catch {
+    } else {
       toast.error(copy.failed);
     }
   }

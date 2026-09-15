@@ -20,6 +20,7 @@
  */
 import {
   type CodeLayerSource,
+  type CodeLayerSourceEdit,
   ensureCodeLayerNodeIdsInHtml,
   wrapBareTextLeavesInHtml,
 } from "./code-layer.js";
@@ -31,7 +32,10 @@ import {
  */
 export function normalizeScreenHtml(
   html: string,
-  options: { source?: CodeLayerSource } = {},
+  options: {
+    source?: CodeLayerSource;
+    onSourceEdit?: (edit: CodeLayerSourceEdit) => void;
+  } = {},
 ): { content: string; changed: boolean } {
   const wrapped = wrapBareTextLeavesInHtml(html, options);
   const stamped = ensureCodeLayerNodeIdsInHtml(wrapped.content, options);

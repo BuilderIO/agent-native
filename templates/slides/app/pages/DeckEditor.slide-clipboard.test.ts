@@ -96,12 +96,56 @@ describe("slide paste fallback", () => {
 });
 
 describe("slide thumbnail shortcuts", () => {
-  it("keeps Cmd/Ctrl+D scoped to the focused thumbnail", () => {
+  it("routes slide clipboard shortcuts through the focused thumbnail", () => {
     expect(deckEditorSource).toContain(
-      'if (key !== "c" && key !== "v" && key !== "d") return;',
+      'if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;',
     );
     expect(deckEditorSource).toContain(
-      "handleDuplicateSlideFromRail([activeSlideId]);",
+      "selectedSlideIds.includes(activeSlideId)",
+    );
+    expect(deckEditorSource).toContain("selectedSlideIds : [activeSlideId]");
+    expect(deckEditorSource).toContain(
+      "handleDuplicateSlideFromRail(slideIds);",
+    );
+  });
+
+  it("cuts the focused slide selection without removing every slide", () => {
+    const shortcutStart = deckEditorSource.indexOf(
+      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+    );
+    const shortcutEnd = deckEditorSource.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutBody).toContain(
+      "if (!activeSlideId || sourceImportedDeck) return;",
+    );
+    expect(shortcutBody).toContain(
+      "selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId]",
+    );
+    expect(shortcutBody).toContain(
+      "if (slideIds.length >= deck.slides.length) return;",
+    );
+    expect(shortcutBody).toContain("cutSlides(slideIds);");
+  });
+
+  it("lets focused thumbnails own shortcuts while canvas selection remains visible", () => {
+    const shortcutStart = deckEditorSource.indexOf(
+      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+    );
+    const shortcutEnd = deckEditorSource.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutBody).toContain(
+      'document.activeElement?.closest("[data-slide-thumbnail-id]")',
+    );
+    expect(shortcutBody).toContain(
+      "!focusedThumbnail &&\n        document.querySelector(\"[data-slide-element-selected='true']\")",
     );
   });
 

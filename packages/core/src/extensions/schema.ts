@@ -52,7 +52,9 @@ export const extensionHistory = table("tool_history", {
   description: text("description").notNull().default(""),
   content: text("content").notNull().default(""),
   icon: text("icon"),
+  // guard:allow-identity-column — immutable version-history attribution
   actorEmail: text("actor_email"),
+  // guard:allow-identity-column — immutable version-history snapshot
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
   visibility: text("visibility").notNull().default("private"),
@@ -156,8 +158,8 @@ export const EXTENSION_HISTORY_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_his
   description TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL DEFAULT '',
   icon TEXT,
-  actor_email TEXT,
-  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  actor_email TEXT, -- guard:allow-identity-column — immutable version-history attribution
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost', -- guard:allow-identity-column — immutable version-history snapshot
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private',
   created_at TEXT NOT NULL DEFAULT now()

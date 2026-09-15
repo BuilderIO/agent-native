@@ -4,12 +4,17 @@ import {
   hasCollabState,
   getText,
   applyText,
+  applyTextToYDoc,
   seedFromText,
+  type PreparedYDocMutationLease,
+  withPreparedYDocMutation,
 } from "@agent-native/core/collab";
+import { getDbExec } from "@agent-native/core/db";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
+import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import {
   assertDesignHtmlEditIntegrity,
@@ -125,11 +130,10 @@ export interface SourceWorkspaceContext {
   /**
    * The design's reserved board overlay file id (designs.data.boardFileId),
    * when one has been created. The board file is deliberately excluded from
-   * `files` above (see isBoardFile filter below) since it isn't a source
-   * file the code workbench edits — callers that need to recognize "this id
-   * is the board, not a missing file" (e.g. read-source-file's graceful
-   * no-op) should check against this instead of treating an unresolved id
-   * as an error.
+   * `files` by default since it isn't a source file the code workbench edits.
+   * Callers that need to recognize "this id is the board, not a missing file"
+   * (e.g. read-source-file's graceful no-op) should check against this instead
+   * of treating an unresolved id as an error.
    */
   boardFileId: string | null;
 }
@@ -158,7 +162,7 @@ function roleCanEdit(role: unknown): boolean {
 
 export async function resolveSourceWorkspace(
   designId: string,
-  options: { includeContent?: boolean } = {},
+  options: { includeContent?: boolean; includeBoard?: boolean } = {},
 ): Promise<SourceWorkspaceContext> {
   const access = await resolveAccess("design", designId);
   if (!access) {
@@ -196,7 +200,9 @@ export async function resolveSourceWorkspace(
     designId,
     sourceType: parseDesignDataSourceType(resourceData),
     canEdit: roleCanEdit(access.role),
-    files: files.filter((file) => !isBoardFile(file.filename)),
+    files: options.includeBoard
+      ? files
+      : files.filter((file) => !isBoardFile(file.filename)),
     boardFileId: parseDesignDataBoardFileId(resourceData),
   };
 }
@@ -312,6 +318,10 @@ export async function writeInlineSourceFile(args: {
   file: SourceWorkspaceFile;
   content: string;
   expectedVersionHash?: string;
+  /** A content-only identity migration verified against the live source. */
+  identityOnly?: boolean;
+  operationSource?: string;
+  operationRevision?: number;
   /** Used only when the editor deliberately changes a screen's source mode. */
   allowUrlBackedTransition?: boolean;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
@@ -327,6 +337,10 @@ export async function writeInlineSourceFile(args: {
         content: schema.designFiles.content,
         createdAt: schema.designFiles.createdAt,
         updatedAt: schema.designFiles.updatedAt,
+        contentOperationSource: schema.designFiles.contentOperationSource,
+        contentOperationRevision: schema.designFiles.contentOperationRevision,
+        contentOperationResultHash:
+          schema.designFiles.contentOperationResultHash,
       })
       .from(schema.designFiles)
       .where(eq(schema.designFiles.id, args.file.id))
@@ -335,8 +349,14 @@ export async function writeInlineSourceFile(args: {
       throw new Error("Source file not found.");
     }
     const current = await readLiveSourceFile(currentFile);
+    const identityOnly = args.identityOnly === true;
+    let identityOnlyOperationSource: string | undefined;
+    let identityOnlyOperationRevision: number | undefined;
+    const liveBaseHash = current.versionHash;
+
     if (
       args.expectedVersionHash &&
+      !identityOnly &&
       args.expectedVersionHash !== current.versionHash
     ) {
       // Typed so callers can catch-and-retry the same way they already do for
@@ -348,9 +368,103 @@ export async function writeInlineSourceFile(args: {
       );
     }
 
+    if (identityOnly) {
+      identityOnlyOperationSource = args.operationSource;
+      identityOnlyOperationRevision = args.operationRevision;
+      if (
+        args.expectedVersionHash === undefined ||
+        !identityOnlyOperationSource ||
+        !Number.isSafeInteger(identityOnlyOperationRevision) ||
+        (identityOnlyOperationRevision ?? 0) <= 0
+      ) {
+        throw new SourceWorkspaceEditConflictError(
+          "An identity-only source write requires its source version and operation lineage.",
+        );
+      }
+      if (
+        currentFile.fileType !== "html" ||
+        isStandaloneHttpUrl(current.content) ||
+        isStandaloneHttpUrl(currentFile.content ?? "")
+      ) {
+        throw new SourceWorkspaceEditConflictError(
+          "Identity-only publication is supported only for inline HTML files.",
+        );
+      }
+
+      const canonicalLiveSource = ensureCodeLayerNodeIdsInHtml(
+        current.content,
+        { source: { kind: "design-file", fileId: args.file.id } },
+      ).content;
+      const canonicalSqlSource = ensureCodeLayerNodeIdsInHtml(
+        currentFile.content ?? "",
+        { source: { kind: "design-file", fileId: args.file.id } },
+      ).content;
+      if (args.content !== canonicalLiveSource) {
+        throw new SourceWorkspaceEditConflictError(
+          "Identity-only publication must contain exactly the source node identity annotations.",
+        );
+      }
+
+      const candidateHash = sourceContentHash(args.content);
+      const exactPersistedOperation =
+        currentFile.content === args.content &&
+        current.content === args.content &&
+        currentFile.contentOperationSource === identityOnlyOperationSource &&
+        currentFile.contentOperationRevision ===
+          identityOnlyOperationRevision &&
+        currentFile.contentOperationResultHash === candidateHash;
+      // A retried request may carry the hash of its raw preimage after the
+      // first request has already atomically persisted the canonical result.
+      // Only the full content + operation-lineage proof above earns this
+      // idempotent fast path.
+      if (exactPersistedOperation) {
+        return {
+          versionHash: candidateHash,
+          changed: false,
+          updatedAt: currentFile.updatedAt ?? new Date().toISOString(),
+        };
+      }
+      if (
+        currentFile.contentOperationSource === identityOnlyOperationSource &&
+        typeof currentFile.contentOperationRevision === "number" &&
+        (identityOnlyOperationRevision ?? 0) <=
+          currentFile.contentOperationRevision
+      ) {
+        throw new SourceWorkspaceEditConflictError(
+          "A newer source operation was already accepted for this identity migration.",
+        );
+      }
+
+      const rawSqlHash = sourceContentHash(currentFile.content ?? "");
+      const expectedHashMatchesLive =
+        args.expectedVersionHash === current.versionHash;
+      // Local publication can reach Yjs before the corresponding SQL
+      // migration request. In that case accept the exact canonical transform
+      // only when the request is based on the still-current raw SQL preimage
+      // and Yjs already contains that exact transform.
+      const expectedHashMatchesPublishedPreimage =
+        current.content === args.content &&
+        args.expectedVersionHash === rawSqlHash &&
+        canonicalSqlSource === args.content;
+      const sqlContentIsSameSource =
+        currentFile.content === current.content ||
+        (current.content === args.content &&
+          canonicalSqlSource === args.content);
+      if (!expectedHashMatchesLive && !expectedHashMatchesPublishedPreimage) {
+        throw new SourceWorkspaceEditConflictError(
+          "Source file changed since the identity migration was prepared. Re-read the file and retry.",
+        );
+      }
+      if (!sqlContentIsSameSource) {
+        throw new SourceWorkspaceEditConflictError(
+          "The SQL source and live document no longer share the identity migration base. Re-read the file and retry.",
+        );
+      }
+    }
+
     const changed = args.content !== current.content;
     const updatedAt = new Date().toISOString();
-    if (!changed) {
+    if (!changed && !identityOnly) {
       return {
         versionHash: current.versionHash,
         changed: false,
@@ -358,8 +472,14 @@ export async function writeInlineSourceFile(args: {
       };
     }
 
-    assertLockedLayersPreserved(current.content, args.content);
+    if (!identityOnly)
+      assertLockedLayersPreserved(current.content, args.content);
     const assertCandidateIntegrity = (candidate: string) => {
+      if (identityOnly && candidate !== args.content) {
+        throw new SourceWorkspaceEditConflictError(
+          "A concurrent source edit prevented identity-only publication.",
+        );
+      }
       const isSourceModeTransition =
         args.allowUrlBackedTransition === true &&
         (isStandaloneHttpUrl(current.content) ||
@@ -377,9 +497,12 @@ export async function writeInlineSourceFile(args: {
 
     if (await hasCollabState(args.file.id)) {
       const liveBeforeApply = await getText(args.file.id, "content");
+      const expectedLiveHash = identityOnly
+        ? liveBaseHash
+        : args.expectedVersionHash;
       if (
-        args.expectedVersionHash &&
-        args.expectedVersionHash !== sourceContentHash(liveBeforeApply)
+        expectedLiveHash &&
+        expectedLiveHash !== sourceContentHash(liveBeforeApply)
       ) {
         throw new SourceWorkspaceEditConflictError(
           "Source file changed since it was read. Re-read the file and retry.",
@@ -396,8 +519,8 @@ export async function writeInlineSourceFile(args: {
             // overwritten silently rather than reported as a conflict.
             validateBase: (base) => {
               if (
-                args.expectedVersionHash &&
-                args.expectedVersionHash !== sourceContentHash(base)
+                expectedLiveHash &&
+                expectedLiveHash !== sourceContentHash(base)
               ) {
                 throw new SourceWorkspaceEditConflictError(
                   "Source file changed while the edit was being applied. Re-read the file and retry.",
@@ -450,6 +573,11 @@ export async function writeInlineSourceFile(args: {
     // trusting args.content directly.
     const authoritativeContent = await getText(args.file.id, "content");
     try {
+      if (identityOnly && authoritativeContent !== args.content) {
+        throw new SourceWorkspaceEditConflictError(
+          "A concurrent source edit prevented identity-only publication.",
+        );
+      }
       const isSourceModeTransition =
         args.allowUrlBackedTransition === true &&
         (isStandaloneHttpUrl(current.content) ||
@@ -466,24 +594,51 @@ export async function writeInlineSourceFile(args: {
       // fail-closed even if a malformed/concurrent collab state somehow
       // converges to something other than the validated candidate. Restore
       // the exact pre-write live content before SQL can observe corruption.
-      await applyText(args.file.id, current.content, "content", "agent");
+      if (!identityOnly) {
+        await applyText(args.file.id, current.content, "content", "agent");
+      }
       throw error;
     }
 
     // The JS lock is process-local. Guard the SQL mirror with the exact
     // content + revision read above so a writer on another instance cannot
     // commit between our read/live-doc mutation and this final persistence.
+    const identityLineageWhere = identityOnly
+      ? [
+          currentFile.contentOperationSource == null
+            ? isNull(schema.designFiles.contentOperationSource)
+            : eq(
+                schema.designFiles.contentOperationSource,
+                currentFile.contentOperationSource,
+              ),
+          currentFile.contentOperationRevision == null
+            ? isNull(schema.designFiles.contentOperationRevision)
+            : eq(
+                schema.designFiles.contentOperationRevision,
+                currentFile.contentOperationRevision,
+              ),
+          currentFile.contentOperationResultHash == null
+            ? isNull(schema.designFiles.contentOperationResultHash)
+            : eq(
+                schema.designFiles.contentOperationResultHash,
+                currentFile.contentOperationResultHash,
+              ),
+        ]
+      : [];
     const updateResult = await db
       .update(schema.designFiles)
       .set({
         content: authoritativeContent,
         updatedAt,
-        // This action/agent write is outside the browser save sequence. Break
-        // that lineage so a later tab revision must pass its ordinary content
-        // hash guard instead of inheriting a stale same-source bypass.
-        contentOperationSource: null,
-        contentOperationRevision: null,
-        contentOperationResultHash: null,
+        contentOperationSource: identityOnly
+          ? identityOnlyOperationSource
+          : null,
+        contentOperationRevision: identityOnly
+          ? identityOnlyOperationRevision
+          : null,
+        contentOperationResultHash: identityOnly
+          ? sourceContentHash(authoritativeContent)
+          : null,
       })
       .where(
         and(
@@ -493,6 +648,7 @@ export async function writeInlineSourceFile(args: {
           currentFile.updatedAt === null
             ? isNull(schema.designFiles.updatedAt)
             : eq(schema.designFiles.updatedAt, currentFile.updatedAt),
+          ...identityLineageWhere,
         ),
       );
 
@@ -503,13 +659,23 @@ export async function writeInlineSourceFile(args: {
         .select({
           content: schema.designFiles.content,
           updatedAt: schema.designFiles.updatedAt,
+          contentOperationSource: schema.designFiles.contentOperationSource,
+          contentOperationRevision: schema.designFiles.contentOperationRevision,
+          contentOperationResultHash:
+            schema.designFiles.contentOperationResultHash,
         })
         .from(schema.designFiles)
         .where(eq(schema.designFiles.id, args.file.id))
         .limit(1);
       persisted =
         confirmed?.content === authoritativeContent &&
-        confirmed.updatedAt === updatedAt;
+        confirmed.updatedAt === updatedAt &&
+        confirmed.contentOperationSource ===
+          (identityOnly ? identityOnlyOperationSource : null) &&
+        confirmed.contentOperationRevision ===
+          (identityOnly ? identityOnlyOperationRevision : null) &&
+        confirmed.contentOperationResultHash ===
+          (identityOnly ? sourceContentHash(authoritativeContent) : null);
     }
 
     if (!persisted) {
@@ -518,7 +684,7 @@ export async function writeInlineSourceFile(args: {
         .from(schema.designFiles)
         .where(eq(schema.designFiles.id, args.file.id))
         .limit(1);
-      if (winner && winner.content !== authoritativeContent) {
+      if (!identityOnly && winner && winner.content !== authoritativeContent) {
         await applyText(args.file.id, winner.content, "content", "agent");
       }
       throw new SourceWorkspaceEditConflictError(
@@ -535,6 +701,267 @@ export async function writeInlineSourceFile(args: {
       versionHash: sourceContentHash(authoritativeContent),
       changed: authoritativeContent !== current.content,
       updatedAt,
+    };
+  });
+}
+
+export type InlineSourceBatchCollaborationFileStatus = {
+  fileId: string;
+  status: "synced";
+};
+
+/**
+ * Persist planned source documents and their prepared Y.Doc snapshots in one
+ * SQL transaction. Prepared leases publish their cache updates only after the
+ * shared transaction commits.
+ */
+export async function writeInlineSourceFilesBatch(args: {
+  designId: string;
+  files: Array<{
+    file: SourceWorkspaceFile;
+    content: string;
+    expectedVersionHash: string;
+  }>;
+}): Promise<{
+  files: Array<{
+    id: string;
+    versionHash: string;
+    changed: boolean;
+    updatedAt: string;
+  }>;
+  collaboration: {
+    status: "synced";
+    files: InlineSourceBatchCollaborationFileStatus[];
+  };
+}> {
+  if (args.files.length === 0) {
+    throw new Error("At least one source file is required.");
+  }
+  const ids = args.files.map(({ file }) => file.id);
+  if (
+    ids.some((id) => !id) ||
+    new Set(ids).size !== ids.length ||
+    args.files.some(
+      ({ file, expectedVersionHash }) =>
+        file.designId !== args.designId || !expectedVersionHash,
+    )
+  ) {
+    throw new SourceWorkspaceEditConflictError(
+      "The source batch contains an invalid or duplicate file identity.",
+    );
+  }
+
+  const sortedIds = [...ids].sort();
+  const withLocks = async <T>(
+    index: number,
+    work: () => Promise<T>,
+  ): Promise<T> => {
+    if (index >= sortedIds.length) return work();
+    return withSourceFileWriteLock(sortedIds[index]!, () =>
+      withLocks(index + 1, work),
+    );
+  };
+
+  return withLocks(0, async () => {
+    const access = await assertAccess("design", args.designId, "editor");
+    if (
+      parseDesignDataSourceType(
+        (access.resource as { data?: unknown }).data,
+      ) !== "inline"
+    ) {
+      throw new SourceWorkspaceEditConflictError(
+        "Atomic source batches are supported only for inline designs.",
+      );
+    }
+    const db = getDb();
+    const currentFiles = await db
+      .select({
+        id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
+        content: schema.designFiles.content,
+        updatedAt: schema.designFiles.updatedAt,
+        contentOperationSource: schema.designFiles.contentOperationSource,
+        contentOperationRevision: schema.designFiles.contentOperationRevision,
+        contentOperationResultHash:
+          schema.designFiles.contentOperationResultHash,
+      })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, args.designId),
+          inArray(schema.designFiles.id, ids),
+        ),
+      );
+    const byId = new Map(currentFiles.map((file) => [file.id, file]));
+    if (byId.size !== ids.length) {
+      throw new SourceWorkspaceEditConflictError(
+        "One or more source files are missing or no longer belong to this design.",
+      );
+    }
+
+    const planned = await Promise.all(
+      args.files.map(async ({ file, content, expectedVersionHash }) => {
+        const currentFile = byId.get(file.id)!;
+        let liveContent = currentFile.content ?? "";
+        try {
+          if (await hasCollabState(file.id)) {
+            liveContent = await getText(file.id, "content");
+          }
+        } catch {
+          throw new SourceWorkspaceEditConflictError(
+            "Could not verify a source file's live version. Re-read the design and retry.",
+          );
+        }
+        if (
+          sourceContentHash(currentFile.content ?? "") !==
+            expectedVersionHash ||
+          sourceContentHash(liveContent) !== expectedVersionHash
+        ) {
+          throw new SourceWorkspaceEditConflictError(
+            "A source file's stored or live version changed since the batch was prepared. Save or refresh the design and retry.",
+          );
+        }
+        assertLockedLayersPreserved(liveContent, content);
+        assertDesignHtmlEditIntegrity({
+          previousContent: liveContent,
+          nextContent: content,
+          fileType: currentFile.fileType ?? file.fileType ?? "html",
+          filename: currentFile.filename ?? file.filename,
+        });
+        return { fileId: file.id, currentFile, liveContent, content };
+      }),
+    );
+
+    const plannedById = new Map(planned.map((item) => [item.fileId, item]));
+    const hasSqlChanges = planned.some(
+      (item) => item.currentFile.content !== item.content,
+    );
+    const prepared: Array<{
+      item: (typeof planned)[number];
+      lease: PreparedYDocMutationLease;
+    }> = [];
+
+    const persistPrepared = async () => {
+      const updatedAt = new Date().toISOString();
+      const transaction = getDbExec().transaction;
+      if (!transaction) {
+        throw new Error(
+          "The database does not support source batch transactions.",
+        );
+      }
+
+      await transaction(async (tx) => {
+        for (const { item, lease } of prepared) {
+          const current = item.currentFile;
+          const values = [
+            item.fileId,
+            args.designId,
+            current.content ?? "",
+            current.updatedAt,
+            current.contentOperationSource,
+            current.contentOperationRevision,
+            current.contentOperationResultHash,
+          ];
+          const where = `id = ? AND design_id = ? AND content = ? AND updated_at IS NOT DISTINCT FROM ? AND content_operation_source IS NOT DISTINCT FROM ? AND content_operation_revision IS NOT DISTINCT FROM ? AND content_operation_result_hash IS NOT DISTINCT FROM ?`;
+
+          if (current.content !== item.content) {
+            const updated = await tx.execute({
+              sql: `UPDATE design_files SET content = ?, content_operation_source = NULL, content_operation_revision = NULL, content_operation_result_hash = NULL, updated_at = ? WHERE ${where} RETURNING id`,
+              args: [item.content, updatedAt, ...values],
+            });
+            if (updated.rows.length !== 1) {
+              throw new SourceWorkspaceEditConflictError(
+                "A source file changed while the batch was being saved. Re-read the design and retry.",
+              );
+            }
+          } else {
+            const currentRow = await tx.execute({
+              sql: `SELECT id FROM design_files WHERE ${where} FOR UPDATE`,
+              args: values,
+            });
+            if (currentRow.rows.length !== 1) {
+              throw new SourceWorkspaceEditConflictError(
+                "A source file changed while the batch was being saved. Re-read the design and retry.",
+              );
+            }
+          }
+
+          await lease.persist(tx, item.content);
+        }
+
+        if (hasSqlChanges) {
+          const updatedDesign = await tx.execute({
+            sql: "UPDATE designs SET updated_at = ? WHERE id = ? RETURNING id",
+            args: [updatedAt, args.designId],
+          });
+          if (updatedDesign.rows.length !== 1) {
+            throw new SourceWorkspaceEditConflictError(
+              "The design changed while the source batch was being saved. Refresh and try again.",
+            );
+          }
+        }
+      });
+
+      return updatedAt;
+    };
+
+    const withPrepared = async (index: number): Promise<string> => {
+      if (index >= sortedIds.length) return persistPrepared();
+      const item = plannedById.get(sortedIds[index]!)!;
+      return withPreparedYDocMutation(item.fileId, "agent", async (lease) => {
+        const text = lease.doc.getText("content");
+        if (lease.baseVersion === null) {
+          applyTextToYDoc(lease.doc, "content", item.liveContent, "agent");
+        } else if (text.toString() !== item.liveContent) {
+          throw new SourceWorkspaceEditConflictError(
+            "A source file's live version changed while the batch was being prepared. Re-read the design and retry.",
+          );
+        }
+        if (text.toString() !== item.content) {
+          applyTextToYDoc(lease.doc, "content", item.content, "agent");
+          assertDesignHtmlEditIntegrity({
+            previousContent: item.liveContent,
+            nextContent: text.toString(),
+            fileType: item.currentFile.fileType ?? "html",
+            filename: item.currentFile.filename,
+          });
+        }
+        prepared.push({ item, lease });
+        return withPrepared(index + 1);
+      });
+    };
+
+    let updatedAt: string;
+    try {
+      updatedAt = await withPrepared(0);
+    } catch (error) {
+      if (error instanceof CollabBaseVersionConflictError) {
+        throw new SourceWorkspaceEditConflictError(
+          "A source file's live version changed while the batch was being saved. Re-read the design and retry.",
+        );
+      }
+      throw error;
+    }
+
+    return {
+      files: planned.map((item) => ({
+        id: item.fileId,
+        versionHash: sourceContentHash(item.content),
+        changed: item.liveContent !== item.content,
+        updatedAt:
+          item.currentFile.content === item.content
+            ? (item.currentFile.updatedAt ?? updatedAt)
+            : updatedAt,
+      })),
+      collaboration: {
+        status: "synced",
+        files: planned.map((item) => ({
+          fileId: item.fileId,
+          status: "synced",
+        })),
+      },
     };
   });
 }

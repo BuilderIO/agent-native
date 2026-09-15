@@ -78,6 +78,8 @@ Agent-Native 應用程式預設設計為安全的。此框架提供多層自動�
 | 秘密曝光 | `.env` gitignored;靜態加密的憑證和保管庫 (AES-256-GCM)       |
 | SSRF     | `ssrfSafeFetch` 阻止內部/中繼資料目標 + 重新導向重新綁定     |
 
+框架會從工作階段建立要求內容，並在應用程式讀寫時透過 `accessFilter()` 與 `assertAccess()` 強制執行擁有權。代理程式 SQL 會取得依目前身分與組織篩選的暫時檢視。RLS 尚未啟用，因此應用程式的直接查詢仍必須使用這些輔助程式。
+
 ## 輸入驗證 {#input-validation}
 
 將 `defineAction` 與 Zod `schema:` 一起用於每個操作。此框架會在程式碼執行之前自動驗證輸入：

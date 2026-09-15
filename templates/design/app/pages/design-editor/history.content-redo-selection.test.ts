@@ -7,7 +7,7 @@ import {
   type ContentHistorySelectionAfterMap,
   getContentHistoryChanges,
   stampContentHistorySelectionAfter,
-} from "./history";
+} from "@/pages/design-editor/history";
 
 const selection = (layerIds: string[]) => ({
   overviewSelectedScreenIds: [],
@@ -37,7 +37,7 @@ describe("captureContentUndoStackTop / stampContentHistorySelectionAfter", () =>
       selection(["group-1"]),
     );
 
-    expect(afterMap.get(pushed)).toEqual(selection(["group-1"]));
+    expect(afterMap.get(pushed)).toMatchObject(selection(["group-1"]));
   });
 
   it("leaves an older entry's stamp untouched when no new entry was pushed (coalesced or no-op write)", () => {

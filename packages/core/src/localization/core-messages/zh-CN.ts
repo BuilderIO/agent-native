@@ -100,6 +100,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "智能体",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "界面",
+  "agentPanel.keyScope": "密钥范围",
+  "agentPanel.personalKeyScope": "个人",
+  "agentPanel.organizationKeyScope": "组织",
+  "agentPanel.personalKeyInEffect": "当前使用的是您的个人密钥。",
+  "agentPanel.organizationKeyInEffect": "当前使用的是组织密钥。",
+  "agentPanel.sharedKeyInEffect": "当前使用的是共享密钥。",
+  "agentPanel.useOrganizationKey": "改用组织密钥",
+  "agentPanel.keyStatusUnavailable": "无法获取密钥状态。",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已经在与 {{agent}} 聊天。可以直接让它操作此应用。",
@@ -122,6 +130,24 @@ const messages: AgentChatTranslation = {
   "common.no": "否",
   "common.retry": "重试",
   "common.save": "保存",
+  "agents.hostedAgent": "托管代理",
+  "agents.cardUrl": "代理卡 URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "身份验证",
+  "agents.authNone": "无需身份验证",
+  "agents.authBearer": "Bearer 令牌",
+  "agents.authClientCredentials": "OAuth 客户端凭据",
+  "agents.chooseCredential": "选择凭据",
+  "agents.vault": "保管库",
+  "agents.tokenUrl": "令牌 URL",
+  "agents.clientId": "客户端 ID",
+  "agents.scope": "范围",
+  "agents.authIncomplete": "请完成托管代理的身份验证字段。",
+  "agents.invalidUrl":
+    "代理 URL 必须使用 HTTPS，localhost 或回环开发 URL 除外。",
+  "agents.statusReachable": "可访问",
+  "agents.statusAuthRejected": "身份验证被拒",
+  "agents.statusNoJsonRpc": "无 JSON-RPC",
   "common.saveFailed": "保存失败",
   "common.saveFailedStatus": "保存失败（{{status}}）",
   "common.saving": "正在保存...",
@@ -353,6 +379,10 @@ const messages: AgentChatTranslation = {
     "智能体连接在完成前超时。您可以从已完成的部分继续，也可以重试。",
   "errorMessages.invalidToolSchema":
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
+  "errorMessages.malformedRequest":
+    "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
+  "errorMessages.malformedRequestAttachment":
+    "模型拒绝了一个附加文件，因此该消息未发送。请移除附件后重试：PDF、纯文本文件以及 JPEG、PNG、GIF、WebP 图片可直接读取；其他格式需要先上传再以链接形式引用。",
   "errorMessages.noProviderConnected":
     "尚未连接任何 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后连接 Builder.io（提供免费套餐）或添加提供商密钥。",
   "errorMessages.openBuilderSpaceSettings": "打开 Builder 空间设置",
@@ -673,6 +703,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "数据洞察",
   "widget.dataTable": "数据表",
   "widget.downloadCsv": "下载 CSV",
+  "widget.connectProvider": "连接 {{provider}}",
   "widget.loadingToolResult": "正在加载工具结果",
   "widget.noRows": "没有数据行",
   "widget.points": "{{formattedCount}} 个数据点",
@@ -680,6 +711,13 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}} 行",
   "widget.rows_other": "{{formattedCount}} 行",
   "widget.sampled": "已抽样",
+  "settings.emailTitle": "电子邮件",
+  "settings.emailChange": "更改电子邮件",
+  "settings.emailChanging": "正在发送...",
+  "settings.emailChangeSent": "请查看邮件，按照说明确认此更改。",
+  "settings.emailChangeError": "无法发送确认邮件。",
+  "settings.emailNewLabel": "新电子邮件",
+  "settings.emailNewPlaceholder": "输入新电子邮件",
 };
 
 export default messages;

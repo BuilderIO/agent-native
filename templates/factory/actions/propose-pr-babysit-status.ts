@@ -148,6 +148,8 @@ export function createBabysitPullRequestAction(
         reviewsTruncated: details.reviewsTruncated,
         failingJobLog,
         botAuthors: [...DEFAULT_BABYSIT_BOT_AUTHORS],
+        issueComments: details.issueComments,
+        lastCommentAtMs: stored.lastCommentAtMs,
       });
       const mechanical = babysitMechanicalVerdict({
         stored,

@@ -8,11 +8,12 @@ import {
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
+  getWeek,
   isSameMonth,
   isSameDay,
   format,
 } from "date-fns";
-import { memo, useState, useMemo } from "react";
+import { Fragment, memo, useState, useMemo, useRef } from "react";
 
 import {
   Tooltip,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import {
   dateToCalendarDateKey,
   addCalendarDays,
@@ -43,8 +45,8 @@ interface MonthViewProps {
   timezone?: string;
   onDateSelect: (date: Date) => void;
   onCreateWorkingLocation?: (date: Date) => void;
-  onDeleteEvent?: (eventId: string) => void;
-  onEventDrop?: (eventId: string, newDate: Date) => void;
+  onDeleteEvent?: (event: CalendarEvent) => void;
+  onEventDrop?: (event: CalendarEvent, newDate: Date) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -109,7 +111,10 @@ export const MonthView = memo(function MonthView({
   const isMobile = useIsMobile();
   const { prefs } = useViewPreferences();
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const draggedEventRef = useRef<CalendarEvent | null>(null);
+  const [draggingEvent, setDraggingEvent] = useState<CalendarEvent | null>(
+    null,
+  );
 
   const monthStart = startOfMonth(selectedDate);
   const monthEnd = endOfMonth(selectedDate);
@@ -127,6 +132,7 @@ export const MonthView = memo(function MonthView({
   const headers = getWeekdayOrder(weekStartsOn)
     .filter((day) => !prefs.hideWeekends || (day !== 0 && day !== 6))
     .map((day) => headerLabels[day]);
+  const gridColumnCount = colCount + (prefs.showWeekNumbers ? 1 : 0);
 
   // Pre-group events by every day they overlap (not just their start day) so
   // multi-day events keep appearing as the grid moves past their start date.
@@ -185,12 +191,13 @@ export const MonthView = memo(function MonthView({
 
   function handleDrop(e: React.DragEvent, day: Date) {
     e.preventDefault();
-    const eventId = e.dataTransfer.getData("text/plain");
-    if (eventId && onEventDrop) {
-      onEventDrop(eventId, day);
+    const draggedEvent = draggedEventRef.current;
+    if (draggedEvent && onEventDrop) {
+      onEventDrop(draggedEvent, day);
     }
+    draggedEventRef.current = null;
     setDragOverDay(null);
-    setDraggingId(null);
+    setDraggingEvent(null);
   }
 
   return (
@@ -198,8 +205,15 @@ export const MonthView = memo(function MonthView({
       {/* Weekday headers */}
       <div
         className="grid border-b border-border bg-card"
-        style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: `repeat(${gridColumnCount}, minmax(0, 1fr))`,
+        }}
       >
+        {prefs.showWeekNumbers && (
+          <div className="py-2 text-center text-[10px] font-medium tracking-wide text-muted-foreground sm:py-2.5 sm:text-xs">
+            {t("calendarView.week")}
+          </div>
+        )}
         {headers.map((day, i) => (
           <div
             key={`${day}-${i}`}
@@ -213,9 +227,11 @@ export const MonthView = memo(function MonthView({
       {/* Day grid */}
       <div
         className="grid flex-1 auto-rows-fr"
-        style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: `repeat(${gridColumnCount}, minmax(0, 1fr))`,
+        }}
       >
-        {days.map((day) => {
+        {days.map((day, index) => {
           const dayOccurrences =
             eventsByDay.get(dateToCalendarDateKey(day)) ?? [];
           const inMonth = isSameMonth(day, selectedDate);
@@ -227,146 +243,172 @@ export const MonthView = memo(function MonthView({
           const isDragTarget = dragOverDay === dayKey;
 
           return (
-            <div
-              key={dayKey}
-              data-calendar-create-surface="true"
-              onClick={(e) => {
-                if ((e.target as HTMLElement).closest("button")) return;
-                if (shouldSuppressAfterPopoverClose()) return;
-                onDateSelect(day);
-              }}
-              onDragOver={(e) => handleDragOver(e, dayKey)}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                setDragOverDay(dayKey);
-              }}
-              onDragLeave={(e) => {
-                // Only clear if leaving to outside this cell
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setDragOverDay(null);
-                }
-              }}
-              onDrop={(e) => handleDrop(e, day)}
-              className={cn(
-                "group relative min-h-[60px] cursor-pointer border-b border-r border-border p-1 transition-colors sm:min-h-[90px] sm:p-1.5",
-                !inMonth && "opacity-35",
-                isDragTarget
-                  ? "bg-primary/10 ring-2 ring-inset ring-primary/50"
-                  : "hover:bg-accent/40",
-              )}
-            >
-              {/* Date number */}
-              <div className="flex items-center justify-between">
-                <span
-                  className={cn(
-                    "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium sm:h-7 sm:w-7 sm:text-sm",
-                    today && "bg-primary text-primary-foreground font-semibold",
-                    selected && !today && "bg-accent text-accent-foreground",
-                    !today && !selected && "text-foreground",
-                  )}
+            <Fragment key={dayKey}>
+              {prefs.showWeekNumbers && index % colCount === 0 && (
+                <div
+                  aria-label={t("calendarView.weekNumber", {
+                    number: getWeek(day, {
+                      weekStartsOn,
+                      firstWeekContainsDate: 1,
+                    }),
+                  })}
+                  className="border-b border-r border-border bg-muted/20 px-1 py-2 text-center text-[10px] font-medium text-muted-foreground sm:text-xs"
                 >
-                  {format(day, "d")}
-                </span>
-
-                {inMonth && onCreateWorkingLocation && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t("calendarView.addWorkingLocation")}
-                        className="mr-0.5 flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onCreateWorkingLocation(day);
-                        }}
-                      >
-                        <IconPlus aria-hidden="true" className="size-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {t("calendarView.addWorkingLocation")}
-                    </TooltipContent>
-                  </Tooltip>
+                  {getWeek(day, {
+                    weekStartsOn,
+                    firstWeekContainsDate: 1,
+                  })}
+                </div>
+              )}
+              <div
+                data-calendar-create-surface="true"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("button")) return;
+                  if (shouldSuppressAfterPopoverClose()) return;
+                  onDateSelect(day);
+                }}
+                onDragOver={(e) => handleDragOver(e, dayKey)}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  setDragOverDay(dayKey);
+                }}
+                onDragLeave={(e) => {
+                  // Only clear if leaving to outside this cell
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDragOverDay(null);
+                  }
+                }}
+                onDrop={(e) => handleDrop(e, day)}
+                className={cn(
+                  "group relative min-h-[60px] cursor-pointer border-b border-r border-border p-1 transition-colors sm:min-h-[90px] sm:p-1.5",
+                  !inMonth && "opacity-35",
+                  isDragTarget
+                    ? "bg-primary/10 ring-2 ring-inset ring-primary/50"
+                    : "hover:bg-accent/40",
                 )}
-              </div>
-
-              {/* Events / Skeleton */}
-              <div className="mt-1 space-y-0.5 overflow-hidden">
-                {isLoading &&
-                  MONTH_SKELETON_WIDTHS[day.getDay()].map((w, i) => (
-                    <div
-                      key={i}
-                      className="h-4 animate-pulse rounded bg-muted"
-                      style={{ width: w }}
-                    />
-                  ))}
-                {!isLoading &&
-                  dayOccurrences
-                    .slice(0, isMobile ? 2 : 3)
-                    .map(({ event, isStart, continuesNext }) => (
-                      <EventDetailPopover
-                        key={event.id}
-                        event={event}
-                        timezone={timezone}
-                        onDelete={onDeleteEvent ?? (() => {})}
-                        isDraft={draftEventIds.includes(event.id)}
-                        onDraftUpdate={onDraftUpdate}
-                        onDraftCreate={onDraftCreate}
-                        onDraftDiscard={onDraftDiscard}
-                      >
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          onDragStart={(e) => {
-                            if (!isStart) return;
-                            const ghost = e.currentTarget.querySelector(
-                              "button",
-                            ) as HTMLElement | null;
-                            if (ghost) {
-                              e.dataTransfer.setDragImage(ghost, 12, 12);
-                            }
-                          }}
-                          className={cn(
-                            "relative",
-                            !isStart &&
-                              "-ml-1 -mr-1 border-l-2 border-dashed border-current pl-[calc(0.25rem-2px)] opacity-90 sm:-ml-1.5 sm:-mr-1.5 sm:pl-[calc(0.375rem-2px)]",
-                          )}
-                        >
-                          <EventCard
-                            event={event}
-                            colorPreferences={prefs}
-                            compact
-                            draggable={isStart}
-                            onDragStart={(id) => setDraggingId(id)}
-                            onDragEnd={() => {
-                              setDraggingId(null);
-                              setDragOverDay(null);
-                            }}
-                            dimmed={draggingId === event.id}
-                          />
-                          {continuesNext && (
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-[9px] leading-none text-current opacity-60"
-                            >
-                              &rsaquo;
-                            </span>
-                          )}
-                        </div>
-                      </EventDetailPopover>
-                    ))}
-                {!isLoading && dayOccurrences.length > (isMobile ? 2 : 3) && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDateSelect(day);
-                    }}
-                    className="block w-full rounded px-1 py-0.5 text-left text-[10px] text-muted-foreground hover:bg-accent/50 sm:px-1.5 sm:text-xs"
+              >
+                {/* Date number */}
+                <div className="flex items-center justify-between">
+                  <span
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium sm:h-7 sm:w-7 sm:text-sm",
+                      today &&
+                        "bg-primary text-primary-foreground font-semibold",
+                      selected && !today && "bg-accent text-accent-foreground",
+                      !today && !selected && "text-foreground",
+                    )}
                   >
-                    +{dayOccurrences.length - (isMobile ? 2 : 3)} more
-                  </button>
-                )}
+                    {format(day, "d")}
+                  </span>
+
+                  {inMonth && onCreateWorkingLocation && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={t("calendarView.addWorkingLocation")}
+                          className="mr-0.5 flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onCreateWorkingLocation(day);
+                          }}
+                        >
+                          <IconPlus aria-hidden="true" className="size-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {t("calendarView.addWorkingLocation")}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+
+                {/* Events / Skeleton */}
+                <div className="mt-1 space-y-0.5 overflow-hidden">
+                  {isLoading &&
+                    MONTH_SKELETON_WIDTHS[day.getDay()].map((w, i) => (
+                      <div
+                        key={i}
+                        className="h-4 animate-pulse rounded bg-muted"
+                        style={{ width: w }}
+                      />
+                    ))}
+                  {!isLoading &&
+                    dayOccurrences
+                      .slice(0, isMobile ? 2 : 3)
+                      .map(({ event, isStart, continuesNext }) => (
+                        <EventDetailPopover
+                          key={getCalendarEventRenderKey(event)}
+                          event={event}
+                          timezone={timezone}
+                          onDelete={onDeleteEvent ?? (() => {})}
+                          isDraft={draftEventIds.includes(event.id)}
+                          onDraftUpdate={onDraftUpdate}
+                          onDraftCreate={onDraftCreate}
+                          onDraftDiscard={onDraftDiscard}
+                        >
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            onDragStart={(e) => {
+                              if (!isStart) return;
+                              const ghost = e.currentTarget.querySelector(
+                                "button",
+                              ) as HTMLElement | null;
+                              if (ghost) {
+                                e.dataTransfer.setDragImage(ghost, 12, 12);
+                              }
+                            }}
+                            className={cn(
+                              "relative",
+                              !isStart &&
+                                "-ml-1 -mr-1 border-l-2 border-dashed border-current pl-[calc(0.25rem-2px)] opacity-90 sm:-ml-1.5 sm:-mr-1.5 sm:pl-[calc(0.375rem-2px)]",
+                            )}
+                          >
+                            <EventCard
+                              event={event}
+                              colorPreferences={prefs}
+                              compact
+                              draggable={isStart}
+                              onDragStart={(draggedEvent) => {
+                                draggedEventRef.current = draggedEvent;
+                                setDraggingEvent(draggedEvent);
+                              }}
+                              onDragEnd={() => {
+                                draggedEventRef.current = null;
+                                setDraggingEvent(null);
+                                setDragOverDay(null);
+                              }}
+                              dimmed={
+                                draggingEvent !== null &&
+                                getCalendarEventRenderKey(draggingEvent) ===
+                                  getCalendarEventRenderKey(event)
+                              }
+                            />
+                            {continuesNext && (
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-[9px] leading-none text-current opacity-60"
+                              >
+                                &rsaquo;
+                              </span>
+                            )}
+                          </div>
+                        </EventDetailPopover>
+                      ))}
+                  {!isLoading && dayOccurrences.length > (isMobile ? 2 : 3) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDateSelect(day);
+                      }}
+                      className="block w-full rounded px-1 py-0.5 text-left text-[10px] text-muted-foreground hover:bg-accent/50 sm:px-1.5 sm:text-xs"
+                    >
+                      +{dayOccurrences.length - (isMobile ? 2 : 3)} more
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            </Fragment>
           );
         })}
       </div>

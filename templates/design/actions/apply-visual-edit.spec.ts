@@ -61,6 +61,22 @@ describe("apply-visual-edit schema", () => {
     ).toBe(false);
   });
 
+  it("accepts the source-backed Boolean Subtract intent with at least two operands", () => {
+    const source = { kind: "inline-html" as const, html };
+    expect(
+      action.schema.safeParse({
+        source,
+        intent: { kind: "booleanSubtract", targetIds: ["base", "cutter"] },
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        source,
+        intent: { kind: "booleanSubtract", targetIds: ["base"] },
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts optional activeFrameWidthPx param", () => {
     const base = {
       source: { kind: "design-file", designId: "d1" },

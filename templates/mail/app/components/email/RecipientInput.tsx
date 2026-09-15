@@ -53,6 +53,7 @@ interface RecipientInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  ariaLabel?: string;
   autoFocus?: boolean;
   /** Field identity; enables dragging chips between To/Cc/Bcc when paired with onMoveRecipient. */
   field?: RecipientField;
@@ -324,6 +325,7 @@ export function RecipientInput({
   value,
   onChange,
   placeholder,
+  ariaLabel,
   autoFocus,
   field,
   onMoveRecipient,
@@ -602,10 +604,21 @@ export function RecipientInput({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Clamp selected index when filtered list changes (preserves position when possible)
-  useEffect(() => {
-    setSelectedIndex((prev) => Math.min(prev, allSuggestions.length - 1));
+  // Keep a visible suggestion active when results return, preserving its
+  // position when possible and clamping it to the new list.
+  useLayoutEffect(() => {
+    if (allSuggestions.length === 0) return;
+    setSelectedIndex((prev) =>
+      Math.min(Math.max(prev, 0), allSuggestions.length - 1),
+    );
   }, [allSuggestions.length]);
+
+  useLayoutEffect(() => {
+    if (!showSuggestions || !hasSuggestions) return;
+    dropdownRef.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [allSuggestions, hasSuggestions, selectedIndex, showSuggestions]);
 
   const dropdown =
     showSuggestions && hasSuggestions
@@ -748,6 +761,9 @@ export function RecipientInput({
                 </button>
                 <button
                   type="button"
+                  aria-label={t("mail.recipients.removeRecipient", {
+                    recipient: displayName,
+                  })}
                   onClick={() => removeRecipient(i)}
                   className="ml-0.5 rounded-sm p-0.5 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
                 >
@@ -772,6 +788,9 @@ export function RecipientInput({
               <span className="max-w-[180px] truncate">{r}</span>
               <button
                 type="button"
+                aria-label={t("mail.recipients.removeRecipient", {
+                  recipient: r,
+                })}
                 onClick={() => removeRecipient(i)}
                 className="ml-0.5 rounded-sm p-0.5 hover:bg-foreground/10 transition-colors"
               >
@@ -787,6 +806,7 @@ export function RecipientInput({
           data-recipient-field={field}
           role="combobox"
           aria-autocomplete="list"
+          aria-label={ariaLabel ?? placeholder}
           aria-controls={
             showSuggestions && hasSuggestions ? suggestionListId : undefined
           }
@@ -802,6 +822,7 @@ export function RecipientInput({
           onChange={(e) => {
             setInputValue(e.target.value);
             setShowSuggestions(true);
+            setSelectedIndex(0);
           }}
           onFocus={() => {
             if (inputValue.trim()) setShowSuggestions(true);

@@ -114,6 +114,16 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agente",
   "agentPanel.mode": "Modo",
   "agentPanel.uiMode": "Interfaz de usuario",
+  "agentPanel.keyScope": "Ámbito de la clave",
+  "agentPanel.personalKeyScope": "Personal",
+  "agentPanel.organizationKeyScope": "Organización",
+  "agentPanel.personalKeyInEffect": "Se está usando tu clave personal.",
+  "agentPanel.organizationKeyInEffect":
+    "Se está usando la clave de la organización.",
+  "agentPanel.sharedKeyInEffect": "Se está usando una clave compartida.",
+  "agentPanel.useOrganizationKey": "Usar clave de la organización",
+  "agentPanel.keyStatusUnavailable":
+    "No se pudo consultar el estado de la clave.",
   "agentHostNudge.sidebarTitle": "Usa el chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Ya estás chateando con {{agent}}. Pídele que trabaje directamente con esta app.",
@@ -136,6 +146,25 @@ const messages: AgentChatTranslation = {
   "common.no": "No",
   "common.retry": "Reintentar",
   "common.save": "Guardar",
+  "agents.hostedAgent": "Agente alojado",
+  "agents.cardUrl": "URL de la tarjeta del agente",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Autenticación",
+  "agents.authNone": "Sin autenticación",
+  "agents.authBearer": "Token Bearer",
+  "agents.authClientCredentials": "Credenciales de cliente OAuth",
+  "agents.chooseCredential": "Elegir credencial",
+  "agents.vault": "Bóveda",
+  "agents.tokenUrl": "URL del token",
+  "agents.clientId": "ID de cliente",
+  "agents.scope": "Ámbito",
+  "agents.authIncomplete":
+    "Completa los campos de autenticación del agente alojado.",
+  "agents.invalidUrl":
+    "Las URL de los agentes deben usar HTTPS, salvo las URL de desarrollo localhost o de bucle local.",
+  "agents.statusReachable": "Accesible",
+  "agents.statusAuthRejected": "Autenticación rechazada",
+  "agents.statusNoJsonRpc": "Sin JSON-RPC",
   "common.saveFailed": "Error al guardar",
   "common.saveFailedStatus": "Error al guardar ({{status}})",
   "common.saving": "Guardando...",
@@ -348,6 +377,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Información sobre los datos",
   "widget.dataTable": "Tabla de datos",
   "widget.downloadCsv": "Descargar CSV",
+  "widget.connectProvider": "Conectar {{provider}}",
   "widget.loadingToolResult": "Cargando el resultado de la herramienta",
   "widget.noRows": "No hay filas",
   "widget.points": "{{formattedCount}} puntos",
@@ -611,6 +641,10 @@ const messages: AgentChatTranslation = {
     "La conexión del agente expiró antes de que pudiera finalizar. Puedes continuar desde el trabajo parcial o volver a intentarlo.",
   "errorMessages.invalidToolSchema":
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
+  "errorMessages.malformedRequest":
+    "El proveedor del modelo rechazó esta solicitud por estar mal formada, así que no se reintentó. Vuelve a intentarlo o inicia un chat nuevo si sigue ocurriendo.",
+  "errorMessages.malformedRequestAttachment":
+    "El modelo rechazó un archivo adjunto, así que este mensaje nunca se envió. Quita el adjunto y vuelve a intentarlo: un PDF, un archivo de texto plano o una imagen JPEG, PNG, GIF o WebP se leen directamente; los demás formatos deben subirse y enlazarse.",
   "errorMessages.noProviderConnected":
     "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y, a continuación, conecta Builder.io (nivel gratuito disponible) o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":
@@ -758,6 +792,13 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Lector",
   "share.viewerDescription": "Puede ver",
   "share.userGroup": "Grupo de usuarios",
+  "settings.emailTitle": "Correo electrónico",
+  "settings.emailChange": "Cambiar correo electrónico",
+  "settings.emailChanging": "Enviando...",
+  "settings.emailChangeSent": "Revisa tu correo para confirmar este cambio.",
+  "settings.emailChangeError": "No se pudo enviar la confirmación.",
+  "settings.emailNewLabel": "Correo electrónico nuevo",
+  "settings.emailNewPlaceholder": "Introduce un correo nuevo",
 };
 
 export default messages;

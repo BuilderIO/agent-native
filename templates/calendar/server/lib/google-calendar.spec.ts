@@ -2521,6 +2521,30 @@ describe("calendar Google OAuth exchange", () => {
     );
   });
 
+  it("requests only Calendar and identity scopes", async () => {
+    const generateAuthUrl = vi.fn().mockReturnValue("auth-url");
+    createOAuth2ClientMock.mockReturnValue({ generateAuthUrl });
+
+    await getAuthUrl(
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+      "signed-state",
+      "owner@example.com",
+    );
+
+    expect(generateAuthUrl).toHaveBeenCalledWith({
+      access_type: "offline",
+      scope: [
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+      ],
+      prompt: "consent",
+      state: "signed-state",
+    });
+  });
+
   it("fails closed when no Google OAuth redirect URI is available", async () => {
     await expect(getAuthUrl()).rejects.toThrow(
       "Google OAuth redirect URI is required.",

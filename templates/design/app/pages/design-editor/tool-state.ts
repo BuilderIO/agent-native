@@ -95,8 +95,8 @@ export function resolveToolAfterSelection(current: DesignTool): DesignTool {
  * drag that ends on mouseup before Space is released clears `dragActive`
  * first, and re-checking it there would skip the matching `held:false` and
  * leave every iframe's `bridgeSpaceKeyPressed` stuck true for the NEXT
- * gesture. `broadcast: null` means "not this path's key" — the caller falls
- * through to its hand-tool handling.
+ * gesture. On keydown, `armed` determines whether forwarding owns the hold;
+ * `broadcast: null` only means there is no new iframe message to send.
  *
  * Exported for unit testing.
  */

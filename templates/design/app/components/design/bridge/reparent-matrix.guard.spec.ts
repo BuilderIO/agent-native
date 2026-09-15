@@ -186,6 +186,14 @@ describe("Chromium reparent matrix", () => {
           expectedPosition: "static",
           expectedDropMode: "flow-insert",
         },
+        {
+          name: "frame-row",
+          targetStyle:
+            "position:absolute;left:300px;top:80px;width:300px;height:200px;display:flex;flex-direction:row;gap:12px;padding:12px",
+          primitive: ' data-an-primitive="frame"',
+          expectedPosition: "static",
+          expectedDropMode: "flow-insert",
+        },
       ] as const;
 
       for (const layout of layouts) {
@@ -281,6 +289,244 @@ describe("Chromium reparent matrix", () => {
           expect(result.order, layout.name).toContain("source");
         }
         expect(pageErrors, layout.name).toEqual([]);
+        await page.close();
+      }
+    },
+  );
+
+  it(
+    "keeps a code-backed Frame as the containing block when flow-inserted and resized",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #frame { position:absolute !important;inset:420px auto auto 40px !important; }
+        #badge { position:absolute;right:10px;bottom:13px;width:18px;height:14px;background:#f97316; }
+        #target { position:absolute;left:300px;top:80px;width:300px;height:200px;padding:12px;display:flex;flex-direction:row;gap:12px;box-sizing:border-box;background:#eef2ff; }
+        .peer { flex:none;width:70px;height:50px;background:#a5b4fc; }
+      </style></head><body>
+        <div id="frame" data-agent-native-node-id="frame" data-an-primitive="frame" style="width:80px;height:60px;box-sizing:border-box;background:#6366f1;flex:none"><div id="badge" data-agent-native-node-id="badge"></div></div>
+        <div id="target" data-agent-native-node-id="target"><div id="peer-a" class="peer">A</div><div id="peer-b" class="peer">B</div></div>
+      </body></html>`);
+      await installBridge(page);
+
+      await dragCenterTo(page, "#frame", { x: 530, y: 180 });
+      const beforeResize = await page.locator("#frame").evaluate((element) => {
+        const frame = element as HTMLElement;
+        const badge = frame.querySelector<HTMLElement>("#badge")!;
+        const frameRect = frame.getBoundingClientRect();
+        const badgeRect = badge.getBoundingClientRect();
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        const structures = messages.filter(
+          (message) => message.type === "visual-structure-change",
+        ) as Array<{ dropMode?: string }>;
+        const structure = structures[structures.length - 1];
+        return {
+          parentId: frame.parentElement?.id,
+          position: getComputedStyle(frame).position,
+          positionPriority: frame.style.getPropertyPriority("position"),
+          left: frame.style.left,
+          top: frame.style.top,
+          right: frame.style.right,
+          bottom: frame.style.bottom,
+          leftPriority: frame.style.getPropertyPriority("left"),
+          badgeOffsetParentId: badge.offsetParent?.id,
+          rightGap: frameRect.right - badgeRect.right,
+          bottomGap: frameRect.bottom - badgeRect.bottom,
+          dropMode: structure?.dropMode,
+        };
+      });
+
+      expect(beforeResize.parentId).toBe("target");
+      expect(beforeResize.position).toBe("relative");
+      expect(beforeResize.positionPriority).toBe("important");
+      expect(beforeResize.left).toBe("auto");
+      expect(beforeResize.top).toBe("auto");
+      expect(beforeResize.right).toBe("auto");
+      expect(beforeResize.bottom).toBe("auto");
+      expect(beforeResize.leftPriority).toBe("important");
+      expect(beforeResize.badgeOffsetParentId).toBe("frame");
+      expect(beforeResize.rightGap).toBeCloseTo(10, 0);
+      expect(beforeResize.bottomGap).toBeCloseTo(13, 0);
+      expect(beforeResize.dropMode).toBe("flow-insert");
+
+      const afterResize = await page.locator("#frame").evaluate((element) => {
+        const frame = element as HTMLElement;
+        const badge = frame.querySelector<HTMLElement>("#badge")!;
+        const beforeFrameRect = frame.getBoundingClientRect();
+        const beforeBadgeRect = badge.getBoundingClientRect();
+        frame.style.width = "120px";
+        frame.style.height = "90px";
+        const frameRect = frame.getBoundingClientRect();
+        const badgeRect = badge.getBoundingClientRect();
+        return {
+          offsetParentId: badge.offsetParent?.id,
+          rightGap: frameRect.right - badgeRect.right,
+          bottomGap: frameRect.bottom - badgeRect.bottom,
+          badgeDeltaX: badgeRect.left - beforeBadgeRect.left,
+          badgeDeltaY: badgeRect.top - beforeBadgeRect.top,
+          frameDeltaWidth: frameRect.width - beforeFrameRect.width,
+          frameDeltaHeight: frameRect.height - beforeFrameRect.height,
+        };
+      });
+
+      expect(afterResize.offsetParentId).toBe("frame");
+      expect(afterResize.rightGap).toBeCloseTo(10, 0);
+      expect(afterResize.bottomGap).toBeCloseTo(13, 0);
+      expect(afterResize.badgeDeltaX).toBeCloseTo(40, 0);
+      expect(afterResize.badgeDeltaY).toBeCloseTo(30, 0);
+      expect(afterResize.frameDeltaWidth).toBeCloseTo(40, 0);
+      expect(afterResize.frameDeltaHeight).toBeCloseTo(30, 0);
+      await page.close();
+    },
+  );
+
+  it(
+    "restores a Frame containing block when an authored static-important rule wins the inline reset",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #frame { position:static !important;inset:0 !important; }
+        #badge { position:absolute;right:10px;bottom:13px;width:18px;height:14px;background:#f97316; }
+        #target { position:absolute;left:300px;top:80px;width:300px;height:200px;padding:12px;display:flex;flex-direction:row;gap:12px;box-sizing:border-box;background:#eef2ff; }
+        .peer { flex:none;width:70px;height:50px;background:#a5b4fc; }
+      </style></head><body>
+        <div id="frame" data-agent-native-node-id="frame" data-an-primitive="frame" style="position:absolute !important;inset:420px auto auto 40px !important;width:80px;height:60px;box-sizing:border-box;background:#6366f1;flex:none"><div id="badge" data-agent-native-node-id="badge"></div></div>
+        <div id="target" class="target" data-agent-native-node-id="target"><div id="peer-a" class="peer">A</div><div id="peer-b" class="peer">B</div></div>
+      </body></html>`);
+      await installBridge(page);
+
+      await dragCenterTo(page, "#frame", { x: 530, y: 180 });
+      const result = await page.locator("#frame").evaluate((element) => {
+        const frame = element as HTMLElement;
+        const badge = frame.querySelector<HTMLElement>("#badge")!;
+        const frameRect = frame.getBoundingClientRect();
+        const badgeRect = badge.getBoundingClientRect();
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        const structures = messages.filter(
+          (message) => message.type === "visual-structure-change",
+        ) as Array<{
+          dropMode?: string;
+          forceFlowPositionOverride?: boolean;
+        }>;
+        const structure = structures[structures.length - 1];
+        return {
+          parentId: frame.parentElement?.id,
+          position: getComputedStyle(frame).position,
+          positionPriority: frame.style.getPropertyPriority("position"),
+          offsets: [
+            frame.style.left,
+            frame.style.top,
+            frame.style.right,
+            frame.style.bottom,
+          ],
+          offsetPriorities: [
+            frame.style.getPropertyPriority("left"),
+            frame.style.getPropertyPriority("top"),
+            frame.style.getPropertyPriority("right"),
+            frame.style.getPropertyPriority("bottom"),
+          ],
+          badgeOffsetParentId: badge.offsetParent?.id,
+          rightGap: frameRect.right - badgeRect.right,
+          bottomGap: frameRect.bottom - badgeRect.bottom,
+          dropMode: structure?.dropMode,
+          forceFlowPositionOverride: structure?.forceFlowPositionOverride,
+        };
+      });
+
+      expect(result.parentId).toBe("target");
+      expect(result.position).toBe("relative");
+      expect(result.positionPriority).toBe("important");
+      expect(result.offsets).toEqual(["auto", "auto", "auto", "auto"]);
+      expect(result.offsetPriorities).toEqual([
+        "important",
+        "important",
+        "important",
+        "important",
+      ]);
+      expect(result.badgeOffsetParentId).toBe("frame");
+      expect(result.rightGap).toBeCloseTo(10, 0);
+      expect(result.bottomGap).toBeCloseTo(13, 0);
+      expect(result.dropMode).toBe("flow-insert");
+      expect(result.forceFlowPositionOverride).toBe(true);
+      await page.close();
+    },
+  );
+
+  it(
+    "keeps only a relative code-backed Frame as a freeform slot, with auto-layout and authored containers remaining flow targets",
+    { timeout: 30_000 },
+    async () => {
+      const cases = [
+        {
+          name: "relative-frame",
+          targetStyle: "position:relative;width:180px;height:150px",
+          primitive: ' data-an-primitive="frame"',
+          expectedDropMode: "absolute-container",
+        },
+        {
+          name: "auto-layout-frame",
+          targetStyle:
+            "position:relative;width:180px;height:150px;display:flex;flex-direction:column;gap:8px",
+          primitive: ' data-an-primitive="frame"',
+          expectedDropMode: "flow-insert",
+        },
+        {
+          name: "authored-container",
+          targetStyle: "position:relative;width:180px;height:150px",
+          primitive: "",
+          expectedDropMode: "flow-insert",
+        },
+      ] as const;
+
+      for (const targetCase of cases) {
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 700 },
+        });
+        await page.setContent(`<!doctype html><html><head><style>
+          html,body { margin:0;width:100%;height:100%; }
+          body { position:relative; }
+          #origin { position:absolute;left:40px;top:50px;width:180px;height:60px;display:flex;gap:8px;background:#eef2ff; }
+          #item { width:60px;height:40px;background:#6366f1; }
+          #target { position:absolute;left:330px;top:50px;${targetCase.targetStyle};box-sizing:border-box;background:#f4f4f5; }
+        </style></head><body>
+          <div id="origin" data-agent-native-node-id="origin"><div id="item" data-agent-native-node-id="item">Item</div></div>
+          <div id="target" data-agent-native-node-id="target"${targetCase.primitive}></div>
+        </body></html>`);
+        await installBridge(page);
+        await dragCenterTo(page, "#item", { x: 420, y: 120 });
+
+        const result = await page.evaluate(() => {
+          const messages = (
+            window as Window & { __matrixMessages?: Record<string, unknown>[] }
+          ).__matrixMessages!;
+          const structures = messages.filter(
+            (message) => message.type === "visual-structure-change",
+          ) as Array<{ sourceId?: string; dropMode?: string }>;
+          return {
+            parentId: document.querySelector("#item")?.parentElement?.id,
+            structure: structures[structures.length - 1],
+          };
+        });
+
+        expect(result.parentId, targetCase.name).toBe("target");
+        expect(result.structure?.sourceId, targetCase.name).toBe("item");
+        expect(result.structure?.dropMode, targetCase.name).toBe(
+          targetCase.expectedDropMode,
+        );
         await page.close();
       }
     },

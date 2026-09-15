@@ -1,6 +1,7 @@
 interface ActionQuery {
   queryKey: readonly unknown[];
   isActive?: () => boolean;
+  meta?: Record<string, unknown>;
 }
 
 interface ActionEvent {
@@ -86,6 +87,8 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "delete-content-database",
   "restore-content-database",
 ]);
+
+const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
 
 const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-content-databases",
@@ -231,6 +234,20 @@ function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
   );
 }
 
+function isDocumentListQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" && query.queryKey[1] === "list-documents"
+  );
+}
+
+function isActiveFilesDatabaseQuery(query: ActionQuery): boolean {
+  return (
+    isDatabaseQuery(query) &&
+    query.isActive?.() === true &&
+    query.meta?.contentDatabaseSystemRole === "files"
+  );
+}
+
 export function contentDocumentIdFromPathname(
   pathname: string,
 ): string | undefined {
@@ -252,6 +269,12 @@ export function contentActionInvalidatePredicate(
             ? args.documentId
             : undefined
         : undefined;
+    if (
+      eventsIncludeMutation(events, DOCUMENT_DISCOVERY_MUTATIONS) &&
+      (isDocumentListQuery(query) || isActiveFilesDatabaseQuery(query))
+    ) {
+      return true;
+    }
     if (
       (isDatabaseLifecycleQuery(query) ||
         (isDatabaseQuery(query) && query.isActive?.() === true)) &&

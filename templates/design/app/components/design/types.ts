@@ -100,6 +100,8 @@ export interface ElementInfo {
    * Absent only on hand-built payloads, which keep the tag-only reading.
    */
   hasOwnText?: boolean;
+  /** The selected element owns an all-inline text subtree that can be styled as one text layer. */
+  wholeTextStyleRoot?: boolean;
   /**
    * The `selector` / `sourceId` the canvas bridge originally reported, kept
    * verbatim when the host canonicalizes the selection onto its own source
@@ -112,12 +114,14 @@ export interface ElementInfo {
    */
   runtimeSelector?: string;
   runtimeSourceId?: string;
+  /** Exact source-projection target and Screen that resolved this selection. */
+  sourceLayerIdentity?: { screenId: string; nodeId: string };
   classes: string[];
   computedStyles: Record<string, string>;
   /**
    * Raw authored `el.style` values (not computed) for a bounded set of
-   * layout-relevant properties: position, left, right, top, bottom, width,
-   * height, transform, whiteSpace. Populated on SELECTION payloads only
+   * layout- and text-edit-relevant properties: position, left, right, top,
+   * bottom, width, height, transform, lineHeight, whiteSpace. Populated on SELECTION payloads only
    * (not hover). Optional because older/hover payloads omit it — callers
    * must fall back to computedStyles-based inference when absent.
    */
@@ -130,9 +134,13 @@ export interface ElementInfo {
    * because older payloads and non-primitive/source-backed elements omit it.
    */
   primitiveKind?: string;
+  /** Set only on explicit Cmd+G wrappers, so Group paint targets descendants. */
+  isGroup?: boolean;
   /** Closed SVG vectors can render their stroke inside or outside the path. */
   vectorStrokeCanAlign?: boolean;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  /** Present only when a portable snapshot could not be captured completely. */
+  styleSnapshotCaptureFailed?: boolean;
   boundingRect: { x: number; y: number; width: number; height: number };
   /** Exact bounds of the selected element's direct parent in the same
    * document coordinate space as `boundingRect`. Constraint edits use this
@@ -185,6 +193,18 @@ export interface ElementInfo {
     reason?: string;
   }>;
   confidence?: number;
+}
+
+/** Current text-edit session state reported by one canvas bridge. */
+export interface TextEditingState {
+  active: boolean;
+  selector?: string;
+  sourceId?: string;
+  hasRange?: boolean;
+  computedStyles?: Record<string, string>;
+  inlineStyles?: Record<string, string>;
+  /** Added by the host so overview iframes cannot exchange range styles. */
+  screenId?: string;
 }
 
 export interface ElementSelectionIntent {

@@ -8,12 +8,14 @@ vi.mock("../a2a/client.js", () => ({
   A2AClient: class {
     constructor(readonly url: string) {}
     getAgentCard = getAgentCard;
+    resolveEndpointUrl = vi.fn(async () => `${this.url}/a2a`);
   },
   signA2AToken,
 }));
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => getRequestUserEmail(),
+  getRequestOrgId: () => undefined,
 }));
 
 const { loadAllCapabilities, loadCapabilities, _resetCapabilityCacheForTests } =
@@ -108,6 +110,17 @@ describe("peer capability card caching", () => {
     expect(getAgentCard).toHaveBeenCalledWith({
       timeoutMs: expect.any(Number),
       token: "tok",
+    });
+  });
+
+  it("supports an anonymous card probe without minting a caller token", async () => {
+    getRequestUserEmail.mockReturnValue("alice@example.com");
+
+    await loadCapabilities(PEER, { authenticate: false });
+
+    expect(signA2AToken).not.toHaveBeenCalled();
+    expect(getAgentCard).toHaveBeenCalledWith({
+      timeoutMs: expect.any(Number),
     });
   });
 

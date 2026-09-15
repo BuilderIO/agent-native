@@ -25,8 +25,6 @@ import {
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 
-const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
-
 /**
  * Deep link that reopens a compose draft in the Mail compose panel.
  *
@@ -42,7 +40,7 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
-    to: `/inbox?${COMPOSE_FULLSCREEN_PARAM}=1`,
+    to: "/inbox",
     params: { composeDraftId: draft.id },
   });
 }
@@ -152,7 +150,12 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 
 export default defineAction({
   description:
-    "Create, update, or delete a compose draft, or delete its saved Gmail/local-mailbox copy by saved ID and account when known.",
+    "Create, update, or delete a compose draft. Always pass action " +
+    "(create, update, delete, delete-saved, or delete-all). update and " +
+    "delete require the id returned by a prior create call on this draft; " +
+    "delete-saved requires savedDraftId instead. Never call update or " +
+    "delete before a matching create - to draft a reply, first call with " +
+    "action=create, mode=reply, replyToId, to, subject, body.",
   schema: manageDraftSchema,
   mcpApp: {
     compactCatalog: true,

@@ -18,7 +18,8 @@ import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
  *  - The design renders inside an iframe, so tests should use a frame locator
  *    (`page.frameLocator('iframe')`) instead of parent-page CSS selectors.
  *  - A pointer-capturing shield `<div data-agent-native-edit-overlay="shield">`
- *    sits on top inside the iframe, so clicks need `{ force: true }`.
+ *    sits on top inside the iframe. Targeted tests use a physical pointer
+ *    click with the platform's primary modifier to select the requested node.
  *  - Selection/edits are reported to the parent via postMessage
  *    (`element-select`, `element-hover`, `visual-style-change`,
  *    `visual-structure-change`). Assert on those + the parent inspector DOM.
@@ -183,26 +184,42 @@ async function selectableNodeByText(
         .count()
     : 0;
   const frame = designFrame(page, scopedFrameCount > 0 ? screenId : undefined);
+  const normalizedText = text.replace(/\s+/g, " ").trim();
   const candidates = frame.locator("[data-agent-native-node-id]", {
     hasText: text,
   });
-  const fallback = frame.getByText(text, { exact: false }).first();
-  const count = await candidates.count();
-  if (count === 0) return scrolledIntoView(fallback);
-
-  let bestIndex = 0;
+  const candidateCount = await candidates.count();
+  let bestIndex = -1;
+  let bestPriority = Number.POSITIVE_INFINITY;
   let bestArea = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < count; index += 1) {
+  for (let index = 0; index < candidateCount; index += 1) {
     const candidate = candidates.nth(index);
+    const { candidateText, priority } = await candidate.evaluate((node) => ({
+      candidateText: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
+      priority: node.hasAttribute("data-an-text") ? 1 : 0,
+    }));
+    if (candidateText !== normalizedText) continue;
     const box = await candidate.boundingBox().catch(() => null);
     if (!box || box.width <= 0 || box.height <= 0) continue;
     const area = box.width * box.height;
-    if (area < bestArea) {
+    if (
+      priority < bestPriority ||
+      (priority === bestPriority && area < bestArea)
+    ) {
       bestIndex = index;
+      bestPriority = priority;
       bestArea = area;
     }
   }
-  return scrolledIntoView(candidates.nth(bestIndex));
+  if (bestIndex >= 0) return scrolledIntoView(candidates.nth(bestIndex));
+
+  const exactText = frame.getByText(text, { exact: true });
+  if ((await exactText.count()) === 0) {
+    throw new Error(
+      `no exact selectable node found for ${JSON.stringify(text)}`,
+    );
+  }
+  return scrolledIntoView(exactText.first());
 }
 
 /**
@@ -229,11 +246,19 @@ export async function expandAllLayers(page: Page): Promise<void> {
     .getByRole("treeitem")
     .first()
     .waitFor({ timeout: 30_000 });
-  for (let depth = 0; depth < 8; depth += 1) {
+  for (let depth = 0; depth < 128; depth += 1) {
     const expand = page.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
     await expand.click({ timeout: 5_000 });
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(100);
+  }
+  const remaining = await page
+    .getByRole("button", { name: "Expand layer" })
+    .count();
+  if (remaining > 0) {
+    throw new Error(
+      `Layers tree still has ${remaining} collapsed rows after 128 expansions`,
+    );
   }
 }
 
@@ -479,9 +504,8 @@ export async function waitForBridge(
 }
 
 /**
- * Click an element inside the design iframe by its visible text and return the
- * resulting `element-select` payload. Uses force:true to punch through the
- * shield overlay (which is what actually drives selection).
+ * Select the exact text-bearing node through the bridge and return its
+ * `element-select` payload.
  */
 export async function selectByText(
   page: Page,
@@ -490,65 +514,62 @@ export async function selectByText(
 ): Promise<any> {
   await enterDirectMode(page, options);
   await installBridge(page);
-  await page.evaluate(() => ((window as any).__bridge = []));
   const target = await selectableNodeByText(page, text, options?.screenId);
   await target.waitFor({ state: "visible", timeout: 8_000 });
   const box = await target.boundingBox();
-  if (!box) throw new Error(`no bounding box for "${text}"`);
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  let sel: any;
-  try {
-    sel = await waitForBridge(page, "element-select", 2_000);
-  } catch {
-    await page.evaluate(() => ((window as any).__bridge = []));
-    await dispatchShieldClickByText(page, text, options?.screenId);
-    sel = await waitForBridge(page, "element-select");
-  }
-  const payload = sel?.payload ?? sel;
-  expect(String(payload?.textContent ?? "")).toContain(text);
-  return payload;
-}
-
-/**
- * The preview iframe for `screenId`, or the last one when unscoped or when no
- * scoped iframe is mounted. Callers must derive BOTH the frame rect and the
- * frame they dispatch into from this single locator: reading the rect from one
- * iframe and dispatching into another computes coordinates in the wrong space,
- * which selects a different node or times out.
- */
-async function previewIframeForScreen(page: Page, screenId?: string) {
-  if (screenId) {
-    const scoped = page.locator(
-      `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id="${screenId}"]`,
+  if (!box) throw new Error(`no bounding box for ${JSON.stringify(text)}`);
+  const expected = await target.evaluate((node) => ({
+    tagName: node.tagName.toLowerCase(),
+    sourceId: node.getAttribute("data-agent-native-node-id"),
+    textContent: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
+  }));
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+  if (expected.textContent !== normalizedText) {
+    throw new Error(
+      `text ${JSON.stringify(text)} resolved to ${expected.tagName} with text ${JSON.stringify(expected.textContent)}`,
     );
-    if ((await scoped.count()) > 0) return scoped.first();
   }
-  return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).last();
-}
+  await page.evaluate(() => ((window as any).__bridge = []));
 
-async function dispatchShieldClickByText(
-  page: Page,
-  text: string,
-  screenId?: string,
-): Promise<void> {
-  const target = await selectableNodeByText(page, text, screenId);
-  await target.waitFor({ state: "visible", timeout: 8_000 });
-  const rect = await target.boundingBox();
-  if (!rect) throw new Error(`unable to dispatch selection for "${text}"`);
-  const iframe = await previewIframeForScreen(page, screenId);
-  const frameRect = await iframe.boundingBox();
-  if (!frameRect) throw new Error("unable to locate design iframe");
-  await iframe
-    .contentFrame()
-    .locator('[data-agent-native-edit-overlay="shield"]')
-    .first()
-    .dispatchEvent("click", {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.x - frameRect.x + rect.width / 2,
-      clientY: rect.y - frameRect.y + rect.height / 2,
-      detail: 1,
-    });
+  // Locator.boundingBox() uses main-frame CSS coordinates, including the
+  // preview iframe's transform. Hold the modifier around a real pointer click;
+  // synthetic shield events do not follow the same coordinate path.
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.down(modifier);
+  try {
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  } finally {
+    await page.keyboard.up(modifier);
+  }
+  const selectionHandle = await page.waitForFunction(
+    ({ tagName, sourceId }) =>
+      [...((window as any).__bridge ?? [])].reverse().find((message: any) => {
+        if (message.type !== "element-select") return false;
+        const payload = message.payload ?? message;
+        return (
+          payload.tagName === tagName &&
+          (!sourceId || payload.sourceId === sourceId)
+        );
+      }) ?? null,
+    expected,
+    { timeout: 15_000 },
+  );
+  const selection = await selectionHandle.jsonValue();
+  const payload = selection?.payload ?? selection;
+  expect(payload?.tagName).toBe(expected.tagName);
+  if (expected.sourceId) {
+    expect(payload?.sourceId).toBe(expected.sourceId);
+  } else {
+    expect(payload?.pendingNodeId || payload?.sourceId).toBeTruthy();
+  }
+  if (!payload?.textContentTruncated) {
+    expect(
+      String(payload?.textContent ?? "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    ).toBe(expected.textContent);
+  }
+  return payload;
 }
 
 /** Number of inputs in the right-hand inspector (proxy for "inspector populated"). */

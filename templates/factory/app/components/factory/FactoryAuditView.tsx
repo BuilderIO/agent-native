@@ -89,6 +89,7 @@ type FactoryAuditItem = {
   babysitAgentMatched?: boolean | null;
   babysitBotThreadSummaries?: string[] | null;
   babysitHumanThreadSummaries?: string[] | null;
+  gitHubTerminal?: "merged" | "closed" | "draft" | null;
 };
 
 type FactoryAuditTraceStep = {
@@ -1011,8 +1012,15 @@ function formatItemRowHint(
   t: ReturnType<typeof useT>,
 ): string {
   const parts = [formatItemOutcome(item.outcome, t)];
-  if (item.firstSeenThisRun) parts.push(t("factoryRoute.auditNewThisRun"));
-  else if (item.listedStatus || item.builderAlreadyStarted) {
+  if (item.gitHubTerminal === "merged") {
+    parts.push(t("factoryRoute.auditMergedOnGitHub"));
+  } else if (item.gitHubTerminal === "closed") {
+    parts.push(t("factoryRoute.auditClosedOnGitHub"));
+  } else if (item.gitHubTerminal === "draft") {
+    parts.push(t("factoryRoute.auditDraftOnGitHub"));
+  } else if (item.firstSeenThisRun) {
+    parts.push(t("factoryRoute.auditNewThisRun"));
+  } else if (item.listedStatus || item.builderAlreadyStarted) {
     parts.push(t("factoryRoute.auditSeenBefore"));
   }
   if (item.builderAlreadyStarted && item.outcome === "left") {

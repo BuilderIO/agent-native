@@ -82,6 +82,26 @@ function openMenu(name: string | RegExp) {
 describe("contextual toolbar object layout", () => {
   afterEach(cleanup);
 
+  it("starts a component comment from the selected-object toolbar", () => {
+    const onComment = vi.fn();
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot()}
+          background="#000000"
+          canComment
+          onComment={onComment}
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+
+    expect(onComment).toHaveBeenCalledOnce();
+  });
+
   it("offers alignment actions for a multi-selection", () => {
     const { onAlignObjects } = renderMultiToolbar(2);
 
