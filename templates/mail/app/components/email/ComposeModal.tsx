@@ -905,6 +905,8 @@ export function ComposeModal({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("mail.compose.newDraft")}
                 onClick={onNewDraft}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
               >
@@ -982,8 +984,10 @@ export function ComposeModal({
           <Button
             variant="ghost"
             size="icon"
+            type="button"
             className="h-7 w-7"
             onClick={onCloseAll}
+            aria-label={t("mail.compose.closeAllDrafts")}
           >
             <IconX className="h-3.5 w-3.5" />
           </Button>
@@ -1107,6 +1111,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.bold")}
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.toggleBold()}
                   >
@@ -1120,6 +1126,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.italic")}
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.toggleItalic()}
                   >
@@ -1133,6 +1141,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.insertLink")}
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.setLink()}
                   >
@@ -1146,6 +1156,8 @@ export function ComposeModal({
                   <Button
                     variant="ghost"
                     size="icon"
+                    type="button"
+                    aria-label={t("mail.compose.attachFile")}
                     className="h-7 w-7"
                     onClick={() => void handleAttach()}
                   >
@@ -1220,6 +1232,8 @@ export function ComposeModal({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    type="button"
+                    aria-label={t("mail.compose.deleteDraft")}
                     onClick={() => activeId && onDiscard(activeId)}
                     className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                   >
