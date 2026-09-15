@@ -1,14 +1,20 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  applyInboxMutationOverlay,
   adjustInboxThreadUnreadOptimistic,
+  cancelInboxThreadsQueries,
+  clearInboxThreadRemoval,
+  findInboxThreadIdByMessageId,
+  INBOX_THREADS_QUERY_KEY,
   inboxThreadsHasNextPage,
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
   removeInboxThreadsOptimistic,
   resolveInboxTabId,
   restoreInboxThreadsOptimistic,
+  settleInboxMutationIfObserved,
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "./use-inbox-threads";
@@ -99,6 +105,13 @@ function makeClient(seeded: ReturnType<typeof seedResult>) {
 }
 
 describe("removeInboxThreadsOptimistic", () => {
+  it("resolves message ids to the action cache's thread key", () => {
+    const qc = makeClient(seedResult());
+
+    expect(findInboxThreadIdByMessageId(qc, "m1")).toBe("t1");
+    expect(findInboxThreadIdByMessageId(qc, "missing")).toBeUndefined();
+  });
+
   it("drops the matching threads and decrements only the active tab's counts", () => {
     const qc = makeClient(seedResult());
 
@@ -316,24 +329,25 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
     // No change means no crossing — tab count untouched.
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
 
-    qc.setQueryData(["action", "list-inbox-threads", { tab: "important" }], {
-      ...result,
-      items: [
-        {
-          id: "m1",
-          threadId: "t1",
-          unreadCount: 2,
-          isRead: false,
-          isStarred: false,
-          messageCount: 2,
-        },
-      ],
-    });
+    const fullUnreadClient = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 2,
+            isRead: false,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
 
     // Marking unread past messageCount must clamp at messageCount, not exceed it.
-    adjustInboxThreadUnreadOptimistic(qc, "t1", 1);
+    adjustInboxThreadUnreadOptimistic(fullUnreadClient, "t1", 1);
 
-    result = qc.getQueryData<ReturnType<typeof seedResult>>([
+    result = fullUnreadClient.getQueryData<ReturnType<typeof seedResult>>([
       "action",
       "list-inbox-threads",
       { tab: "important" },
@@ -462,5 +476,109 @@ describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
       expect(restored.items.map((i) => i.id)).toEqual(["m1", "m2"]);
       expect(restored.total).toBe(2);
     }
+  });
+});
+
+describe("synced inbox mutation consistency", () => {
+  it("shows a removed thread immediately after undo clears its journal entry", () => {
+    const qc = makeClient(seedResult());
+    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    clearInboxThreadRemoval(qc, "t1");
+    const refetched = seedResult();
+
+    expect(
+      applyInboxMutationOverlay(qc, refetched as any).items,
+    ).toContainEqual(expect.objectContaining({ threadId: "t1" }));
+  });
+
+  it("keeps a removal journal through a stale refetch and retires it after evidence", () => {
+    const qc = makeClient(seedResult());
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const stale = seedResult();
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      stale,
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+    expect(
+      applyInboxMutationOverlay(qc, stale as any).items,
+    ).not.toContainEqual(expect.objectContaining({ threadId: "t1" }));
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({ items: [stale.items[1]] }),
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+    expect(applyInboxMutationOverlay(qc, stale as any).items).toContainEqual(
+      expect.objectContaining({ threadId: "t1" }),
+    );
+  });
+
+  it("replays an absolute unread target without decrementing it twice", () => {
+    const qc = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 2,
+            isRead: false,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
+    adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
+
+    const stale = seedResult({
+      items: [
+        {
+          id: "m1",
+          threadId: "t1",
+          unreadCount: 1,
+          isRead: false,
+          isStarred: false,
+          messageCount: 2,
+        },
+      ],
+    });
+    const visible = applyInboxMutationOverlay(qc, stale as any);
+
+    expect(visible.items[0]).toMatchObject({
+      isRead: false,
+      unreadCount: 1,
+    });
+  });
+
+  it("replays local changes over a stale server snapshot", () => {
+    const qc = makeClient(seedResult());
+    const removeId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const readId = markInboxThreadReadOptimistic(qc, new Set(["t2"]), false);
+
+    const stale = seedResult();
+    const visible = applyInboxMutationOverlay(qc, stale as any);
+
+    expect(visible.items.map((item) => item.threadId)).toEqual(["t2"]);
+    expect(visible.items[0]).toMatchObject({
+      isRead: false,
+      unreadCount: 1,
+    });
+
+    expect(removeId).toMatch(/^inbox-mutation-/);
+    expect(readId).toMatch(/^inbox-mutation-/);
+  });
+
+  it("cancels every in-flight inbox page before an optimistic write", async () => {
+    const qc = new QueryClient();
+    const cancel = vi.spyOn(qc, "cancelQueries").mockResolvedValue();
+
+    await cancelInboxThreadsQueries(qc);
+
+    expect(cancel).toHaveBeenCalledWith({
+      queryKey: INBOX_THREADS_QUERY_KEY,
+    });
   });
 });

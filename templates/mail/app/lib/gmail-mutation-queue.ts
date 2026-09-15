@@ -64,6 +64,12 @@ function assertActionSuccess<T>(result: T): T {
         : "Action failed";
     throw new Error(message);
   }
+  if (typeof result === "string") {
+    const progress = result.match(/\b(\d+)\s*\/\s*(\d+)\b/);
+    if (progress && Number(progress[1]) < Number(progress[2])) {
+      throw new Error(result);
+    }
+  }
   return result;
 }
 
@@ -246,11 +252,20 @@ class GmailMutationQueue {
         for (const resolve of op.resolves) resolve();
       }
       this.emit({ kind: "archive", count: ops.length });
-    } catch (error) {
-      for (const op of ops) {
-        for (const reject of op.rejects) reject(error);
-      }
-      this.emit({ kind: "archive", count: ops.length, error });
+    } catch {
+      const error = await this.flushIndividually(ops, (op) =>
+        callAction("archive-email", {
+          id: op.id,
+          threadId: op.threadId,
+          accountEmail: op.accountEmail,
+          removeLabel: op.removeLabel,
+        }).then(assertActionSuccess),
+      );
+      this.emit(
+        error
+          ? { kind: "archive", count: ops.length, error }
+          : { kind: "archive", count: ops.length },
+      );
     }
   }
 
@@ -267,11 +282,19 @@ class GmailMutationQueue {
         for (const resolve of op.resolves) resolve();
       }
       this.emit({ kind: "mark-read", count: ops.length });
-    } catch (error) {
-      for (const op of ops) {
-        for (const reject of op.rejects) reject(error);
-      }
-      this.emit({ kind: "mark-read", count: ops.length, error });
+    } catch {
+      const error = await this.flushIndividually(ops, (op) =>
+        callAction("mark-read", {
+          id: op.id,
+          accountEmail: op.accountEmail,
+          unread: !isRead,
+        }).then(assertActionSuccess),
+      );
+      this.emit(
+        error
+          ? { kind: "mark-read", count: ops.length, error }
+          : { kind: "mark-read", count: ops.length },
+      );
     }
   }
 
@@ -288,12 +311,40 @@ class GmailMutationQueue {
         for (const resolve of op.resolves) resolve();
       }
       this.emit({ kind: "star", count: ops.length });
-    } catch (error) {
-      for (const op of ops) {
+    } catch {
+      const error = await this.flushIndividually(ops, (op) =>
+        callAction("star-email", {
+          id: op.id,
+          accountEmail: op.accountEmail,
+          unstar: !isStarred,
+        }).then(assertActionSuccess),
+      );
+      this.emit(
+        error
+          ? { kind: "star", count: ops.length, error }
+          : { kind: "star", count: ops.length },
+      );
+    }
+  }
+
+  private async flushIndividually(
+    ops: QueuedMutation[],
+    send: (op: QueuedMutation) => Promise<unknown>,
+  ): Promise<unknown> {
+    let firstError: unknown;
+    // A failed bulk modify may have partially committed. Idempotent per-item
+    // retries settle each waiter independently and make the remaining result
+    // visible instead of rolling every item back together.
+    for (const op of ops) {
+      try {
+        await send(op);
+        for (const resolve of op.resolves) resolve();
+      } catch (error) {
+        firstError ??= error;
         for (const reject of op.rejects) reject(error);
       }
-      this.emit({ kind: "star", count: ops.length, error });
     }
+    return firstError;
   }
 
   private emit(info: {

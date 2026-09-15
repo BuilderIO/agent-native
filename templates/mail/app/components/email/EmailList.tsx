@@ -61,6 +61,7 @@ import {
   unsuppressThread,
   type AccountError,
 } from "@/hooks/use-emails";
+import { clearInboxThreadRemoval } from "@/hooks/use-inbox-threads";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   useDeleteScheduledJob,
@@ -696,6 +697,7 @@ export function EmailList({
       const emailRefs = targets.map((t) => ({
         id: t.latestMessage.id,
         accountEmail: t.latestMessage.accountEmail,
+        threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
       // Move focus to the next non-selected thread (or previous if at end)
@@ -731,7 +733,10 @@ export function EmailList({
       for (const id of emailIds) onArchived?.(id);
 
       const undo = () => {
-        for (const key of threadKeys) unsuppressThread(key);
+        for (const key of threadKeys) {
+          clearInboxThreadRemoval(queryClient, key);
+          unsuppressThread(key);
+        }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {
@@ -821,6 +826,7 @@ export function EmailList({
       const emailRefs = targets.map((t) => ({
         id: t.latestMessage.id,
         accountEmail: t.latestMessage.accountEmail,
+        threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
       // Move focus to the next non-selected thread
@@ -847,7 +853,10 @@ export function EmailList({
       }
 
       const undo = () => {
-        for (const key of threadKeys) unsuppressThread(key);
+        for (const key of threadKeys) {
+          clearInboxThreadRemoval(queryClient, key);
+          unsuppressThread(key);
+        }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {
@@ -1002,6 +1011,7 @@ export function EmailList({
           id: t.latestMessage.id,
           isRead: false,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         });
       }
     }
@@ -1041,6 +1051,7 @@ export function EmailList({
           id: t.latestMessage.id,
           isRead: false,
           accountEmail: t.latestMessage.accountEmail,
+          threadId: t.latestMessage.threadId || t.latestMessage.id,
         });
       }
     }
@@ -1406,6 +1417,7 @@ export function EmailList({
           id: email.id,
           isRead: false,
           accountEmail: email.accountEmail,
+          threadId: email.threadId || email.id,
         });
       }
     },
@@ -1522,6 +1534,7 @@ export function EmailList({
       onArchived?.(id);
 
       const undo = () => {
+        clearInboxThreadRemoval(queryClient, tid);
         unsuppressThread(tid);
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
@@ -1540,7 +1553,7 @@ export function EmailList({
             };
           },
         );
-        unarchiveEmail.mutate({ id, accountEmail });
+        unarchiveEmail.mutate({ id, accountEmail, threadId: tid });
       };
       const consumeUndo = setUndoAction(undo);
       const toastId = toast(t("mail.toasts.archived"), {

@@ -476,10 +476,25 @@ describe("inbox-thread cache rollback on mutation error", () => {
       const source = emailsHookSource();
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
 
+      expect(hook).toContain("cancelInboxThreadsQueries(qc)");
       expect(hook).toContain("snapshotInboxThreads(qc)");
       expect(hook).toContain("restoreInboxThreadsOptimistic(qc, context");
     },
   );
+
+  it("clears the inbox removal journal when either undo mutation starts", () => {
+    const source = emailsHookSource();
+
+    for (const name of ["useUnarchiveEmail", "useUntrashEmail"]) {
+      const start = source.indexOf(`export function ${name}()`);
+      const end = source.indexOf("export function", start + 1);
+      const hook = source.slice(start, end === -1 ? undefined : end);
+
+      expect(hook).toContain("onMutate:");
+      expect(hook).toContain("findInboxThreadIdByMessageId(qc, id)");
+      expect(hook).toContain("clearInboxThreadRemoval(qc, threadId)");
+    }
+  });
 
   it("treats a partial move as an error and keeps only successful threads removed", () => {
     const source = emailsHookSource();

@@ -7,6 +7,7 @@ import type {
 import {
   keepPreviousData,
   useQueries,
+  useQueryClient,
   type QueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -34,6 +35,7 @@ export function useInboxThreads(
   input: ListInboxThreadsInput,
   opts?: { enabled?: boolean },
 ) {
+  const qc = useQueryClient();
   return useActionQuery<ListInboxThreadsResult>("list-inbox-threads", input, {
     enabled: opts?.enabled,
     // The 3s/20s poll below already keeps this fresh — an extra unbounded
@@ -43,6 +45,7 @@ export function useInboxThreads(
       query.state.data?.syncing ? SYNCING_POLL_MS : IDLE_POLL_MS,
     // Tab switches must never blank the list while the new tab's page loads.
     placeholderData: keepPreviousData,
+    select: (data) => applyInboxMutationOverlay(qc, data),
   });
 }
 
@@ -60,6 +63,7 @@ export function useInboxThreadsPages(
   offsets: readonly number[],
   opts?: { enabled?: boolean },
 ): UseQueryResult<ListInboxThreadsResult>[] {
+  const qc = useQueryClient();
   return useQueries({
     queries: offsets.map((offset) => {
       const params: ListInboxThreadsInput = { ...input, offset };
@@ -71,6 +75,8 @@ export function useInboxThreadsPages(
           }),
         enabled: opts?.enabled ?? true,
         placeholderData: keepPreviousData,
+        select: (data: ListInboxThreadsResult) =>
+          applyInboxMutationOverlay(qc, data),
         staleTime: 60_000,
       };
     }),
@@ -108,6 +114,20 @@ export function snapshotInboxThreads(qc: QueryClient) {
   });
 }
 
+/** Resolve a message id to the thread key used by the action-backed inbox. */
+export function findInboxThreadIdByMessageId(
+  qc: QueryClient,
+  messageId: string,
+): string | undefined {
+  const item = snapshotInboxThreads(qc)
+    .flatMap(([, data]) => data?.items ?? [])
+    .find(
+      (candidate) =>
+        candidate.id === messageId || candidate.messageIds?.includes(messageId),
+    );
+  return item ? threadKeyOf(item) : undefined;
+}
+
 /** Restore a snapshot taken with `snapshotInboxThreads` — used on mutation
  * error rollback, mirroring the `['emails']` `context.previous` restore. */
 export function restoreInboxThreadsOptimistic(
@@ -135,6 +155,290 @@ function threadKeyOf(item: Pick<InboxThreadItem, "id" | "threadId">): string {
   return item.threadId || item.id;
 }
 
+const INBOX_MUTATION_TTL_MS = 60_000;
+
+type InboxThreadState = {
+  threadId: string;
+  unreadCount: number;
+  isRead: boolean;
+};
+
+type InboxMutation =
+  | {
+      id: string;
+      kind: "remove";
+      observedThreadIds: string[];
+      threadIds: string[];
+      timestamp: number;
+    }
+  | {
+      id: string;
+      kind: "read";
+      states: InboxThreadState[];
+      timestamp: number;
+    }
+  | {
+      id: string;
+      kind: "unread-count";
+      state: InboxThreadState;
+      timestamp: number;
+    }
+  | {
+      id: string;
+      isStarred: boolean;
+      kind: "star";
+      threadIds: string[];
+      timestamp: number;
+    };
+
+type InboxMutationInput =
+  | Omit<Extract<InboxMutation, { kind: "remove" }>, "id" | "timestamp">
+  | Omit<Extract<InboxMutation, { kind: "read" }>, "id" | "timestamp">
+  | Omit<Extract<InboxMutation, { kind: "unread-count" }>, "id" | "timestamp">
+  | Omit<Extract<InboxMutation, { kind: "star" }>, "id" | "timestamp">;
+
+const inboxMutationJournals = new WeakMap<
+  QueryClient,
+  Map<string, InboxMutation>
+>();
+let nextInboxMutationId = 0;
+
+function inboxMutationJournal(qc: QueryClient) {
+  let journal = inboxMutationJournals.get(qc);
+  if (!journal) {
+    journal = new Map();
+    inboxMutationJournals.set(qc, journal);
+  }
+  return journal;
+}
+
+function activeInboxMutations(qc: QueryClient): InboxMutation[] {
+  const journal = inboxMutationJournal(qc);
+  const now = Date.now();
+  for (const [id, mutation] of journal) {
+    // ponytail: the 60s TTL is the fallback ceiling. Evidence-based retirement
+    // below is deliberately conservative because a stale Gmail refetch must
+    // never be allowed to resurrect a mutation that has not been observed.
+    if (now - mutation.timestamp > INBOX_MUTATION_TTL_MS) journal.delete(id);
+  }
+  return [...journal.values()];
+}
+
+function applyInboxMutationToItem(
+  item: InboxThreadItem,
+  mutation: InboxMutation,
+): InboxThreadItem | undefined {
+  const threadId = threadKeyOf(item);
+  if (mutation.kind === "remove") {
+    return mutation.threadIds.includes(threadId) ? undefined : item;
+  }
+  if (mutation.kind === "star") {
+    return mutation.threadIds.includes(threadId)
+      ? { ...item, isStarred: mutation.isStarred }
+      : item;
+  }
+  const state =
+    mutation.kind === "read"
+      ? mutation.states.find((value) => value.threadId === threadId)
+      : mutation.state.threadId === threadId
+        ? mutation.state
+        : undefined;
+  return state
+    ? { ...item, isRead: state.isRead, unreadCount: state.unreadCount }
+    : item;
+}
+
+function currentInboxItem(
+  qc: QueryClient,
+  threadId: string,
+): InboxThreadItem | undefined {
+  let item = snapshotInboxThreads(qc)
+    .flatMap(([, data]) => data?.items ?? [])
+    .find((candidate) => threadKeyOf(candidate) === threadId);
+  for (const mutation of activeInboxMutations(qc)) {
+    if (item) item = applyInboxMutationToItem(item, mutation);
+    if (!item) return undefined;
+  }
+  return item;
+}
+
+function recordInboxMutation(
+  qc: QueryClient,
+  mutation: InboxMutationInput,
+): InboxMutation {
+  const id = `inbox-mutation-${++nextInboxMutationId}`;
+  const recorded = {
+    ...mutation,
+    id,
+    timestamp: Date.now(),
+  } as InboxMutation;
+  inboxMutationJournal(qc).set(id, recorded);
+  return recorded;
+}
+
+export function forgetInboxMutation(qc: QueryClient, id: string) {
+  inboxMutationJournal(qc).delete(id);
+}
+
+/** Retire a journal entry only after a refetch contains the requested state. */
+export function settleInboxMutationIfObserved(
+  qc: QueryClient,
+  id: string | undefined,
+) {
+  if (!id) return;
+  const mutation = inboxMutationJournal(qc).get(id);
+  if (!mutation) return;
+  const items = snapshotInboxThreads(qc).flatMap(
+    ([, data]) => data?.items ?? [],
+  );
+  const itemByThread = new Map(
+    items.map((item) => [threadKeyOf(item), item] as const),
+  );
+
+  if (mutation.kind === "remove") {
+    if (
+      mutation.observedThreadIds.length !== mutation.threadIds.length ||
+      mutation.observedThreadIds.some((threadId) => itemByThread.has(threadId))
+    ) {
+      return;
+    }
+  } else if (mutation.kind === "star") {
+    if (
+      !mutation.threadIds.every((threadId) => {
+        const item = itemByThread.get(threadId);
+        return item !== undefined && item.isStarred === mutation.isStarred;
+      })
+    ) {
+      return;
+    }
+  } else {
+    const states =
+      mutation.kind === "read" ? mutation.states : [mutation.state];
+    if (
+      !states.every((state) => {
+        const item = itemByThread.get(state.threadId);
+        return (
+          item !== undefined &&
+          item.isRead === state.isRead &&
+          item.unreadCount === state.unreadCount
+        );
+      })
+    ) {
+      return;
+    }
+  }
+
+  forgetInboxMutation(qc, id);
+}
+
+/** Drop only the optimistic removals for one thread, used by archive undo. */
+export function clearInboxThreadRemoval(qc: QueryClient, threadId: string) {
+  const journal = inboxMutationJournal(qc);
+  for (const [id, mutation] of journal) {
+    if (mutation.kind !== "remove") continue;
+    const threadIds = mutation.threadIds.filter((value) => value !== threadId);
+    if (threadIds.length === 0) journal.delete(id);
+    else journal.set(id, { ...mutation, threadIds });
+  }
+}
+
+export async function cancelInboxThreadsQueries(qc: QueryClient) {
+  await qc.cancelQueries({ queryKey: INBOX_THREADS_QUERY_KEY });
+}
+
+function unreadTabDelta(previous: number, next: number): number {
+  if (previous === 0 && next > 0) return 1;
+  if (previous > 0 && next === 0) return -1;
+  return 0;
+}
+
+function updateActiveTabUnread(
+  tabs: ListInboxThreadsResult["tabs"],
+  activeTabId: string,
+  delta: number,
+) {
+  if (delta === 0) return tabs;
+  return tabs.map((tab) =>
+    tab.id === activeTabId
+      ? { ...tab, unread: Math.max(0, tab.unread + delta) }
+      : tab,
+  );
+}
+
+function applyInboxMutation(
+  data: ListInboxThreadsResult,
+  mutation: InboxMutation,
+): ListInboxThreadsResult {
+  if (mutation.kind === "remove") {
+    const removed = data.items.filter((item) =>
+      mutation.threadIds.includes(threadKeyOf(item)),
+    );
+    if (removed.length === 0) return data;
+    return {
+      ...data,
+      items: data.items.filter(
+        (item) => !mutation.threadIds.includes(threadKeyOf(item)),
+      ),
+      total: Math.max(0, data.total - removed.length),
+      tabs: updateActiveTabUnread(
+        data.tabs.map((tab) =>
+          tab.id === data.activeTabId
+            ? {
+                ...tab,
+                total: Math.max(0, tab.total - removed.length),
+              }
+            : tab,
+        ),
+        data.activeTabId,
+        -removed.filter((item) => item.unreadCount > 0).length,
+      ),
+    };
+  }
+
+  if (mutation.kind === "star") {
+    return {
+      ...data,
+      items: data.items.map((item) =>
+        mutation.threadIds.includes(threadKeyOf(item))
+          ? { ...item, isStarred: mutation.isStarred }
+          : item,
+      ),
+    };
+  }
+
+  let unreadDelta = 0;
+  const items = data.items.map((item) => {
+    const next = applyInboxMutationToItem(item, mutation);
+    if (!next) return item;
+    unreadDelta += unreadTabDelta(item.unreadCount, next.unreadCount);
+    return next;
+  });
+
+  return {
+    ...data,
+    items,
+    tabs: updateActiveTabUnread(data.tabs, data.activeTabId, unreadDelta),
+  };
+}
+
+export function applyInboxMutationOverlay(
+  qc: QueryClient,
+  data: ListInboxThreadsResult,
+): ListInboxThreadsResult {
+  let result = data;
+  for (const mutation of activeInboxMutations(qc)) {
+    result = applyInboxMutation(result, mutation);
+  }
+  return result;
+}
+
+function applyMutationToCachedInbox(qc: QueryClient, mutation: InboxMutation) {
+  qc.setQueriesData<ListInboxThreadsResult>(
+    { queryKey: INBOX_THREADS_QUERY_KEY },
+    (old) => (old ? applyInboxMutation(old, mutation) : old),
+  );
+}
+
 /**
  * Optimistically remove threads (archive/trash) from every cached
  * list-inbox-threads page and decrement that page's own `total`/active-tab
@@ -155,33 +459,20 @@ export function removeInboxThreadsOptimistic(
   qc: QueryClient,
   threadIds: ReadonlySet<string>,
 ) {
-  qc.setQueriesData<ListInboxThreadsResult>(
-    { queryKey: INBOX_THREADS_QUERY_KEY },
-    (old) => {
-      if (!old) return old;
-      const removed = old.items.filter((item) =>
-        threadIds.has(threadKeyOf(item)),
-      );
-      if (removed.length === 0) return old;
-      const unreadRemoved = removed.filter(
-        (item) => item.unreadCount > 0,
-      ).length;
-      return {
-        ...old,
-        items: old.items.filter((item) => !threadIds.has(threadKeyOf(item))),
-        total: Math.max(0, old.total - removed.length),
-        tabs: old.tabs.map((tab) =>
-          tab.id === old.activeTabId
-            ? {
-                ...tab,
-                total: Math.max(0, tab.total - removed.length),
-                unread: Math.max(0, tab.unread - unreadRemoved),
-              }
-            : tab,
-        ),
-      };
-    },
+  const cachedThreadIds = new Set(
+    snapshotInboxThreads(qc)
+      .flatMap(([, data]) => data?.items ?? [])
+      .map(threadKeyOf),
   );
+  const mutation = recordInboxMutation(qc, {
+    kind: "remove",
+    observedThreadIds: [...threadIds].filter((threadId) =>
+      cachedThreadIds.has(threadId),
+    ),
+    threadIds: [...threadIds],
+  });
+  applyMutationToCachedInbox(qc, mutation);
+  return mutation.id;
 }
 
 /** Optimistically patch a thread's read state (mark-read/mark-thread-read)
@@ -191,33 +482,17 @@ export function markInboxThreadReadOptimistic(
   threadIds: ReadonlySet<string>,
   isRead: boolean,
 ) {
-  qc.setQueriesData<ListInboxThreadsResult>(
-    { queryKey: INBOX_THREADS_QUERY_KEY },
-    (old) => {
-      if (!old) return old;
-      let unreadDelta = 0;
-      const items = old.items.map((item) => {
-        if (!threadIds.has(threadKeyOf(item))) return item;
-        const nextUnreadCount = isRead ? 0 : Math.max(1, item.unreadCount);
-        unreadDelta += nextUnreadCount - item.unreadCount;
-        return {
-          ...item,
-          isRead,
-          unreadCount: nextUnreadCount,
-        };
-      });
-      if (unreadDelta === 0) return { ...old, items };
-      return {
-        ...old,
-        items,
-        tabs: old.tabs.map((tab) =>
-          tab.id === old.activeTabId
-            ? { ...tab, unread: Math.max(0, tab.unread + unreadDelta) }
-            : tab,
-        ),
-      };
-    },
-  );
+  const states = [...threadIds].map((threadId) => {
+    const item = currentInboxItem(qc, threadId);
+    const unreadCount = isRead ? 0 : Math.max(1, item?.unreadCount ?? 0);
+    return { threadId, unreadCount, isRead };
+  });
+  const mutation = recordInboxMutation(qc, {
+    kind: "read",
+    states,
+  });
+  applyMutationToCachedInbox(qc, mutation);
+  return mutation.id;
 }
 
 /**
@@ -225,48 +500,31 @@ export function markInboxThreadReadOptimistic(
  * read/unread delta (±1), instead of setting the whole row read/unread like
  * `markInboxThreadReadOptimistic` — for message-scoped mutations (mark one
  * message read/unread) where other messages in the thread may still be
- * unread. Mirrors the clamp-to-[0, messageCount] rule in
- * server/lib/inbox-store.ts `applyLocalLabelDelta`'s message scope. The
- * active tab's unread count only moves when the row itself crosses the
- * zero/nonzero boundary — the tab counts unread *threads*, not messages.
+ * unread. The journal stores the absolute target so replaying it over an
+ * already-updated server response is idempotent. Mirrors the clamp-to-[0,
+ * messageCount] rule in server/lib/inbox-store.ts's message scope. The active
+ * tab's unread count only moves when the row itself crosses the zero/nonzero
+ * boundary — the tab counts unread *threads*, not messages.
  */
 export function adjustInboxThreadUnreadOptimistic(
   qc: QueryClient,
   threadId: string,
   delta: 1 | -1,
 ) {
-  qc.setQueriesData<ListInboxThreadsResult>(
-    { queryKey: INBOX_THREADS_QUERY_KEY },
-    (old) => {
-      if (!old) return old;
-      let crossed: -1 | 0 | 1 = 0;
-      const items = old.items.map((item) => {
-        if (threadKeyOf(item) !== threadId) return item;
-        const nextUnreadCount = Math.max(
-          0,
-          Math.min(item.messageCount, item.unreadCount + delta),
-        );
-        if (nextUnreadCount === item.unreadCount) return item;
-        if (item.unreadCount === 0 && nextUnreadCount > 0) crossed = 1;
-        else if (item.unreadCount > 0 && nextUnreadCount === 0) crossed = -1;
-        return {
-          ...item,
-          unreadCount: nextUnreadCount,
-          isRead: nextUnreadCount === 0,
-        };
-      });
-      if (crossed === 0) return { ...old, items };
-      return {
-        ...old,
-        items,
-        tabs: old.tabs.map((tab) =>
-          tab.id === old.activeTabId
-            ? { ...tab, unread: Math.max(0, tab.unread + crossed) }
-            : tab,
-        ),
-      };
-    },
+  const item = currentInboxItem(qc, threadId);
+  const unreadCount = Math.max(
+    0,
+    Math.min(
+      Math.max(1, item?.messageCount ?? 1),
+      (item?.unreadCount ?? 0) + delta,
+    ),
   );
+  const mutation = recordInboxMutation(qc, {
+    kind: "unread-count",
+    state: { threadId, unreadCount, isRead: unreadCount === 0 },
+  });
+  applyMutationToCachedInbox(qc, mutation);
+  return mutation.id;
 }
 
 /** Optimistically toggle star — no tab count is derived from star state. */
@@ -275,16 +533,11 @@ export function toggleInboxThreadsStarOptimistic(
   threadIds: ReadonlySet<string>,
   isStarred: boolean,
 ) {
-  qc.setQueriesData<ListInboxThreadsResult>(
-    { queryKey: INBOX_THREADS_QUERY_KEY },
-    (old) => {
-      if (!old) return old;
-      return {
-        ...old,
-        items: old.items.map((item) =>
-          threadIds.has(threadKeyOf(item)) ? { ...item, isStarred } : item,
-        ),
-      };
-    },
-  );
+  const mutation = recordInboxMutation(qc, {
+    isStarred,
+    kind: "star",
+    threadIds: [...threadIds],
+  });
+  applyMutationToCachedInbox(qc, mutation);
+  return mutation.id;
 }
