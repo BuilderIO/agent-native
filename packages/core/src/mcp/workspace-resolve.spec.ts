@@ -187,8 +187,33 @@ describe("resolveWorkspace — workspace via filesystem fallback (gateway down)"
       WORKSPACE_HOST: "0.0.0.0",
       WORKSPACE_APP_PORT_START: "9200",
     });
-    expect(ws.gatewayUrl).toBe("http://0.0.0.0:9090");
+    expect(ws.gatewayUrl).toBe("http://127.0.0.1:9090");
     expect(ws.apps[0].port).toBe(9200);
+  });
+
+  it.each([
+    ["::1", "http://[::1]:9090"],
+    ["[::]", "http://[::1]:9090"],
+  ])("builds a usable gateway URL for IPv6 host %s", async (host, expected) => {
+    const root = buildWorkspace(["mail"]);
+    const ws = await resolveWorkspace(root, {
+      WORKSPACE_PORT: "9090",
+      WORKSPACE_HOST: host,
+    });
+    expect(ws.gatewayUrl).toBe(expected);
+    expect(fetch).toHaveBeenCalledWith(`${expected}/_workspace/apps`, {
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("prefers the normalized gateway URL injected by workspace dev", async () => {
+    const root = buildWorkspace(["mail"]);
+    const ws = await resolveWorkspace(root, {
+      WORKSPACE_PORT: "9090",
+      WORKSPACE_HOST: "[::]",
+      WORKSPACE_GATEWAY_URL: "http://[::1]:9191",
+    });
+    expect(ws.gatewayUrl).toBe("http://[::1]:9191");
   });
 });
 

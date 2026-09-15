@@ -165,8 +165,19 @@ export async function resolveWorkspace(
     const gatewayPort = Number(
       env.WORKSPACE_PORT || env.PORT || DEFAULT_GATEWAY_PORT,
     );
-    const gatewayHost = env.WORKSPACE_HOST || "127.0.0.1";
-    const gatewayUrl = `http://${gatewayHost}:${gatewayPort}`;
+    const configuredGatewayHost = env.WORKSPACE_HOST || "127.0.0.1";
+    const bindHost = configuredGatewayHost.replace(/^\[|\]$/g, "");
+    const advertisedHost =
+      bindHost === "0.0.0.0"
+        ? "127.0.0.1"
+        : bindHost === "::"
+          ? "::1"
+          : bindHost;
+    const formattedHost = advertisedHost.includes(":")
+      ? `[${advertisedHost}]`
+      : advertisedHost;
+    const gatewayUrl =
+      env.WORKSPACE_GATEWAY_URL || `http://${formattedHost}:${gatewayPort}`;
     const appPortStart = Number(
       env.WORKSPACE_APP_PORT_START || DEFAULT_APP_PORT_START,
     );
