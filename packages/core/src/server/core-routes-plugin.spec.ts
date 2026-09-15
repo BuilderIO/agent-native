@@ -73,6 +73,12 @@ describe("public remote-agent discovery", () => {
         clientId: "client-id",
         clientSecretRef: "FOUNDRY_SECRET",
       },
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_01",
+        environmentId: "env_01",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
     });
 
     expect(publicAgent).toEqual({
@@ -83,6 +89,7 @@ describe("public remote-agent discovery", () => {
       cardUrl: "https://agent.example.test/card",
     });
     expect("auth" in publicAgent).toBe(false);
+    expect("kind" in publicAgent).toBe(false);
   });
 });
 

@@ -1,4 +1,9 @@
-import type { RemoteAgentAuth } from "../resources/metadata.js";
+import { randomUUID } from "node:crypto";
+
+import type {
+  RemoteAgentAuth,
+  RemoteAgentKind,
+} from "../resources/metadata.js";
 import {
   discoverAgents as defaultDiscoverAgents,
   findAgent as defaultFindAgent,
@@ -8,6 +13,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { createAnthropicManagedAgentsHandler } from "./anthropic-managed-agents.js";
 import {
   callAction as defaultCallAction,
   callAgent as defaultCallAgent,
@@ -15,6 +21,7 @@ import {
 import { resolveRemoteAgentToken } from "./remote-agent-auth.js";
 import type {
   A2ACorrelationMetadata,
+  A2AHandlerResult,
   A2AReadOnlyActionResult,
 } from "./types.js";
 
@@ -24,6 +31,8 @@ export type AgentInvocationErrorCode =
   | "missing-action"
   | "invalid-input"
   | "invalid-url"
+  | "invalid-response"
+  | "unsupported-action"
   | "self-call"
   | "not-found";
 
@@ -58,6 +67,10 @@ export interface ResolvedAgentInvocationTarget {
 const invocationAuthByTarget = new WeakMap<
   ResolvedAgentInvocationTarget,
   RemoteAgentAuth
+>();
+const invocationProviderKindByTarget = new WeakMap<
+  ResolvedAgentInvocationTarget,
+  RemoteAgentKind
 >();
 
 export interface AgentInvocationResult {
@@ -180,6 +193,8 @@ export async function resolveAgentInvocationTarget(
     ...(agent.cardUrl ? { cardUrl: agent.cardUrl } : {}),
   };
   if (agent.auth) invocationAuthByTarget.set(resolvedTarget, agent.auth);
+  if (agent.kind)
+    invocationProviderKindByTarget.set(resolvedTarget, agent.kind);
   return resolvedTarget;
 }
 
@@ -211,6 +226,53 @@ export async function invokeAgent(
       : buildAgentInvocationPrompt(prompt, target.url);
 
   const auth = invocationAuthByTarget.get(target);
+  const providerKind = invocationProviderKindByTarget.get(target);
+  if (providerKind?.provider === "anthropic-managed-agents") {
+    const handler = createAnthropicManagedAgentsHandler({
+      agentId: providerKind.agentId,
+      environmentId: providerKind.environmentId,
+      credentialRef: providerKind.credentialRef,
+      apiBaseUrl: target.url,
+      resolveApiKey: async (credentialRef, context) =>
+        resolveRemoteAgentToken(
+          { type: "bearer", credentialRef },
+          {
+            userEmail: options.userEmail ?? context.userEmail,
+            orgId: getRequestOrgId(),
+          },
+        ),
+    });
+    const result = (await handler(
+      {
+        role: "user",
+        parts: [{ type: "text", text: prompt }],
+      },
+      {
+        taskId: options.contextId ?? randomUUID(),
+        contextId: options.contextId,
+        writeArtifact: (name) => name,
+      },
+    )) as A2AHandlerResult;
+    const responseText = result.message.parts
+      .filter((part): part is { type: "text"; text: string } => {
+        return part.type === "text";
+      })
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    if (!responseText) {
+      throw new AgentInvocationError(
+        "invalid-response",
+        "Error: The managed agent returned no text response.",
+        { target: options.target },
+      );
+    }
+    return {
+      target,
+      prompt,
+      responseText,
+    };
+  }
   const authOptions = await resolveInvocationAuth(target, options.userEmail);
   const callAgent = options.runtime?.callAgent ?? defaultCallAgent;
   const responseText = await callAgent(target.url, promptToSend, {
@@ -270,6 +332,14 @@ export async function invokeAgentAction(
     selfUrl: options.selfUrl,
     runtime: options.runtime,
   });
+  const providerKind = invocationProviderKindByTarget.get(target);
+  if (providerKind?.provider === "anthropic-managed-agents") {
+    throw new AgentInvocationError(
+      "unsupported-action",
+      "Error: Anthropic Managed Agents targets accept messages only; direct action invocation is unavailable.",
+      { target: options.target },
+    );
+  }
   const callAction = options.runtime?.callAction ?? defaultCallAction;
   const auth = invocationAuthByTarget.get(target);
   const authOptions = await resolveInvocationAuth(target, options.userEmail);

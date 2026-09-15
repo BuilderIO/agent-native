@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import type { PeerCapabilities } from "./agent-capabilities.js";
 import type { DiscoveredAgent } from "./agent-discovery.js";
-import { probePeerAgent, type PeerProbeDeps } from "./agent-peer-probe.js";
+import {
+  probeAllPeerAgents,
+  probePeerAgent,
+  type PeerProbeDeps,
+} from "./agent-peer-probe.js";
 
 const agent: DiscoveredAgent = {
   id: "peer",
@@ -132,5 +136,25 @@ describe("probePeerAgent", () => {
     expect(result.authorized).toBeUndefined();
     expect("authorized" in result).toBe(false);
     expect(result.authError).toBe("This operation was aborted");
+  });
+
+  it("does not run an A2A liveness probe for native provider agents", async () => {
+    const managed = {
+      ...agent,
+      id: "anthropic-research",
+      kind: {
+        provider: "anthropic-managed-agents" as const,
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    };
+    const deps = makeDeps({
+      loadCapabilities: async () => {
+        throw new Error("native providers do not have A2A cards");
+      },
+    });
+
+    await expect(probeAllPeerAgents([managed], deps)).resolves.toEqual([]);
   });
 });

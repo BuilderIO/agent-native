@@ -146,6 +146,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Erneut versuchen",
   "common.save": "Speichern",
   "agents.hostedAgent": "Gehosteter Agent",
+  "agents.provider": "Anbieter",
+  "agents.providerA2A": "A2A-Agent (Foundry, Gemini oder benutzerdefiniert)",
+  "agents.providerAnthropic": "Von Anthropic verwaltete Agents",
+  "agents.agentId": "Agent-ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "Umgebungs-ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API-Basis-URL (optional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Vervollständige die Felder für Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "Die Verbindung wird geprüft, wenn du aus dem Chat delegierst.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent gespeichert. Delegiere aus dem Chat an ihn.",
   "agents.cardUrl": "URL der Agentenkarte",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Authentifizierung",

@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import {
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
+  createAnthropicManagedAgentsHandler,
+  type AnthropicManagedAgentConfirmation,
+  type AnthropicManagedAgentContinuation,
+} from "../a2a/anthropic-managed-agents.js";
+import {
   A2ATaskTimeoutError,
   MAX_A2A_CALLER_RESPONSE_CHARS,
   callAgent,
@@ -18,6 +24,7 @@ import {
 import type {
   A2AApprovedAction,
   A2ACorrelationMetadata,
+  A2AHandlerResult,
   A2ASourceContext,
   A2ASourceContextReference,
   Task,
@@ -31,7 +38,11 @@ import type { ActionTool } from "../agent/types.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
-import { findAgent, discoverAgents } from "../server/agent-discovery.js";
+import {
+  discoverAgents,
+  findAgent,
+  type DiscoveredAgent,
+} from "../server/agent-discovery.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -359,6 +370,207 @@ function ordinaryPeerAuthFailure(
   };
 }
 
+interface ParsedManagedAgentConfirmations {
+  confirmations?: AnthropicManagedAgentConfirmation[];
+  error?: string;
+}
+
+function parseManagedAgentConfirmations(
+  value: unknown,
+): ParsedManagedAgentConfirmations {
+  if (value === undefined) return {};
+  if (!Array.isArray(value)) {
+    return {
+      error:
+        "managedAgentConfirmations must be an array of tool confirmation objects.",
+    };
+  }
+  const confirmations: AnthropicManagedAgentConfirmation[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return {
+        error:
+          "managedAgentConfirmations must contain only tool confirmation objects.",
+      };
+    }
+    const candidate = item as Record<string, unknown>;
+    const toolUseId = stringifyValue(candidate.toolUseId).trim();
+    const result = stringifyValue(candidate.result).trim();
+    if (!toolUseId || (result !== "allow" && result !== "deny")) {
+      return {
+        error:
+          'Each managed agent confirmation needs a toolUseId and result of "allow" or "deny".',
+      };
+    }
+    const denyMessage = stringifyValue(candidate.denyMessage).trim();
+    confirmations.push({
+      toolUseId,
+      result,
+      ...(denyMessage ? { denyMessage } : {}),
+    });
+  }
+  return { confirmations };
+}
+
+interface ManagedAgentRunResult {
+  responseText: string;
+  sessionId: string;
+  taskState?: "input-required";
+}
+
+async function runAnthropicManagedAgent(args: {
+  agent: DiscoveredAgent;
+  message: string;
+  taskId: string;
+  confirmations?: AnthropicManagedAgentConfirmation[];
+  context?: ActionRunContext;
+  agentIdOrName: string;
+}): Promise<ManagedAgentRunResult> {
+  const kind = args.agent.kind;
+  if (kind?.provider !== "anthropic-managed-agents") {
+    throw new Error("Anthropic Managed Agents configuration is missing.");
+  }
+  if (args.confirmations?.length && !args.taskId) {
+    throw new A2AInvocationError(
+      `Error: managedAgentConfirmations requires a managed session taskId for ${args.agent.name}.`,
+      { errorCode: "managed_confirmation_without_session" },
+    );
+  }
+
+  const agentCallId = randomUUID();
+  const startedAt = Date.now();
+  args.context?.send?.({
+    type: "agent_call",
+    agent: args.agent.name,
+    status: "start",
+    agentCallId,
+  });
+
+  let status: "done" | "pending" | "error" = "error";
+  let sessionId = args.taskId;
+  try {
+    const handler = createAnthropicManagedAgentsHandler({
+      agentId: kind.agentId,
+      environmentId: kind.environmentId,
+      credentialRef: kind.credentialRef,
+      apiBaseUrl: args.agent.url,
+      onRuntimeEvent: (event) => {
+        const toolCallId = event.toolCallId ?? event.approvalId;
+        args.context?.send?.({
+          type: "approval_required",
+          tool: event.toolName ?? "managed-agent-tool",
+          input: stringifyManagedAgentApprovalInput(event.input),
+          approvalKey: `anthropic-managed-agents:${event.sessionId ?? sessionId}:${toolCallId}`,
+          allowPersistentApproval: false,
+          ...(toolCallId ? { toolCallId } : {}),
+        });
+      },
+    });
+    const metadata = args.taskId
+      ? {
+          [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+            sessionId: args.taskId,
+            ...(args.confirmations?.length
+              ? { confirmations: args.confirmations }
+              : {}),
+          } satisfies AnthropicManagedAgentContinuation & {
+            confirmations?: AnthropicManagedAgentConfirmation[];
+          },
+        }
+      : undefined;
+    const result = (await handler(
+      {
+        role: "user",
+        parts: [{ type: "text", text: args.message }],
+        ...(metadata ? { metadata } : {}),
+      },
+      {
+        taskId: args.context?.turnId ?? randomUUID(),
+        contextId: args.context?.threadId,
+        writeArtifact: (name) => name,
+      },
+    )) as A2AHandlerResult;
+    const resultMetadata =
+      result.message.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY];
+    const continuation = readManagedAgentContinuation(resultMetadata);
+    sessionId = continuation?.sessionId ?? args.taskId;
+    const responseText = result.message.parts
+      .filter((part): part is { type: "text"; text: string } => {
+        return part.type === "text";
+      })
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    const taskState = result.taskState;
+    status = taskState === "input-required" ? "pending" : "done";
+    const continuationHint =
+      taskState === "input-required" && continuation?.pendingToolUseIds?.length
+        ? `\n\nThe ${args.agent.name} agent is waiting for approval in session "${sessionId}" for tool event IDs ${continuation.pendingToolUseIds.map((id) => `"${id}"`).join(", ")}. After the user decides, call call-agent with agent="${args.agentIdOrName}", taskId="${sessionId}", and managedAgentConfirmations containing the exact IDs with result "allow" or "deny".`
+        : "";
+    const output = responseText + continuationHint;
+    if (output) {
+      args.context?.send?.({
+        type: "agent_call_text",
+        agent: args.agent.name,
+        text: output,
+        agentCallId,
+      });
+    }
+    return {
+      responseText: output,
+      sessionId,
+      ...(taskState ? { taskState } : {}),
+    };
+  } catch (error) {
+    status = "error";
+    throw error;
+  } finally {
+    args.context?.send?.({
+      type: "agent_call",
+      agent: args.agent.name,
+      status,
+      agentCallId,
+      ...(sessionId ? { taskId: sessionId } : {}),
+      durationMs: Date.now() - startedAt,
+      ...(status === "pending" ? { terminalCode: "input_required" } : {}),
+    });
+  }
+}
+
+function readManagedAgentContinuation(
+  value: unknown,
+): AnthropicManagedAgentContinuation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const sessionId = stringifyValue(candidate.sessionId).trim();
+  if (!sessionId) return undefined;
+  const pendingToolUseIds = Array.isArray(candidate.pendingToolUseIds)
+    ? candidate.pendingToolUseIds
+        .map((item) => stringifyValue(item).trim())
+        .filter(Boolean)
+    : [];
+  return {
+    sessionId,
+    ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
+  };
+}
+
+function stringifyManagedAgentApprovalInput(
+  input: unknown,
+): Record<string, string> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { value: stringifyValue(input) };
+  }
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>).map(([key, value]) => [
+      key,
+      stringifyValue(value),
+    ]),
+  );
+}
+
 export const tool: ActionTool = {
   description:
     "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
@@ -410,6 +622,20 @@ export const tool: ActionTool = {
           required: ["tool", "input"],
         },
       },
+      managedAgentConfirmations: {
+        type: "array",
+        description:
+          "Structured approvals for a paused Anthropic Managed Agents session. Use only the exact toolUseId values and allow or deny result returned by the managed agent.",
+        items: {
+          type: "object",
+          properties: {
+            toolUseId: { type: "string" },
+            result: { type: "string", enum: ["allow", "deny"] },
+            denyMessage: { type: "string" },
+          },
+          required: ["toolUseId", "result"],
+        },
+      },
     },
     required: ["agent"],
   },
@@ -428,6 +654,14 @@ export async function run(
   const approvedActions = Array.isArray(args.approvedActions)
     ? (args.approvedActions as A2AApprovedAction[])
     : undefined;
+  const parsedManagedAgentConfirmations = parseManagedAgentConfirmations(
+    args.managedAgentConfirmations,
+  );
+  if (parsedManagedAgentConfirmations.error) {
+    return `Error: ${parsedManagedAgentConfirmations.error}`;
+  }
+  const managedAgentConfirmations =
+    parsedManagedAgentConfirmations.confirmations;
 
   if (!agentIdOrName) return "Error: --agent is required";
   if (!message && !taskId && !action) {
@@ -498,6 +732,13 @@ export async function run(
     message && !taskId
       ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
       : undefined;
+
+  if (agent.kind?.provider === "anthropic-managed-agents" && action) {
+    return (
+      `Error: The ${agent.name} managed agent only accepts messages. ` +
+      "Use --message; direct action mode is available only for A2A read-only app actions."
+    );
+  }
 
   if (action) {
     const agentCallId = randomUUID();
@@ -602,6 +843,23 @@ export async function run(
   let invocationTerminalCode: string | undefined;
 
   try {
+    if (agent.kind?.provider === "anthropic-managed-agents") {
+      const managed = await runAnthropicManagedAgent({
+        agent,
+        message,
+        taskId,
+        confirmations: managedAgentConfirmations,
+        context,
+        agentIdOrName,
+      });
+      invocationStatus =
+        managed.taskState === "input-required" ? "pending" : "success";
+      invocationTaskId = managed.sessionId;
+      invocationTerminalCode =
+        managed.taskState === "input-required" ? "input_required" : undefined;
+      return managed.responseText;
+    }
+
     // If we have a send context, use streaming so the UI shows progressive text
     if (context?.send) {
       const callerEmail = getRequestUserEmail();
@@ -1032,7 +1290,7 @@ export async function run(
     const authFailure = remoteAgentAuthFailure(
       agent.name,
       err,
-      Boolean(agent.auth),
+      Boolean(agent.auth || agent.kind),
     );
     if (authFailure) {
       invocationStatus = "error";

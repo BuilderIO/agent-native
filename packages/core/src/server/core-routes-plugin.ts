@@ -1708,10 +1708,10 @@ export function shouldRunCoreRouteBootDatabaseWork(
 }
 
 /** Public discovery is a picker, not a credential registry. */
-export function stripRemoteAgentAuth<T extends { auth?: unknown }>(
-  agent: T,
-): Omit<T, "auth"> {
-  const { auth: _auth, ...publicAgent } = agent;
+export function stripRemoteAgentAuth<
+  T extends { auth?: unknown; kind?: unknown },
+>(agent: T): Omit<T, "auth" | "kind"> {
+  const { auth: _auth, kind: _kind, ...publicAgent } = agent;
   return publicAgent;
 }
 

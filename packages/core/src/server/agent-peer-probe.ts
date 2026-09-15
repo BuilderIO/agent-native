@@ -165,8 +165,14 @@ export async function probeAllPeerAgents(
   deps: PeerProbeDeps = defaultPeerProbeDeps,
 ): Promise<Array<PeerProbeResult & { id: string }>> {
   const results: Array<PeerProbeResult & { id: string }> = [];
-  for (let i = 0; i < agents.length; i += PROBE_CONCURRENCY) {
-    const batch = agents.slice(i, i + PROBE_CONCURRENCY);
+  // Native provider adapters do not publish an inbound A2A card or support
+  // the getTask no-op used by this probe. Leave them out of the A2A liveness
+  // batch instead of reporting a healthy provider as an unreachable peer.
+  const a2aAgents = agents.filter(
+    (agent) => agent.kind?.provider !== "anthropic-managed-agents",
+  );
+  for (let i = 0; i < a2aAgents.length; i += PROBE_CONCURRENCY) {
+    const batch = a2aAgents.slice(i, i + PROBE_CONCURRENCY);
     results.push(
       ...(await Promise.all(
         batch.map(async (agent) => ({
