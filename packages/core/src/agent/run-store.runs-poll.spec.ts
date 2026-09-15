@@ -57,9 +57,16 @@ vi.mock("../db/client.js", () => ({
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
-let ambientUser: string | undefined;
+let requestUser: string | undefined;
+let hasRequestStore = true;
+const AMBIENT_DEPLOY_USER = "deploy-bot@example.com";
 vi.mock("../server/request-context.js", () => ({
-  getRequestUserEmail: () => ambientUser,
+  getRequestContext: () =>
+    hasRequestStore ? { userEmail: requestUser } : undefined,
+  // Mirrors the real fallback so a regression back to this getter is caught:
+  // with no request store it answers with the deployment-wide identity.
+  getRequestUserEmail: () =>
+    hasRequestStore ? requestUser : AMBIENT_DEPLOY_USER,
 }));
 
 vi.mock("../server/poll.js", () => ({
@@ -117,7 +124,8 @@ beforeEach(async () => {
   recordOrder.length = 0;
   committedAt = 0;
   tick = 0;
-  ambientUser = OWNER;
+  requestUser = OWNER;
+  hasRequestStore = true;
   rawClient.execute.mockClear();
 });
 
@@ -140,14 +148,32 @@ describe("runs poll notifications", () => {
     });
   });
 
-  it("stays access-gated when there is no ambient caller", async () => {
-    ambientUser = undefined;
+  it("stays access-gated when the request has no authenticated user", async () => {
+    requestUser = undefined;
     await insertRun("run-orphan", "thread-1", "turn-orphan");
     await settle();
 
     const event = runsEvents()[0];
     // No caller is not a licence to broadcast: an untagged event would be
     // visible to every authenticated user.
+    expect(event.owner).toBeUndefined();
+    expect(event).toMatchObject({
+      resourceType: "chat_thread",
+      resourceId: "thread-1",
+    });
+  });
+
+  it("never attributes the event to the deployment-wide ambient identity", async () => {
+    // A detached worker can finalize a run after the request context has
+    // unwound. `getRequestUserEmail()` answers with AGENT_USER_EMAIL there, so
+    // the owner fast path would hand a private thread's event to whoever the
+    // deploy env names. No caller is the correct answer: the resource tags
+    // still gate delivery, one poll cycle later.
+    hasRequestStore = false;
+    await insertRun("run-detached", "thread-1", "turn-detached");
+    await settle();
+
+    const event = runsEvents()[0];
     expect(event.owner).toBeUndefined();
     expect(event).toMatchObject({
       resourceType: "chat_thread",

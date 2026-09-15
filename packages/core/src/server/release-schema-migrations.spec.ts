@@ -32,6 +32,16 @@ async function columns(
   return rows.map((row) => row.column_name);
 }
 
+async function indexes(
+  db: Awaited<ReturnType<typeof createTestPglite>>,
+  table: string,
+): Promise<string[]> {
+  const rows = await db
+    .prepare("SELECT indexname FROM pg_indexes WHERE tablename = ?")
+    .all(table);
+  return rows.map((row) => row.indexname);
+}
+
 describe("framework release schema migrations", () => {
   it("creates the chat thread schema used by active-run ownership reads", async () => {
     const db = await createTestPglite();
@@ -64,6 +74,15 @@ describe("framework release schema migrations", () => {
     );
     expect(await columns(db, "agent_run_events")).toContain("event_at");
     expect(await columns(db, "agent_tool_ledger")).toContain("result_summary");
+    // The runs tray polls the ledger ordered by recency. Request-time DDL is
+    // skipped in production, so these have to be release migrations or an
+    // existing database keeps scanning the whole table on every refresh.
+    expect(await indexes(db, "agent_runs")).toEqual(
+      expect.arrayContaining([
+        "idx_agent_runs_started_at",
+        "idx_agent_runs_thread_started_at",
+      ]),
+    );
     await db.close();
   });
   it("creates harness schemas and tolerates rerunning their migrations", async () => {

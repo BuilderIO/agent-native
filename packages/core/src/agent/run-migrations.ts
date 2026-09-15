@@ -61,4 +61,18 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at INTEGER
     `,
   },
+  {
+    version: 3,
+    name: "agent-run-recency-indexes",
+    // The Agent runs tray polls the ledger ordered by recency, so without these
+    // every refresh scans and sorts the whole retained table. The run store
+    // ensures them too, but production request functions skip request-time DDL,
+    // so an existing database only gets them here.
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_agent_runs_started_at
+        ON agent_runs (started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_runs_thread_started_at
+        ON agent_runs (thread_id, started_at DESC)
+    `,
+  },
 ];

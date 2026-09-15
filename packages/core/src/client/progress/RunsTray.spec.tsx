@@ -272,6 +272,78 @@ describe("RunsTray polling", () => {
     expect(String(stopCalls[0][0])).toContain("/runs/chat-run-1/abort");
   });
 
+  // Hide has no server-side dismissal for background or chat rows, and their
+  // listings keep returning finished work, so without a session-local record
+  // the row comes straight back on the next refresh.
+  it("keeps a hidden chat run hidden across refreshes", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "chat-run-3",
+              kind: "chat",
+              source: "agent-chat",
+              sourceLabel: "Chat",
+              title: "Finished triage turn",
+              status: "completed",
+              goalId: "agent-chat",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-3" },
+              metadata: { threadId: "thread-3" },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={50} hideWhenIdle={false} showRecent />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="Recent runs"]'),
+        ).toBeTruthy(),
+      );
+    });
+
+    const trigger = document.querySelector('[aria-label="Recent runs"]');
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(document.body.textContent).toContain("Finished triage turn");
+
+    const hide = document.querySelector(
+      '[aria-label="Hide Finished triage turn"]',
+    );
+    expect(hide).toBeTruthy();
+    await act(async () => {
+      hide?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(document.body.textContent).not.toContain("Finished triage turn");
+
+    const afterHide = fetchMock.mock.calls.length;
+    await act(async () => {
+      await vi.waitFor(
+        () => expect(fetchMock.mock.calls.length).toBeGreaterThan(afterHide),
+        { timeout: 2000, interval: 25 },
+      );
+    });
+    expect(document.body.textContent).not.toContain("Finished triage turn");
+  });
+
   it("shows a completed chat turn as a recent run", async () => {
     const now = new Date().toISOString();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

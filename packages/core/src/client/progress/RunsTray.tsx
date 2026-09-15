@@ -13,7 +13,7 @@ import {
   IconSubtask,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AgentRun, ProgressStatus } from "../../progress/types.js";
 import { agentNativePath } from "../api-path.js";
@@ -114,6 +114,12 @@ function useRunsTrayState({
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
   const includeRecent = showRecent ?? !hideWhenIdle;
   const runsVersion = useChangeVersion("runs");
+  // Runs hidden in this session. Background and chat rows have no server-side
+  // dismissal, and their listings keep returning finished work, so without this
+  // Hide undoes itself on the next refresh a few seconds later. Only terminal
+  // rows expose Hide and a run id is never reused, so a hidden row cannot come
+  // back as something the user still needs to see.
+  const dismissedRef = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
@@ -154,6 +160,7 @@ function useRunsTrayState({
       }
       setRuns(
         [...merged.values()]
+          .filter((run) => !dismissedRef.current.has(run.id))
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
           .slice(0, limit),
       );
@@ -183,6 +190,7 @@ function useRunsTrayState({
   const dismissRun = useCallback(
     async (runId: string) => {
       const existing = runs.find((run) => run.id === runId);
+      dismissedRef.current.add(runId);
       setRuns((current) => current.filter((run) => run.id !== runId));
       if (existing && isBackgroundRun(existing)) return;
       try {

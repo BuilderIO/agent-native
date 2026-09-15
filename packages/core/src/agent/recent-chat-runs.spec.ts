@@ -189,6 +189,29 @@ describe("listRecentChatRuns", () => {
     expect(runs).toEqual([]);
   });
 
+  it("keeps an active turn visible under a burst of newer finished turns", async () => {
+    // The scan is bounded, and finished turns are newer than the run that is
+    // still going. Ordering by recency alone drops the active one, which reads
+    // as an idle tray and stops the polling that would have corrected it.
+    await createThread("thread-live", "Still going");
+    await insertRun("run-live", "thread-live", "turn-live");
+    await pglite.query(`UPDATE agent_runs SET started_at = ? WHERE id = ?`, [
+      Date.now() - 60 * 60 * 1000,
+      "run-live",
+    ]);
+
+    for (let i = 0; i < 40; i++) {
+      await createThread(`thread-done-${i}`, `Finished ${i}`);
+      await insertRun(`run-done-${i}`, `thread-done-${i}`, `turn-done-${i}`);
+      await updateRunStatus(`run-done-${i}`, "completed");
+    }
+
+    const runs = await listRecentChatRuns({ ownerEmail: OWNER, limit: 5 });
+
+    expect(runs).toHaveLength(5);
+    expect(runs.map((run) => run.id)).toContain("run-live");
+  });
+
   it("keeps a still-running turn visible past the recent window", async () => {
     await createThread("thread-old", "Old but alive");
     await insertRun("run-old", "thread-old", "turn-old");

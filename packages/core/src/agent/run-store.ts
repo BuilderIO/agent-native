@@ -21,7 +21,7 @@ import {
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { recordChange } from "../server/poll.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import { getRequestContext } from "../server/request-context.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -57,10 +57,17 @@ export const RUN_STALE_MS = 15_000;
  * which across a two-event run lifecycle would hide the running state and only
  * reveal the run once it had already finished.
  *
- * The caller comes from the ambient request context, never from a query. This
- * runs on paths that hold an open transaction on a shared connection, so a
- * stray read here aborts the caller's transaction when it fails — the notifier
- * must not touch the database at all.
+ * The caller is read from the request store only, never from a query and never
+ * from `getRequestUserEmail()`. A query is unsafe because this runs on paths
+ * that hold an open transaction on a shared connection, so a stray read aborts
+ * the caller's transaction when it fails. `getRequestUserEmail()` is unsafe
+ * because it answers with the deployment-wide `AGENT_USER_EMAIL` once the
+ * request context has unwound — a detached worker finalizing a run would then
+ * tag a private thread's event as owned by that ambient identity and hand it to
+ * them through the owner fast path. Without a request behind the transition
+ * there is no caller to grant, and the resource tags gate the event on their
+ * own: access resolution costs one extra poll cycle, disclosure does not
+ * recover.
  *
  * Best-effort: poll delivery is advisory, the tray still polls while a run
  * reads as active, and a failure here must never fail the run it reports on.
@@ -69,7 +76,7 @@ function bumpRunsPoll(threadId: string): void {
   try {
     // An unresolved caller is not a reason to broadcast: fall back to the
     // access-gated tags alone rather than emitting a globally visible event.
-    const caller = getRequestUserEmail()?.trim();
+    const caller = getRequestContext()?.userEmail?.trim();
     recordChange({
       source: "runs",
       type: "change",

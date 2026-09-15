@@ -120,68 +120,112 @@ export async function listRecentChatRuns({
   // Over-fetch so collapsing continuation chunks and dropping threads owned by
   // another surface can still fill `normalizedLimit` rows.
   const scanLimit = Math.min(normalizedLimit * 4, 200);
-  const { rows } = await client.execute({
-    sql: `SELECT agent_runs.id, agent_runs.thread_id, agent_runs.turn_id, agent_runs.status,
-                 agent_runs.started_at, agent_runs.completed_at, agent_runs.heartbeat_at,
-                 agent_runs.last_progress_at, agent_runs.terminal_reason, agent_runs.error_code,
-                 agent_runs.dispatch_mode, chat_threads.title, chat_threads.preview
-          FROM agent_runs
-          JOIN chat_threads ON chat_threads.id = agent_runs.thread_id
-          WHERE ${access.sql}
-            AND (agent_runs.status = 'running' OR agent_runs.started_at >= ?)
-          ORDER BY agent_runs.started_at DESC
-          LIMIT ?`,
-    args: [...access.args, Date.now() - RECENT_WINDOW_MS, scanLimit],
-  });
+  const columns = `agent_runs.id, agent_runs.thread_id, agent_runs.turn_id, agent_runs.status,
+                   agent_runs.started_at, agent_runs.completed_at, agent_runs.heartbeat_at,
+                   agent_runs.last_progress_at, agent_runs.terminal_reason, agent_runs.error_code,
+                   agent_runs.dispatch_mode, chat_threads.title, chat_threads.preview`;
+  const from = `FROM agent_runs
+                JOIN chat_threads ON chat_threads.id = agent_runs.thread_id`;
+
+  // Active runs are read separately rather than relying on the recent-window
+  // scan to surface them. One `ORDER BY started_at DESC LIMIT n` would cut an
+  // older still-running turn whenever `scanLimit` newer terminal rows exist,
+  // and that is exactly the case the tray must not miss: it is the signal that
+  // keeps its active polling alive. Both statements stay ordered by
+  // `started_at` alone so each can walk the recency index instead of sorting
+  // the accessible set.
+  const [active, recent] = await Promise.all([
+    client.execute({
+      sql: `SELECT ${columns}
+            ${from}
+            WHERE ${access.sql}
+              AND agent_runs.status = 'running'
+            ORDER BY agent_runs.started_at DESC
+            LIMIT ?`,
+      args: [...access.args, scanLimit],
+    }),
+    client.execute({
+      sql: `SELECT ${columns}
+            ${from}
+            WHERE ${access.sql}
+              AND agent_runs.started_at >= ?
+            ORDER BY agent_runs.started_at DESC
+            LIMIT ?`,
+      args: [...access.args, Date.now() - RECENT_WINDOW_MS, scanLimit],
+    }),
+  ]);
+
+  // Newest-first across both reads, deduped: the collapse below depends on
+  // meeting a turn's latest chunk first.
+  const byId = new Map<string, ChatRunRow>();
+  for (const raw of [...active.rows, ...recent.rows]) {
+    const row = raw as unknown as ChatRunRow;
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+  const rows = [...byId.values()].sort(
+    (a, b) => (toMillis(b.started_at) ?? 0) - (toMillis(a.started_at) ?? 0),
+  );
 
   const excluded = new Set(excludeThreadIds ?? []);
   const seenTurns = new Set<string>();
-  const runs: ChatBackgroundRun[] = [];
-  for (const raw of rows) {
-    if (runs.length >= normalizedLimit) break;
-    const row = raw as unknown as ChatRunRow;
+  const activeRows: ChatRunRow[] = [];
+  const terminalRows: ChatRunRow[] = [];
+  for (const row of rows) {
     if (excluded.has(row.thread_id)) continue;
+    if (toMillis(row.started_at) == null) continue;
     // Rows are newest-first, so the first row for a turn is its latest chunk.
     const turnKey = row.turn_id ?? row.id;
     if (seenTurns.has(turnKey)) continue;
     seenTurns.add(turnKey);
-
-    const status = toWireStatus(row.status);
-    const startedAt = toMillis(row.started_at);
-    if (startedAt == null) continue;
-    const updatedAt =
-      toMillis(row.completed_at) ??
-      toMillis(row.last_progress_at) ??
-      toMillis(row.heartbeat_at) ??
-      startedAt;
-    runs.push({
-      schemaVersion: 1,
-      id: row.id,
-      kind: "chat",
-      source: "agent-chat",
-      sourceLabel: "Chat",
-      sourceRecord: {
-        type: "agent-chat-run",
-        id: row.id,
-        threadId: row.thread_id,
-      },
-      title: runTitle(row),
-      subtitle: runSubtitle(row, status),
-      status,
-      goalId: "agent-chat",
-      needsInput: false,
-      needsApproval: false,
-      createdAt: new Date(startedAt).toISOString(),
-      updatedAt: new Date(updatedAt).toISOString(),
-      surfaceUrl: `agent-native://threads/${encodeURIComponent(row.thread_id)}`,
-      metadata: {
-        threadId: row.thread_id,
-        turnId: row.turn_id,
-        dispatchMode: row.dispatch_mode,
-        terminalReason: row.terminal_reason,
-        errorCode: row.error_code,
-      },
-    });
+    (row.status === "running" ? activeRows : terminalRows).push(row);
   }
-  return runs;
+
+  // Active turns claim their slots before finished ones. Truncating in plain
+  // recency order would let a burst of completed turns push a run that is
+  // still going out of the list, which reads as an idle tray and stops the
+  // polling that would have corrected it.
+  return [...activeRows.slice(0, normalizedLimit), ...terminalRows]
+    .slice(0, normalizedLimit)
+    .sort(
+      (a, b) => (toMillis(b.started_at) ?? 0) - (toMillis(a.started_at) ?? 0),
+    )
+    .map(toChatRun);
+}
+
+function toChatRun(row: ChatRunRow): ChatBackgroundRun {
+  const status = toWireStatus(row.status);
+  const startedAt = toMillis(row.started_at) ?? 0;
+  const updatedAt =
+    toMillis(row.completed_at) ??
+    toMillis(row.last_progress_at) ??
+    toMillis(row.heartbeat_at) ??
+    startedAt;
+  return {
+    schemaVersion: 1,
+    id: row.id,
+    kind: "chat",
+    source: "agent-chat",
+    sourceLabel: "Chat",
+    sourceRecord: {
+      type: "agent-chat-run",
+      id: row.id,
+      threadId: row.thread_id,
+    },
+    title: runTitle(row),
+    subtitle: runSubtitle(row, status),
+    status,
+    goalId: "agent-chat",
+    needsInput: false,
+    needsApproval: false,
+    createdAt: new Date(startedAt).toISOString(),
+    updatedAt: new Date(updatedAt).toISOString(),
+    surfaceUrl: `agent-native://threads/${encodeURIComponent(row.thread_id)}`,
+    metadata: {
+      threadId: row.thread_id,
+      turnId: row.turn_id,
+      dispatchMode: row.dispatch_mode,
+      terminalReason: row.terminal_reason,
+      errorCode: row.error_code,
+    },
+  };
 }
