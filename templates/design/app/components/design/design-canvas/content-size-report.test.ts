@@ -42,6 +42,24 @@ describe("appendContentSizeReporter", () => {
     expect(out).toContain("scrollHeight");
   });
 
+  it("only measures natural body content for an explicit Hug screen", () => {
+    const out = appendContentSizeReporter(
+      "<html><body><main>x</main></body></html>",
+    );
+    expect(out).toContain("var measurement = measure(usesNaturalHeight());");
+    expect(out).toContain("function measure(includeNaturalHeight)");
+    expect(out).toContain(
+      "naturalHeight: includeNaturalHeight ? naturalMeasure() : null,",
+    );
+    expect(out).toContain("naturalHeight: naturalHeight");
+    expect(out).toContain('meta[data-agent-native-screen-height-mode="hug"]');
+    expect(out).toContain("Math.max(body.scrollHeight, body.offsetHeight)");
+    expect(out).toContain('body.querySelectorAll("*")');
+    expect(out).toContain(
+      "window.__agentNativeMeasureNaturalHeight = function ()",
+    );
+  });
+
   it("stops viewport-relative content from chasing a growing iframe", () => {
     const first = resolveStableContentSizeSample(undefined, {
       height: 920,

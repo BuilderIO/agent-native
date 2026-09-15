@@ -1,5 +1,6 @@
 import { POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS } from "@/components/design/design-canvas/pending-text-edit";
 import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
+import type { ElementInfo } from "@/components/design/types";
 
 import { queryUniqueSelector } from "./dom-utils";
 
@@ -33,6 +34,11 @@ export function isTextEditSessionOutcome(
 /** Grace period before re-probing a just-requested activation. */
 const ACTIVATION_CONFIRM_DELAY_MS = 300;
 
+export type TextEditRepeatIdentity = Pick<
+  NonNullable<ElementInfo["repeat"]>,
+  "sourceSelector" | "itemIndex"
+>;
+
 /**
  * Ask a single iframe's editor-chrome bridge whether a text-edit session for
  * `nodeId` is "active" (focused), "done" (non-empty committed text), or
@@ -44,6 +50,7 @@ const ACTIVATION_CONFIRM_DELAY_MS = 300;
 function queryTextEditStatus(
   iframe: HTMLIFrameElement,
   nodeId: string,
+  repeat?: TextEditRepeatIdentity,
 ): Promise<"active" | "done" | "node-missing" | "not-editing" | "no-reply"> {
   const win = iframe.contentWindow;
   if (!win) return Promise.resolve("no-reply");
@@ -79,7 +86,7 @@ function queryTextEditStatus(
     };
     window.addEventListener("message", listener);
     win.postMessage(
-      { type: "agent-native:text-edit-status", correlationId, nodeId },
+      { type: "agent-native:text-edit-status", correlationId, nodeId, repeat },
       "*",
     );
   });
@@ -89,6 +96,7 @@ async function probeTextEdit(
   screenId: string | null,
   nodeId: string,
   boardFileId: string | null,
+  repeat?: TextEditRepeatIdentity,
 ): Promise<BeginTextEditOutcome> {
   if (typeof document === "undefined" || !nodeId || !screenId) {
     return "no-iframe";
@@ -104,7 +112,7 @@ async function probeTextEdit(
     boardFileId ?? undefined,
   );
   if (!iframe?.contentWindow) return "no-iframe";
-  return queryTextEditStatus(iframe, nodeId);
+  return queryTextEditStatus(iframe, nodeId, repeat);
 }
 
 /** Probes, and asks the iframe to enter edit mode when it is not already
@@ -115,9 +123,16 @@ async function requestTextEdit(
   screenId: string | null,
   nodeId: string,
   boardFileId: string | null,
+  acceptCommittedText: boolean,
+  repeat?: TextEditRepeatIdentity,
 ): Promise<BeginTextEditOutcome> {
-  const status = await probeTextEdit(screenId, nodeId, boardFileId);
-  if (isTextEditSessionOutcome(status) || status === "no-iframe") return status;
+  const status = await probeTextEdit(screenId, nodeId, boardFileId, repeat);
+  if (
+    status === "active" ||
+    (status === "done" && acceptCommittedText) ||
+    status === "no-iframe"
+  )
+    return status;
   const iframe = findCanvasIframeForScreen(
     document.body,
     screenId ?? "",
@@ -125,7 +140,7 @@ async function requestTextEdit(
   );
   if (!iframe?.contentWindow) return "no-iframe";
   iframe.contentWindow.postMessage(
-    { type: "begin-text-edit", nodeId, force: true },
+    { type: "begin-text-edit", nodeId, force: true, repeat },
     "*",
   );
   return "activation-requested";
@@ -153,6 +168,9 @@ export function scheduleBeginTextEditForScreen(
     /** Board file id, so a board-space text node resolves the board surface's
      *  iframe instead of looking for a `data-screen-iframe-id` it never has. */
     boardFileId?: string | null;
+    /** An explicit edit command must activate already-committed text once. */
+    reopenExisting?: boolean;
+    repeat?: TextEditRepeatIdentity;
     onExhausted?: (finalStatus: BeginTextEditOutcome) => void;
   },
 ): () => void {
@@ -160,6 +178,7 @@ export function scheduleBeginTextEditForScreen(
   const onExhausted = options?.onExhausted;
   const boardFileId = options?.boardFileId ?? null;
   let finished = false;
+  let activationRequested = false;
   let lastStatus: BeginTextEditOutcome = "no-iframe";
   const timers: number[] = [];
   const settle = (status: BeginTextEditOutcome) => {
@@ -182,8 +201,15 @@ export function scheduleBeginTextEditForScreen(
   delays.forEach((delay, index) => {
     const timer = window.setTimeout(() => {
       if (finished) return;
-      void requestTextEdit(screenId, nodeId, boardFileId).then((status) => {
+      void requestTextEdit(
+        screenId,
+        nodeId,
+        boardFileId,
+        !options?.reopenExisting || activationRequested,
+        options?.repeat,
+      ).then((status) => {
         if (finished) return;
+        if (status === "activation-requested") activationRequested = true;
         lastStatus = status;
         if (isTextEditSessionOutcome(status)) {
           settle(status);
@@ -198,12 +224,15 @@ export function scheduleBeginTextEditForScreen(
         // on exhaustion. Settle on what the iframe reports, never on the request.
         const confirmTimer = window.setTimeout(() => {
           if (finished) return;
-          void probeTextEdit(screenId, nodeId, boardFileId).then(
-            (confirmed) => {
-              if (finished) return;
-              settle(confirmed);
-            },
-          );
+          void probeTextEdit(
+            screenId,
+            nodeId,
+            boardFileId,
+            options?.repeat,
+          ).then((confirmed) => {
+            if (finished) return;
+            settle(confirmed);
+          });
         }, ACTIVATION_CONFIRM_DELAY_MS);
         timers.push(confirmTimer);
       });

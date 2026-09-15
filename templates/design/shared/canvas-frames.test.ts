@@ -12,6 +12,26 @@ import {
 } from "./responsive-frame-layout";
 
 describe("numericDesignDataWriteError", () => {
+  it.each(["canvasFrames", "screenMetadata", "localhostScreens"])(
+    "rejects non-object %s maps and entries instead of ignoring dimensions",
+    (map) => {
+      for (const value of [["390", "auto"], null, "390", 390]) {
+        expect(numericDesignDataWriteError([map], value)).toContain(
+          "must be an object",
+        );
+        expect(numericDesignDataWriteError([map, "screen_a"], value)).toContain(
+          "must be an object",
+        );
+        expect(
+          numericDesignDataWriteError([map], { screen_a: value }),
+        ).toContain("must be an object");
+      }
+      expect(
+        numericDesignDataWriteError([map], { screen_a: { width: 390 } }),
+      ).toBeNull();
+    },
+  );
+
   it("rejects string dimensions", () => {
     expect(
       numericDesignDataWriteError(["canvasFrames", "screen_a"], {

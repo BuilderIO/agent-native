@@ -2,9 +2,30 @@ import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import type { ElementInfo } from "@/components/design/types";
 import { getOverviewEnterTarget } from "@/pages/design-editor/selection-state";
-import { scheduleBeginTextEditForScreen } from "@/pages/design-editor/text-edit-utils";
+import {
+  scheduleBeginTextEditForScreen,
+  type TextEditRepeatIdentity,
+} from "@/pages/design-editor/text-edit-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+function textEditRepeatForOwner(
+  selectedElement: ElementInfo | null,
+  owner: { fileId: string; node: CodeLayerNode },
+): TextEditRepeatIdentity | undefined {
+  if (
+    !selectedElement?.repeat ||
+    selectedElement.sourceLayerIdentity?.screenId !== owner.fileId ||
+    selectedElement.sourceLayerIdentity.nodeId !== owner.node.id
+  ) {
+    return undefined;
+  }
+  return {
+    sourceSelector: selectedElement.repeat.sourceSelector,
+    itemIndex: selectedElement.repeat.itemIndex,
+  };
+}
 
 export interface EnterHotkeyArgs {
   SINGLE_MODE_TEXT_TAGS: Set<string>;
@@ -28,6 +49,7 @@ export interface EnterHotkeyArgs {
   }) => boolean;
   getProjectionContentForScreen: (screenId: string) => string;
   overviewSelectedScreenIds: string[];
+  selectedElement: ElementInfo | null;
   selectCodeLayerNodesForHotkey: (
     fileId: string,
     nodes: CodeLayerNode[],
@@ -48,6 +70,7 @@ export function runEnterHotkey({
   enterVectorEditForSelection,
   getProjectionContentForScreen,
   overviewSelectedScreenIds,
+  selectedElement,
   selectCodeLayerNodesForHotkey,
   selectedLayerIdsState,
   setActiveFileId,
@@ -68,6 +91,8 @@ export function runEnterHotkey({
             owner.node.id;
           scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId, {
             boardFileId,
+            reopenExisting: true,
+            repeat: textEditRepeatForOwner(selectedElement, owner),
           });
           return;
         }
@@ -97,7 +122,13 @@ export function runEnterHotkey({
     const layerId = selectedLayerIdsState[0]!;
     const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
     const penNodesAttr = owner?.node.dataAttributes["data-an-pen-nodes"];
-    if (owner && penNodesAttr && enterVectorEditForSelection(owner)) {
+    const primitive = owner?.node.dataAttributes["data-an-primitive"];
+    if (
+      owner &&
+      (penNodesAttr ||
+        ["ellipse", "rect", "rectangle"].includes(primitive ?? "")) &&
+      enterVectorEditForSelection(owner)
+    ) {
       return;
     }
     // Figma parity: Enter on a selected TEXT layer always begins inline
@@ -116,6 +147,8 @@ export function runEnterHotkey({
           owner.node.id;
         scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId, {
           boardFileId,
+          reopenExisting: true,
+          repeat: textEditRepeatForOwner(selectedElement, owner),
         });
         return;
       }
@@ -142,6 +175,7 @@ export function runEnterHotkey({
   // elsewhere (e.g. after insert/paste).
   const targetProjection = buildCodeLayerProjection(
     getProjectionContentForScreen(target),
+    { source: { kind: "design-file", fileId: target } },
   );
   if (targetProjection.rootNodeIds.length > 0) {
     setSelectedLayerIdsState(targetProjection.rootNodeIds);

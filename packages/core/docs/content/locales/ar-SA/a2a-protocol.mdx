@@ -356,6 +356,107 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## اتصالات الوكلاء المستضافة {#hosted-agent-connections}
+
+يمكن للوكيل المستضاف المشاركة في A2A عندما يوفّر نقطة نهاية متوافقة مع A2A.
+موفّر النموذج أو حزمة تطوير الوكيل وحدهما لا يشكلان نظير A2A. ضع واجهة التطبيق
+وإجراءاته وقاعدة بياناته على مضيف التطبيق المعتاد، ثم اربط بيئة تشغيل الوكيل
+من خلال محوّل أو نقطة نهاية A2A الخاصة بها.
+
+يحتوي الاتصال المستضاف على بيانات تعريف نقطة النهاية ووصف للمصادقة. احتفظ بهذه
+البيانات مع مورد الوكيل البعيد أو سجل الاتصال. لا تضع رمزًا مميزًا أو سر عميل
+في البيان:
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agents/foundry-research/endpoint/protocols/a2a/agentCard/v1.0",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url` هو نقطة نهاية الاستدعاء أو عنوان الأساس. يكون `cardUrl` اختياريًا عندما
+يستخدم الاكتشاف `/.well-known/agent-card.json`، واستعمله عندما ينشر الموفّر
+بطاقة الوكيل في مكان آخر. يقرأ العميل إصدار البروتوكول من بطاقة الوكيل. عندما
+تحذف بطاقة الموفّر الإصدار، مرّر `protocolVersion` مباشرة إلى `A2AClient`.
+يصف `auth` كيفية حصول كود الخادم على رمز حامل. الأوصاف المدعومة هي
+`bearer` مع `credentialRef` محفوظ في الخزنة، أو `oauth-client-credentials` مع
+`tokenUrl` و`clientId` و`clientSecretRef` و`scope`. تشير هذه الحقول إلى أسرار،
+ولا تحتوي قيم الأسرار نفسها.
+
+### A2A برمز حامل عام {#generic-bearer-a2a}
+
+استخدم العميل القياسي عندما يقبل النظير `Authorization: Bearer ...`، ويقدّم
+بطاقة متوافقة، ويقبل JSON-RPC الخاص بـ Agent-Native:
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+حلّ `token` من جانب الخادم عبر اتصال مساحة العمل أو الخزنة. لا ترسله من كود
+المتصفح، ولا تكتبه في البيان، ولا تضعه في مطالبة. مفتاح API الثابت هو اعتماد
+للنقل إلى الخدمة البعيدة فقط، ولا ينشئ هوية متصل Agent-Native أو يحمل
+`approvedActions`.
+
+### Microsoft Foundry {#microsoft-foundry}
+
+تشغّل [الوكلاء المستضافون في Azure AI Foundry](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+كود الوكيل أو الحاوية خلف نقطة نهاية وهوية وتوسعة وحالة جلسة ومراقبة مُدارة.
+هذا النموذج مخصص لبيئة تشغيل الوكيل. احتفظ بواجهة Agent-Native وإجراءاته
+ونشر PostgreSQL على مضيف التطبيق، واستدع نقطة نهاية Foundry من كود الخادم.
+
+يمكن لـ Foundry كشف نقطة نهاية A2A من خلال [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
+يتطلب ذلك مصادقة Microsoft Entra، ويحتاج المتصل إلى إذن Foundry Agent
+Consumer. الإصدار 1.0 هو نقطة نهاية JSON-RPC العامة؛ استخدم عنوان بطاقة
+`.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` عند توفره. الإصدار 0.3 هو نقطة النهاية التجريبية التي
+تُعاد عند عدم تحديد إصدار. مرّر `protocolVersion` إلى `A2AClient` فقط عندما
+تغفل البطاقة الإصدار. لا يوفّر Foundry v1 بث SSE، لذلك يستخدم العميل
+`message/send`. يجب على موفّر الرموز الحصول على رمز وصول Entra وتجديده. لا
+يكفي `A2A_SECRET` أو مفتاح API ثابت لمصادقة Foundry.
+
+لمصادقة بيانات اعتماد كيان الخدمة، اطلب رمز Entra بالنطاق
+`https://ai.azure.com/.default` وامنح المتصل دور **Foundry Agent Consumer** على
+مستوى المشروع أو الوكيل. خزّن سر العميل في الخزنة وأشر إليه من البيان:
+
+```json
+{
+  "auth": {
+    "type": "oauth-client-credentials",
+    "tokenUrl": "https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token",
+    "clientId": "<application-id>",
+    "clientSecretRef": "FOUNDRY_CLIENT_SECRET",
+    "scope": "https://ai.azure.com/.default"
+  }
+}
+```
+
+### Gemini Enterprise {#gemini-enterprise}
+
+يمكن لـ [Gemini Enterprise تسجيل وكلاء A2A خارجيين](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent)،
+كما تعرض المساعدات المُدارة نقطة نهاية JSON-RPC قياسية لـ A2A. توجد نقطة النهاية
+تحت مورد المساعد، مثل `.../assistants/default_assistant/agents/{id}/a2a`، بينما
+يمكن نشر بطاقة الوكيل في عنوان مخصص. استخدم عميل الحامل العام ومرّر عنوان البطاقة
+المخصص:
+
+```ts
+const client = new A2AClient(geminiEndpoint, googleBearerToken, {
+  cardUrl: geminiCardUrl,
+});
+```
+
+يحتاج المتصل إلى رمز حامل Google OAuth مع إذن `discoveryengine.assist`. تسجيل
+وكلاء A2A المخصصين في مرحلة ما قبل التوافر العام، لذا تحقّق من توفره في المشروع
+المستهدف قبل عرضه في منتقي مساحة العمل. راجع [استدعاء وكيل Gemini Enterprise](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
+لعنوان المورد ومتطلبات IAM.
+
 ## استدعاء مساحة العمل الآلية {#programmatic-invoke}
 
 بالنسبة لمساحات العمل الأصلية للوكيل، تفضل مساعد `agentNative` عند استخدام الكود أو

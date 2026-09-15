@@ -4,6 +4,17 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+export function isComputedStyleMap(
+  value: unknown,
+): value is Record<string, string | undefined> {
+  return (
+    isPlainRecord(value) &&
+    Object.values(value).every(
+      (entry) => entry === undefined || typeof entry === "string",
+    )
+  );
+}
+
 function isFiniteRect(value: unknown): value is ElementInfo["boundingRect"] {
   if (!isPlainRecord(value)) return false;
   return (

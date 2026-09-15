@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { nextLocalhostScreenPosition } from "./design-data-geometry-utils";
+import {
+  frameHeightChangedIds,
+  nextLocalhostScreenPosition,
+  viewportChangedFrameIds,
+} from "./design-data-geometry-utils";
+
+describe("frame resize dimensions", () => {
+  it("distinguishes a width-only resize from a height resize", () => {
+    const before = { screen: { x: 0, y: 0, width: 300, height: 400 } };
+    const widthOnly = { screen: { x: 0, y: 0, width: 360, height: 400 } };
+    const heightChanged = {
+      screen: { x: 0, y: 0, width: 360, height: 440 },
+    };
+
+    expect(viewportChangedFrameIds(before, widthOnly)).toEqual(["screen"]);
+    expect(frameHeightChangedIds(before, widthOnly)).toEqual([]);
+    expect(frameHeightChangedIds(widthOnly, heightChanged)).toEqual(["screen"]);
+  });
+});
 
 describe("nextLocalhostScreenPosition", () => {
   it("returns the origin when the canvas has no frames yet", () => {

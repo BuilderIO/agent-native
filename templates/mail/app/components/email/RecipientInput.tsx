@@ -602,10 +602,21 @@ export function RecipientInput({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Clamp selected index when filtered list changes (preserves position when possible)
-  useEffect(() => {
-    setSelectedIndex((prev) => Math.min(prev, allSuggestions.length - 1));
+  // Keep a visible suggestion active when results return, preserving its
+  // position when possible and clamping it to the new list.
+  useLayoutEffect(() => {
+    if (allSuggestions.length === 0) return;
+    setSelectedIndex((prev) =>
+      Math.min(Math.max(prev, 0), allSuggestions.length - 1),
+    );
   }, [allSuggestions.length]);
+
+  useLayoutEffect(() => {
+    if (!showSuggestions || !hasSuggestions) return;
+    dropdownRef.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [allSuggestions, hasSuggestions, selectedIndex, showSuggestions]);
 
   const dropdown =
     showSuggestions && hasSuggestions
@@ -802,6 +813,7 @@ export function RecipientInput({
           onChange={(e) => {
             setInputValue(e.target.value);
             setShowSuggestions(true);
+            setSelectedIndex(0);
           }}
           onFocus={() => {
             if (inputValue.trim()) setShowSuggestions(true);

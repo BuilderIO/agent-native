@@ -92,6 +92,7 @@ export async function ensureReviewTables(): Promise<void> {
       body TEXT NOT NULL,
       author_email TEXT,
       author_name TEXT,
+      -- guard:allow-identity-column - immutable review creator snapshot
       created_by TEXT NOT NULL DEFAULT 'human',
       resolution_target TEXT,
       mentions_json TEXT,

@@ -18,11 +18,18 @@ import {
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
 import type { SelectedCanvasLayerSnapshot } from "@/pages/design-editor/command-types";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface DuplicateSelectionArgs {
   activeFile: DesignFile;
+  designId: string | undefined;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -35,7 +42,7 @@ export interface DuplicateSelectionArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -49,7 +56,7 @@ export interface DuplicateSelectionArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   files: DesignFile[];
   getFreshActiveContent: () => string;
@@ -82,6 +89,7 @@ export interface DuplicateSelectionArgs {
 
 export function runDuplicateSelection({
   activeFile,
+  designId,
   applyFileContentUpdate,
   applyLocalContentUpdate,
   canEditDesign,
@@ -107,6 +115,13 @@ export function runDuplicateSelection({
     canEdit: canEditDesign,
     selectedLayers: selectedLayerIdsState.length,
   });
+  let structureUnsupported = false;
+  const onUnsupportedStructure = () => {
+    structureUnsupported = true;
+    toast.error(
+      t("designEditor.componentInstances.linkedStructureUnsupported"),
+    );
+  };
   if (!canEditDesign) return;
   // U19: duplicate is a discrete one-shot action — see the matching note
   // in handlePasteSelection.
@@ -142,6 +157,15 @@ export function runDuplicateSelection({
   }
   const snapshots = getSelectedLayerSnapshots();
   if (snapshots.length > 0) {
+    const componentDocuments = files.map((file) => ({
+      source: {
+        kind: "design-file" as const,
+        designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content: getScreenContent(file.id),
+    }));
     const selectedIds: string[] = [];
     const selectedScreenIds: string[] = [];
     let lastActiveNode: CodeLayerNode | null = null;
@@ -171,11 +195,17 @@ export function runDuplicateSelection({
       );
       if (group.length === 0) continue;
       let content = getScreenContent(file.id);
+      const source = {
+        kind: "design-file" as const,
+        designId,
+        fileId: file.id,
+        filename: file.filename,
+      };
       const insertedRootNodeIds: string[] = [];
       for (const snapshot of [...group].sort(
         (a, b) => b.sourceIndex - a.sourceIndex,
       )) {
-        const projection = buildCodeLayerProjection(content);
+        const projection = buildCodeLayerProjection(content, { source });
         const anchorNode =
           projection.nodes.find(
             (node) =>
@@ -185,6 +215,7 @@ export function runDuplicateSelection({
           ) ?? snapshot.node;
         const sourcePosition = extractLayerPosition(snapshot.html);
         const result = insertClonedHtmlLayers(content, [snapshot.html], {
+          onUnsupportedStructure,
           targetSelectors: codeLayerSelectorAliases(anchorNode),
           placement: "after",
           // Absolutely-positioned board items land exactly in place (or at
@@ -200,7 +231,13 @@ export function runDuplicateSelection({
                 },
               ]
             : undefined,
+          componentLinks: {
+            sourceFileIds: group.map((snapshot) => snapshot.sourceFileId),
+            targetSource: source,
+            documents: componentDocuments,
+          },
         });
+        if (structureUnsupported) return;
         if (!result) continue;
         content = result.content;
         insertedRootNodeIds.unshift(...result.rootNodeIds);
@@ -208,17 +245,24 @@ export function runDuplicateSelection({
         remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
-      applyFileContentUpdate(file.id, content, {
+      const submittedProjection = buildCodeLayerProjection(content, { source });
+      const publication = applyFileContentUpdate(file.id, content, {
         forcePreviewFullDocument: true,
         refreshPreview: false,
       });
+      if (publication.status !== "accepted") continue;
       selectedScreenIds.push(file.id);
-      const finalProjection = buildCodeLayerProjection(content);
+      const finalProjection = projectAcceptedSource(publication, source);
       insertedRootNodeIds.forEach((rootNodeId) => {
-        const insertedNode = finalProjection.nodes.find(
+        const submittedNode = submittedProjection.nodes.find(
           (node) =>
             node.id === rootNodeId ||
             node.dataAttributes["data-agent-native-node-id"] === rootNodeId,
+        );
+        const insertedNode = mapAcceptedSelectionNode(
+          publication,
+          finalProjection,
+          submittedNode,
         );
         if (!insertedNode) return;
         selectedIds.push(insertedNode.id);
@@ -285,9 +329,31 @@ export function runDuplicateSelection({
       }
     })();
     const nextContent = insertClonedHtmlLayer(baseContent, strippedHtml, {
+      onUnsupportedStructure,
       targetSelectors: [selector],
       placement: "after",
+      componentLinks: activeFile
+        ? {
+            sourceFileIds: [activeFile.id],
+            targetSource: {
+              kind: "design-file",
+              designId,
+              fileId: activeFile.id,
+              filename: activeFile.filename,
+            },
+            documents: files.map((file) => ({
+              source: {
+                kind: "design-file" as const,
+                designId,
+                fileId: file.id,
+                filename: file.filename,
+              },
+              content: getScreenContent(file.id),
+            })),
+          }
+        : undefined,
     });
+    if (structureUnsupported) return;
     if (nextContent) {
       applyLocalContentUpdate(nextContent, {
         forcePreviewFullDocument: true,

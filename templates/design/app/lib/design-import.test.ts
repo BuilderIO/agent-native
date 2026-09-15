@@ -277,6 +277,28 @@ describe("design clipboard marker round-trip", () => {
     expect(parsed).toEqual(payload);
   });
 
+  it("round-trips an explicit failed-capture marker without inventing a snapshot", () => {
+    const failedCapturePayload: DesignClipboardPayload = {
+      version: 1,
+      entries: [
+        {
+          html: "<div>Class painted</div>",
+          sourceFileId: "file-1",
+          styleSnapshotCaptureFailed: true,
+        },
+      ],
+    };
+
+    expect(
+      parseDesignClipboardMarker(
+        serializeDesignClipboardPayload(
+          "<div>Class painted</div>",
+          failedCapturePayload,
+        ),
+      ),
+    ).toEqual(failedCapturePayload);
+  });
+
   it("round-trips bounded managed responsive and interaction rules", () => {
     const responsivePayload: DesignClipboardPayload = {
       version: 1,

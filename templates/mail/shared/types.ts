@@ -131,6 +131,8 @@ export type UserSettings = {
   avatar?: string;
   signature?: string;
   writingStyle?: string;
+  /** Show local common-phrase completions while composing on desktop. */
+  autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
   previewPane: "right" | "bottom" | "off";

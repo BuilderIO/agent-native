@@ -65,7 +65,7 @@ vi.mock("./google-api.js", () => ({
 
 vi.mock("./google-auth.js", () => ({
   isConnected: vi.fn(),
-  getConnectedAccounts: vi.fn(),
+  getConnectedAccountsWithErrors: vi.fn(),
   getClientForConnectedAccount: vi.fn(),
 }));
 
@@ -107,7 +107,7 @@ import {
 } from "./google-api.js";
 import {
   getClientForConnectedAccount,
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   isConnected,
 } from "./google-auth.js";
 import {
@@ -200,13 +200,16 @@ function mockTwoAccounts() {
 }
 
 // Managed-only owner: no per-user OAuth row exists anywhere for this
-// account — only the workspace's shared Gmail grant. getConnectedAccounts
+// account — only the workspace's shared Gmail grant. getConnectedAccountsWithErrors
 // and getClientForConnectedAccount are the only two `google-auth.js` exports
 // that ever see this account; listOAuthAccountsByOwner reports [] the way it
 // would in production.
 function mockManaged(email = ACCT) {
   vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([]);
-  vi.mocked(getConnectedAccounts).mockResolvedValue([email]);
+  vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+    accounts: [email],
+    errors: [],
+  });
   vi.mocked(getClientForConnectedAccount).mockImplementation(
     async (_owner, accountEmail) =>
       accountEmail.toLowerCase() === email.toLowerCase()

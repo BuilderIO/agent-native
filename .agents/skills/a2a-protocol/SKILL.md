@@ -28,13 +28,16 @@ fixing it. If A2A delegation is unreliable, fix A2A — file it as a bug in the
 delegation path (timeout handling, retries, typed terminal states), don't
 route around it app by app.
 
-Connecting app A to app B is two independent things, and both must be true:
+Connecting app A to an Agent-Native app B is two independent things, and both
+must be true:
 
 1. **B is registered on A** as a `remote-agents/<id>.json` resource.
 2. **A and B share a secret**, so A's signed JWT verifies on B.
 
 Neither is a code change, and neither is symmetric. Registering B on A does not
-let B call A.
+let B call A. A hosted peer uses provider-specific endpoint and credential
+metadata in place of the shared Agent-Native secret, but it still does not make
+the provider's model or SDK an A2A endpoint.
 
 ## A2A is already mounted
 
@@ -62,13 +65,30 @@ A remote agent is **a row in the resources table, not a file on disk**. Path
   "name": "Analytics",
   "description": "Queries analytics data across providers",
   "url": "https://analytics.example.com",
-  "color": "#6B7280"
+  "color": "#6B7280",
+  "cardUrl": "https://analytics.example.com/.well-known/agent-card.json",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "ANALYTICS_A2A_TOKEN"
+  }
 }
 ```
 
-`url` is the only required field. `parseRemoteAgentManifest` accepts **only**
-these five keys — there is no `apiKey`, `env`, `skills`, or `token` field, and
-anything else is silently dropped.
+`url` is the only required endpoint field. `cardUrl` is the optional discovery
+URL for providers that do not serve `/.well-known/agent-card.json`. The client
+reads the protocol version from the agent card. Pass `protocolVersion` directly
+to `A2AClient` when a provider's card omits it. The optional `auth` descriptor is
+non-secret connection metadata. Use
+`{ "type": "bearer", "credentialRef": "..." }` for a vault-backed bearer
+credential, or `{ "type": "oauth-client-credentials", "tokenUrl": "...",
+"clientId": "...", "clientSecretRef": "...", "scope": "..." }` when the
+peer issues OAuth client-credentials tokens. `credentialRef` and
+`clientSecretRef` are references, never secret values.
+
+Do not add `apiKey`, `env`, `skills`, or `token` values to a manifest. Resolve
+credentials server-side from the workspace connection or vault. A direct
+`A2AClient` call can pass `cardUrl` and `protocolVersion` while a provider
+adapter is being used, but browser code must never receive the credential.
 
 Four ways to create it, all writing the same row:
 
@@ -139,7 +159,34 @@ request is genuine loopback or `A2A_ALLOW_UNSIGNED_INTERNAL=1`.
 `A2AConfig.apiKeyEnv` still exists for static bearer auth against non-agent-native
 peers, but the framework's own mount never sets it. Do not reach for it when
 debugging a connection between two agent-native apps — the answer there is
-always the shared secret.
+always the shared secret. For a provider that uses OAuth, resolve and refresh
+the access token in a server-side adapter. `A2A_SECRET` is not a substitute for
+the provider's Entra, Google, or other OAuth credential.
+
+## Hosted providers
+
+Foundry, Gemini Enterprise, and other hosted services can be A2A peers only
+when they expose a compatible protocol endpoint. Foundry hosted agents run
+agent code in managed containers and can expose A2A through Agent Service. Keep
+the Agent-Native UI, actions, and PostgreSQL app on its normal host. Foundry
+callers use Microsoft Entra bearer tokens with Foundry Agent Consumer access,
+so configure `cardUrl` and obtain the token through the workspace credential
+provider. Foundry v1.0 is the GA JSON-RPC endpoint; v0.3 is the preview
+endpoint used when no version is selected. Use the v1 card URL
+`.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` when available,
+and pass `protocolVersion` only when the card omits it. Foundry v1 does not
+provide SSE streaming. See the [Foundry hosted agent overview](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+and [A2A endpoint guidance](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
+
+Gemini Enterprise managed assistants expose a standard A2A JSON-RPC endpoint
+under the assistant resource, such as
+`.../assistants/default_assistant/agents/{id}/a2a`, and can publish the card at
+a custom URL. Use the generic bearer client with that `cardUrl`; the caller's
+Google OAuth bearer needs the `discoveryengine.assist` permission. Custom A2A
+agent registration is Pre-GA, so verify that it is enabled in the target
+project before exposing it in the workspace picker. A model provider or SDK
+without an A2A endpoint still needs a server-side adapter before an
+Agent-Native app can call it.
 
 Never hardcode either secret in source, docs, prompts, app state, action
 descriptions, client bundles, or examples. Read them from runtime config; never

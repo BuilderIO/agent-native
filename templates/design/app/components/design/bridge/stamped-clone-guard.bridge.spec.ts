@@ -74,6 +74,14 @@ it(
       });
       page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.setContent(PAGE);
+      await page.evaluate(() => {
+        const template =
+          document.querySelector<HTMLTemplateElement>("template[x-for]")!;
+        const rows = Array.from(document.querySelectorAll("ul > li"));
+        (
+          template as HTMLTemplateElement & { _x_lookup: Map<number, Element> }
+        )._x_lookup = new Map(rows.map((row, index) => [index, row]));
+      });
       await page.addScriptTag({ content: hydrated() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 

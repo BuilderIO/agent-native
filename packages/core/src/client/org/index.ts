@@ -23,7 +23,16 @@ export {
   useOrgRole,
   useAppRoles,
   useAppRole,
+  useSetAppMemberRoles,
   useSetAppMemberRole,
+  useOrgSsoProviders,
+  useCreateOrgSsoProvider,
+  useVerifyOrgSsoProvider,
+  useDeleteOrgSsoProvider,
+  useOrgScim,
+  useCreateOrgScimConnection,
+  useDeleteOrgScimConnection,
+  useSetOrgAuthProvider,
 } from "./hooks.js";
 
 export type {
@@ -35,6 +44,10 @@ export type {
   AppRoleAssignment,
   AppRolesInfo,
   WorkspaceAppDefaultVisibility,
+  OrgSsoProvider,
+  OrgSsoProvidersResult,
+  OrgScimConnection,
+  OrgScimResult,
 } from "./hooks.js";
 
 // Type-only re-export so templates can annotate the `appRoles` prop without

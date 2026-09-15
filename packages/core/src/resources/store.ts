@@ -922,6 +922,7 @@ async function _doEnsureTable(): Promise<void> {
       size BIGINT NOT NULL DEFAULT 0,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL,
+      -- guard:allow-identity-column - immutable resource creator snapshot
       created_by TEXT NOT NULL DEFAULT 'user',
       visibility TEXT NOT NULL DEFAULT 'workspace',
       thread_id TEXT,

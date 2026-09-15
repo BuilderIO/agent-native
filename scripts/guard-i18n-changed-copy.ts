@@ -51,6 +51,26 @@ export function checkChangedCopyCoverage(
   return errors.sort();
 }
 
+export function hasForwardedInlineLocaleUpdate(
+  locale: string,
+  changedLocales: ReadonlySet<string>,
+  wrapperSourceImplementation: string,
+  sourceImplementation: string,
+  wrapperText: string,
+): boolean {
+  if (
+    wrapperSourceImplementation !== sourceImplementation ||
+    !changedLocales.has(locale)
+  ) {
+    return false;
+  }
+
+  return new RegExp(
+    `^\\s*\\.\\.\\.\\s*messagesByLocale\\s*\\[\\s*["']${locale}["']\\s*\\]`,
+    "m",
+  ).test(wrapperText);
+}
+
 function main() {
   const addedLines = requireAddedLines(rootDir, "guard:i18n-changed-copy");
   const changedFiles = collectChangedFiles(rootDir);
@@ -117,6 +137,7 @@ function collectCatalogSurfaces(
     }
 
     const localeChanges = collectInlineLocaleChanges(lines, sourceLines);
+    const changedInlineLocales = new Set(localeChanges.keys());
     if (!hasInlineEnglishCopyAddition(lines, sourceLines)) {
       continue;
     }
@@ -145,7 +166,18 @@ function collectCatalogSurfaces(
       if (existsSync(siblingFile) && siblingFile !== sourceWrapper) {
         const target = relative(siblingFile);
         targets.push(target);
-        if (changedFiles.has(absolute(target))) changedTargets.add(target);
+        if (
+          changedFiles.has(absolute(target)) ||
+          hasForwardedInlineLocaleUpdate(
+            locale,
+            changedInlineLocales,
+            resolveCatalogSourceImplementation(catalogDir, siblingFile),
+            sourceImplementation,
+            readFileSync(siblingFile, "utf8"),
+          )
+        ) {
+          changedTargets.add(target);
+        }
         continue;
       }
 
