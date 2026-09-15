@@ -1,5 +1,6 @@
 import { mcpSettingsMessagesForLocale } from "../../localization/mcp-settings-messages.js";
 import type { LocaleCode } from "../../localization/shared.js";
+import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
 
 export type SettingsSectionId =
@@ -92,8 +93,10 @@ const SETTINGS_SECTION_SEARCH_META: Record<
 > = {
   account: {
     label: "Account",
-    keywords:
+    keywords: [
       "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock",
+      ...SIGN_OUT_SEARCH_TERMS,
+    ].join(" "),
   },
   llm: {
     label: "LLM",

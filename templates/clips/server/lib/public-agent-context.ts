@@ -21,7 +21,9 @@ import {
 } from "../../shared/agent-context.js";
 import {
   parseBrowserDiagnosticsRow,
+  sanitizeBrowserDiagnosticNavigationUrl,
   type BrowserDiagnosticsData,
+  type BrowserDiagnosticTimelineEvent,
 } from "../../shared/browser-diagnostics.js";
 import {
   isLoomEmbedBackedRecording,
@@ -414,6 +416,7 @@ export async function loadAgentBugReport(
 // the true total counts.
 const MAX_PUBLIC_AGENT_CONSOLE_LOGS = 100;
 const MAX_PUBLIC_AGENT_NETWORK_REQUESTS = 100;
+const MAX_PUBLIC_AGENT_TIMELINE_EVENTS = 100;
 // Curated warn/error highlights and failed-request highlights.
 const MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES = 20;
 
@@ -440,6 +443,37 @@ function toPublicNetworkEntry(
     status: entry.status ?? null,
     error: entry.error ?? null,
     durationMs: entry.durationMs,
+  };
+}
+
+function toPublicTimelineEntry(entry: BrowserDiagnosticTimelineEvent) {
+  const base = {
+    timestampMs: entry.elapsedMs,
+    kind: entry.kind,
+  };
+  if (entry.kind === "console") {
+    return {
+      ...base,
+      level: entry.level,
+      message: entry.message,
+    };
+  }
+  if (entry.kind === "network") {
+    return {
+      ...base,
+      phase: entry.phase,
+      type: entry.type,
+      method: entry.method,
+      url: entry.url,
+      status: entry.status ?? null,
+      error: entry.error ?? null,
+      durationMs: entry.durationMs ?? null,
+    };
+  }
+  return {
+    ...base,
+    target: entry.target ?? null,
+    url: entry.url ? sanitizeBrowserDiagnosticNavigationUrl(entry.url) : null,
   };
 }
 
@@ -474,13 +508,17 @@ function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
     .filter(isFailedNetworkRequest)
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
     .map(toPublicNetworkEntry);
+  const timeline = (diagnostics.timeline ?? [])
+    .slice(-MAX_PUBLIC_AGENT_TIMELINE_EVENTS)
+    .map(toPublicTimelineEntry);
   return {
     summary: diagnostics.summary,
+    timeline,
     consoleLogs,
     consoleIssues,
     networkRequests,
     failedNetworkRequests,
-    note: "Console logs include all levels (debug/log/info/warn/error). Network requests include method, sanitized URL (path kept, query values redacted), status, and duration. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
+    note: "Timeline entries are relative to recording start and include redacted navigation, click/input targets, console events, and request/response markers. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
   };
 }
 
@@ -613,7 +651,7 @@ export function buildPublicAgentContext({
       : []),
     ...(browserDiagnostics
       ? [
-          "Use browserDiagnostics.consoleLogs for the redacted console stream (all levels: debug/log/info/warn/error) and browserDiagnostics.networkRequests for the fetch/XHR requests (method, sanitized URL, status, duration) captured during the recording. browserDiagnostics.consoleIssues highlights just the warnings/errors, and browserDiagnostics.failedNetworkRequests highlights failed requests.",
+          "Use browserDiagnostics.timeline for the bounded, relative event sequence: navigation, click/input targets, console events, and request/response markers. Use browserDiagnostics.consoleLogs and browserDiagnostics.networkRequests for the full redacted streams; consoleIssues and failedNetworkRequests are curated failure highlights.",
         ]
       : []),
     ...(!clipIsReady

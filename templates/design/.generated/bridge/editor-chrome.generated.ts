@@ -4957,11 +4957,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var paddingRight = readPx(cs.paddingRight);
       var paddingBottom = readPx(cs.paddingBottom);
       var paddingLeft = readPx(cs.paddingLeft);
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
-      var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
+      var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
       var innerLeft = borderLeft;
       var innerTop = borderTop;
       var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
@@ -4983,9 +4980,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingTop
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: innerTop + paddingTop / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5008,9 +5005,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               height: paddingBottom
             },
             line: {
-              x: rect.width / 2 - hLineWidth / 2,
+              x: rect.width / 2 - tickLength / 2,
               y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
-              width: hLineWidth,
+              width: tickLength,
               height: line
             }
           })
@@ -5034,9 +5031,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: innerLeft + paddingLeft / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5059,9 +5056,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             line: {
               x: rect.width - borderRight - paddingRight / 2 - line / 2,
-              y: rect.height / 2 - vLineHeight / 2,
+              y: rect.height / 2 - tickLength / 2,
               width: line,
-              height: vLineHeight
+              height: tickLength
             }
           })
         );
@@ -5072,11 +5069,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var children = visibleLayoutChildren(el);
       if (children.length < 2) return [];
       var handles = [];
-      var sx = chromeScaleX();
-      var sy = chromeScaleY();
       var line = chromeLineScale();
-      var hLineWidth = 8 * sx;
-      var vLineHeight = 8 * sy;
+      var tickLength = 8 * line;
       var isFlex = cs.display === "flex" || cs.display === "inline-flex";
       var isGrid = cs.display === "grid" || cs.display === "inline-grid";
       if (!isFlex && !isGrid) return handles;
@@ -5112,9 +5106,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 region: { x: a.right, y: top, width: gap, height },
                 line: {
                   x: a.right + gap / 2 - line / 2,
-                  y: top + height / 2 - vLineHeight / 2,
+                  y: top + height / 2 - tickLength / 2,
                   width: line,
-                  height: vLineHeight
+                  height: tickLength
                 }
               })
             );
@@ -5132,9 +5126,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 value: cssGap,
                 region: { x: left, y: a.bottom, width, height: gap },
                 line: {
-                  x: left + width / 2 - hLineWidth / 2,
+                  x: left + width / 2 - tickLength / 2,
                   y: a.bottom + gap / 2 - line / 2,
-                  width: hLineWidth,
+                  width: tickLength,
                   height: line
                 }
               })

@@ -136,6 +136,20 @@ const messages: AgentChatTranslation = {
   "common.retry": "다시 시도",
   "common.save": "저장",
   "agents.hostedAgent": "호스팅된 에이전트",
+  "agents.provider": "제공업체",
+  "agents.providerA2A": "A2A 에이전트 (Foundry, Gemini 또는 사용자 지정)",
+  "agents.providerAnthropic": "Anthropic 관리형 에이전트",
+  "agents.agentId": "에이전트 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "환경 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 기본 URL (선택 사항)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents 필드를 입력하세요.",
+  "agents.managedAgentCheck": "채팅에서 위임하면 연결을 확인합니다.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent가 저장되었습니다. 채팅에서 위임하세요.",
   "agents.cardUrl": "에이전트 카드 URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "인증",
@@ -395,6 +409,10 @@ const messages: AgentChatTranslation = {
     "에이전트 연결이 완료 전에 시간 초과되었습니다. 부분적으로 완료된 작업에서 계속하거나 다시 시도할 수 있습니다.",
   "errorMessages.invalidToolSchema":
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
+  "errorMessages.malformedRequest":
+    "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.malformedRequestAttachment":
+    "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
   "errorMessages.noProviderConnected":
     "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
@@ -726,6 +744,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
   "widget.downloadCsv": "CSV 다운로드",
+  "widget.connectProvider": "{{provider}} 연결",
   "widget.loadingToolResult": "도구 결과를 불러오는 중",
   "widget.noRows": "행 없음",
   "widget.points": "포인트 {{formattedCount}}개",

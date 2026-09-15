@@ -3522,6 +3522,8 @@ export interface AgentSidebarProps {
   suppressFirstRunOnboarding?: boolean;
   /** Pin how much model reasoning the chat shows. Omit to let the reader choose. */
   thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
+  /** Show the composer's model and effort picker. Defaults to true. */
+  showModelSelector?: AssistantChatProps["showModelSelector"];
   /** Keep the sidebar on chat mode. Defaults to true for embedded app sidebars. */
   chatOnly?: boolean;
 }
@@ -3594,6 +3596,7 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
   thinkingDisplay,
+  showModelSelector,
   chatOnly = true,
 }: AgentSidebarProps) {
   const resolvedBrowserTabId =
@@ -4462,6 +4465,7 @@ export function AgentSidebar({
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             thinkingDisplay={thinkingDisplay}
+            showModelSelector={showModelSelector}
             chatOnly={chatOnly}
           />
           <ExternalAgentNudge variant="sidebar" />

@@ -11,6 +11,7 @@ import {
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
+  normalizeBetterAuthInternalAdapter,
   withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
@@ -471,6 +472,32 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     ).rejects.toThrow("unverified email/password identity");
     expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("normalizeBetterAuthInternalAdapter", () => {
+  it("bridges Better Auth 1.7 account keys to the framework lookup", async () => {
+    const findAccountByKey = vi.fn(async () => ({
+      id: "google-account",
+      userId: "user-1",
+    }));
+    const adapter = normalizeBetterAuthInternalAdapter({
+      findUserByEmail: vi.fn(),
+      linkAccount: vi.fn(),
+      createUser: vi.fn(),
+      createSession: vi.fn(),
+      deleteSession: vi.fn(),
+      findAccountByKey,
+    });
+
+    expect(adapter).toBeDefined();
+    await expect(
+      adapter!.findAccountByProviderId("google-sub-1", "google"),
+    ).resolves.toEqual({ id: "google-account", userId: "user-1" });
+    expect(findAccountByKey).toHaveBeenCalledWith({
+      accountId: "google-sub-1",
+      providerId: "google",
+    });
   });
 });
 

@@ -285,6 +285,50 @@ export interface BookingHost {
 }
 
 /**
+ * Whether one booking-link host's real working hours are being applied.
+ *
+ * Deliberately omits the server helper's `isOverlaidByOwner`: every row the
+ * action returns is overlaid by the owner by construction, so shipping the
+ * flag would only invite a redundant client-side check.
+ *
+ * There is no row for a manual raw-email host. Those are never in the owner's
+ * overlay list, and reporting on arbitrary addresses would make the action an
+ * probing oracle — the editor derives that state locally instead.
+ */
+export interface HostOverlayStatusResult {
+  email: string;
+  reciprocal: boolean;
+  hasWorkingHours: boolean;
+  timezone?: string;
+  displayName?: string;
+  /** ISO timestamp of the last overlay-access request sent to this host. */
+  requestSentAt?: string;
+}
+
+/**
+ * Whether an overlaid peer has added the owner back. Carries no
+ * `hasWorkingHours` field on purpose — this read never evaluates the peer's
+ * schedule, and an absent field cannot be mistaken for an evaluated `false`.
+ */
+export interface OverlayReciprocityResult {
+  email: string;
+  reciprocal: boolean;
+  displayName?: string;
+}
+
+export interface SendOverlayRequestResult {
+  email: string;
+  /**
+   * `null` means nothing was sent and nothing was recorded. It must stay
+   * distinguishable from a real timestamp — defaulting it to "now" would
+   * report a send that never happened.
+   */
+  requestSentAt: string | null;
+  emailSent: boolean;
+  skippedReason?: "email-not-configured" | "send-in-progress";
+}
+
+/**
  * A required co-host as shown to anonymous visitors of the public booking
  * page: a display label derived from their email/displayName, never the raw
  * address, plus their time zone when eligible for hard-filtering.

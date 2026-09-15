@@ -140,6 +140,20 @@ const messages: AgentChatTranslation = {
   "common.retry": "再試行",
   "common.save": "保存",
   "agents.hostedAgent": "ホスト型エージェント",
+  "agents.provider": "プロバイダー",
+  "agents.providerA2A": "A2A エージェント（Foundry、Gemini、またはカスタム）",
+  "agents.providerAnthropic": "Anthropic 管理エージェント",
+  "agents.agentId": "エージェント ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "環境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API ベース URL（任意）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents の項目を入力してください。",
+  "agents.managedAgentCheck": "チャットから委任すると接続が確認されます。",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent を保存しました。チャットから委任できます。",
   "agents.cardUrl": "エージェントカード URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "認証",
@@ -407,6 +421,10 @@ const messages: AgentChatTranslation = {
     "エージェントとの接続が完了前にタイムアウトしました。途中までの作業から続行するか、再試行できます。",
   "errorMessages.invalidToolSchema":
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
+  "errorMessages.malformedRequest":
+    "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.malformedRequestAttachment":
+    "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
   "errorMessages.noProviderConnected":
     "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）に接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
@@ -739,6 +757,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "データインサイト",
   "widget.dataTable": "データテーブル",
   "widget.downloadCsv": "CSV をダウンロード",
+  "widget.connectProvider": "{{provider}} を接続",
   "widget.loadingToolResult": "ツールの結果を読み込み中",
   "widget.noRows": "行がありません",
   "widget.points": "{{formattedCount}} ポイント",

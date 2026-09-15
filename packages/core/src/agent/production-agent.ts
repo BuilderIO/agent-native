@@ -193,6 +193,7 @@ import {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   tryClaimRunSlot,
   isHostedRuntime,
@@ -920,6 +921,8 @@ export interface AgentActionSurfaceDetails {
   threadId?: string;
   mode: AgentExecutionMode;
   internalContinuation: boolean;
+  requestedTurnId?: string;
+  queuedMessageId?: string;
   actionScope?: Readonly<AgentActionScope>;
   availableActionNames: readonly string[];
 }
@@ -9773,6 +9776,12 @@ export function createProductionAgentHandler(
               threadId,
               mode: requestMode,
               internalContinuation: Boolean(internalContinuation),
+              ...(typeof requestTurnId === "string" && requestTurnId.trim()
+                ? { requestedTurnId: requestTurnId.trim() }
+                : {}),
+              ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+                ? { queuedMessageId: queuedMessageId.trim() }
+                : {}),
               ...(requestedActionScope
                 ? { actionScope: requestedActionScope }
                 : {}),
@@ -10607,6 +10616,9 @@ export function createProductionAgentHandler(
           ? { dispatchPayload: JSON.stringify(body) }
           : {}),
       });
+      if (slot.turnAborted) {
+        return { ok: true, stopped: true };
+      }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
         if (!stream) {
@@ -11965,6 +11977,7 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   subscribeToRun,
 };

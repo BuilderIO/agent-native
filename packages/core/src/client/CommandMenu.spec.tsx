@@ -11,6 +11,7 @@ import {
   useCommandMenuShortcut,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
+import { SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
 
 const DOCS: CommandMenuDoc[] = [
   {
@@ -117,6 +118,15 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).not.toContain(
       "Use the Chrome extension for browser logs",
     );
+  });
+
+  it("matches every sign-out search alias", () => {
+    renderMenu();
+
+    for (const term of SIGN_OUT_SEARCH_TERMS) {
+      search(term);
+      expect(document.body.textContent).toContain("Log out");
+    }
   });
 
   it("filters command items nested in fragments", () => {

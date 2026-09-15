@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import {
   AgentsSection,
+  normalizeHostedAgentCardUrl,
   normalizeHostedAgentUrl,
   parseHostedAuth,
 } from "./AgentsSection.js";
@@ -221,5 +222,21 @@ describe("AgentsSection", () => {
       clientSecretRef: "secret",
       scope: "read",
     });
+    expect(
+      normalizeHostedAgentCardUrl(
+        "https://example.test/.well-known/agent-card.json",
+        {
+          provider: "anthropic-managed-agents",
+          agentId: "agent_fixture",
+          environmentId: "environment_fixture",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      ),
+    ).toBeUndefined();
+    expect(
+      normalizeHostedAgentCardUrl(
+        "https://example.test/.well-known/agent-card.json",
+      ),
+    ).toBe("https://example.test/.well-known/agent-card.json");
   });
 });

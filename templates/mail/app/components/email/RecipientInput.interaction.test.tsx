@@ -69,7 +69,14 @@ import { RecipientInput } from "./RecipientInput";
 
 function RecipientHarness({ initialValue = "" }: { initialValue?: string }) {
   const [value, setValue] = useState(initialValue);
-  return <RecipientInput value={value} onChange={setValue} placeholder="To" />;
+  return (
+    <RecipientInput
+      value={value}
+      onChange={setValue}
+      placeholder="To"
+      ariaLabel="To recipients"
+    />
+  );
 }
 
 describe("RecipientInput autocomplete interaction", () => {
@@ -249,6 +256,20 @@ describe("RecipientInput autocomplete interaction", () => {
     fireEvent.blur(input);
     expect(screen.getByText("ada@example.test")).toBeTruthy();
     expect(input.value).toBe("");
+  });
+
+  it("names the recipient field and chip removal control", () => {
+    render(<RecipientHarness initialValue="ada@example.test" />);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+
+    expect(input.getAttribute("aria-label")).toBe("To recipients");
+
+    const removeButton = screen.getByRole("button", {
+      name: "mail.recipients.removeRecipient",
+    });
+    fireEvent.click(removeButton);
+
+    expect(screen.queryByText("ada@example.test")).toBeNull();
   });
 
   it("keeps malformed recipient text visible after blur instead of committing it", () => {
