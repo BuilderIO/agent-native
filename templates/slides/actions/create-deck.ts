@@ -27,6 +27,11 @@ import {
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
+  deckContrastCoverage,
+  needsInheritedCanvas,
+  type ContrastCheckedSlide,
+} from "../shared/deck-contrast.js";
+import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
@@ -41,6 +46,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { inheritedSlideCanvas } from "./_design-system-canvas.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 import getDesignSystem from "./get-design-system.js";
 
@@ -144,7 +150,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live; the new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, use a light neutral canvas with ink text and one or two restrained accents; never default to a black canvas with white text.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. When a design system is linked, its color mode is authoritative: read the Color mode line in its context and author on that exact canvas, dark or light. Only when no design system is linked and the deck has no representative slide to match, use a light neutral canvas with ink text and one or two restrained accents rather than defaulting to a black canvas with white text.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -496,16 +502,29 @@ export default defineAction({
       },
       ctx,
     );
+    const linkedDesignSystem = await loadAgentDesignSystemContext(
+      resolvedDesignSystemId,
+      getDesignSystem,
+      { full: true },
+    );
+    const contrastCoverage = deckContrastCoverage(
+      slides as ContrastCheckedSlide[],
+      needsInheritedCanvas(slides as ContrastCheckedSlide[])
+        ? await inheritedSlideCanvas(
+            resolvedDesignSystemId,
+            linkedDesignSystem?.status === "available"
+              ? linkedDesignSystem.colorMode?.background
+              : null,
+          )
+        : null,
+    );
     return {
       id,
       title: resolvedTitle,
       slideCount: slides.length,
       designSystemId: resolvedDesignSystemId ?? null,
-      designSystem: await loadAgentDesignSystemContext(
-        resolvedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      ),
+      designSystem: linkedDesignSystem,
+      ...(contrastCoverage ? { contrastCoverage } : {}),
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
       deepLink: deckDeepLink(id),

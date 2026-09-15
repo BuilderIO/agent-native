@@ -46,6 +46,34 @@ When no system is linked, generated slides may use these conventions:
 | Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
 | Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
 
+## Color Mode and Contrast
+
+A linked design system's color mode is authoritative. Its context begins with a
+`Color mode: DARK` or `Color mode: LIGHT` line derived from its own background
+and text tokens; author on that canvas. The generic light-canvas fallback in
+the `add-slide` description and the no-system table above apply only when no
+design system is linked and the deck has no slide to match.
+
+Picking the right canvas is not enough. Pair it with the foreground token that
+belongs to it: a design kit exposes both a canvas color and the "on-canvas"
+text color for it, and using a second surface or container token as text is how
+a light kit produces light-on-light slides nobody can read. Every text color
+must reach 4.5:1 against the background actually behind it.
+
+Two checks report this, and both are gates, not advisories:
+
+- `add-slide` and `update-slide` return `contrastWarning` when the slide they
+  just wrote is unreadable. Fix that slide before writing the next one.
+- `get-deck` returns `contrastCoverage` with `unreadableSlideIds` and
+  `unreadableSlideNumbers` whenever any slide in the deck fails.
+
+For a "fix the contrast" request, `contrastCoverage` is the completion gate.
+Fix every listed slide id, then re-read `get-deck` and confirm the field is
+gone. Do not report a contrast pass as done while any slide is still listed,
+and do not stop at the slides you happened to look at. A pending `layoutFit`
+check is a separate concern about fit, never a reason to leave a slide
+unfixed or to hedge a partial pass as complete.
+
 ## Fit and Density
 
 Fit the main content to the native content area, not merely to the outer

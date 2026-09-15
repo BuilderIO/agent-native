@@ -73,7 +73,6 @@ import {
   isSourceImprovementRequest,
   persistDeckGenerationContext,
   requestedSlideCount,
-  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
 } from "@/lib/create-deck-generation";
 import {
   readStoredDeckFilter,
@@ -83,6 +82,7 @@ import {
 } from "@/lib/deck-filter";
 import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
+import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/design-system-prompt-context";
 import { isDesignSystemSelectable } from "@/lib/design-system-selection";
 import {
   IMPORT_ACTION_TIMEOUT_MS,

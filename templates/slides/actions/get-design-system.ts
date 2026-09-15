@@ -3,6 +3,10 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
+import {
+  designSystemColorModeFromData,
+  formatDesignSystemColorModeDirective,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -113,6 +117,15 @@ function buildDesignSystemAgentContext({
     "## Selected Design System Context",
     `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
     "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+    "",
+    // Builder token values override local proxy placeholders everywhere else
+    // in this context, so they win here too: the proxy `data` can hold a stale
+    // palette that would state a mode contradicting the token block below it.
+    ...formatDesignSystemColorModeDirective(
+      designSystemColorModeFromData(
+        builder ? { tokenValues: builder.tokenValues } : null,
+      ) ?? designSystemColorModeFromData(data),
+    ),
   ];
 
   if (description?.trim()) {
@@ -199,6 +212,11 @@ function buildCompactDesignSystemAgentContext({
   const lines: string[] = [
     "## Selected Design System Context (summary)",
     `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
+    "",
+    ...formatDesignSystemColorModeDirective(
+      designSystemColorModeFromData(data),
+      { compact: true },
+    ),
   ];
 
   if (description?.trim()) {
@@ -264,6 +282,9 @@ export default defineAction({
           ? truncate(row.description, MAX_SUMMARY_DESCRIPTION_CHARS)
           : row.description,
         builderDesignSystemId: builderReference?.builderDesignSystemId ?? null,
+        // The canvas a slide inherits when it sets no background of its own.
+        // Callers that audit contrast need it as a value, not as prose.
+        colorMode: designSystemColorModeFromData(row.data),
         agentContext: buildCompactDesignSystemAgentContext({
           id: row.id,
           title: row.title,
@@ -298,6 +319,10 @@ export default defineAction({
       data: row.data ?? null,
       assets: row.assets ?? null,
       customInstructions: row.customInstructions ?? "",
+      colorMode:
+        designSystemColorModeFromData(
+          builder ? { tokenValues: builder.tokenValues } : null,
+        ) ?? designSystemColorModeFromData(row.data),
       isDefault: row.isDefault,
       visibility: row.visibility,
       createdAt: row.createdAt,

@@ -43,6 +43,25 @@ export {
   type AgentDesignSystemContextUnavailable,
 } from "./design-system-agent-context.js";
 export {
+  contrastRatio,
+  findUnreadableTextColors,
+  formatSlideContrastWarning,
+  MIN_LARGE_TEXT_CONTRAST_RATIO,
+  MIN_TEXT_CONTRAST_RATIO,
+  type SlideContrastReport,
+  type UnreadableTextColor,
+} from "./slide-contrast.js";
+export {
+  cssColorChannels,
+  designSystemColorMode,
+  designSystemColorModeFromData,
+  formatDesignSystemColorModeDirective,
+  isDarkColorValue,
+  type DesignSystemColorMode,
+  type DesignSystemColorModeResult,
+  type DesignSystemColorTokens,
+} from "./design-system-color-mode.js";
+export {
   formatHtmlStyleSummary,
   summarizeHtmlStyles,
   type HtmlStyleFragment,

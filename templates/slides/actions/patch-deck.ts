@@ -40,6 +40,12 @@ import {
 } from "../server/lib/source-import.js";
 import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  deckContrastCoverage,
+  needsInheritedCanvas,
+  type ContrastCheckedSlide,
+} from "../shared/deck-contrast.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -55,6 +61,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { inheritedSlideCanvas } from "./_design-system-canvas.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -1211,6 +1218,12 @@ export default defineAction({
         content?: unknown;
         layoutFitRevision?: unknown;
       }> = Array.isArray(deck.slides) ? deck.slides : [];
+      const contrastCoverage = deckContrastCoverage(
+        finalSlides as ContrastCheckedSlide[],
+        needsInheritedCanvas(finalSlides as ContrastCheckedSlide[])
+          ? await inheritedSlideCanvas(resolveDeckDesignSystemId(row, deck))
+          : null,
+      );
       const base = {
         ok: true,
         deckId,
@@ -1238,6 +1251,7 @@ export default defineAction({
               },
             }
           : {}),
+        ...(contrastCoverage ? { contrastCoverage } : {}),
       };
       return base;
     });
