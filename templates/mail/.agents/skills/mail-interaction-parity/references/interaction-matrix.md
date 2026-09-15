@@ -746,13 +746,20 @@ traffic to any one path.
   cleared typed text while keeping the picker open; the second closed it.
   Mail now has a local natural-language parser, those three preset equivalents,
   two-step Escape handling, and a native-picker fallback with the hidden input
-  kept out of tab order. Parser/component regression cases were added for the
-  observed phrases, future-only dates, keyboard commitment, Escape, and picker
-  fallback. They have not been run yet because Mail browser/e2e verification is
-  serialized behind the active Slides QA pass. No Mail parity claim is made
-  until those tests and a same-state browser replay pass. With a mocked
-  provider, verify schedule success/failure and offline behavior without
-  sending real mail.
+  kept out of tab order. On 2026-09-14, the parser and scheduler component
+  regressions passed (38/38 focused tests), and a same-state local browser replay
+  passed through the split-button, Cmd/Ctrl+Shift+L, and Command → Schedule send
+  paths. The replay observed the three presets, `3 days` → Thu, Sep 17 at 8:00
+  AM, `8 am` → Tue, Sep 15 at 8:00 AM, `tomorrow afternoon` → Tue, Sep 15 at
+  1:00 PM, `Monday 9:45am` → Mon, Sep 21 at 9:45 AM, invalid and past input
+  rejection, ArrowUp/ArrowDown selection, and first-Escape clear/second-Escape
+  close. No schedule was committed, no message was sent, and the browser
+  reported no console errors; the pre-existing approved-recipient draft was
+  reopened with its recipient, subject, and empty body unchanged. This is local
+  synthetic-Mail evidence only. Commit/click scheduling, native picker
+  confirmation, provider success/failure, offline behavior, scheduled-list
+  read-back, send-now/cancel/undo, mobile behavior, and timing/DST boundaries
+  remain unverified. No global Mail parity claim is made.
 - SEND-006 — Test Smart Send on an eligible Business/Enterprise desktop account:
   activity-data eligibility, no recommendation, recipient timezone, multiple
   recipients and optimization choice, no-reply reminder mode, scheduled-send
