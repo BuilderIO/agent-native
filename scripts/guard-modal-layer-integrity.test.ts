@@ -289,13 +289,54 @@ test("does not flag unrelated arbitrary declarations", () => {
   assert.deepEqual(findings, []);
 });
 
-test("skips a call site commented out after code on the same line", () => {
-  const { findings, unreadable } = findOverlayPositionOverrides(
-    'const note = "see"; // <DialogContent className="relative" />',
+test("keeps a live call site that shares a line with JSX text using //", () => {
+  // Line comments are only masked at the start of a line. Masking an inline
+  // `//` would blank the rest of this line and silently lose the call site,
+  // which is worse than the commented-out example it would catch. A call site
+  // commented out after code on the same line is still reported; that is the
+  // documented tradeoff, and `overlay-position-ok` covers it.
+  const { findings } = findOverlayPositionOverrides(
+    '<p>Routes use // as a separator</p><DialogContent className="relative" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
+test("flags a position utility forwarded to the overlay", () => {
+  // DialogContent and SheetContent forward overlayClassName to their overlay,
+  // which pins itself with `fixed inset-0`.
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent overlayClassName="absolute" className="max-w-lg" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "absolute"/);
+});
+
+test("does not read a class-like data attribute as the class prop", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent data-className="relative" data-class="sticky" />',
     "templates/demo/app/App.tsx",
   );
   assert.deepEqual(findings, []);
-  assert.deepEqual(unreadable, []);
+});
+
+test("does not let a runtime value impersonate the opt-out marker", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '<DialogContent className="overlay-position-ok relative" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]!, /receives "relative"/);
+});
+
+test("does not let an unterminated block comment blank the rest of the file", () => {
+  const { findings } = findOverlayPositionOverrides(
+    '/* unterminated\n<DialogContent className="relative" />',
+    "templates/demo/app/App.tsx",
+  );
+  assert.equal(findings.length, 1);
 });
 
 test("reads past a block comment containing a closing angle bracket", () => {

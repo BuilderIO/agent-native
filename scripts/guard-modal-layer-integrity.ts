@@ -200,15 +200,22 @@ function maskComments(tag: string): string {
     const next = tag[index + 1];
     if (next === "*") {
       const close = tag.indexOf("*/", index + 2);
-      const end = close === -1 ? tag.length : close + 2;
+      // An unterminated `/*` would blank everything after it. That is a
+      // masking mistake, not a comment, so leave the text alone.
+      if (close === -1) continue;
+      const end = close + 2;
       for (let blank = index; blank < end; blank += 1) out[blank] = " ";
       index = end - 1;
       continue;
     }
     if (next === "/") {
-      // `https://` in unquoted JSX text is the one realistic `//` that is not
-      // a comment; masking from there would blank the rest of the line.
-      if (tag[index - 1] === ":") continue;
+      // Only at the start of a line. Unquoted `//` also appears in JSX body
+      // text ("use // as a separator") and in URLs, and masking from there
+      // would blank a real call site later on the line - a silent miss, which
+      // is worse than the commented-out example this would otherwise catch.
+      // A commented-out call site always sits on a line that starts with `//`.
+      const lineStart = tag.lastIndexOf("\n", index) + 1;
+      if (tag.slice(lineStart, index).trim() !== "") continue;
       const newline = tag.indexOf("\n", index);
       const end = newline === -1 ? tag.length : newline;
       for (let blank = index; blank < end; blank += 1) out[blank] = " ";
@@ -308,7 +315,13 @@ function classNameLiterals(rawTag: string): string[] {
   const literals: string[] = [];
   const tag = maskComments(rawTag);
 
-  for (const attribute of tag.matchAll(/\bclass(?:Name)?\s*=\s*/g)) {
+  // A real attribute boundary, so `data-className="relative"` is metadata and
+  // not read as the overlay's class prop. `overlayClassName` is included
+  // because DialogContent and SheetContent forward it to their overlay, where
+  // it merges over that element's own `fixed`.
+  for (const attribute of tag.matchAll(
+    /(?<=^|[\s{])(?:overlayClassName|className|class)\s*=\s*/g,
+  )) {
     const rest = tag.slice(attribute.index + attribute[0].length);
     const opener = rest[0];
 
@@ -409,12 +422,11 @@ export function findOverlayPositionOverrides(
       );
       continue;
     }
-    // The opt-out lives in a comment, so it is read off the raw tag.
-    if (
-      source
-        .slice(match.index, match.index + tag.length)
-        .includes(OVERRIDE_OPT_OUT)
-    ) {
+    // The opt-out must be a reviewed comment, so it has to be present in the
+    // raw tag and absent from the masked one. A className or data attribute
+    // carrying the same text cannot exempt a real override.
+    const rawTag = source.slice(match.index, match.index + tag.length);
+    if (rawTag.includes(OVERRIDE_OPT_OUT) && !tag.includes(OVERRIDE_OPT_OUT)) {
       continue;
     }
 
