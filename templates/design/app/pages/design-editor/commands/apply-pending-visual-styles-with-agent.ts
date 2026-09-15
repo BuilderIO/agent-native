@@ -192,6 +192,7 @@ export async function runApplyPendingVisualStylesWithAgent({
     const session: PendingStructureVerificationSession = {
       requestId,
       cancelled: false,
+      abortController: new AbortController(),
       edits: structureEdits,
       sources: [],
     };
@@ -252,7 +253,7 @@ export async function runApplyPendingVisualStylesWithAgent({
                 connectionId: source.connectionId,
                 path: source.path,
               },
-              { method: "GET" },
+              { method: "GET", signal: session.abortController.signal },
             )) as { versionHash?: string } | undefined;
             if (!result?.versionHash) {
               throw new Error(`Missing version hash for ${source.path}`);
@@ -364,7 +365,7 @@ export async function runApplyPendingVisualStylesWithAgent({
                       connectionId: source.connectionId,
                       path: source.path,
                     },
-                    { method: "GET" },
+                    { method: "GET", signal: session.abortController.signal },
                   )) as { versionHash?: string } | undefined;
                   return result?.versionHash;
                 }),
@@ -406,6 +407,7 @@ export async function runApplyPendingVisualStylesWithAgent({
             }
             // coercion-ok: moved verbatim; a failed optional probe here is indistinguishable from "not applicable" by design.
           } catch {
+            if (session.cancelled) return;
             // A transient bridge read must not discard the still-undoable
             // preview. Keep polling until the bounded deadline.
           }

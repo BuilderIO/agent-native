@@ -16,6 +16,7 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+import type { PendingStructureVerificationSession } from "@/pages/design-editor/command-types";
 import type { PendingLiveStructureEdit } from "@/pages/design-editor/pending-edits";
 
 import {
@@ -47,7 +48,9 @@ function argsFor(
   snapshots: Map<number, Record<string, { html: string; nodeCount: number }>>,
   options: { hangReads?: boolean } = {},
 ) {
-  const sessionRef = { current: undefined };
+  const sessionRef = {
+    current: undefined,
+  } as { current: PendingStructureVerificationSession | undefined };
   const pendingEditsRef = { current: edits };
   const stagedSourceHandoffRef = { current: "idle" as const };
   const sourceVersions = new Map(
@@ -80,10 +83,27 @@ function argsFor(
     }
   };
   const clearPendingLiveEditState = vi.fn();
-  const cancelPendingStructureVerification = vi.fn();
+  const cancelPendingStructureVerification = vi.fn(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    session.cancelled = true;
+    session.abortController.abort();
+  });
 
-  callActionMock.mockImplementation(async (_action, input) => {
-    if (options.hangReads) return new Promise(() => {});
+  callActionMock.mockImplementation(async (_action, input, callOptions) => {
+    if (options.hangReads) {
+      return new Promise((_resolve, reject) => {
+        const signal = (callOptions as { signal?: AbortSignal } | undefined)
+          ?.signal;
+        const abort = () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        };
+        if (signal?.aborted) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+      });
+    }
     const path = (input as { path: string }).path;
     const index = Number(path.match(/screen-(\d+)/)?.[1]);
     const writeAt = index === 1 ? 65_000 : index === 2 ? 100_000 : 155_000;
@@ -208,6 +228,21 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
 
     expect(setup.cancelPendingStructureVerification).toHaveBeenCalledWith(
       "conflict",
+    );
+  });
+
+  it("aborts a hanging source read when verification is cancelled", async () => {
+    const edits = [structureEdit(1)];
+    const setup = argsFor(edits, new Map(), { hangReads: true });
+    const applyPromise = runApplyPendingVisualStylesWithAgent(setup.args);
+
+    setup.cancelPendingStructureVerification();
+    await expect(applyPromise).resolves.toBeUndefined();
+
+    expect(callActionMock).toHaveBeenCalledWith(
+      "read-local-file",
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });

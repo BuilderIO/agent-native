@@ -994,7 +994,7 @@ export default defineAction({
         metadataNumber(existingScreenMetadata, "height") ??
         metadataNumber(routeMetadata, "height") ??
         900;
-      const routeRequestKey = `${routeConnection.id}::${routeId}::${width}x${height}`;
+      const routeRequestKey = `${routeConnection.id}::${url}::${width}x${height}`;
       if (seenRouteRequestKeys.has(routeRequestKey)) continue;
       seenRouteRequestKeys.add(routeRequestKey);
 

@@ -1402,7 +1402,10 @@ function DesignEditor() {
     (nextStatus: PendingStructureVerificationStatus = "idle") => {
       const session = pendingStructureVerificationSessionRef.current;
       if (!session && nextStatus !== "idle") return;
-      if (session) session.cancelled = true;
+      if (session) {
+        session.cancelled = true;
+        session.abortController.abort();
+      }
       pendingStructureVerificationSessionRef.current = undefined;
       pendingStructureVerificationSnapshotsRef.current.clear();
       setRuntimeStructureVerificationRequest(null);
@@ -1415,7 +1418,10 @@ function DesignEditor() {
     setRuntimeStructureVerificationRequest(null);
     return () => {
       const session = pendingStructureVerificationSessionRef.current;
-      if (session) session.cancelled = true;
+      if (session) {
+        session.cancelled = true;
+        session.abortController.abort();
+      }
       pendingStructureVerificationSessionRef.current = undefined;
       pendingStructureVerificationSnapshotsRef.current.clear();
     };

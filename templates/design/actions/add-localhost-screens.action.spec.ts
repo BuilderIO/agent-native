@@ -361,6 +361,30 @@ describe("add-localhost-screens refresh behavior", () => {
     });
   });
 
+  it("keeps query variants distinct within one request", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        { routeId: "route-settings", path: "/settings" },
+        {
+          routeId: "route-settings",
+          url: "http://localhost:5173/settings?onboarding=preview",
+        },
+      ],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens).toHaveLength(2);
+    expect(result.screens.map((screen) => screen.url)).toEqual([
+      "http://localhost:5173/settings",
+      "http://localhost:5173/settings?onboarding=preview",
+    ]);
+    expect(mocks.state.insertedFiles).toHaveLength(2);
+  });
+
   it("never overwrites an unrelated inline file that uses the generated localhost filename", async () => {
     mocks.state.connection.routeManifest = JSON.stringify({
       version: 1,

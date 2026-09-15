@@ -79,6 +79,10 @@ describe("tryForwardToDevServer", () => {
     mockIsValidDevActionHandoffUrl.mockClear();
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
+    delete process.env.APP_URL;
+    delete process.env.WORKSPACE_GATEWAY_URL;
+    delete process.env.VITE_WORKSPACE_GATEWAY_URL;
+    delete process.env.BETTER_AUTH_URL;
   });
 
   afterEach(() => {
