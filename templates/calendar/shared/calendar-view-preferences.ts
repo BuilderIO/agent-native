@@ -64,6 +64,13 @@ export function normalizeNumberOfDays(value: unknown): number {
     : DEFAULT_CALENDAR_DAYS;
 }
 
+export function isEventVisibleForDeclinedPreference(
+  responseStatus: string | undefined,
+  showDeclinedEvents: boolean,
+): boolean {
+  return showDeclinedEvents || responseStatus !== "declined";
+}
+
 export function isValidCalendarColorMode(
   value: unknown,
 ): value is CalendarColorMode {

@@ -118,6 +118,7 @@ import {
 } from "@/lib/calendar-timezone";
 import {
   DEFAULT_CALENDAR_DAYS,
+  isEventVisibleForDeclinedPreference,
   MAX_CALENDAR_DAYS,
   MIN_CALENDAR_DAYS,
   normalizeNumberOfDays,
@@ -789,7 +790,12 @@ export default function CalendarView() {
         ) {
           return false;
         }
-        if (!viewPrefs.showDeclinedEvents && e.responseStatus === "declined") {
+        if (
+          !isEventVisibleForDeclinedPreference(
+            e.responseStatus,
+            viewPrefs.showDeclinedEvents,
+          )
+        ) {
           return false;
         }
         // Hide events from hidden external calendars
