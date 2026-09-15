@@ -508,9 +508,57 @@ describe("linked component structure propagation", () => {
     }
   });
 
+  it("keeps adjacent raw gaps before the next surviving child when a middle child is deleted", () => {
+    const fixture = structuralDocuments();
+    const documents = fixture.documents.map((document, index) => ({
+      ...document,
+      content: document.content
+        .replace(/<\/h2><p /, `</h2><!--gap-${index}-one-->raw-${index}-one<p `)
+        .replace(
+          /<\/p><\/section>/,
+          `</p><!--gap-${index}-two-->raw-${index}-two<div ${NODE_ID_ATTR}="third-${index}" ${
+            index === 0 ? "" : `${COMPONENT_SOURCE_NODE_ID_ATTR}="third-0" `
+          }>Third</div><!--gap-${index}-three-->raw-${index}-three</section>`,
+        ),
+    }));
+    const result = applyMainStructure(documents, {
+      kind: "deleteNode",
+      target: { nodeId: "subtitle" },
+    });
+
+    expect(result.status).toBe("updated");
+    if (result.status !== "updated") return;
+    for (const [index, fileId] of ["file-2", "file-3"].entries()) {
+      const after = result.changes.find(
+        (change) => change.fileId === fileId,
+      )?.after;
+      expect(after).toBeDefined();
+      const firstGap = after!.indexOf(`<!--gap-${index + 1}-one-->`);
+      const secondGap = after!.indexOf(`<!--gap-${index + 1}-two-->`);
+      const thirdChild = after!.indexOf(
+        `${COMPONENT_SOURCE_NODE_ID_ATTR}="third-0"`,
+      );
+      const thirdGap = after!.indexOf(`<!--gap-${index + 1}-three-->`);
+      expect(firstGap).toBeGreaterThan(-1);
+      expect(secondGap).toBeGreaterThan(firstGap);
+      expect(thirdChild).toBeGreaterThan(secondGap);
+      expect(thirdGap).toBeGreaterThan(thirdChild);
+      expect(after!.match(new RegExp(`raw-${index + 1}-`, "g"))).toHaveLength(
+        3,
+      );
+    }
+  });
+
   it("reorders children while retaining an instance text and style override", () => {
     const fixture = structuralDocuments();
-    const result = applyMainStructure(fixture.documents, {
+    const documents = fixture.documents.map((document, index) => ({
+      ...document,
+      content: document.content.replace(
+        /<\/h2><p /,
+        `</h2><!--identity-gap-${index}-->unprojected-${index}<p `,
+      ),
+    }));
+    const result = applyMainStructure(documents, {
       kind: "moveNode",
       target: { nodeId: "subtitle" },
       anchor: { nodeId: "title" },
@@ -529,6 +577,11 @@ describe("linked component structure propagation", () => {
     );
     expect(after).toContain("Instance override");
     expect(after).toContain("color:orange");
+    const gap = "<!--identity-gap-1-->unprojected-1";
+    expect(after.split(gap)).toHaveLength(2);
+    expect(after.indexOf(gap)).toBeLessThan(
+      after.indexOf('data-agent-native-component-source-node-id="subtitle"'),
+    );
   });
 
   it("wraps with changed local coordinates and syncs only unoverridden values", () => {

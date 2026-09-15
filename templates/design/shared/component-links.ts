@@ -1627,16 +1627,41 @@ function renderComponentChildren(
   const middleGaps = hasOldSlots ? gaps.slice(1, -1) : [];
   const prefix = gaps[0] ?? "";
   const suffix = hasOldSlots ? (gaps[gaps.length - 1] ?? "") : "";
+  const renderedSourceIds = new Set(
+    children.map((child) => child.sourceNodeId),
+  );
+  const originalSourceIds: string[] = [];
+  for (const child of directChildren) {
+    const sourceNodeId =
+      identityValue(child, COMPONENT_SOURCE_NODE_ID_ATTR) ??
+      identityValue(child, NODE_ID_ATTR);
+    if (!sourceNodeId) return null;
+    originalSourceIds.push(sourceNodeId);
+  }
+  const gapsBeforeSourceId = new Map<string, string>();
+  let trailingGaps = "";
+  let nextRenderedSourceId: string | undefined;
+  for (let index = middleGaps.length - 1; index >= 0; index -= 1) {
+    const candidateSourceId = originalSourceIds[index + 1];
+    if (candidateSourceId && renderedSourceIds.has(candidateSourceId)) {
+      nextRenderedSourceId = candidateSourceId;
+    }
+    const gap = middleGaps[index] ?? "";
+    if (nextRenderedSourceId) {
+      gapsBeforeSourceId.set(
+        nextRenderedSourceId,
+        `${gap}${gapsBeforeSourceId.get(nextRenderedSourceId) ?? ""}`,
+      );
+    } else {
+      trailingGaps = `${gap}${trailingGaps}`;
+    }
+  }
   let rebuilt = prefix;
-  for (let index = 0; index < children.length; index += 1) {
-    const child = children[index];
-    if (!child) return null;
+  for (const child of children) {
+    rebuilt += gapsBeforeSourceId.get(child.sourceNodeId) ?? "";
     rebuilt += child.content;
-    rebuilt += middleGaps[index] ?? "";
   }
-  for (let index = children.length; index < middleGaps.length; index += 1) {
-    rebuilt += middleGaps[index] ?? "";
-  }
+  rebuilt += trailingGaps;
   rebuilt += suffix;
 
   return (

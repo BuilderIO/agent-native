@@ -32,6 +32,7 @@ export function migrateBreakpointMediaBounds(
     if (parsed.type !== "root") return null;
     root = parsed;
   } catch {
+    // coercion-ok: callers treat null as a typed refusal and fail closed on invalid CSS.
     return null;
   }
 
