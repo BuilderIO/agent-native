@@ -17,6 +17,7 @@ export type FactoryAuditItemSnapshot = {
   summary: string | null;
   source: string | null;
   sourceUrl: string | null;
+  pullRequestNumber?: number | null;
   status?: string | null;
   createdAt?: string | null;
   lastSeenAt?: string | null;
@@ -46,6 +47,7 @@ export type FactoryAuditReportItem = {
   sourceUrl: string | null;
   title: string;
   summary: string | null;
+  pullRequestNumber: number | null;
   outcome: FactoryAuditItemOutcome;
   status: string;
   rationale: string | null;
@@ -60,6 +62,17 @@ export type FactoryAuditReportItem = {
   firstSeenThisRun: boolean;
   builderAlreadyStarted: boolean;
   userLabels?: Record<string, string>;
+  babysitRecommendation?: string | null;
+  babysitBecause?: string | null;
+  babysitDecision?: string | null;
+  babysitVeto?: string | null;
+  babysitBuilderActive?: boolean | null;
+  babysitOpenBotThreads?: number | null;
+  babysitOpenHumanThreads?: number | null;
+  babysitCiBlocking?: string | null;
+  babysitAgentMatched?: boolean | null;
+  babysitBotThreadSummaries?: string[] | null;
+  babysitHumanThreadSummaries?: string[] | null;
 };
 
 export type FactoryAuditTraceStep = {
@@ -220,6 +233,7 @@ function projectItem(
     listedStatus === "automation_started" ||
     occurredBeforeWindow(item?.slackBuilderReplyAt, window) ||
     startedBeforeWindow(run, window);
+  const babysit = readBabysitAuditDetails(events);
 
   return {
     itemId,
@@ -230,6 +244,10 @@ function projectItem(
       null,
     title: auditItemSubject(item, events),
     summary: auditItemMessage(item, events),
+    pullRequestNumber:
+      typeof item?.pullRequestNumber === "number" && item.pullRequestNumber > 0
+        ? item.pullRequestNumber
+        : null,
     outcome,
     status:
       outcome === "failed"
@@ -237,7 +255,8 @@ function projectItem(
         : outcome === "held" || outcome === "left"
           ? "skipped"
           : "success",
-    rationale: decision?.summary ?? dispatch?.summary ?? null,
+    rationale:
+      babysit.because ?? decision?.summary ?? dispatch?.summary ?? null,
     dispatchError,
     clearBug: readBooleanDetail(decision?.details, "clearBug"),
     productUx: readBooleanDetail(decision?.details, "productUxImplications"),
@@ -249,6 +268,17 @@ function projectItem(
     firstSeenThisRun,
     builderAlreadyStarted,
     userLabels: item?.userLabels,
+    babysitRecommendation: babysit.recommendation,
+    babysitBecause: babysit.because,
+    babysitDecision: babysit.decision,
+    babysitVeto: babysit.veto,
+    babysitBuilderActive: babysit.builderActive,
+    babysitOpenBotThreads: babysit.openBotThreads,
+    babysitOpenHumanThreads: babysit.openHumanThreads,
+    babysitCiBlocking: babysit.ciBlocking,
+    babysitAgentMatched: babysit.agentMatched,
+    babysitBotThreadSummaries: babysit.botThreadSummaries,
+    babysitHumanThreadSummaries: babysit.humanThreadSummaries,
   };
 }
 
@@ -582,6 +612,82 @@ function byCreatedAtAsc(
   return (
     new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
   );
+}
+
+function readBabysitAuditDetails(events: FactoryAuditEventRecord[]): {
+  recommendation: string | null;
+  because: string | null;
+  decision: string | null;
+  veto: string | null;
+  builderActive: boolean | null;
+  openBotThreads: number | null;
+  openHumanThreads: number | null;
+  ciBlocking: string | null;
+  agentMatched: boolean | null;
+  botThreadSummaries: string[] | null;
+  humanThreadSummaries: string[] | null;
+} {
+  const babysitEvents = events.filter(
+    (event) =>
+      event.action === "babysit-factory-pull-request" ||
+      event.action === "propose-pr-babysit-status",
+  );
+  const write =
+    [...babysitEvents]
+      .reverse()
+      .find((event) => event.action === "babysit-factory-pull-request") ?? null;
+  const propose =
+    [...babysitEvents]
+      .reverse()
+      .find((event) => event.action === "propose-pr-babysit-status") ?? null;
+  const details = write?.details ?? propose?.details;
+  if (!details) {
+    return {
+      recommendation: null,
+      because: null,
+      decision: null,
+      veto: null,
+      builderActive: null,
+      openBotThreads: null,
+      openHumanThreads: null,
+      ciBlocking: null,
+      agentMatched: null,
+      botThreadSummaries: null,
+      humanThreadSummaries: null,
+    };
+  }
+  const blockingFailed = readNumberDetail(details, "ciBlockingFailed");
+  return {
+    recommendation: readStringDetail(details, "recommendation"),
+    because: readStringDetail(details, "because"),
+    decision: readStringDetail(details, "decision"),
+    veto: readStringDetail(details, "veto"),
+    builderActive: readBooleanDetail(details, "builderActive"),
+    openBotThreads: readNumberDetail(details, "openBotThreads"),
+    openHumanThreads: readNumberDetail(details, "openHumanThreads"),
+    ciBlocking:
+      typeof blockingFailed === "number" && blockingFailed > 0
+        ? `${blockingFailed} failing`
+        : null,
+    agentMatched: readBooleanDetail(details, "agentMatchedRecommendation"),
+    botThreadSummaries: readStringArrayDetail(details, "botThreadSummaries"),
+    humanThreadSummaries: readStringArrayDetail(
+      details,
+      "humanThreadSummaries",
+    ),
+  };
+}
+
+function readStringArrayDetail(
+  details: Record<string, unknown> | undefined,
+  key: string,
+): string[] | null {
+  const value = details?.[key];
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const strings = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  return strings.length > 0 ? strings : null;
 }
 
 function readBooleanDetail(

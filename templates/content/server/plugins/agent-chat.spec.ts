@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({
   loadActionsFromStaticRegistry: vi.fn(() => ({})),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   createAgentChatPlugin: mocks.createAgentChatPlugin,
   loadActionsFromStaticRegistry: mocks.loadActionsFromStaticRegistry,
 }));

@@ -399,10 +399,12 @@ test("8:09 — enabling auto layout keeps the container's children", async ({
   await page.waitForTimeout(2500);
 
   const after = await indexHtml(page, designId);
-  test.skip(
-    after === before,
-    "Shift+A did not apply auto layout, so there is nothing to drop — see the 2:35 test",
-  );
+  // peer PR (hotkeys) owns Shift+A applying auto layout (see the 2:35 test);
+  // observed: html unchanged when this fails.
+  expect(
+    after,
+    "Shift+A must apply auto layout before there is anything to drop",
+  ).not.toBe(before);
   expect(
     primitiveStyles(after, "text").length,
     `Auto layout dropped text children: ${textsBefore} before, ` +
@@ -615,12 +617,28 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
   ).boundingBox())!;
 
   // The in-iframe "shield" overlay swallows locator clicks — drive the
-  // pointer directly.
+  // pointer directly. As in Figma, the first click selects the stack (the
+  // screen's direct child) and a second click selects the paragraph inside
+  // the selected stack; only then does a drag move the paragraph.
   await page.mouse.click(
     second.x + second.width / 2,
     second.y + second.height / 2,
   );
   await page.waitForTimeout(1200);
+  await page.mouse.click(
+    second.x + second.width / 2,
+    second.y + second.height / 2,
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as { __designTrace?: { dump(): string } }
+          ).__designTrace?.dump() ?? "",
+      ),
+    )
+    .toContain('node-id=\\"p2\\"');
   await page.mouse.move(
     second.x + second.width / 2,
     second.y + second.height / 2,
@@ -637,11 +655,17 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
   await page.waitForTimeout(2500);
 
   const html = await indexHtml(page, designId);
+  const trace = await page.evaluate(
+    () =>
+      (
+        window as { __designTrace?: { dump(): string } }
+      ).__designTrace?.dump() ?? "",
+  );
   expect(
     html.indexOf("Second paragraph"),
     `Dragging "Second paragraph" above "First paragraph" on the canvas did not ` +
       `reorder the document. Clip 5:07 "why can't I simply drag and drop a text ` +
-      `just above a text I want? I need to use this left panel".`,
+      `just above a text I want? I need to use this left panel". Trace: ${trace}`,
   ).toBeLessThan(html.indexOf("First paragraph"));
 });
 

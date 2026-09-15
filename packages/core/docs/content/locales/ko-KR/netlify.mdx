@@ -13,9 +13,11 @@ export default defineConfig({
 });
 ```
 
-새 스캐폴드에서는 Vite 패키지 타입을 맞추기 위해 가져온 함수의 이름을
-`agentNativePlugins`로 지정하고 결과를 펼칠 수 있습니다. 동일한 `agentNative`
-플러그인이며 같은 옵션을 받습니다.
+생성된 Chat 스캐폴드에서도 import 이름은 `agentNative`입니다. 설정은 타입 단언으로 이를
+로컬 `agentNativePlugins` 별칭에 할당한 뒤, Vite 패키지 타입을 맞추기 위해 반환된 플러그인
+배열을 펼칩니다. 이 별칭은 위 `agentNative` 예시와 같은 옵션을 받습니다. Netlify에 배포하려면
+기존 `agentNativePlugins({ ... })` 호출의 옵션에 `nitro: { preset: "netlify" }`를 추가하세요.
+나머지 Chat 전용 플러그인, 옵션, 별칭은 그대로 두세요.
 
 …또는 빌드 시점에 `NITRO_PRESET=netlify`를 설정하세요.
 

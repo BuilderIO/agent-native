@@ -307,7 +307,10 @@ export async function loadIntakeContextFromAppState(
       "contextMode" | "selectedContextId" | "pinnedPackId"
     >
   >,
+  creativeContextEnabled: boolean,
 ): Promise<IntakeContextResult> {
+  if (!creativeContextEnabled) return OFF_RESULT;
+
   let state;
   try {
     state = await readState();

@@ -1253,13 +1253,7 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // Select child A.
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
       // Install the message collector AFTER setContent (setContent replaces the
       // document and would wipe a listener added earlier), then reset it so we
       // only observe messages from the drag below.
@@ -1421,13 +1415,7 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // Select A (top-left at 20,20; grab at its center 70,50 → grab offset 50,30).
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Ctrl-drag into open space below the row and release at (400, 300).
       await page.keyboard.down("Control");
@@ -1499,13 +1487,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Drag WITHOUT a modifier, then press Ctrl only just before releasing
       // (no pointer move after) — the drop must still free-place as absolute.
@@ -1563,13 +1545,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
         window.addEventListener("message", (event: MessageEvent) => {
@@ -1649,13 +1625,7 @@ it(
       });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(70, 50);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="a"]');
 
       // Plain drag (no modifier) of A rightward → reorder; siblings between the
       // origin and the drop slot must translate aside to open the gap.
@@ -2167,7 +2137,16 @@ it(
     </div>
   </body>
 </html>`);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      // Text editing must be ON: beginTextEditingFromEvent (the dblclick
+      // handler that owns the non-text descend fallback below) bails out
+      // before reaching it whenever textEditingEnabled is false — the
+      // dblclick listener invokes it with no `forceTextEditing` override.
+      // This used to be masked by the plain click's OLD deep-hit selection
+      // (the click half of the double-click already landed on #icon), which
+      // container-first selection no longer does.
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+      });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       // First click selects the outer group (an ordinary single click).
@@ -2213,7 +2192,7 @@ it(
 );
 
 it(
-  "keeps a generated group selected on click and edits its text child on double-click",
+  "click-through descends from a generated wrapper into its text child on the second click, then edits it on double-click",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -2282,7 +2261,11 @@ it(
         (window as any).__elementSelectPayloads.at(-1),
       );
 
-      expect(repeatedSelection.sourceId).toBe("headline");
+      // Figma parity: with the wrapper already selected, a second plain
+      // click descends into the child under the pointer instead of
+      // re-resolving back to the wrapper (clickThroughSelectionTarget no
+      // longer promotes to a group-wrapper-marked ancestor).
+      expect(repeatedSelection.sourceId).not.toBe("headline");
 
       await page.mouse.dblclick(point.x, point.y);
       await page.waitForFunction(() =>
@@ -2367,6 +2350,13 @@ it(
         });
       });
 
+      // Cmd/Ctrl+click deep-selects the raw hit and skips the container-first
+      // outermost-child-of-scope step (spec Part 3), so it's the path that
+      // exercises selectionTargetForHit's generated-vs-authored group-wrapper
+      // marker check below. A plain click would always resolve to the
+      // outermost child of the current scope regardless of that marker.
+      await page.keyboard.down("Meta");
+
       await page.mouse.click(140, 140);
       await page.waitForFunction(
         () => ((window as any).__selectedIds as string[]).length >= 1,
@@ -2410,6 +2400,8 @@ it(
         (window as any).__selectedIds.at(-1),
       );
       expect(clonedSelection).toBe("cloned-child");
+
+      await page.keyboard.up("Meta");
     } finally {
       await browser.close();
     }
@@ -2949,15 +2941,7 @@ it(
         );
         // Re-click to (re)select and force the overlay to reposition against
         // the just-changed rendered box before reading the handle position.
-        await page.mouse.click(30, 30);
-        await page.waitForFunction(() => {
-          const overlay = document.querySelector<HTMLElement>(
-            '[data-agent-native-edit-overlay="selection"]',
-          );
-          return (
-            overlay && window.getComputedStyle(overlay).display === "block"
-          );
-        });
+        await selectElementDirect(page, "#target");
 
         const before = await page.evaluate(
           () =>
@@ -2995,15 +2979,7 @@ it(
           },
           { unit },
         );
-        await page.mouse.click(30, 30);
-        await page.waitForFunction(() => {
-          const overlay = document.querySelector<HTMLElement>(
-            '[data-agent-native-edit-overlay="selection"]',
-          );
-          return (
-            overlay && window.getComputedStyle(overlay).display === "block"
-          );
-        });
+        await selectElementDirect(page, "#target");
 
         const before = await page.evaluate(
           () =>
@@ -3078,13 +3054,7 @@ it(
       expect(renderedBefore.width).toBeCloseTo(500, 0);
       expect(renderedBefore.height).toBeCloseTo(160, 0);
 
-      await page.mouse.click(30, 30);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, "#target");
 
       const seHandle = page.locator('[data-agent-native-edit-handle="se"]');
       const seBox = await seHandle.boundingBox();
@@ -3148,13 +3118,7 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(30, 30);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, "#target");
 
       // Pure vertical drag: the "s" EDGE handle (not a corner), so width
       // should never enter into the gesture at all.
@@ -4033,13 +3997,7 @@ it(
       });
       const startX = item1Rect.left + item1Rect.width / 2;
       const startY = item1Rect.top + item1Rect.height / 2;
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const sel = document.querySelector(
-          '[data-agent-native-edit-overlay="selection"]',
-        ) as HTMLElement | null;
-        return !!sel && sel.style.display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="item1"]');
 
       const item3Rect = await page.evaluate(() => {
         const r = document.getElementById("item3")!.getBoundingClientRect();
@@ -4150,17 +4108,7 @@ it(
       });
       const chipCenterX = chipRect.left + chipRect.width / 2;
       const chipCenterY = chipRect.top + chipRect.height / 2;
-      await page.mouse.click(chipCenterX, chipCenterY);
-      await page.waitForFunction(() => {
-        const sel = document.querySelector(
-          '[data-agent-native-edit-overlay="selection"]',
-        ) as HTMLElement | null;
-        return (
-          !!sel &&
-          sel.style.display === "block" &&
-          parseFloat(sel.style.width || "0") < 100
-        );
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="chip"]');
       // Handle spans carry 150ms width/height/offset transitions — let them
       // settle before measuring rendered hit-zone rects.
       await page.waitForTimeout(250);
@@ -5606,6 +5554,43 @@ async function readBridgeMessages(page: import("@playwright/test").Page) {
   );
 }
 
+// Selects `selector` directly via the bridge's `select-element` postMessage
+// instead of a plain click. Plain clicks now resolve container-first (Figma
+// parity — containerFirstSelectionTarget): clicking a descendant nested more
+// than one level below the current container scope (the screen root, i.e.
+// document.body, by default) selects that scope's direct child on the path
+// to the pointer, not the descendant itself. A setup that needs a specific
+// nested element selected — to drag/resize/etc. THAT element rather than its
+// wrapping container — must select it explicitly.
+//
+// Waits for the overlay to actually match the target's CURRENT rect, not
+// just for display:block — a re-select of the element that is ALREADY the
+// selection (e.g. re-selecting after changing its size) never flips display,
+// so that alone resolves immediately against the stale, pre-change geometry
+// and races the postMessage's async delivery.
+async function selectElementDirect(
+  page: import("@playwright/test").Page,
+  selector: string,
+) {
+  await page.evaluate((sel) => {
+    window.postMessage({ type: "select-element", selector: sel }, "*");
+  }, selector);
+  await page.waitForFunction((sel) => {
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-agent-native-edit-overlay="selection"]',
+    );
+    const target = document.querySelector(sel);
+    if (!overlay || !target) return false;
+    if (window.getComputedStyle(overlay).display !== "block") return false;
+    const targetRect = target.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    return (
+      Math.abs(overlayRect.width - targetRect.width) < 2 &&
+      Math.abs(overlayRect.height - targetRect.height) < 2
+    );
+  }, selector);
+}
+
 it(
   "editor chrome bridge nests a dragged rectangle into a plain rectangle target as a free child (no auto-layout conversion)",
   { timeout: 30_000 },
@@ -6039,13 +6024,7 @@ it(
 
       // #note renders at roughly (342, 282)-(422, 322) on screen
       // (outer's origin ~(300,100) + 2px border + note's own left/top).
-      await page.mouse.click(382, 302);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="note"]');
       await page.mouse.move(382, 302);
       await page.mouse.down();
       await page.mouse.move(392, 312); // crosses the 3px threshold → reference
@@ -6433,13 +6412,7 @@ it(
 
       // Child center is at (90, 80). Drop on empty screen to the right of
       // the frame (frame right edge is 240).
-      await page.mouse.click(90, 80);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
 
       await page.mouse.move(90, 80);
       await page.mouse.down();
@@ -6762,8 +6735,11 @@ it(
       const box = (await page.locator("#item").boundingBox())!;
       const startX = box.x + box.width / 2;
       const startY = box.y + box.height / 2;
-      await page.mouse.click(startX, startY);
-      await page.waitForTimeout(30);
+      // #item sits nested inside #scroller, itself nested inside #screen: a
+      // plain click now selects the outermost container first (Figma parity
+      // — containerFirstSelectionTarget), which would drag #screen instead
+      // of the item this test means to pull out of the scrollable ancestor.
+      await selectElementDirect(page, '[data-agent-native-node-id="item"]');
       await page.mouse.move(startX, startY);
       await page.mouse.down();
       await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
@@ -6836,8 +6812,11 @@ it(
         const box = (await page.locator("#item").boundingBox())!;
         const startX = box.x + box.width / 2;
         const startY = box.y + box.height / 2;
-        await page.mouse.click(startX, startY);
-        await page.waitForTimeout(30);
+        // #item starts nested inside #flowA (and later inside #flowB /
+        // #absoluteFrame): a plain click now selects the wrapping container
+        // first (Figma parity), so select #item explicitly by its stable
+        // node id regardless of which container currently holds it.
+        await selectElementDirect(page, '[data-agent-native-node-id="item"]');
         await page.mouse.move(startX, startY);
         await page.mouse.down();
         await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
@@ -6982,7 +6961,13 @@ it(
       const spaceBox = (await page.locator("#spaceItem").boundingBox())!;
       const spaceStartX = spaceBox.x + spaceBox.width / 2;
       const spaceStartY = spaceBox.y + spaceBox.height / 2;
-      await page.mouse.click(spaceStartX, spaceStartY);
+      // #spaceItem/#controlItem sit nested inside #flowA: a plain click now
+      // selects the wrapping flow container first (Figma parity), so select
+      // each item explicitly instead of clicking it.
+      await selectElementDirect(
+        page,
+        '[data-agent-native-node-id="spaceItem"]',
+      );
       await page.mouse.move(spaceStartX, spaceStartY);
       await page.mouse.down();
       await page.keyboard.down("Space");
@@ -7004,7 +6989,10 @@ it(
       const controlBox = (await page.locator("#controlItem").boundingBox())!;
       const controlStartX = controlBox.x + controlBox.width / 2;
       const controlStartY = controlBox.y + controlBox.height / 2;
-      await page.mouse.click(controlStartX, controlStartY);
+      await selectElementDirect(
+        page,
+        '[data-agent-native-node-id="controlItem"]',
+      );
       await page.mouse.move(controlStartX, controlStartY);
       await page.mouse.down();
       await page.keyboard.down("Control");
@@ -7376,13 +7364,10 @@ it(
       // Select row C, then drag it into the GAP between rows A and B — the
       // pointer sits over the container's own background there, which used
       // to resolve to placement "inside" (append after last, no line).
-      await page.mouse.click(300, 270); // row C center (rows at 88/164/240, each 60 tall)
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #rowC sits nested inside #list: a plain click now selects #list
+      // first (Figma parity), so select #rowC explicitly instead of
+      // clicking its center (rows at 88/164/240, each 60 tall).
+      await selectElementDirect(page, "#rowC");
       await page.mouse.move(300, 270);
       await page.mouse.down();
       await page.mouse.move(306, 264, { steps: 2 });
@@ -8014,13 +7999,10 @@ it(
       const startX = itemABox.x + itemABox.width / 2;
       const startY = itemABox.y + itemABox.height / 2;
 
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // The "Alpha" <li> sits nested inside <ul>: a plain click now selects
+      // <ul> first (Figma parity), so select it explicitly instead. The
+      // <template> counts as ul's first child, making Alpha nth-child(2).
+      await selectElementDirect(page, "ul > li:nth-child(2)");
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -8246,13 +8228,9 @@ it(
       const startX = itemABox.x + itemABox.width / 2;
       const startY = itemABox.y + itemABox.height / 2;
 
-      await page.mouse.click(startX, startY);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // itemA/itemB sit nested inside <ul>: a plain click now selects <ul>
+      // first (Figma parity), so select itemA explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="itemA"]');
 
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -8579,8 +8557,9 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(200, 170);
-      await page.waitForTimeout(60);
+      // #child sits nested inside #frame: a plain click now selects #frame
+      // first (Figma parity), so select #child explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
       await page.mouse.move(200, 170);
       await page.mouse.down();
       await page.mouse.move(210, 180, { steps: 3 });
@@ -8646,8 +8625,9 @@ it(
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
-      await page.mouse.click(200, 170);
-      await page.waitForTimeout(60);
+      // #child sits nested inside #frame: a plain click now selects #frame
+      // first (Figma parity), so select #child explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="child"]');
       await page.mouse.move(200, 170);
       await page.mouse.down();
       await page.mouse.move(210, 180, { steps: 3 });
@@ -9303,13 +9283,9 @@ it(
       expect(before.position).toBe("absolute");
 
       // Drag #dragme (center ~80, 420) into the pristine #row (center 410, 200).
-      await page.mouse.click(80, 420);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #dragme sits nested inside #origin: a plain click now selects
+      // #origin first (Figma parity), so select #dragme explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="dragme"]');
 
       await page.mouse.move(80, 420);
       await page.mouse.down();
@@ -10018,7 +9994,9 @@ it(
 
       // Move D into the first-row column gap. The bridge must use a flow
       // insertion slot, then native CSS Grid performs the child reflow.
-      await page.mouse.click(570, 236);
+      // Cell D sits nested inside #grid: a plain click now selects #grid
+      // first (Figma parity), so select D explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="d"]');
       await page.mouse.move(570, 236);
       await page.mouse.down();
       await page.mouse.move(562, 228, { steps: 2 });
@@ -11253,13 +11231,9 @@ it(
 
       // Select #card-b (center ~170,126), then drag it straight down past
       // #card-c's midline (~202) — the clip's "move Card B below Card C" gesture.
-      await page.mouse.click(170, 126);
-      await page.waitForFunction(() => {
-        const overlay = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="selection"]',
-        );
-        return overlay && window.getComputedStyle(overlay).display === "block";
-      });
+      // #card-b sits nested inside #col: a plain click now selects #col
+      // first (Figma parity), so select #card-b explicitly instead.
+      await selectElementDirect(page, '[data-agent-native-node-id="card-b"]');
       await page.mouse.move(170, 126);
       await page.mouse.down();
       await page.mouse.move(170, 135, { steps: 4 }); // cross the 3px threshold
@@ -11440,13 +11414,11 @@ async function dragFlowChildOnto(
 ) {
   const from = (await page.locator("#dragme").boundingBox())!;
   const to = (await page.locator(targetSelector).boundingBox())!;
-  await page.mouse.click(from.x + from.width / 2, from.y + from.height / 2);
-  await page.waitForFunction(() => {
-    const overlay = document.querySelector<HTMLElement>(
-      '[data-agent-native-edit-overlay="selection"]',
-    );
-    return overlay && window.getComputedStyle(overlay).display === "block";
-  });
+  // Select #dragme directly rather than clicking it: #dragme sits nested
+  // inside #source, and a plain click now selects the outermost container
+  // first (Figma parity — selectionTargetForHit), which would drag #source
+  // instead of the specific child this helper means to test.
+  await selectElementDirect(page, "#dragme");
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(from.x + 20, from.y + 20, { steps: 4 });

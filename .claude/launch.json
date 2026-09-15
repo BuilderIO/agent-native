@@ -760,6 +760,36 @@
         "8085"
       ],
       "port": 8085
+    },
+    {
+      "name": "design-followup",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-followup",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "AUTH_DISABLED=true",
+        "--env",
+        "APP_NAME=design",
+        "--env",
+        "DESIGN_DATABASE_URL=pglite:.tmp/design-followup-pglite",
+        "--env",
+        "DATABASE_URL=pglite:.tmp/design-followup-pglite",
+        "--env",
+        "APP_URL=http://localhost:9342",
+        "--",
+        "dev",
+        "--port",
+        "9342"
+      ],
+      "port": 9342
     }
   ]
 }

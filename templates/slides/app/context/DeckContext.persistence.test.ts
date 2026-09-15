@@ -360,10 +360,15 @@ describe("DeckContext deck creation persistence", () => {
   });
 
   it("exposes an initial deck-list failure instead of an authoritative empty list", async () => {
+    // A 504 is retryable, so the failure surfaces only after the shared
+    // transient budget is spent — the page stays on the skeleton until then
+    // rather than flashing an error a retry would have made wrong.
     setupFetch({ failDeckList: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
 
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.loading).toBe(false), {
+      timeout: 15_000,
+    });
 
     expect(result.current.decks).toEqual([]);
     expect(result.current.loadError).toBe(true);

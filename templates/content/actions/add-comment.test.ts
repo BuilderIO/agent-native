@@ -224,7 +224,13 @@ describe("comment submission receipts", () => {
     });
     expect(state.inserted).toHaveLength(1);
     expect(notifyDocumentComment).toHaveBeenCalledTimes(1);
-    expect(mockAssertAccess).toHaveBeenCalledTimes(2);
+    expect(mockAssertAccess).toHaveBeenCalledTimes(3);
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "commenter",
+      expect.objectContaining({ transaction: expect.anything() }),
+    );
   });
   it("preserves original submission provenance when a retry comes from a new run", async () => {
     await run(input, { caller: "tool", runId: "original-run" });

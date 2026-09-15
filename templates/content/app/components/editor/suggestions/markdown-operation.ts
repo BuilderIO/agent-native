@@ -1,8 +1,10 @@
+import { canonicalizeNfm } from "../../../../shared/nfm.js";
 import {
   suggestionFormattingChanges,
   suggestionMarkedSourceRanges,
   SuggestionFormattingMappingError,
-} from "@shared/suggestion-formatting";
+} from "../../../../shared/suggestion-formatting.js";
+import { resolveMarkdownSuggestionRange } from "../../../../shared/suggestion-rebase.js";
 
 export type MarkdownSuggestionOperation = {
   ordinal: number;
@@ -21,10 +23,12 @@ export type MarkdownSuggestionOperation = {
 
 const MAX_DOCUMENT_LENGTH = 64_000;
 const MAX_EDIT_DISTANCE = 1_024;
+const EMPTY_BLOCK = "<empty-block/>";
 
 type DiffPart = { type: "equal" | "insert" | "delete"; text: string };
 
 function kindForChange(removed: string, inserted: string) {
+  if (removed && inserted === EMPTY_BLOCK) return "delete_text";
   const formatting =
     removed && inserted ? suggestionFormattingChanges(removed, inserted) : null;
   return formatting && formatting.length > 0
@@ -63,6 +67,60 @@ function operationForChange(
     },
     schemaVersion: 1,
   };
+}
+
+function lineScopedOperationsForClearedBlocks(
+  before: string,
+  after: string,
+): MarkdownSuggestionOperation[] | null {
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  if (beforeLines.length !== afterLines.length) return null;
+  if (
+    !beforeLines.some(
+      (line, index) => line && afterLines[index] === EMPTY_BLOCK,
+    )
+  )
+    return null;
+
+  const operations: MarkdownSuggestionOperation[] = [];
+  let lineOffset = 0;
+  for (let index = 0; index < beforeLines.length; index += 1) {
+    const beforeLine = beforeLines[index]!;
+    const afterLine = afterLines[index]!;
+    if (beforeLine === afterLine) {
+      lineOffset += beforeLine.length + 1;
+      continue;
+    }
+    if (beforeLine && afterLine === EMPTY_BLOCK) {
+      operations.push(
+        operationForChange(
+          before,
+          lineOffset,
+          lineOffset + beforeLine.length,
+          EMPTY_BLOCK,
+          operations.length,
+        ),
+      );
+    } else {
+      for (const operation of markdownSuggestionOperations(
+        beforeLine,
+        afterLine,
+      )) {
+        operations.push(
+          operationForChange(
+            before,
+            lineOffset + operation.anchor.from,
+            lineOffset + operation.anchor.to,
+            operation.after.changedText,
+            operations.length,
+          ),
+        );
+      }
+    }
+    lineOffset += beforeLine.length + 1;
+  }
+  return operations;
 }
 
 function coalesce(parts: DiffPart[]): DiffPart[] {
@@ -369,6 +427,8 @@ export function markdownSuggestionOperations(
   after: string,
 ): MarkdownSuggestionOperation[] {
   if (before === after) return [];
+  const clearedTextBlocks = lineScopedOperationsForClearedBlocks(before, after);
+  if (clearedTextBlocks) return clearedTextBlocks;
   const beforeMarked = suggestionMarkedSourceRanges(before);
   const afterMarked = suggestionMarkedSourceRanges(after);
   const formatting = suggestionFormattingChanges(before, after);
@@ -500,6 +560,14 @@ export function markdownSuggestionOperationsForReplacements(input: {
   if (operations.length === 0 || replacements.length === 0) return operations;
   if (replacements.length === 1) {
     const [{ from, to }] = replacements;
+    if (
+      operations.length === 1 &&
+      operations[0]!.anchor.from === from &&
+      operations[0]!.anchor.to === to &&
+      operations[0]!.after.markdown === after
+    ) {
+      return operations;
+    }
     const prefix = before.slice(0, from);
     const suffix = before.slice(to);
     if (
@@ -551,14 +619,108 @@ export function markdownSuggestionOperationsForReplacements(input: {
   return result;
 }
 
+export function markdownSuggestionOperationsForEditorRevision(input: {
+  before: string;
+  after: string;
+  replacements: ReadonlyArray<{ from: number; to: number }>;
+}): MarkdownSuggestionOperation[] {
+  const editorBefore = canonicalizeNfm(input.before);
+  const replacements = input.replacements.map(({ from, to }) => {
+    const changedText = input.before.slice(from, to);
+    const range = resolveMarkdownSuggestionRange(editorBefore, {
+      before: { markdown: input.before, changedText },
+      after: { markdown: input.before, changedText },
+      anchor: {
+        from,
+        to,
+        prefix: input.before.slice(Math.max(0, from - 32), from),
+        suffix: input.before.slice(to, to + 32),
+      },
+    });
+    if (!range) throw new SuggestionFormattingMappingError();
+    return range;
+  });
+  return markdownSuggestionOperationsForReplacements({
+    before: editorBefore,
+    after: input.after,
+    replacements,
+  }).map((operation, ordinal) => {
+    const range = resolveMarkdownSuggestionRange(input.before, operation);
+    if (!range) throw new SuggestionFormattingMappingError();
+    return operationForChange(
+      input.before,
+      range.from,
+      range.to,
+      operation.after.changedText,
+      ordinal,
+    );
+  });
+}
+
 export function draftSuggestionAnchors(
   operations: readonly MarkdownSuggestionOperation[],
   draft: string,
 ): MarkdownSuggestionOperation["anchor"][] {
+  const canonical = operations.every(
+    (operation) =>
+      canonicalizeNfm(operation.after.markdown) === operation.after.markdown,
+  );
+  let proposedRaw = operations[0]?.before.markdown ?? draft;
+  for (const operation of [...operations].reverse()) {
+    proposedRaw =
+      proposedRaw.slice(0, operation.anchor.from) +
+      operation.after.changedText +
+      proposedRaw.slice(operation.anchor.to);
+  }
+  const parts = canonical ? null : diffParts(proposedRaw, draft);
+  if (!canonical && !parts) throw new SuggestionFormattingMappingError();
+  const boundaryMap = new Array<number>(proposedRaw.length + 1);
+  let rawOffset = 0;
+  let draftOffset = 0;
+  boundaryMap[0] = 0;
+  for (const part of parts ?? []) {
+    if (part.type === "insert") {
+      draftOffset += part.text.length;
+      boundaryMap[rawOffset] = draftOffset;
+      continue;
+    }
+    for (let index = 0; index < part.text.length; index += 1) {
+      rawOffset += 1;
+      if (part.type === "equal") draftOffset += 1;
+      boundaryMap[rawOffset] = draftOffset;
+    }
+  }
+  if (
+    !canonical &&
+    (rawOffset !== proposedRaw.length || draftOffset !== draft.length)
+  )
+    throw new SuggestionFormattingMappingError();
+
   let delta = 0;
   return operations.map((operation) => {
-    const from = operation.anchor.from + delta;
-    const to = from + operation.after.changedText.length;
+    if (canonical) {
+      const from = operation.anchor.from + delta;
+      const to = from + operation.after.changedText.length;
+      delta +=
+        operation.after.changedText.length -
+        operation.before.changedText.length;
+      return {
+        from,
+        to,
+        prefix: draft.slice(Math.max(0, from - 32), from),
+        suffix: draft.slice(to, to + 32),
+      };
+    }
+    const rawFrom = operation.anchor.from + delta;
+    const rawTo = rawFrom + operation.after.changedText.length;
+    const from = boundaryMap[rawFrom];
+    const to = boundaryMap[rawTo];
+    if (
+      from === undefined ||
+      to === undefined ||
+      draft.slice(from, to) !== operation.after.changedText
+    )
+      throw new SuggestionFormattingMappingError();
     delta +=
       operation.after.changedText.length - operation.before.changedText.length;
     return {

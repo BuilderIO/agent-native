@@ -73,7 +73,9 @@ async function resolveDesignFileSource(
 
   const db = getDb();
   const conditions = [
-    accessFilter(schema.designs, schema.designShares),
+    accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+      includePublic: true,
+    }),
     source.fileId
       ? eq(schema.designFiles.id, source.fileId)
       : eq(schema.designFiles.designId, source.designId ?? ""),

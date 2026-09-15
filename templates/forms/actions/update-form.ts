@@ -38,20 +38,20 @@ export default defineAction({
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
     slug: z.string().optional().describe("New URL slug"),
-    // Accept fields as a JSON string (agent CLI / older callers) or as an
-    // actual array (UI POSTs JSON bodies via useActionMutation, which
-    // serializes the FormField[] directly — Zod must accept both).
+    // Declared as the real array/object, never `string | array`. See the same
+    // parameters on create-form for why a `z.string()` branch here disables
+    // both the gateway JSON coercion and every per-field check.
     fields: z
-      .union([z.string(), z.array(formFieldSchema)])
+      .array(formFieldSchema)
       .optional()
       .describe(
-        "Array of complete field objects (or JSON string of the same). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'. This REPLACES the whole fields array, so never rebuild it from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the form with get-form first, or the options past the cap are deleted.",
+        "Array of complete field objects (a JSON string of the same array is also accepted). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'. This REPLACES the whole fields array, so never rebuild it from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the form with get-form first, or the options past the cap are deleted.",
       ),
     settings: z
-      .union([z.string(), z.record(z.string(), z.any())])
+      .record(z.string(), z.any())
       .optional()
       .describe(
-        `Form settings object (or JSON string of the same). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.`,
+        `Form settings object (a JSON string of the same object is also accepted). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.`,
       ),
     status: z
       .enum(["draft", "published", "closed"])
@@ -93,36 +93,13 @@ export default defineAction({
         updates.description = args.description;
       if (args.slug !== undefined) updates.slug = args.slug;
       if (args.fields !== undefined) {
-        let parsedFields: unknown;
-        if (typeof args.fields === "string") {
-          try {
-            parsedFields = JSON.parse(args.fields);
-          } catch {
-            fail("--fields must be valid JSON", {
-              errorCode: "invalid_fields",
-            });
-          }
-        } else {
-          parsedFields = args.fields;
-        }
-        parsedFields = normalizeFieldIds(parsedFields);
+        const parsedFields = normalizeFieldIds(args.fields);
         assertValidFields(parsedFields);
         updates.fields = JSON.stringify(parsedFields);
         fieldsForTracking = parsedFields as FormField[];
       }
       if (args.settings !== undefined) {
-        let incomingSettings: FormSettings;
-        if (typeof args.settings === "string") {
-          try {
-            incomingSettings = JSON.parse(args.settings) as FormSettings;
-          } catch {
-            fail("--settings must be valid JSON", {
-              errorCode: "invalid_settings",
-            });
-          }
-        } else {
-          incomingSettings = args.settings as unknown as FormSettings;
-        }
+        const incomingSettings = args.settings as unknown as FormSettings;
         let existingSettings: FormSettings = {};
         try {
           existingSettings = JSON.parse(existing.settings) as FormSettings;

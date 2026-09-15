@@ -5,12 +5,14 @@ import {
   type CodeLayerTreeNode,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { isComponentInstance } from "@shared/component-model";
 import {
   ELEMENT_PROVENANCE_METHODS,
   type ElementProvenanceFramework,
   type ElementProvenanceMethod,
 } from "@shared/source-mode";
+
 export {
   renameFilenamePreservingExtension,
   replaceDataScreenReferences,
@@ -572,6 +574,16 @@ function fontShorthandLonghands(value: string): Record<string, string> {
   return longhands;
 }
 
+// A canvas-drawn shape/frame primitive (canvas-primitive-insert.ts) and hand-
+// authored markup both commit a plain solid fill through the `background`
+// shorthand rather than the `background-color` longhand. Only expand it to
+// `backgroundColor` when the whole value parses as one color — an authored
+// `background: url(...) center/cover` or a gradient is a real shorthand this
+// must not misread as a solid fill.
+function backgroundShorthandColor(value: string): string | undefined {
+  return parseCssColorExtended(value.trim()) ? value.trim() : undefined;
+}
+
 export function cssStyleAliases(
   styles: Record<string, string>,
 ): Record<string, string> {
@@ -580,6 +592,9 @@ export function cssStyleAliases(
     // Expanded in source order so a later explicit longhand still wins.
     if (property === "font") {
       Object.assign(result, fontShorthandLonghands(value));
+    } else if (property === "background") {
+      const color = backgroundShorthandColor(value);
+      if (color) result.backgroundColor = color;
     }
     result[property] = value;
     if (property.includes("-")) {

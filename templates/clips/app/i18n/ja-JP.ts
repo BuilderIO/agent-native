@@ -67,6 +67,7 @@ const messages = {
     recordings: "録画",
     newFolder: "新規フォルダ",
     noSpaces: "スペースはまだありません",
+    noSpacesAdminCta: "組織の管理者に最初のスペース作成を依頼してください。",
     desktopCta: "デスクトップアプリを入手",
     desktopTitle: "Clips デスクトップアプリを入手しましょう。",
     desktopBody:
@@ -734,7 +735,8 @@ const messages = {
     labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
     labWisprFlow: "音声入力",
-    labWisprFlowDescription: "新しい音声入力機能をお試しください。",
+    labWisprFlowDescription:
+      "Clips Desktop の音声入力を表示または非表示にします。",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     preferencesTitle: "環境設定",
     languageTitle: "言語",

@@ -35,7 +35,10 @@ describe("Dispatch agent chat plugin", () => {
             "list-dispatch-usage-metrics",
           ]),
         },
-        actionRoutePublicPaths: ["/_agent-native/actions/list-workspace-apps"],
+        actionRoutePublicPaths: [
+          "/_agent-native/actions/list-workspace-apps",
+          "/_agent-native/actions/claim-workspace-app-organization",
+        ],
         actionRouteAuth: expect.objectContaining({
           resolveCaller: expect.any(Function),
         }),

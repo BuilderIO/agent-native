@@ -265,6 +265,65 @@ function protectedCssDeclarations(style: string): string[] {
   return declarations.sort();
 }
 
+// A rejection the model cannot act on costs the whole turn here, not one
+// retry: "restyle every slide" fans out one update-slide call per slide, so
+// every call is already in flight when the first rejection comes back, and the
+// framework's across-arguments breaker ends the run before a corrected call is
+// ever made. The legacy fields carry everything needed to write the accepted
+// call, so echo that call back instead of only naming the rule.
+const SUGGESTION_ECHO_LIMIT = 200;
+
+function resendAsEdits(edit: unknown): string {
+  return (
+    'Resend this exact change as "edits": [' +
+    JSON.stringify(edit) +
+    "] with styleOnly still true, keeping the same baseContentHash."
+  );
+}
+
+function styleOnlyGenericSuggestion(): string {
+  return (
+    'Read the slide first with get-deck (slideId, compact=false), then send one "edits" entry per CSS declaration you are changing, for example: ' +
+    // guard:allow-raw-color — sample values inside agent-facing slide HTML, not app theme CSS; slide markup keeps the literal colors it declares.
+    '"edits": [{"find":"background:#111111","replace":"background:#f4f0e8","occurrence":1}], passing that read\'s contentHash as baseContentHash.'
+  );
+}
+
+// objectId swaps an element's INNER content and never touches the opening tag,
+// so it cannot move that element's own style attribute — the usual target of a
+// style edit. Echoing it back would hand over a call that either misses the
+// declaration or trips the style-only structure invariant.
+function styleOnlyObjectIdSuggestion(): string {
+  return (
+    "A style change cannot go through \"objectId\": it replaces only the element's inner content and leaves the element's own style attribute untouched. " +
+    styleOnlyGenericSuggestion()
+  );
+}
+
+function styleOnlyEditsSuggestion(args: {
+  find?: string;
+  objectId?: string;
+  replace?: string;
+}): string {
+  if (args.objectId !== undefined) return styleOnlyObjectIdSuggestion();
+  const replace = args.replace;
+  if (replace === undefined || replace.length > SUGGESTION_ECHO_LIMIT) {
+    return styleOnlyGenericSuggestion();
+  }
+  if (
+    args.find !== undefined &&
+    args.find.length > 0 &&
+    args.find.length <= SUGGESTION_ECHO_LIMIT
+  ) {
+    // occurrence:1, not expectedMatches:1 — the edits path rejects an ambiguous
+    // literal outright, so expectedMatches would turn a legacy call that would
+    // have replaced the first match into a second rejection whenever the
+    // declaration appears more than once on the slide.
+    return resendAsEdits({ find: args.find, replace, occurrence: 1 });
+  }
+  return styleOnlyGenericSuggestion();
+}
+
 function assertStyleOnlyEdit(
   previousContent: string,
   nextContent: string,
@@ -289,7 +348,7 @@ function assertStyleOnlyEdit(
 export default defineAction({
   title: "Edit one Slides slide",
   description:
-    "Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen supplies an objectId for a selected element, use that objectId instead of find to replace only that element's inner content. The top-level objectId and replace fields are also supported as a compact alternative to edits. When view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. The exception is a verified layout overflow: call get-deck with slideId to read the complete HTML and contentHash, then make one fullContent repair with baseContentHash. For a style request, get-deck's designSystem and deckStyle (also printed by view-screen) are authoritative; for anything beyond colors (spacing, element order, sizes) first read the representativeSlideId with a targeted get-deck and mirror its structure. Introduce colors or fonts the deck does not already use only when the user asks for them. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; then use ordered edits and an optional baseContentHash. Use exactly one input mode: edits, legacy find/replace or objectId/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
+    'Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen supplies an objectId for a selected element, use that objectId instead of find to replace only that element\'s inner content. The top-level objectId and replace fields are also supported as a compact alternative to edits. When view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. The exception is a verified layout overflow: call get-deck with slideId to read the complete HTML and contentHash, then make one fullContent repair with baseContentHash. For a style request, get-deck\'s designSystem and deckStyle (also printed by view-screen) are authoritative; for anything beyond colors (spacing, element order, sizes) first read the representativeSlideId with a targeted get-deck and mirror its structure. Introduce colors or fonts the deck does not already use only when the user asks for them. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; then use ordered edits and an optional baseContentHash. Use exactly one input mode: edits, legacy find/replace or objectId/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; in that mode the action rejects fullContent and the top-level legacy find/replace/objectId fields, so express even a single replacement as edits: [{"find":"...","replace":"...","occurrence":1}] — occurrence, not expectedMatches, because a CSS declaration often repeats on a slide and expectedMatches rejects that outright. To copy one slide\'s look onto others ("make every slide match slide 1"), read the reference slide and each target with get-deck (slideId, compact=false), change only the .fmd-slide wrapper\'s own background declaration, and leave interior card, image, and gradient fills alone unless the user asked for those too. A deck-wide restyle is one patch-deck call covering every slide, not one update-slide per slide; reserve styleOnly update-slide for one or a few targeted slides, passing that slide\'s contentHash as baseContentHash. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.',
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -395,7 +454,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe(
-        "Set true for a styling-only request. Requires edits and rejects any change outside CSS declarations, including text, markup, or layout structure.",
+        'Set true for a styling-only request, including propagating one slide\'s colors to other slides. Requires the structured "edits" array: fullContent and the top-level legacy find/replace/objectId fields are rejected, so send find/replace as edits: [{"find":"...","replace":"...","occurrence":1}] instead. Use occurrence rather than expectedMatches here: a CSS declaration often appears more than once on a slide, and expectedMatches rejects that outright. Rejects any change outside CSS declarations, including text, markup, or layout structure.',
       ),
     baseContentHash: z
       .string()
@@ -476,7 +535,9 @@ export default defineAction({
     }
     if (styleOnly && !edits) {
       fail(
-        "Style-only slide edits require --edits and cannot use --fullContent or legacy find/replace/objectId",
+        'Style-only slide edits must use the structured "edits" array. ' +
+          'styleOnly rejects "fullContent" and the top-level legacy "find"/"replace"/"objectId" fields. ' +
+          styleOnlyEditsSuggestion({ find, objectId, replace }),
         { errorCode: "style_only_slide_edits_required" },
       );
     }

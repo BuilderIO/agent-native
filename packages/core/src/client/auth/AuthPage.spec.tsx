@@ -135,7 +135,7 @@ describe("AuthPage", () => {
       "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
     );
     expect(onboardingHtml).toContain(
-      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: flex-end;\n    justify-content: flex-start;",
+      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: flex-start;",
     );
     expect(onboardingHtml).toContain("padding: 1rem clamp(1rem, 4vw, 4rem);");
     expect(onboardingHtml).toContain(
@@ -189,6 +189,27 @@ describe("AuthPage", () => {
     expect(html).toContain('id="magic-link-success"');
     expect(html).toContain('id="magic-link-success-email"');
     expect(html).toContain('id="use-password-link"');
+  });
+
+  it("keeps the magic-link entry subtitle honest about the controls it renders", () => {
+    const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.initialView).toBe("magicLink");
+    // The Create account / Sign in tabs are the only account chooser, and this
+    // view hides them on purpose: one email field registers and signs in.
+    expect(html).toMatch(/id="auth-tabs"[^>]*\shidden=""/);
+    expect(html).toContain("Continue to sign in or create your account");
+    expect(html).not.toContain("Create an account or sign in");
+  });
+
+  it("still shows the account chooser on the password entry view", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.initialView).toBe("signup");
+    expect(html).toContain('id="auth-tabs"');
+    expect(html).not.toMatch(/id="auth-tabs"[^>]*\shidden=""/);
   });
 
   it("returns Builder Electron OAuth to the local workspace gateway", () => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import type { PrimaryBlocksField } from "../../actions/_blocks-field-identity";
+import { markdownSuggestionOperationsForEditorRevision } from "../../app/components/editor/suggestions/markdown-operation";
 
 type BlocksHelpers = typeof import("../../actions/_blocks-field-identity");
 
@@ -106,6 +107,37 @@ describe("Content document suggestion adapter", () => {
       }),
     ).resolves.toEqual([operation]);
     expect(exclusions).toHaveBeenCalledOnce();
+  });
+
+  it("accepts an editor-normalized proposal against its exact raw Page revision", async () => {
+    const content =
+      "Alpha bravo charlie delta.\n\n- Echo foxtrot golf\n- Hotel india juliet\n- Kilo lima mike";
+    const [rawOperation] = markdownSuggestionOperationsForEditorRevision({
+      before: content,
+      after: content.replace("bravo", "BRAVISSIMO").replace(".\n\n-", ".\n-"),
+      replacements: [
+        {
+          from: content.indexOf("bravo"),
+          to: content.indexOf("bravo") + "bravo".length,
+        },
+      ],
+    });
+
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [rawOperation!],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content },
+          },
+        },
+      }),
+    ).resolves.toEqual([rawOperation]);
+    expect(rawOperation!.before.markdown).toBe(content);
   });
 
   it("validates amendments against transactional canonical state without writing it", async () => {
@@ -279,6 +311,186 @@ describe("Content document suggestion adapter", () => {
   it("allows supported text and mark edits beside unchanged readable media", async () => {
     const before = "![Cover](https://example.com/cover.png)\n\nBefore";
     const after = "![Cover](https://example.com/cover.png)\n\n**After**";
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    ["adds", "Alpha beta", "Alpha<br>beta"],
+    ["removes", "Alpha<br>beta", "Alpha beta"],
+  ])("%s a hard break", async (_verb, before, after) => {
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    ["adds", "Echo", '<span underline="true">Echo</span>'],
+    ["removes", '<span underline="true">Echo</span>', "Echo"],
+  ])("%s underline formatting", async (_verb, before, after) => {
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("allows hard-break and underline edits beside unchanged unsupported structures", async () => {
+    const unsupported = [
+      "![Cover](https://example.com/cover.png)",
+      '<span color="red" data-custom="kept">Neighbor</span>',
+    ].join("\n\n");
+    const before = `${unsupported}\n\nEcho line`;
+    const after = `${unsupported}\n\n<span underline="true">Echo</span><br>line`;
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    [
+      "color",
+      '<span color="red">Echo</span>',
+      '<span color="blue" underline="true">Echo</span>',
+    ],
+    [
+      "background color",
+      '<span bg_color="yellow_bg">Echo</span>',
+      '<span bg_color="blue_bg" underline="true">Echo</span>',
+    ],
+    [
+      "href",
+      '<span href="https://before.example">Echo</span>',
+      '<span href="https://after.example" underline="true">Echo</span>',
+    ],
+    [
+      "custom attribute",
+      '<span data-custom="before">Echo</span>',
+      '<span data-custom="after" underline="true">Echo</span>',
+    ],
+  ])(
+    "rejects changing unsupported %s while toggling underline",
+    async (_attribute, before, after) => {
+      await expect(
+        contentDocumentSuggestionAdapter.validateProposal({
+          resourceType: "document",
+          resourceId: "doc-1",
+          baseRevision: "rev-1",
+          operations: [
+            {
+              ...operation,
+              before: { markdown: before },
+              after: { markdown: after },
+            },
+          ],
+          ctx: {
+            suggestionAccess: {
+              ...access,
+              resource: { ...access.resource, content: before },
+            },
+          },
+        }),
+      ).rejects.toThrow("cannot add or change unsupported structures");
+    },
+  );
+
+  it("allows adding a block above unchanged readable media", async () => {
+    const image = "![Cover](https://example.com/cover.png)";
+    const before = "Intro\n\n" + image + "\n\nOutro";
+    const after = "Intro\n\nAdded paragraph.\n\n" + image + "\n\nOutro";
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [
+          {
+            ...operation,
+            before: { markdown: before },
+            after: { markdown: after },
+          },
+        ],
+        ctx: {
+          suggestionAccess: {
+            ...access,
+            resource: { ...access.resource, content: before },
+          },
+        },
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("allows removing a block above unchanged readable media", async () => {
+    const image = "![Cover](https://example.com/cover.png)";
+    const before = "Intro\n\nSpare paragraph.\n\n" + image + "\n\nOutro";
+    const after = "Intro\n\n" + image + "\n\nOutro";
     await expect(
       contentDocumentSuggestionAdapter.validateProposal({
         resourceType: "document",

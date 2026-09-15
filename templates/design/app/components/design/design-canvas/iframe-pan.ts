@@ -156,19 +156,21 @@ export function forwardEmbeddedCanvasPanMessage({
     iframe.clientHeight > 0 && Number.isFinite(frameRect.height)
       ? frameRect.height / iframe.clientHeight
       : 1;
+  // movementX/movementY are the OS pointer's raw screen-space delta, already
+  // in host document units — unlike clientX/clientY they are NOT remapped
+  // through the iframe's CSS transform scale, so accumulating them must stay
+  // unscaled or a zoomed-out screen pans at a fraction of the pointer speed.
   const clientX = clamp(
     message.phase === "start"
       ? frameRect.left + message.clientX * scaleX
-      : session!.clientX +
-          (message.phase === "cancel" ? 0 : message.movementX * scaleX),
+      : session!.clientX + (message.phase === "cancel" ? 0 : message.movementX),
     -MAX_IFRAME_PAN_COORDINATE,
     MAX_IFRAME_PAN_COORDINATE,
   );
   const clientY = clamp(
     message.phase === "start"
       ? frameRect.top + message.clientY * scaleY
-      : session!.clientY +
-          (message.phase === "cancel" ? 0 : message.movementY * scaleY),
+      : session!.clientY + (message.phase === "cancel" ? 0 : message.movementY),
     -MAX_IFRAME_PAN_COORDINATE,
     MAX_IFRAME_PAN_COORDINATE,
   );

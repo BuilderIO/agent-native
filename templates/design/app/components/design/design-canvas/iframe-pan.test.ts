@@ -65,7 +65,7 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
     vi.restoreAllMocks();
   });
 
-  it("maps iframe-local pan deltas through the iframe scale", () => {
+  it("scales the iframe-local start position but forwards movement deltas unscaled", () => {
     const events: Array<{
       type: string;
       button: number;
@@ -134,20 +134,20 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
         type: "mousemove",
         button: 1,
         buttons: 4,
-        clientX: 170,
-        clientY: 140,
+        clientX: 155,
+        clientY: 125,
       },
       {
         type: "mouseup",
         button: 1,
         buttons: 0,
-        clientX: 180,
-        clientY: 150,
+        clientX: 160,
+        clientY: 130,
       },
     ]);
   });
 
-  it("preserves a 96px vertical drag from a 2x-scaled iframe", () => {
+  it("forwards a 48px movement delta unscaled from a 2x-scaled iframe", () => {
     let receivedY: number | null = null;
     window.addEventListener(
       "mousemove",
@@ -170,7 +170,7 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
       session: start.session,
     });
 
-    expect(receivedY).toBe(206);
+    expect(receivedY).toBe(158);
   });
 
   it("rejects malformed, reordered, and mismatched packets", () => {
@@ -263,12 +263,12 @@ describe("forwardEmbeddedCanvasPanMessage", () => {
       session: start.session,
     });
 
-    expect(moves).toEqual([{ clientX: 170, clientY: 140 }]);
+    expect(moves).toEqual([{ clientX: 155, clientY: 125 }]);
     expect(move.session).toEqual({
       pointerId: 7,
       button: 1,
-      clientX: 170,
-      clientY: 140,
+      clientX: 155,
+      clientY: 125,
     });
   });
 });

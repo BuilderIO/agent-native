@@ -17,6 +17,37 @@ import {
   appPath,
 } from "./helpers";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+/**
+ * Cmd/Ctrl+click deep-selects the raw hit under the pointer, skipping the
+ * container-first "select the screen's direct child" resolution — the Figma
+ * way to reach a fixture element nested more than one level below the
+ * screen root (see e2e/parity-selection.spec.ts's own cmd+click test).
+ * page.mouse.click's `modifiers` option is unreliable against this canvas
+ * (see reference_browser_modifier_keys_not_delivered) — hold the key with
+ * keyboard.down/up around a plain click instead.
+ */
+async function deepSelectByText(
+  page: import("@playwright/test").Page,
+  text: string,
+) {
+  await enterDirectMode(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+  const target = designFrame(page).getByText(text).first();
+  await target.waitFor({ state: "visible", timeout: 8_000 });
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`no bounding box for "${text}"`);
+  await page.keyboard.down(MOD);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.up(MOD);
+  const selected = await waitForBridge(page, "element-select");
+  const payload = selected?.payload ?? selected;
+  expect(String(payload?.textContent ?? "")).toContain(text);
+  return payload;
+}
+
 let designId: string;
 
 test.beforeAll(async () => {
@@ -479,27 +510,30 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 });
 
-test("hides the gated secondary panels and Assets picker when disabled", async ({
-  page,
-}) => {
-  test.skip(
-    process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0",
-    "The default E2E profile keeps advanced panels enabled for their existing coverage.",
-  );
-
-  for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
-    await expect(
-      page.getByRole("button", { name: label, exact: true }),
-    ).toHaveCount(0);
-  }
-  await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
-});
+// Only registered against the profile that actually disables the gated
+// panels — the default E2E profile keeps them enabled for their own coverage,
+// so a runtime test.skip here would count as a permanent conditional skip.
+if (process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS === "0") {
+  test("hides the gated secondary panels and Assets picker when disabled", async ({
+    page,
+  }) => {
+    for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
+      await expect(
+        page.getByRole("button", { name: label, exact: true }),
+      ).toHaveCount(0);
+    }
+    await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
+  });
+}
 
 test("clicking an element selects it and populates the inspector", async ({
   page,
 }) => {
   const before = await inspectorInputCount(page);
-  const payload = await selectByText(page, "E2E Hero Heading");
+  // "E2E Hero Heading" is nested inside the screen's <main> container (not a
+  // direct child of the screen), so reaching it directly is Cmd/Ctrl+click's
+  // deep-select — a plain click resolves container-first to <main> instead.
+  const payload = await deepSelectByText(page, "E2E Hero Heading");
 
   expect(payload).toBeTruthy();
   expect((payload.tagName ?? "").toUpperCase()).toBe("H1");
@@ -632,8 +666,10 @@ test("spacing handles stay visible at rest and remain draggable", async ({
 test("selecting a different element changes the selection", async ({
   page,
 }) => {
-  const first = await selectByText(page, "E2E Hero Heading");
-  const second = await selectByText(page, "Fixture Card Title");
+  // Both fixture elements are nested more than one level below the screen
+  // root, so deep-selecting them the Figma way is Cmd/Ctrl+click.
+  const first = await deepSelectByText(page, "E2E Hero Heading");
+  const second = await deepSelectByText(page, "Fixture Card Title");
 
   expect(first.selector).toBeTruthy();
   expect(second.selector).toBeTruthy();

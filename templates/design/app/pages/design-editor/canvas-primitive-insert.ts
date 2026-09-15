@@ -109,6 +109,17 @@ export function reassignDuplicatedNodeIds(content: string): string {
   );
 }
 
+/**
+ * Figma's default text-layer name IS its content. A freshly drawn text
+ * primitive is committed with no content yet (the draft is still empty), so
+ * this only produces the real name once the user's typed value is known —
+ * see `runTextContentChange`'s creation-finalizing commit, which re-derives
+ * the layer name from this same function once typing lands.
+ */
+export function defaultTextLayerName(text: string | undefined): string {
+  return text?.trim() || "Text";
+}
+
 export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -126,7 +137,7 @@ export function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
     case "path":
       return "Vector";
     case "text":
-      return primitive.text?.trim() || "Text";
+      return defaultTextLayerName(primitive.text);
     case "rectangle":
     default:
       return "Rectangle";

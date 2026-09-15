@@ -1,9 +1,11 @@
 /**
- * App-owned user labs. Unlike feature flags, labs are
- * user-controlled preferences and default to off until the user opts in.
+ * App-owned user labs. Users control each lab; apps can choose its initial
+ * state when the user has not saved a preference.
  */
 export interface LabDefinition {
   key: string;
+  /** Initial state for users without a saved preference. Defaults to false. */
+  defaultEnabled?: boolean;
   displayName?: string;
   description?: string;
   /** Extra search terms such as product names or common aliases. */
@@ -21,6 +23,9 @@ function normalizeDefinition(definition: LabDefinition): LabDefinition {
   }
   return {
     key,
+    ...(definition.defaultEnabled !== undefined && {
+      defaultEnabled: definition.defaultEnabled,
+    }),
     ...(definition.displayName?.trim() && {
       displayName: definition.displayName.trim(),
     }),
@@ -65,6 +70,7 @@ export function registerLabs(definitions: readonly LabDefinition[]): void {
       continue;
     }
     if (
+      existing.defaultEnabled !== definition.defaultEnabled ||
       existing.displayName !== definition.displayName ||
       existing.description !== definition.description ||
       existing.keywords !== definition.keywords

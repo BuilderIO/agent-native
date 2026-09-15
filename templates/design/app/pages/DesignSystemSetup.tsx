@@ -99,6 +99,15 @@ interface BuilderIndexInput {
 
 const MAX_INLINE_DESIGN_MD_BYTES = 2 * 1024 * 1024;
 
+function isDesignSystemNameConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === "design_system_name_conflict"
+  );
+}
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -636,9 +645,11 @@ export default function DesignSystemSetup() {
         toast.success(t("designSystemSetup.githubIndexStarted"));
       } catch (error) {
         setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.githubIndex"),
+          isDesignSystemNameConflict(error)
+            ? t("designSystemSetup.errors.nameConflict")
+            : error instanceof Error
+              ? error.message
+              : t("designSystemSetup.errors.githubIndex"),
         );
       }
       return;
@@ -686,9 +697,11 @@ export default function DesignSystemSetup() {
         toast.success(t("designSystemSetup.designMdIndexStarted"));
       } catch (error) {
         setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.designMdIndex"),
+          isDesignSystemNameConflict(error)
+            ? t("designSystemSetup.errors.nameConflict")
+            : error instanceof Error
+              ? error.message
+              : t("designSystemSetup.errors.designMdIndex"),
         );
       }
       return;

@@ -8,7 +8,10 @@ import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import { ShareButton } from "@agent-native/core/client/sharing";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareTab,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,
@@ -247,6 +250,7 @@ export default function EditorToolbar({
   sourceImported = false,
 }: EditorToolbarProps) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   // Public decks default to the read-only presentation URL so recipients do
   // not get sent through the editor's auth gate. Restricted decks keep the
   // editor URL primary, where auth resolves viewer access.
@@ -1007,26 +1011,33 @@ export default function EditorToolbar({
           secondaryShareUrl={secondaryShareLink.url}
           secondaryShareUrlLabel={secondaryShareLink.label}
           secondaryShareUrlDescription={secondaryShareLink.description}
-          shareTabs={{
-            tabs: [
-              {
-                value: "context",
-                label: t("creativeContext.share.tabLabel"),
-                content: (
-                  <CreativeContextShareTab
-                    resource={{
-                      appId: "slides",
-                      resourceType: "deck",
-                      resourceId: deckId,
-                      title: deckTitle,
-                      updatedAt: deck.updatedAt,
-                      preview: { kind: "document", label: t("header.deck") },
-                    }}
-                  />
-                ),
-              },
-            ],
-          }}
+          shareTabs={
+            creativeContextEnabled
+              ? {
+                  tabs: [
+                    {
+                      value: "context",
+                      label: t("creativeContext.share.tabLabel"),
+                      content: (
+                        <CreativeContextShareTab
+                          resource={{
+                            appId: "slides",
+                            resourceType: "deck",
+                            resourceId: deckId,
+                            title: deckTitle,
+                            updatedAt: deck.updatedAt,
+                            preview: {
+                              kind: "document",
+                              label: t("header.deck"),
+                            },
+                          }}
+                        />
+                      ),
+                    },
+                  ],
+                }
+              : undefined
+          }
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}
