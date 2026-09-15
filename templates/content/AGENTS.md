@@ -25,11 +25,9 @@ Read the relevant skill before deeper work:
   and access checks are preserved. Never use `curl`, raw HTTP requests, or
   `db-exec` with raw SQL for document operations.
 - Call these actions directly; `ask_app` only delegates to Content's agent.
-- The editor uses live Yjs collaboration — raw SQL writes to `documents` won't
-  appear in an open editor. Always use `edit-document` or `update-document`.
-  External agents use revisioned `edit-document` for body changes and
-  `initializeContent` for an exactly empty body; browser-owned full rewrites use
-  `update-document`.
+- The live Yjs editor requires actions for body writes. External agents use
+  revisioned `edit-document`, with `initializeContent` only for an empty body.
+  Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
 - `create-document`, `update-document`, and `delete-document` already signal
