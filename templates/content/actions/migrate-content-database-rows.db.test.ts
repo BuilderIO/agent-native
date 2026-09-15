@@ -1150,6 +1150,41 @@ describe("migrate-content-database-rows", () => {
     ).rejects.toThrow("drifted");
   });
 
+  it("keeps a legacy-format migration receipt operable", async () => {
+    const db = getDb();
+    const seed = await fixture();
+    const input = plan(seed);
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    const [receipt] = await db
+      .select()
+      .from(schema.contentDatabaseMigrationReceipts)
+      .where(eq(schema.contentDatabaseMigrationReceipts.id, applied.receiptId));
+    const legacyResult = JSON.parse(receipt.resultJson);
+    delete legacyResult.bodyRevisionDigest;
+    await db
+      .update(schema.contentDatabaseMigrationReceipts)
+      .set({ resultJson: JSON.stringify(legacyResult) })
+      .where(eq(schema.contentDatabaseMigrationReceipts.id, applied.receiptId));
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+    ).resolves.toMatchObject({ replayed: true, state: "applied" });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({
+          phase: "verify",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+    ).resolves.toMatchObject({ state: "verified", verified: true });
+  });
+
   it("requires current editor access to every row before legacy cleanup", async () => {
     const seed = await fixture();
     const input = plan(seed);

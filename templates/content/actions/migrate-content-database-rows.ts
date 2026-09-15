@@ -85,11 +85,13 @@ function migrationStateMatches(
   receipt: { postDigest: string; resultJson: string },
 ) {
   const result = parseJson(receipt.resultJson);
+  if (!("bodyRevisionDigest" in result))
+    return snapshotDigest(snapshot) === receipt.postDigest;
   if (typeof result.bodyRevisionDigest !== "string")
-    throw new Error("Migration receipt lacks its body revision guard.");
+    throw new Error("Migration receipt body revision guard is corrupt.");
   return (
-    snapshotDigest(snapshot) === receipt.postDigest &&
-    snapshotBodyRevisionDigest(snapshot) === result.bodyRevisionDigest
+    snapshotBodyRevisionDigest(snapshot) === result.bodyRevisionDigest &&
+    snapshotDigest(snapshot) === receipt.postDigest
   );
 }
 function receiptResult(receipt: any, replayed: boolean) {
